@@ -7,6 +7,7 @@ cases 0 / N / HN / H-null) as the maximum observed ``gain * n_fit``; the reporte
 
 from __future__ import annotations
 
+from typing import Any
 import glob
 import json
 from collections import defaultdict
@@ -34,7 +35,7 @@ def ms(v) -> str:
     return f"{a.mean():+.3f}+-{a.std():.3f}" if len(a) else "nan"
 
 
-def label(r: dict) -> str:
+def label(r: dict) -> Any:
     """Operator label of a row; operator B rows carry the shrinkage (rows written before the field existed used 20)."""
     if r["op"] != "B":
         return r["op"]
@@ -65,7 +66,7 @@ def summarize_M(rows: list) -> dict:
         groups[(r["n"], "hard" if r["hard"] else "ideal", r["kind"])].append(r)
     out = {}
     for key, rs in sorted(groups.items()):
-        d = {"seeds": len(rs)}
+        d: dict[str, Any] = {"seeds": len(rs)}
         for s in SCREENS:
             d[f"{s}|top1_true"] = float(np.mean([r[f"{s}|hit_top1"] for r in rs]))
             if rs[0]["true_pairs"]:

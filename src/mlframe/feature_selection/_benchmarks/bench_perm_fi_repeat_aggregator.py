@@ -20,6 +20,7 @@ the arithmetic mean stays the most accurate default. Re-run on a host that affor
 
 Run: python -m mlframe.feature_selection._benchmarks.bench_perm_fi_repeat_aggregator
 """
+from typing import Any
 import os
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
@@ -64,7 +65,7 @@ def make(scn, seed, n=600, p=30, n_inf=6):
 
 def run():
     for nrep in (3, 5):
-        agg = {"mean": [], "median": [], "trim20": []}
+        agg: Any = {"mean": [], "median": [], "trim20": []}
         for scn in SCENARIOS:
             for sd in SEEDS:
                 X, y, truth = make(scn, sd)

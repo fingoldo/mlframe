@@ -15,6 +15,7 @@ Companions (all in this package, same protocol: a warm-up fit first, then the me
 - ``numba_signature_counts``       numba dispatchers with more than one compiled signature after two fits (recompiles inside a fit).
 - ``env_sampled_fit``, ``stack_timeline``, ``utilization``, ``tick_utilization``, ``family_profile``, ``family_scale``: older siblings of the same fit (system sampler, 6 s buckets, idle share, one family at a time).
 """
+from typing import Any
 import os,sys,threading,time,warnings,collections
 import numpy as np
 warnings.simplefilter("ignore")
@@ -28,7 +29,7 @@ n=int(sys.argv[1]); p=int(sys.argv[2])
 kw=F.all_families_kwargs(); kw["nbins_strategy"]="mdlp"
 MRMR(verbose=0,random_seed=0,n_jobs=1,**kw).fit(*F._make(20000,30,1))
 data=F._make(n,p,0)
-main=threading.get_ident(); stop=threading.Event(); hist=collections.Counter(); leaf=collections.Counter()
+main=threading.get_ident(); stop=threading.Event(); hist: Any=collections.Counter(); leaf: Any=collections.Counter()
 PRE=("_stage_","hybrid_","screen_predictors","_run_fe_step","check_prospective_fe_pairs","_fe_stage_cascade_","_gate_engineered_accuracy","_second_pass","_emit_pair","_score_one_pair","family_pass","compute_pair_mis","build_fe_operand_pool","apply_surrogate","propose_gradient","mrmr_fit_post","_fit_body","_finalise","populate_fe","_apply_pair_family_gate","_adaptive_relax","_materialise_and_fina","filter_inert","honest_","_cross_stage","_temporal","generate_","score_","fit_binned")
 def stage(fr):
     best=None
@@ -43,7 +44,7 @@ def inner(fr):
     while g is not None and 'filters' not in g.f_code.co_filename: g=g.f_back
     near=(g.f_code.co_name+':'+str(g.f_lineno)) if g is not None else '?'
     return (f"{fr.f_code.co_filename.split('Lib')[-1].split('filters')[-1][-26:]}:{fr.f_code.co_name}  <- {near}" if fr is not None else None)
-chain=collections.Counter()
+chain: Any = collections.Counter()
 def in_stack(fr):
     t=os.environ.get('TARGET_STACK')
     while t and fr is not None:
@@ -51,7 +52,7 @@ def in_stack(fr):
         fr=fr.f_back
     return False
 def chain_of(fr):
-    out=[]
+    out: Any = []
     while fr is not None and len(out)<5:
         if 'filters' in fr.f_code.co_filename or 'mlframe' in fr.f_code.co_filename: out.append(fr.f_code.co_name+':'+str(fr.f_lineno))
         fr=fr.f_back
@@ -62,7 +63,7 @@ def gpu_pct():
         return float(subprocess.run(["nvidia-smi","--query-gpu=utilization.gpu","--format=csv,noheader,nounits"],capture_output=True,text=True,timeout=5).stdout.strip().splitlines()[0])
     except Exception:
         return float("nan")
-cmem={}; mem={}; TARGET=os.environ.get('TARGET','_stage_binned_numeric_agg'); tchain=collections.Counter(); lowc=collections.Counter(); agg=collections.defaultdict(lambda:np.zeros(3)); idle_chain=collections.Counter(); idle_stage=collections.Counter(); nsamp=[0,0]
+cmem: Any = {}; mem: Any={}; TARGET=os.environ.get('TARGET','_stage_binned_numeric_agg'); tchain: Any=collections.Counter(); lowc: Any=collections.Counter(); agg: Any=collections.defaultdict(lambda:np.zeros(3)); idle_chain: Any=collections.Counter(); idle_stage: Any=collections.Counter(); nsamp=[0,0]
 def sampler():
     psutil.cpu_percent(None,percpu=True)
     while not stop.is_set():

@@ -19,6 +19,7 @@ cells on test balanced accuracy. Otherwise KEEP + record the reject verdict here
 
 from __future__ import annotations
 
+from typing import Any
 import json
 import os
 import sys
@@ -107,7 +108,7 @@ N_TEST = 8000
 
 def run():
     objectives = ["f1", "balanced_accuracy", "youden"]
-    cells = {o: [] for o in objectives}
+    cells: Any = {o: [] for o in objectives}
     rows = []
     for name, pr, sep, het in SCENARIOS:
         thr_star = _oracle_thr(np.random.default_rng(99), pr, sep, het)

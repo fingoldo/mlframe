@@ -4,6 +4,7 @@ Usage: ``python bench_perm_null_trusted_chunks.py [rows ...]`` (default 100000 4
 dense joint is wide and the permutations go in many small chunks, which is where a per-chunk guard repeats. Alternating A/B in one process, device synchronised around every call, medians of 5.
 """
 
+from typing import Any
 import os
 import statistics
 import sys
@@ -31,7 +32,7 @@ def main(rows: list) -> None:
 
     for n in rows:
         x, y, z, order, z_rank = _inputs(n)
-        times = {"0": [], "1": []}
+        times: Any = {"0": [], "1": []}
 
         def one(flag: str) -> float:
             """One timed call under the given setting, device synchronised."""

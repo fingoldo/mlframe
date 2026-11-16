@@ -18,7 +18,7 @@ import pstats
 import tempfile
 import threading
 import time
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -91,7 +91,7 @@ class PeakMemory:
         return self.peak / 1024**3
 
 
-def _suite(df: pd.DataFrame, targets: list, data_dir: str, policy: str, quiet: bool = False) -> dict:
+def _suite(df: pd.DataFrame, targets: list, data_dir: str, policy: Any, quiet: bool = False) -> dict:
     """One suite call on ``targets``, LightGBM only, optional analyses off; returns ``{target: test RMSE}``.
 
     ``quiet=True`` also turns off BaselineDiagnostics and every post-fit diagnostic render, isolating the row-narrowing
@@ -104,7 +104,7 @@ def _suite(df: pd.DataFrame, targets: list, data_dir: str, policy: str, quiet: b
     from mlframe.training.core import train_mlframe_models_suite
     from mlframe.training.extractors import SimpleFeaturesAndTargetsExtractor
 
-    reporting_kwargs = dict(show_perf_chart=False, show_fi=False)
+    reporting_kwargs: dict[str, Any] = dict(show_perf_chart=False, show_fi=False)
     extra: dict = {}
     if quiet:
         reporting_kwargs.update(
@@ -164,6 +164,7 @@ def measure(label: str, fn: Callable[[pd.DataFrame], dict], df: pd.DataFrame, pr
             profiler.disable()
         wall = time.perf_counter() - t0
     if profiler:
+        assert profile is not None
         profiler.dump_stats(profile)
     print(f"{label:>10}: wall {wall:7.1f}s  peak {mem.peak_gb:5.2f} GB  " + "  ".join(f"{k}={v:.4f}" for k, v in sorted(rmse.items())), flush=True)
     return {"wall": wall, "peak_gb": mem.peak_gb, "rmse": rmse}
@@ -172,7 +173,8 @@ def measure(label: str, fn: Callable[[pd.DataFrame], dict], df: pd.DataFrame, pr
 def top_hotspots(profile: str, n: int = 40, needle: str = "mlframe") -> None:
     """Print the ``n`` largest own-time (tottime) functions from ``needle`` files in a saved profile."""
     stats = pstats.Stats(profile)
-    rows = [(v[2], v[3], k) for k, v in stats.stats.items() if needle in k[0]]
+    raw: Any = stats
+    rows = [(v[2], v[3], k) for k, v in raw.stats.items() if needle in k[0]]
     for tottime, cumtime, (file, line, func) in sorted(rows, reverse=True)[:n]:
         print(f"{tottime:8.2f} {cumtime:8.2f}  {file.split(needle)[-1]}:{line} {func}")
 

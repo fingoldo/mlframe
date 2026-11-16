@@ -17,6 +17,7 @@ Leak-safe: OOF on train, train cell-stats replayed on the held-out test fold.
 Run:  python -m mlframe.feature_selection._benchmarks.bench_multistat_cell_encoding
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import numpy as np
 import pandas as pd
@@ -184,7 +185,7 @@ def main():
     print("\nMulti-stat TARGET encoding -- honest OOS (mean-only vs +std+skew+kurt of y per cell), 5 seeds")
     print("downstream = GBM on [raw features | TE columns]\n")
     for name, fn, metric in scenarios:
-        rows = [_eval(*fn(s), s) for s in SEEDS]
+        rows = [cast(Any, _eval)(*fn(s), s) for s in SEEDS]
         mo = np.mean([r["mean_only"] for r in rows])
         ms = np.mean([r["+std+skew+kurt"] for r in rows])
         print(f"{name} {metric}  mean_only={mo:.4f}  +std+skew+kurt={ms:.4f}  (d {ms-mo:+.4f})")
@@ -193,7 +194,7 @@ def main():
     # Kept because the user wants every accuracy lever visible -- here std of a feature recovers a spread signal
     # the mean cannot, the strongest illustration of why higher moments matter.
     print("\n(2) FEATURE aggregation per cell (encodes a FEATURE's stats, not the target) -- separate lever:")
-    rows = [_eval(*scenario_feature_spread(s), s) for s in SEEDS]
+    rows = [cast(Any, _eval)(*scenario_feature_spread(s), s) for s in SEEDS]
     mo = np.mean([r["mean_only"] for r in rows])
     ms = np.mean([r["+std+skew+kurt"] for r in rows])
     print(f"(2) feature-spread aux -> sigma     R2   mean_only={mo:.4f}  +std+skew+kurt={ms:.4f}  (d {ms-mo:+.4f})")

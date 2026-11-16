@@ -1,4 +1,5 @@
 """Same-process A/B of drop_forms_not_beating_their_sides: the edge pool against one thread, 60 synthetic unary_binary candidates, 100000 rows."""
+from typing import Any, cast
 import os, time, warnings
 from types import SimpleNamespace
 import numpy as np, pandas as pd
@@ -16,7 +17,7 @@ for i in range(60):
     cands.append(SimpleNamespace(name=f"c{i}", recipe=rec, values=(X[a].to_numpy() * X[b].to_numpy())))
 
 orig_side = S._side_values
-S._side_values = lambda recipe, X_: [np.asarray(X_[s].to_numpy(), dtype=np.float64) for s in recipe.src_names]
+cast(Any, S)._side_values = lambda recipe, X_: [np.asarray(X_[s].to_numpy(), dtype=np.float64) for s in recipe.src_names]
 
 
 def run(jobs):

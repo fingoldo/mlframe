@@ -10,6 +10,7 @@ mlframe.feature_selection._benchmarks.bench_conditional_gate_detection``
 """
 from __future__ import annotations
 
+from typing import Any
 import json
 import time
 from datetime import datetime
@@ -89,7 +90,7 @@ def _run(name, gen, scanner, is_tp):
 
 
 def main():
-    results = {"gate": [], "argmax": []}
+    results: Any = {"gate": [], "argmax": []}
     results["gate"].append(_run("gate_select", make_gate_select, scan_conditional_gate, True))
     results["gate"].append(_run("gate_mask", make_gate_mask, scan_conditional_gate, True))
     for nm, gen in (("smooth", make_smooth), ("noise", make_noise), ("ordinary_mul", make_ordinary)):

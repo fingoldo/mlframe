@@ -1,3 +1,4 @@
+from typing import Any, cast
 """Generality of the shift family on nine synthetic targets: preset best versus shift grid, input shift, median-centering, zero-crossing, affine and ALS rank-1 against the 0.9 x joint ceiling, with a held-out selection.
 Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.stat_study.exp2_general``."""
 
@@ -221,7 +222,7 @@ if __name__ == "__main__":
         pr = sorted(((mi(v, yb), k) for k, v in P.items() if k.startswith("mul(")), reverse=True)[:5]
         import re
 
-        top = [((*re.match(r"mul\((\w+)\(x\),(\w+)\(z\)\)", k).groups(), "xz")) for _, k in pr]
+        top = [((*cast(Any, re.match(r"mul\((\w+)\(x\),(\w+)\(z\)\)", k)).groups(), "xz")) for _, k in pr]
         Af = affine(x, z, allr, top)
         ba = best(Af, allr, yb)
         fr, fa = als_rank1(x, z, y, A)

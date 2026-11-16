@@ -18,7 +18,6 @@ Measured (n=48k, p=120, 5000 pair combos, store py3.14, warm best-of, find_weak_
 Run: ``python -m mlframe.reporting.charts._benchmarks.bench_slice_aggregate_combo``
 """
 from __future__ import annotations
-
 import logging
 
 logger = logging.getLogger(__name__)
@@ -36,7 +35,7 @@ def _bench() -> None:
     n, p, nbins = 48_000, 120, 4
     mat = rng.standard_normal((n, p))
     err = np.ascontiguousarray(np.abs(rng.standard_normal(n)))
-    codes, all_edges = _bin_matrix(mat, nbins)
+    codes, all_edges, _has_missing = _bin_matrix(mat, nbins)
     nbins_per = [max(1, all_edges[j].size - 1) for j in range(p)]
     combos = ([(j,) for j in range(p)] + list(itertools.combinations(range(p), 2)))[:5000]
 

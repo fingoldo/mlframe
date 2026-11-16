@@ -34,8 +34,11 @@ _HERE = pathlib.Path(__file__).parent
 
 def load_legacy():
     spec = importlib.util.spec_from_file_location("su_chance_legacy", _HERE / "su_chance_legacy.py")
+    assert spec is not None
     mod = importlib.util.module_from_spec(spec)
     sys.modules["su_chance_legacy"] = mod
+    assert spec is not None
+    assert spec.loader is not None
     spec.loader.exec_module(mod)
     return mod
 

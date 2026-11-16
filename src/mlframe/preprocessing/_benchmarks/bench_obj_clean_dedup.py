@@ -14,7 +14,6 @@ Measured (n=2M, 3.14.3, best-of-3 wall):
 """
 
 from __future__ import annotations
-
 import time
 
 import numpy as np
@@ -42,7 +41,7 @@ def main():
     cases = {
         "low-200": pd.Series(rng.choice([f" V{i} " for i in range(200)], size=n), dtype=object),
         "mid-5000": pd.Series(rng.choice([f" S{i} " for i in range(5000)], size=n), dtype=object),
-        "with-none": pd.Series(rng.choice([" A ", " B ", None, " C "], size=n), dtype=object),
+        "with-none": pd.Series(rng.choice(np.array([" A ", " B ", None, " C "], dtype=object), size=n), dtype=object),
         "all-unique": pd.Series([f" V{i} " for i in range(n)], dtype=object),
         "head-dup-tail-unique": pd.Series([" DUP "] * (n // 2) + [f" T{i} " for i in range(n // 2)], dtype=object),
     }

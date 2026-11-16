@@ -73,7 +73,7 @@ def main():
                     smem = joint * 4 if variant == "shared" else 0
                     results[(variant, bs)] = _median_ms(kern, grid_x, bs, args, smem)
             cp.get_default_memory_pool().free_all_blocks()
-            best_key = min(results, key=results.get)
+            best_key = min(results, key=lambda _k: results[_k])
             for (variant, bs), ms in sorted(results.items()):
                 mark = " <-- BEST" if (variant, bs) == best_key else ""
                 print(f"{n:>10} {joint:>6} {variant:>7} {bs:>5} {ms:>9.4f}{mark}")

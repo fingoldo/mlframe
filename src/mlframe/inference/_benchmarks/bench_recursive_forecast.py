@@ -40,9 +40,7 @@ def _run_diagnose(n_series: int, n_steps: int) -> None:
     initial_features = pd.DataFrame({"lag_1": series[:, 0]})
     true_targets = series[:, 1 : n_steps + 1].T
     oracle_lag_values = series[:, :n_steps].T
-    diagnose_error_accumulation(
-        model, initial_features, n_steps, "lag_1", lambda f, p, s: f, true_targets=true_targets, oracle_lag_values=oracle_lag_values
-    )
+    diagnose_error_accumulation(model, initial_features, n_steps, "lag_1", lambda f, p, s: f, true_targets=true_targets, oracle_lag_values=oracle_lag_values)
 
 
 if __name__ == "__main__":

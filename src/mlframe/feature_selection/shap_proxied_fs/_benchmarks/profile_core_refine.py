@@ -10,6 +10,7 @@ Two measurements per the gt_02 plan sec 4 step 4:
      honest FITS across its stage-2b single-drop rounds; core pays sampled proxy evals + ONE honest fit).
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import os
 
@@ -56,11 +57,11 @@ def bench_lp_grid():
         for n_coalitions in (256, 512, 1024):
             ev = _SyntheticLossEvaluator(k)
             rng = np.random.default_rng(0)
-            least_core_allocation(ev, tuple(range(k)), n_coalitions=n_coalitions, rng=rng)  # warm
+            least_core_allocation(cast(Any, ev), tuple(range(k)), n_coalitions=n_coalitions, rng=rng)  # warm
             ev = _SyntheticLossEvaluator(k)
             rng = np.random.default_rng(0)
             t0 = time.perf_counter()
-            _x, _eps, info = least_core_allocation(ev, tuple(range(k)), n_coalitions=n_coalitions, rng=rng)
+            _x, _eps, info = least_core_allocation(cast(Any, ev), tuple(range(k)), n_coalitions=n_coalitions, rng=rng)
             wall = time.perf_counter() - t0
             print(f"{k}, {n_coalitions}, {wall:.4f}, {info['lp_status']}, {info['binding_coalitions']}")
 
@@ -109,7 +110,7 @@ def profile_core_refine_cost():
     pr = cProfile.Profile()
     pr.enable()
     for _ in range(20):
-        least_core_allocation(ev, tuple(range(17)), n_coalitions=512, rng=rng)
+        least_core_allocation(cast(Any, ev), tuple(range(17)), n_coalitions=512, rng=rng)
     pr.disable()
     s = io.StringIO()
     ps = pstats.Stats(pr, stream=s).sort_stats("cumulative")

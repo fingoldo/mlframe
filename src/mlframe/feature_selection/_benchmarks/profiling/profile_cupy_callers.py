@@ -1,14 +1,16 @@
 """mlframe functions ranked by how many cupy calls they make directly: finds the launch-heavy call sites. Reads ``PROF_FILE`` written by ``profile_fit_gpu.py``."""
 
+from typing import Any, cast
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))  # this checkout, not an installed copy
-from mlframe.feature_selection._benchmarks.profiling._paths import PROF_FILE  # noqa: E402
+from mlframe.feature_selection._benchmarks.profiling._paths import PROF_FILE
 
 import pstats, collections
-p = pstats.Stats(str(PROF_FILE)); st = p.stats
-cnt = collections.Counter(); tim = collections.Counter()
+p = pstats.Stats(str(PROF_FILE)); st = cast(Any, p).stats
+cnt: Any = collections.Counter()
+tim: Any = collections.Counter()
 for callee, v in st.items():
     fn = callee[0]
     is_cupy = ('cupy' in fn) or ('_ndarray_base' in callee[2] and fn == '~')

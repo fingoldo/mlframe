@@ -21,6 +21,7 @@ Usage:
 Writes results JSON to ``_results/bench_per_col_auto_detect.json``.
 """
 from __future__ import annotations
+from typing import Any
 
 import json
 import time
@@ -36,7 +37,7 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 def _synth_polars(n_rows: int, n_cols: int, seed: int) -> pl.DataFrame:
     """60 mixed-dtype polars cols at n_rows: ~half string-like (text-auto-promo candidates), ~quarter mostly-null."""
     rng = np.random.default_rng(seed)
-    data = {}
+    data: dict[str, Any] = {}
     for i in range(n_cols):
         kind = i % 4
         if kind == 0:
@@ -44,7 +45,7 @@ def _synth_polars(n_rows: int, n_cols: int, seed: int) -> pl.DataFrame:
             data[f"c_str_{i}"] = [f"v{int(x)}" for x in rng.integers(0, max(2, n_rows // 50), size=n_rows)]
         elif kind == 1:
             # mostly-null string column (still text-like)
-            arr = [f"v{int(x)}" for x in rng.integers(0, 500, size=n_rows)]
+            arr: list[Any] = [f"v{int(x)}" for x in rng.integers(0, 500, size=n_rows)]
             mask = rng.random(n_rows) < 0.95
             for j, m in enumerate(mask):
                 if m:

@@ -21,6 +21,7 @@ LightGBM's native entry points are now serialised process-wide (``mlframe._light
 parallelism comes from worker processes, where the lock is uncontended (``bench_rerank_backends.py``).
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import contextlib
 import sys
@@ -54,7 +55,7 @@ def _run(mode: str, n_threads: int, rounds: int, n_rows: int, n_cols: int, n_est
     if mode == "none":
         sf._CONSTRUCT_LOCK = contextlib.nullcontext()  # type: ignore[assignment]
     try:
-        sf._CACHE.clear()
+        cast(Any, sf)._CACHE.clear()
         threads = [threading.Thread(target=_worker, args=(i, rounds, n_rows, n_cols, n_estimators, specs, mode == "full")) for i in range(n_threads)]
         t0 = time.perf_counter()
         for t in threads:

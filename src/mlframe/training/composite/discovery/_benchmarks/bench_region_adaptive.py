@@ -20,6 +20,7 @@ RMSE wins. Run:
       mlframe.training.composite.discovery._benchmarks.bench_region_adaptive
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import time
 
@@ -65,7 +66,7 @@ def _gbm():
 _rmse = rmse_asarray
 
 
-def eval_global(y_tr, b_tr, X_tr, y_te, b_te, X_te) -> tuple[str, float]:
+def eval_global(y_tr, b_tr, X_tr, y_te, b_te, X_te) -> tuple[Any, float]:
     """Pick the single global transform with lowest OOS RMSE (the strong baseline)."""
     best_name, best_rmse = None, np.inf
     for name in DEFAULT_REGION_CANDIDATES:
@@ -113,7 +114,7 @@ def run(n: int = 8000, seeds: int = 5, k: int = 4) -> dict:
         "global_best_transform": last_global,
         "global_rmse_mean": g_mean,
         "region_adaptive_rmse_mean": ra_mean,
-        "region_transforms_lastseed": list(last_regions),
+        "region_transforms_lastseed": list(cast(Any, last_regions)),
         "improvement_pct": 100.0 * (g_mean - ra_mean) / g_mean,
         "wins_of_seeds": int(np.sum(np.array(ra_rmses) < np.array(g_rmses))),
         "wall_s": round(time.time() - t0, 2),

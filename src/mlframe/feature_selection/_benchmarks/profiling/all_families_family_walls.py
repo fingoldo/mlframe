@@ -15,6 +15,7 @@ Companions (all in this package, same protocol: a warm-up fit first, then the me
 - ``numba_signature_counts``       numba dispatchers with more than one compiled signature after two fits (recompiles inside a fit).
 - ``env_sampled_fit``, ``stack_timeline``, ``utilization``, ``tick_utilization``, ``family_profile``, ``family_scale``: older siblings of the same fit (system sampler, 6 s buckets, idle share, one family at a time).
 """
+from typing import Any
 import os,sys,warnings,time
 warnings.simplefilter("ignore")
 mode=sys.argv[3] if len(sys.argv)>3 else "gpu"
@@ -26,7 +27,7 @@ from mlframe.feature_selection._benchmarks.profiling.family_profile import _Snap
 from mlframe.feature_selection._benchmarks.profiling import family_scale as F
 from mlframe.feature_selection.filters.mrmr import MRMR
 n=int(sys.argv[1]); p=int(sys.argv[2])
-kw={f:True for f in F._flag_names()}; kw["nbins_strategy"]="mdlp"
+kw: dict[str, Any]={f:True for f in F._flag_names()}; kw["nbins_strategy"]="mdlp"
 MRMR(verbose=0,random_seed=0,n_jobs=1,**kw).fit(*F._make(20000,30,1))
 led=_SnapshotLedger(); FT._FE_FAMILY_WALL=led; FT.reset_fe_family_wall()
 data=F._make(n,p,0)
@@ -35,5 +36,5 @@ print("WALL",round(wall,1),"mode",mode)
 print("SELECTED",[str(s) for s in m.get_feature_names_out()])
 w=led.last or {k:(v[0],int(v[1])) for k,v in led.items()}
 tot=0
-for k,(sec,c) in sorted(w.items(),key=lambda kv:-kv[1][0])[:30]:
+for k,(sec,_c) in sorted(w.items(),key=lambda kv:-kv[1][0])[:30]:
     print(f"{sec:7.2f}s  {k}")

@@ -18,6 +18,7 @@ Run: CUDA_VISIBLE_DEVICES="" python -m mlframe.training.callbacks._benchmarks.be
 """
 from __future__ import annotations
 
+from typing import Any
 import numpy as np
 from sklearn.metrics import roc_auc_score
 import lightgbm as lgb
@@ -107,7 +108,7 @@ def main():
         "new_monotonic3": lambda v: stop_new_monotonic(v, 3),
         "new_monotonic5": lambda v: stop_new_monotonic(v, 5),
     }
-    agg = {r: {"test_gap": [], "stop": []} for r in rules}  # gap = oracle_test - rule_test (lower=better)
+    agg: Any = {r: {"test_gap": [], "stop": []} for r in rules}  # gap = oracle_test - rule_test (lower=better)
     old_fires_before_patience = 0
     total = 0
     for sc in scenarios:

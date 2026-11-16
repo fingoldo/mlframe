@@ -10,6 +10,7 @@ Run: python bench_hinge_batch_vs_percolumn.py
 """
 from __future__ import annotations
 
+from typing import Any
 import time
 
 import numpy as np
@@ -18,7 +19,7 @@ from mlframe.feature_selection.filters._hinge_detect_gpu_resident import detect_
 from mlframe.feature_selection.filters._hinge_detect_gpu_resident_batch import detect_hinge_breakpoints_gpu_batch
 
 N = 99401
-KW = dict(
+KW: dict[str, Any] = dict(
     max_breakpoints=2, min_heldout_r2_uplift=0.01, precheck_qs=(0.30, 0.50, 0.70),
     precheck_min_sse_drop=0.005, cand_q_lo=0.10, cand_q_hi=0.90, n_candidates=24,
     min_rows=200, min_seg_rows=30,
@@ -61,9 +62,6 @@ if __name__ == "__main__":
         cp.cuda.Stream.null.synchronize()
         t_percol = time.perf_counter() - t0
 
-        mismatches = sum(
-            1 for b, r in zip(batch_out, percol_out)
-            if sorted(round(t, 6) for t in (b or [])) != sorted(round(t, 6) for t in (r or []))
-        )
+        mismatches = sum(1 for b, r in zip(batch_out or [], percol_out) if sorted(round(t, 6) for t in (b or [])) != sorted(round(t, 6) for t in (r or [])))
         winner = "batch" if t_batch < t_percol else "per-col"
         print(f"{k:5d}  {t_batch*1000:10.1f}  {t_percol*1000:10.1f}  {t_percol/t_batch:8.2f}x  {winner}  mismatches={mismatches}")

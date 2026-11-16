@@ -7,6 +7,7 @@ repeat counts, an adaptive early-stop is SAFE (the importance ranking has alread
 early-stop is risky and must be gated. make_dataset, 3 seeds.
 """
 from __future__ import annotations
+from typing import Any
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -33,7 +34,7 @@ def main():
     for sd in [0, 1, 2]:
         X, y, _t = make_dataset(n_samples=5000, seed=sd)
         Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=sd, stratify=y)
-        ref = None
+        ref: Any = None
         for nr in (5, 3, 2):
             t0 = time.time(); s = fit_rfecv(Xtr, ytr, nr); dt = time.time() - t0
             if nr == 5:

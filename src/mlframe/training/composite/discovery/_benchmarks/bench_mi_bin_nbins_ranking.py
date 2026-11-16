@@ -15,6 +15,7 @@ Run: python -m mlframe.training.composite.discovery._benchmarks.bench_mi_bin_nbi
 
 from __future__ import annotations
 
+from typing import Any
 import json
 import os
 from pathlib import Path
@@ -34,7 +35,7 @@ N_PROD = 20_000  # production screening sample size
 N_SMALL = 400
 
 
-def _gauss_true_mi(rho: float) -> float:
+def _gauss_true_mi(rho: float) -> Any:
     """Analytic MI (nats) of a bivariate-Gaussian pair with correlation rho."""
     return -0.5 * np.log(1.0 - rho * rho)
 
@@ -131,7 +132,7 @@ def run(n: int) -> dict:
 
 
 def main() -> None:
-    results = {"N_PROD": run(N_PROD), "N_SMALL": run(N_SMALL)}
+    results: dict[str, Any] = {"N_PROD": run(N_PROD), "N_SMALL": run(N_SMALL)}
     # STRICT-win counting: a challenger "beats" 16 in a cell only when its concordance exceeds 16's by a real margin
     # (>0.005), NOT when both tie at 1.000 and float noise picks an arbitrary argmax. Symmetric for 16 beating others.
     # Production callers always pass n>=20k (kernel docstring), so N_PROD is the regime that governs the default.

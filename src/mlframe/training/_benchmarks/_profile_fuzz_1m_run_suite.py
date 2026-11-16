@@ -13,7 +13,7 @@ import logging
 import pstats
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 
@@ -293,7 +293,7 @@ def _run_suite_profiled(
         _od_detector = _run_suite_profiled_outlier_method_isolation_forest(_outlier_method, seed, _od_detector)
         _od_cfg = OutlierDetectionConfig(detector=_od_detector)
         _pp_cfg = PreprocessingBackendConfig(
-            categorical_encoding=_categorical_encoding,
+            categorical_encoding=cast(Any, _categorical_encoding),
             scaler_name=(None if _scaler_name == "none" else _scaler_name),
         )
         # PreprocessingExtensionsConfig.scaler uses verbose sklearn names

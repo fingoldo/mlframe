@@ -38,7 +38,7 @@ import argparse
 import time
 import warnings
 from itertools import combinations
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 from mlframe.utils.gpu_sync import synchronize_gpu_if_available
@@ -254,7 +254,7 @@ def _eval_dataset(name, X, y, discrete_target, *, n_splits, top_k, n_trials, max
 
     cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42) if discrete_target else KFold(n_splits=n_splits, shuffle=True, random_state=42)
     methods = ["baseline", *_BASES, "ensemble"]
-    results = {m: [] for m in methods}
+    results: Any = {m: [] for m in methods}
     pair_log = []  # for diagnostics
     for fold, (tr_idx, va_idx) in enumerate(cv.split(X, y)):
         X_tr_raw, X_va_raw = X[tr_idx], X[va_idx]
@@ -293,7 +293,7 @@ def _eval_dataset(name, X, y, discrete_target, *, n_splits, top_k, n_trials, max
 def _aggregate(results, discrete_target):
     """Return per-method (mean, std) for each metric."""
     metric_keys = ["acc", "log_loss", "auc"] if discrete_target else ["mae", "rmse", "r2"]
-    agg = {}
+    agg: dict[Any, Any] = {}
     for method, fold_dicts in results.items():
         agg[method] = {}
         for m in metric_keys:

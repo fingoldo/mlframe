@@ -24,6 +24,7 @@ wall with no real memory win at the tested size, the path stays size-gated where
 it helps and this bench documents the crossover. The lazy code is NOT deleted.
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import gc
 import json
@@ -97,7 +98,7 @@ def run(n: int = 200_000, f: int = 100, nbins: int = 16, reps: int = 3) -> dict:
         lazy_peaks.append(pl_)
         lazy_walls.append(wl)
 
-    bit_identical = bool(np.array_equal(codes_e, codes_l))
+    bit_identical = bool(np.array_equal(cast(Any, codes_e), cast(Any, codes_l)))
     eager_peak = min(eager_peaks)
     lazy_peak = min(lazy_peaks)
     eager_wall = min(eager_walls)

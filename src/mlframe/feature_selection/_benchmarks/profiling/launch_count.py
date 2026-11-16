@@ -26,7 +26,7 @@ def _install(cnt: "collections.Counter", where: "collections.Counter") -> None:
 
     def caller() -> str:
         """The mlframe function that issued the launch."""
-        frame = sys._getframe(3)
+        frame: Any = sys._getframe(3)
         while frame is not None and "mlframe" not in frame.f_code.co_filename:
             frame = frame.f_back
         return (frame.f_code.co_filename.split("filters")[-1].lstrip(r"\/") + ":" + frame.f_code.co_name) if frame else "?"

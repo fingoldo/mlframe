@@ -1,14 +1,15 @@
 """Self-time of a cProfile run bucketed by library (cupy, mlframe, numpy, pandas, ...): where the wall goes by who spends it. Reads ``PROF_FILE`` written by ``profile_fit_gpu.py``."""
 
+from typing import Any, cast
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))  # this checkout, not an installed copy
-from mlframe.feature_selection._benchmarks.profiling._paths import PROF_FILE  # noqa: E402
+from mlframe.feature_selection._benchmarks.profiling._paths import PROF_FILE
 
 import pstats, collections
-p = pstats.Stats(str(PROF_FILE)); st = p.stats
-b = collections.Counter(); tot = 0.0
+p = pstats.Stats(str(PROF_FILE)); st = cast(Any, p).stats
+b: Any = collections.Counter(); tot = 0.0
 for k, v in st.items():
     fn = k[0].replace(chr(92), '/')
     tt = v[2]; tot += tt

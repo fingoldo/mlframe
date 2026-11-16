@@ -7,6 +7,7 @@ Usage: ``python -m mlframe.feature_selection._benchmarks.target_lens.exp_target_
 """
 
 from __future__ import annotations
+from typing import Any, cast
 
 import sys
 import time
@@ -52,7 +53,7 @@ def main() -> None:
     if os.environ.get("COMPOUND_VIEWS_LINEAR"):
         import mlframe.feature_selection.filters._mrmr_fit_impl._residual_rescue_stage as _S
 
-        _S._COMPOUND_VIEWS_LINEAR = True
+        cast(Any, _S)._COMPOUND_VIEWS_LINEAR = True
     seeds = int(sys.argv[1]) if len(sys.argv) > 1 else 6
     n_train = int(sys.argv[2]) if len(sys.argv) > 2 else 6000
     which = sys.argv[3].split(",") if len(sys.argv) > 3 else list(PROCESSES)

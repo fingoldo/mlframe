@@ -42,7 +42,7 @@ import time
 logger = logging.getLogger(__name__)
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -91,7 +91,7 @@ def _draw_distribution(name: str, n: int, rng: np.random.Generator) -> np.ndarra
     raise ValueError(f"unknown distribution {name!r}")
 
 
-def _draw_signal(signal_kind: str, x: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+def _draw_signal(signal_kind: str, x: np.ndarray, rng: np.random.Generator) -> Any:
     """Generate y from x according to signal_kind. Returns y as int classes for MI scoring."""
     if signal_kind == "no_signal":
         return rng.integers(0, 2, x.size).astype(np.int64)
@@ -303,7 +303,7 @@ def _summarise(results: List[FoldResult], methods: List[str]) -> Dict:
 
     # MI by sample size
     ns = sorted({r.n for r in results})
-    by_method_n: Dict[str, Dict[int, float]] = {}
+    by_method_n: Dict[str, Dict[str, float]] = {}
     for m in methods:
         by_method_n[m] = {}
         for n in ns:
@@ -314,7 +314,7 @@ def _summarise(results: List[FoldResult], methods: List[str]) -> Dict:
     # Stability of MI ranking across folds (edge stability proxy)
     by_task: Dict[Tuple, List[FoldResult]] = {}
     for r in results:
-        key = (r.method, r.distribution, r.signal_kind, r.n)
+        key: Any = (r.method, r.distribution, r.signal_kind, r.n)
         by_task.setdefault(key, []).append(r)
     cv_of_mi_by_method: Dict[str, float] = {}
     for m in methods:
@@ -338,7 +338,7 @@ def _summarise(results: List[FoldResult], methods: List[str]) -> Dict:
     for _key, mvals in by_task_all.items():
         if not mvals:
             continue
-        winner = max(mvals, key=mvals.get)
+        winner = max(mvals, key=lambda _k: mvals[_k])
         win_count[winner] = win_count.get(winner, 0) + 1
         total_tasks_with_winner += 1
     win_rate = {m: (win_count[m] / total_tasks_with_winner if total_tasks_with_winner else 0.0) for m in methods}

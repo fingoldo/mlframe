@@ -14,6 +14,7 @@ Prints the per-call wall time of each backend and asserts the masks are identica
 
 from __future__ import annotations
 
+from typing import Any
 import time
 
 import numpy as np
@@ -22,7 +23,7 @@ from .._collinear_numba import near_collinear_keep_mask_fast
 from .._eval_stats import _near_collinear_keep_mask_numpy
 
 
-def abs_corr_matrix(fm: np.ndarray) -> np.ndarray:
+def abs_corr_matrix(fm: np.ndarray) -> Any:
     """Pairwise ``|corr|`` over each pair's jointly finite rows, as a dense ``(B, B)`` matrix.
 
     All-finite input takes one GEMM on the centred columns. With holes, the per-pair joint sums come from GEMMs of the
@@ -41,17 +42,17 @@ def abs_corr_matrix(fm: np.ndarray) -> np.ndarray:
         return corr
     x0 = np.where(finite, x, 0.0)
     m = finite.astype(np.float64)
-    n_pair = m.T @ m                      # rows finite in both columns
-    s_a = x0.T @ m                        # sum of column i over the pair's support
-    s_ab = x0.T @ x0                      # sum of products over the pair's support
-    s_aa = (x0 * x0).T @ m                # sum of squares of column i over the pair's support
+    n_pair = m.T @ m  # rows finite in both columns
+    s_a = x0.T @ m  # sum of column i over the pair's support
+    s_ab = x0.T @ x0  # sum of products over the pair's support
+    s_aa = (x0 * x0).T @ m  # sum of squares of column i over the pair's support
     with np.errstate(invalid="ignore", divide="ignore"):
         cov = s_ab - s_a * s_a.T / n_pair
         va = s_aa - s_a * s_a / n_pair
         vb = va.T
         corr = np.abs(cov) / np.sqrt(va * vb)
     corr[~np.isfinite(corr)] = 0.0
-    corr[n_pair < 3] = 0.0                # too few joint rows to decide, as the reference skips
+    corr[n_pair < 3] = 0.0  # too few joint rows to decide, as the reference skips
     return corr
 
 
@@ -73,8 +74,8 @@ def _matrix(n: int, b: int, *, nan_frac: float = 0.0, seed: int = 0) -> np.ndarr
     rng = np.random.default_rng(seed)
     base = rng.normal(size=(n, max(1, b // 4)))
     cols = [base[:, i % base.shape[1]] + rng.normal(scale=0.35, size=n) for i in range(b - 2)]
-    cols.append(cols[0].copy())            # exact duplicate
-    cols.append(np.full(n, 2.5))           # constant
+    cols.append(cols[0].copy())  # exact duplicate
+    cols.append(np.full(n, 2.5))  # constant
     x = np.column_stack(cols).astype(np.float32)
     if nan_frac:
         holes = rng.random(x.shape) < nan_frac

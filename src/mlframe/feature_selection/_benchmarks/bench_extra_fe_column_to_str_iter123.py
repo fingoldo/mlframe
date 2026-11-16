@@ -16,6 +16,7 @@ Measured (10M rows, ~500 uniques, best-of-2/3, separate process):
 RESOLVED.
 """
 
+from typing import Any, cast
 import sys
 import time
 import gc
@@ -86,5 +87,5 @@ if __name__ == "__main__":
     # THIS process fails) must not leak into another process that happens to import this file (pyutilz's
     # kernel-tuning registry walks every _benchmarks module looking for @kernel_tuner-decorated functions - found
     # live, GPU11-22, when this exact pattern broke a kernel-tuning-cache refresh that needed real cupy).
-    sys.modules.setdefault("cupy", None)
+    cast(Any, sys.modules).setdefault("cupy", None)
     main()

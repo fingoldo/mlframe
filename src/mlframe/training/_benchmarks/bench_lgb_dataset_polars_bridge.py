@@ -25,6 +25,7 @@ Usage:
 Writes results JSON to ``_results/bench_lgb_dataset_polars_bridge.json``.
 """
 from __future__ import annotations
+from typing import Any
 
 import gc
 import json
@@ -49,7 +50,7 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 def _make_mixed_polars(n_rows: int, n_num: int, n_cat: int, seed: int) -> pl.DataFrame:
     rng = np.random.default_rng(seed)
     cat_pool = [f"level_{i}" for i in range(8)]
-    data = {f"num{i}": rng.normal(size=n_rows).astype(np.float64) for i in range(n_num)}
+    data: dict[str, Any] = {f"num{i}": rng.normal(size=n_rows).astype(np.float64) for i in range(n_num)}
     for j in range(n_cat):
         codes = rng.integers(0, len(cat_pool), size=n_rows)
         data[f"cat{j}"] = pl.Series(f"cat{j}", [cat_pool[c] for c in codes], dtype=pl.Categorical)
@@ -121,7 +122,9 @@ def _bench(n_rows: int, n_num: int, n_cat: int, n_runs: int) -> dict:
     bare_e2e_med = float(np.median(bare_e2e))
 
     # Correctness check: count Categorical columns surviving each path.
+    assert bridged_dtypes is not None
     n_cat_bridged = sum(1 for v in bridged_dtypes.values() if "category" in v.lower())
+    assert bare_dtypes is not None
     n_cat_bare = sum(1 for v in bare_dtypes.values() if "category" in v.lower())
 
     return {

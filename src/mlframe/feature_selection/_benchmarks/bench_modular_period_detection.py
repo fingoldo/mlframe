@@ -14,6 +14,7 @@ mlframe.feature_selection._benchmarks.bench_modular_period_detection``
 """
 from __future__ import annotations
 
+from typing import Any
 import json
 import time
 from datetime import datetime
@@ -153,11 +154,11 @@ def _run_scenario(name, gen, is_tp):
 
 
 def main():
-    results = {"tp": [], "control": []}
+    results: Any = {"tp": [], "control": []}
     for name, gen in TP_SCENARIOS.items():
         results["tp"].append(_run_scenario(name, gen, is_tp=True))
-    for name, gen in CONTROL_SCENARIOS.items():
-        results["control"].append(_run_scenario(name, gen, is_tp=False))
+    for name, gen_c in CONTROL_SCENARIOS.items():
+        results["control"].append(_run_scenario(name, gen_c, is_tp=False))
 
     tp_detect = float(np.mean([r["fire_rate"] for r in results["tp"]]))
     fp_rate = float(np.mean([r["fire_rate"] for r in results["control"]]))

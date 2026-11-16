@@ -39,9 +39,12 @@ def _load_old_module():
     # the file uses only relative-free imports at module top for the cupy path we call; import it standalone
     modname = "mlframe.feature_selection.filters._batch_pair_mi_gpu_OLD"
     spec = importlib.util.spec_from_file_location(modname, tmp)
+    assert spec is not None
     mod = importlib.util.module_from_spec(spec)
     mod.__package__ = "mlframe.feature_selection.filters"  # so the file's relative imports resolve
     sys.modules[modname] = mod
+    assert spec is not None
+    assert spec.loader is not None
     spec.loader.exec_module(mod)
     return mod
 

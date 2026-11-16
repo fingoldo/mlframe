@@ -9,6 +9,7 @@ Each refinement is a HybridSelector subclass overriding only the combine/member 
 Reports downstream honest-holdout AUC vs the default hybrid; ship any that beats it by > cross-seed noise.
 """
 from __future__ import annotations
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,7 @@ class H32(HybridSelector):  # vote weighted by each member's subset OOF-AUC
     def _combine(self, member_sel, cols):
         Xa, y = self._Xaug_, self._y_
         w = {m: max(0.0, _oof_auc(Xa, y, sel) - 0.5) for m, sel in member_sel.items()}
-        cl_w = defaultdict(float)
+        cl_w: Any = defaultdict(float)
         for m, sel in member_sel.items():
             for f in set(self.cluster_of_.get(c) for c in sel):
                 if f is not None:
@@ -99,7 +100,7 @@ class H35(HybridSelector):  # auto-pick (vote, expand) by internal OOF-AUC
     def fit(self, X, y):
         super().fit(X, y)
         Xa, y_ = self._Xaug_, self._y_
-        best, best_auc = (self.vote, self.expand_clusters), -1.0
+        best, best_auc = (getattr(self, "vote"), getattr(self, "expand_clusters")), -1.0
         for vote in (1, 2):
             for expand in (False, True):
                 self.vote, self.expand_clusters = vote, expand

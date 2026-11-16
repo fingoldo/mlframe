@@ -22,6 +22,7 @@ VERDICT printed at the end: (a) designed beds confirm recovery of non-product si
 gain over products-only? Recommend the operator set to add to the FE registry only if (b) holds.
 """
 from __future__ import annotations
+from typing import Optional
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -154,9 +155,9 @@ def run_designed():
         Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=0, stratify=y)
         params = _fit_params(Xtr, pairs)
         # raw-only baseline (no engineered op): can the model get it from a,b alone?
-        variants = {"raw_only": None}
-        for op in REAL_OPS:
-            variants[op] = op
+        variants: dict[str, Optional[str]] = {"raw_only": None}
+        for rop in REAL_OPS:
+            variants[rop] = rop
         print(f"\n--- designed bed: {kind}  (right operator: {right_op[kind]}) ---", flush=True)
         for tag, op in variants.items():
             t0 = time.time()
@@ -250,7 +251,7 @@ def main():
             prod = float(col.get("product", float("nan")))
             raw = float(col.get("raw_only", float("nan")))
             rich = {op: float(col[op]) for op in REAL_OPS if op != "product" and op in col.index}
-            best_rich_op = max(rich, key=rich.get)
+            best_rich_op = max(rich, key=lambda _k: rich[_k])
             best_rich = rich[best_rich_op]
             tag = ""
             if metric == "logit":
@@ -271,11 +272,11 @@ def main():
             allraw = float(b.get("all_raw", float("nan")))
             rich_ops = {op: float(b[f"tree_top25+{op}"]) for op in REAL_OPS if op != "product" and f"tree_top25+{op}" in b.index}
             allrich = float(b.get("tree_top25+ALLrich", float("nan")))
-            best_rich_op = max(rich_ops, key=rich_ops.get)
+            best_rich_op = max(rich_ops, key=lambda _k: rich_ops[_k])
             best_rich = rich_ops[best_rich_op]
             print(f"\n  [{bed}/{metric}] all_raw={allraw:.4f} tree25_raw={base:.4f} products={prod:.4f}")
-            for op, v in sorted(rich_ops.items(), key=lambda kv: -kv[1]):
-                print(f"      +{op:12s} {v:.4f}  (d vs products {v - prod:+.4f})")
+            for rop, rv in sorted(rich_ops.items(), key=lambda kv: -kv[1]):
+                print(f"      +{rop:12s} {rv:.4f}  (d vs products {rv - prod:+.4f})")
             print(f"      +ALLrich     {allrich:.4f}  (d vs products {allrich - prod:+.4f})")
             gain = best_rich - prod
             print(f"    BEST rich = +{best_rich_op} {best_rich:.4f}  vs products {prod:.4f}  -> "

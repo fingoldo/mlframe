@@ -23,6 +23,7 @@ VERDICT goal: which (if any) lifts madelon >3 feats toward ~0.84 WITHOUT regress
 raising fe_synergy_screen_max_features a safe default-raise or does O(p^2)/synth forbid it?
 """
 from __future__ import annotations
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -58,7 +59,7 @@ def build_mrmr(**extra):
     """Build a fitted-on-demand MRMR+FE wrapper. extra -> MRMR ctor kwargs."""
     from mlframe.feature_selection.filters import MRMR
 
-    base_kw = dict(verbose=0, fe_max_steps=1, n_jobs=N_JOBS, random_seed=0)
+    base_kw: dict[str, Any] = dict(verbose=0, fe_max_steps=1, n_jobs=N_JOBS, random_seed=0)
     base_kw.update(extra)  # extra (incl. fe_max_steps) overrides defaults
 
     class _Sel:
@@ -87,7 +88,7 @@ def shallow_tree_signals(X, y, n_estimators=80, max_depth=3, top_pairs=12):
     ranked = [c for c in imp.index if imp[c] > 0]
     tdf = m.booster_.trees_to_dataframe()
     tdf = tdf[tdf["split_feature"].notna()]
-    pair_w = Counter()
+    pair_w: Any = Counter()
     for _tree_id, g in tdf.groupby("tree_index"):
         feats = sorted(set(g["split_feature"].tolist()))
         gain = float(g["split_gain"].sum()) + 1e-9
@@ -120,7 +121,7 @@ def run_bed(name, X, y, cap_grid, seed=0):
     ckpt(f"bed={name} shape={X.shape} start")
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=seed, stratify=y)
     p = Xtr.shape[1]
-    rows = []
+    rows: list[Any] = []
 
     # 0) all features
     t0 = time.time(); emit(rows, name, "all", Xtr, Xte, ytr, yte, t0)

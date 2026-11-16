@@ -361,10 +361,10 @@ def write_results(df):
         d_tr_fe = a_tr - a_fe
         d_hy_all = a_hy - a_all
         deltas.append(dict(dataset=ds, hy_fe=d_hy_fe, tr_fe=d_tr_fe, hy_all=d_hy_all))
-        def f(v):
+        def fmt(v):
             return "" if (v != v) else f"{v:.4f}"
 
-        lines.append(f"| {ds} | {f(a_all)} | {f(a_fe)} | {f(a_hy)} | {f(a_tr)} | " f"{f(d_hy_fe):>+} | {f(d_tr_fe):>+} | {f(d_hy_all):>+} |")
+        lines.append(f"| {ds} | {fmt(a_all)} | {fmt(a_fe)} | {fmt(a_hy)} | {fmt(a_tr)} | " f"{fmt(d_hy_fe):>+} | {fmt(d_tr_fe):>+} | {fmt(d_hy_all):>+} |")
 
     # verdicts
     dd = pd.DataFrame(deltas)

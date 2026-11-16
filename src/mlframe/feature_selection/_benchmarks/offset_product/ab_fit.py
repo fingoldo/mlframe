@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import sys
 import time
+from typing import Any
 import warnings
 
 for _k, _v in {
@@ -48,6 +49,7 @@ def _fit(n: int, seed: int, arm: str):
     import cupy as cp
 
     families, rescue = ARMS[arm]
+    flags: dict[str, Any] = {**dict.fromkeys(FAMILY_FLAGS, families), RESCUE_FLAG: rescue}
     df, y = _make(n, seed)
     cp.cuda.Device().synchronize()
     t0 = time.perf_counter()
@@ -59,7 +61,7 @@ def _fit(n: int, seed: int, arm: str):
         verbose=0,
         n_jobs=1,
         random_seed=seed,
-        **{**dict.fromkeys(FAMILY_FLAGS, families), RESCUE_FLAG: rescue},
+        **flags,
     ).fit(df, y)
     cp.cuda.Device().synchronize()
     return time.perf_counter() - t0, [str(s) for s in fs.get_feature_names_out()]
@@ -71,7 +73,7 @@ def main() -> None:
     pairs = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_PAIRS
     for arm in ARMS:
         _fit(n, 1, arm)  # warm: jit, tuning cache, cupy kernels, per arm
-    walls = {arm: [] for arm in ARMS}
+    walls: dict[str, list[float]] = {arm: [] for arm in ARMS}
     same = dict.fromkeys(ARMS, 0)
     arm_list = list(ARMS)
     for k in range(pairs):

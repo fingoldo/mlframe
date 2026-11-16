@@ -16,6 +16,7 @@ mlframe.feature_selection._benchmarks.bench_frontier_candidates``
 """
 from __future__ import annotations
 
+from typing import Any
 import json
 import time
 from datetime import datetime
@@ -188,7 +189,7 @@ def _run_family(name, gen, baseline_fn, cand_builder, is_tp):
         rows.append({"seed": s, "cand_mi": round(float(cand_mi), 4), "best_base": bname,
                      "best_base_mi": round(float(base_mi), 4),
                      "lift": round(float(cand_mi - base_mi), 4), "wall_s": round(dt, 4)})
-    lifts = [r["lift"] for r in rows]
+    lifts: list[Any] = [r["lift"] for r in rows]
     return {"scenario": name, "is_tp": is_tp, "mean_cand_mi": round(float(np.mean([r["cand_mi"] for r in rows])), 4),
             "mean_best_base_mi": round(float(np.mean([r["best_base_mi"] for r in rows])), 4),
             "mean_lift": round(float(np.mean(lifts)), 4), "min_lift": round(float(np.min(lifts)), 4),
@@ -218,7 +219,7 @@ def _concordance_cand(X, cols):
 
 
 def main():
-    results = {"gate": [], "chain": [], "controls": []}
+    results: Any = {"gate": [], "chain": [], "controls": []}
 
     results["gate"].append(_run_family("gate_select", make_gate_select, gate_baselines, None, is_tp=True))
     results["gate"].append(_run_family("gate_mask", make_gate_mask, gate_baselines, None, is_tp=True))

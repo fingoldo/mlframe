@@ -1,6 +1,7 @@
 """Profile per_group_shift / per_group_cum_reduce @10M with many groups."""
 import sys
-sys.modules['cupy'] = None
+from typing import Any, cast
+cast(Any, sys.modules)['cupy'] = None
 import scipy.stats  # noqa: F401
 import numba  # noqa: F401
 import cProfile, pstats, io, time
@@ -24,7 +25,7 @@ def main():
     ]:
         pr = cProfile.Profile()
         t0 = time.perf_counter(); pr.enable()
-        fn(*args)
+        cast(Any, fn)(*args)
         pr.disable(); wall = time.perf_counter() - t0
         print(f"=== {name} wall={wall:.3f}s (n_groups={n_groups}) ===")
         s = io.StringIO()

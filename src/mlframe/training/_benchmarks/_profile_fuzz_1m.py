@@ -69,6 +69,7 @@ plot_outputs has plotly+png). Everything else is library-bounded.
 """
 
 from __future__ import annotations
+from typing import Any
 
 import argparse
 import logging
@@ -130,7 +131,7 @@ def _make_synthetic_frame(
     add_constant_col = rng.random() < 0.30
     add_correlated_col = rng.random() < 0.30
 
-    cols = {f"x{i}": rng.normal(size=n_rows).astype("float32") for i in range(6)}
+    cols: dict[str, Any] = {f"x{i}": rng.normal(size=n_rows).astype("float32") for i in range(6)}
     if add_constant_col:
         # A constant column - exercise remove_constant_columns. Using a
         # single value forces both min==max and (with eq_missing) the

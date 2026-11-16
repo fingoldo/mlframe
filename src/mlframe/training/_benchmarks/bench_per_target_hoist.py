@@ -34,6 +34,7 @@ Writes results JSON to ``_results/bench_per_target_hoist.json``.
 """
 from __future__ import annotations
 
+from typing import Any
 import gc
 import json
 import os
@@ -65,7 +66,7 @@ class _MultiTargetExtractor:
         self.target_carrier = "numpy"
 
     def transform(self, df):
-        target_by_type = {self.target_type: {}}
+        target_by_type: Any = {self.target_type: {}}
         for col in self.target_columns:
             if isinstance(df, pd.DataFrame):
                 target_by_type[self.target_type][col] = df[col].values
@@ -171,7 +172,7 @@ def _cprofile_one_run(df: pd.DataFrame, n_targets: int) -> dict:
     return {"top_15_cumulative": sio.getvalue().splitlines()[:60]}
 
 
-def main() -> dict:
+def main() -> Any:
     # Two scales: a small sanity run + a larger run that more closely mirrors a real suite.
     # Small run also serves as a CI-fast smoke under the biz_value test (which calls this
     # main()).
@@ -181,7 +182,7 @@ def main() -> dict:
         # Larger case where DMatrix construction is non-trivial; hoist gains show here.
         {"n_rows": 20_000, "n_features": 30, "n_targets": 5},
     ]
-    out = {"cases": []}
+    out: Any = {"cases": []}
     for case in cases:
         df = _build_dataset(case["n_rows"], case["n_features"], case["n_targets"])
         # Warm-up: first suite run primes joblib worker pools / sklearn caches; otherwise the

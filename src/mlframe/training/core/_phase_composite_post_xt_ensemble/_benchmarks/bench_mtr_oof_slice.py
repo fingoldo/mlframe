@@ -27,6 +27,7 @@ Output JSON -> sibling _results/bench_mtr_oof_slice.json
 """
 from __future__ import annotations
 
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -153,11 +154,11 @@ def _divergence(X, folds, y) -> dict:
     max_div_noreset = 0.0
     max_div_contig = 0.0
     n_noreset_nonzero = 0
-    layouts = {"reset_contiguous": None, "noreset_contiguous": None}
+    layouts: dict[str, Any] = {"reset_contiguous": None, "noreset_contiguous": None}
     for tr_idx, _ho in folds:
         b_reset = slice_reset(X, tr_idx).to_numpy()  # non-contiguous (pandas reorders on reset_index)
         b_nores = slice_noreset(X, tr_idx).to_numpy()  # C-contiguous
-        b_contg = np.ascontiguousarray(b_reset)  # force contiguity of the kept-path block
+        b_contg: Any = np.ascontiguousarray(b_reset)  # force contiguity of the kept-path block
         layouts["reset_contiguous"] = bool(b_reset.flags["C_CONTIGUOUS"])
         layouts["noreset_contiguous"] = bool(b_nores.flags["C_CONTIGUOUS"])
         if not (np.array_equal(b_reset, b_nores)):
@@ -195,7 +196,7 @@ def main() -> None:
         carriers = _make_carriers(n, rng)
         folds = _fold_indices(n)
         y = rng.standard_normal(n).astype(np.float64)
-        entry = {"timings_ms": {}, "divergence": {}}
+        entry: Any = {"timings_ms": {}, "divergence": {}}
         for cname, X in carriers.items():
             t_reset = _time_variant(slice_reset, X, folds) * 1e3
             t_nores = _time_variant(slice_noreset, X, folds) * 1e3

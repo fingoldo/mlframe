@@ -13,6 +13,7 @@ bench-attempt-rejected (numba cuda.jit coder twin, 2026-07-15): a cuda.jit port 
 measured 12.59ms vs the RawKernel's 8.57ms (1.47x) on the 99401x617 timing twin -- the RawKernel > numba.cuda
 ladder holds on cc 8.9 as it did on cc 6.1; RawKernel stays the only shipped GPU coder.
 """
+from typing import Any
 import json
 import os
 import time
@@ -47,13 +48,13 @@ CASES["atan2_sector"] = (u_, v_, ((np.arctan2(u_, v_) % (2 * np.pi / 3)) < (np.p
 
 BASES = ("chebyshev", "hermite", "legendre", "laguerre")
 VARIANTS = ("cma_batch", "random_batch", "numba_kernel", "cupy_kernel")
-BASE = dict(min_degree=3, max_degree=6, coef_range=(-2.0, 2.0), l2_penalty=0.05,
+BASE: dict[str, Any] = dict(min_degree=3, max_degree=6, coef_range=(-2.0, 2.0), l2_penalty=0.05,
             sweep_degrees=True, mi_estimator="plugin", discrete_target=True,
             warm_start=True, multi_fidelity=False)
 RESULTS_PATH = join(dirname(__file__), "results", "bench_polynom_optimizer_bases.json")
 
 
-def _load() -> dict:
+def _load() -> Any:
     if os.path.exists(RESULTS_PATH):
         with open(RESULTS_PATH, encoding="utf-8") as fh:
             return json.load(fh)
@@ -72,8 +73,7 @@ def run_combo(opt: str, basis: str, case: str, seed: int) -> dict:
     best_mi, best_first_at, best_restart = 0.0, float("nan"), -1
     restarts = []
     for ro in range(RESTARTS):
-        res = optimise_hermite_pair(x_a=xa, x_b=xb, y=y, seed=seed + ro, optimizer=opt,
-                                    n_trials=N_TRIALS, basis=basis, **BASE)
+        res = optimise_hermite_pair(x_a=xa, x_b=xb, y=y, seed=seed + ro, optimizer=opt, n_trials=N_TRIALS, basis=basis, **BASE)
         t_done = time.perf_counter() - t0
         mi = float(res.mi) if res is not None else 0.0
         restarts.append({"restart": ro, "mi": mi, "done_at_s": round(t_done, 3)})

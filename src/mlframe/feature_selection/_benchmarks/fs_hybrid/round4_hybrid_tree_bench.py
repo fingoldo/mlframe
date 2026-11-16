@@ -12,6 +12,7 @@ Variants (all else equal):
 PASS: a tree variant lifts madelon >= +0.02 AND does NOT regress synth/hard_synth by > 0.005. KILL otherwise.
 """
 from __future__ import annotations
+from typing import Any
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -27,7 +28,7 @@ from hybrid_selector import HybridSelector
 def run_bed(name, X, y, seed=0):
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=seed, stratify=y)
     rows = []
-    variants = {
+    variants: dict[str, Any] = {
         "notree": dict(use_tree_member=False),
         "gate_synergy": dict(use_tree_member=True, tree_top_k=0, tree_prod_gate="synergy"),
         "gate_relmed": dict(use_tree_member=True, tree_top_k=0, tree_prod_gate="relevant_median"),

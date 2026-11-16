@@ -18,7 +18,9 @@ import importlib.util
 from pathlib import Path
 
 _spec = importlib.util.spec_from_file_location("pool_planted", Path(__file__).resolve().parents[5] / "tests" / "feature_selection" / "_synth" / "pool_planted.py")
+assert _spec is not None
 _module = importlib.util.module_from_spec(_spec)
+assert _spec.loader is not None
 _spec.loader.exec_module(_module)
 GENERATORS = _module.GENERATORS
 

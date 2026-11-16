@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from typing import Any
 import warnings
 from pathlib import Path
 
@@ -86,7 +87,7 @@ def _run_selector(measure, X, y, seed):
 
 
 def main():
-    rows = []
+    rows: list[dict[str, Any]] = []
     for name, n, p, inf in BEDS:
         for seed in SEEDS:
             X, y = _make(n, p, inf, seed)

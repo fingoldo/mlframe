@@ -17,6 +17,7 @@ Run:
 """
 from __future__ import annotations
 
+from typing import Any, cast
 import hashlib
 import os
 import tempfile
@@ -63,7 +64,7 @@ def _time(fn, *args, iters: int) -> float:
 def _stream_writer_bytes(raw: bytes, level: int = 4) -> bytes:
     """The EXACT on-disk byte production path used by ``save_mlframe_model._writer`` (zstd stream_writer)."""
     import io as _io
-    kw = dict(level=level, write_checksum=True, write_content_size=True, threads=-1)
+    kw: dict[str, Any] = dict(level=level, write_checksum=True, write_content_size=True, threads=-1)
     buf = _io.BytesIO()
     with zstd.ZstdCompressor(**kw).stream_writer(buf, closefd=False) as zf:
         zf.write(raw)
@@ -101,7 +102,7 @@ def _frame_equivalence_probe() -> None:
 
     buf = _io.BytesIO()
     tee = _HashTee(buf)
-    with zstd.ZstdCompressor(level=4, write_checksum=True, write_content_size=True, threads=-1).stream_writer(tee, closefd=False) as zf:
+    with zstd.ZstdCompressor(level=4, write_checksum=True, write_content_size=True, threads=-1).stream_writer(cast(Any, tee), closefd=False) as zf:
         zf.write(raw)
     teed = buf.getvalue()
     print("\nframe-equivalence probe (why inline is not a free swap):")

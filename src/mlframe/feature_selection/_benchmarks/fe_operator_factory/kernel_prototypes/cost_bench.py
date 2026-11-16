@@ -60,6 +60,7 @@ def main(sizes=(100_000, 1_000_000)) -> None:
         # full existing pair-combo table (medium unary x minimal binary = 1734 combos)
         ua = njit_unary_codes_or_none(list(_NJIT_UNARY_OP_CODES))
         bn = njit_binary_codes_or_none(["mul", "add", "sub", "div", "max", "min"])
+        assert ua is not None and bn is not None, "numba codes unavailable"
         yt = y_terms_of(yc)
         score_pair_combos(c[:3000], d[:3000], yc[:3000], yt, 10, ua, ua, bn)
         tt, _ = best(lambda: score_pair_combos(c, d, yc, yt, 10, ua, ua, bn), reps=2)

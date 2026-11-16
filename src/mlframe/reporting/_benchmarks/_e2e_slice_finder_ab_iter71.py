@@ -13,6 +13,7 @@ optimisation was reverted". Pass the pre-optimisation commit as argv[1] to pin t
 argument the bench prints a warning saying the number it is about to produce may be new-vs-new.
 """
 _OLD_REF_DEFAULT = "HEAD"
+from typing import Any
 import importlib.util
 import os
 import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
@@ -50,8 +51,10 @@ def _load_old(ref: str = _OLD_REF_DEFAULT):
     with open(path, "wb") as f:
         f.write(src)
     spec = importlib.util.spec_from_file_location("_old_slice_finder_iter71", path)
+    assert spec is not None
     mod = importlib.util.module_from_spec(spec)
     sys.modules["_old_slice_finder_iter71"] = mod
+    assert spec.loader is not None
     spec.loader.exec_module(mod)
     return mod
 
@@ -65,7 +68,7 @@ def main():
     bad = X[:, 0] > 0.8
     y_pred = y_true + np.where(bad, rng.standard_normal(n) * 2.5, rng.standard_normal(n) * 0.1)
     names = [f"f{i}" for i in range(p)]
-    kw = dict(task="regression", feature_names=names, seed=0)
+    kw: dict[str, Any] = dict(task="regression", feature_names=names, seed=0)
 
     rn = NEW.find_weak_slices(X, y_true, y_pred, **kw)
     ro = OLD.find_weak_slices(X, y_true, y_pred, **kw)

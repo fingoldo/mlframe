@@ -9,6 +9,7 @@ cheaper than the K-fold internal CV it replaces as the rank key. No actionable P
 the gathers (``_extract_column_array``) and the forward/inverse are vectorised numpy. The booster threads are the floor.
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import cProfile
 import pstats
@@ -38,8 +39,8 @@ def _make(n_groups: int = 40, per: int = 5000, n_specs: int = 32, seed: int = 0)
     holdout_idx, screen_idx = np.nonzero(hmask)[0], np.nonzero(~hmask)[0]
     cfg = CompositeTargetDiscoveryConfig(enabled=True, random_state=0, tiny_model_n_estimators=60)
     disc = CompositeTargetDiscovery(cfg)
-    disc._group_ids_for_rerank = groups
-    disc.honest_holdout_idx_ = holdout_idx
+    cast(Any, disc)._group_ids_for_rerank = groups
+    cast(Any, disc).honest_holdout_idx_ = holdout_idx
     specs = [
         CompositeSpec(name=f"y-linres-base-{i}", target_col="y", transform_name="linear_residual",
                       base_column="base", fitted_params={"alpha": 1.0 + 0.01 * i, "beta": 0.0},

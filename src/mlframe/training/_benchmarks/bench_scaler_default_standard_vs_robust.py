@@ -40,11 +40,12 @@ Run: python -m mlframe.training._benchmarks.bench_scaler_default_standard_vs_rob
 """
 
 from __future__ import annotations
+from typing import Any, cast
 
 import sys
 
 # Block native cupy import under contention (segfaults on pip-CUDA hosts w/o CUDA_PATH).
-sys.modules.setdefault("cupy", None)
+cast(Any, sys.modules).setdefault("cupy", None)
 
 import numpy as np
 import polars as pl

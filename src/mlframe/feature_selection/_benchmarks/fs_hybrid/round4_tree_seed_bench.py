@@ -16,6 +16,7 @@ KILL: (1) tree-topK does not beat mrmr_fe collapse on madelon -> the supervised 
 The point: learn WHICH mechanism to wire into MRMR before editing the concurrently-owned _mrmr_fe_step.py.
 """
 from __future__ import annotations
+from typing import Any
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -46,7 +47,7 @@ def shallow_tree_signals(X, y, n_estimators=80, max_depth=3, top_pairs=12):
     # co-occurrence from the tree dump
     tdf = m.booster_.trees_to_dataframe()
     tdf = tdf[tdf["split_feature"].notna()]
-    pair_w = Counter()
+    pair_w: Any = Counter()
     for _tree_id, g in tdf.groupby("tree_index"):
         feats = sorted(set(g["split_feature"].tolist()))
         gain = float(g["split_gain"].sum()) + 1e-9

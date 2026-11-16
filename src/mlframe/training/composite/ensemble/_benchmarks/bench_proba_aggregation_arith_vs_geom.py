@@ -26,15 +26,16 @@ speedup, and the kernel-acceleration ladder is not warranted (single call per pr
 
 from __future__ import annotations
 
+from typing import Any
 import numpy as np
 
 
-def _arith_mean(stacked: np.ndarray) -> np.ndarray:
+def _arith_mean(stacked: np.ndarray) -> Any:
     """Linear opinion pool: arithmetic mean over members. ``stacked`` is (M, N, K)."""
     return stacked.mean(axis=0)
 
 
-def _geom_mean(stacked: np.ndarray, eps: float = 1e-12) -> np.ndarray:
+def _geom_mean(stacked: np.ndarray, eps: float = 1e-12) -> Any:
     """Logarithmic opinion pool: geometric mean over members, renormalised to the simplex.
 
     geo_k = exp(mean_m log p_mk); then divide by sum_k geo_k so each row sums to 1. ``eps`` floors probabilities
@@ -137,7 +138,7 @@ def run():
     wins = {"NLL": {"arith": 0, "geom": 0}, "Brier": {"arith": 0, "geom": 0}, "ECE": {"arith": 0, "geom": 0}}
     print(f"{'scenario':<34}{'seed':>5}{'NLL_a':>9}{'NLL_g':>9}{'Bri_a':>9}{'Bri_g':>9}{'ECE_a':>9}{'ECE_g':>9}")
     for sname, cfg in SCENARIOS.items():
-        agg = {m: {"arith": [], "geom": []} for m in ("NLL", "Brier", "ECE")}
+        agg: Any = {m: {"arith": [], "geom": []} for m in ("NLL", "Brier", "ECE")}
         for seed in SEEDS:
             rng = np.random.default_rng(seed)
             y, stacked = _make_members(rng, N, cfg["k"], cfg["n_members"], cfg["diversity"], cfg["miscal"], cfg["balance"], cfg.get("wrong_frac", 0.0))

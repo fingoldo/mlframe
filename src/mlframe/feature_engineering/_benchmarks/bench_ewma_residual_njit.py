@@ -14,13 +14,14 @@ Run:
 
 from __future__ import annotations
 
+from typing import Any
 import numpy as np
 
 from mlframe._bench_timing_shared import best_of_seconds_no_warmup
 from mlframe.feature_engineering.stationarity import ewma_residual
 
 
-def _old_ewma_single(seg: np.ndarray, hl: float, adjust: bool = False) -> np.ndarray:
+def _old_ewma_single(seg: np.ndarray, hl: float, adjust: bool = False) -> Any:
     """Verbatim copy of the PRE-optimization _ewma_single (pure-Python loop)."""
     alpha = 1.0 - 2.0 ** (-1.0 / hl)
     seg_f = np.where(np.isfinite(seg), seg, 0.0)

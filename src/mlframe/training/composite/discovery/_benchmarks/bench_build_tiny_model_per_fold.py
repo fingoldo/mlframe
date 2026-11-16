@@ -15,6 +15,7 @@ Run:
 """
 from __future__ import annotations
 
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ from mlframe.training.composite.discovery._screening_tiny import _build_tiny_mod
 
 
 def _time_build(family: str, iters: int = 100_000) -> float:
-    kw = dict(n_estimators=50, num_leaves=15, learning_rate=0.1, random_state=0)
+    kw: dict[str, Any] = dict(n_estimators=50, num_leaves=15, learning_rate=0.1, random_state=0)
     _build_tiny_model(family, **kw)  # warm the lazy import
     t0 = time.perf_counter()
     for _ in range(iters):

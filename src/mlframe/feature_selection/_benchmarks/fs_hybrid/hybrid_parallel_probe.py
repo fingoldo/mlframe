@@ -7,6 +7,7 @@ members are sklearn/njit/numpy heavy (GIL-releasing) and a thread pool keeps RNG
 process, no pickling of fitted MRMR member / no re-seeded child RNG) -> the combine result stays deterministic.
 """
 from __future__ import annotations
+from typing import Any, cast
 import logging
 
 logger = logging.getLogger(__name__)
@@ -26,9 +27,9 @@ def _disable_kernel_tuning_sweep():
         import pyutilz.performance.kernel_tuning.cache as _M
         from _downstream_shared import no_sweep_get_or_tune
 
-        _M.KernelTuningCache.get_or_tune = no_sweep_get_or_tune
+        cast(Any, _M.KernelTuningCache).get_or_tune = no_sweep_get_or_tune
         _inmem = _M.KernelTuningCache(in_memory=True)
-        _M.KernelTuningCache.load_or_create = classmethod(lambda cls: _inmem)
+        cast(Any, _M.KernelTuningCache).load_or_create = classmethod(lambda cls: _inmem)
     except Exception as e:  # nosec B110 - best-effort path
         logger.debug("in-memory KernelTuningCache patch failed: %s", e)
 # NOTE: do NOT call _disable_kernel_tuning_sweep() at import -- discover_tuners imports this module and an

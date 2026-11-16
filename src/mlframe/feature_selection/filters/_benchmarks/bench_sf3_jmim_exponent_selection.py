@@ -14,6 +14,7 @@ The env var is read at import as a numba compile-time constant, so the two arms 
 arm (whichever the env var selects) and prints per-seed selected sets + recall. Drive both arms + the verdict via:
   python -m mlframe.feature_selection.filters._benchmarks.bench_sf3_jmim_exponent_selection --run-both
 """
+from typing import Any
 import os
 import sys
 import json
@@ -49,7 +50,7 @@ def _run_arm(seeds):
     from mlframe.feature_selection.filters.mrmr._mrmr_class import MRMR
     from mlframe.feature_selection.filters.evaluation import jmim_exponent_discount_only
 
-    out = {"discount_only": jmim_exponent_discount_only(), "per_seed": [], "recalls": []}
+    out: dict[str, Any] = {"discount_only": jmim_exponent_discount_only(), "per_seed": [], "recalls": []}
     for seed in seeds:
         X, y, informative = _make_synergy_fixture(seed)
         sel = MRMR(redundancy_aggregator="jmim", max_runtime_mins=0.5, verbose=0)

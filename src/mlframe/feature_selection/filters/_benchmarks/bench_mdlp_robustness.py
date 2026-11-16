@@ -148,6 +148,5 @@ def print_robustness_report(results: list) -> None:
         rmse_str = f"{rmses.mean():7.3f}+/-{rmses.std():<6.3f}" if rmses.size else "nan"
         print(
             f"{scenario:12s} {perturbation:14s} {method:10s} {len(rows):4d} "
-            f"{bins.mean():6.2f}+/-{bins.std():<6.2f} ({bins.min()}-{bins.max()})".ljust(30 + 60)
-            + f" {rmse_str:>16s}"
+            f"{bins.mean():6.2f}+/-{bins.std():<6.2f} ({bins.min()}-{bins.max()})".ljust(30 + 60) + f" {rmse_str:>16s}"
         )

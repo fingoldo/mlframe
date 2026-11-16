@@ -64,6 +64,7 @@ the two never collide. ``--summarize`` reads whichever file matches the (--smoke
 """
 
 from __future__ import annotations
+from typing import Any
 
 import argparse
 import json
@@ -249,10 +250,10 @@ def _append_row(path: Path, row: dict) -> None:
 
 def _campaign_grid(smoke: bool):
     if smoke:
-        n_values = (2000,)
+        n_values: Any = (2000,)
         p = 40
         seeds = list(range(2))
-        scenarios = ("regression",)
+        scenarios: Any = ("regression",)
     else:
         n_values = (20000, 100000)
         p = None  # p sweeps per-n below; set in the cell loop
@@ -267,7 +268,7 @@ def run_campaign(smoke: bool) -> None:
 
     # smoke pins one p; full fixes p=300 (bounded 180 fits). Opt into the p=150 sweep (360 fits) via FULL_P_SWEEP=1.
     if smoke:
-        p_values = (smoke_p,)
+        p_values: Any = (smoke_p,)
     else:
         p_values = (150, 300) if os.environ.get("FULL_P_SWEEP") else (300,)
 

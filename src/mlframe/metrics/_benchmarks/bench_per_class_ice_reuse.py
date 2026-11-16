@@ -16,6 +16,7 @@ Measured (warm, min-of-5, this dev box) -- maxdiff old-vs-new per-class = 0.0 (b
     N=1000000 K=5  before=1436.8ms  after=344.6ms  4.17x
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import timeit
 
@@ -39,7 +40,7 @@ def _old(y_true, p, k):
 
 
 def _new(y_true, p, k):
-    _, per = ice(y_true=y_true, y_score=p, nbins=10, return_per_class=True)
+    _, per = cast(Any, ice(y_true=y_true, y_score=p, nbins=10, return_per_class=True))
     return [per[c] for c in range(k)]
 
 

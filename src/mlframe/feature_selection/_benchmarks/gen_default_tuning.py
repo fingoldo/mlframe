@@ -176,7 +176,7 @@ def load_existing_defaults(path: str) -> dict:
     return {"schema_version": DEFAULTS_SCHEMA_VERSION, "kernels": {}}
 
 
-def _kernel_already_current(existing: dict, kernel_name: str, code_version: Optional[str]) -> bool:
+def _kernel_already_current(existing: dict, kernel_name: str, code_version: Optional[str]) -> Any:
     """True iff the committed defaults already carry this kernel at the live
     code_version (so ``skip_existing`` may skip both the sweep and the rewrite)."""
     entry = existing.get("kernels", {}).get(kernel_name)

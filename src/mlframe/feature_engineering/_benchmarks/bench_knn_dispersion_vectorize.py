@@ -13,6 +13,7 @@ Run:
 """
 from __future__ import annotations
 
+from typing import Any
 import importlib.util
 import subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 import tempfile
@@ -33,7 +34,10 @@ def _load_baseline_module():
     p = tmpdir / "spatial_baseline.py"
     p.write_text(src, encoding="utf-8")
     spec = importlib.util.spec_from_file_location("spatial_baseline", p)
+    assert spec is not None
     mod = importlib.util.module_from_spec(spec)
+    assert spec is not None
+    assert spec.loader is not None
     spec.loader.exec_module(mod)
     return mod
 
@@ -70,7 +74,7 @@ def main():
     for n_q in (5_000, 50_000):
         ref, q, reg_labels, cls_labels = _make_data(20_000, n_q)
         for task, labels in (("regression", reg_labels), ("classification", cls_labels)):
-            kw = dict(k=10, task=task)
+            kw: dict[str, Any] = dict(k=10, task=task)
             t_old, r_old = _best_of(lambda: base.knn_label_dispersion_features(q, ref, labels, **kw))
             t_new, r_new = _best_of(lambda: new_mod.knn_label_dispersion_features(q, ref, labels, **kw))
             max_abs = _cmp(r_old, r_new)

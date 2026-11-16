@@ -31,6 +31,7 @@ cumulative hotspots.
 """
 
 from __future__ import annotations
+from typing import Any, cast
 
 from mlframe.feature_selection._benchmarks._bench_shared import build_selector, make_shap_proxy_wide_regime as make_wide
 
@@ -82,11 +83,12 @@ def bench_width_multi_seed(n_features: int, *, n_rows: int, n_seeds: int, snr: f
     recalls: list[float] = []
     walls: list[float] = []
     per_stage: dict[str, list[float]] = {s: [] for s in _STAGE_ORDER}
-    per_seed: list[dict] = []
+    per_seed: list[Any] = []
     for seed in range(n_seeds):
         print(f"[width={n_features} seed={seed}] starting fit", flush=True)
         t0 = time.perf_counter()
         total, timings, sel, roles = bench_width_single(n_features, n_rows=n_rows, seed=seed, snr=snr)
+        sel = cast(Any, sel)
         rec, n_inf = _recovered_informatives(sel, roles)
         recall = rec / n_inf if n_inf else float("nan")
         recalls.append(recall)

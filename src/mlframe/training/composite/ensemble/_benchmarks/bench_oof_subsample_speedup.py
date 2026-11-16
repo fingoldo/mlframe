@@ -17,6 +17,7 @@ Usage::
 """
 from __future__ import annotations
 
+from typing import Any
 import json
 import time
 from datetime import datetime
@@ -59,7 +60,7 @@ def _group_aware_subsample(idx: np.ndarray, groups: np.ndarray, cap: int, seed: 
     return idx[mask]
 
 
-def _nnls_weights(oof_matrix: np.ndarray, y: np.ndarray) -> np.ndarray:
+def _nnls_weights(oof_matrix: np.ndarray, y: np.ndarray) -> Any:
     finite = np.isfinite(oof_matrix).all(axis=1) & np.isfinite(y)
     w, _ = nnls(oof_matrix[finite], y[finite])
     s = w.sum()

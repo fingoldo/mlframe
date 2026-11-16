@@ -34,7 +34,10 @@ def _load_baseline_module():
     p = tmpdir / "anchor_baseline.py"
     p.write_text(src, encoding="utf-8")
     spec = importlib.util.spec_from_file_location("anchor_baseline", p)
+    assert spec is not None
     mod = importlib.util.module_from_spec(spec)
+    assert spec is not None
+    assert spec.loader is not None
     spec.loader.exec_module(mod)
     return mod
 

@@ -16,6 +16,7 @@ other on a contended host (one run had ``"none"`` slower than ``"insample"`` at 
 not them.
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import cProfile
 import pstats
@@ -40,7 +41,7 @@ def _model(smearing: str) -> HurdleRegressor:
     return HurdleRegressor(
         classifier=HistGradientBoostingClassifier(max_iter=100, random_state=0),
         regressor=HistGradientBoostingRegressor(max_iter=100, random_state=0),
-        smearing=smearing,
+        smearing=cast(Any, smearing),
         random_state=0,
     )
 

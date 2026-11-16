@@ -8,12 +8,13 @@ mean vs median aggregation across >=5 seeds AND >=2 scenarios (heavy-tailed targ
 Run: python -m mlframe.training.composite._benchmarks.bench_bagging_aggregation_qual14
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import sys
 
 import numpy as np
 
-sys.modules.setdefault("cupy", None)
+cast(Any, sys.modules).setdefault("cupy", None)
 
 from sklearn.tree import DecisionTreeRegressor
 

@@ -13,6 +13,7 @@ Run: python -m mlframe.feature_engineering._benchmarks.bench_curated_fe_holdout_
 """
 from __future__ import annotations
 
+from typing import Any
 import logging
 
 import numpy as np
@@ -101,8 +102,8 @@ def run(task: str, n: int = 6000, seeds=range(5)):
     print(f"\n===== {task.upper()} (n={n}, {len(seeds)} seeds) -- full metric block =====")
     variants = [*list(CURATED_FE_NAMES), "ALL"]
     # deltas[variant][metric] = list of (variant_metric - base_metric) per seed
-    deltas = {v: {m: [] for m in metrics} for v in variants}
-    base_acc = {m: [] for m in metrics}
+    deltas: Any = {v: {m: [] for m in metrics} for v in variants}
+    base_acc: Any = {m: [] for m in metrics}
     for seed in seeds:
         X, y = _make(task, n, seed)
         Xtr, Xho, ytr, yho = train_test_split(X, y, test_size=0.4, random_state=seed)

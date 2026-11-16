@@ -18,13 +18,13 @@ from __future__ import annotations
 import io
 import statistics
 import time
-from typing import List, Tuple
+from typing import Any, List, Tuple
 
 import numpy as np
 import polars as pl
 
 try:
-    import xxhash  # type: ignore[import-untyped]
+    import xxhash
     HAVE_XX = True
 except ImportError:
     HAVE_XX = False
@@ -36,7 +36,7 @@ def _make_frame(n_rows: int, n_cols: int) -> pl.DataFrame:
     return pl.DataFrame(data)
 
 
-def _variant_a(sub: pl.DataFrame) -> str:
+def _variant_a(sub: pl.DataFrame) -> Any:
     arrow_table = sub.to_arrow()
     return arrow_table.to_pandas().to_csv(index=False)
 

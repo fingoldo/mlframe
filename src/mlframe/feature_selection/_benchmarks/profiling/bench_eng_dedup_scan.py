@@ -4,6 +4,7 @@ Usage: ``python bench_eng_dedup_scan.py ROWS TAG``; the kept and dropped sets ar
 Measured 2026-11-09 at 400000 rows, best of 3: 61.8 s before the pairs with NaN skipped the Python pre-check, 59.6 s after, the same 84 kept and 36 dropped columns.
 """
 
+from typing import Any
 import sys,time,warnings,json
 warnings.simplefilter("ignore")
 import numpy as np,pandas as pd
@@ -14,7 +15,7 @@ cols={}
 for j in range(120):
     b=base[:,j%12]
     kind=j%6
-    if kind==0: v=b*(1+0.01*r.standard_normal())+0.0001*r.standard_normal(n)       # near duplicate of a base column
+    if kind==0: v: Any=b*(1+0.01*r.standard_normal())+0.0001*r.standard_normal(n)       # near duplicate of a base column
     elif kind==1: v=np.sin(b*(1+j/50))
     elif kind==2: v=b**2+r.standard_normal(n)*0.5
     elif kind==3: v=base[:,(j+1)%12]*base[:,j%12]
@@ -24,7 +25,8 @@ for j in range(120):
     if j%3==0: v[r.random(n)<0.05]=np.nan                                      # a third of the columns carry NaN
     cols[f"e{j}"]=v
 X=pd.DataFrame(cols)
-prefer=lambda cand,kept: False
+def prefer(cand, kept):
+    return False
 def run():
     t=time.perf_counter(); keep,drop,_,_=scan_engineered_duplicates(X,list(cols),set(),prefer); return time.perf_counter()-t,keep,drop
 run()

@@ -13,6 +13,7 @@ Usage: ``python -m mlframe.feature_selection._benchmarks.target_lens.exp_composi
 
 from __future__ import annotations
 
+from typing import Any
 import sys
 import warnings
 
@@ -92,7 +93,7 @@ def _mi_gain(X_no_base: np.ndarray, y: np.ndarray, T: np.ndarray) -> float:
     """The production definition: mean over the columns of the marginal binned MI with T minus the same with y."""
     from mlframe.training.composite.discovery.screening import _mi_to_target
 
-    kw = dict(n_neighbors=3, random_state=0, estimator="bin", nbins=N_BINS, aggregation="mean")
+    kw: dict[str, Any] = dict(n_neighbors=3, random_state=0, estimator="bin", nbins=N_BINS, aggregation="mean")
     return float(_mi_to_target(X_no_base, T, **kw) - _mi_to_target(X_no_base, y, **kw))
 
 
@@ -122,7 +123,7 @@ def one(process: str, n: int, seed: int) -> dict:
         null = max(_mi_pair_bin(X_no_base[:, j], perm_rng.permutation(b), nbins=N_BINS) for _ in range(20))
         if mi_j <= null:
             keep.append(j)
-    out = {"mi_gain": _mi_gain(X_no_base, y, T), "mi_gain_excl": _mi_gain(X_no_base[:, keep], y, T) if keep else float("nan"), "n_kept": len(keep)}
+    out: dict[str, Any] = {"mi_gain": _mi_gain(X_no_base, y, T), "mi_gain_excl": _mi_gain(X_no_base[:, keep], y, T) if keep else float("nan"), "n_kept": len(keep)}
     c = float(np.dot(b[tr] - b[tr].mean(), y[tr] - y[tr].mean()) / np.dot(b[tr] - b[tr].mean(), b[tr] - b[tr].mean()))
     for name, make in MODELS.items():
         Xb = X if base_col else np.column_stack([X, b])

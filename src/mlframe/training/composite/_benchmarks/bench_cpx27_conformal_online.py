@@ -16,6 +16,7 @@ Run::
 """
 from __future__ import annotations
 
+from typing import Any
 import bisect
 import math
 import time
@@ -28,7 +29,7 @@ from mlframe.training.composite.conformal_online import _rolling_quantile_radius
 
 
 def _run_old(residuals, alphas, buffer_n):
-    buf = []
+    buf: list[Any] = []
     out = []
     for ar, alpha in zip(residuals, alphas):
         # radius is read pre-append (online contract: current-as-of-row)
@@ -44,7 +45,7 @@ def _run_old(residuals, alphas, buffer_n):
 
 def _run_new(residuals, alphas, buffer_n):
     buf = []
-    buf_sorted = []
+    buf_sorted: list[Any] = []
     out = []
     for ar, alpha in zip(residuals, alphas):
         out.append(_new_radius(buf_sorted, len(buf_sorted), alpha))

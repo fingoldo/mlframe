@@ -7,6 +7,7 @@ tests (this file focuses on the numbers, not exhaustive correctness coverage).
 Run: ``python -m mlframe.feature_selection._benchmarks.bench_wave11_category3_njit_fixes``
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import time
 
@@ -158,7 +159,7 @@ def bench_categorize_dataset_adaptive_searchsorted():
         captured["edges"] = [e.copy() for e in edges]
         return edges
 
-    _adaptive_nbins_mod.per_feature_edges = _capture
+    cast(Any, _adaptive_nbins_mod).per_feature_edges = _capture
     t0 = time.perf_counter()
     categorize_dataset(df, nbins_strategy="fd", missing_strategy="separate_bin", dtype=np.int32)
     t_new_full = time.perf_counter() - t0

@@ -23,6 +23,7 @@ Memory-frugal under heavy concurrent load: all LightGBM / RFECV / permutation n_
 n_estimators, RFECV max_refits capped low (the union is small so few refits are needed). madelon cached to disk.
 """
 from __future__ import annotations
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -192,7 +193,7 @@ def main():
     # machine verdict line
     log("=== A5-6 union_backward PASS/FAIL ===")
     beds = list(df.bed.unique())
-    ub = {bed: None for bed in beds}
+    ub: dict[str, Any] = {bed: None for bed in beds}
     for bed in beds:
         b = df[df.bed == bed].groupby("variant")["auc_mean"].mean()
         ub[bed] = round(float(b.get("union_backward", float("nan"))) - float(b.get("baseline_hybrid", float("nan"))), 4)

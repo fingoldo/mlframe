@@ -19,6 +19,7 @@ it picks the robust combiner when outliers bite. No new combiner needed.
 """
 from __future__ import annotations
 
+from typing import Any
 import numpy as np
 
 from mlframe.feature_selection.filters._cluster_aggregate import (
@@ -47,7 +48,7 @@ def main():
     print("metric = |corr(aggregate, clean latent)|; higher = better recovery")
     print(f"{'outlier%':>8} | {'mean_z':>7} {'median_z':>8} {'pca_pc1':>7} | " f"{'LW_pc1':>7} | {'LW - best_existing':>18}")
     for frac in (0.0, 0.02, 0.05, 0.10):
-        res = {m: [] for m in ("mean_z", "median_z", "pca_pc1", "lw")}
+        res: Any = {m: [] for m in ("mean_z", "median_z", "pca_pc1", "lw")}
         for seed in range(10):
             rng = np.random.default_rng(seed * 7 + int(frac * 1000))
             n, k = 3000, 5

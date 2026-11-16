@@ -17,10 +17,11 @@ Run:
         python -m mlframe.training.composite.discovery._benchmarks.bench_iter96_knn_mi_y_baseline_recompute [n] [n_cols] [n_bases]
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import sys
 
-sys.modules.setdefault("cupy", None)
+cast(Any, sys.modules).setdefault("cupy", None)
 import scipy.stats  # noqa: F401
 import numba  # noqa: F401
 

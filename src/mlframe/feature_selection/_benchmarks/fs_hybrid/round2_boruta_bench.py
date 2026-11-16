@@ -4,6 +4,7 @@ Answers: (R2b-1) does cross-model hetero_vote match/beat single-fit Boruta on do
 while dropping the noise leak? (R2b-2) does cheap n_shadow_trials=2 match the default-ish 5? Writes a table.
 """
 from __future__ import annotations
+from typing import Any
 import os, sys, time, json
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -47,7 +48,7 @@ def main():
     print("\n=== mean over scenarios x seeds ===")
     print(df.groupby("method").agg(auc_mean=("auc_mean", "mean"), lgbm=("auc", lambda s: np.mean([a["lgbm"] for a in s])),
                                    noise=("noise", "mean"), n=("n", "mean"), fit_s=("fit_s", "mean")).round(4).to_string())
-    wins = {}
+    wins: dict[Any, Any] = {}
     for (_sc, _sd), g in df.groupby(["scenario", "seed"]):
         b = g.loc[g["auc_mean"].idxmax(), "method"]; wins[b] = wins.get(b, 0) + 1
     print("win counts (best auc_mean):", wins)

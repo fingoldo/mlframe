@@ -15,6 +15,7 @@ Companions (all in this package, same protocol: a warm-up fit first, then the me
 - ``numba_signature_counts``       numba dispatchers with more than one compiled signature after two fits (recompiles inside a fit).
 - ``env_sampled_fit``, ``stack_timeline``, ``utilization``, ``tick_utilization``, ``family_profile``, ``family_scale``: older siblings of the same fit (system sampler, 6 s buckets, idle share, one family at a time).
 """
+from typing import Any
 import os,sys,threading,time,warnings,collections
 warnings.simplefilter("ignore")
 mode=sys.argv[3] if len(sys.argv)>3 else "gpu"
@@ -27,7 +28,7 @@ n=int(sys.argv[1]); p=int(sys.argv[2])
 kw=F.all_families_kwargs(); kw["nbins_strategy"]="mdlp"
 MRMR(verbose=0,random_seed=0,n_jobs=1,**kw).fit(*F._make(20000,30,1))
 data=F._make(n,p,0)
-main=threading.get_ident(); stop=threading.Event(); hist=collections.Counter(); leaf=collections.Counter(); both=collections.Counter()
+main=threading.get_ident(); stop=threading.Event(); hist: Any=collections.Counter(); leaf: Any=collections.Counter(); both: Any=collections.Counter()
 PRE=("_stage_","hybrid_","screen_predictors","_run_fe_step","check_prospective_fe_pairs","_fe_stage_cascade_","_gate_engineered_accuracy","_second_pass","_emit_pair","_score_one_pair","family_pass","compute_pair_mis","build_fe_operand_pool","apply_surrogate","propose_gradient","mrmr_fit_post","_fit_body","_finalise","populate_fe","_apply_pair_family_gate","_adaptive_relax","_materialise_and_fina","filter_inert","honest_","_cross_stage","_temporal","generate_","score_","fit_binned")
 def stage(fr):
     best=None
@@ -44,7 +45,7 @@ def inner(fr):
     return (f"{fr.f_code.co_filename.split('Lib')[-1].split('filters')[-1][-26:]}:{fr.f_code.co_name}  <- {near}" if fr is not None else None)
 import psutil, pynvml
 pynvml.nvmlInit(); _gh=[pynvml.nvmlDeviceGetHandleByIndex(i) for i in range(pynvml.nvmlDeviceGetCount())]
-util=[]  # (t, cpu% all cores, [gpu busy %], [gpu mem used GB])
+util: Any = []  # (t, cpu% all cores, [gpu busy %], [gpu mem used GB])
 def hw_sampler():
     psutil.cpu_percent(interval=None)
     while not stop.is_set():

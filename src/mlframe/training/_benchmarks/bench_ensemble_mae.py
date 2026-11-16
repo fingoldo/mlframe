@@ -16,6 +16,7 @@ Outputs a markdown table: shape | loop_py ms | numpy ms | numba ms | numpy speed
 """
 
 from __future__ import annotations
+from typing import Any, cast
 
 import logging
 
@@ -37,7 +38,7 @@ def _loop_py(arr: np.ndarray, median_preds: np.ndarray):
             per_member_std[i] = float(diffs.std())
         else:
             std_per_col = np.sqrt(((diffs - mae_per_col) ** 2).mean(axis=0))
-            per_member_mae[i] = float(mae_per_col.mean())
+            per_member_mae[i] = float(cast(Any, mae_per_col).mean())
             per_member_std[i] = float(std_per_col.mean())
     return per_member_mae, per_member_std
 

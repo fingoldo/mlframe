@@ -23,7 +23,7 @@ REGRESSION_THRESHOLD = 1.0  # speedup factor; <1 = regression
 MAX_VERSION_AGE_DAYS = 90
 
 
-def _load(path: Path) -> dict[str, Any]:
+def _load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 

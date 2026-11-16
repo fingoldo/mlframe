@@ -12,6 +12,7 @@ discriminating cell). Uses a plain greedy |corr|>=thr clustering here to test th
 the existing DCD/SU clustering.
 """
 from __future__ import annotations
+from typing import Any
 import os, sys, time, json
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -93,7 +94,7 @@ def main():
     print("\n=== mean over scenarios x seeds ===")
     print(df.groupby("method").agg(auc_mean=("auc_mean", "mean"), lgbm=("auc", lambda s: np.mean([a["lgbm"] for a in s])),
                                    noise=("noise", "mean"), n=("n", "mean"), fit_s=("fit_s", "mean")).round(4).to_string())
-    wins = {}
+    wins: dict[Any, Any] = {}
     for (_sc, _sd), g in df.groupby(["scenario", "seed"]):
         b = g.loc[g["auc_mean"].idxmax(), "method"]; wins[b] = wins.get(b, 0) + 1
     print("win counts (best auc_mean):", wins)
@@ -102,7 +103,7 @@ def main():
     g2 = df[df.method.isin(drivers)]
     gv = {m: round(s.auc_mean.mean(), 4) for m, s in g2.groupby("method")}
     sv = {m: round(s.fit_s.mean(), 1) for m, s in g2.groupby("method")}
-    dwins = {}
+    dwins: dict[Any, Any] = {}
     for (_sc, _sd), g in g2.groupby(["scenario", "seed"]):
         w = g.loc[g.auc_mean.idxmax(), "method"]; dwins[w] = dwins.get(w, 0) + 1
     print(f"R2b-5 drivers mean auc {gv}")

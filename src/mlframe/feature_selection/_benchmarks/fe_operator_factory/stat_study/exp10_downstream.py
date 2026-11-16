@@ -5,6 +5,7 @@ Features are chosen inside each training fold. Each record holds ``mae`` and ``r
 improvement over the raw-columns baseline. R^2 is not a decision metric and is not computed (records from before 2026-10-10 hold R^2 under ``r2`` and are legacy).
 """
 
+from typing import Any, cast
 import argparse
 import functools
 import json
@@ -62,7 +63,7 @@ def run(i, n, seed):
     y = tr + rng.standard_normal(n) * tr.std()
     base = np.column_stack([x, z, rng.random(n), rng.random(n)])
     UX, UZ = unary_mat(UN, x), unary_mat(UN, z)
-    acc = {}
+    acc: dict[Any, Any] = {}
     for trn, ten in KFold(5, shuffle=True, random_state=seed).split(x):
         yb = qbin(y[trn], 10)
         yr = rank01(y[trn])
@@ -73,7 +74,7 @@ def run(i, n, seed):
         iu, iv, bn = ids
         feats["preset"] = clean(BI[bn](UX[iu], UZ[iv]))
         # 1-param: better of closed-form ols and grid
-        best = (-1, None)
+        best: tuple[Any, Any] = (-1, None)
         for mode in (3, 4):
             mis, ts = family_eval(UXt, UZt, yb, yr, mode, 10, 10, False, 8, 0.0, True, False, False, False, 9)
             j = int(mis.argmax())
@@ -82,7 +83,7 @@ def run(i, n, seed):
         j, t = best[1]
         u, v = pair_uv(UX, UZ, j)
         feats["p1"] = (u + t) * v
-        best = (-1, None)
+        best = cast(tuple[Any, Any], (-1, None))
         for mode, G in ((6, 9), (7, 7)):
             mis, ss, tt = family_eval2(UXt, UZt, yb, yr, mode, 10, 10, False, False, False, G)
             j = int(mis.argmax())

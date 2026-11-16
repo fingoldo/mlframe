@@ -9,6 +9,7 @@ Modes: cpu hides the GPU (CUDA_VISIBLE_DEVICES=-1); gpu is the strict-resident p
 
 from __future__ import annotations
 
+from typing import Any
 import argparse
 import inspect
 import json
@@ -136,7 +137,7 @@ def child(a: argparse.Namespace) -> None:
     print("RESULT " + json.dumps(rec), flush=True)
 
 
-def _free_virtual_gb() -> float:
+def _free_virtual_gb() -> Any:
     """Free virtual memory of the machine in GB (Windows commit headroom; physical free memory elsewhere)."""
     import psutil
 

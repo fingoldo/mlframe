@@ -20,6 +20,7 @@ Run:
     D:/ProgramData/anaconda3/python.exe -m mlframe.feature_selection._benchmarks.profile_new_features
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import cProfile
 import io
@@ -51,7 +52,7 @@ def _profile(label: str, fn) -> tuple[pstats.Stats, float]:
     t1 = perf_counter()
     stats = pstats.Stats(profiler).strip_dirs().sort_stats("cumulative")
     stream = io.StringIO()
-    stats.stream = stream
+    cast(Any, stats).stream = stream
     stats.print_stats(30)
     out_path = RESULTS / f"profile_pr1213_{label}.txt"
     out_path.write_text(stream.getvalue(), encoding="utf-8")

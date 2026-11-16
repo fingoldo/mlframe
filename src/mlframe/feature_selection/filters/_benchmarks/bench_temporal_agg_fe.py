@@ -39,8 +39,11 @@ def _load_baseline():
     tmp = Path(tempfile.mkdtemp(prefix="temporal_agg_fe_baseline_")) / "_temporal_agg_fe_baseline.py"
     tmp.write_text(src, encoding="utf-8")
     spec = importlib.util.spec_from_file_location("_temporal_agg_fe_baseline", tmp)
+    assert spec is not None
     mod = importlib.util.module_from_spec(spec)
     sys.modules["_temporal_agg_fe_baseline"] = mod
+    assert spec is not None
+    assert spec.loader is not None
     spec.loader.exec_module(mod)
     return mod
 

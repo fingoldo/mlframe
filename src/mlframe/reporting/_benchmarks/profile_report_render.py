@@ -37,7 +37,7 @@ def make_predictions(task: str, n: int, seed: int) -> Tuple[np.ndarray, np.ndarr
     if task == "multiclass":
         s = signal + rng.standard_normal(n) * 0.7
         y = np.digitize(s, np.quantile(s, [0.33, 0.66])).astype(np.int64)
-        logits = np.stack([-(s + 1) ** 2, -(s) ** 2, -(s - 1) ** 2], axis=1) + rng.standard_normal((n, 3)) * 0.3
+        logits = np.stack([-((s + 1) ** 2), -((s) ** 2), -((s - 1) ** 2)], axis=1) + rng.standard_normal((n, 3)) * 0.3
         e = np.exp(logits - logits.max(axis=1, keepdims=True))
         return y, e / e.sum(axis=1, keepdims=True), X, "multiclass_classification"
     y = (signal + rng.standard_normal(n) * 0.8 > 0).astype(np.int64)

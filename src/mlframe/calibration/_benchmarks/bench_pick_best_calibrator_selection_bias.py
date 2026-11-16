@@ -29,9 +29,7 @@ def _gen(rng: np.random.Generator, n: int, slope: float, noise: float) -> "tuple
     return p, y
 
 
-def _holdout_ece(
-    selection: str, oof_p: np.ndarray, oof_y: np.ndarray, ho_p: np.ndarray, ho_y: np.ndarray, seed: int
-) -> "tuple[str, float, float]":
+def _holdout_ece(selection: str, oof_p: np.ndarray, oof_y: np.ndarray, ho_p: np.ndarray, ho_y: np.ndarray, seed: int) -> "tuple[str, float, float]":
     """Pick a calibrator with ``selection``, refit it on full OOF, return (chosen, reported, fresh-holdout ECE)."""
     res = pick_best_calibrator(None, None, oof_p, oof_y, n_bootstrap=200, random_state=seed, selection=selection)
     chosen = res["chosen"]

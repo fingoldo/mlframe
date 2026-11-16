@@ -49,8 +49,6 @@ def run(n, G, k, mm, target, nrep=60, nperm=40):
             yp = rng.permutation(yb)
             nullmax.append(grid_mis(u, v, yp, G, k, mm).max())
             nullsel.append(mi_b(cb, yp, k, k, mm))
-        nullmax = np.array(nullmax)
-        nullsel = np.array(nullsel)
         res.append(
             (
                 base,

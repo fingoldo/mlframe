@@ -34,9 +34,7 @@ def _run(n_groups: int, n_per_group: int) -> None:
 def _run_multi_agg(n_groups: int, n_per_group: int) -> None:
     """Opt-in ``aggs=`` path: one shared multi-output OOF fit for several statistics at once."""
     X, y, group_ids = _make_dataset(n_groups, n_per_group, seed=0)
-    predicted_group_aggregate_feature(
-        X, y, group_ids, macro_estimator_factory=lambda: LinearRegression(), n_splits=5, aggs=("mean", "median", "std")
-    )
+    predicted_group_aggregate_feature(X, y, group_ids, macro_estimator_factory=lambda: LinearRegression(), n_splits=5, aggs=("mean", "median", "std"))
 
 
 if __name__ == "__main__":

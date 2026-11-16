@@ -54,6 +54,7 @@ from __future__ import annotations
 import cProfile
 import io
 import pstats
+from typing import Any
 import time
 
 import numpy as np
@@ -121,7 +122,8 @@ def _build_call(n=2000, n_clusters=5, k=4, seed=0, nbins=8):
 
 
 def _run_once(kw):
-    out = run_cluster_aggregate_step(**{k: (v.copy() if isinstance(v, np.ndarray) else (list(v) if isinstance(v, list) else (dict(v) if isinstance(v, dict) and k == "engineered_recipes" else v))) for k, v in kw.items()})
+    call_kw: dict[str, Any] = {k: (v.copy() if isinstance(v, np.ndarray) else (list(v) if isinstance(v, list) else (dict(v) if isinstance(v, dict) and k == "engineered_recipes" else v))) for k, v in kw.items()}
+    out = run_cluster_aggregate_step(**call_kw)
     return out[4], out[7]  # n_added, summary
 
 
@@ -134,10 +136,10 @@ def _warm_bench(label, kw, reps=20):
         t0 = time.perf_counter()
         _run_once(kw)
         times.append(time.perf_counter() - t0)
-    times = np.array(times)
+    times_arr = np.array(times)
     n_added, _summary = _run_once(kw)
-    print(f"  [{label}] n_added={n_added}  median={np.median(times)*1e3:.2f}ms  min={times.min()*1e3:.2f}ms")
-    return np.median(times)
+    print(f"  [{label}] n_added={n_added}  median={np.median(times_arr)*1e3:.2f}ms  min={times_arr.min()*1e3:.2f}ms")
+    return np.median(times_arr)
 
 
 def _bitident_check(seeds=(0, 1, 7)):

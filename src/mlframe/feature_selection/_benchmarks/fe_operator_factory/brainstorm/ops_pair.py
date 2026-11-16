@@ -1,6 +1,7 @@
 """Pair operators A (rank copula product), B / B2 / E (cross-fitted 2-D cell table, tree, kNN), C (1-D warp), D (distance to extreme centroid), H (oblique angle), I (circular phase) with W / N / 0 cases.
 Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.brainstorm.ops_pair <case names, e.g. B_W B_N B_0> [--seeds S] [--n N]``."""
 
+from typing import Any
 import numpy as np
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.tree import DecisionTreeRegressor
@@ -44,7 +45,7 @@ def A_new(Xtr, ytr, Xte, rng):
     Fa, Fb = cdf(Xtr[:, 0], Xtr[:, 0]), cdf(Xtr[:, 1], Xtr[:, 1])
     Ga, Gb = cdf(Xtr[:, 0], Xte[:, 0]), cdf(Xtr[:, 1], Xte[:, 1])
     yb = ybins(ytr, ytr)
-    best = None
+    best: Any = None
     for sa in (0, 1):
         for sb in (0, 1):
             ft = (abs(sa - Fa)) * (abs(sb - Fb))
@@ -88,7 +89,7 @@ def cell_fp(K, m=20):
 def B_new(Xtr, ytr, Xte, rng):
     """Operator B: out-of-fold 2-D cell table E[y|x, z], best K by train MI."""
     yb = ybins(ytr, ytr)
-    best = None
+    best: Any = None
     for K in (6, 10):
         ftr, fte = oof(cell_fp(K), Xtr[:, :2], ytr, Xte[:, :2], rng=rng)
         m = mi_pair(ftr, ftr, yb[0], yb[0], yb[2])[0]
@@ -147,7 +148,7 @@ def D_new(Xtr, ytr, Xte, rng):
 
     Ztr, Zte = Z(Xtr), Z(Xte)
     yb = ybins(ytr, ytr)
-    best = None
+    best: Any = None
     for _name, msk in (("top", ytr >= np.quantile(ytr, 0.9)), ("bot", ytr <= np.quantile(ytr, 0.1))):
         c = Ztr[msk].mean(0)
         ft = np.hypot(*(Ztr - c).T)
@@ -164,7 +165,7 @@ def H_new(Xtr, ytr, Xte, rng):
     mu, sd = Xtr[:, :2].mean(0), Xtr[:, :2].std(0)
     Ztr, Zte = (Xtr[:, :2] - mu) / sd, (Xte[:, :2] - mu) / sd
     yb = ybins(ytr, ytr)
-    best = None
+    best: Any = None
     for th in np.linspace(0, np.pi, 25)[:-1]:
         w = np.array([np.cos(th), np.sin(th)])
         ft = Ztr @ w
@@ -182,7 +183,7 @@ def I_new(Xtr, ytr, Xte, rng):
     cd = cd_t  # same circular distance as the module-level cd_t
 
     yb = ybins(ytr, ytr)
-    best = None
+    best: Any = None
     for p in np.arange(0, 24, 0.5):
         ft = cd(Xtr[:, 0], p)
         m = mi_pair(ft, ft, yb[0], yb[0], yb[2])[0]
@@ -194,7 +195,7 @@ def I_new(Xtr, ytr, Xte, rng):
 def I_four(Xtr, ytr, Xte, rng):
     """Operator I (Fourier variant): best sin / cos harmonic among k = 1, 2, 3."""
     yb = ybins(ytr, ytr)
-    best = None
+    best: Any = None
     for k in (1, 2, 3):
         for fn in (np.sin, np.cos):
             ft = fn(2 * np.pi * k * Xtr[:, 0] / 24)

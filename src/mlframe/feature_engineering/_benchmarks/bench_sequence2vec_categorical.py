@@ -59,9 +59,7 @@ if __name__ == "__main__":
         t0 = time.perf_counter()
         _run_transform_new_entities(n_entities, seq_len, vocab_size, n_epochs)
         wall = time.perf_counter() - t0
-        print(
-            f"fit+transform_new_entities n_entities={n_entities:>6,} seq_len={seq_len:>3} vocab={vocab_size:>4} n_epochs={n_epochs} -> {wall * 1000:9.2f} ms"
-        )
+        print(f"fit+transform_new_entities n_entities={n_entities:>6,} seq_len={seq_len:>3} vocab={vocab_size:>4} n_epochs={n_epochs} -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()

@@ -29,7 +29,10 @@ def _load_old_module():
     tmp = Path(tempfile.mkdtemp()) / "spectral_old.py"
     tmp.write_text(src, encoding="utf-8")
     spec = importlib.util.spec_from_file_location("spectral_old", tmp)
+    assert spec is not None
     mod = importlib.util.module_from_spec(spec)
+    assert spec is not None
+    assert spec.loader is not None
     spec.loader.exec_module(mod)
     return mod
 

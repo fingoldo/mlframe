@@ -19,6 +19,7 @@ number of known points the scan must skip.
 Run (CUDA off, python on PATH):
     CUDA_VISIBLE_DEVICES="" python src/mlframe/models/_benchmarks/bench_cpx16_optimization.py
 """
+from typing import Any, cast
 import os
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
@@ -52,7 +53,7 @@ def _build_primed_optimizer(n_space: int, n_known: int, n_skip: int, seed: int =
     extra = rng.choice(np.setdiff1d(search_space, near), size=max(0, n_known - len(near)), replace=False)
     known = np.unique(np.concatenate([near, extra])).astype(int)
     opt.known_candidates = known
-    opt.best_candidate = int(center)
+    cast(Any, opt).best_candidate = int(center)
     opt.best_evaluation = 1.0
     opt.n_noimproving_iters = 1
     opt.suggested_candidates.clear()

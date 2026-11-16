@@ -11,7 +11,7 @@ maximum absolute difference of the outputs. A kernel whose "free" column is not 
 from __future__ import annotations
 
 import time
-from typing import Any, Callable
+from typing import Any, Callable, cast
 
 import numpy as np
 
@@ -108,7 +108,7 @@ def _case_honest_null(cp: Any) -> "tuple[Callable[[bool], Callable[[], Any]], st
         for mod in modules:  # every module-level kernel cache is dropped: the next launch compiles with the setting of this build
             for attr in [a for a in vars(mod) if a.startswith("_kernel")]:
                 setattr(mod, attr, None)
-        return lambda: hd.honest_null_columns_device(*args, no_nan)
+        return lambda: cast(Any, hd).honest_null_columns_device(*args, no_nan)
 
     return make, "honest-null device pipeline (100000 rows, 100 permutations, 8 columns)"
 

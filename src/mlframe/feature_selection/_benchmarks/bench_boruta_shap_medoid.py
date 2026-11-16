@@ -12,7 +12,6 @@ Compare full BorutaShap vs BorutaShap-on-medoids-then-expand: OOS AUC + wall-clo
 n_trials so BorutaShap stays cheap.
 """
 from __future__ import annotations
-
 import time
 import warnings
 
@@ -81,10 +80,10 @@ def main():
         d, s = _run(f"synth_{i}(red{cfg['n_redundant']})", X, y, seed=i); daucs.append(d); sps.append(s)
     bc = load_breast_cancer(); d, s = _run("real_breast_cancer", bc.data, bc.target); daucs.append(d); sps.append(s)
     print("=" * 92)
-    daucs = np.array(daucs)
-    print(f"AUC delta (reduced-full): min={daucs.min():+.4f} mean={daucs.mean():+.4f} max={daucs.max():+.4f}")
+    daucs_arr = np.array(daucs)
+    print(f"AUC delta (reduced-full): min={daucs_arr.min():+.4f} mean={daucs_arr.mean():+.4f} max={daucs_arr.max():+.4f}")
     print(f"speedup: min={min(sps):.2f}x mean={np.mean(sps):.2f}x")
-    print(f"SAFE (all dAUC >= -0.01)? {bool((daucs >= -0.01).all())}")
+    print(f"SAFE (all dAUC >= -0.01)? {bool((np.asarray(daucs) >= -0.01).all())}")
 
 
 if __name__ == "__main__":

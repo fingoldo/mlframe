@@ -51,9 +51,9 @@ def main():
         resolve_auto_importance_measure(X, y, classification=True, random_state=s)
     pr.disable()
 
-    s = io.StringIO()
-    pstats.Stats(pr, stream=s).sort_stats("cumulative").print_stats(20)
-    print(s.getvalue())
+    buf = io.StringIO()
+    pstats.Stats(pr, stream=buf).sort_stats("cumulative").print_stats(20)
+    print(buf.getvalue())
 
 
 if __name__ == "__main__":

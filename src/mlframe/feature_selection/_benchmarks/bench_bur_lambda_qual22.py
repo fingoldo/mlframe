@@ -139,7 +139,7 @@ def main() -> None:
                         d.setdefault(k, []).append(v)
 
     print(f"\n=== BUR bur_lambda bench (n={args.n}, {len(seeds)} seeds) ===")
-    grand = {}
+    grand: dict[Any, Any] = {}
     for scen, by_cfg in res.items():
         base = by_cfg["baseline_no_bur"]
         print(f"\n[{scen}]")

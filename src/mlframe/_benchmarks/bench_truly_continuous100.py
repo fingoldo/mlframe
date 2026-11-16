@@ -13,6 +13,7 @@ Measured (10M float64, randn*100 rounded to 6 digits; probe breaks at d=7, py3.1
 """
 
 from __future__ import annotations
+from typing import Any, cast
 
 import sys
 import time
@@ -21,7 +22,7 @@ import numpy as np
 
 
 def main() -> None:
-    sys.modules.setdefault("cupy", None)
+    cast(Any, sys.modules).setdefault("cupy", None)
     import scipy.stats  # noqa: F401
     import numba  # noqa: F401
 

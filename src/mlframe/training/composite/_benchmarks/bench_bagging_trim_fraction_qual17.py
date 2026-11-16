@@ -10,12 +10,13 @@ across scenarios, with a per-scenario per-seed win-count majority check vs the i
 Run: python -m mlframe.training.composite._benchmarks.bench_bagging_trim_fraction_qual17
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import sys
 
 import numpy as np
 
-sys.modules.setdefault("cupy", None)
+cast(Any, sys.modules).setdefault("cupy", None)
 
 from sklearn.tree import DecisionTreeRegressor
 

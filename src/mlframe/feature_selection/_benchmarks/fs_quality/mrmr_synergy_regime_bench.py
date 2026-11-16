@@ -37,6 +37,7 @@ USAGE
 """
 from __future__ import annotations
 
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,7 @@ REGIMES = ("synergistic", "additive")
 def _make_synergistic(n: int, n_pairs: int, n_decoy: int, n_noise: int, seed: int):
     """K XOR/sign-product pairs; each operand ~useless alone, pair drives y. Returns X, y, relevant_idx."""
     rng = np.random.default_rng(seed)
-    cols = []
+    cols: list[Any] = []
     relevant = []
     logit = np.zeros(n)
     for k in range(n_pairs):
@@ -126,7 +127,7 @@ def _holdout_auc(X_tr, y_tr, X_ho, y_ho, sel_idx):
     if not sel_idx or len(np.unique(y_ho)) < 2 or len(np.unique(y_tr)) < 2:
         return {"lgbm": None, "logit": None}
     Xtr, Xho = X_tr[:, sel_idx], X_ho[:, sel_idx]
-    out = {}
+    out: dict[str, Any] = {}
     try:
         from lightgbm import LGBMClassifier
         m = LGBMClassifier(n_estimators=80, num_leaves=15, verbose=-1, random_state=0)
@@ -203,6 +204,9 @@ def _append(path, row):
 
 def run(smoke):
     path = SMOKE_JSONL if smoke else FULL_JSONL
+    n_values: Any
+    seeds: Any
+    dims: Any
     if smoke:
         n_values, seeds = (1500,), list(range(2))
         dims = (2, 3, 6)
@@ -263,12 +267,12 @@ def summarize(smoke):
               f"{_mean([r['n_selected'] for r in g]):>5.1f} {len(g):>5}")
 
     # paired wins vs default, per regime
-    by = defaultdict(dict)
+    by: Any = defaultdict(dict)
     for r in rows:
         by[(r["regime"], int(r["n"]), int(r["seed"]))][r["variant"]] = r
     print("\n=== PAIRED WINS vs default (per regime) ===")
     for target in ("jmim", "auto"):
-        agg = defaultdict(lambda: {"rec": [0, 0, 0], "auc": [0, 0, 0]})
+        agg: Any = defaultdict(lambda: {"rec": [0, 0, 0], "auc": [0, 0, 0]})
         for (reg, _n, _s), vs in by.items():
             if "default" not in vs or target not in vs:
                 continue

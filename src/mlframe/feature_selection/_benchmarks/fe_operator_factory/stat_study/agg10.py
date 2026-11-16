@@ -4,6 +4,7 @@ Positive = lower error than the baseline. Records written before the metric chan
 Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.stat_study.agg10``; reads the committed ``results/``, or the scratch outputs of ``exp10_downstream`` with ``--fresh``.
 """
 
+from typing import Any
 import json
 
 import numpy as np
@@ -27,7 +28,7 @@ def main() -> None:
             for n in sorted({r["n"] for r in recs}):
                 print(f"\n## {model}  n={n}   relative {metric.upper()} improvement over raw columns (mean over seeds; positive = better)")
                 print("target".ljust(28) + "".join(s.rjust(10) for s in SETS))
-                tot = {s: [] for s in SETS}
+                tot: Any = {s: [] for s in SETS}
                 for tn in dict.fromkeys(r["target"] for r in recs):
                     rs = [r for r in recs if r["target"] == tn and r["n"] == n]
                     if not rs:

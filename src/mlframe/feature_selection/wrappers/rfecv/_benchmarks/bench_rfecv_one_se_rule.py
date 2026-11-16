@@ -26,6 +26,7 @@ Rules: one_se_max_foldstd (legacy default), one_se_max (SE band, std/sqrt(k)), o
 """
 from __future__ import annotations
 
+from typing import Any
 import argparse
 import itertools
 import json
@@ -126,7 +127,7 @@ def make_estimator(kind: str, task: str, seed: int):
     if kind == "catboost":
         from catboost import CatBoostClassifier, CatBoostRegressor
 
-        kw = dict(iterations=60, depth=4, learning_rate=0.15, verbose=0, random_seed=seed, thread_count=1, allow_writing_files=False)
+        kw: dict[str, Any] = dict(iterations=60, depth=4, learning_rate=0.15, verbose=0, random_seed=seed, thread_count=1, allow_writing_files=False)
         return CatBoostRegressor(**kw) if task == "regression" else CatBoostClassifier(**kw)
     if kind == "lightgbm":
         from lightgbm import LGBMClassifier, LGBMRegressor

@@ -1,10 +1,14 @@
 """Per-NVTX-range kernel launches and GPU time from an ``nvprof --print-gpu-summary`` log. Usage: ``python nvprof_range_summary.py out.txt [kernel-name-substring]``; with a substring it lists, per range, the launches and GPU ms of the kernels whose name contains it (for example ``cupy_copy__float64_float64``, the same-dtype copies)."""
+from typing import Any
 import re, sys
 with open(sys.argv[1], encoding="utf-8", errors="ignore") as _fh:
     txt = _fh.read().splitlines()
 def tms(s):
-    m = re.match(r"([\d.]+)(ns|us|ms|s)$", s); return float(m.group(1)) * {"ns": 1e-6, "us": 1e-3, "ms": 1, "s": 1000}[m.group(2)]
-cur = None; res = {}
+    m = re.match(r"([\d.]+)(ns|us|ms|s)$", s)
+    assert m is not None
+    return float(m.group(1)) * {"ns": 1e-6, "us": 1e-3, "ms": 1, "s": 1000}[m.group(2)]
+cur = None
+res: dict[Any, Any] = {}
 for l in txt:
     m = re.search(r'Range "([^"]+)"', l)
     if m: cur = m.group(1); res.setdefault(cur, [0, 0.0, 0, 0.0]); continue
@@ -20,7 +24,7 @@ for k, (n, t, mc, mt) in sorted(res.items(), key=lambda x: -x[1][0]):
 
 if len(sys.argv) > 2:
     needle = sys.argv[2]
-    hits = {}
+    hits: dict[Any, Any] = {}
     cur = None
     for l in txt:
         m = re.search(r'Range "([^"]+)"', l)

@@ -3,6 +3,7 @@
 Run: ``python -m mlframe.calibration._benchmarks.bench_asymmetric_rescale``
 """
 from __future__ import annotations
+from typing import Any
 
 import cProfile
 import pstats
@@ -14,7 +15,7 @@ import numpy as np
 from mlframe.calibration.asymmetric_rescale import cross_validate_asymmetric_rescale, fit_asymmetric_rescale
 
 
-def _neg_mse(y_true, y_pred):
+def _neg_mse(y_true: Any, y_pred: Any) -> Any:
     return -float(np.mean((y_true - y_pred) ** 2))
 
 

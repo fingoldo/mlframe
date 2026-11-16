@@ -50,6 +50,7 @@ for any non-default value; 0.05 is the principled standard level. KEEP 0.05; opt
 """
 from __future__ import annotations
 
+from typing import Any
 import os
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 os.environ.setdefault("MLFRAME_NO_CUDA_AUTOCONFIG", "1")
@@ -186,7 +187,7 @@ def main():
 
     print(f"n={n}  scenarios={len(scenarios)}  seeds={len(seeds)}  null_perms={NULL_PERMS}")
     print(f"{'alpha':>7} {'keep%':>8} {'drop%':>8} {'sep%':>8} {'composite':>10}")
-    best = None
+    best: Any = None
     for a in ALPHAS:
         d = agg[a]
         keep = d["keep"] / max(1, d["keep_tot"])

@@ -18,7 +18,7 @@ Run::
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 
@@ -55,7 +55,7 @@ def _make_members(rng: np.random.Generator, y: np.ndarray, k: int, n_bad: int, s
 SCENARIOS = ("bias", "scale", "heavy_tail", "flip_sign", "mixed")
 
 
-def robust_aggregate(members: np.ndarray, mad_factor: float = 3.5) -> np.ndarray:
+def robust_aggregate(members: np.ndarray, mad_factor: float = 3.5) -> Any:
     """Mean unless a member is a per-column outlier (|member - median| > mad_factor * MAD); then
     drop the flagged member from that column's average. Falls back to mean where MAD==0."""
     med = np.median(members, axis=0)
@@ -89,7 +89,7 @@ def run(seeds=(0, 1, 2), k=6, n_bad=2, n=3000):
             rmse_median = _rmse(median_pred, y)
             rmse_robust = _rmse(robust_pred, y)
             trio = {"mean": rmse_mean, "median": rmse_median, "robust": rmse_robust}
-            winner = min(trio, key=trio.get)
+            winner = min(trio, key=lambda _k: trio[_k])
             mean_wins += winner == "mean"
             median_wins += winner == "median"
             robust_wins += winner == "robust"

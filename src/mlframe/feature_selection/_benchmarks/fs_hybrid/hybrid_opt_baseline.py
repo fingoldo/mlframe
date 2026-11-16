@@ -15,6 +15,7 @@ shared-FI prescreen, cluster-aware vote. use_fe=True (the shipped default) so th
   HYB_N=1500  HYB_SEED=0  MODE=baseline  python hybrid_opt_baseline.py
 """
 from __future__ import annotations
+from typing import Any, cast
 import logging
 
 logger = logging.getLogger(__name__)
@@ -40,9 +41,9 @@ def _disable_kernel_tuning_sweep():
         import pyutilz.performance.kernel_tuning.cache as _M
         from _downstream_shared import no_sweep_get_or_tune
 
-        _M.KernelTuningCache.get_or_tune = no_sweep_get_or_tune
+        cast(Any, _M.KernelTuningCache).get_or_tune = no_sweep_get_or_tune
         _inmem = _M.KernelTuningCache(in_memory=True)
-        _M.KernelTuningCache.load_or_create = classmethod(lambda cls: _inmem)
+        cast(Any, _M.KernelTuningCache).load_or_create = classmethod(lambda cls: _inmem)
         print("[kernel-tuning sweep+disk DISABLED -> in-memory fallback]", flush=True)
     except Exception as e:
         logger.debug("no-sweep patch failed: %s", e)
@@ -58,7 +59,7 @@ def load_data() -> tuple[pd.DataFrame, pd.Series]:
     return X, y
 
 
-def make_hybrid() -> "object":
+def make_hybrid() -> Any:
     """Construct the HybridSelector in its shipped default config (use_fe=True, tree member ON, vote=1)."""
     from mlframe.feature_selection import HybridSelector
     # the shipped default config (use_fe=True, tree member ON, vote=1) -> exercises the full combination path

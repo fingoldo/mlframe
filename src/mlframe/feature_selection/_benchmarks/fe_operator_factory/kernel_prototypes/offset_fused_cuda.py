@@ -13,6 +13,7 @@ Pass 2: regenerate, code = #edges <= x (upper bound), integer atomicAdd joint hi
 Output: mi[c] (+ optional edges[c, nbins-1]).  No (n x K*G) matrix anywhere; only per-block smem.
 """
 
+from typing import Any
 import numpy as np
 
 MODE_SHIFT = 0
@@ -219,7 +220,7 @@ def emulate_offset_fused(U, V, P, G, y, ncls, nbins, mode=MODE_SHIFT):
         for byte in range(7, -1, -1):
             shift = np.uint64(byte * 8)
             hmask = np.uint64(0) if byte == 7 else np.uint64((0xFFFFFFFFFFFFFFFF << ((byte + 1) * 8)) & 0xFFFFFFFFFFFFFFFF)
-            wpref = []
+            wpref: list[Any] = []
             rank2w = []
             for r in range(R):
                 p = prefix[r] & hmask

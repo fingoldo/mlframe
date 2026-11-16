@@ -21,6 +21,7 @@ Memory-frugal (heavy concurrent load): n_jobs=4, n_estimators<=200, synth/hard_s
 stress only (artifact cached). stdout -> file. ASCII-only prints (cp1251).
 """
 from __future__ import annotations
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ def shallow_tree_signals(X, y, n_estimators=120, max_depth=3, top_pairs=30, seed
     ranked = [c for c in imp.index if imp[c] > 0]
     tdf = m.booster_.trees_to_dataframe()
     tdf = tdf[tdf["split_feature"].notna()]
-    pair_w = Counter()
+    pair_w: Any = Counter()
     for _, g in tdf.groupby("tree_index"):
         feats = sorted(set(g["split_feature"].tolist()))
         gain = float(g["split_gain"].sum()) + 1e-9
@@ -102,7 +103,9 @@ def holdout_greedy_accept(base_df, prod_dict, y, floor=0.0015, seed=0):
         m.fit(Mtr, yi_tr)
         return roc_auc_score(yi_va, m.predict_proba(Mva)[:, 1])
 
-    accepted, acc_tr, acc_va = [], [], []
+    accepted: list[Any] = []
+    acc_tr: list[Any] = []
+    acc_va: list[Any] = []
     cur = fit_auc([], [])
     remaining = list(prod_dict.keys())
     while remaining:

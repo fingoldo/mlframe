@@ -10,7 +10,8 @@ PRIOR group, scatter all at once. Zero Python per-group iteration.
 Run: CUDA_VISIBLE_DEVICES="" python bench_per_group_shift_vectorized_iter135.py
 """
 import sys
-sys.modules["cupy"] = None
+from typing import Any, cast
+cast(Any, sys.modules)["cupy"] = None
 
 import numpy as np
 

@@ -3,6 +3,7 @@
 100000 rows x 120 columns, 3000 pairs of 12-bin columns against a 2-class target (joint cells 144 x 2), the kind of block the pair gate sends. The variant keeps the histogram
 updates in the same per-thread order within each chunk of four, so the counts (integers) and therefore the MI are equal.
 """
+from typing import Any
 import time
 import warnings
 
@@ -21,7 +22,7 @@ freqs = (np.bincount(y, minlength=2) / n).astype(np.float64)
 pa = rng.integers(0, nf, n_pairs).astype(np.int64)
 pb = ((pa + rng.integers(1, nf, n_pairs)) % nf).astype(np.int64)
 
-from mlframe.feature_selection.filters._benchmarks._pair_mi_row_major_src import ROW_MAJOR_SRC  # noqa: E402
+from mlframe.feature_selection.filters._benchmarks._pair_mi_row_major_src import ROW_MAJOR_SRC
 
 OLD = """    for (long long i = tid; i < n_samples; i += nt) {
         int va = factors_data[i * (long long)n_features + a];
@@ -51,7 +52,7 @@ NEW = """    for (long long i0 = tid; i0 < n_samples; i0 += 4LL * nt) {
         }
     }"""
 if not (ROW_MAJOR_SRC.count(OLD) == 1):
-    raise AssertionError('ROW_MAJOR_SRC.count(OLD) == 1')
+    raise AssertionError("ROW_MAJOR_SRC.count(OLD) == 1")
 unrolled = cp.RawKernel(ROW_MAJOR_SRC.replace(OLD, NEW), "pair_mi_shared_fused")
 plain = cp.RawKernel(ROW_MAJOR_SRC, "pair_mi_shared_fused")
 
@@ -67,9 +68,9 @@ def run(kernel, threads):
 configs = [("plain", plain, 128), ("plain", plain, 256), ("plain", plain, 512), ("unroll4", unrolled, 128), ("unroll4", unrolled, 256)]
 for _, k, th in configs:
     run(k, th)
-times = {i: [] for i in range(len(configs))}
+times: Any = {i: [] for i in range(len(configs))}
 ref = None
-for _ in range(5):
+for _rep in range(5):
     for i, (_, k, th) in enumerate(configs):
         d, out = run(k, th)
         times[i].append(d)

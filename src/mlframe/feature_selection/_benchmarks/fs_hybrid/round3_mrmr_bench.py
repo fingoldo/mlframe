@@ -10,6 +10,7 @@ it engineers SPURIOUS noise-only products (mul(log(noise_1),abs(noise_2)) etc.).
 Measures base_recall, raw-noise selected, #spurious engineered (recipe name has no 'inf_' token), downstream AUC.
 """
 from __future__ import annotations
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ from mlframe.feature_selection.filters import MRMR
 
 SEEDS = [0, 1, 2]
 _SAFE = re.compile(r"^[A-Za-z0-9_]+$")
-CONFIGS = {
+CONFIGS: dict[str, dict[str, Any]] = {
     "default": dict(),
     "dcd_off": dict(dcd_enable=False),
     "aggr_off": dict(cluster_aggregate_enable=False),
@@ -59,14 +60,14 @@ def main():
                 Ztr = m.transform(Xtr).copy(); Ztr.columns = [ren[c] for c in Ztr.columns]
                 Zte = m.transform(Xte).copy(); Zte.columns = [ren[c] for c in Zte.columns]
                 a = downstream_on_matrix(Ztr, Zte, ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)
-                row = dict(seed=sd, config=name, n=Ztr.shape[1], n_eng=len(eng), spurious_eng=spurious,
+                row: dict[str, Any] = dict(seed=sd, config=name, n=Ztr.shape[1], n_eng=len(eng), spurious_eng=spurious,
                            base=len(set(raw_sel) & base), base_recall=round(len(set(raw_sel) & base) / len(base), 3),
                            noise=len(set(raw_sel) & noise), fit_s=round(dt, 1), auc=a, auc_mean=am)
             except Exception as e:
                 logger.debug("seed=%s config=%s failed: %s: %s", sd, name, type(e).__name__, e)
                 row = dict(seed=sd, config=name, error=f"{type(e).__name__}: {e}")
             rows.append(row)
-            print(f"sd{sd} {name:14s} " + (row.get("error") if row.get("error") else
+            print(f"sd{sd} {name:14s} " + (str(row.get("error")) if row.get("error") else
                   f"n={row['n']:2d} eng={row['n_eng']:2d} spur={row['spurious_eng']:2d} base={row['base']}/{len(base)} "
                   f"rec={row['base_recall']} noise={row['noise']} {row['fit_s']:5.1f}s mean={row['auc_mean']}"), flush=True)
     df = pd.DataFrame([r for r in rows if not r.get("error")])

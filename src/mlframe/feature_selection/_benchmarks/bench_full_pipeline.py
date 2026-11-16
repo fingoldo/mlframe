@@ -20,6 +20,7 @@ Run::
         -m mlframe.feature_selection._benchmarks.bench_full_pipeline
 """
 from __future__ import annotations
+from typing import Any
 
 import json
 import logging
@@ -85,7 +86,7 @@ def main() -> None:
     # Cold phase. Per Critic 3 B1: each fit wrapped in try/except so an
     # OOM at one size doesn't kill the whole bench.
     print("\n--- cold phase (cache may be partially built) ---")
-    cold = []
+    cold: list[Any] = []
     for n_rows, n_features in _SIZES:
         try:
             X, y = _build(n_rows, n_features, seed=11)
@@ -99,7 +100,7 @@ def main() -> None:
 
     # Warm phase: same fits, cache fully warm.
     print("\n--- warm phase (all caches hit) ---")
-    warm = []
+    warm: list[Any] = []
     for n_rows, n_features in _SIZES:
         try:
             X, y = _build(n_rows, n_features, seed=11)

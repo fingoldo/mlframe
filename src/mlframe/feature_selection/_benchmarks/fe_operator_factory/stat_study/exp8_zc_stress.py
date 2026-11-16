@@ -1,6 +1,7 @@
 """Stress test of the zero-crossing / OLS / grid shift estimators across scenarios (monotone, non-monotone, multi-crossing, heavy tail, discrete u, no shift) and noise levels.
 Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.stat_study.exp8_zc_stress <reps> <A|B|C>  (A: monotone n x SNR sweep, B: bin-count sweep, C: other scenarios)``."""
 
+from typing import Any
 import sys
 
 import numpy as np
@@ -73,7 +74,7 @@ def estimators(u, v, y, yb, yr, nbs):
 
 def run(scn, n, snr, nbs, reps):
     """Regret, captured gain, failure rate and shift error per estimator over replicates."""
-    acc = {}
+    acc: dict[Any, Any] = {}
     for r in range(reps):
         tc = [0.3, 0.5, 0.7][r % 3]
         u, v, tr, y, tcv = gen(scn, n, snr, tc)

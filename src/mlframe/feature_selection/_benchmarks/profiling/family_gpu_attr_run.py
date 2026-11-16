@@ -1,4 +1,7 @@
-import os, sys, time, warnings, json
+"""Runs one warm GPU MRMR fit with the family timers on and prints the per-family wall times for the attribution analysis."""
+
+from typing import Any
+import os, time, warnings, json
 warnings.simplefilter("ignore")
 
 os.environ["MLFRAME_FE_STAGE_CONCURRENCY"] = "0"
@@ -7,7 +10,7 @@ import cupy as cp
 from mlframe.feature_selection.filters import _fe_family_timing as FT
 from mlframe.feature_selection._benchmarks.profiling import family_scale as F
 from mlframe.feature_selection.filters.mrmr import MRMR
-LOG = []
+LOG: list[Any] = []
 class Slot(list):
     def __init__(self, name): super().__init__([0.0, 0]); self.name = name
     def __setitem__(self, i, v):

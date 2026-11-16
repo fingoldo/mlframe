@@ -29,6 +29,7 @@ Run:
 
 from __future__ import annotations
 
+from typing import Any
 import os
 import sys
 
@@ -135,7 +136,7 @@ def main():
 
             # the default 1000 is the incumbent; a challenger "wins" the cell
             # only if its error is materially (>=10% relative) lower than 1000.
-            best_B = min(cand_err, key=cand_err.get)
+            best_B = min(cand_err, key=lambda _k: cand_err[_k])
             cell_winner_counts[best_B] += 1
             total_cells += 1
 
@@ -144,7 +145,7 @@ def main():
         print(f"{r[0]:<20} {r[1]:>3}  {r[2]:>5}  {r[3]:<7} {r[4]:<7} {r[5]}")
 
     print("\nPer-candidate mean scale-free error (lower=better):")
-    by_B = {B: [] for B in CANDIDATES}
+    by_B: Any = {B: [] for B in CANDIDATES}
     for r in rows:
         by_B[r[2]].append(r[3])
     for B in CANDIDATES:
@@ -160,7 +161,7 @@ def main():
     for _r in rows:
         pass
     # rebuild per-cell err to compare each challenger vs incumbent directly
-    per_cell = {}
+    per_cell: Any = {}
     for r in rows:
         per_cell.setdefault((r[0], r[1]), {})[r[2]] = r[3]
     for B in chal_wins:

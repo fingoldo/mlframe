@@ -1,4 +1,5 @@
 """Per 6-second bucket of a warm 100000 x 100 GPU fit: the innermost mlframe function of the main thread and the number of live mlframe worker threads."""
+from typing import Any
 import collections, os, sys, threading, time, warnings
 warnings.simplefilter("ignore")
 for k, v in {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_VRAM_F32": "1", "MLFRAME_FE_GPU_DISCRETIZE": "1", "MLFRAME_FE_GPU_BINNING": "1"}.items():
@@ -12,8 +13,8 @@ MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20000, 30, 1))
 data = F._make(100000, 100, 0)
 
 main_id = threading.get_ident()
-buckets = collections.defaultdict(collections.Counter)
-workers = collections.defaultdict(list)
+buckets: Any = collections.defaultdict(collections.Counter)
+workers: Any = collections.defaultdict(list)
 stop = threading.Event()
 t0 = time.perf_counter()
 

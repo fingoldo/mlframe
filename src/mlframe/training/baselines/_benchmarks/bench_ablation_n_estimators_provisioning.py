@@ -24,6 +24,7 @@ Run CPU-only (< 4 min):
 Output: _results/ablation_n_estimators_provisioning.json
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import json
 import time
@@ -191,11 +192,12 @@ def main():
                 }
                 if cell["name"] == "default":
                     ref = row
+                    assert ref is not None
                     row["dominant_same_as_default"] = True
                     row["topk_same_as_default"] = True
                 else:
-                    row["dominant_same_as_default"] = dom == ref["dominant_feature"]
-                    row["topk_same_as_default"] = ranking[:TOPK_VERDICT] == ref["topk_ranking"]
+                    row["dominant_same_as_default"] = dom == cast(Any, ref)["dominant_feature"]
+                    row["topk_same_as_default"] = ranking[:TOPK_VERDICT] == cast(Any, ref)["topk_ranking"]
                 results.append(row)
                 print(
                     f"{scen_name:22s} seed={seed} {cell['name']:14s} "

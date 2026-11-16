@@ -41,6 +41,7 @@ fits = variants(4) x scenarios(2) x n(2: 20k,100k) x p(1: 300) x seeds(15) = 240
 Smoke: --smoke (n=2000, p=40, 2 seeds, regression only). Resume: re-run the same command. Summarize: --summarize.
 """
 from __future__ import annotations
+from typing import Any
 
 import argparse
 import functools
@@ -115,6 +116,10 @@ _cell_key = cell_key
 
 def run_campaign(smoke: bool) -> None:
     path = SMOKE_JSONL if smoke else FULL_JSONL
+    n_values: Any
+    p_values: Any
+    seeds: Any
+    scenarios: Any
     if smoke:
         n_values, p_values, seeds, scenarios = (2000,), (40,), list(range(2)), ("regression",)
     else:

@@ -1,7 +1,8 @@
 """Bench: stable group-segmentation via np.argsort(stable) vs njit counting sort, for integer gids.
 Proves bit-identical sort_idx/starts/ends and the speedup at 10M."""
 import sys
-sys.modules['cupy'] = None
+from typing import Any, cast
+cast(Any, sys.modules)['cupy'] = None
 import scipy.stats  # noqa: F401
 import numba  # noqa: F401
 import time

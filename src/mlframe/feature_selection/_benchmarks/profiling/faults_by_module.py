@@ -1,6 +1,8 @@
-import types
 """Inclusive wall seconds of every function of the given modules in one warm GPU fit (wrapper timing, all threads summed). Usage: module_walls.py n p mod1 mod2 ..."""
-import os, sys, time, threading, warnings, importlib, functools, types
+
+from typing import Any
+import types
+import os, sys, time, threading, warnings, importlib, functools
 import psutil
 _me = psutil.Process()
 os.environ['MLFRAME_FE_STAGE_CONCURRENCY'] = '0'  # serial stages: the process-wide fault counter then belongs to the running function
@@ -11,7 +13,7 @@ from mlframe.feature_selection._benchmarks.profiling import family_scale as F
 from mlframe.feature_selection.filters.mrmr import MRMR
 kw = F.all_families_kwargs(); kw["nbins_strategy"] = os.environ.get("BENCH_NBINS", "mdlp")
 MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20000, 30, 1))
-walls = {}; calls = {}; stats = types.SimpleNamespace(faults={}); lock = threading.Lock()
+walls: Any = {}; calls: dict[Any, Any] = {}; stats = types.SimpleNamespace(faults={}); lock = threading.Lock()
 base = "mlframe.feature_selection.filters."
 for name in sys.argv[3:]:
     mod = importlib.import_module(base + name)

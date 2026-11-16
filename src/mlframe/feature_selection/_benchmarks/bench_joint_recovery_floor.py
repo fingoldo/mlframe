@@ -27,6 +27,7 @@ Run:
 """
 from __future__ import annotations
 
+from typing import Any
 import numpy as np
 
 from mlframe.feature_selection._benchmarks._bench_shared import occupied_k as _occupied_k, plugin_mi_1d as _plugin_mi, discretize_quantile_10bin as _disc
@@ -56,7 +57,10 @@ def _joint_ratio(eng_col, op_a, op_b, y_codes, ky, n):
 
 
 def main():
-    raw_g, deb_g, raw_x, deb_x = [], [], [], []
+    raw_g: list[Any] = []
+    deb_g: list[Any] = []
+    raw_x: list[Any] = []
+    deb_x: list[Any] = []
     for seed in range(8):
         rng = np.random.default_rng(seed)
         n = 2500
@@ -72,12 +76,12 @@ def main():
             if r is not None:
                 lr.append(r[0]); ld.append(r[1])
 
-    raw_g, deb_g, raw_x, deb_x = map(np.array, (raw_g, deb_g, raw_x, deb_x))
-    print(f"GENUINE  raw joint_ratio: mean={raw_g.mean():.3f} min={raw_g.min():.3f}  | MM-debiased: mean={deb_g.mean():.3f} min={deb_g.min():.3f}")
-    print(f"ARTEFACT raw joint_ratio: mean={raw_x.mean():.3f} max={raw_x.max():.3f}  | MM-debiased: mean={deb_x.mean():.3f} max={deb_x.max():.3f}")
-    print(f"FIXED floor 0.82/0.84: raw genuine-pass(>=0.84)={100*(raw_g>=0.84).mean():.0f}% artefact-pass(>=0.84)={100*(raw_x>=0.84).mean():.0f}%")
-    sep_raw = raw_g.min() - raw_x.max()
-    sep_deb = deb_g.min() - deb_x.max()
+    raw_g_arr, deb_g_arr, raw_x_arr, deb_x_arr = map(np.array, (raw_g, deb_g, raw_x, deb_x))
+    print(f"GENUINE  raw joint_ratio: mean={raw_g_arr.mean():.3f} min={raw_g_arr.min():.3f}  | MM-debiased: mean={deb_g_arr.mean():.3f} min={deb_g_arr.min():.3f}")
+    print(f"ARTEFACT raw joint_ratio: mean={raw_x_arr.mean():.3f} max={raw_x_arr.max():.3f}  | MM-debiased: mean={deb_x_arr.mean():.3f} max={deb_x_arr.max():.3f}")
+    print(f"FIXED floor 0.82/0.84: raw genuine-pass(>=0.84)={100*(raw_g_arr>=0.84).mean():.0f}% artefact-pass(>=0.84)={100*(raw_x_arr>=0.84).mean():.0f}%")
+    sep_raw = raw_g_arr.min() - raw_x_arr.max()
+    sep_deb = deb_g_arr.min() - deb_x_arr.max()
     print(f"SEPARATION MARGIN (min genuine - max artefact): raw={sep_raw:+.3f}  MM-debiased={sep_deb:+.3f}  delta={sep_deb-sep_raw:+.3f}")
 
     # HARNESS-FAITHFULNESS GUARD. The REAL gate (validated, HW-calibrated) places genuine pairs ABOVE the

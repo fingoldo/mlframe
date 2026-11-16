@@ -19,6 +19,7 @@ catboost+shap importorskip: falls back to a sklearn GradientBoosting tree model 
 """
 
 from __future__ import annotations
+from typing import Any, cast
 
 import logging
 
@@ -110,7 +111,7 @@ def timing(n_folds: int = 5, repeats: int = 3):
             v = np.asarray(ex(X[te]).values)  # only X_test
             for j, ridx in enumerate(te):
                 rows[ridx] = v[j]
-        return np.stack(rows)
+        return np.stack(cast(Any, rows))
 
     # warm
     old_path(); new_path()

@@ -59,8 +59,8 @@ def old_fused(arr: np.ndarray, q: np.ndarray, max_modes: int) -> tuple:
             if counts[ni] < fmc:
                 break
             best.append(vals[ni])
-        best = np.asarray(best)
-        modes_min, modes_max, modes_mean, modes_qty = best.min(), best.max(), best.mean(), len(best)
+        best_arr = np.asarray(best)
+        modes_min, modes_max, modes_mean, modes_qty = best_arr.min(), best_arr.max(), best_arr.mean(), len(best_arr)
     res = (len(vals), modes_min, modes_max, modes_mean, modes_qty)
     h = (n + 1.0 / 3.0) * q + 1.0 / 3.0
     np.clip(h, 1.0, float(n), out=h)

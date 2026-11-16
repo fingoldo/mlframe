@@ -39,9 +39,13 @@ def f2_monotone_decoys(seed, n=3000):
 def f2_leverage_tiny_b(seed, n=3000):
     """F2 with a lognormal divisor reaching 1e-2 and Student-t(1.5) target noise: leverage in both the feature and the target."""
     r = np.random.default_rng(seed)
-    a = r.normal(1.0, 0.3, n); b = r.lognormal(-1.0, 1.0, n)
-    c = r.uniform(.5, 5, n); d = r.uniform(0, 2 * np.pi, n); e = r.standard_t(2, n)
-    truth = _sig(a, b, c, d); y = truth + 0.5 * r.standard_t(1.5, n)
+    a = r.normal(1.0, 0.3, n)
+    b = r.lognormal(-1.0, 1.0, n)
+    c = r.uniform(0.5, 5, n)
+    d = r.uniform(0, 2 * np.pi, n)
+    e = r.standard_t(2, n)
+    truth = _sig(a, b, c, d)
+    y = truth + 0.5 * r.standard_t(1.5, n)
     return pd.DataFrame(dict(a=a, b=b, c=c, d=d, e=e)), y, truth
 
 
@@ -120,8 +124,9 @@ def f2_time_autocorr_walk(seed, n=3000):
         """A fresh uniform-marginal AR(1) path."""
         return ndtr(_ar1(r, n, 0.98))
 
-    a, b, c, d = .5 + 1.5 * u(), .5 + 1.5 * u(), .5 + 3.5 * u(), 2 * np.pi * u()
-    truth = _sig(a, b, c, d); y = truth + 0.3 * _ar1(r, n, 0.9)
+    a, b, c, d = 0.5 + 1.5 * u(), 0.5 + 1.5 * u(), 0.5 + 3.5 * u(), 2 * np.pi * u()
+    truth = _sig(a, b, c, d)
+    y = truth + 0.3 * _ar1(r, n, 0.9)
     return pd.DataFrame(dict(a=a, b=b, c=c, d=d, e=np.cumsum(r.normal(size=n)))), y, truth
 
 

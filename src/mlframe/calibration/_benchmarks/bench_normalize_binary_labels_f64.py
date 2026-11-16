@@ -8,12 +8,13 @@ isolated and in a representative resample loop, and asserts ECE bit-identity.
 Run: python -m mlframe.calibration._benchmarks.bench_normalize_binary_labels_f64
 """
 from __future__ import annotations
+from typing import Any
 import time
 import numpy as np
 from mlframe.calibration.policy import _normalize_binary_labels, _scan_binary01_f64, _ece_score
 
 
-def _old_normalize_f64(arr: np.ndarray) -> np.ndarray:
+def _old_normalize_f64(arr: np.ndarray) -> Any:
     """Legacy float path (verbatim from pre-fix _normalize_binary_labels): np.unique sort."""
     finite = arr[np.isfinite(arr.astype(np.float64))] if arr.dtype.kind == "f" else arr
     uniq = np.unique(finite)
@@ -25,7 +26,7 @@ def _old_normalize_f64(arr: np.ndarray) -> np.ndarray:
     return (arr == hi).astype(np.int64)
 
 
-def _median_us(fn, iters):
+def _median_us(fn: Any, iters: Any) -> Any:
     ts = []
     for _ in range(iters):
         t0 = time.perf_counter()
@@ -34,7 +35,7 @@ def _median_us(fn, iters):
     return float(np.median(ts))
 
 
-def main():
+def main() -> None:
     rng = np.random.default_rng(0)
     print(f"{'n':>10} {'old_us':>10} {'new_us':>10} {'speedup':>8}  identity")
     for n in (2_000, 200_000, 1_000_000):

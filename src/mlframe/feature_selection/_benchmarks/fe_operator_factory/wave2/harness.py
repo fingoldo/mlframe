@@ -3,6 +3,7 @@ with recipes frozen from the fit half, and the replay proof (JSON round trip + D
 
 from __future__ import annotations
 
+from typing import Any
 import json
 
 import numpy as np
@@ -30,7 +31,7 @@ def top_cols(XA: np.ndarray, yb: tuple, cols: list, cap: int = 6) -> list:
     return [cols[i] for i in np.argsort(sc)[::-1][:cap]]
 
 
-def heldout_mi(fa, fb, yb) -> tuple:
+def heldout_mi(fa, fb, yb) -> Any:
     """(train MI, held-out MI) of a feature with decile edges from the fit half."""
     return MI(fa, fb, yb)
 

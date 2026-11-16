@@ -7,6 +7,7 @@ pre-round-3 defaults -- to check fe_strict generalizes before flipping the share
 parsimony_tol lesson: don't flip a shared-infra default on one synthetic).
 """
 from __future__ import annotations
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -70,7 +71,7 @@ def mrmr_fe_variant(fe_strict):
     _SAFE = re.compile(r"^[A-Za-z0-9_]+$")
     class _Sel:
         def fit(self, X, y):
-            kw = dict(fe_synergy_min_prevalence=1.5, fe_min_engineered_mi_prevalence=0.97) if fe_strict else {}
+            kw: dict[str, Any] = dict(fe_synergy_min_prevalence=1.5, fe_min_engineered_mi_prevalence=0.97) if fe_strict else {}
             self.m_ = MRMR(verbose=0, fe_max_steps=1, n_jobs=-1, random_seed=0, **kw); self.m_.fit(X, y)
             out = list(self.m_.transform(X.iloc[:5]).columns)
             self.ren_ = {c: (c if _SAFE.match(str(c)) else f"eng_{i}") for i, c in enumerate(out)}

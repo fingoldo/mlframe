@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
 import itertools
 import json
 import time
@@ -42,7 +43,7 @@ C_PROJECT = 40.0
 REL_FLOOR = 0.03
 
 
-def _train_mi(f: np.ndarray, yb: tuple) -> float:
+def _train_mi(f: np.ndarray, yb: tuple) -> Any:
     """In-sample MI of a (out-of-fold) training feature against the fit-half target codes."""
     f = clean(f)
     return mi_pair(f, f, yb[0], yb[0], yb[2])[0]
@@ -50,7 +51,7 @@ def _train_mi(f: np.ndarray, yb: tuple) -> float:
 
 def fit_B2(XA, ya, cols, yb, seed, m: float = 3.0, ks=(6, 10)):
     """Operator B: over all pairs of ``cols`` and the grid sizes ``ks`` keep the cross-fitted cell table with the best train MI; returns (train column, recipe, info)."""
-    best = None
+    best: Any = None
     for i, j in itertools.combinations(cols, 2):
         for K in ks:
             f, rec = oof_fit("cell2d", XA, ya, [i, j], seed=seed, K=K, m=m)
@@ -62,7 +63,7 @@ def fit_B2(XA, ya, cols, yb, seed, m: float = 3.0, ks=(6, 10)):
 
 def fit_C2(XA, ya, cols, yb, seed, nb: int = 20):
     """Operator C: per column a cross-fitted ``nb``-bin warp; keep the column with the best train MI; returns (train column, recipe, info)."""
-    best = None
+    best: Any = None
     for j in cols:
         f, rec = oof_fit("warp1d", XA, ya, [j], seed=seed, nb=nb)
         score = _train_mi(f, yb)
@@ -79,7 +80,7 @@ def fit_G2(XA, ya, cols, yb, seed):
 
 def fit_op(op: str, XA, ya, cols, yb, seed, **kw):
     """Dispatch to the fit function of operator ``op`` (``B``, ``C`` or ``G``)."""
-    return {"B": fit_B2, "C": fit_C2, "G": fit_G2}[op](XA, ya, cols, yb, seed, **kw)
+    return cast(Any, {"B": fit_B2, "C": fit_C2, "G": fit_G2})[op](XA, ya, cols, yb, seed, **kw)
 
 
 def replay_op(op: str, rec: dict, X) -> np.ndarray:

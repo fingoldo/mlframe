@@ -5,6 +5,7 @@ or does refine=False + wider revalidation (top_n 20->40) win? (R2s-1/4) does a T
 with refine ON beat refine=False (i.e. is the over-pruning just a too-loose tol)? Downstream honest-holdout AUC.
 """
 from __future__ import annotations
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,13 +23,13 @@ from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 SCEN = ["base", "manyredundant", "monotone"]
 SEEDS = [0, 1]
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_results")
-CONFIGS = {
+CONFIGS: dict[str, dict[str, Any]] = {
     "refineOFF_top20": dict(within_cluster_refine=False, top_n=20),
     "refineOFF_top40": dict(within_cluster_refine=False, top_n=40),
     "refineON_tol02": dict(within_cluster_refine=True, parsimony_tol=0.02, top_n=20),
     "refineON_tol005": dict(within_cluster_refine=True, parsimony_tol=0.005, top_n=20),
 }
-BASE = dict(classification=True, n_splits=3, min_features=1, prefilter_top=40, prefilter_n_estimators=50,
+BASE: dict[str, Any] = dict(classification=True, n_splits=3, min_features=1, prefilter_top=40, prefilter_n_estimators=50,
             oof_shap_n_estimators=50, revalidation_n_estimators=50, n_revalidation_models=2,
             trust_guard=True, trust_guard_n_estimators=15, cluster_features="auto", random_state=0, verbose=False)
 
@@ -47,12 +48,12 @@ def main():
                     cols = [c for c in s.selected_features_ if c in X.columns]
                     a = downstream_on_cols(Xtr, Xte, ytr, yte, cols)
                     am = round(float(np.nanmean([v for v in a.values()])), 4)
-                    row = dict(scenario=sc, seed=sd, config=name, n=len(cols), base=len(set(cols) & base), fit_s=round(dt, 1), auc=a, auc_mean=am)
+                    row: dict[str, Any] = dict(scenario=sc, seed=sd, config=name, n=len(cols), base=len(set(cols) & base), fit_s=round(dt, 1), auc=a, auc_mean=am)
                 except Exception as e:
                     logger.debug("scenario=%s seed=%s config=%s failed: %s: %s", sc, sd, name, type(e).__name__, e)
                     row = dict(scenario=sc, seed=sd, config=name, error=f"{type(e).__name__}: {e}")
                 rows.append(row)
-                print(f"{sc:14s} sd{sd} {name:16s} " + (row.get("error") if row.get("error") else f"n={row['n']:2d} base={row['base']}/{len(base)} {row['fit_s']:5.1f}s auc={row['auc']} mean={row['auc_mean']}"), flush=True)
+                print(f"{sc:14s} sd{sd} {name:16s} " + (str(row.get("error")) if row.get("error") else f"n={row['n']:2d} base={row['base']}/{len(base)} {row['fit_s']:5.1f}s auc={row['auc']} mean={row['auc_mean']}"), flush=True)
     with open(os.path.join(OUT, "round2_shap.jsonl"), "w", encoding="utf-8") as f:
         for r in rows:
             f.write(json.dumps(r) + "\n")
@@ -60,7 +61,7 @@ def main():
     print("\n=== mean over scenarios x seeds ===")
     print(df.groupby("config").agg(auc_mean=("auc_mean", "mean"), lgbm=("auc", lambda s: np.mean([a["lgbm"] for a in s])),
                                    n=("n", "mean"), base=("base", "mean"), fit_s=("fit_s", "mean")).round(4).to_string())
-    wins = {}
+    wins: dict[Any, Any] = {}
     for (_sc, _sd), g in df.groupby(["scenario", "seed"]):
         b = g.loc[g["auc_mean"].idxmax(), "config"]; wins[b] = wins.get(b, 0) + 1
     print("win counts (best auc_mean):", wins)

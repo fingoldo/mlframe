@@ -1,6 +1,7 @@
 """Operator M: pair-interaction screen on the residual of an out-of-fold additive model versus the same screen on y; W / N / 0 targets over 8 numeric columns.
 Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.brainstorm.ops_M [--seeds S] [--n N]``."""
 
+from typing import Any
 import argparse
 import itertools
 import json
@@ -51,7 +52,7 @@ def resid_oof(X, y, rng, k=5):
         I = [np.searchsorted(e[j], Xa[:, j]) for j in range(p)]
         F = np.zeros((n, p))
         mu = y[m].mean()
-        tabs = [None] * p
+        tabs: list[Any] = [None] * p
         for _ in range(3):
             for j in range(p):
                 rr = y[m] - mu - F.sum(1) + F[:, j]

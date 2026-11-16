@@ -35,10 +35,7 @@ if __name__ == "__main__":
         t0 = time.perf_counter()
         _run(n_oof, n_test, n_calls, smoothing=0.35)
         wall = time.perf_counter() - t0
-        print(
-            f"[smoothed] n_oof={n_oof:>9,} n_test={n_test:>9,} n_calls={n_calls:>3} -> "
-            f"{wall * 1000:9.2f} ms total, {wall / n_calls * 1000:9.3f} ms/call"
-        )
+        print(f"[smoothed] n_oof={n_oof:>9,} n_test={n_test:>9,} n_calls={n_calls:>3} -> " f"{wall * 1000:9.2f} ms total, {wall / n_calls * 1000:9.3f} ms/call")
 
     profiler = cProfile.Profile()
     profiler.enable()

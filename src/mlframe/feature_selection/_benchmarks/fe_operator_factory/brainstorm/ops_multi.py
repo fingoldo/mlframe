@@ -1,6 +1,7 @@
 """Multi-column operators F (count above median), G (row statistics), J (log-sum-exp), K (tropical), L (parity), AA (compositional shares / entropy), S (bit features) with their W / N / 0 cases.
 Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.brainstorm.ops_multi <case names, e.g. G_W G_N G_0> [--seeds S] [--n N]``."""
 
+from typing import Any, cast
 import itertools
 
 import numpy as np
@@ -20,7 +21,7 @@ def sel(cands_fn, Xtr, ytr, Xte, ks):
     """Pick the best candidate (by train MI) over column-subset sizes ``ks`` of the top columns and every candidate the generator yields."""
     yb = ybins(ytr, ytr)
     order = topk_cols(Xtr, yb)
-    best = None
+    best: Any = None
     for k in ks:
         S = order[:k]
         for nm, ftr, fte in cands_fn(Xtr[:, S], Xte[:, S], Xtr[:, S]):
@@ -52,11 +53,11 @@ def F2_new(Xtr, ytr, Xte, rng):
     """Operator F2: exhaustive subset search for the count feature."""
     med = np.median(Xtr, 0)
     yb = ybins(ytr, ytr)
-    best = None
+    best: Any = None
     p = Xtr.shape[1]
     for k in range(2, p + 1):
         for S in itertools.combinations(range(p), k):
-            S = list(S)
+            S = cast(Any, list(S))
             f = (Xtr[:, S] > med[S]).sum(1).astype(float)
             m = mi_pair(f, f, yb[0], yb[0], yb[2])[0]
             if best is None or m > best[0]:
@@ -110,7 +111,7 @@ def J_sig(X):
 def K_new(Xtr, ytr, Xte, rng):
     """Operator K: min / max of two sums over the three pairings of four columns."""
     yb = ybins(ytr, ytr)
-    best = None
+    best: Any = None
     for (i, j), (k, l) in (((0, 1), (2, 3)), ((0, 2), (1, 3)), ((0, 3), (1, 2))):
         for nm, op in (("min", np.minimum), ("max", np.maximum)):
 
@@ -130,7 +131,7 @@ def L_new(Xtr, ytr, Xte, rng):
     med = np.median(Xtr, 0)
     Btr, Bte = (Xtr > med).astype(int), (Xte > med).astype(int)
     yb = ybins(ytr, ytr)
-    best = None
+    best: Any = None
     for r in (2, 3):
         for S in itertools.combinations(range(Xtr.shape[1]), r):
             f = Btr[:, S].sum(1) % 2
@@ -204,7 +205,7 @@ def ds(k):
 def S_new(Xtr, ytr, Xte, rng):
     """Operator S: best of popcount, trailing zeros, digit sum and Gray-code popcount of an integer column."""
     yb = ybins(ytr, ytr)
-    best = None
+    best: Any = None
     for nm, f in (("pop", pc), ("tz", tz), ("digsum", ds), ("gray", lambda k: pc(k.astype(np.int64) ^ (k.astype(np.int64) >> 1)))):
         m = mi_pair(f(Xtr[:, 0]), f(Xtr[:, 0]), yb[0], yb[0], yb[2])[0]
         if best is None or m > best[0]:
@@ -225,7 +226,7 @@ def P(f, p):
     return (f, p)
 
 
-C = {}
+C: dict[Any, Any] = {}
 
 
 def add(nm, X, sig, new, truth=None, nz=0.3, null=False, pairs=True, cols=None):

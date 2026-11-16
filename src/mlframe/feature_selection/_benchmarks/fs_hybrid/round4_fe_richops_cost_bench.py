@@ -15,6 +15,7 @@ Frugal: n_jobs<=2, single bench run; stdout goes to the launching redirection.
 """
 from __future__ import annotations
 
+from typing import Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -157,7 +158,7 @@ def main():
                   f"{r.get('auc_lgbm',float('nan')):>9.4f} {r['auc_mean']:>9.4f}")
     # summary deltas
     print("\n=== DELTAS (medium - minimal) ===")
-    by_bed = {}
+    by_bed: dict[Any, Any] = {}
     for bn, r in rows:
         by_bed.setdefault(bn, {})[r["preset"]] = r
     for bn, d in by_bed.items():

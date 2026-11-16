@@ -14,6 +14,7 @@ Run: python round5_smooth_perf_bench.py
 """
 from __future__ import annotations
 
+from typing import Any
 import sys
 import os
 
@@ -26,6 +27,9 @@ from mlframe.feature_selection.wrappers.rfecv._stability_select import select_op
 
 class _Mock:
     """Minimal carrier exposing the attributes select_optimal_nfeatures_ reads."""
+
+    cv_results_: dict[str, Any]
+    n_features_: int
 
     def __init__(self, nfeat, smooth_perf):
         self.mean_perf_weight = 1.0
@@ -66,7 +70,7 @@ def run(seeds=range(40), noise=0.04, ngrid=None, rule="auto"):
     kinds = ["peak", "plateau", "broad", "early", "noisy_flat"]
     smooths = [0, 1, 3, 5]
     # accumulate mean TRUE-score-at-pick per (kind, smooth)
-    acc = {(k, s): [] for k in kinds for s in smooths}
+    acc: Any = {(k, s): [] for k in kinds for s in smooths}
     for kind in kinds:
         nf, t = true_curve(kind, ngrid)
         std_curve = np.full_like(t, noise)

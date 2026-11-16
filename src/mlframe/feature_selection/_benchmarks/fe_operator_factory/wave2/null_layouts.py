@@ -14,6 +14,7 @@ Output: ``wave2/results/rows_null_<n>.jsonl`` and ``null_layouts.txt``.
 
 from __future__ import annotations
 
+from typing import Any
 import argparse
 import time
 
@@ -27,7 +28,7 @@ from .stress import accept, cap_columns, cheap_existing, fit_op, read_rows, repl
 __all__ = ["LAYOUTS", "one_run", "summarize", "main"]
 
 
-def _std(v: np.ndarray) -> np.ndarray:
+def _std(v: np.ndarray) -> Any:
     """Zero-mean unit-variance copy of ``v``."""
     return (v - v.mean()) / v.std()
 

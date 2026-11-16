@@ -30,6 +30,7 @@ Run:  python bench_target_encoder_smoothing.py
 
 from __future__ import annotations
 
+from typing import Any
 import sys
 from pathlib import Path
 
@@ -101,9 +102,9 @@ SCENARIOS = [
 
 def main():
     # cell_auc[sm] = list of held-out AUCs; cell_mse[sm] = list of post-MSEs
-    cell_auc = {sm: [] for sm in CANDIDATES}
-    cell_mse = {sm: [] for sm in CANDIDATES}
-    cell_ll = {sm: [] for sm in CANDIDATES}
+    cell_auc: Any = {sm: [] for sm in CANDIDATES}
+    cell_mse: Any = {sm: [] for sm in CANDIDATES}
+    cell_ll: Any = {sm: [] for sm in CANDIDATES}
     wins = {sm: 0 for sm in CANDIDATES}  # by AUC
     wins_ll = {sm: 0 for sm in CANDIDATES}  # by log-loss (calibration)
 
@@ -135,6 +136,7 @@ def main():
                     best_auc, best_sm = auc, sm
                 if ll < best_ll:
                     best_ll, best_sm_ll = ll, sm
+            assert best_sm is not None and best_sm_ll is not None
             wins[best_sm] += 1
             wins_ll[best_sm_ll] += 1
 

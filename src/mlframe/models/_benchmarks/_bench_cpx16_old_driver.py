@@ -15,11 +15,13 @@ if __name__ == "__main__":
 
     # Import the OLD source under its real package name so relative imports resolve.
     spec = importlib.util.spec_from_file_location("mlframe.models.optimization", OLD_SRC)
+    assert spec is not None
     mod = importlib.util.module_from_spec(spec)
     sys.modules["mlframe.models.optimization"] = mod
+    assert spec is not None
+    assert spec.loader is not None
     spec.loader.exec_module(mod)
     MBHOptimizer = mod.MBHOptimizer
-
 
     def _build(n_space, n_known, n_skip, seed=0):
         opt = MBHOptimizer(
@@ -43,7 +45,6 @@ if __name__ == "__main__":
         opt.suggested_candidates.clear()
         return opt
 
-
     def _time(n_space, n_known, n_skip, n_calls=200, repeats=5):
         best = float("inf")
         for _ in range(repeats):
@@ -56,7 +57,6 @@ if __name__ == "__main__":
                 opt.suggested_candidates.clear()
             best = min(best, time.perf_counter() - t0)
         return best / n_calls
-
 
     print(f"{'n_space':>10} {'n_known':>9} {'n_skip':>8} {'us/call':>12}")
     for n_space, n_known, n_skip in [(5_000, 2_500, 2_000), (10_000, 5_000, 4_000), (50_000, 25_000, 20_000)]:

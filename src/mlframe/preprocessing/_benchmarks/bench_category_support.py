@@ -64,8 +64,7 @@ if __name__ == "__main__":
         _run_with_target_encoding_fallback(n, n_cols, n_cats, n_calls)
         wall = time.perf_counter() - t0
         print(
-            f"[target_encoding_fallback] n={n:>9,} cols={n_cols:>3} cats={n_cats:>5} -> "
-            f"{wall * 1000:9.2f} ms total, {wall / n_calls * 1000:8.2f} ms/call"
+            f"[target_encoding_fallback] n={n:>9,} cols={n_cols:>3} cats={n_cats:>5} -> " f"{wall * 1000:9.2f} ms total, {wall / n_calls * 1000:8.2f} ms/call"
         )
 
     profiler = cProfile.Profile()

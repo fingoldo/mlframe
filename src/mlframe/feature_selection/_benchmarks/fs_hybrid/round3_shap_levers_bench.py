@@ -11,6 +11,7 @@ Discriminating tests (not deferrals):
 Measures downstream honest-holdout AUC, base recall, noise, interaction-operand recovery.
 """
 from __future__ import annotations
+from typing import Any
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -29,7 +30,7 @@ BASEKW = dict(classification=True, n_splits=3, top_n=20, min_features=8, prefilt
 
 
 def mk(p, **over):
-    kw = dict(BASEKW); kw["prefilter_top"] = min(40, p); kw.update(over)
+    kw: dict[str, Any] = dict(BASEKW); kw["prefilter_top"] = min(40, p); kw.update(over)
     return ShapProxiedFS(**kw)
 
 
@@ -68,7 +69,7 @@ def main():
         print(f"sd{sd} S3-3 prefilter: operands_in_working={sorted(oper & work) if work else 'report-key-absent (prefilter keys=' + str(list(pf.keys()) if isinstance(pf, dict) else type(pf).__name__) + ')'} (oper={sorted(oper)})", flush=True)
         # K-split vote (R2s-2): 3 subsample fits, keep features chosen in >=2
         from collections import Counter
-        cnt = Counter()
+        cnt: Any = Counter()
         for b in range(3):
             rng = np.random.default_rng(100 * sd + b)
             idx = rng.choice(len(Xtr), int(0.8 * len(Xtr)), replace=False)

@@ -1,16 +1,17 @@
 """One 100000 x 100 every-family GPU fit (gpu_walls protocol) with a system sampler: own vs other CPU, free memory, page faults, GPU utilisation, every 2 s."""
-import os, sys, time, threading, subprocess, warnings
+from typing import Any
+import os, time, threading, subprocess, warnings
 warnings.simplefilter("ignore")
 import psutil
 for k, v in {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_VRAM_F32": "1", "MLFRAME_FE_GPU_DISCRETIZE": "1", "MLFRAME_FE_GPU_BINNING": "1"}.items():
     os.environ.setdefault(k, v)
 from mlframe.feature_selection._benchmarks.profiling import family_scale as F
 from mlframe.feature_selection.filters.mrmr import MRMR
-kw = {f: True for f in F._flag_names()}; kw["nbins_strategy"] = "mdlp"
+kw: dict[str, Any] = {f: True for f in F._flag_names()}; kw["nbins_strategy"] = "mdlp"
 MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20000, 30, 1))
 data = F._make(100000, 100, 0)
 me = psutil.Process()
-samples = []; stop = threading.Event()
+samples: Any = []; stop = threading.Event()
 def gpu_util():
     try:
         from mlframe.training._gpu_state_probe import _resolve_smi
@@ -42,7 +43,7 @@ g = [s[7] for s in samples if s[7] >= 0]; print("gpu util avg %.0f max %d" % (S.
 # coarse timeline: seconds from the start of the fit, own cores and GPU utilisation in buckets of ~6 s (where the fit idles)
 t0 = samples[0][0] - 2.0 if samples else 0.0
 bucket = 6.0
-rows = {}
+rows: dict[Any, Any] = {}
 for s_ in samples:
     rows.setdefault(int((s_[0] - t0) // bucket), []).append(s_)
 print("TIMELINE (s, own cores, gpu%)")

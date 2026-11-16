@@ -1,7 +1,10 @@
-import json, pandas as pd, numpy as np, io, bisect
+"""Aggregates the own GPU time per MRMR feature-engineering family from a saved profiler trace CSV."""
+
+from typing import Any
+import json, pandas as pd, io
 lines = open("D:/Temp/fam_gpu_trace.csv", encoding="utf8", errors="ignore").read().splitlines()
 h = next(i for i, l in enumerate(lines) if l.startswith('"Start"'))
-df = pd.read_csv(io.StringIO("\n".join([lines[h]] + lines[h + 2:])), low_memory=False)
+df = pd.read_csv(io.StringIO("\n".join([lines[h], *lines[h + 2:]])), low_memory=False)
 unit = lines[h + 1].split(",")[0].strip('"')  # unit of Start
 mul = {"s": 1.0, "ms": 1e-3, "us": 1e-6, "ns": 1e-9}[unit]
 dur_unit = lines[h + 1].split(",")[1].strip('"'); dmul = {"s": 1.0, "ms": 1e-3, "us": 1e-6, "ns": 1e-9}[dur_unit]
@@ -25,7 +28,7 @@ def own(t):
     return best[1] if best else "(none)"
 k["fam"] = [own(t) for t in k["t"]]
 gpu = k.groupby("fam").agg(gpu_s=("d", "sum"), n_kern=("d", "size"))
-wall = {}
+wall: dict[Any, Any] = {}
 for n, a, b in d["log"]: wall[n] = wall.get(n, 0.0) + (b - a)
 res = pd.DataFrame({"wall_s": pd.Series(wall)}).join(gpu).fillna(0.0)
 res["gpu_pct"] = 100 * res.gpu_s / res.wall_s.clip(lower=1e-9)

@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 def _free_ram_bytes() -> int:
     """Best-effort free RAM in bytes; falls back to a generous 12 GB if psutil absent."""
     try:
-        import psutil  # type: ignore[import-untyped]
+        import psutil
         return int(psutil.virtual_memory().available)
     except Exception as exc:
         logger.debug("_free_ram_bytes: psutil probe failed, using 12 GB fallback: %s", exc)
@@ -141,7 +141,7 @@ def bench_col_stats_numba(n_cols: int | None = None, n_rows: int | None = None, 
 # ---------------------------------------------------------------------------
 
 
-def _polars_fastpath_path(X) -> np.ndarray:
+def _polars_fastpath_path(X) -> Any:
     """Mirror of the polars branch of ``_fit_persist_and_transform``."""
     import polars as pl
     cols = X.columns
@@ -155,7 +155,7 @@ def _polars_fastpath_path(X) -> np.ndarray:
     return df_std.to_numpy()
 
 
-def _cupy_path(X) -> np.ndarray:
+def _cupy_path(X) -> Any:
     """Candidate GPU implementation. Upload numeric block, fill NaN with column mean,
     standardise, download. Single H2D + D2H; per-column work runs on GPU."""
     import cupy as cp

@@ -20,8 +20,11 @@ N_GROUP, N_AGG, N_FOLDS, REPEATS = 4, 5, 5, 5
 def _load(path: str):
     """Import the module at ``path`` under a private name."""
     spec = importlib.util.spec_from_file_location("binagg_reference", path)
+    assert spec is not None
     mod = importlib.util.module_from_spec(spec)
     sys.modules["binagg_reference"] = mod
+    assert spec is not None
+    assert spec.loader is not None
     spec.loader.exec_module(mod)
     return mod
 

@@ -1,3 +1,6 @@
+"""Times the engineered base-set construction with and without its token cache over 40 raw column names, after checking that both give identical output."""
+
+from typing import Any
 import re, time, random
 if __name__ == "__main__":
     _TOKEN_SPLIT = re.compile(r"[^0-9a-zA-Z_]+")
@@ -19,7 +22,7 @@ if __name__ == "__main__":
     eng_idx = list(range(N))
 
     def old():
-        eng_consumers = {}
+        eng_consumers: dict[Any, Any] = {}
         for ei in eng_idx:
             toks = [t for t in _TOKEN_SPLIT.split(cols[ei]) if t]
             bases = set()
@@ -37,7 +40,7 @@ if __name__ == "__main__":
         return eng_consumers, sp
 
     def new():
-        eng_consumers = {}
+        eng_consumers: dict[Any, Any] = {}
         _cache = {}
         for ei in eng_idx:
             toks = [t for t in _TOKEN_SPLIT.split(cols[ei]) if t]

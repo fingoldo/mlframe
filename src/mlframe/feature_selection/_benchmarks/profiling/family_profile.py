@@ -79,7 +79,7 @@ def _fit(a: argparse.Namespace, data: tuple, on: "str | None", profile: bool) ->
         kw[f"fe_{on}_enable"] = True
     MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20_000, 30, 1))  # warm JIT / kernels with the same flags
     ledger = _SnapshotLedger()
-    FT._FE_FAMILY_WALL = ledger  # type: ignore[assignment]
+    FT._FE_FAMILY_WALL = ledger
     FT.reset_fe_family_wall()
     pr = cProfile.Profile() if profile else None
     t0 = time.perf_counter()
@@ -101,7 +101,6 @@ def main() -> None:
         faulthandler.dump_traceback_later(a.dump_every, repeat=True)
     warnings.simplefilter("ignore")
     _set_mode(a.mode)
-    from mlframe.feature_selection.filters import _fe_family_timing as FT
 
     data = F._make(a.n, a.p, 0)
     base = None

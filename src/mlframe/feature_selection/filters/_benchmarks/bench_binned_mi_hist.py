@@ -6,6 +6,7 @@ code. Bit-identical by construction (same plug-in counts, same row-major nonzero
 
 Run: PYTHONPATH=<worktree>/src python bench_binned_mi_hist.py
 """
+from typing import Any
 import time
 import numpy as np
 
@@ -60,7 +61,7 @@ if __name__ == "__main__":
         else:
             feat = rng.normal(size=n)
         if rng.random() < 0.6:
-            y = rng.integers(0, int(rng.integers(2, 8)), size=n)  # discrete classes
+            y: Any = rng.integers(0, int(rng.integers(2, 8)), size=n)  # discrete classes
         else:
             y = rng.normal(size=n)  # continuous -> quantile binned
         a = _binned_mi_legacy(feat, y)

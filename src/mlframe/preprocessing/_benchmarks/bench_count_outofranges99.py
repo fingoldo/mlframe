@@ -13,8 +13,9 @@ Checksums identical on every size. RESOLVED.
 """
 
 import sys
+from typing import Any, cast
 
-sys.modules["cupy"] = None
+cast(Any, sys.modules)["cupy"] = None
 import time
 
 import numpy as np
