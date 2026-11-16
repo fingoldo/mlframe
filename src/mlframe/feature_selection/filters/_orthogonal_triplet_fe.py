@@ -340,7 +340,23 @@ def _stratified_cmi(x_codes: np.ndarray, y_codes: np.ndarray, s_codes: np.ndarra
 
 def _dense_codes(x_codes, y_codes, s_codes):
     """The three code vectors as contiguous int64 arrays with non-negative labels (labels are renumbered, which MI does not see)."""
-    return tuple(np.ascontiguousarray(np.unique(np.asarray(c), return_inverse=True)[1], dtype=np.int64).ravel() for c in (x_codes, y_codes, s_codes))
+    return tuple(_dense_one(c) for c in (x_codes, y_codes, s_codes))
+
+
+_DENSE_LUT_MAX = 1 << 20  # largest code range renumbered through a lookup table (a bincount) instead of a sort
+
+
+def _dense_one(codes) -> np.ndarray:
+    """``np.unique(codes, return_inverse=True)[1]`` as int64: for integer codes of a small range the sorted distinct values are the occupied bins of one ``bincount`` and the inverse is a table lookup
+    (the same labels, the same order), no sort of the rows."""
+    c = np.asarray(codes).ravel()
+    if c.dtype.kind in "iu" and c.size:
+        lo, hi = int(c.min()), int(c.max())
+        if hi - lo < _DENSE_LUT_MAX:
+            shifted = c.astype(np.int64, copy=False) - lo
+            lut = np.cumsum(np.bincount(shifted, minlength=hi - lo + 1) > 0, dtype=np.int64) - 1
+            return np.ascontiguousarray(lut[shifted], dtype=np.int64)
+    return np.ascontiguousarray(np.unique(c, return_inverse=True)[1], dtype=np.int64).ravel()
 
 
 _MIN_STRATUM_ROWS = 30
