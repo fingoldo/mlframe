@@ -427,6 +427,12 @@ def gate_grid_mi_resident(
         _gdt = relaxed_candidate_dtype(cp)  # each block is cast once, block by block, instead of the concatenated matrix afterwards
         out_ctype = "float" if _gdt == cp.float32 else "double"
         blocks = []  # device (k_combo, n) [column-major] or (n, k_combo) matrices, built op-for-op like the host tau-grid
+        # Column-major: the (sum_k, n) matrix is allocated once and each combo's kernel writes its (k_combo, n) rows straight into their slice: no per-combo block, no concatenate (one copy launch per combo)
+        # and no second copy of the whole matrix. The kernel writes the same elements as before.
+        grid_out = None
+        grid_off = 0
+        if cm:
+            grid_out = cp.empty((int(sum(len(t) for (_m, _c, _o, t) in specs)), int(np.asarray(specs[0][2][0]).shape[0])), dtype=_gdt)
         for mode, ctup, cols, taus in specs:
             taus_g = cp.asarray(np.ascontiguousarray(np.asarray(taus, dtype=np.float64)))  # (k,)  # Intentional float64: gate threshold grid; compared at full precision
             if mode == "mask":
@@ -436,7 +442,9 @@ def gate_grid_mi_resident(
                 av_g = resident_operand(av, ("gate_op", a_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
                 # column j = (cv > taus[j]) * av ; broadcast (n,1) > (k,) -> (n,k), * (n,1)
                 if cm:
-                    blk = _tau_grid_kernel(cp, "mask", out_ctype)(cv_g[None, :], taus_g[:, None], av_g[None, :])
+                    blk = grid_out[grid_off : grid_off + int(taus_g.shape[0])]
+                    _tau_grid_kernel(cp, "mask", out_ctype)(cv_g[None, :], taus_g[:, None], av_g[None, :], blk)
+                    grid_off += int(taus_g.shape[0])
                 else:
                     # Intentional float64: GPU gate block; the row-major layout feeds the rank-binning kernel at float64
                     blk = (cv_g[:, None] > taus_g[None, :]).astype(cp.float64) * av_g[:, None]
@@ -448,13 +456,19 @@ def gate_grid_mi_resident(
                 bv_g = resident_operand(bv, ("gate_op", b_name), dtype=cp.float64)  # Intentional float64: GPU gate operand; kernel contract is float64
                 # column j = where(cv > taus[j], av, bv)
                 if cm:
-                    blk = _tau_grid_kernel(cp, "select", out_ctype)(cv_g[None, :], taus_g[:, None], av_g[None, :], bv_g[None, :])
+                    blk = grid_out[grid_off : grid_off + int(taus_g.shape[0])]
+                    _tau_grid_kernel(cp, "select", out_ctype)(cv_g[None, :], taus_g[:, None], av_g[None, :], bv_g[None, :], blk)
+                    grid_off += int(taus_g.shape[0])
                 else:
                     blk = cp.where(cv_g[:, None] > taus_g[None, :], av_g[:, None], bv_g[:, None])
             else:
                 return None  # unknown mode -> host fallback
-            blocks.append(cp.ascontiguousarray(blk.astype(_gdt if cm else cp.float64, copy=False)))  # Intentional float64: GPU gate block; kernel contract is float64
-        mat_gpu = cp.ascontiguousarray(cp.concatenate(blocks, axis=0 if cm else 1)) if len(blocks) > 1 else blocks[0]
+            if not cm:
+                blocks.append(cp.ascontiguousarray(blk.astype(cp.float64, copy=False)))  # Intentional float64: GPU gate block; kernel contract is float64
+        if cm:
+            mat_gpu = grid_out
+        else:
+            mat_gpu = cp.ascontiguousarray(cp.concatenate(blocks, axis=1)) if len(blocks) > 1 else blocks[0]
         if y_gpu is None:
             y_gpu = resident_operand(yi, "y", dtype=np.int64)
         if rank_binning:
