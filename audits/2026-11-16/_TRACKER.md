@@ -45,7 +45,7 @@ TODO total: 34. Nothing is fixed yet; no code was changed in this audit.
 | TQ-04 (09) | RESOLVED | tests/preprocessing/test_biz_val_align_feature_direction.py | `or True` on a list replaced with a finiteness check | align/f10 selection 8/8 |
 | TQ-05 (09) | RESOLVED | tests/reporting/test_renderer_divergences_and_dead_paths.py | `!= viridis or True` (the default is CALIBRATION, not viridis); replaced with the override-cleared assertion | test_clearing_the_override_still_works 1/1 |
 | TQ-06 (09) | RESOLVED | tests/test_x_ml_correctness_meta_fixes.py | `or True` removed; asserts the attribute | f10 selection 8/8 |
-| TQ-08 (09) | low | tests/feature_selection/fe/provenance/test_engineered_recipes.py:318 | `assert r == r` | test_engineered_recipe_equality_distinguishes_extr... (name to finalise with the fix) |
+| TQ-08 (09) | RESOLVED | tests/feature_selection/fe/provenance/test_engineered_recipes.py | `assert r == r` replaced with value equality against an identical recipe and inequality against a different binary op | test_recipes_are_hashable 1/1 (passes on old code too: the reflexive check was the weak part) |
 | TQ-10 (09) | RESOLVED | tests/calibration/test_calibration_fixes.py | added finiteness assertion to the NaN-AUC fallback test | test_f5_n_iterations_returns_ndarray_when_score_is_nan_every_draw 1/1 |
 | CI-05 (10) | med | .github/workflows/black-filtered.yml, mypy-full.yml | no workflow-level permissions block in mypy-full | (CI config; verify by reading the workflow; no unit test) |
 | CI-06 (10) | med | .github/workflows/mypy-full.yml:36-37 | blocking mypy gate has no timeout-minutes | (CI config) |
