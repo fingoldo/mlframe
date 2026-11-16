@@ -167,6 +167,21 @@ def _pandas_column_to_arrays(s, dtype):
             return None, codes.astype(np.int64, copy=False), list(cats), null_mask
     return s.to_numpy(dtype=dtype, copy=False), None, None, null_mask
 
+_TILE_ROWS = 1024  # rows per cache-resident tile of the transposed copies
+_FILL_BLOCK = 16  # columns staged contiguously before one transposed write into the row-major plane
+
+
+def _write_column_block(plane: np.ndarray, first: int, cols: list) -> None:
+    """Write the staged columns into ``plane[:, first:first + len(cols)]`` in one transposed block copy and empty ``cols``. A single strided write per column (``plane[:, j] = col``) touches one cache line per row
+    per column (107 ms for 100 columns of 100000 rows); a (block, n) stack written through its transpose is 3 times faster (34 ms)."""
+    if cols:
+        width = len(cols)
+        stacked = np.stack(cols)
+        for r0 in range(0, plane.shape[0], _TILE_ROWS):
+            plane[r0 : r0 + _TILE_ROWS, first : first + width] = stacked[:, r0 : r0 + _TILE_ROWS].T
+        cols.clear()
+
+
 def to_feature_matrix(X: Any, *, dtype: Any = np.float32) -> FeatureMatrix:
     """Convert ``X`` (pandas / polars / pyarrow / ndarray) to a :class:`FeatureMatrix` with ONE copy
     of the numeric plane (pre-allocated + filled column-by-column). Categorical columns go to a
@@ -212,21 +227,40 @@ def to_feature_matrix(X: Any, *, dtype: Any = np.float32) -> FeatureMatrix:
     categories: dict[str, list] = {}
 
     nj = cj = 0
-    for i, (vals, codes, cats, nmask) in enumerate(parsed):
-        null_mask[:, i] = nmask
+    num_cols: list = []  # numeric columns waiting for the blocked write into the row-major plane
+    for i, (vals, codes, cats, _nmask) in enumerate(parsed):
         if vals is not None:
-            numeric[:, nj] = vals  # ONE write per numeric column into the pre-allocated plane
+            num_cols.append(vals)
             col_kind[i] = "numeric"; col_index[i] = nj; nj += 1
+            if len(num_cols) == _FILL_BLOCK:
+                _write_column_block(numeric, nj - len(num_cols), num_cols)
         else:
             categorical[:, cj] = codes
             col_kind[i] = "categorical"; col_index[i] = cj; cj += 1
             categories[columns[i]] = list(cats) if cats is not None else []
+    _write_column_block(numeric, nj - len(num_cols), num_cols)
+    masks = [pr[3] for pr in parsed]
+    for j0 in range(0, p, _FILL_BLOCK):
+        null_mask[:, j0 : j0 + _FILL_BLOCK] = np.stack(masks[j0 : j0 + _FILL_BLOCK]).T
 
     return FeatureMatrix(
         numeric=numeric, categorical=categorical, columns=columns,
         col_kind=col_kind, col_index=col_index, n_rows=n, framework=framework,
         categories=categories, null_mask=null_mask, dtype=dtype,
     )
+
+def _plane_columns(plane: np.ndarray) -> list:
+    """The columns of the row-major ``(n, p)`` plane as contiguous 1-D arrays (views of per-block transposed copies, ``_FILL_BLOCK`` columns at a time)."""
+    out: list = []
+    n = plane.shape[0]
+    for j0 in range(0, plane.shape[1], _FILL_BLOCK):
+        width = min(_FILL_BLOCK, plane.shape[1] - j0)
+        blk = np.empty((width, n), dtype=plane.dtype)
+        for r0 in range(0, n, _TILE_ROWS):  # row-tiled transpose: numpy's whole-slice transpose copy is 7 to 9 times slower than tiles that stay in cache
+            blk[:, r0 : r0 + _TILE_ROWS] = plane[r0 : r0 + _TILE_ROWS, j0 : j0 + width].T
+        out.extend(blk[k] for k in range(width))
+    return out
+
 
 def from_feature_matrix(fm: FeatureMatrix) -> np.ndarray | pl.DataFrame | pd.DataFrame | pa.Table:
     """Reconstruct the source-framework object from a :class:`FeatureMatrix`, restoring categorical
@@ -240,12 +274,16 @@ def from_feature_matrix(fm: FeatureMatrix) -> np.ndarray | pl.DataFrame | pd.Dat
         raise ValueError(f"from_feature_matrix: duplicate column name(s) {dupes} would silently collide on round-trip")
     data: dict[str, np.ndarray] = {}
     col_objs: dict[str, Any] = {}
+    num_rows = _plane_columns(fm.numeric)  # contiguous column views, read in transposed blocks (a strided column read of the row-major plane is 3 times slower)
+    mask_rows = _plane_columns(fm.null_mask) if fm.null_mask is not None else None
     for j, name in enumerate(fm.columns):
         if fm.col_kind[j] == "numeric":
-            col = fm.numeric[:, fm.col_index[j]].copy()
-            if fm.null_mask is not None:
+            col = num_rows[fm.col_index[j]]
+            if mask_rows is not None:
                 col = col.astype(_crit_np_dtype())
-                col[fm.null_mask[:, j]] = np.nan
+                col[mask_rows[j]] = np.nan
+            else:
+                col = col.copy()
             data[name] = col
             col_objs[name] = col
         else:
