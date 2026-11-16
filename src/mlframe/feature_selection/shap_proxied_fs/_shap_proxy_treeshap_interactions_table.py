@@ -125,6 +125,181 @@ def _interaction_table_batch(
             Phi_i[j, j] = phi_i[j] - row_sum
 
 
+@njit(cache=True)
+def _route_row(mask, xi, c0, c1, root, inner, children_left, children_right, features, thresholds, left_is_default, node_bit):
+    """Branch-free route of one row through one tree: the bit mask of every node of the tree (``mask[node - root]``)."""
+    mask[0] = -1
+    for c in range(c0, c1):
+        node = inner[c]
+        xv = xi[features[node]]
+        go_left = left_is_default[node] if xv != xv else xv < thresholds[node]
+        m = mask[node - root]
+        mc = m & ~node_bit[node]
+        mask[children_left[node] - root] = m if go_left else mc
+        mask[children_right[node] - root] = mc if go_left else m
+
+
+@njit(cache=True)
+def _route_rows4(mk, x0, x1, x2, x3, c0, c1, root, inner, children_left, children_right, features, thresholds, left_is_default, node_bit):
+    """``_route_row`` for four rows at once (``mk[q]`` = the masks of row ``q``): the node record is loaded once and the four routes are independent."""
+    for q in range(4):
+        mk[q, 0] = -1
+    for c in range(c0, c1):
+        node = inner[c]
+        f = features[node]
+        th = thresholds[node]
+        dl = left_is_default[node]
+        nb = ~node_bit[node]
+        li = children_left[node] - root
+        ri = children_right[node] - root
+        me = node - root
+        v0 = x0[f]
+        v1 = x1[f]
+        v2 = x2[f]
+        v3 = x3[f]
+        g0 = dl if v0 != v0 else v0 < th
+        g1 = dl if v1 != v1 else v1 < th
+        g2 = dl if v2 != v2 else v2 < th
+        g3 = dl if v3 != v3 else v3 < th
+        m = mk[0, me]
+        mc = m & nb
+        mk[0, li] = m if g0 else mc
+        mk[0, ri] = mc if g0 else m
+        m = mk[1, me]
+        mc = m & nb
+        mk[1, li] = m if g1 else mc
+        mk[1, ri] = mc if g1 else m
+        m = mk[2, me]
+        mc = m & nb
+        mk[2, li] = m if g2 else mc
+        mk[2, ri] = mc if g2 else m
+        m = mk[3, me]
+        mc = m & nb
+        mk[3, li] = m if g3 else mc
+        mk[3, ri] = mc if g3 else m
+
+
+@njit(cache=True)
+def _leaf_adds1(phi_i, Phi_i, mk, ud, foff, lo, ibase, leaf_feat, leaf_zero, table, itable):
+    """Main-table and interaction-table adds of one leaf for one row (``mk`` = the mask of the row restricted to the ``ud`` elements of the leaf)."""
+    base = lo + mk * ud
+    for j in range(ud):
+        phi_i[leaf_feat[foff + j]] += table[base + j]
+    if ud > 1:
+        nd = ud - 1
+        half = 1 << nd
+        for k in range(ud):
+            factor = 0.5 * (((mk >> k) & 1) - leaf_zero[foff + k])
+            mc = (mk & ((1 << k) - 1)) | ((mk >> (k + 1)) << k)
+            row = Phi_i[leaf_feat[foff + k]]
+            b = ibase + (k * half + mc) * nd
+            for q in range(nd):
+                row[leaf_feat[foff + (q if q < k else q + 1)]] += factor * itable[b + q]
+
+
+@njit(cache=True)
+def _leaf_adds4(phi_main, Phi, r, m0, m1, m2, m3, ud, foff, lo, ibase, leaf_feat, leaf_zero, table, itable):
+    """``_leaf_adds1`` for rows ``r .. r + 3``: the four chains of read-modify-write adds are independent and overlap."""
+    for j in range(ud):
+        ft = leaf_feat[foff + j]
+        phi_main[r, ft] += table[lo + m0 * ud + j]
+        phi_main[r + 1, ft] += table[lo + m1 * ud + j]
+        phi_main[r + 2, ft] += table[lo + m2 * ud + j]
+        phi_main[r + 3, ft] += table[lo + m3 * ud + j]
+    if ud > 1:
+        nd = ud - 1
+        half = 1 << nd
+        for k in range(ud):
+            z = leaf_zero[foff + k]
+            f0 = 0.5 * (((m0 >> k) & 1) - z)
+            f1 = 0.5 * (((m1 >> k) & 1) - z)
+            f2 = 0.5 * (((m2 >> k) & 1) - z)
+            f3 = 0.5 * (((m3 >> k) & 1) - z)
+            low = (1 << k) - 1
+            kb = ibase + k * half * nd
+            b0 = kb + ((m0 & low) | ((m0 >> (k + 1)) << k)) * nd
+            b1 = kb + ((m1 & low) | ((m1 >> (k + 1)) << k)) * nd
+            b2 = kb + ((m2 & low) | ((m2 >> (k + 1)) << k)) * nd
+            b3 = kb + ((m3 & low) | ((m3 >> (k + 1)) << k)) * nd
+            fk = leaf_feat[foff + k]
+            row0 = Phi[r, fk]
+            row1 = Phi[r + 1, fk]
+            row2 = Phi[r + 2, fk]
+            row3 = Phi[r + 3, fk]
+            for q in range(nd):
+                ft = leaf_feat[foff + (q if q < k else q + 1)]
+                row0[ft] += f0 * itable[b0 + q]
+                row1[ft] += f1 * itable[b1 + q]
+                row2[ft] += f2 * itable[b2 + q]
+                row3[ft] += f3 * itable[b3 + q]
+
+
+@njit(cache=True)
+def _symmetrise_and_diagonal(Phi_i, phi_i):
+    """Symmetrise the off-diagonal in place (the (i,j) and (j,i) passes are numerically independent), THEN fill the diagonal so the row-sum identity holds against the symmetrised matrix."""
+    P = phi_i.shape[0]
+    for a in range(P):
+        for b in range(a + 1, P):
+            avg = 0.5 * (Phi_i[a, b] + Phi_i[b, a])
+            Phi_i[a, b] = avg
+            Phi_i[b, a] = avg
+    for j in range(P):
+        row_sum = 0.0
+        for p in range(P):
+            if p != j:
+                row_sum += Phi_i[j, p]
+        Phi_i[j, j] = phi_i[j] - row_sum
+
+
+@njit(cache=True, parallel=True)
+def _interaction_table_batch_blocked(
+    X, Phi, phi_main, children_left, children_right, features, thresholds, left_is_default, node_bit, tree_roots, max_tree_nodes,
+    inner, inner_ptr, leaves, leaf_ptr, leaf_of_node, leaf_ud, leaf_feat_off, leaf_feat, leaf_zero, leaf_table_off, table, leaf_itab_off, itable, block,
+):
+    """``_interaction_table_batch`` with the loop order of the main table kernel: preorder route and leaf passes (branch-free route), trees outer over blocks of ``block`` rows so one tree's interaction-table
+    slice is read once per block and stays in L2 instead of streaming the whole table once per row, and four rows abreast so the read-modify-write chains of the leaf adds overlap. The rows left over
+    (fewer than four) run the single-row path; the symmetrisation and the diagonal follow per row."""
+    n = X.shape[0]
+    n_blocks = (n + block - 1) // block
+    for bk in prange(n_blocks):
+        r0 = bk * block
+        r1 = min(n, r0 + block)
+        mask = np.empty(max_tree_nodes, dtype=np.int64)
+        mk4 = np.empty((4, max_tree_nodes), dtype=np.int64)
+        for t in range(tree_roots.shape[0]):
+            root = tree_roots[t]
+            c0 = inner_ptr[t]
+            c1 = inner_ptr[t + 1]
+            r = r0
+            while r + 4 <= r1:
+                _route_rows4(mk4, X[r], X[r + 1], X[r + 2], X[r + 3], c0, c1, root, inner, children_left, children_right, features, thresholds, left_is_default, node_bit)
+                for c in range(leaf_ptr[t], leaf_ptr[t + 1]):
+                    node = leaves[c]
+                    leaf = leaf_of_node[node]
+                    ud = leaf_ud[leaf]
+                    if ud > 0:
+                        me = node - root
+                        full = (1 << ud) - 1
+                        _leaf_adds4(
+                            phi_main, Phi, r, mk4[0, me] & full, mk4[1, me] & full, mk4[2, me] & full, mk4[3, me] & full, ud, leaf_feat_off[leaf], leaf_table_off[leaf],
+                            leaf_itab_off[leaf], leaf_feat, leaf_zero, table, itable,
+                        )
+                r += 4
+            while r < r1:
+                _route_row(mask, X[r], c0, c1, root, inner, children_left, children_right, features, thresholds, left_is_default, node_bit)
+                for c in range(leaf_ptr[t], leaf_ptr[t + 1]):
+                    node = leaves[c]
+                    leaf = leaf_of_node[node]
+                    ud = leaf_ud[leaf]
+                    if ud > 0:
+                        _leaf_adds1(
+                            phi_main[r], Phi[r], mask[node - root] & ((1 << ud) - 1), ud, leaf_feat_off[leaf], leaf_table_off[leaf], leaf_itab_off[leaf], leaf_feat, leaf_zero, table, itable
+                        )
+                r += 1
+        for r in range(r0, r1):
+            _symmetrise_and_diagonal(Phi[r], phi_main[r])
+
+
 def _split_features_per_tree(ensemble: TreeEnsemble) -> float:
     """Mean number of distinct split features of a tree (the reference runs two conditioned scans per one)."""
     roots = np.asarray(ensemble.tree_roots, dtype=np.int64)
@@ -160,7 +335,7 @@ def build_interaction_tables(ensemble: TreeEnsemble, n_rows: Optional[int] = Non
     return {**tab, "leaf_itab_off": leaf_itab_off, "itable": itable}
 
 
-def interaction_tensor_table(ensemble: TreeEnsemble, X: np.ndarray, tables: Optional[dict] = None) -> Optional[tuple]:
+def interaction_tensor_table(ensemble: TreeEnsemble, X: np.ndarray, tables: Optional[dict] = None, block: int = -1) -> Optional[tuple]:
     """``(Phi (n, P, P), phi (n, P), base)`` from the interaction tables, or ``None`` when the ensemble does not fit them (the caller keeps the conditioned reference kernel)."""
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
@@ -171,6 +346,15 @@ def interaction_tensor_table(ensemble: TreeEnsemble, X: np.ndarray, tables: Opti
     n, P = Xf.shape[0], ensemble.n_features
     Phi = np.zeros((n, P, P), dtype=np.float64)  # Intentional float64: the caller's tensor contract
     phi_main = np.zeros((n, P), dtype=np.float64)  # Intentional float64: the caller's tensor contract
+    lin = tab.get("linear")
+    if lin is not None and block != 0:
+        with parallel_kernel_entry():
+            _interaction_table_batch_blocked(
+                Xf, Phi, phi_main, ensemble.children_left, ensemble.children_right, ensemble.features, ensemble.thresholds, lin["left_is_default"], lin["node_bit"], ensemble.tree_roots,
+                lin["max_tree_nodes"], lin["inner"], lin["inner_ptr"], lin["leaves"], lin["leaf_ptr"], tab["leaf_of_node"], tab["leaf_ud"], tab["leaf_feat_off"], tab["leaf_feat"],
+                tab["leaf_zero"], tab["leaf_table_off"], tab["table"], tab["leaf_itab_off"], tab["itable"], block if block > 0 else 16,
+            )
+        return Phi, phi_main, float(ensemble.base_offset)
     with parallel_kernel_entry():
         _interaction_table_batch(
             Xf, Phi, phi_main, ensemble.children_left, ensemble.children_right, ensemble.children_default, ensemble.features, ensemble.thresholds, ensemble.tree_roots,

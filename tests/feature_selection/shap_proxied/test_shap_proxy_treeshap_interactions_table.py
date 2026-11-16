@@ -77,3 +77,35 @@ def test_too_few_rows_to_repay_the_build_use_the_reference(monkeypatch):
     assert build_interaction_tables(ens, n_rows=1) is None
     assert interaction_tensor_table(ens, X[:1]) is None
     np.testing.assert_allclose(interaction_tensor_numba(ens, X[:1])[0], interaction_tensor_reference(ens, X[:1])[0], rtol=0, atol=1e-12)
+
+
+@pytest.mark.parametrize("n_rows", [1, 3, 4, 5, 19, 300])
+@pytest.mark.parametrize("block", [4, 16])
+def test_blocked_interaction_kernel_equals_the_reference_for_any_row_count(n_rows, block):
+    """The row-blocked kernel (four rows abreast, single-row tail, symmetrisation per row) equals the conditioned reference, with and without missing values."""
+    ens, X = _ensemble(6, 5, 15)
+    X = X[:n_rows].copy()
+    X[np.random.default_rng(7).random(X.shape) < 0.15] = np.nan
+    Phi_ref, phi_ref, _ = interaction_tensor_reference(ens, X)
+    Phi, phi, _ = interaction_tensor_table(ens, X, build_interaction_tables(ens), block=block)
+    np.testing.assert_allclose(Phi, Phi_ref, rtol=0, atol=1e-10)
+    np.testing.assert_allclose(phi, phi_ref, rtol=0, atol=1e-10)
+
+
+def test_unblocked_interaction_kernel_still_equals_the_blocked_one():
+    """``block=0`` keeps the row-at-a-time DFS-stack kernel (the fallback when the preorder arrays are absent)."""
+    ens, X = _ensemble(6, 5, 15)
+    a = interaction_tensor_table(ens, X, block=0)[0]
+    b = interaction_tensor_table(ens, X)[0]
+    np.testing.assert_allclose(a, b, rtol=0, atol=1e-12)
+
+
+def test_missing_preorder_arrays_fall_back_to_the_stack_interaction_kernel(monkeypatch):
+    """Non-contiguous tree node ids: no linear arrays, the DFS-stack interaction kernel answers and still equals the reference."""
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_treeshap_table as table_mod
+
+    ens, X = _ensemble(6, 4, 15)
+    monkeypatch.setattr(table_mod, "_tree_orders", lambda *a, **k: False)
+    tabs = build_interaction_tables(ens)
+    assert tabs["linear"] is None
+    np.testing.assert_allclose(interaction_tensor_table(ens, X, tabs)[0], interaction_tensor_reference(ens, X)[0], rtol=0, atol=1e-10)
