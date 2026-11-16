@@ -170,6 +170,11 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_ratio_delta_fe": (
+        ("_ratio_delta_screen_gpu",),
+        "the device form of the ratio / log-ratio redundancy screen is _ratio_delta_screen_gpu (one block per ordered pair, row-streamed); the host or device choice is ratio_pair_screen_backend; the MI gate that follows runs through local_mi_gate on the batched MI backends",
+        True,
+    ),
     "_fe_additive_fusion": (
         ("_fe_additive_fusion_gpu_resident",),
         "the device form of the proposal is _fe_additive_fusion_gpu_resident (resident binning, batched CMI, one float32 Gram matrix for the OLS separability test); the host or device choice is fe_additive_fusion_backend",
@@ -284,6 +289,14 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_ratio_delta_fe": (
+        "_ratio_delta_screen",
+        "the host redundancy screen of the ratio / log-ratio pools is the parallel numba kernel of _ratio_delta_screen (one candidate buffer per task, only accepted columns materialised); the grouped-delta statistics are a gather of per-group values by once-factorised row codes",
+    ),
+    "_ratio_delta_screen_gpu": (
+        "_ratio_delta_screen",
+        "the host twin is the parallel numba screen _screen_njit of _ratio_delta_screen (same per-pair decisions, accept matrices identical in the sweep)",
+    ),
     "_fe_additive_fusion_gpu_resident": (
         "_usability_njit_pool",
         "the host twin is _fe_additive_fusion.propose_additive_fusions (njit quantile binning of _usability_njit_pool, njit partition MI kernels, numpy OLS solve); the two are timed against each other by fe_additive_fusion_backend",
@@ -469,6 +482,7 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_ratio_delta_fe": ("_ratio_delta_screen",),
     "_orth_extra_basis_fe": ("_orth_extra_basis_fe_helpers",),
     "_orth_extra_basis_fe_generate": ("_orth_extra_basis_fe_generate_doc",),
     "_fe_pure_form_retention": ("_fe_pure_form_sides",),

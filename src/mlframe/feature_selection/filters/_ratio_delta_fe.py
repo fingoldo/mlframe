@@ -30,7 +30,11 @@ extra layout:
                        lookup_std: dict[str, float], global_mean: float,
                        global_std: float}
 * lagged_diff        : {time_col: str, value_col: str, period: int}
-"""
+
+
+Backends and memory (2026-11-16): the ordered-pair redundancy screen of the ratio and log-ratio pools decides on a per-task candidate buffer (host, ``_ratio_delta_screen``) or one block per pair
+(device, ``_ratio_delta_screen_gpu``, tuned choice ``ratio_pair_screen_backend``), so only accepted columns are materialised and the device holds the (p, n) source matrix, read in row blocks per
+thread pass. The MI gate runs through ``local_mi_gate``. ``audits/2026-10-22/profiles/_ratio_delta_fe.md`` has the measured figures."""
 
 from __future__ import annotations
 
@@ -40,6 +44,7 @@ import logging
 from typing import Callable, Optional, Sequence
 
 import numpy as np
+from ._ratio_delta_screen import LOG_RATIO, RATIO, ratio_pair_screen
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
@@ -165,26 +170,15 @@ def pairwise_ratio_features(
     if len(X) == 0:
         raise ValueError("pairwise_ratio_features: X is empty")
     cols_present = [c for c in cols if c in X.columns]
-    # bench-attempt-rejected (2026-06-23): hoisting per-column to_numpy() into an
-    # outer dict to avoid the in-loop re-extract was 0.98x (13.3s->13.6s, p=40
-    # n=100k) - the O(p^2) _passes_redundancy corrcoef dominates the loop, the
-    # to_numpy() re-extract is noise. Bench: _benchmarks/bench_ratio_delta_fe.py.
     encoded: dict[str, np.ndarray] = {}
     accepted: list[tuple[str, str]] = []
-    for a in cols_present:
-        for b in cols_present:
-            if a == b:
-                continue
-            a_vals = np.asarray(X[a].to_numpy(), dtype=_crit_np_dtype())
-            b_vals = np.asarray(X[b].to_numpy(), dtype=_crit_np_dtype())
-            r = _safe_div(a_vals, b_vals, float(eps))
-            r = np.nan_to_num(r, nan=0.0, posinf=0.0, neginf=0.0)
-            # Redundancy gate: drop ratios that are nearly linearly dependent
-            # on either source column (no info gain over the raw pair).
-            if not _passes_redundancy(r, a_vals, b_vals, redundancy_corr_threshold):
-                continue
-            encoded[engineered_name_ratio(a, b)] = r
-            accepted.append((a, b))
+    cols_vals = [np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype()) for c in cols_present]
+    ok = ratio_pair_screen(cols_vals, RATIO, float(eps), float(redundancy_corr_threshold)) if cols_vals else np.zeros((0, 0), dtype=bool)
+    for ia, a in enumerate(cols_present):
+        for ib, b in enumerate(cols_present):
+            if ok[ia, ib]:
+                encoded[engineered_name_ratio(a, b)] = np.nan_to_num(_safe_div(cols_vals[ia], cols_vals[ib], float(eps)), nan=0.0, posinf=0.0, neginf=0.0)
+                accepted.append((a, b))
     enc_df = pd.DataFrame(encoded, index=X.index) if encoded else pd.DataFrame(index=X.index)
     return enc_df, accepted
 
@@ -204,23 +198,16 @@ def pairwise_log_ratio_features(
     if len(X) == 0:
         raise ValueError("pairwise_log_ratio_features: X is empty")
     cols_present = [c for c in cols if c in X.columns]
-    # bench-attempt-rejected (2026-06-23): per-column to_numpy() hoist was 1.00x
-    # here too (16.8s, p=40 n=100k) - corrcoef redundancy gate dominates, not
-    # the re-extract. See pairwise_ratio_features note + bench_ratio_delta_fe.py.
     encoded: dict[str, np.ndarray] = {}
     accepted: list[tuple[str, str]] = []
-    for a in cols_present:
-        for b in cols_present:
-            if a == b:
-                continue
-            a_vals = np.asarray(X[a].to_numpy(), dtype=_crit_np_dtype())
-            b_vals = np.asarray(X[b].to_numpy(), dtype=_crit_np_dtype())
-            lr = np.log1p(np.abs(a_vals) + float(eps)) - np.log1p(np.abs(b_vals) + float(eps))
-            lr = np.nan_to_num(lr, nan=0.0, posinf=0.0, neginf=0.0)
-            if not _passes_redundancy(lr, a_vals, b_vals, redundancy_corr_threshold):
-                continue
-            encoded[engineered_name_log_ratio(a, b)] = lr
-            accepted.append((a, b))
+    cols_vals = [np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype()) for c in cols_present]
+    ok = ratio_pair_screen(cols_vals, LOG_RATIO, float(eps), float(redundancy_corr_threshold)) if cols_vals else np.zeros((0, 0), dtype=bool)
+    for ia, a in enumerate(cols_present):
+        for ib, b in enumerate(cols_present):
+            if ok[ia, ib]:
+                lr = np.log1p(np.abs(cols_vals[ia]) + float(eps)) - np.log1p(np.abs(cols_vals[ib]) + float(eps))
+                encoded[engineered_name_log_ratio(a, b)] = np.nan_to_num(lr, nan=0.0, posinf=0.0, neginf=0.0)
+                accepted.append((a, b))
     enc_df = pd.DataFrame(encoded, index=X.index) if encoded else pd.DataFrame(index=X.index)
     return enc_df, accepted
 
@@ -312,6 +299,7 @@ def grouped_delta_features(
     x_by_col = {c: np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype()) for c in num_cols}
     df_aux = pd.DataFrame({"_g": g.values, **x_by_col})
     gb = df_aux.groupby("_g")
+    row_codes, uniq_keys = pd.factorize(g.values)
     for num_col in num_cols:
         x = x_by_col[num_col]
         # Per-group mean / std (sample std for unbiased; treat NaNs sanely).
@@ -326,8 +314,10 @@ def grouped_delta_features(
         global_std_raw = float(np.nanstd(x[finite_mask])) if finite_mask.any() else 1.0
         global_std = global_std_raw if global_std_raw > 0.0 else 1.0
         # Build the engineered columns.
-        per_row_mean = _map_group_keys(g.values, lookup_mean, global_mean)
-        per_row_std = _map_group_keys(g.values, lookup_std, global_std)
+        # Every training row's group is in the aggregate, so the per-row statistics are a gather of the per-group values by the once-factorised row codes (no per-column hash join of the n key strings).
+        slot = pd.Index(agg.index).get_indexer(uniq_keys)
+        per_row_mean = np.asarray(agg["mean"].to_numpy(dtype=_crit_np_dtype())[slot][row_codes])
+        per_row_std = np.asarray(agg_std[slot][row_codes])
         delta = x - per_row_mean
         zscore = delta / per_row_std
         delta = np.nan_to_num(delta, nan=0.0, posinf=0.0, neginf=0.0)
