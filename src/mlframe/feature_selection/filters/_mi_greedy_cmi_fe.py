@@ -393,6 +393,34 @@ def _support_scorer(y_bin: np.ndarray, z_joint: np.ndarray) -> "Callable":
     return score
 
 
+_QBIN_DEVICE_MIN_CELLS = 2_000_000  # rows x columns of a block from which the device binner pays (100 columns x 100000 rows: host 0.116 s, device 0.04 s with both transfers)
+
+
+def _qbin_block_on_device(v: np.ndarray, nbins: int, codes: np.ndarray) -> bool:
+    """Fill ``codes`` ``(k, n)`` int16 with the codes of the all-finite host block ``v`` ``(k, n)`` from the device twin of ``quantile_bin_block`` (``_qbin_block_gpu.sync_free_qbin_codes_block``, equal to the
+    host binner on every column: ties, few levels, the two-class rule), or return ``False`` so the caller runs the host kernel. ``MLFRAME_QBIN_COLUMNS_DEVICE=0|1`` forces a side."""
+    import os
+
+    forced = os.environ.get("MLFRAME_QBIN_COLUMNS_DEVICE", "").strip()
+    if forced == "0" or (forced != "1" and (v.dtype != np.float32 or int(v.size) < _QBIN_DEVICE_MIN_CELLS)):
+        return False
+    try:
+        import cupy as cp
+
+        from ._device_blocks import first_block, run_column_blocks
+        from ._qbin_block_gpu import sync_free_qbin_codes_block
+
+        def _block(lo: int, hi: int) -> None:
+            """Bin the columns ``lo:hi`` on the device and copy their int16 codes into ``codes``."""
+            codes[lo:hi] = cp.asnumpy(sync_free_qbin_codes_block(cp, cp.asarray(v[lo:hi]), nbins).astype(cp.int16))
+
+        run_column_blocks(cp, int(v.shape[0]), first_block(cp, int(v.shape[1]), int(v.shape[0]), int(v.dtype.itemsize), 8), _block)
+        return True
+    except Exception as exc:
+        logger.debug("device quantile binning failed (%s: %s); host binner", type(exc).__name__, exc)
+        return False
+
+
 def quantile_bin_columns(X: np.ndarray, nbins: int, dtype: Any = np.int64) -> "list[np.ndarray]":
     """``_quantile_bin`` of every column of the host matrix ``X`` ``(n, k)``, as one int64 vector per column (the codes are consumed on the host).
 
@@ -411,8 +439,9 @@ def quantile_bin_columns(X: np.ndarray, nbins: int, dtype: Any = np.int64) -> "l
         ok = np.isfinite(v).all(axis=1)
         if ok.any():
             codes = np.empty((int(ok.sum()), n), dtype=np.int16)
-            with parallel_kernel_entry():
-                quantile_bin_block(np.ascontiguousarray(v[ok]), int(nbins), codes)
+            if not _qbin_block_on_device(np.ascontiguousarray(v[ok]), int(nbins), codes):
+                with parallel_kernel_entry():
+                    quantile_bin_block(np.ascontiguousarray(v[ok]), int(nbins), codes)
             r = 0
             for j in range(j1 - j0):
                 if ok[j]:

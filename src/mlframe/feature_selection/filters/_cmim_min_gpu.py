@@ -113,9 +113,9 @@ _MODULES = {
 }
 
 
-def kernel(cp: Any, code_type: Any) -> Any:
-    """``cmim_min_blocks`` for candidate codes of numpy dtype ``code_type`` (uint8 or int16); compile point of :func:`_scores_device` and of the register-pressure registry."""
-    key = "unsigned char" if np.dtype(code_type) == np.uint8 else "short"
+def kernel(cp: Any, real: Any) -> Any:
+    """``cmim_min_blocks`` for candidate codes of numpy dtype ``real`` (uint8 or int16); compile point of :func:`_scores_device` and of the register-pressure registry."""
+    key = "unsigned char" if np.dtype(real) == np.uint8 else "short"
     return _MODULES[key].get(cp).get_function("cmim_min_blocks")
 
 
@@ -283,7 +283,7 @@ try:
         kernel_name="cmim_min_backend",
         variant_fns=(),  # the two backends are timed by the sweep callable
         tuner=host_device_sweep(__name__, _sweep_host, _sweep_device, rtol=1e-9, atol=1e-9),
-        axes={"n_rows": list(_SWEEP_ROWS)},
+        axes={"n_samples": list(_SWEEP_ROWS)},
         fallback=_fallback_choice,
         gpu_capable=True,
         salt=_SALT,
@@ -302,7 +302,7 @@ def cmim_min_on_device(n_rows: int) -> bool:
     if _SPEC is None:
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
     try:
-        return str(_SPEC.choose(n_rows=int(n_rows))) == "device"
+        return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
         logger.debug("cmim_min_backend: KTC choose() failed, using the row-count fallback: %s", exc)
         return int(n_rows) >= DEVICE_FALLBACK_ROWS

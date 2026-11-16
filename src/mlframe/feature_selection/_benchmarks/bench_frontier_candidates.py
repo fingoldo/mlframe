@@ -173,7 +173,7 @@ def make_ordinary_interaction(seed, n=2000):
 
 def _run_family(name, gen, baseline_fn, cand_builder, is_tp):
     """For a candidate scenario: cand-MI vs best-existing-MI, averaged over seeds. cand_builder(X, cols)->candidate column (no y)."""
-    rows = []
+    rows: list[dict[str, Any]] = []
     for s in SEEDS:
         if is_tp:
             X, y, cand, cols = gen(s)

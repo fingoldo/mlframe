@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import logging
 import time
+from typing import Any
 
 import numpy as np
 
@@ -209,7 +210,7 @@ def _legacy_hermite(x1, x2, y, n_iters=2, n_trials_per_iter=100, seed=42):
     from numpy.polynomial.hermite import hermval
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
-    bin_funcs = {"add": np.add, "sub": np.subtract, "mul": np.multiply}
+    bin_funcs: dict[str, Any] = {"add": np.add, "sub": np.subtract, "mul": np.multiply}
 
     # Every other RNG use in this file (data gen, TPESampler seed=42, optimise_hermite_pair seed=42) is
     # fully seeded; this drew length_a/length_b from the unseeded global np.random, making the printed

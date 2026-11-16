@@ -1,5 +1,11 @@
 """Layer 65: KSG / k-NN MI ranking for hybrid orth-poly FE.
 
+Kernels
+-------
+
+The discrete-target estimator is the numba kernel of ``_ksg_cd_fast`` (parallel over columns) with its CUDA twin ``_ksg_cd_gpu`` (one launch per column block, the backend picked per host by the
+kernel-tuning cache); this module ranks the candidates with it. Profile record: ``audits/2026-10-22/profiles/_orthogonal_ksg_mi_fe.md``.
+
 Why this layer
 --------------
 

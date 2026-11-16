@@ -41,6 +41,14 @@ faster again (0.17/0.21/0.29s). A clean full-fit flag-on vs flag-off A/B is with
 So the port is a WIN, not a regression; it is now DEFAULT ON under STRICT (opt-out MLFRAME_FE_CMI_PERM_NULL_GPU=0).
 NEVER call free_all_blocks() here (it nukes the resident pool, +47s measured previously). The CPU path remains
 the rare-GPU-failure fallback (the caller wraps this in try/except -> CPU, debug-logged).
+
+Host twin and choice (2026-11-16): the host null is no longer the O(n) row-shuffle loop. ``_cmi_strata_tables_njit.StratifiedNull(debias=True)`` draws each stratum's (x, y) table directly (a multivariate
+hypergeometric with the stratum's margins) and reads the same Miller-Madow CMI, so a permutation costs O(strata x levels): 200 permutations at 50000 rows 0.43 s -> 3 ms, 200000 rows 2.1 s -> 16 ms, the same
+null distribution (means within sampling noise of both the loop and this device null). The per-host choice is the tuner entry ``cmi_perm_null_backend`` (``perm_null_on_device``, a sweep over the row count
+of the table null against ``conditional_perm_null_gpu``; ``MLFRAME_CMI_PERM_NULL_DEVICE=0|1`` forces a side; STRICT-GPU still routes to the device and does not consult it).
+
+Streaming: the permuted candidate matrix is scored in column blocks of permutations (``_batched_cmi_resident_chunked`` sizes the block by the free VRAM, and the sparse path sorts all permutations at once in O(n x nperm)),
+so device memory is bounded by the VRAM cushion check before either build.
 """
 
 from __future__ import annotations
@@ -550,3 +558,79 @@ def _batched_cmi_resident_chunked(Xp_d, y_h: np.ndarray, z, shared_xz: bool = Fa
 
 
 __all__ = ["conditional_perm_null_gpu", "perm_null_gpu_resident_enabled"]
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Host versus device choice of the conditional null (kernel-tuning entry ``cmi_perm_null_backend``)
+# ----------------------------------------------------------------------------------------------------------------------
+_SWEEP_ROWS = [5_000, 20_000, 100_000, 200_000]
+_SWEEP_PERMS = 400
+_SWEEP_STRATA = 8
+_SALT = 1
+#: Equivalence of the two nulls in the sweep. They draw different random streams of the same distribution, so the means of ``_SWEEP_PERMS`` draws differ by sampling noise. Measured: the mean of 200 draws
+#: of the Miller-Madow null varies by 12 % between seeds (five seeds, 0.00103 to 0.00138 around the exact 0.0013), so 400 draws give 8.5 %, the difference of two means 12 %, and four of those is 48 %.
+_SWEEP_RTOL = 0.5
+_SWEEP_ATOL = 1e-6
+
+
+def _sweep_inputs(dims: dict) -> tuple:
+    """``(x, y, z)`` int64 codes of ``dims["n_samples"]`` rows: 10 x levels depending on 8 strata, 5 y levels depending on x."""
+    rng = np.random.default_rng(0)
+    n = int(dims["n_samples"])
+    z = rng.integers(0, _SWEEP_STRATA, n).astype(np.int64)
+    x = ((rng.integers(0, 10, n) + z) % 10).astype(np.int64)
+    y = ((rng.integers(0, 5, n) + x // 4) % 5).astype(np.int64)
+    return (x, y, z)
+
+
+def _sweep_host(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
+    """Mean of the host contingency-table null (``StratifiedNull``, Miller-Madow) of the sweep inputs, as a 1-vector."""
+    from ._cmi_strata_tables_njit import StratifiedNull
+
+    return np.array([StratifiedNull(x, y, z, 1, debias=True).chunk(0, _SWEEP_PERMS, 1).mean()])
+
+
+def _sweep_device(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
+    """Mean of the device null (``conditional_perm_null_gpu``) of the sweep inputs, as a 1-vector."""
+    order = np.argsort(z, kind="stable")
+    sorted_z = z[order]
+    z_rank = np.concatenate([[0], np.cumsum(sorted_z[1:] != sorted_z[:-1])]).astype(np.float64)  # Intentional float64: the device shuffle's stratum rank contract
+    _floor, mean = conditional_perm_null_gpu(x, y, z, order=order, z_rank=z_rank, n_permutations=_SWEEP_PERMS, quantile=0.95, seed=1, salt=0)
+    return np.array([mean])
+
+
+from ._ktc_fallback import host_device_sweep, rows_fallback
+
+DEVICE_FALLBACK_ROWS = 10_000_000  # the table null on the host is faster at every swept size on the measured host: the device is chosen only where a sweep says so
+_fallback_choice = rows_fallback(__name__)
+
+try:
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+    _SPEC: Any = kernel_tuner(
+        kernel_name="cmi_perm_null_backend",
+        variant_fns=(),  # the two backends are timed by the sweep callable
+        tuner=host_device_sweep(__name__, _sweep_host, _sweep_device, rtol=_SWEEP_RTOL, atol=_SWEEP_ATOL),
+        axes={"n_samples": list(_SWEEP_ROWS)},
+        fallback=_fallback_choice,
+        gpu_capable=True,
+        salt=_SALT,
+        cli_label="cmi_perm_null_backend",
+    )
+except Exception as e:  # best-effort: without a tuner entry the host table null decides
+    logger.warning("kernel_tuner spec build for cmi_perm_null_backend failed: %s", e)
+    _SPEC = None
+
+
+def perm_null_on_device(n_rows: int) -> bool:
+    """Whether the conditional permutation null of ``n_rows`` rows runs on the device: ``MLFRAME_CMI_PERM_NULL_DEVICE=0|1`` forces a side, else the per-host kernel-tuning cache, else the row mark."""
+    forced = os.environ.get("MLFRAME_CMI_PERM_NULL_DEVICE", "").strip()
+    if forced in ("0", "1"):
+        return forced == "1"
+    if _SPEC is None:
+        return int(n_rows) >= DEVICE_FALLBACK_ROWS
+    try:
+        return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
+    except Exception as exc:
+        logger.debug("cmi_perm_null_backend: KTC choose() failed, using the row-count fallback: %s", exc)
+        return int(n_rows) >= DEVICE_FALLBACK_ROWS

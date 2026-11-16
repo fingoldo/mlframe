@@ -43,7 +43,7 @@ def _abs_pearson_baseline(y, v):
     n = 0
     sa = 0.0; sv = 0.0; saa = 0.0; svv = 0.0; sav = 0.0
     for i in range(y.shape[0]):
-        a = np.float64(y[i]); b = np.float64(v[i])
+        a = float(y[i]); b = float(v[i])
         if np.isfinite(a) and np.isfinite(b):
             n += 1
             sa += a; sv += b; saa += a * a; svv += b * b; sav += a * b
@@ -126,12 +126,12 @@ def _abs_pearson_onepass_njit(y, v):
     """REJECTED (2026-07-11): shifted one-pass formula (shift = y[0]/v[0], SIMD-friendly, no cross-iteration
     dependency unlike Welford). Faster but numerically unsafe -- see module docstring."""
     n = y.shape[0]
-    ky = np.float64(y[0]) if np.isfinite(np.float64(y[0])) else 0.0
-    kv = np.float64(v[0]) if np.isfinite(np.float64(v[0])) else 0.0
+    ky = float(y[0]) if np.isfinite(np.float64(y[0])) else 0.0
+    kv = float(v[0]) if np.isfinite(np.float64(v[0])) else 0.0
     cnt = 0
     sa = 0.0; sv = 0.0; saa = 0.0; svv = 0.0; sav = 0.0
     for i in range(n):
-        a = np.float64(y[i]); b = np.float64(v[i])
+        a = float(y[i]); b = float(v[i])
         finite = np.isfinite(a) and np.isfinite(b)
         da = (a - ky) if finite else 0.0
         db = (b - kv) if finite else 0.0

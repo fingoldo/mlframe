@@ -26,6 +26,7 @@ def test_conditional_perm_null_gpu_bit_identical_to_cpu(seed, monkeypatch):
     z = rng.integers(0, 40, n).astype(np.int64)  # high-cardinality -> sparse strata -> perm fallback
 
     monkeypatch.delenv("MLFRAME_CMI_GPU", raising=False)
+    monkeypatch.setenv("MLFRAME_CMI_NULL_SHUFFLE", "1")  # the host default is the contingency-table draw (another random stream); the row-shuffle loop is the bit-identity reference
     fh, mh = _conditional_perm_null(x, y, z, n_permutations=25, seed=seed, salt=3)
     monkeypatch.setenv("MLFRAME_CMI_GPU", "1")
     fg, mg = _conditional_perm_null(x, y, z, n_permutations=25, seed=seed, salt=3)

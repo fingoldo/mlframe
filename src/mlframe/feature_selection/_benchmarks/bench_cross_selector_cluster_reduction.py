@@ -56,7 +56,12 @@ def _rfecv(Xtr, ytr):
 
 
 def main():
-    full_t, red_t, full_a, red_a, full_k, red_k = [], [], [], [], [], []
+    full_t: list[float] = []
+    red_t: list[float] = []
+    full_a: list[float] = []
+    red_a: list[float] = []
+    full_k: list[int] = []
+    red_k: list[int] = []
     for seed in range(3):
         X, y, p = _wide_corr_frame(2000, seed)
         Xtr, ytr, Xte, yte = X.iloc[:1400], y.iloc[:1400], X.iloc[1400:], y.iloc[1400:]
@@ -64,7 +69,7 @@ def main():
         t0 = time.perf_counter()
         full_sel = _rfecv(Xtr, ytr)
         full_t.append(time.perf_counter() - t0)
-        full_a.append(_auc(Xtr, ytr, Xte, yte, full_sel)); full_k.append(len(full_sel))
+        full_a.append(float(_auc(Xtr, ytr, Xte, yte, full_sel))); full_k.append(len(full_sel))
 
         t0 = time.perf_counter()
         cid = cluster_features_by_correlation(Xtr, threshold=0.8, method="pearson")
@@ -73,12 +78,13 @@ def main():
         sel_clusters = {int(cid[medoids[i]]) for i in med_sel}
         expanded = np.array([j for j in range(Xtr.shape[1]) if cid[j] in sel_clusters])
         red_t.append(time.perf_counter() - t0)
-        red_a.append(_auc(Xtr, ytr, Xte, yte, expanded)); red_k.append(len(expanded))
+        red_a.append(float(_auc(Xtr, ytr, Xte, yte, expanded))); red_k.append(len(expanded))
         print(f"seed={seed} p={p}: FULL t={full_t[-1]:.1f}s auc={full_a[-1]:.4f} k={full_k[-1]} | "
               f"REDUCED t={red_t[-1]:.1f}s auc={red_a[-1]:.4f} k={red_k[-1]} "
               f"(medoids={len(medoids)})")
     print("---")
-    print(f"mean wall-clock: full={np.mean(full_t):.1f}s  reduced={np.mean(red_t):.1f}s  " f"speedup={np.mean(full_t)/max(np.mean(red_t),1e-9):.2f}x")
+    mean_full_t, mean_red_t = float(np.mean(full_t)), float(np.mean(red_t))
+    print(f"mean wall-clock: full={mean_full_t:.1f}s  reduced={mean_red_t:.1f}s  " f"speedup={mean_full_t / max(mean_red_t, 1e-9):.2f}x")
     print(f"mean OOS AUC:    full={np.mean(full_a):.4f}  reduced={np.mean(red_a):.4f}  " f"delta={np.mean(red_a)-np.mean(full_a):+.4f}")
 
 

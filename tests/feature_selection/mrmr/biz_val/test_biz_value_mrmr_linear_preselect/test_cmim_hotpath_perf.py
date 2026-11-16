@@ -166,8 +166,13 @@ class TestCmimPerfBudget:
             return real(*args, **kwargs)
 
         monkeypatch.setattr(cmim, "_build_cmi_yz_cache", _counting)
+        # the fused scorer answers without the host cache (built lazily, at most once); with it off the host loop builds it exactly once
         cmim.score_features_by_cmim(raw_X, eng, y, n_bins=10)
-
+        assert len(calls) <= 1, f"the yz cache was built {len(calls)} times for {eng.shape[1]} candidate columns; it is invariant across them"
+        calls.clear()
+        monkeypatch.setenv("MLFRAME_CMIM_MIN", "0")
+        monkeypatch.setenv("MLFRAME_CMIM_DEVICE", "0")
+        cmim.score_features_by_cmim(raw_X, eng, y, n_bins=10)
         assert len(calls) == 1, f"the yz cache was built {len(calls)} times for {eng.shape[1]} candidate columns; it is invariant across them"
 
     def test_the_scores_do_not_depend_on_the_cache(self):
