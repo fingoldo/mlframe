@@ -473,7 +473,10 @@ def family_null_max(
     acc: Any = None,
     prep_cache: "dict | None" = None,
 ) -> np.ndarray | None:
-    """Null maxima over ``n_perm`` label permutations drawn from ``rng`` in the same order as a per-permutation loop (results are identical).
+    """Null maxima over ``n_perm`` label permutations drawn from ``rng``.
+
+    The permutations come in blocks of at most ``block`` rows, and each block draws its own seed from ``rng``. The maxima therefore depend on
+    ``block``: a split is the concatenation of separate calls that share one generator, in the same chunk sizes, not of a block-of-one run.
 
     ``acc``: an optional device double vector of length ``n_perm``. The maxima are folded into it (elementwise, in place) and the
     function returns ``None``, so a caller that scores several column groups against the same draw reads the result back once.
