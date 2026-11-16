@@ -55,38 +55,36 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 _TOKEN_SPLIT = re.compile(r"[^A-Za-z0-9_]+")
 
 
-def _multiple_r(cols_2d: np.ndarray, y: np.ndarray) -> float:
-    """Scale/sign-invariant multiple correlation R of an OLS fit ``y ~ cols + intercept``.
+def multiple_r_from_gram(g: np.ndarray) -> tuple:
+    """``(R_a, R_b, R_pair, R_fused)`` from the centred 4 x 4 Gram matrix of ``[a, b, fused, y]``: the multiple correlations of ``y`` on ``a``, on ``b``, on both and on the fused column.
+    The OLS fits with an intercept need only the covariance block; a degenerate column (zero spread) or a non-finite Gram gives 0.0, a singular pair block the best single R."""
+    g = np.asarray(g, dtype=np.float64)  # Intentional float64: 4 x 4 block solve
+    d = np.sqrt(np.maximum(np.diag(g), 0.0))
+    if not np.all(np.isfinite(g)) or d[3] <= 1e-12:
+        return 0.0, 0.0, 0.0, 0.0
 
-    Returns ``corr(fitted, y)`` (the multiple-R), in [0, 1]. OLS absorbs per-column scaling
-    and sign, so this is invariant to the operand distributions' scale/sign - exactly the
-    invariance the binned-MI separability gate LACKS under variance imbalance (where the
-    dominant half saturates the coarse bins and the weak half's genuine additive lift shows
-    almost no binned-MI margin, even though it materially improves the LINEAR usability of
-    the compound). NaN-safe; returns 0.0 on a degenerate (constant-y / singular) fit.
-    """
-    X2 = np.asarray(cols_2d, dtype=_crit_np_dtype())
-    yv = np.asarray(y, dtype=_crit_np_dtype()).ravel()
-    if X2.ndim == 1:
-        X2 = X2.reshape(-1, 1)
-    X2 = np.nan_to_num(X2, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-    yv = np.nan_to_num(yv, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-    if yv.shape[0] < 3 or float(np.std(yv)) <= 1e-12:
-        return 0.0
-    design = np.column_stack([X2, np.ones(X2.shape[0], dtype=_crit_np_dtype())])
-    try:
-        beta, *_ = np.linalg.lstsq(design, yv, rcond=None)
-    except Exception as e:
-        log_throttle(logger, "_fe_additive_fusion._multiple_r", logging.WARNING, "_multiple_r: lstsq failed on a degenerate/singular design, returning 0.0: %s", e)
-        return 0.0
-    fitted = design @ beta
-    sf = float(np.std(fitted))
-    if sf <= 1e-12:
-        return 0.0
-    r = float(np.corrcoef(fitted, yv)[0, 1])
-    if not np.isfinite(r):
-        return 0.0
-    return abs(r)
+    def single(i: int) -> float:
+        """Correlation of column ``i`` with ``y`` (0.0 for a constant column)."""
+        return abs(g[i, 3]) / (d[i] * d[3]) if d[i] > 1e-12 else 0.0
+
+    r_pair = 0.0
+    if d[0] > 1e-12 and d[1] > 1e-12:
+        try:
+            beta = np.linalg.solve(g[:2, :2], g[:2, 3])
+            r_pair = float(np.sqrt(min(max(float(beta @ g[:2, 3]) / (d[3] ** 2), 0.0), 1.0)))
+        except np.linalg.LinAlgError:
+            r_pair = max(single(0), single(1))
+    return single(0), single(1), r_pair, single(2)
+
+
+def _pair_multiple_r(a: np.ndarray, b: np.ndarray, fused: np.ndarray, y: np.ndarray) -> tuple:
+    """Host form of the four separability fits at once (``multiple_r_from_gram`` of one centred Gram matrix); non-finite values are zeroed as in ``_multiple_r``."""
+    m = np.column_stack([np.ravel(a), np.ravel(b), np.ravel(fused), np.ravel(y)]).astype(_crit_np_dtype(), copy=False)
+    m = np.nan_to_num(m, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    if m.shape[0] < 3:
+        return 0.0, 0.0, 0.0, 0.0
+    m = m - m.mean(axis=0, keepdims=True)
+    return multiple_r_from_gram(m.T @ m)
 
 
 def _bare_tokens(name: str, raw_name_set: set) -> set:
@@ -105,6 +103,18 @@ def _bare_tokens(name: str, raw_name_set: set) -> set:
     return out
 
 
+def _fusion_auto_device(n_rows: int) -> bool:
+    """AUTO / STRICT fit engaged the GPU strategies and the tuned host-or-device choice (``fe_additive_fusion_backend``) picks the device for ``n_rows`` rows."""
+    try:
+        from ._fe_gpu_strict import fe_gpu_strict_enabled
+        from ._fe_additive_fusion_ktc import fusion_use_device
+
+        return bool(fe_gpu_strict_enabled()) and fusion_use_device(n_rows)
+    except Exception as e:  # nosec B110 - optional dependency import guard
+        logger.debug("additive-fusion auto device probe failed: %s", e)
+        return False
+
+
 def _try_gpu_resident_fusions(
     self: Any, engineered_recipes: dict, engineered_continuous: dict, newly_engineered_names: list, raw_name_set: set, cols: list,
     classes_y: np.ndarray, X: Any, nbins: int, seed: int, verbose: int,
@@ -120,7 +130,7 @@ def _try_gpu_resident_fusions(
         from ._gpu_strict_fe._entry import fe_gpu_strict_resident_enabled as _fusion_resident_flag_on
     except ImportError:
         _fusion_resident_flag_on = None  # type: ignore[assignment]
-    if _fusion_resident_flag_on is not None and _fusion_resident_flag_on():
+    if _fusion_resident_flag_on is not None and (_fusion_resident_flag_on() or _fusion_auto_device(len(classes_y))):
         # Import stays broad-guarded (cupy/twin may be absent); the CALL is narrowed to genuine
         # device/linalg faults so a real twin logic/shape bug (ValueError/KeyError/IndexError)
         # propagates to tests instead of silently degrading to CPU as a "device fallback".
@@ -285,9 +295,7 @@ def _evaluate_fusion_pair_weighted(self: Any, ha: dict, hb: dict, y_dense: np.nd
     # scale/sign-invariant, so it is robust to the operand-distribution imbalance the
     # binned-MI path is not.
     _yc = y_dense.astype(_crit_np_dtype())
-    _r_a = _multiple_r(ha["vals"], _yc)
-    _r_b = _multiple_r(hb["vals"], _yc)
-    _r_fused = _multiple_r(np.column_stack([ha["vals"], hb["vals"]]), _yc)
+    _r_a, _r_b, _r_fused, _r_fused_single = _pair_multiple_r(ha["vals"], hb["vals"], fused_vals, _yc)
     _r_best_single = max(_r_a, _r_b)
     # The 2-half fit must beat the best single half by more than a chance-fluctuation
     # margin (~ 1/sqrt(n), the SE scale of a correlation). A genuine second additive
@@ -298,7 +306,7 @@ def _evaluate_fusion_pair_weighted(self: Any, ha: dict, hb: dict, y_dense: np.nd
     # smaller scale than the other the sum is the large half alone, and the second term the tests credited is lost to a linear model (F2: ``add(mul(c, d), esc(a,b))`` correlated 0.999 with
     # the c,d term and 0.004 with the a**2/b term, held-out linear R^2 0.949 instead of 0.996). The compound must keep the linear usability of the pair it replaces.
     # When the second half adds real linear signal to the pair (the OLS test above), the compound must show that gain itself: it has to beat the stronger half alone by the same chance margin.
-    _keeps_both_halves = not (_r_fused > _r_best_single + _r_margin) or _multiple_r(fused_vals, _yc) > _r_best_single + _r_margin
+    _keeps_both_halves = not (_r_fused > _r_best_single + _r_margin) or _r_fused_single > _r_best_single + _r_margin
     if not ((_binned_mi_passes or _ols_passes) and _keeps_both_halves):
         from ._fe_rejection_ledger import record_fe_rejection
 

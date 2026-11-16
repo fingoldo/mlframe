@@ -46,7 +46,11 @@ which the partition + the chance-margin gates are tolerant.
 
 Any cupy / device / import error raises so the caller falls back to the CPU path,
 keeping the default (flag-off) path byte-identical and a GPU fault never breaking a fit.
-"""
+
+
+Backends and memory (2026-11-16): the host or device choice is the ``fe_additive_fusion_backend`` entry of ``_fe_additive_fusion_ktc`` (STRICT-resident forces the device). The pass scores on a row block (subsample)
+(``MLFRAME_FE_FUSION_MAX_ROWS``) of at most the candidate halves' columns, so the device working set is bounded by that cap times the half count, not by the frame; the OLS separability test is one float32
+Gram matrix of ``[a, b, fused, y]`` per pair (``_pair_multiple_r_gpu``). ``audits/2026-10-22/profiles/_fe_additive_fusion_gpu_resident.md`` has the measured figures."""
 from __future__ import annotations
 
 from mlframe.utils.log_throttle import log_throttle
@@ -62,48 +66,20 @@ from ._lazy_host_codes import LazyHostCodes
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
-def _multiple_r_gpu(cp, X2_dev, yv_dev, y_std: float) -> float:
-    """Scale/sign-invariant multiple correlation R of an OLS fit ``y ~ cols + intercept``,
-    fully resident - GPU twin of :func:`_fe_additive_fusion._multiple_r`.
+def _pair_multiple_r_gpu(cp, ca, cb, fused, yv_dev, y_std: float) -> tuple:
+    """``(R_a, R_b, R_pair, R_fused)``: multiple correlations of ``y`` on ``ca``, on ``cb``, on both, and on the fused column, from ONE centred float32 Gram matrix of ``[ca, cb, fused, y]``.
 
-    ``X2_dev`` is a resident (n, k) device matrix (1 or 2 columns), ``yv_dev`` the
-    resident pre-cleaned float target, ``y_std`` its host std (already > 1e-12 when
-    called). Builds the ``[X2, 1]`` design resident, solves the normal equations
-    (lstsq fallback on a singular system), and returns ``corr(fitted, y)`` in [0, 1]
-    as a bounded host scalar. Same degeneracy guards as the CPU path."""
-    if X2_dev.ndim == 1:
-        X2_dev = X2_dev[:, None]
-    n = int(X2_dev.shape[0])
+    The four OLS fits of the separability test need only the 4 x 4 covariance, so the (n, k) double design, normal equations and the double ``gemm`` / ``gemv`` of ``_multiple_r_gpu`` (half the device time of
+    a pair evaluation on a consumer card with 1/32 double rate) are replaced by one float32 ``matmul`` and a host solve of the 4 x 4 block. Selection-equivalent: the margins compared against are of order 2/sqrt(n).
+    Degenerate columns (zero spread, singular pair block) give 0.0 as on the host (``multiple_r_from_gram``)."""
+    n = int(ca.shape[0])
     if n < 3 or y_std <= 1e-12:
-        return 0.0
-    # Intentional float64: regression design and target in double, the fit solve they feed needs that precision
-    ones = cp.ones((n, 1), dtype=cp.float64)
-    design = cp.concatenate([X2_dev, ones], axis=1)
-    try:
-        AtA = design.T @ design
-        Aty = design.T @ yv_dev
-        try:
-            beta = cp.linalg.solve(AtA, Aty)
-        except Exception as e:
-            logger.warning("cp.linalg.solve failed (likely singular), falling back to lstsq: %s", e)
-            beta = cp.linalg.lstsq(design, yv_dev, rcond=None)[0]
-    except Exception as e:
-        log_throttle(logger, "_fe_additive_fusion_gpu_resident._multiple_r_gpu", logging.WARNING, "_multiple_r_gpu_resident: normal-equation solve and lstsq fallback both failed on a degenerate/singular design, returning 0.0: %s", e)
-        return 0.0
-    fitted = design @ beta
-    sf = float(cp.std(fitted))
-    if sf <= 1e-12:
-        return 0.0
-    # corr(fitted, y) on resident arrays; scalar back.
-    fc = fitted - fitted.mean()
-    yc = yv_dev - yv_dev.mean()
-    denom = float(cp.sqrt(cp.dot(fc, fc) * cp.dot(yc, yc)))
-    if denom <= 1e-300:
-        return 0.0
-    r = float(cp.dot(fc, yc)) / denom
-    if not np.isfinite(r):
-        return 0.0
-    return abs(r)
+        return 0.0, 0.0, 0.0, 0.0
+    m = cp.stack([ca, cb, fused, yv_dev], axis=1).astype(cp.float32, copy=False)
+    m = m - m.mean(axis=0, keepdims=True)
+    from ._fe_additive_fusion import multiple_r_from_gram
+
+    return multiple_r_from_gram(cp.asnumpy(cp.matmul(m.T, m)))
 
 
 def _collect_gpu_candidate_halves(newly_engineered_names: list, engineered_recipes: dict, engineered_continuous: dict, n_rows: int, raw_name_set: set) -> tuple:
@@ -277,9 +253,7 @@ def _gpu_evaluate_pair_weighted(
     # admissions. Accept-and-documented.
     _binned_mi_passes = fused_mi > _strong["mi"] + _floor_margin * _strong["floor"]
     # OLS multiple-R separability, fully resident (the n-scaled lstsq runs on the device columns).
-    _r_a = _multiple_r_gpu(cp, ca[:, None], yc_dev, y_std)
-    _r_b = _multiple_r_gpu(cp, cb[:, None], yc_dev, y_std)
-    _r_fused = _multiple_r_gpu(cp, cp.stack([ca, cb], axis=1), yc_dev, y_std)
+    _r_a, _r_b, _r_fused, _r_fused_single = _pair_multiple_r_gpu(cp, ca, cb, fused_dev, yc_dev, y_std)
     _r_best_single = max(_r_a, _r_b)
     # Was `/ max(np.sqrt(float(n_sc)), 1.0)` - the
     # SCORING-SUBSAMPLE row count - while the CPU sibling (_fe_additive_fusion.py) computes the
@@ -291,7 +265,7 @@ def _gpu_evaluate_pair_weighted(
     _ols_passes = (not _binned_mi_passes) and _r_fused > _r_best_single + _r_margin
     # As on the host: the compound is the UNWEIGHTED sum, so it must keep the linear usability of the two-half fit the scale-free tests approved.
     # When the second half adds real linear signal to the pair, the compound must show that gain itself: it has to beat the stronger half alone by the same chance margin.
-    _keeps_both_halves = not (_r_fused > _r_best_single + _r_margin) or _multiple_r_gpu(cp, fused_dev[:, None], yc_dev, y_std) > _r_best_single + _r_margin
+    _keeps_both_halves = not (_r_fused > _r_best_single + _r_margin) or _r_fused_single > _r_best_single + _r_margin
     if not ((_binned_mi_passes or _ols_passes) and _keeps_both_halves):
         return None
     return _binary, fvb_dev, fused_mi

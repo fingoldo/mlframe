@@ -111,6 +111,10 @@ KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
 #: dispatcher registers a ``kernel_tuner(`` entry AND imports the backend (``ktc_dispatch_problems`` checks both, so a stale mapping fails the contract test). A backend with a choice of its own
 #: (its own thresholds, variants, block size) registers itself instead.
 KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
+    "_fe_additive_fusion_gpu_resident": (
+        "_fe_additive_fusion_ktc",
+        "the host or device choice of the additive-fusion proposal is fe_additive_fusion_backend of _fe_additive_fusion_ktc (sweep over the row count of the host proposal against this module at identical admitted sets, the measured row window as fallback, MLFRAME_FE_FUSION_DEVICE=0|1 forces a side)",
+    ),
     "_orthogonal_adaptive_degree_fe": (
         "_basis_cells_ktc",
         (
@@ -166,6 +170,11 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_fe_additive_fusion": (
+        ("_fe_additive_fusion_gpu_resident",),
+        "the device form of the proposal is _fe_additive_fusion_gpu_resident (resident binning, batched CMI, one float32 Gram matrix for the OLS separability test); the host or device choice is fe_additive_fusion_backend",
+        True,
+    ),
     "_orth_extra_basis_fe": (
         ("_orth_extra_basis_fe_generate",),
         (
@@ -275,6 +284,14 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_fe_additive_fusion_gpu_resident": (
+        "_usability_njit_pool",
+        "the host twin is _fe_additive_fusion.propose_additive_fusions (njit quantile binning of _usability_njit_pool, njit partition MI kernels, numpy OLS solve); the two are timed against each other by fe_additive_fusion_backend",
+    ),
+    "_fe_additive_fusion": (
+        "_usability_njit_pool",
+        "the host proposal bins every candidate half with the njit quantile binner of _usability_njit_pool (_qbin_into) and scores the binned MI with the njit partition kernels of _mi_greedy_cmi_fe; the OLS separability test is a numpy normal-equation solve on the scoring subsample",
+    ),
     "_fe_pure_form_retention": (
         "_pure_form_gate_njit",
         "the host form of the pure-form relevance gate is the njit kernel family of _pure_form_gate_njit (parallel over candidate forms), the usability pool is built by the njit pair kernels (_pair_combo_mi_njit_table_parallel, _combine_factorize_njit)",
