@@ -367,22 +367,9 @@ class TestSplitting:
         total = metadata["train_size"] + metadata["val_size"] + metadata["test_size"]
         assert total == len(df)
 
-    def test_artifact_files_saved_when_data_dir_given(self, sample_regression_data, temp_data_dir, common_init_params):
+    def test_artifact_files_saved_when_data_dir_given(self, ridge_pandas_run):
         """Artifact files saved when data dir given."""
-        df, _, _ = sample_regression_data
-        extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
-        train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="test_artifacts",
-            features_and_targets_extractor=extractor,
-            mlframe_models=["ridge"],
-            verbose=0,
-            use_mlframe_ensembles=False,
-            hyperparams_config={"iterations": 10},
-            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
-            reporting_config=common_init_params,
-        )
+        _models, _metadata, temp_data_dir = ridge_pandas_run
         saved_files = []
         for _root, _dirs, files in os.walk(temp_data_dir):
             saved_files.extend(files)
@@ -408,24 +395,10 @@ class TestSplitting:
         saved_files = list(tmp_path.rglob("*"))
         assert len(saved_files) == 0
 
-    def test_split_metadata_keys_present(self, sample_regression_data, temp_data_dir, common_init_params):
+    def test_split_metadata_keys_present(self, ridge_pandas_metadata):
         """Split metadata keys present."""
-        df, _, _ = sample_regression_data
-        extractor = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
-        _, metadata = train_mlframe_models_suite(
-            df=df,
-            target_name="target",
-            model_name="test_split_keys",
-            features_and_targets_extractor=extractor,
-            mlframe_models=["ridge"],
-            verbose=0,
-            use_mlframe_ensembles=False,
-            hyperparams_config={"iterations": 10},
-            reporting_config=common_init_params,
-            output_config=OutputConfig(data_dir=temp_data_dir),
-        )
         for key in ("train_size", "val_size", "test_size"):
-            assert key in metadata
+            assert key in ridge_pandas_metadata
 
 
 # ============================================================================
@@ -433,36 +406,49 @@ class TestSplitting:
 # ============================================================================
 
 
-def _ridge_run_metadata(df, data_dir, reporting_config):
-    """Metadata of one ridge suite run with the per-target drift diagnostics switched off (the file-wide autouse patch is function-scoped, so a module fixture applies its own)."""
+def _ridge_run(df, data_dir, reporting_config, *, fte=None, models_dir="models"):
+    """``(models, metadata)`` of one ridge suite run with the per-target drift diagnostics switched off (the file-wide autouse patch is function-scoped, so a module fixture applies its own)."""
     import mlframe.reporting.diagnostics_dispatch as _diagnostics_dispatch
 
     patch = pytest.MonkeyPatch()
     patch.setattr(_diagnostics_dispatch, "render_target_drift_diagnostics", lambda *args, **kwargs: None)
     try:
-        _models, metadata = train_mlframe_models_suite(
+        models, metadata = train_mlframe_models_suite(
             df=df,
             target_name="test_target",
             model_name="pipe_test",
-            features_and_targets_extractor=SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True),
+            features_and_targets_extractor=fte or SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True),
             reporting_config=reporting_config,
             use_ordinary_models=True,
             use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=data_dir, models_dir="models"),
+            output_config=OutputConfig(data_dir=data_dir, models_dir=models_dir) if models_dir else OutputConfig(data_dir=data_dir),
             verbose=0,
             hyperparams_config={"iterations": 10},
             mlframe_models=["ridge"],
         )
     finally:
         patch.undo()
-    return metadata
+    return models, metadata
+
+
+def _ridge_run_metadata(df, data_dir, reporting_config):
+    """Metadata of one ridge suite run (see ``_ridge_run``)."""
+    return _ridge_run(df, data_dir, reporting_config)[1]
 
 
 @pytest.fixture(scope="module")
-def ridge_pandas_metadata(sample_regression_data, common_init_params, tmp_path_factory):
-    """Metadata of ONE ridge run on the pandas frame, read by the pipeline / cat-features / columns / no-polars-keys sensors."""
+def ridge_pandas_run(sample_regression_data, common_init_params, tmp_path_factory):
+    """ONE ridge run on the pandas frame: ``(models, metadata, data_dir)``, read by the pipeline / cat-features / columns / split-keys / artifact-files / uniform-weight / metadata-completeness sensors."""
     df, _, _ = sample_regression_data
-    return _ridge_run_metadata(df, str(tmp_path_factory.mktemp("ridge_pandas")), common_init_params)
+    data_dir = str(tmp_path_factory.mktemp("ridge_pandas"))
+    models, metadata = _ridge_run(df, data_dir, common_init_params)
+    return models, metadata, data_dir
+
+
+@pytest.fixture(scope="module")
+def ridge_pandas_metadata(ridge_pandas_run):
+    """Metadata of the shared ridge run on the pandas frame, read by the pipeline / cat-features / columns / no-polars-keys sensors."""
+    return ridge_pandas_run[1]
 
 
 @pytest.fixture(scope="module")
@@ -470,6 +456,19 @@ def ridge_polars_metadata(sample_regression_data, common_init_params, tmp_path_f
     """Metadata of ONE ridge run on the polars version of the frame, read by the non-native-model and stored-columns sensors."""
     df, _, _ = sample_regression_data
     return _ridge_run_metadata(pl.from_pandas(df), str(tmp_path_factory.mktemp("ridge_polars")), common_init_params)
+
+
+@pytest.fixture(scope="module")
+def ridge_two_weights_models(sample_regression_data, common_init_params, tmp_path_factory):
+    """Trained-model list of ONE ridge run with two weight schemas (uniform + recency), read by the trains-twice and distinct-clone sensors."""
+    df, _, _ = sample_regression_data
+    fte = TimestampedFeaturesExtractor(
+        target_column="target",
+        regression=True,
+        sample_weights={"uniform": None, "recency": np.ones(len(df))},
+    )
+    models, _ = _ridge_run(df, str(tmp_path_factory.mktemp("ridge_two_weights")), common_init_params, fte=fte, models_dir=None)
+    return models[TargetTypes.REGRESSION]["target"]
 
 
 class TestPipelineFitting:
@@ -666,50 +665,15 @@ class TestModelTrainingLoop:
         regression_models = models.get(TargetTypes.REGRESSION, {}).get("target", [])
         assert len(regression_models) == 0
 
-    def test_uniform_weight_default(self, sample_regression_data, temp_data_dir, common_init_params):
-        """Empty sample_weights from FTE → uniform default → one model per type."""
-        df, _feature_names, _y = sample_regression_data
-        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
-        models, _ = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="test_uniform",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            reporting_config=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            hyperparams_config={"iterations": 10},
-            verbose=0,
-            output_config=OutputConfig(data_dir=temp_data_dir),
-        )
+    def test_uniform_weight_default(self, ridge_pandas_run):
+        """Empty sample_weights from FTE -> uniform default -> one model per type."""
+        models, _metadata, _data_dir = ridge_pandas_run
         trained = models[TargetTypes.REGRESSION]["target"]
         assert len(trained) == 1
 
-    def test_custom_weight_schema_trains_twice(self, sample_regression_data, temp_data_dir, common_init_params):
-        """Two weight schemas → each model trained twice."""
-        df, _feature_names, _y = sample_regression_data
-        n_samples = len(df)
-        fte = TimestampedFeaturesExtractor(
-            target_column="target",
-            regression=True,
-            sample_weights={"uniform": None, "recency": np.ones(n_samples)},
-        )
-        models, _ = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="test_two_weights",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            reporting_config=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            hyperparams_config={"iterations": 10},
-            verbose=0,
-            output_config=OutputConfig(data_dir=temp_data_dir),
-        )
-        trained = models[TargetTypes.REGRESSION]["target"]
-        assert len(trained) == 2
+    def test_custom_weight_schema_trains_twice(self, ridge_two_weights_models):
+        """Two weight schemas -> each model trained twice."""
+        assert len(ridge_two_weights_models) == 2
 
     def test_multiple_models_produce_multiple_entries(self, sample_regression_data, temp_data_dir, common_init_params):
         """Multiple models produce multiple entries."""
@@ -796,29 +760,9 @@ class TestModelTrainingLoop:
         trained = models[TargetTypes.REGRESSION]["target"]
         assert len(trained) == 1
 
-    def test_model_clone_per_weight(self, sample_regression_data, temp_data_dir, common_init_params):
+    def test_model_clone_per_weight(self, ridge_two_weights_models):
         """Each weight schema produces a distinct model clone."""
-        df, _feature_names, _y = sample_regression_data
-        n_samples = len(df)
-        fte = TimestampedFeaturesExtractor(
-            target_column="target",
-            regression=True,
-            sample_weights={"uniform": None, "recency": np.ones(n_samples)},
-        )
-        models, _ = train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="test_clone",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            reporting_config=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            hyperparams_config={"iterations": 10},
-            verbose=0,
-            output_config=OutputConfig(data_dir=temp_data_dir),
-        )
-        trained = models[TargetTypes.REGRESSION]["target"]
+        trained = ridge_two_weights_models
         assert len(trained) == 2
         m0 = getattr(trained[0], "model", trained[0])
         m1 = getattr(trained[1], "model", trained[1])
@@ -966,27 +910,9 @@ class TestCrossCuttingParametrized:
 class TestMetadataCompleteness:
     """Tests verifying metadata completeness and persistence."""
 
-    def _train(self, df, temp_data_dir, common_init_params):
-        """Train."""
-        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True)
-        return train_mlframe_models_suite(
-            df=df,
-            target_name="test_target",
-            model_name="meta_test",
-            features_and_targets_extractor=fte,
-            mlframe_models=["ridge"],
-            reporting_config=common_init_params,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            output_config=OutputConfig(data_dir=temp_data_dir, models_dir="models"),
-            verbose=0,
-            hyperparams_config={"iterations": 10},
-        )
-
-    def test_metadata_has_all_expected_keys(self, sample_regression_data, temp_data_dir, common_init_params):
+    def test_metadata_has_all_expected_keys(self, ridge_pandas_metadata):
         """Metadata has all expected keys."""
-        df, _, _ = sample_regression_data
-        _, metadata = self._train(df, temp_data_dir, common_init_params)
+        metadata = ridge_pandas_metadata
         expected_keys = [
             "model_name",
             "target_name",
@@ -1004,24 +930,22 @@ class TestMetadataCompleteness:
         for key in expected_keys:
             assert key in metadata, f"Expected metadata key '{key}' not found"
 
-    def test_metadata_configs_exists(self, sample_regression_data, temp_data_dir, common_init_params):
+    def test_metadata_configs_exists(self, ridge_pandas_metadata):
         """Metadata configs exists."""
-        df, _, _ = sample_regression_data
-        _, metadata = self._train(df, temp_data_dir, common_init_params)
+        metadata = ridge_pandas_metadata
         assert "configs" in metadata
         assert metadata["configs"] is not None
 
-    def test_split_sizes_sum_to_original(self, sample_regression_data, temp_data_dir, common_init_params):
+    def test_split_sizes_sum_to_original(self, sample_regression_data, ridge_pandas_metadata):
         """Split sizes sum to original."""
         df, _, _ = sample_regression_data
-        _, metadata = self._train(df, temp_data_dir, common_init_params)
+        metadata = ridge_pandas_metadata
         total = metadata["train_size"] + metadata["val_size"] + metadata["test_size"]
         assert total == len(df)
 
-    def test_metadata_saved_to_disk(self, sample_regression_data, temp_data_dir, common_init_params):
+    def test_metadata_saved_to_disk(self, ridge_pandas_run):
         """Metadata saved to disk."""
-        df, _, _ = sample_regression_data
-        self._train(df, temp_data_dir, common_init_params)
+        _models, _metadata, temp_data_dir = ridge_pandas_run
         # 2026-04-29: format switched joblib -> pickle proto=5 + zstd L3 (8c301f2).
         # Look for .pkl.zst (preferred) or .pkl (no-zstd fallback).
         meta_files = list(Path(temp_data_dir).rglob("metadata.pkl.zst")) or list(Path(temp_data_dir).rglob("metadata.pkl"))
