@@ -288,7 +288,9 @@
     "_y_encoding": "bookkeeping, frame glue, recipes and names: no numeric kernel",
     "cat_fe_state": "bookkeeping, frame glue, recipes and names: no numeric kernel",
     "engineered_recipes": "bookkeeping, frame glue, recipes and names: no numeric kernel",
-    "_fe_additive_fusion_ktc": "the tuner entry of the additive-fusion proposal (kernel_tuner fe_additive_fusion_backend, sweep over the row count of host against device at identical admitted sets, fallback = the measured row window, MLFRAME_FE_FUSION_DEVICE=0|1 forces a side): it owns no kernel and no array work; the resident proposal and its profile are _fe_additive_fusion_gpu_resident"
+    "_fe_additive_fusion_ktc": "the tuner entry of the additive-fusion proposal (kernel_tuner fe_additive_fusion_backend, sweep over the row count of host against device at identical admitted sets, fallback = the measured row window, MLFRAME_FE_FUSION_DEVICE=0|1 forces a side): it owns no kernel and no array work; the resident proposal and its profile are _fe_additive_fusion_gpu_resident",
+    "_usability_pool_resident_pairs": "measured exemption: the per-pair stage of score_pair_combos_table_resident (operand upload through the content-keyed resident cache, one fused_gen launch per combo chunk, then _degenerate_combo_gpu and the MI write); it owns no kernel and the 40-pair table at 100000 rows is 5.7 to 8.4 s of device-bound work, 77.1 s on the njit per-pair path (audits/2026-10-22/profiles/_usability_pool_resident.md); the host or resident choice is fe_usability_pool_combo_mi_table_resident_crossover of _usability_pool_resident_ktc",
+    "_degenerate_combo_gpu": "measured exemption: one-launch helper kernel (per-row near-constant mask and row extremes of a combo block) with no host alternative on the resident path: 1.96 ms against 15.8 ms for the cupy var / abs / max expression it replaces on a (450, 100000) float32 block, occupancy 0.96 to 0.99, 82 GB/s of 112 GB/s read; the host or resident choice is made by the caller (fe_usability_pool_combo_mi_table_resident_crossover); profile in audits/2026-10-22/profiles/_usability_pool_resident.md"
   },
   "pending": [
     "_cat_pair_fe",
@@ -326,7 +328,6 @@
     "_target_mix_gate",
     "_temporal_agg_fe",
     "_unified_fe_gate",
-    "_usability_pool_resident_pairs",
     "_wavelet_basis_fe_recipes",
     "feature_engineering"
   ]

@@ -63,3 +63,24 @@ def test_oversized_histogram_returns_none():
     d = cp.asarray(np.random.default_rng(1).normal(size=(4, 1000)))
     e = cp.asarray(np.sort(np.random.default_rng(2).normal(size=(9, 4)), axis=0))
     assert binned_mm_mi_from_cm_gpu(d, e, cp.zeros(1000, dtype=cp.int64), 10, 10_000, 0.0, 1) is None
+
+
+def test_degenerate_rows_kernel_matches_reference_and_row_extremes():
+    """``live_rows`` marks the near-constant rows like the reference variance rule on exactly representable data, and its row minima / maxima are the numpy extremes."""
+    cp_ = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._degenerate_combo_gpu import live_rows
+    from mlframe.feature_selection.filters._usability_njit_pool import _USABILITY_DEGENERATE_REL_TOL as tol
+
+    rng = np.random.default_rng(0)
+    x = rng.normal(size=(40, 5000)).astype(np.float32)
+    x[0] = 3.0  # constant
+    x[1] = 0.0  # zero
+    x[2] = 1e6  # constant at a large offset: float32 var of the reference is rounding noise, the kernel is exact
+    x[3] *= 1e-13  # genuinely tiny scale but real spread
+    x[4] = np.where(rng.random(5000) < 1e-3, 1.0, 0.0)  # rare spikes
+    live, lo, hi = live_rows(cp_, cp_.asarray(x), float(tol))
+    live = cp_.asnumpy(live)
+    assert not live[0] and not live[1] and not live[2]
+    assert live[3] and live[4] and live[5:].all()
+    np.testing.assert_array_equal(cp_.asnumpy(lo), x.min(axis=1).astype(np.float64))
+    np.testing.assert_array_equal(cp_.asnumpy(hi), x.max(axis=1).astype(np.float64))
