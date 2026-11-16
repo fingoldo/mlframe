@@ -61,7 +61,7 @@ def _row_argmax_njit(cols: tuple, out: np.ndarray) -> None:
 def _read_only_view(a: np.ndarray) -> np.ndarray:
     """A read-only view of ``a``: numba types a read-only and a writable array differently, and a tuple of mixed ones cannot be indexed by a loop variable (``TypingError: getitem(Tuple(readonly array, ..., array), int64)``,
     which skipped the whole row-argmax FE of a fit whose columns were a mix of frame views and fresh arrays); read-only views give every column of the tuple one type."""
-    v = a.view()
+    v: np.ndarray = a.view()
     v.flags.writeable = False
     return v
 
