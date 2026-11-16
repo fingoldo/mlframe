@@ -58,12 +58,20 @@ def _row_argmax_njit(cols: tuple, out: np.ndarray) -> None:
         out[i] = bi
 
 
+def _read_only_view(a: np.ndarray) -> np.ndarray:
+    """A read-only view of ``a``: numba types a read-only and a writable array differently, and a tuple of mixed ones cannot be indexed by a loop variable (``TypingError: getitem(Tuple(readonly array, ..., array), int64)``,
+    which skipped the whole row-argmax FE of a fit whose columns were a mix of frame views and fresh arrays); read-only views give every column of the tuple one type."""
+    v = a.view()
+    v.flags.writeable = False
+    return v
+
+
 def row_argmax_host(columns: Sequence[np.ndarray]) -> np.ndarray:
     """Host form: the parallel numba kernel over the columns (promoted to one common dtype); float64 ``(n,)`` index of the first maximum."""
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
     common = np.result_type(*[np.asarray(c).dtype for c in columns])
-    cols = tuple(np.ascontiguousarray(c, dtype=common) for c in columns)
+    cols = tuple(_read_only_view(np.ascontiguousarray(c, dtype=common)) for c in columns)
     out = np.empty(cols[0].shape[0], dtype=np.float64)  # Intentional float64: index output matches the caller's float64 cast contract
     with parallel_kernel_entry():
         _row_argmax_njit(cols, out)
