@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from collections.abc import Mapping
 from typing import Any
 
@@ -67,24 +68,28 @@ def _sanitize_args(args: Any) -> Any:
     return args
 
 
+_INSTALL_LOCK = threading.Lock()
+
+
 def install_log_sanitizer() -> bool:
     """Wrap the logging record factory so records from ``mlframe*`` loggers get escaped arguments; True when this call installed it."""
     global _original_factory
-    current = logging.getLogRecordFactory()
-    if getattr(current, _MARK, False):
-        return False
-    _original_factory = current
+    with _INSTALL_LOCK:
+        current = logging.getLogRecordFactory()
+        if getattr(current, _MARK, False):
+            return False
+        _original_factory = current
 
-    def factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
-        """Build the record with the previous factory, then escape its arguments when the logger is one of ours."""
-        record: logging.LogRecord = _original_factory(*args, **kwargs)
-        if record.args and record.name.startswith(_PREFIX):
-            record.args = _sanitize_args(record.args)
-        return record
+        def factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
+            """Build the record with the previous factory, then escape its arguments when the logger is one of ours."""
+            record: logging.LogRecord = _original_factory(*args, **kwargs)
+            if record.args and record.name.startswith(_PREFIX):
+                record.args = _sanitize_args(record.args)
+            return record
 
-    setattr(factory, _MARK, True)
-    logging.setLogRecordFactory(factory)
-    return True
+        setattr(factory, _MARK, True)
+        logging.setLogRecordFactory(factory)
+        return True
 
 
 def uninstall_log_sanitizer() -> bool:
