@@ -155,6 +155,7 @@ def _sweep_host(columns: np.ndarray) -> np.ndarray:
     return ratio_pair_screen_host(list(columns), RATIO, 1e-9, 0.99).astype(np.float64)  # Intentional float64: comparison vector
 
 
+_SWEEP_LOCK = threading.Lock()
 _SWEEP_RESIDENT: dict = {}
 
 
@@ -164,10 +165,11 @@ def _sweep_device(columns: np.ndarray) -> np.ndarray:
 
     from ._ratio_delta_screen import RATIO
 
-    hit = _SWEEP_RESIDENT.get(id(columns))
-    if hit is None or hit[0] is not columns:
-        _SWEEP_RESIDENT.clear()
-        hit = _SWEEP_RESIDENT[id(columns)] = (columns, cp.asarray(columns))
+    with _SWEEP_LOCK:
+        hit = _SWEEP_RESIDENT.get(id(columns))
+        if hit is None or hit[0] is not columns:
+            _SWEEP_RESIDENT.clear()
+            hit = _SWEEP_RESIDENT[id(columns)] = (columns, cp.asarray(columns))
     return ratio_pair_screen_device(hit[1], RATIO, 1e-9, 0.99).astype(np.float64)  # Intentional float64: comparison vector
 
 

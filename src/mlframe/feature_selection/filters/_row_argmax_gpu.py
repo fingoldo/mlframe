@@ -102,6 +102,7 @@ def _sweep_host(columns: np.ndarray) -> np.ndarray:
     return sampled
 
 
+_SWEEP_LOCK = threading.Lock()
 _SWEEP_RESIDENT: dict = {}  # id(host columns) -> (host columns, their device copies): the gate's operands are uploaded once and shared (``resident_operand``), so the device form is timed on resident columns
 
 
@@ -109,10 +110,11 @@ def _sweep_device(columns: np.ndarray) -> np.ndarray:
     """The device form on the sweep inputs: the kernel over columns already on the device (the upload is paid once per operand, not per triple); the index stays on the device (the gate keeps it there), its sample is copied back."""
     import cupy as cp
 
-    hit = _SWEEP_RESIDENT.get(id(columns))
-    if hit is None or hit[0] is not columns:
-        _SWEEP_RESIDENT.clear()
-        hit = _SWEEP_RESIDENT[id(columns)] = (columns, [cp.asarray(c) for c in columns])
+    with _SWEEP_LOCK:
+        hit = _SWEEP_RESIDENT.get(id(columns))
+        if hit is None or hit[0] is not columns:
+            _SWEEP_RESIDENT.clear()
+            hit = _SWEEP_RESIDENT[id(columns)] = (columns, [cp.asarray(c) for c in columns])
     sampled: np.ndarray = cp.asnumpy(_sample(row_argmax_cm(cp, hit[1])))
     return sampled
 

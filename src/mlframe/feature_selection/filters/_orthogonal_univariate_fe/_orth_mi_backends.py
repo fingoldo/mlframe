@@ -500,7 +500,8 @@ def _strict_mi_keeps_float32(X: Any) -> bool:
         from .._fe_gpu_batch._devices import crit_dtype_relaxed
 
         return bool(crit_dtype_relaxed())
-    except Exception:
+    except Exception as exc:
+        logger.warning("_strict_mi_keeps_float32: crit_dtype_relaxed unavailable (%s); float64 operand", exc)
         return False
 
 def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_binning: bool = False) -> np.ndarray:

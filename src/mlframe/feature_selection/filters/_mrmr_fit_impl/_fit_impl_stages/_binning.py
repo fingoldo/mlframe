@@ -171,9 +171,10 @@ def start_discretization_warmup(self: Any, X: Any, y: Any) -> None:
             logger.debug("discretisation warm-up failed: %r", exc)
 
     import threading
+    import weakref
 
     worker = threading.Thread(target=run, name="discretize-warmup", daemon=True)
-    _WARMUPS[id(self)] = worker
+    _WARMUPS[id(self)] = (weakref.ref(self), worker)
     worker.start()
 
 
@@ -186,9 +187,9 @@ def _discretize_inputs(self, _is_polars_input, X, target_names):
         categorize_dataset,
     )
 
-    warmup = _WARMUPS.pop(id(self), None)
-    if warmup is not None:
-        warmup.join()
+    entry = _WARMUPS.pop(id(self), None)
+    if entry is not None and entry[0]() is self:
+        entry[1].join()
     if self.nan_strategy in ("ffill_bfill",):
         # Legacy path retained so runs from before the separate-bin NaN default stay reproducible.
         if _is_polars_input:
