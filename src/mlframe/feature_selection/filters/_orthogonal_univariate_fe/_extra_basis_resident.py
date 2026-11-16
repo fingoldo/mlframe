@@ -30,6 +30,8 @@ import math
 from typing import Any, Optional
 
 import numpy as np
+
+from .._ktc_fallback import selection_view
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 import pandas as pd
@@ -320,7 +322,6 @@ DEVICE_FALLBACK_ROWS = 20_000  # rows from which the device-born build is taken 
 _SWEEP_ROWS = [5_000, 30_000, 100_000]
 _SALT = 1
 _SWEEP_COLS = 4
-_SWEEP_TOP = 10
 
 
 def _sweep_inputs(dims: dict) -> tuple:
@@ -335,13 +336,6 @@ def _sweep_inputs(dims: dict) -> tuple:
     return (X, eng, meta, y, 10)
 
 
-def _view(mi: np.ndarray) -> np.ndarray:
-    """The selection view of a scoring pass: how many candidates, and which are among the best ``_SWEEP_TOP`` (``_ktc_fallback.selection_view``)."""
-    from .._ktc_fallback import selection_view
-
-    return selection_view(np.asarray(mi, dtype=np.float64), top=_SWEEP_TOP, tie_band=1e-4)  # Intentional float64: MI statistic
-
-
 def _sweep_host(X: pd.DataFrame, eng: pd.DataFrame, meta: dict, y: np.ndarray, nbins: int) -> np.ndarray:
     """The host path under STRICT residency: the host-built engineered matrix is uploaded and scored by the same resident plug-in MI (what ``_mi_classif_batch`` does when this module answers ``None``)."""
     import cupy as cp
@@ -349,14 +343,14 @@ def _sweep_host(X: pd.DataFrame, eng: pd.DataFrame, meta: dict, y: np.ndarray, n
     from ._gpu_resident_cross_basis import _resident_mi
 
     mat = cp.asarray(np.ascontiguousarray(eng.to_numpy(dtype=_crit_np_dtype())))
-    return _view(_resident_mi(cp, mat, y, nbins))
+    return selection_view(_resident_mi(cp, mat, y, nbins))
 
 
 def _sweep_device(X: pd.DataFrame, eng: pd.DataFrame, meta: dict, y: np.ndarray, nbins: int) -> np.ndarray:
     """The device-born scoring from the metadata; a failed launch raises, so the sweep never records a host fallback as a device time."""
     import cupy as cp
 
-    return _view(_mi_by_name_blocks(cp, X, list(eng.columns), meta, y, nbins))
+    return selection_view(_mi_by_name_blocks(cp, X, list(eng.columns), meta, y, nbins))
 
 
 from .._ktc_fallback import host_device_sweep as _host_device_sweep

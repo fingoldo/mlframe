@@ -50,6 +50,8 @@ import logging
 from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
+
+from ._ktc_fallback import selection_view
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 import pandas as pd
@@ -358,7 +360,6 @@ DEVICE_FALLBACK_ROWS = 20_000  # rows from which the device-born build is taken 
 _SWEEP_ROWS = [5_000, 30_000, 100_000]
 _SALT = 1
 _SWEEP_COLS = 6
-_SWEEP_TOP = 10
 
 
 def _sweep_inputs(dims: dict) -> tuple:
@@ -374,18 +375,11 @@ def _sweep_inputs(dims: dict) -> tuple:
     return (X, enc_df, recipes, y, 10)
 
 
-def _view(mi: np.ndarray) -> np.ndarray:
-    """The selection view of a scoring pass: how many candidates, and which are among the best ``_SWEEP_TOP`` (``_ktc_fallback.selection_view``)."""
-    from ._ktc_fallback import selection_view
-
-    return selection_view(np.asarray(mi, dtype=np.float64), top=_SWEEP_TOP, tie_band=1e-4)  # Intentional float64: MI statistic
-
-
 def _sweep_host(X: pd.DataFrame, enc_df: pd.DataFrame, recipes: dict, y: np.ndarray, nbins: int) -> np.ndarray:
     """The host gate's scoring: MI of the host-built candidate matrix."""
     from ._orthogonal_univariate_fe import mi_classif_batch_chunked
 
-    return _view(mi_classif_batch_chunked(enc_df, y, nbins=nbins))
+    return selection_view(mi_classif_batch_chunked(enc_df, y, nbins=nbins))
 
 
 def _sweep_device(X: pd.DataFrame, enc_df: pd.DataFrame, recipes: dict, y: np.ndarray, nbins: int) -> np.ndarray:
@@ -393,7 +387,7 @@ def _sweep_device(X: pd.DataFrame, enc_df: pd.DataFrame, recipes: dict, y: np.nd
     import cupy as cp
 
     specs = [{"name": c, **{k: recipes[c][k] for k in ("x_i", "x_j", "edges", "bin_mean", "bin_std", "kind")}} for c in enc_df.columns]
-    return _view(_mi_by_column_blocks(cp, build_dispersion_matrix_gpu, X, specs, y, nbins))
+    return selection_view(_mi_by_column_blocks(cp, build_dispersion_matrix_gpu, X, specs, y, nbins))
 
 
 from ._ktc_fallback import host_device_sweep as _host_device_sweep
