@@ -560,7 +560,9 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
         "_mi_greedy_cmi_fe_gpu",
         "_mi_greedy_cmi_fe_ktc",
         "_mi_greedy_cmi_fe_steps",
+        "_mi_greedy_fe",
     ),
+    "_mi_greedy_fe": ("_mi_greedy_device",),
     "batch_mi_noise_gate_gpu": (
         "_batch_mi_noise_gate_fused",
         "_batch_mi_noise_gate_tuning",

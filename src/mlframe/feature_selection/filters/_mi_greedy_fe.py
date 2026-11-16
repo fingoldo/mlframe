@@ -25,7 +25,11 @@ uplift + absolute MI floor) so the screening floors stay calibrated.
 Recipe-based replay: every appended column carries an ``EngineeredRecipe``
 of kind ``"mi_greedy_transform"`` so ``MRMR.transform`` can recompute the
 column on test data deterministically (X-only, never references y).
-"""
+
+
+Backends and memory (2026-11-16): candidates are scored in column blocks (``iter_candidates`` yields transform blocks, ``_mi_greedy_device.score_candidates_device`` uploads and bins one block at a time,
+so the device working set is bounded by the block and not by the candidate count); the host path scores the same blocks with the njit MI kernels. ``use_device`` (STRICT / AUTO by fit size) picks the
+backend. The family is judged with ``_mi_greedy_cmi_fe``; ``audits/2026-10-22/profiles/_mi_greedy_fe.md`` has the measured figures."""
 from __future__ import annotations
 
 from typing import cast
