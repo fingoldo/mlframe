@@ -195,7 +195,7 @@ def build_tables(ensemble: TreeEnsemble, n_rows: Optional[int] = None) -> Option
     leaf_value[leaf_of_node[is_leaf]] = ensemble.values[is_leaf]
     table = np.zeros(int(sizes.sum()), dtype=np.float64)  # Intentional float64: the table is the exact reference
     _build_tables(leaf_ud, leaf_feat_off, leaf_zero, leaf_table_off, leaf_value, table)
-    return {"node_slot": node_slot, "leaf_of_node": leaf_of_node, "leaf_ud": leaf_ud, "leaf_feat_off": leaf_feat_off, "leaf_feat": leaf_feat, "leaf_table_off": leaf_table_off, "table": table}
+    return {"node_slot": node_slot, "leaf_of_node": leaf_of_node, "leaf_ud": leaf_ud, "leaf_feat_off": leaf_feat_off, "leaf_feat": leaf_feat, "leaf_table_off": leaf_table_off, "table": table, "leaf_zero": leaf_zero, "leaf_value": leaf_value}
 
 
 def treeshap_phi_base_table(ensemble: TreeEnsemble, X: np.ndarray, tables: Optional[dict] = None) -> Optional[tuple]:
