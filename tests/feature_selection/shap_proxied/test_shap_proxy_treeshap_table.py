@@ -76,3 +76,35 @@ def test_unique_feature_cap_falls_back(monkeypatch):
     ens, _ = _ensemble(8, 5, 25)
     monkeypatch.setattr(table_mod, "MAX_UNIQUE", 1)
     assert build_tables(ens) is None
+
+
+@pytest.mark.parametrize("kernel", ["blocked", "linear"])
+@pytest.mark.parametrize("n_rows", [1, 3, 4, 5, 67, 300])
+def test_preorder_kernels_equal_the_stack_kernel_for_any_row_count(kernel, n_rows):
+    """The preorder kernels (row blocks, four rows abreast, single-row tail) equal the stack kernel, including row counts that leave a tail group."""
+    ens, X = _ensemble(6, 5, 20)
+    tabs = build_tables(ens)
+    ref = treeshap_phi_base_table(ens, X[:n_rows], tabs, kernel="stack")[0]
+    got = treeshap_phi_base_table(ens, X[:n_rows], tabs, kernel=kernel, block=8)[0]
+    np.testing.assert_allclose(got, ref, rtol=0, atol=1e-12)
+
+
+@pytest.mark.parametrize("kernel", ["blocked", "linear"])
+def test_preorder_kernels_route_missing_values_like_the_path_kernel(kernel):
+    """NaN follows the default child in the branch-free route (a fast-math flag would fold the NaN test)."""
+    ens, X = _ensemble(6, 5, 20)
+    X = X.copy()
+    X[np.random.default_rng(5).random(X.shape) < 0.2] = np.nan
+    ref = treeshap_phi_base_path(ens, X)[0]
+    got = treeshap_phi_base_table(ens, X, kernel=kernel)[0]
+    assert np.isfinite(got).all()
+    np.testing.assert_allclose(got, ref, rtol=0, atol=1e-10)
+
+
+def test_non_contiguous_tree_node_ids_fall_back_to_the_stack_kernel(monkeypatch):
+    """When a tree's node ids are not contiguous the linear arrays are absent and the stack kernel answers."""
+    ens, X = _ensemble(6, 4, 15)
+    monkeypatch.setattr(table_mod, "_tree_orders", lambda *a, **k: False)
+    tabs = build_tables(ens)
+    assert tabs["linear"] is None
+    np.testing.assert_allclose(treeshap_phi_base_table(ens, X, tabs)[0], treeshap_phi_base_path(ens, X)[0], rtol=0, atol=1e-10)

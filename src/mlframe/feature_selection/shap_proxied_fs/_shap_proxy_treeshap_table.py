@@ -159,6 +159,186 @@ def _table_batch(X, phi, children_left, children_right, children_default, featur
                 sp += 1
 
 
+@njit(cache=True)
+def _tree_orders(children_left, children_right, tree_roots, n_nodes, inner, inner_ptr, leaves, leaf_ptr):
+    """Preorder lists of each tree's inner nodes and leaves (global node ids), tree after tree, with their CSR pointers. Returns False when a tree's nodes do not all lie in
+    ``[root_t, root_{t+1})`` (the linear kernel indexes its mask scratch by ``node - root``)."""
+    stack = np.empty(n_nodes + 1, dtype=np.int64)
+    ni = 0
+    nl = 0
+    n_trees = tree_roots.shape[0]
+    for t in range(n_trees):
+        inner_ptr[t] = ni
+        leaf_ptr[t] = nl
+        lo = tree_roots[t]
+        hi = tree_roots[t + 1] if t + 1 < n_trees else n_nodes
+        sp = 0
+        stack[sp] = tree_roots[t]
+        sp += 1
+        while sp > 0:
+            sp -= 1
+            node = stack[sp]
+            if node < lo or node >= hi:
+                return False
+            if children_left[node] == _NO_CHILD:
+                leaves[nl] = node
+                nl += 1
+            else:
+                inner[ni] = node
+                ni += 1
+                stack[sp] = children_right[node]
+                sp += 1
+                stack[sp] = children_left[node]
+                sp += 1
+    inner_ptr[n_trees] = ni
+    leaf_ptr[n_trees] = nl
+    return True
+
+
+@njit(cache=True, parallel=True)
+def _table_batch_linear(
+    X, phi, children_left, children_right, features, thresholds, left_is_default, node_bit, tree_roots, max_tree_nodes,
+    inner, inner_ptr, leaves, leaf_ptr, leaf_of_node, leaf_ud, leaf_feat_off, leaf_feat, leaf_table_off, table,
+):
+    """The table kernel without a DFS stack: per tree one pass over the inner nodes in preorder computes both children's masks branch-free (the route is a select, not a jump), then one pass over the
+    leaves adds the table entries. The mask scratch is indexed by ``node - root`` and stays in L1."""
+    n = X.shape[0]
+    for i in prange(n):
+        mask = np.empty(max_tree_nodes, dtype=np.int64)
+        xi = X[i]
+        phi_i = phi[i]
+        for t in range(tree_roots.shape[0]):
+            root = tree_roots[t]
+            mask[0] = -1
+            for c in range(inner_ptr[t], inner_ptr[t + 1]):
+                node = inner[c]
+                xv = xi[features[node]]
+                go_left = left_is_default[node] if xv != xv else xv < thresholds[node]
+                m = mask[node - root]
+                mc = m & ~node_bit[node]
+                mask[children_left[node] - root] = m if go_left else mc
+                mask[children_right[node] - root] = mc if go_left else m
+            for c in range(leaf_ptr[t], leaf_ptr[t + 1]):
+                node = leaves[c]
+                leaf = leaf_of_node[node]
+                ud = leaf_ud[leaf]
+                if ud > 0:
+                    base = leaf_table_off[leaf] + (mask[node - root] & ((1 << ud) - 1)) * ud
+                    foff = leaf_feat_off[leaf]
+                    for j in range(ud):
+                        phi_i[leaf_feat[foff + j]] += table[base + j]
+
+
+@njit(cache=True, parallel=True)
+def _table_batch_blocked(
+    X, phi, children_left, children_right, features, thresholds, left_is_default, node_bit, tree_roots, max_tree_nodes,
+    inner, inner_ptr, leaves, leaf_ptr, leaf_of_node, leaf_ud, leaf_feat_off, leaf_feat, leaf_table_off, table, block,
+):
+    """``_table_batch_linear`` with two changes of loop order. (1) Trees outer over blocks of ``block`` rows: one tree's node records, leaf records and table slice are read once per block instead of once
+    per row, so they stay in L1 while the ensemble (hundreds of KB of metadata plus the table) streams through L2/L3 once per block. (2) Four rows advance together through each tree: the leaf adds of one row
+    chain through memory (every leaf of a tree adds into the features near its root, a load-add-store-forward chain of about 12 cycles per add), the four rows are independent chains the core overlaps, and the
+    node and leaf records are loaded once for four rows. The tail (fewer than four rows) runs the single-row loop."""
+    n = X.shape[0]
+    n_blocks = (n + block - 1) // block
+    for b in prange(n_blocks):
+        r0 = b * block
+        r1 = min(n, r0 + block)
+        mk = np.empty((4, max_tree_nodes), dtype=np.int64)
+        for t in range(tree_roots.shape[0]):
+            root = tree_roots[t]
+            c0 = inner_ptr[t]
+            c1 = inner_ptr[t + 1]
+            l0 = leaf_ptr[t]
+            l1 = leaf_ptr[t + 1]
+            r = r0
+            while r + 4 <= r1:
+                x0 = X[r]
+                x1 = X[r + 1]
+                x2 = X[r + 2]
+                x3 = X[r + 3]
+                p0 = phi[r]
+                p1 = phi[r + 1]
+                p2 = phi[r + 2]
+                p3 = phi[r + 3]
+                for q in range(4):
+                    mk[q, 0] = -1
+                for c in range(c0, c1):
+                    node = inner[c]
+                    f = features[node]
+                    th = thresholds[node]
+                    dl = left_is_default[node]
+                    nb = ~node_bit[node]
+                    li = children_left[node] - root
+                    ri = children_right[node] - root
+                    me = node - root
+                    v0 = x0[f]
+                    v1 = x1[f]
+                    v2 = x2[f]
+                    v3 = x3[f]
+                    g0 = dl if v0 != v0 else v0 < th
+                    g1 = dl if v1 != v1 else v1 < th
+                    g2 = dl if v2 != v2 else v2 < th
+                    g3 = dl if v3 != v3 else v3 < th
+                    m = mk[0, me]
+                    mc = m & nb
+                    mk[0, li] = m if g0 else mc
+                    mk[0, ri] = mc if g0 else m
+                    m = mk[1, me]
+                    mc = m & nb
+                    mk[1, li] = m if g1 else mc
+                    mk[1, ri] = mc if g1 else m
+                    m = mk[2, me]
+                    mc = m & nb
+                    mk[2, li] = m if g2 else mc
+                    mk[2, ri] = mc if g2 else m
+                    m = mk[3, me]
+                    mc = m & nb
+                    mk[3, li] = m if g3 else mc
+                    mk[3, ri] = mc if g3 else m
+                for c in range(l0, l1):
+                    node = leaves[c]
+                    leaf = leaf_of_node[node]
+                    ud = leaf_ud[leaf]
+                    if ud > 0:
+                        me = node - root
+                        lo = leaf_table_off[leaf]
+                        foff = leaf_feat_off[leaf]
+                        full = (1 << ud) - 1
+                        b0 = lo + (mk[0, me] & full) * ud
+                        b1 = lo + (mk[1, me] & full) * ud
+                        b2 = lo + (mk[2, me] & full) * ud
+                        b3 = lo + (mk[3, me] & full) * ud
+                        for j in range(ud):
+                            ft = leaf_feat[foff + j]
+                            p0[ft] += table[b0 + j]
+                            p1[ft] += table[b1 + j]
+                            p2[ft] += table[b2 + j]
+                            p3[ft] += table[b3 + j]
+                r += 4
+            while r < r1:
+                xi = X[r]
+                phi_i = phi[r]
+                mk[0, 0] = -1
+                for c in range(c0, c1):
+                    node = inner[c]
+                    xv = xi[features[node]]
+                    go_left = left_is_default[node] if xv != xv else xv < thresholds[node]
+                    m = mk[0, node - root]
+                    mc = m & ~node_bit[node]
+                    mk[0, children_left[node] - root] = m if go_left else mc
+                    mk[0, children_right[node] - root] = mc if go_left else m
+                for c in range(l0, l1):
+                    node = leaves[c]
+                    leaf = leaf_of_node[node]
+                    ud = leaf_ud[leaf]
+                    if ud > 0:
+                        base = leaf_table_off[leaf] + (mk[0, node - root] & ((1 << ud) - 1)) * ud
+                        foff = leaf_feat_off[leaf]
+                        for j in range(ud):
+                            phi_i[leaf_feat[foff + j]] += table[base + j]
+                r += 1
+
+
 PAYOFF_SHARE = 0.6  # the table is built when its build work is below this share of the path kernel's work over the rows
 
 
@@ -195,11 +375,44 @@ def build_tables(ensemble: TreeEnsemble, n_rows: Optional[int] = None) -> Option
     leaf_value[leaf_of_node[is_leaf]] = ensemble.values[is_leaf]
     table = np.zeros(int(sizes.sum()), dtype=np.float64)  # Intentional float64: the table is the exact reference
     _build_tables(leaf_ud, leaf_feat_off, leaf_zero, leaf_table_off, leaf_value, table)
-    return {"node_slot": node_slot, "leaf_of_node": leaf_of_node, "leaf_ud": leaf_ud, "leaf_feat_off": leaf_feat_off, "leaf_feat": leaf_feat, "leaf_table_off": leaf_table_off, "table": table, "leaf_zero": leaf_zero, "leaf_value": leaf_value}
+    return {
+        "node_slot": node_slot, "leaf_of_node": leaf_of_node, "leaf_ud": leaf_ud, "leaf_feat_off": leaf_feat_off, "leaf_feat": leaf_feat, "leaf_table_off": leaf_table_off, "table": table,
+        "leaf_zero": leaf_zero, "leaf_value": leaf_value, "linear": _linear_arrays(ensemble, node_slot),
+    }
 
 
-def treeshap_phi_base_table(ensemble: TreeEnsemble, X: np.ndarray, tables: Optional[dict] = None) -> Optional[tuple]:
-    """``(phi (n, f) float64, base)`` from the contribution tables, or ``None`` when the ensemble does not fit them (the caller keeps the path kernel). ``tables`` reuses a ``build_tables`` result."""
+def _linear_arrays(ensemble: TreeEnsemble, node_slot: np.ndarray) -> Optional[dict]:
+    """Preorder node lists and per-node route data of the linear kernel, or ``None`` when a tree's node ids are not contiguous (the stack kernel then answers)."""
+    n_nodes = int(ensemble.children_left.shape[0])
+    n_trees = int(ensemble.tree_roots.shape[0])
+    inner = np.empty(n_nodes, dtype=np.int64)
+    leaves = np.empty(n_nodes, dtype=np.int64)
+    inner_ptr = np.zeros(n_trees + 1, dtype=np.int64)
+    leaf_ptr = np.zeros(n_trees + 1, dtype=np.int64)
+    if not _tree_orders(ensemble.children_left, ensemble.children_right, ensemble.tree_roots, n_nodes, inner, inner_ptr, leaves, leaf_ptr):
+        return None
+    bounds = np.append(np.asarray(ensemble.tree_roots, dtype=np.int64), n_nodes)
+    return {
+        "inner": inner[: inner_ptr[-1]].copy(), "inner_ptr": inner_ptr, "leaves": leaves[: leaf_ptr[-1]].copy(), "leaf_ptr": leaf_ptr,
+        "left_is_default": np.asarray(ensemble.children_default == ensemble.children_left),
+        "node_bit": (np.int64(1) << node_slot.astype(np.int64)),
+        "max_tree_nodes": int(np.diff(bounds).max()),
+    }
+
+
+def _auto_block(n_rows: int) -> int:
+    """Rows per block of the blocked kernel: 64 (measured best on 1 and 8 threads), fewer for small inputs so that every thread still gets about two blocks. Always at least 4 (one row group)."""
+    import numba
+
+    per_thread = n_rows // (2 * max(int(numba.get_num_threads()), 1))
+    return int(max(4, min(64, per_thread - per_thread % 4)))
+
+
+def treeshap_phi_base_table(ensemble: TreeEnsemble, X: np.ndarray, tables: Optional[dict] = None, kernel: str = "blocked", block: int = 0) -> Optional[tuple]:
+    """``(phi (n, f) float64, base)`` from the contribution tables, or ``None`` when the ensemble does not fit them (the caller keeps the path kernel). ``tables`` reuses a ``build_tables`` result.
+
+    ``kernel`` picks the sample loop: ``"blocked"`` (default: preorder passes, row blocks, four rows abreast; ``block`` 0 = automatic), ``"linear"`` (preorder passes, one row at a time) or ``"stack"`` (the
+    DFS-stack kernel); the first two fall back to ``"stack"`` when the tree node ids are not contiguous. All three agree to ~1e-14 (the order of the leaf adds differs)."""
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
     tab = tables if tables is not None else build_tables(ensemble, int(np.asarray(X).shape[0]))
@@ -207,6 +420,19 @@ def treeshap_phi_base_table(ensemble: TreeEnsemble, X: np.ndarray, tables: Optio
         return None
     Xf = ensemble.as_float32(X)
     phi = np.zeros((Xf.shape[0], ensemble.n_features), dtype=np.float64)  # Intentional float64: the caller's phi contract
+    lin = tab.get("linear") if kernel != "stack" else None
+    if lin is not None:
+        args = (
+            Xf, phi, ensemble.children_left, ensemble.children_right, ensemble.features, ensemble.thresholds, lin["left_is_default"], lin["node_bit"], ensemble.tree_roots,
+            lin["max_tree_nodes"], lin["inner"], lin["inner_ptr"], lin["leaves"], lin["leaf_ptr"], tab["leaf_of_node"], tab["leaf_ud"], tab["leaf_feat_off"], tab["leaf_feat"],
+            tab["leaf_table_off"], tab["table"],
+        )
+        with parallel_kernel_entry():
+            if kernel == "linear":
+                _table_batch_linear(*args)
+            else:
+                _table_batch_blocked(*args, block if block > 0 else _auto_block(Xf.shape[0]))
+        return phi, float(ensemble.base_offset)
     with parallel_kernel_entry():
         _table_batch(
             Xf, phi, ensemble.children_left, ensemble.children_right, ensemble.children_default, ensemble.features, ensemble.thresholds, ensemble.tree_roots,
