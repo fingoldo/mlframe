@@ -93,10 +93,8 @@ _IPF_ITERS = 12
 
 
 @njit(cache=True, nogil=True)
-def _no_three_way_deviance(tab, ka, kb, kt, iters):
-    """Deviance ``2 sum n log(n/m)`` of a ``ka x kb x kt`` count table (flat, index ``(a*kb+b)*kt+t``) against the maximum-likelihood
-    model with the three two-way margins fixed and no three-way term, fitted by iterative proportional fitting."""
-    m = np.ones_like(tab)
+def _two_way_margins(tab, ka, kb, kt):
+    """The (a, b), (a, t) and (b, t) margins of a flat ``ka x kb x kt`` count table (index ``(a*kb+b)*kt+t``)."""
     nab = np.zeros((ka, kb))
     nat = np.zeros((ka, kt))
     nbt = np.zeros((kb, kt))
@@ -107,39 +105,72 @@ def _no_three_way_deviance(tab, ka, kb, kt, iters):
                 nab[a, b] += v
                 nat[a, t] += v
                 nbt[b, t] += v
-    for _ in range(iters):
-        for a in range(ka):
-            for b in range(kb):
-                s = 0.0
-                for t in range(kt):
-                    s += m[(a * kb + b) * kt + t]
-                if s > 0.0:
-                    f = nab[a, b] / s
-                    for t in range(kt):
-                        m[(a * kb + b) * kt + t] *= f
-        for a in range(ka):
-            for t in range(kt):
-                s = 0.0
-                for b in range(kb):
-                    s += m[(a * kb + b) * kt + t]
-                if s > 0.0:
-                    f = nat[a, t] / s
-                    for b in range(kb):
-                        m[(a * kb + b) * kt + t] *= f
+    return nab, nat, nbt
+
+
+@njit(cache=True, nogil=True)
+def _fit_ab(m, nab, ka, kb, kt):
+    """One proportional-fitting pass of the fitted table ``m`` to the (a, b) margin."""
+    for a in range(ka):
         for b in range(kb):
+            s = 0.0
             for t in range(kt):
-                s = 0.0
+                s += m[(a * kb + b) * kt + t]
+            if s > 0.0:
+                f = nab[a, b] / s
+                for t in range(kt):
+                    m[(a * kb + b) * kt + t] *= f
+
+
+@njit(cache=True, nogil=True)
+def _fit_at(m, nat, ka, kb, kt):
+    """One proportional-fitting pass of ``m`` to the (a, t) margin."""
+    for a in range(ka):
+        for t in range(kt):
+            s = 0.0
+            for b in range(kb):
+                s += m[(a * kb + b) * kt + t]
+            if s > 0.0:
+                f = nat[a, t] / s
+                for b in range(kb):
+                    m[(a * kb + b) * kt + t] *= f
+
+
+@njit(cache=True, nogil=True)
+def _fit_bt(m, nbt, ka, kb, kt):
+    """One proportional-fitting pass of ``m`` to the (b, t) margin."""
+    for b in range(kb):
+        for t in range(kt):
+            s = 0.0
+            for a in range(ka):
+                s += m[(a * kb + b) * kt + t]
+            if s > 0.0:
+                f = nbt[b, t] / s
                 for a in range(ka):
-                    s += m[(a * kb + b) * kt + t]
-                if s > 0.0:
-                    f = nbt[b, t] / s
-                    for a in range(ka):
-                        m[(a * kb + b) * kt + t] *= f
+                    m[(a * kb + b) * kt + t] *= f
+
+
+@njit(cache=True, nogil=True)
+def _deviance_sum(tab, m):
+    """``2 sum n log(n / m)`` over the occupied cells."""
     g = 0.0
     for c in range(tab.shape[0]):
         if tab[c] > 0.0 and m[c] > 0.0:
             g += tab[c] * np.log(tab[c] / m[c])
     return 2.0 * g
+
+
+@njit(cache=True, nogil=True)
+def _no_three_way_deviance(tab, ka, kb, kt, iters):
+    """Deviance ``2 sum n log(n/m)`` of a ``ka x kb x kt`` count table (flat, index ``(a*kb+b)*kt+t``) against the maximum-likelihood
+    model with the three two-way margins fixed and no three-way term, fitted by iterative proportional fitting."""
+    m = np.ones_like(tab)
+    nab, nat, nbt = _two_way_margins(tab, ka, kb, kt)
+    for _ in range(iters):
+        _fit_ab(m, nab, ka, kb, kt)
+        _fit_at(m, nat, ka, kb, kt)
+        _fit_bt(m, nbt, ka, kb, kt)
+    return _deviance_sum(tab, m)
 
 
 @njit(cache=True, nogil=True, parallel=True)
