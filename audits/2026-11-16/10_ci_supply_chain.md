@@ -1,0 +1,22 @@
+# 10 CI and supply chain audit (2026-11-16)
+
+Scope: .github/workflows/*.yml (23 files), pyproject.toml, requirements-dev.txt, .pre-commit-config.yaml. Read-only; nothing was run.
+
+Positives checked: every `uses:` of a third-party action is pinned to a 40-char SHA (no unpinned hits); no `pull_request_target`; secrets referenced only CODECOV_TOKEN / GITHUB_TOKEN; pre-commit repos pinned by SHA (ruff-pre-commit uses tag v0.16.10).
+
+| ID | severity | file:line | finding | evidence | disposition |
+|---|---|---|---|---|---|
+| CI-01 | med | .github/workflows/dep-floors.yml:62,103 | Dependency-floor jobs are non-blocking, so a floor that cannot install never fails the pipeline. | `continue-on-error: true`; header: "Non-blocking by design ... turning it blocking is the follow-up once the count is zero" | FUTURE: documented, measurement phase; flip when backlog is zero |
+| CI-02 | med | .github/workflows/hooks-not-in-ci.yml:45 | Hooks-with-no-CI-counterpart job can never turn the run red. | `continue-on-error: true` (header line 15: "Flip continue-on-error off once a run ...") | FUTURE: documented measurement phase |
+| CI-03 | low | .github/workflows/deep-nightly.yml:69 | Nightly deep job is job-level continue-on-error, so failures are masked in run status. | `continue-on-error: true` | DOC: nightly informational; ci-failure-digest.yml reads job-level results, confirm it reads conclusions not run status |
+| CI-04 | low | .github/workflows/ci.yml:965 | Consumer-position mypy smoke step is advisory. | `continue-on-error: true` with comment "Advisory: it depends on stub availability" | DOC: justified in adjacent comment |
+| CI-05 | med | .github/workflows/black-filtered.yml:29-31, mypy-full.yml (no top-level `permissions:`) | These two files lack a workflow-level `permissions:` block. black-filtered sets job-level `contents: read` (safe); mypy-full has none, so it takes the repo default token scope. | `grep -L "^permissions:"` lists both | TODO: add `permissions: contents: read` to mypy-full.yml; black-filtered is already least-privilege at job level, so only mypy-full needs the change |
+| CI-06 | med | .github/workflows/mypy-full.yml:36-37 | Blocking mypy gate has no `timeout-minutes` (default 360 min), so a hang burns the shared ~20-job runner budget. | job `mypy-full:` and `grep -c timeout-minutes` = 0 | TODO: add timeout-minutes |
+| CI-07 | med | .github/workflows/docs.yml:33-34 | Docs job (calls shared reusable workflow) has no timeout-minutes in this file. | timeouts=0 for docs.yml | TODO: set timeout on the caller job if the reusable workflow does not already (verify in py-ci-shared) |
+| CI-08 | low | .github/workflows/black-filtered.yml:29-32 | Reusable-workflow caller without timeout-minutes. | timeouts=0 | TODO: add; low because the callee may bound it |
+| CI-09 | low | .github/workflows/ci.yml (19 job-like keys, 10 timeouts) | Some ci.yml jobs have no timeout-minutes (count approximate: grep of job-level keys, includes non-job keys). | `timeouts=10` vs `jobs~19` | TODO: verify each real job carries a timeout; not confirmed individually |
+| CI-10 | low | .github/workflows/gpu-extras-install-matrix.yml:93 | `|| true` after pip list/grep only hides display of a diagnostic. | `python -m pip list | grep -iE "cupy|..." || true` | REJECTED: diagnostic output only, not a gate |
+| CI-11 | low | .github/workflows/macos-abort-probe.yml:227 | `|| true` per test so a segfault does not stop the loop. | comment: "`|| true` per test on purpose: a segfault must not stop the" | REJECTED: probe workflow, intentional |
+| CI-12 | low | .pre-commit-config.yaml:126,200 | ruff-pre-commit pinned by tag `v0.16.10` while every other repo is pinned by SHA; tags can be repointed (the repo's own rule in requirements-dev.txt says SHA over tag). | `rev: v0.16.10` (twice) | TODO: pin to the commit SHA with a `# v0.16.10` comment |
+| CI-13 | low | pyproject.toml:64,65,156 | Runtime deps `polars>=0.20`, `scipy>=1.10`, `pyutilz>=1.0.0` have no upper bound; pyutilz is not on PyPI (resolved via [tool.uv.sources]), so a plain `pip install mlframe` cannot resolve it. | `"pyutilz>=1.0.0"` and comment at line 163 "It is not on PyPI" | DOC: known and documented in pyproject comments and requirements-dev.txt; uv.lock pins CI |
+| CI-14 | low | pyproject.toml:2 | Build backend `setuptools>=78.1.1,<82` is range-pinned, not exact. | `requires = ["setuptools>=78.1.1,<82", "wheel"]` | REJECTED: build requires are conventionally ranged; CVE floor documented inline |

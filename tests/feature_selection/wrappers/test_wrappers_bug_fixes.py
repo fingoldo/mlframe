@@ -363,7 +363,7 @@ class TestF32F33_ClonePerFold:
         rfecv.fit(X, y)
         # Pre-fix: outer.coef_ would exist (last-fold mutation persisted).
         # Post-fix: clone() per fold means outer is never fit.
-        assert not hasattr(outer, "coef_") or outer is not rfecv.estimator or True
+        assert not hasattr(outer, "coef_")
         # The conservative invariant: the OUTER estimator's fitted-state
         # attribute, if any, came from clone reassignment - never from
         # in-place mutation. We assert the public estimator slot still

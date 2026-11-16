@@ -207,6 +207,15 @@ def _rff_numpy(X: np.ndarray, W: np.ndarray, b: np.ndarray) -> np.ndarray:
     return np.hstack([np.cos(ang), np.sin(ang)])
 
 
+def _clamp_rff_batch_rows(batch_rows: int, d: int, m: int, itemsize: int, free_bytes: int) -> int:
+    """Largest batch size whose double-buffered device input and output fit in half of the free VRAM (never below 1)."""
+    per_row = 2 * (d + 2 * m) * itemsize
+    if free_bytes <= 0 or per_row <= 0:
+        return max(1, batch_rows)
+    fit_rows = int(free_bytes // 2 // per_row)
+    return max(1, min(batch_rows, fit_rows))
+
+
 def rff_matmul_cupy(
     X: np.ndarray,
     W: np.ndarray,
@@ -247,7 +256,7 @@ def rff_matmul_cupy(
         out[...] = scale * _rff_numpy(X, W, b)
         return
     import cupy as cp
-    batch_rows = max(1, min(int(batch_rows), n))
+    batch_rows = _clamp_rff_batch_rows(min(int(batch_rows), n), d, m, np.dtype(W.dtype).itemsize, gpu_available_bytes())
 
     # One-shot upload of W and b - they're tiny (a few MB at most) and reused across all batches.
     W_dev = cp.asarray(W)
@@ -317,6 +326,11 @@ def row_attention_stage4_cupy(
     Optional ``k_proj_device`` / ``y_train_device`` lets Mode-B inference pass already-resident cupy arrays (the K-bank stays on the device across many query
     batches), bypassing the per-call H2D upload that would otherwise dominate cost for small query batches.
     """
+    if topk_ids.shape[0] == 0:
+        # No queries: nothing to write, and a zero-sized grid is an invalid CUDA launch configuration.
+        return
+    if topk_ids.shape[1] == 0:
+        raise ValueError("row_attention_stage4_cupy: K must be at least 1 neighbour per query, got 0")
     if topk_ids.shape[1] > _MAX_STAGE4_K:
         # One block of K threads per query: a launch above the hardware block limit fails, so refuse it up front with the cause.
         raise ValueError(f"row_attention_stage4_cupy: K={topk_ids.shape[1]} exceeds the {_MAX_STAGE4_K}-thread block limit; use the njit path or a smaller top-k.")
@@ -338,6 +352,10 @@ def row_attention_stage4_cupy(
         )
 
     q_dev = cp.asarray(q_proj, dtype=cp.float32)
+    # The kernel reads these buffers as float*: a resident array of another dtype would be reinterpreted, not converted.
+    for _name, _dev in (("k_proj_device", k_proj_device), ("y_train_device", y_train_device)):
+        if _dev is not None and np.dtype(_dev.dtype) != np.float32:
+            raise TypeError(f"row_attention_stage4_cupy: {_name} must be float32 (the kernel reads float*), got {_dev.dtype}")
     k_dev = k_proj_device if k_proj_device is not None else cp.asarray(k_proj, dtype=cp.float32)
     y_dev = y_train_device if y_train_device is not None else cp.asarray(y_train, dtype=cp.float32)
     topk_dev = cp.asarray(topk_ids, dtype=cp.int32)

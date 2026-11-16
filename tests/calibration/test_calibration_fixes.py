@@ -336,6 +336,7 @@ def test_f5_n_iterations_returns_ndarray_when_score_is_nan_every_draw():
     assert result is not None
     assert isinstance(result, np.ndarray)
     assert result.shape == predicted.shape
+    assert np.isfinite(result).all()
 
 
 # ---------------------------------------------------------------------------

@@ -312,10 +312,35 @@ class TestRecipePersistence:
             quantization_method=None,
             quantization_dtype=np.float32,
         )
-        # ``extra`` is a dict (not hashable). The dataclass is frozen but
-        # contains a dict field, so hashing fails -- which is fine. Just
-        # assert equality still works.
-        assert r == r
+        # ``extra`` is a dict (not hashable), so equality is by value: an identically built recipe is equal and one with a different binary op is not.
+        same = build_unary_binary_recipe(
+            name="mul(a,b)",
+            src_a_name="a",
+            src_b_name="b",
+            unary_a_name="identity",
+            unary_b_name="identity",
+            binary_name="mul",
+            unary_preset="minimal",
+            binary_preset="minimal",
+            quantization_nbins=None,
+            quantization_method=None,
+            quantization_dtype=np.float32,
+        )
+        other = build_unary_binary_recipe(
+            name="add(a,b)",
+            src_a_name="a",
+            src_b_name="b",
+            unary_a_name="identity",
+            unary_b_name="identity",
+            binary_name="add",
+            unary_preset="minimal",
+            binary_preset="minimal",
+            quantization_nbins=None,
+            quantization_method=None,
+            quantization_dtype=np.float32,
+        )
+        assert r == same
+        assert r != other
         # If hash is needed in the future, switch to ``frozenset(extra.items())``.
 
 

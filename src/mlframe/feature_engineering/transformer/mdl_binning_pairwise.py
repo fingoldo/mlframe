@@ -165,6 +165,9 @@ def compute_mdl_binning_pairwise_features(
     applied to ``X_query`` directly (e.g. train->test scoring). Emits 5 columns: max/sum of per-row bin indices, the
     train-frequency of the (feature0, feature1) bin combo each query row falls into, and totals (n_edges, n_unique_combos).
     """
+    if top_k_pairs != 10:
+        raise NotImplementedError("compute_mdl_binning_pairwise_features: top_k_pairs is not implemented; only the default 10 is supported")
+    # standardize is accepted for signature compatibility; this transform has no standardisation step, so it has no effect.
     seed = require_seed(seed)
     validate_numeric_input(X_train, name="X_train", allow_fp16=False)
     if X_query is not None:

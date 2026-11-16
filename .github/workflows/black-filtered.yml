@@ -25,6 +25,9 @@ concurrency:
 
 # Extracted to fingoldo/py-ci-shared (2026-07-09): identical logic to pyutilz's own Black
 # workflow, script now lives in the shared py_ci_shared package instead of scripts/ here.
+permissions:
+  contents: read
+
 jobs:
   black:
     permissions:

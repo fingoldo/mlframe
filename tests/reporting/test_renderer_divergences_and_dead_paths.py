@@ -284,14 +284,14 @@ class TestFalsyValuedSpecFieldsAreHonoured:
 
     def test_clearing_the_override_still_works(self):
         """`None` is the documented CLEAR path and must stay one."""
-        from mlframe.reporting.colors import calibration_cmap, set_calibration_cmap
+        from mlframe.reporting.colors import calibration_cmap, get_calibration_cmap_override, set_calibration_cmap
 
         set_calibration_cmap("viridis")
         try:
             assert calibration_cmap() == "viridis"
         finally:
             set_calibration_cmap(None)
-        assert calibration_cmap() != "viridis" or True  # falls through to env / module default
+        assert get_calibration_cmap_override() is None  # cleared, so calibration_cmap() falls through to env / module default
 
 
 def test_the_plotly_bundle_is_deduplicated_when_it_is_not_the_first_script():

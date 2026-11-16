@@ -112,16 +112,15 @@ def sort_by_density_leak_scan(
         entry NaN), and ``candidate_pairs`` (list of ``(row_idx_a, row_idx_b, overlap)``
         tuples in *original* row-index space, sorted by descending overlap).
     """
-    # Only copy when a column actually needs to be inserted (target is not None); the common
-    # no-target path never mutates `work` beyond this point (only read via .apply() below), so
-    # a full-frame copy there is avoidable work.
+    # With a target, the target column is scored on its own and stacked in front of the frame's mask and
+    # numeric values, so the frame itself is never copied.
     if target is not None:
-        work = df.copy()
-        work.insert(0, "__target__", np.asarray(target))
+        target_arr = np.asarray(target)
+        mask = np.column_stack([_nonnull_nonzero_mask(pd.DataFrame({"__target__": target_arr})), _nonnull_nonzero_mask(df)])
+        numeric_frame = np.column_stack([pd.to_numeric(pd.Series(target_arr), errors="coerce").to_numpy(dtype=float), df.apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)])
     else:
-        work = df
-
-    mask = _nonnull_nonzero_mask(work)
+        mask = _nonnull_nonzero_mask(df)
+        numeric_frame = None
     n_rows, n_cols = mask.shape
 
     col_density = mask.mean(axis=0)
@@ -133,7 +132,7 @@ def sort_by_density_leak_scan(
     # partner share almost the same multiset of values, so this breaks density ties in a
     # way that pulls shifted-duplicate pairs adjacent instead of leaving tie order to
     # input-shuffle chance.
-    numeric_values = work.apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
+    numeric_values = numeric_frame if numeric_frame is not None else df.apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
     row_value_sum = np.nansum(numeric_values, axis=1)
     row_order = np.lexsort((row_value_sum, row_density))
     # overlap/shift comparison uses ORIGINAL column order (density-sorted column order

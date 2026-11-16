@@ -30,6 +30,7 @@ dominate sub-ms workloads).
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any, Optional, Tuple
 
 import numpy as np
@@ -90,7 +91,20 @@ def set_gpu_thresholds(*, n: Optional[int] = None, m: Optional[int] = None) -> N
 _GPU_PROBE_TIMEOUT_S: float = 20.0
 
 
+_GPU_PROBE_LOCK = threading.Lock()
+
+
 def is_gpu_metrics_available() -> bool:
+    """Whether the GPU metric path is usable; the probe runs once under a lock so concurrent first callers agree."""
+    if _GPU_AVAILABLE is not None:
+        return _GPU_AVAILABLE
+    with _GPU_PROBE_LOCK:
+        if _GPU_AVAILABLE is not None:
+            return _GPU_AVAILABLE
+        return _probe_gpu_metrics_available()
+
+
+def _probe_gpu_metrics_available() -> bool:
     """True iff cupy is importable AND a CUDA device is visible AND a small reduction kernel actually compiles via NVRTC.
 
     The NVRTC compile probe is essential: cupy can import cleanly and report

@@ -87,6 +87,8 @@ def compute_ib_baseline_codes_features(
     dtype: type = np.float32,
 ) -> pl.DataFrame:
     """IB-quantized baseline codes. 5 features."""
+    if n_bits != 3:
+        raise NotImplementedError("compute_ib_baseline_codes_features: n_bits is not implemented; only the default 3 is supported")
     seed = require_seed(seed)
     validate_numeric_input(X_train, name="X_train", allow_fp16=False)
     if X_query is not None:

@@ -255,8 +255,18 @@ def build_combined_report(
     )
 
     os.makedirs(out_dir, exist_ok=True)
-    with open(out_path, "w", encoding="utf-8") as fh:
-        fh.write(page)
+    # Write beside the target and swap it in with os.replace: a failure mid-write leaves the previous report intact.
+    tmp_path = f"{out_path}.partial"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as fh:
+            fh.write(page)
+        os.replace(tmp_path, out_path)
+    except BaseException:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
     return out_path
 
 

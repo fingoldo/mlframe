@@ -513,14 +513,14 @@ def _save_mlframe_model_flip_must_swapped_cheaper(lean, auto_lean_retry, auto_le
             _est_bytes = _pa.asizeof(model)
             _est_mb = _est_bytes / (1024 * 1024)
             if _est_mb > auto_lean_pre_check_mb:
-                if verbose > 0:
-                    logger.warning(
-                        "[save-size-precheck] %s: in-memory payload ~%.1f MB "
-                        "(> %.0f MB threshold) -- flipping lean=True BEFORE the "
-                        "fat pickle to skip the auto-retry double-dump. Pass "
-                        "``auto_lean_pre_check_mb=0`` to disable this pre-flip.",
-                        file, _est_mb, auto_lean_pre_check_mb,
-                    )
+                # Always announced: lean drops prediction fields from the saved file, a data-affecting decision that must not depend on verbosity.
+                logger.warning(
+                    "[save-size-precheck] %s: in-memory payload ~%.1f MB "
+                    "(> %.0f MB threshold) -- flipping lean=True BEFORE the "
+                    "fat pickle to skip the auto-retry double-dump. Pass "
+                    "``auto_lean_pre_check_mb=0`` to disable this pre-flip.",
+                    file, _est_mb, auto_lean_pre_check_mb,
+                )
                 lean = True
         except ImportError:
             # pympler is a hard dep per pyproject.toml; if it's somehow not

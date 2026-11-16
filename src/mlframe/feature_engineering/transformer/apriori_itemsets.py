@@ -51,10 +51,12 @@ def _itemset_lifts(frequent: Any, bin_matrix_train: np.ndarray, col_index: dict[
     else:
         target_mean = float(np.median(y_t))
     lifts: list[float] = []
-    for _, row in frequent.iterrows():
-        itemset = list(row["itemsets"])
-        cols_idx = [col_index[it] for it in itemset]
-        mask_train = np.all(bin_matrix_train[:, cols_idx], axis=1)
+    for raw_itemset in frequent["itemsets"]:
+        cols_idx = [col_index[it] for it in list(raw_itemset)]
+        # AND over the itemset's columns in place: no (n_rows, k) fancy-index copy per itemset.
+        mask_train = np.ones(bin_matrix_train.shape[0], dtype=bool)
+        for c in cols_idx:
+            mask_train &= bin_matrix_train[:, c]
         if mask_train.sum() == 0:
             lifts.append(0.0)
             continue
@@ -94,6 +96,8 @@ def compute_apriori_itemsets_features(
 
     Output: top_k boolean-membership columns + n_matched + n_frequent_total = top_k + 2 features.
     """
+    if not standardize:
+        raise NotImplementedError("compute_apriori_itemsets_features: standardize=False is not implemented")
     try:
         import mlxtend  # noqa: F401 -- probe import to fail fast with a clear error if mlxtend is missing
         from mlxtend.frequent_patterns import fpgrowth

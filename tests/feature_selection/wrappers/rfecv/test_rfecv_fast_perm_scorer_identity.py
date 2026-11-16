@@ -174,13 +174,13 @@ def test_y_invariant_hoist_bit_identical_across_repeated_and_new_y():
     model = Ridge().fit(X, y1)
 
     scorer = _make_fast_default_scorer(model)
-    base = scorer(model, X, y1)  # baseline latches fast + populates cache for y1
+    scorer(model, X, y1)  # baseline latches fast + populates cache for y1
     # Repeated calls with the same y1: bit-identical, cache hit.
     from sklearn.metrics import r2_score
 
     pred = model.predict(X)
     assert scorer(model, X, y1) == r2_score(y1, pred)
-    assert scorer(model, X, y1) == base or True  # base==r2 already covered; cache must not drift
+    assert scorer(model, X, y1) == pytest.approx(r2_score(y1, pred))  # a repeat call after the cache is filled must not drift
 
     # A different target array must invalidate the id(_y) cache and recompute ss_tot from y2.
     y2 = y1 * 2.0 + 1.0
