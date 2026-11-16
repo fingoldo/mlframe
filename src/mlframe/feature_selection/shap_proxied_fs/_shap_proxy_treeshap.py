@@ -474,6 +474,18 @@ def treeshap_phi_base_path(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.nd
     return phi, float(ensemble.base_offset)
 
 
+def _lightgbm_threshold_to_lt_float32(threshold: float) -> float:
+    """The float32 ``t'`` with ``x < t'`` iff ``x <= threshold`` for every float32 ``x``, for LightGBM's double ``threshold`` (it routes ``x <= threshold`` to the left child, the kernel ``x < t'``).
+
+    ``x <= threshold`` holds iff ``x <= floor32(threshold)`` with ``floor32`` the largest float32 not above ``threshold``, and for float32 ``x`` that is ``x < nextafter(floor32, +inf)``. Rounding to the NEAREST
+    float32 instead, as this function's predecessor did, misroutes the sample whose value is exactly the float32 above the threshold when two adjacent distinct training values sit on neighbouring float32
+    numbers (measured: additivity error 6.6e-2 at 100000 rows of a LightGBM model, none at 20000)."""
+    t = np.float32(threshold)
+    if float(t) > threshold:
+        t = np.nextafter(t, np.float32(-np.inf))
+    return float(np.nextafter(t, np.float32(np.inf)))
+
+
 def _extract_lightgbm_ensemble(booster, n_features: int) -> TreeEnsemble:
     """Parse a lightgbm booster's ``dump_model`` JSON into the SAME flat per-node tensors as xgboost.
 
@@ -532,9 +544,7 @@ def _extract_lightgbm_ensemble(booster, n_features: int) -> TreeEnsemble:
                 cl.append(lc)
                 cr.append(rc)
                 feat.append(int(node["split_feature"]))
-                # Convert ``x <= t`` to the kernel's ``x < t'`` via nextafter (float32 routing dtype).
-                t = np.float32(float(node["threshold"]))
-                thr_le = float(np.nextafter(t, np.float32(np.inf)))
+                thr_le = _lightgbm_threshold_to_lt_float32(float(node["threshold"]))
                 thr.append(thr_le)
                 # NaN routing depends on lightgbm's ``missing_type``: only "NaN" honours ``default_left``;
                 # "None"/"Zero" treat a missing value AS 0.0 (and route it by the threshold) - so we bake

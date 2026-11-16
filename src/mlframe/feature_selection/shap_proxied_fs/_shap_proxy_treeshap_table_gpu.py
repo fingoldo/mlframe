@@ -32,18 +32,25 @@ void treeshap_table(const float* X, const int n, const int f,
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
     const float* xi = X + (long long)i * f;
-    // the DFS stack of every thread lives in shared memory, laid out [level][thread] so the lanes of a warp hit distinct banks: dynamically indexed per-thread arrays would be a local-memory spill
+#if STACK_SHARED
+    // the DFS stack of every thread in shared memory, laid out [level][thread] so the lanes of a warp hit distinct banks (spill-free, costs shared memory per block)
     extern __shared__ int smem[];
     int* st_node = smem;
     int* st_mask = smem + MAXSP * blockDim.x;
-    const int tid = threadIdx.x;
+    #define SLOT(sp) ((sp) * blockDim.x + threadIdx.x)
+#else
+    // the DFS stack in the thread's stack frame (local memory, L1-resident): dynamically indexed, so ptxas keeps it out of registers
+    int st_node[MAXSP];
+    int st_mask[MAXSP];
+    #define SLOT(sp) (sp)
+#endif
     for (int t = 0; t < n_trees; t++){
         int sp = 0;
-        st_node[sp * blockDim.x + tid] = roots[t]; st_mask[sp * blockDim.x + tid] = -1; sp++;
+        st_node[SLOT(sp)] = roots[t]; st_mask[SLOT(sp)] = -1; sp++;
         while (sp > 0){
             sp--;
-            const int node = st_node[sp * blockDim.x + tid];
-            const int mask = st_mask[sp * blockDim.x + tid];
+            const int node = st_node[SLOT(sp)];
+            const int mask = st_mask[SLOT(sp)];
             const int left = cl[node];
             if (left < 0){   // leaf: add the table entries of the satisfied-feature mask
                 const int leaf = leaf_of_node[node];
@@ -65,8 +72,8 @@ void treeshap_table(const float* X, const int n, const int f,
             // are broadcasts; only the mask differs (the cold child clears the bit of this node's feature slot)
             const int right = cr[node];
             const int cold_mask = mask & ~(1 << node_slot[node]);
-            st_node[sp * blockDim.x + tid] = right; st_mask[sp * blockDim.x + tid] = (hot == right) ? mask : cold_mask; sp++;
-            st_node[sp * blockDim.x + tid] = left;  st_mask[sp * blockDim.x + tid] = (hot == left) ? mask : cold_mask; sp++;
+            st_node[SLOT(sp)] = right; st_mask[SLOT(sp)] = (hot == right) ? mask : cold_mask; sp++;
+            st_node[SLOT(sp)] = left;  st_mask[SLOT(sp)] = (hot == left) ? mask : cold_mask; sp++;
         }
     }
 }
@@ -89,11 +96,16 @@ def _maxsp(max_depth: int) -> int:
     return 2 * (int(max_depth) + 2) + 4
 
 
-def kernel_source(max_depth: int, real=np.float32) -> str:
-    """The kernel source for trees up to ``max_depth`` and the element type ``real``."""
+def _stack_shared() -> bool:
+    """Whether the DFS stacks live in shared memory: ``MLFRAME_SHAP_TREESHAP_STACK=shared`` (spill-free) or ``local`` (the stack frame, the default; see the exemption in the register-pressure registry)."""
+    return os.environ.get("MLFRAME_SHAP_TREESHAP_STACK", "local").strip().lower() == "shared"
+
+
+def kernel_source(max_depth: int, real=np.float32, shared_stack: bool = False) -> str:
+    """The kernel source for trees up to ``max_depth``, the element type ``real`` and the stack placement."""
     from mlframe.feature_selection.filters._kernel_types import render
 
-    return render(f"#define MAXSP {_maxsp(max_depth)}\n" + _KERNEL_SRC, real, acc=real)
+    return render(f"#define MAXSP {_maxsp(max_depth)}\n#define STACK_SHARED {int(shared_stack)}\n" + _KERNEL_SRC, real, acc=real)
 
 
 def kernel(cp, real=np.float32):
@@ -101,15 +113,15 @@ def kernel(cp, real=np.float32):
     return cp.RawKernel(kernel_source(6, real), "treeshap_table")
 
 
-def _ensure_kernel(max_depth: int, real):
-    """Compile once per (depth, type) under a module lock."""
-    key = (int(max_depth), np.dtype(real).name)
+def _ensure_kernel(max_depth: int, real, shared_stack: bool = False):
+    """Compile once per (depth, type, stack placement) under a module lock."""
+    key = (int(max_depth), np.dtype(real).name, bool(shared_stack))
     with _LOCK:
         k = _KERNELS.get(key)
         if k is None:
             import cupy as cp
 
-            k = _KERNELS[key] = cp.RawKernel(kernel_source(max_depth, real), "treeshap_table")
+            k = _KERNELS[key] = cp.RawKernel(kernel_source(max_depth, real, shared_stack), "treeshap_table")
     return k
 
 
@@ -133,7 +145,8 @@ def treeshap_phi_base_table_gpu(ensemble: "TreeEnsemble", X: np.ndarray) -> Opti
     if tab is None:
         return None
     real = _real()
-    kern = _ensure_kernel(ensemble.max_depth, real)
+    shared = _stack_shared()
+    kern = _ensure_kernel(ensemble.max_depth, real, shared)
     i32 = np.int32
     args: tuple[Any, ...] = (
         cp.asarray(Xf), i32(n), i32(f),
@@ -143,7 +156,7 @@ def treeshap_phi_base_table_gpu(ensemble: "TreeEnsemble", X: np.ndarray) -> Opti
         cp.asarray(tab["table"].astype(real)), cp.asarray(ensemble.tree_roots), i32(ensemble.tree_roots.shape[0]),
     )
     phi_d = cp.zeros((f, n), dtype=real)  # (feature, sample): coalesced adds, transposed once below
-    block = _block_size(ensemble.max_depth)
-    kern(((n + block - 1) // block,), (block,), (*args, phi_d), shared_mem=8 * _maxsp(ensemble.max_depth) * block)
+    block = _block_size(ensemble.max_depth) if shared else min(_block_size(), 1024)
+    kern(((n + block - 1) // block,), (block,), (*args, phi_d), shared_mem=8 * _maxsp(ensemble.max_depth) * block if shared else 0)
     phi = np.ascontiguousarray(cp.asnumpy(phi_d).T).astype(np.float64, copy=False)  # Intentional float64: the caller's phi contract
     return phi, float(ensemble.base_offset)
