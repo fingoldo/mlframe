@@ -37,7 +37,11 @@ the backlog targets. Other recipe kinds (cat-FE encoders, orth-basis, cluster
 aggregates, hinge / wavelet) are passed through untouched: they either carry no
 per-fold gate analogue here or are produced by separate stages with their own
 held-out validation. The voter is a no-op when fewer than 2 such recipes exist.
-"""
+
+
+Backends and memory (2026-11-16): the vote owns no array kernel. Each fold is a row block of ``n / K`` rows replayed for one recipe at a time (the fold frames are cached per fold), so the working set is a
+fold of the operands and codes, not the recipe pool; the statistics are ``_cmi_from_binned`` of ``_mi_greedy_cmi_fe`` and, under STRICT-resident, the replay and binning run on the device
+(``_replay_codes_on_device``). ``audits/2026-10-22/profiles/_fe_stability_vote.md`` has the measured figures."""
 from __future__ import annotations
 
 import logging
@@ -159,12 +163,8 @@ def _recipe_clears_fold(
 _slice_fold = take_rows
 
 
-def _raw_fold_codes(X: Any, name: str, idx: np.ndarray, raw_set: set, n: int, nbins: int, _raw_col_cache: dict) -> Optional[np.ndarray]:
-    """Return quantile-binned codes for raw source column ``name`` restricted to fold rows ``idx``, caching the full-frame float extraction across folds; ``None`` for engineered parents or extraction failures."""
-    # Pre-extract per-source RAW column codes per fold is wasteful; instead bin
-    # the fold's source operand on demand. Cache the full-frame raw column float
-    # values once per source name so each fold only re-bins its slice.
-    from ._mi_greedy_cmi_fe import _quantile_bin
+def _raw_values(X: Any, name: str, raw_set: set, n: int, _raw_col_cache: dict) -> Optional[np.ndarray]:
+    """The full-length criterion-dtype values of raw source column ``name``, extracted once per vote into ``_raw_col_cache``; ``None`` for an engineered parent, a failed extraction or a length mismatch."""
     from mlframe.feature_selection.filters.engineered_recipes.shared import extract_column as _extract_column
 
     if name not in raw_set:
@@ -179,7 +179,27 @@ def _raw_fold_codes(X: Any, name: str, idx: np.ndarray, raw_set: set, n: int, nb
         _raw_col_cache[name] = vals
     if vals.shape[0] != n:
         return None
+    return vals
+
+
+def _raw_fold_codes(X: Any, name: str, idx: np.ndarray, raw_set: set, n: int, nbins: int, _raw_col_cache: dict) -> Optional[np.ndarray]:
+    """Return quantile-binned codes for raw source column ``name`` restricted to fold rows ``idx``, caching the full-frame float extraction across folds; ``None`` for engineered parents or extraction failure."""
+    from ._mi_greedy_cmi_fe import _quantile_bin
+
+    vals = _raw_values(X, name, raw_set, n, _raw_col_cache)
+    if vals is None:
+        return None
     return _quantile_bin(vals[idx], nbins=nbins)
+
+
+def _operand_codes(X: Any, name: Optional[str], idx: np.ndarray, fold_no: int, raw_set: set, n: int, nbins: int, cache: dict, pre_codes: Optional[dict]) -> Optional[np.ndarray]:
+    """Fold codes of source operand ``name`` (``None`` for no operand): the batched device codes when ``_batched_replay_codes`` produced them, else the per-column binner."""
+    if name is None:
+        return None
+    hit = (pre_codes or {}).get((("raw", name), fold_no))
+    if hit is not None:
+        return np.asarray(hit)
+    return _raw_fold_codes(X, name, idx, raw_set, n, nbins, cache)
 
 
 def _replay_codes_on_device(recipe: Any, X_fold: Any, nbins: int) -> Optional[np.ndarray]:
@@ -221,9 +241,70 @@ def _fold_frame(cache: dict, fold_no: int, idx: np.ndarray, X: Any) -> Any:
     return hit[1]
 
 
+_BATCH_ELEMENTS = 32 * 1024 * 1024  # replayed values held on the device per binning block (recipes x fold rows)
+
+
+def _flush_fold_codes(cp: Any, nbins: int, cols: list, names: list, out: dict, fold_no: int) -> None:
+    """Bin the collected device columns of one fold together (``qbin_codes_rows``), store their host codes under ``(name, fold_no)`` and empty the buffers."""
+    from ._qbin_rows_gpu import qbin_codes_rows
+
+    if not cols:
+        return
+    codes = cp.asnumpy(qbin_codes_rows(cp, cp.stack(cols, axis=0), int(nbins)).astype(cp.int16)).astype(np.int64)
+    for row, name in enumerate(names):
+        out[(name, fold_no)] = codes[row]
+    names.clear()
+    cols.clear()
+
+
+def _batched_replay_codes(voted: dict, folds: list, X: Any, nbins: int, cache: dict, raw_set: set, n: int) -> dict:
+    """``{(recipe name, fold no): host int64 codes}`` of every device-replayable recipe, and ``{(("raw", source name), fold no): codes}`` of every raw source operand (the host binner's float input binned on the device), the recipes of a fold replayed on the device and binned TOGETHER (one row-batched binning per block of recipes,
+    ``qbin_codes_rows``) instead of one column-at-a-time binner call per (recipe, fold) job. Empty when the strict-resident mode is off or a device step fails (the per-job paths then run as before)."""
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+
+        if not fe_gpu_strict_resident_enabled() or int(nbins) > 32767:
+            return {}
+        import cupy as cp
+
+        from ._mi_greedy_cmi_fe_binning import _qbin_float_dtype
+        from .engineered_recipes import apply_unary_binary_gpu_resident
+
+        out: dict = {}
+        for fold_no, idx in enumerate(folds):
+            X_fold = _fold_frame(cache, fold_no, idx, X)
+            names: list = []
+            cols: list = []
+            per_block = max(1, _BATCH_ELEMENTS // max(1, int(idx.shape[0])))
+
+            for name, recipe in voted.items():
+                column = apply_unary_binary_gpu_resident(recipe, X_fold)
+                if column is None or int(column.shape[0]) != int(idx.shape[0]):
+                    continue
+                cols.append(column.astype(_crit_np_dtype(), copy=False).astype(_qbin_float_dtype(), copy=False))
+                names.append(name)
+                if len(cols) >= per_block:
+                    _flush_fold_codes(cp, nbins, cols, names, out, fold_no)
+            _flush_fold_codes(cp, nbins, cols, names, out, fold_no)
+            raw_names = sorted({nm for r in voted.values() for nm in (tuple(getattr(r, "src_names", ()) or ())[:2]) if nm in raw_set})
+            for name in raw_names:
+                vals = _raw_values(X, name, raw_set, n, cache)
+                if vals is None:
+                    continue
+                cols.append(cp.asarray(vals[idx]).astype(_qbin_float_dtype(), copy=False))
+                names.append(("raw", name))
+                if len(cols) >= per_block:
+                    _flush_fold_codes(cp, nbins, cols, names, out, fold_no)
+            _flush_fold_codes(cp, nbins, cols, names, out, fold_no)
+        return out
+    except Exception as exc:
+        log_throttle(logger, "_fe_stability_vote.batched_replay", logging.WARNING, "Stability vote: the batched device replay failed (%s: %s); replaying per recipe.", type(exc).__name__, exc)
+        return {}
+
+
 def _vote_recipe_over_folds(
     eng_name: str, recipe: Any, folds: list, X: Any, y_codes: np.ndarray, src_a: Optional[str], src_b: Optional[str], _alt_acceptance: bool,
-    raw_set: set, n: int, nbins: int, _raw_col_cache: dict,
+    raw_set: set, n: int, nbins: int, _raw_col_cache: dict, pre_codes: Optional[dict] = None,
 ) -> tuple:
     """Replay one recipe on every held-out fold and count the folds whose uplift gate it clears; returns ``(passes, evaluated)``."""
     from ._mi_greedy_cmi_fe import _quantile_bin
@@ -233,7 +314,9 @@ def _vote_recipe_over_folds(
     evaluated = 0
     for fold_no, idx in enumerate(folds):
         X_fold = _fold_frame(_raw_col_cache, fold_no, idx, X)
-        eng_codes = _replay_codes_on_device(recipe, X_fold, nbins)
+        eng_codes = (pre_codes or {}).get((eng_name, fold_no))
+        if eng_codes is None:
+            eng_codes = _replay_codes_on_device(recipe, X_fold, nbins)
         if eng_codes is not None:
             if eng_codes.shape[0] != idx.shape[0]:
                 continue
@@ -252,8 +335,8 @@ def _vote_recipe_over_folds(
             if eng_fold.shape[0] != idx.shape[0]:
                 continue
             eng_codes = _quantile_bin(np.asarray(eng_fold, dtype=_crit_np_dtype()), nbins=nbins)
-        a_codes = _raw_fold_codes(X, src_a, idx, raw_set, n, nbins, _raw_col_cache) if src_a is not None else None
-        b_codes = _raw_fold_codes(X, src_b, idx, raw_set, n, nbins, _raw_col_cache) if src_b is not None else None
+        a_codes = _operand_codes(X, src_a, idx, fold_no, raw_set, n, nbins, _raw_col_cache, pre_codes)
+        b_codes = _operand_codes(X, src_b, idx, fold_no, raw_set, n, nbins, _raw_col_cache, pre_codes)
         y_fold = y_codes[idx]
         evaluated += 1
         if _recipe_clears_fold(
@@ -374,6 +457,7 @@ def confirm_recipes_cross_fold(
     raw_set = set(feature_names_in or [])
 
     _raw_col_cache: dict = {}
+    pre_codes = _batched_replay_codes(voted, folds, X, nbins, _raw_col_cache, raw_set, n)
 
     for eng_name, recipe in voted.items():
         src = tuple(getattr(recipe, "src_names", ()) or ())
@@ -393,7 +477,7 @@ def confirm_recipes_cross_fold(
             )
         )
         passes, evaluated = _vote_recipe_over_folds(
-            eng_name, recipe, folds, X, y_codes, src_a, src_b, _alt_acceptance, raw_set, n, nbins, _raw_col_cache,
+            eng_name, recipe, folds, X, y_codes, src_a, src_b, _alt_acceptance, raw_set, n, nbins, _raw_col_cache, pre_codes,
         )
         # No fold could be evaluated (replay failed everywhere) -> leave admitted.
         if evaluated == 0:

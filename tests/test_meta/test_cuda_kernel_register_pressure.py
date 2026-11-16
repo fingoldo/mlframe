@@ -643,6 +643,16 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
+    "ratio_delta_screen_gpu.ratio_pair_screen": (
+        "mlframe.feature_selection.filters._ratio_delta_screen_gpu",
+        "kernel",
+        ("float32", "float64"),
+    ),
+    "degenerate_combo_gpu.degenerate_rows": (
+        "mlframe.feature_selection.filters._degenerate_combo_gpu",
+        "kernel",
+        ("float32", "float64"),
+    ),
     "ksg_cd_gpu.ksg_psi_m_sums": (
         "mlframe.feature_selection.filters._ksg_cd_gpu",
         "kernel",

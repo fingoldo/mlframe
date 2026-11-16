@@ -100,7 +100,7 @@ def _column_major_enabled() -> bool:
     return os.environ.get("MLFRAME_FE_POOL_CM", "1").strip().lower() not in ("0", "false", "off", "no")
 
 
-def _write_combo_chunk_mi(cand, live_d, col_major, nbins, ky_w, h_y, k_y, d_y, d_qs, n, mi_table_d, start, stop):
+def _write_combo_chunk_mi(cand, live_d, col_major, nbins, ky_w, h_y, k_y, d_y, d_qs, n, mi_table_d, start, stop, bounds=None):
     """Score one combo chunk and write its masked MI into ``mi_table_d[start:stop]`` on the device (resident MM-MI, with the per-row sync path as fallback)."""
     import cupy as cp
     from ._fe_batched_mi import binned_mm_mi_from_values_gpu
@@ -117,7 +117,7 @@ def _write_combo_chunk_mi(cand, live_d, col_major, nbins, ky_w, h_y, k_y, d_y, d
             if col_major:
                 from ._fe_batched_mi_mm_cm import binned_mm_mi_from_cm_gpu
 
-                mi_d = binned_mm_mi_from_cm_gpu(cand, interior, d_y, int(nbins), ky_w, h_y, k_y, codes_trusted=True, return_device=True)
+                mi_d = binned_mm_mi_from_cm_gpu(cand, interior, d_y, int(nbins), ky_w, h_y, k_y, codes_trusted=True, return_device=True, row_bounds=bounds)
             else:
                 mi_d = binned_mm_mi_from_values_gpu(cand, interior, d_y, int(nbins), ky_w, h_y, k_y,
                                                     codes_trusted=True, return_device=True)   # d_y dense 0-based fit-constant (FIX1)

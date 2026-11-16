@@ -21,7 +21,11 @@ Kept SEPARATE from ``mrmr.py`` so:
    cupy candidates land here without touching MRMR).
 3. Future tests can drive the block directly without spinning a full
    MRMR fit.
-"""
+
+
+Backends and memory (2026-11-16): the pair search itself is ``optimise_hermite_pair`` of ``_hermite_fe_optimise`` (host optimizers of ``_numba_polynom_optimizer``, or the default device search of
+``_cupy_polynom_optimizer``); this module dispatches pairs (one big-stack worker thread per pair), scores each pair on a row block of at most ``subsample_n`` rows shared across pairs, and commits the
+survivors. The device working set is the two row-block operand columns plus the optimizer's own generation block (see the optimizer records); ``audits/2026-10-22/profiles/polynom_pair_fe.md`` has the figures."""
 from __future__ import annotations
 
 from contextlib import nullcontext

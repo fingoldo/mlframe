@@ -6,7 +6,11 @@ Two blocks with explicit inputs/outputs (no shared-local threading with the surr
 * ``run_cluster_aggregate_emission`` - the opt-in clustered-feature aggregation emission block (runs once on the first FE step; returns the updated ``(data, cols, nbins, X, selected_vars, n_recommended_features)`` tuple and stamps the fitted summary onto ``self``).
 
 Both take the ``MRMR`` instance as ``self`` so they read the frozen ``fe_*`` / ``cluster_aggregate_*`` config off it exactly as the inlined blocks did. The heavy kernels stay in their own modules (``_permutation_null``, ``_cluster_aggregate``) and are lazy-imported in-body to avoid import cycles.
-"""
+
+
+Backends and memory (2026-11-16): the blocks here own no array work. The order-2 maxT floor goes through ``pooled_pair_permutation_null_joint_mi_floor`` of ``_permutation_null`` (the one-launch ``pair_mi_perm``
+kernel of ``_pair_mi_perm_cuda`` when the host's tuning entry and the shape rules allow, else the cupy twin, else the njit kernel); the device holds the code columns of the pair pool as a column block and the
+(K, pairs) result, and the pair index arrays are built by ``pair_operand_arrays`` without a tuple list. ``audits/2026-10-22/profiles/_mrmr_fe_step_helpers.md`` has the measured figures."""
 from __future__ import annotations
 
 import logging

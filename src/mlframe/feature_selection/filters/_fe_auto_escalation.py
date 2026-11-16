@@ -54,7 +54,11 @@ EngineeredRecipe with ``prewarp`` pseudo-unaries on both sides and the ``mul`` b
 a default-prewarp pair feature. The candidate's fit-time values are computed through the
 SAME ``apply_operand_prewarp`` + ``np.multiply`` + ``nan_to_num`` path the recipe replays,
 so fit and transform are bit-identical on the same rows.
-"""
+
+
+Backends and memory (2026-11-16): the pass owns no array kernel. Pair proposals and the decision statistics are computed on a deterministic row block (``_subsample_decision_inputs``: a stride
+subsample of the fit rows, so the cost does not grow with n), for at most ``max_pairs`` eligible pairs; the admission decision is the CMI redundancy gate (``_fe_cmi_redundancy_gate``) on the batched
+CMI of ``_mi_greedy_cmi_fe``, which run on the device under STRICT / AUTO. ``audits/2026-10-22/profiles/_fe_auto_escalation.md`` has the measured figures."""
 from __future__ import annotations
 
 import logging

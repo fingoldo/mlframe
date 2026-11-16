@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # --- imports (managed) ---
 import numpy as np
+from mlframe.feature_selection.filters._degenerate_combo_gpu import live_rows
 from mlframe.feature_selection.filters._usability_pool_resident import _write_combo_chunk_mi
 # --- end imports ---
 
@@ -50,8 +51,11 @@ def _score_one_pair_combos(operands, p, resident_operand, f32, n, cp, nu, _gpu_a
         # variance floor rejected genuinely tiny-scale combos); D2H deferred (see below).
         from mlframe.feature_selection.filters._usability_njit_pool import _USABILITY_DEGENERATE_REL_TOL
 
-        _axis = 1 if col_major else 0
-        live_d = cand.var(axis=_axis) > (_USABILITY_DEGENERATE_REL_TOL * cp.abs(cand).max(axis=_axis)) ** 2
-        _write_combo_chunk_mi(cand, live_d, col_major, nbins, ky_w, h_y, k_y, d_y, d_qs, n, mi_table_d, base + c0, base + c1)
+        if col_major:
+            live_d, row_min, row_max = live_rows(cp, cand, float(_USABILITY_DEGENERATE_REL_TOL))  # one launch, one block per combo row (see _degenerate_combo_gpu)
+        else:
+            row_min = row_max = None
+            live_d = cand.var(axis=0) > (_USABILITY_DEGENERATE_REL_TOL * cp.abs(cand).max(axis=0)) ** 2
+        _write_combo_chunk_mi(cand, live_d, col_major, nbins, ky_w, h_y, k_y, d_y, d_qs, n, mi_table_d, base + c0, base + c1, (row_min, row_max))
         del cand
     del d_x1, d_x2, ua_stack, ub_stack

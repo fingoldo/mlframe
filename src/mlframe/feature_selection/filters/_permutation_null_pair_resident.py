@@ -113,6 +113,17 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
         if n_classes_y < 2:
             return 0.0
 
+        # The same row cap as the CPU / one-launch floor (``_permutation_null._pair_maxt_max_rows``, skipped when mm_debias): the floor is a coarse noise threshold whose dominant term is the plug-in
+        # bias ~ (k_joint - 1)(k_y - 1) / 2n, so the twin must read the same rows or its floor sits on another scale (7 times lower at 100000 rows) and the host-or-device route changes which pairs pass.
+        from ._permutation_null import _pair_maxt_max_rows
+
+        _max_rows = 0 if mm_debias else _pair_maxt_max_rows()
+        if 0 < _max_rows < n:
+            factors_data = factors_data[:_max_rows]
+            classes_y = np.asarray(classes_y)[:_max_rows]
+            n = _max_rows
+            freqs_y = np.bincount(np.asarray(classes_y).astype(np.int64), minlength=n_classes_y).astype(np.float64) / n  # Intentional float64: y marginal of the capped rows
+
         pa = np.ascontiguousarray(pair_a, dtype=np.int64)
         pb_idx = np.ascontiguousarray(pair_b, dtype=np.int64)
         nb = np.ascontiguousarray(nbins, dtype=np.int64)

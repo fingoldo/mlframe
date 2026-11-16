@@ -37,7 +37,10 @@ source-code FALLBACK applied on a cold cache / when pyutilz is unavailable.
 
 This module owns NO kernel: the exhaustive sweep reuses the existing
 ``batch_pair_mi_cuda`` via ``dispatch_batch_pair_mi(force_backend="cuda")`` in the caller.
-"""
+
+
+Backends and memory (2026-11-16): the sweep is ``batch_pair_mi_cuda`` / ``batch_pair_mi_njit_prange`` of ``batch_pair_mi_gpu`` over pair blocks (a column block of pairs per launch, never the whole C(p,2) list on
+the device); this module owns the decision only, from the per-host throughput it measures and caches. ``audits/2026-10-22/profiles/_fe_synergy_exhaustive.md`` has the measured figures."""
 from __future__ import annotations
 
 from mlframe.utils.log_throttle import log_throttle

@@ -45,7 +45,7 @@ def _kernel(cp, f32: bool):
 
 
 def binned_mm_mi_from_cm_gpu(
-    x_cm: Any, interior_edges: Any, y_codes: Any, nbins: int, ky: int, h_y: float, k_y: int, codes_trusted: bool = False, return_device: bool = False
+    x_cm: Any, interior_edges: Any, y_codes: Any, nbins: int, ky: int, h_y: float, k_y: int, codes_trusted: bool = False, return_device: bool = False, row_bounds: Any = None
 ) -> Any:
     """Miller-Madow marginal MI of each row of the ``(K, n)`` C-order block ``x_cm`` (column ``c`` of the candidate matrix is row ``c``) against ``y_codes``.
 
@@ -69,8 +69,11 @@ def binned_mm_mi_from_cm_gpu(
         yv = resident_operand(np.asarray(y_codes).ravel(), "binned_mm_ycodes", dtype=np.int64)
     _assert_codes_in_range(yv, Ky, "binned_mm_mi_from_cm_gpu y codes", codes_trusted)
     ne = int(E.shape[0])
-    cmin = cp.ascontiguousarray(Xc.min(axis=1).astype(cp.float64, copy=False))  # Intentional float64: GPU MI edge bounds; compared at full precision
-    cmax = cp.ascontiguousarray(Xc.max(axis=1).astype(cp.float64, copy=False))  # Intentional float64: GPU MI edge bounds; compared at full precision
+    if row_bounds is not None and row_bounds[0] is not None:
+        cmin, cmax = row_bounds  # the row extremes the caller already produced in its own pass over the block (float64 device vectors)
+    else:
+        cmin = cp.ascontiguousarray(Xc.min(axis=1).astype(cp.float64, copy=False))  # Intentional float64: GPU MI edge bounds; compared at full precision
+        cmax = cp.ascontiguousarray(Xc.max(axis=1).astype(cp.float64, copy=False))  # Intentional float64: GPU MI edge bounds; compared at full precision
     # Edge table and MI output are double by the MI kernel contract (edges and out are double*); the dedup kernel's transient trailing row, as in the row-major twin.
     Ec = cp.empty((ne + 1, K), dtype=cp.float64)  # Intentional float64: MI kernel edge contract (double*)
     ne_k = cp.empty(K, dtype=cp.int32)

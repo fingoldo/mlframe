@@ -186,9 +186,15 @@ def power_sincos(cp: Any, z: Any, yc: Any, y_ss: float, freqs: Any) -> Any:
     out = cp.empty(int(f.shape[0]), dtype=cp.float64)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     power = kernel_power(cp, z.dtype)
-    power(
-        (int(f.shape[0]),), (block_size_for(power, work_items=int(z.shape[0]), max_width=1024),), (z, yc, f, out, cp.int64(z.shape[0]), cp.float64(y_ss))
-    )  # Intentional float64: the power kernel accumulates in double
+    n_freq = int(f.shape[0])
+    threads = block_size_for(power, work_items=int(z.shape[0]), max_width=1024)
+    # One block per frequency: a short list (1, 10, 12 frequencies are most of the launches of an extra-basis call) leaves most SMs idle and each block walks all n rows with the few threads the occupancy
+    # rule picked (96 at 39 registers), so a launch is latency bound (achieved occupancy 0.145). Below 8 blocks per SM the block is widened to at least 256 threads: 581 -> 270 us at 8 frequencies and
+    # 100000 float32 rows, and nothing changes from 48 frequencies up (measured 96 / 128 / 256 / 512 / 1024 at 8, 48 and 200 frequencies, float32 and float64). Same terms, another summation order (1e-11).
+    sms = int(cp.cuda.Device().attributes["MultiProcessorCount"])
+    if n_freq < 8 * sms:
+        threads = max(threads, 256)
+    power((n_freq,), (threads,), (z, yc, f, out, cp.int64(z.shape[0]), cp.float64(y_ss)))  # Intentional float64: the power kernel accumulates in double
     return out
 
 

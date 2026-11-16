@@ -111,6 +111,18 @@ KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
 #: dispatcher registers a ``kernel_tuner(`` entry AND imports the backend (``ktc_dispatch_problems`` checks both, so a stale mapping fails the contract test). A backend with a choice of its own
 #: (its own thresholds, variants, block size) registers itself instead.
 KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
+    "_fe_cpu_batch": (
+        "_fe_batch_dispatch_ktc",
+        "the host or device choice of the FE batcher is the kernel_tuner entry fe_batch_backend_choice of _fe_batch_dispatch_ktc (cpu_fe_batch_mi timed against multi_gpu_fe_batch_mi over the candidate work n x K at identical MI vectors, the work mark as fallback, MLFRAME_FE_BATCH_DEVICE=0|1 forces a side)",
+    ),
+    "_fe_gpu_batch": (
+        "_fe_batch_dispatch_ktc",
+        "the host or device choice of the FE batcher is the kernel_tuner entry fe_batch_backend_choice of _fe_batch_dispatch_ktc (cpu_fe_batch_mi timed against multi_gpu_fe_batch_mi over the candidate work n x K at identical MI vectors, the work mark as fallback, MLFRAME_FE_BATCH_DEVICE=0|1 forces a side)",
+    ),
+    "_fe_additive_fusion_gpu_resident": (
+        "_fe_additive_fusion_ktc",
+        "the host or device choice of the additive-fusion proposal is fe_additive_fusion_backend of _fe_additive_fusion_ktc (sweep over the row count of the host proposal against this module at identical admitted sets, the measured row window as fallback, MLFRAME_FE_FUSION_DEVICE=0|1 forces a side)",
+    ),
     "_orthogonal_adaptive_degree_fe": (
         "_basis_cells_ktc",
         (
@@ -166,6 +178,59 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_target_mix_gate": (
+        ("_pair_residual_screen",),
+        "the pair screen is pair_interaction_screen of _pair_residual_screen (pair_residual_t device kernel, tuned choice) and the one-column main-effect statistics come from main_effect_z_columns of _gain_stats_codes_gpu (batched device quantile codes), the host loop when the device declines",
+        True,
+    ),
+    "_fe_synergy_exhaustive": (
+        ("batch_pair_mi_gpu",),
+        "the sweep itself is batch_pair_mi_cuda of batch_pair_mi_gpu (one launch per pair block, tuned backend choice); this module decides whether the full sweep is affordable from per-host measured pairs per second (get_or_tune keys batch_pair_mi_exhaustive_throughput and batch_pair_mi_exhaustive_cpu_throughput)",
+        True,
+    ),
+    "_fe_cpu_batch": (
+        ("_fe_gpu_batch",),
+        "the device half of the FE batcher is _fe_gpu_batch (resident edge-binned plug-in MI, VRAM column chunks, multi-GPU packing); the host or device choice is fe_batch_backend_choice of _fe_batch_dispatch_ktc",
+        True,
+    ),
+    "_fe_auto_escalation": (
+        ("_fe_cmi_redundancy_gate", "_mi_greedy_cmi_fe"),
+        "the escalation proposes on a deterministic row subsample and lets the existing gates decide: the CMI redundancy gate (_cmi_gate_accepted -> apply_cmi_redundancy_gate of _fe_cmi_redundancy_gate, device partition counting and null, tuned choice) and the batched CMI of _mi_greedy_cmi_fe score the candidates",
+        True,
+    ),
+    "_fe_stability_vote": (
+        ("_mi_greedy_cmi_fe",),
+        "the per-fold MI statistics are _cmi_from_binned of _mi_greedy_cmi_fe (device partition counting, own tuning entries); under STRICT-resident the recipe is replayed and binned on the device (apply_unary_binary_gpu_resident, the sync-free binner of _mi_greedy_cmi_fe_binning)",
+        True,
+    ),
+    "_mrmr_fe_step_helpers": (
+        ("_pair_mi_perm_cuda",),
+        "the FE-step blocks carved here are orchestration; the order-2 maxT floor runs the one-launch pair_mi_perm kernel of _pair_mi_perm_cuda (tuned host-or-device choice floor_backend_choice, shape rules, declined -> cupy twin -> njit floor)",
+        True,
+    ),
+    "polynom_pair_fe": (
+        ("_hermite_fe_optimise",),
+        "the per-pair search is run by optimise_hermite_pair of _hermite_fe_optimise (host numba optimizers, or fe_optimizer=cupy_kernel through _cupy_polynom_optimizer, tuned generation scoring); this module only dispatches pairs, subsamples rows and commits survivors",
+        True,
+    ),
+    "_ratio_delta_fe": (
+        ("_ratio_delta_screen_gpu",),
+        "the device form of the ratio / log-ratio redundancy screen is _ratio_delta_screen_gpu (one block per ordered pair, row-streamed); the host or device choice is ratio_pair_screen_backend; the MI gate that follows runs through local_mi_gate on the batched MI backends",
+        True,
+    ),
+    "_fe_additive_fusion": (
+        ("_fe_additive_fusion_gpu_resident",),
+        "the device form of the proposal is _fe_additive_fusion_gpu_resident (resident binning, batched CMI, one float32 Gram matrix for the OLS separability test); the host or device choice is fe_additive_fusion_backend",
+        True,
+    ),
+    "_orth_extra_basis_fe": (
+        ("_orth_extra_basis_fe_generate",),
+        (
+            "the extra-basis generator (spline, Fourier with the adaptive and chirp grids, wavelet) is _orth_extra_basis_fe_generate, which builds the columns on the host from this module's fits or, device-born, through "
+            "_extra_basis_resident (periodogram_power, the leg and fourier code kernels, the resident MI); the fits, the njit coarse-basis kernels and the carved helpers are this module"
+        ),
+        True,
+    ),
     "_fe_pure_form_retention": (
         ("_fe_pure_form_retention_gpu_resident",),
         (
@@ -267,6 +332,54 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_target_mix_gate": (
+        "_pair_residual_screen",
+        "the host form of the structure check is the main-effect statistic loop of this module and pair_interaction_screen of _pair_residual_screen (njit pair residual kernel), on the same row subsample",
+    ),
+    "_fe_synergy_exhaustive": (
+        "batch_pair_mi_gpu",
+        "the host backend of the exhaustive C(p,2) joint-MI sweep is batch_pair_mi_njit_prange of batch_pair_mi_gpu (parallel numba over pairs); the module times it for the affordability prediction",
+    ),
+    "_fe_cpu_batch": (
+        "_fe_edge_mi",
+        "the host scorer is the parallel njit edge-binned plug-in MI kernel plugin_mi_classif_batch_edge_njit of _fe_edge_mi (parallel over columns), column-chunked to the RAM budget",
+    ),
+    "_fe_gpu_batch": (
+        "_fe_edge_mi",
+        "the host twin of the resident edge-binned plug-in MI is the njit kernel plugin_mi_classif_batch_edge_njit of _fe_edge_mi (identical MI vectors to 1e-15, test_fe_batch_parity)",
+    ),
+    "_fe_auto_escalation": (
+        "_mi_greedy_cmi_fe",
+        "the host form of the escalation's decision statistics is the njit partition kernels of _mi_greedy_cmi_fe (_cmi_from_binned on _quantile_bin codes) and the host contingency-table null of the CMI redundancy gate; the proposers are numpy / njit prewarp fits on a row subsample",
+    ),
+    "_fe_stability_vote": (
+        "_mi_greedy_cmi_fe",
+        "the per-fold gate statistic is the plug-in MI / CMI of _mi_greedy_cmi_fe (_cmi_from_binned, njit partition kernels) on equi-frequency codes of _quantile_bin; the replayed recipe is the host apply_recipe",
+    ),
+    "_mrmr_fe_step_helpers": (
+        "_permutation_null",
+        "the host form of the order-2 maxT floor is the permutation-batched njit kernel behind pooled_pair_permutation_null_joint_mi_floor of _permutation_null (same host shuffles as the device kernel)",
+    ),
+    "polynom_pair_fe": (
+        "_numba_polynom_optimizer",
+        "the host form of the per-pair polynomial search is the njit batch evaluators and the CMA / random-batch optimizers of _numba_polynom_optimizer (reached through optimise_hermite_pair)",
+    ),
+    "_ratio_delta_fe": (
+        "_ratio_delta_screen",
+        "the host redundancy screen of the ratio / log-ratio pools is the parallel numba kernel of _ratio_delta_screen (one candidate buffer per task, only accepted columns materialised); the grouped-delta statistics are a gather of per-group values by once-factorised row codes",
+    ),
+    "_ratio_delta_screen_gpu": (
+        "_ratio_delta_screen",
+        "the host twin is the parallel numba screen _screen_njit of _ratio_delta_screen (same per-pair decisions, accept matrices identical in the sweep)",
+    ),
+    "_fe_additive_fusion_gpu_resident": (
+        "_usability_njit_pool",
+        "the host twin is _fe_additive_fusion.propose_additive_fusions (njit quantile binning of _usability_njit_pool, njit partition MI kernels, numpy OLS solve); the two are timed against each other by fe_additive_fusion_backend",
+    ),
+    "_fe_additive_fusion": (
+        "_usability_njit_pool",
+        "the host proposal bins every candidate half with the njit quantile binner of _usability_njit_pool (_qbin_into) and scores the binned MI with the njit partition kernels of _mi_greedy_cmi_fe; the OLS separability test is a numpy normal-equation solve on the scoring subsample",
+    ),
     "_fe_pure_form_retention": (
         "_pure_form_gate_njit",
         "the host form of the pure-form relevance gate is the njit kernel family of _pure_form_gate_njit (parallel over candidate forms), the usability pool is built by the njit pair kernels (_pair_combo_mi_njit_table_parallel, _combine_factorize_njit)",
@@ -444,6 +557,10 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_fe_auto_escalation": ("_fe_auto_escalation_proposers",),
+    "_ratio_delta_fe": ("_ratio_delta_screen",),
+    "_orth_extra_basis_fe": ("_orth_extra_basis_fe_helpers",),
+    "_orth_extra_basis_fe_generate": ("_orth_extra_basis_fe_generate_doc",),
     "_fe_pure_form_retention": ("_fe_pure_form_sides",),
     "_fe_raw_redundancy_drop": ("_fe_raw_redundancy_anchors", "_fe_raw_redundancy_helpers"),
     "_fe_cmi_redundancy_gate": ("_fe_cmi_redundancy_null",),
@@ -550,7 +667,9 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
         "_mi_greedy_cmi_fe_gpu",
         "_mi_greedy_cmi_fe_ktc",
         "_mi_greedy_cmi_fe_steps",
+        "_mi_greedy_fe",
     ),
+    "_mi_greedy_fe": ("_mi_greedy_device",),
     "batch_mi_noise_gate_gpu": (
         "_batch_mi_noise_gate_fused",
         "_batch_mi_noise_gate_tuning",
