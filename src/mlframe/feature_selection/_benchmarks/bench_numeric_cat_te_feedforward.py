@@ -67,7 +67,8 @@ def _quantile_edges(x: np.ndarray, n_bins: int) -> np.ndarray:
     """Inner quantile edges fitted on TRAIN only; reused to bin test (leakage-free)."""
     qs = np.linspace(0, 1, n_bins + 1)[1:-1]
     edges = np.quantile(x, qs)
-    return np.unique(edges)
+    unique: np.ndarray = np.unique(edges)
+    return unique
 
 
 def _apply_edges(x: np.ndarray, edges: np.ndarray) -> np.ndarray:

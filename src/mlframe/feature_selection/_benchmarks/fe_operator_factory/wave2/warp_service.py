@@ -21,7 +21,8 @@ __all__ = ["fit_warp1d", "fit_cell2d", "oof_fit", "replay", "make_recipe"]
 def _edges(x: np.ndarray, k: int) -> np.ndarray:
     """Unique interior quantile edges of ``x`` giving up to ``k`` bins (NaN ignored)."""
     xf = x[np.isfinite(x)]
-    return np.unique(np.quantile(xf, np.linspace(0.0, 1.0, k + 1)[1:-1]))
+    edges: np.ndarray = np.unique(np.quantile(xf, np.linspace(0.0, 1.0, k + 1)[1:-1]))
+    return edges
 
 
 def fit_warp1d(x: np.ndarray, y: np.ndarray, nb: int = 20, m: float = 10.0) -> dict:

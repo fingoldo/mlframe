@@ -51,7 +51,7 @@ def make_regime_dataset(
     if interaction_order and interaction_strength > 0 and n_informative >= 2:
         if interaction_order == "xor":
             p, q = 0, 1
-            inter = ((Z[:, p] > 0) ^ (Z[:, q] > 0)).astype(float) * 2 - 1
+            inter = ((Z[:, p] > 0) ^ (Z[:, q] > 0)).astype(np.float64) * 2.0 - 1.0
             interacting = [p, q]
         else:
             order = min(int(interaction_order), n_informative)

@@ -160,7 +160,8 @@ def _tau_prior_density(tau: np.ndarray, kind: str, scale: float) -> np.ndarray:
         wide = 3.0 * scale
         return 1.0 / (1.0 + (tau / wide) ** 2)
     if kind == "half_normal":
-        return np.exp(-0.5 * (tau / scale) ** 2)
+        density: np.ndarray = np.exp(-0.5 * (tau / scale) ** 2)
+        return density
     raise ValueError(f"unknown tau prior {kind!r}; expected one of {PRIOR_KINDS}")
 
 

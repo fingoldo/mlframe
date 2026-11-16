@@ -125,7 +125,7 @@ def main() -> None:
     # Sweep calib-slice size: small (overfit regime) vs large (isotonic flexibility regime).
     all_results = {}
     for n_cal in (200, 1000, 8000):
-        rows = []
+        rows: list[dict] = []
         iso_wins = sig_wins = ties = 0
         for scn in scenarios:
             for seed in seeds:
