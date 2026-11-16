@@ -631,8 +631,7 @@ def _tiny_cv_y_sca_fi_tr_va_enumerate(splits, _one_fold, fold_results, _sum_so_f
             _sum_so_far += _rmse
             _n_finite_so_far += 1
         if (
-            math.isfinite(early_stop_threshold)
-            and _n_finite_so_far > 0
+            _n_finite_so_far > 0
             and _fi < len(splits) - 1
             and _sum_so_far > early_stop_threshold * cv_folds
             and cv_selector_mode == "mean"  # partial-sum bound only guarantees the MEAN exceeds thr; median/quantile aggregates can stay below

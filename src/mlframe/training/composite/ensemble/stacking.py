@@ -130,7 +130,7 @@ def residual_dedup_indices(
         redundant = False
         for k in kept:
             c = corr[cand, k]
-            if np.isfinite(c) and abs(c) > corr_threshold:
+            if abs(c) > corr_threshold:
                 redundant = True
                 break
         if redundant and (K - len(dropped)) > min_keep:
