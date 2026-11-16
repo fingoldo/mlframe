@@ -48,6 +48,7 @@ from __future__ import annotations
 from .._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name
 
 import logging
+import os
 import threading
 from typing import Any, Callable, Optional, Sequence
 
@@ -449,9 +450,15 @@ def _generate_univariate_basis_features_impl(
 
     # The routing of all eligible columns in one device pass when the signal router applies (a column it cannot route is decided by the host router below).
     _device_basis = route_columns_on_device(X, cols, y, degrees, _cols_auto, _aux_pool) if (basis == "auto" and basis_routing == "signal") else {}
+    from .._univariate_route_device import build_cells_on_device
+
+    # the cells of the device-routed columns are built on the device too (float32; selection-equivalent to the host cells, see ``build_cells_on_device``)
+    _device_cells = build_cells_on_device(X, _device_basis, degrees, _BASIS_CODE) if _device_basis and os.environ.get("MLFRAME_UNIVARIATE_CELLS_DEVICE", "1").strip() != "0" else {}
     def _one_column(col):
         """The cells of one column (``{}`` when it is skipped, ``None`` once the fit deadline has passed); a column reads only its own data, so columns may run on the pool."""
         cells: dict = {}
+        if col in _device_cells:
+            return dict(_device_cells[col])
         # Optional-enrichment wall-clock budget: stop the per-column basis scan once MRMR.fit's deadline passes and return
         # whatever was engineered so far (the core selection still produces a usable partial). No-op when no budget is set.
         if fe_deadline_passed():
