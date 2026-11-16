@@ -315,21 +315,21 @@
     "_orthogonal_elasticnet_fe": "measured exemption: sklearn ElasticNet coordinate descent on the stacked design matrix, host only, ranking engineered columns by |coef| (a pre-selection option, not a default path); the fit takes 0.017 s for 50 columns at 20000 rows, 0.11 s for 50 and 0.53 s for 200 columns at 100000 rows (GPU 77 C, no throttle); a device proximal-gradient fit would need hundreds of passes over the 80 MB matrix to match the coordinate-descent solution and would not be faster, so no kernel is warranted",
     "_orthogonal_quadruplet_fe": "measured exemption: cross-basis products of screened column quadruplets scored by MI uplift, with the device-born scoring routed through the compliant _orthogonal_univariate_fe resident path under STRICT and no kernel of its own; 40 quadruplets at 100000 rows (10 columns) take 0.159 s on the host and 0.106 s under STRICT (GPU 77 C, no throttle), bounded by the quadruplet screen and not by n",
     "_orthogonal_adaptive_arity_fe": "measured exemption: adaptive 2..3-way cross-basis tuples scored against their lower-arity subsets, device-born scoring through the compliant _orthogonal_univariate_fe resident path under STRICT, no kernel of its own; 8 columns at 100000 rows take 0.238 s on the host and 0.098 s under STRICT (2.4 times; GPU 77 C, no throttle), bounded by the tuple enumeration of the source columns",
-    "_orthogonal_three_gate_mi_fe": "measured exemption: three-gate + K-fold out-of-fold MI ranking of engineered columns, per-fold binning and MI with an on-device fold path (_folds_on_device) over the compliant resident MI backends and no kernel of its own; hybrid_orth_mi_three_gate_fe on 8 columns at 100000 rows takes 0.148 s on the host and 0.144 s under STRICT (the fold scheduling, not the MI, dominates; GPU 77 C, no throttle)"
+    "_orthogonal_three_gate_mi_fe": "measured exemption: three-gate + K-fold out-of-fold MI ranking of engineered columns, per-fold binning and MI with an on-device fold path (_folds_on_device) over the compliant resident MI backends and no kernel of its own; hybrid_orth_mi_three_gate_fe on 8 columns at 100000 rows takes 0.148 s on the host and 0.144 s under STRICT (the fold scheduling, not the MI, dominates; GPU 77 C, no throttle)",
+    "_fe_mi_contract": "measured exemption: constants and a scalar rounding function (quantize_mi_tiebreak, 0.33 microseconds a call) that pin the cross-backend MI tiebreak contract; no array work, no kernel (GPU 78 C, no throttle)",
+    "_orthogonal_shared": "measured exemption: host helpers shared by the orthogonal FE families (batched quantile binning, noise-aware floor, y coercion); quantile_bin_batched on 100000 x 50 float32 takes 120.7 ms, noise_aware_floor 3.6 ms and coerce_y_classif 0.68 ms per 100000 values; the device binning twins live in _gpu_resident_select / _mi_greedy_cmi_fe_binning, which carry the kernels and their records (GPU 78 C, no throttle)",
+    "_row_stat_fe": "measured exemption: row-statistic operator whose pair scan is the parallel njit kernel of _row_stat_kernels on a capped scan sample and pool; row_stat_candidates at 100000 rows takes 0.398 s for 20 columns and 0.466 s for 60 (bounded by MAX_POOL and the scan-row cap, not by n; GPU 78 C, no throttle); a device pair scan would pay a transfer of the standardised pool for a few hundred milliseconds of work",
+    "_wavelet_basis_fe_recipes": "measured exemption: recipe-application layer of the Haar wavelet FE (generate / build / apply recipes) carved out of the compliant _wavelet_basis_fe, whose batched and fused device paths (_wavelet_legs_fused_gpu, _wavelet_legs_tuner) carry the kernels; generate_wavelet_features over 20 float32 columns at 100000 rows takes 0.117 s (GPU 78 C, no throttle)",
+    "_feature_engineering_mem_budget": "measured exemption: RAM-budget arithmetic of the FE pair-search shared buffer (hoist or recompute), no array work: _estimate_fe_shared_buffer_bytes 1 nanosecond-scale arithmetic (0.001 ms) and _fe_effective_buffer_budget_bytes 0.008 ms per call",
+    "_fe_usability_signal": "measured exemption: tail-concentrated linear-usability signal built on a one-pass finite-masked njit |Pearson| (_abs_pearson_njit, parallel-safe, nogil) with a stride subsample for large n; abs_pearson on 100000 float32 values takes 0.093 ms (GPU 78 C, no throttle); the device consumers use their own batched abs-corr kernels (_gpu_batched_abs_corr)"
   },
   "pending": [
     "_categorical_encoding",
-    "_fe_mi_contract",
-    "_fe_usability_signal",
-    "_feature_engineering_mem_budget",
     "_orth_basis_recipes",
     "_orth_pair_cross_fe",
-    "_orthogonal_shared",
-    "_row_stat_fe",
     "_target_encoding_fe",
     "_temporal_agg_fe",
     "_unified_fe_gate",
-    "_wavelet_basis_fe_recipes",
     "feature_engineering"
   ]
 }
