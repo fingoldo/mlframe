@@ -113,9 +113,9 @@ _MODULES = {
 }
 
 
-def kernel(cp: Any, code_type: Any) -> Any:
-    """``cmim_min_blocks`` for candidate codes of numpy dtype ``code_type`` (uint8 or int16); compile point of :func:`_scores_device` and of the register-pressure registry."""
-    key = "unsigned char" if np.dtype(code_type) == np.uint8 else "short"
+def kernel(cp: Any, real: Any) -> Any:
+    """``cmim_min_blocks`` for candidate codes of numpy dtype ``real`` (uint8 or int16); compile point of :func:`_scores_device` and of the register-pressure registry."""
+    key = "unsigned char" if np.dtype(real) == np.uint8 else "short"
     return _MODULES[key].get(cp).get_function("cmim_min_blocks")
 
 

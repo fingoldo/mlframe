@@ -635,8 +635,13 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
     ),
     "grouped_quantile_gpu.group_quantiles": (
         "mlframe.feature_selection.filters._grouped_quantile_gpu",
-        "quantiles_kernel",
+        "kernel_quantiles",
         ("float32",),
+    ),
+    "row_argmax_gpu.row_argmax": (
+        "mlframe.feature_selection.filters._row_argmax_gpu",
+        "kernel",
+        ("float32", "float64"),
     ),
     "ksg_cd_gpu.ksg_psi_m_sums": (
         "mlframe.feature_selection.filters._ksg_cd_gpu",

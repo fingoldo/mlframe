@@ -94,7 +94,7 @@ def kernel(cp: Any, real: Any = np.float32) -> Any:
     return _MODULE.get(cp).get_function("group_pct_ranks")
 
 
-def quantiles_kernel(cp: Any, real: Any = np.float32) -> Any:
+def kernel_quantiles(cp: Any, real: Any = np.float32) -> Any:
     """``group_quantiles`` for float32 columns; compile point of :func:`_stats_device` and of the register-pressure registry."""
     if np.dtype(real) != np.float32:
         raise ValueError("the grouped-quantile kernels are instantiated for float32 columns only")
@@ -155,7 +155,7 @@ def _stats_device(xs: np.ndarray, codes: np.ndarray, n_groups: int) -> Optional[
         srt = np.empty((k, n), dtype=np.float32)
         iqr = np.empty((k, n_groups), dtype=np.float64)  # Intentional float64: spread statistics
         p90p10 = np.empty((k, n_groups), dtype=np.float64)  # Intentional float64: spread statistics
-        rank_kernel, quant_kernel = kernel(cp), quantiles_kernel(cp)
+        rank_kernel, quant_kernel = kernel(cp), kernel_quantiles(cp)
         for c0 in range(0, k, block):
             c1 = min(k, c0 + block)
             xd = cp.asarray(np.ascontiguousarray(xs[c0:c1], dtype=np.float32)) + np.float32(0.0)  # -0.0 becomes +0.0: equal values get equal keys

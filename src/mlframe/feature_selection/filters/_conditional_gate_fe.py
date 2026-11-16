@@ -367,6 +367,16 @@ def _resident_cand(feat: np.ndarray, role):
         logger.debug("gate resident-candidate upload failed; host fallback", exc_info=True)
         return feat
 
+def _argmax_host(columns):
+    """First-max index of the host operand columns in the crit dtype: the parallel numba kernel for finite columns, ``np.argmax`` (its NaN semantics) otherwise."""
+    from ._row_argmax_gpu import all_finite_cached, row_argmax_host
+
+    cols = [np.ascontiguousarray(np.asarray(c, dtype=_crit_np_dtype())) for c in columns]
+    if all(all_finite_cached(c) for c in cols):
+        return row_argmax_host(cols).astype(_crit_np_dtype())
+    return np.argmax(np.stack(cols, axis=1), axis=1).astype(_crit_np_dtype())
+
+
 def _argmax_resident(arrs, tri):
     """DEVICE-BORN the row-argmax candidate ``argmax_k(operand_k)`` from the RESIDENT operand columns, returning
     the resident double index column, or ``None`` when residency is off / any operand is non-finite / cupy faults
@@ -382,12 +392,14 @@ def _argmax_resident(arrs, tri):
         import cupy as cp
 
         from ._fe_resident_operands import resident_operand
-        from ._row_argmax_gpu import all_finite_cached, row_argmax_cm
+        from ._row_argmax_gpu import all_finite_cached, row_argmax_cm, row_argmax_on_device
         _ops = []
         for c in tri:
             _h = np.ascontiguousarray(np.asarray(arrs[c], dtype=_crit_np_dtype()))
             if not all_finite_cached(_h):
                 return None  # host np.argmax NaN semantics differ -> keep the host path for a non-finite operand
+            if not _ops and not row_argmax_on_device(int(_h.shape[0])):
+                return None  # the per-host kernel-tuning cache prefers the host numba kernel at this row count
             _ops.append(resident_operand(_h, ("argmax_op", str(c)), dtype=_crit_np_dtype()))
         return row_argmax_cm(cp, _ops)  # first-max index as double, one launch (cp.argmax over the interleaved stack ran a 15 ms cub reduction)
     except Exception:
@@ -595,7 +607,7 @@ def cheap_row_argmax_scan(
         # is off / an operand is non-finite (host argmax NaN semantics) / any cupy fault.
         feat_r = _argmax_resident(arrs, tri)
         if feat_r is None:
-            feat = np.argmax(np.stack([arrs[c] for c in tri], axis=1), axis=1).astype(_crit_np_dtype())
+            feat = _argmax_host([arrs[c] for c in tri])
             feat_r = _resident_cand(feat, ("gate_cand_argmax", tuple(str(c) for c in tri)))
         feat_mi = _mi(feat_r, yi, nbins=nbins)
         # Early-reject: the null only matters for a triple already clearing the operand margin (``_responded`` needs BOTH).
