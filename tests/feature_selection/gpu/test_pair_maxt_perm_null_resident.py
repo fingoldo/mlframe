@@ -196,3 +196,22 @@ def test_degenerate_pools_noop(n, npairs_ok):
         freqs_y=fy,
     )
     assert dev == 0.0
+
+
+def test_resident_twin_reads_the_same_capped_rows_as_the_cpu_floor():
+    """Above the row cap the twin's floor sits on the CPU floor's scale (both read the first ``cap`` rows), not on the full-n scale that is several times lower."""
+    pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._permutation_null import pooled_pair_permutation_null_joint_mi_floor
+    from mlframe.feature_selection.filters._permutation_null_pair_resident import pooled_pair_permutation_null_joint_mi_floor_cupy
+
+    rng = np.random.default_rng(0)
+    n, p = 60000, 8
+    data = rng.integers(0, 8, (n, p)).astype(np.int8)
+    y = rng.integers(0, 2, n).astype(np.int64)
+    fy = np.bincount(y) / n
+    iu = np.triu_indices(p, 1)
+    kw = dict(factors_data=data, nbins=np.full(p, 8, dtype=np.int64), pair_a=iu[0].astype(np.int64), pair_b=iu[1].astype(np.int64), classes_y=y, freqs_y=fy, n_permutations=25, quantile=0.95, random_seed=3)
+    cpu = pooled_pair_permutation_null_joint_mi_floor(mm_debias=False, **kw)
+    twin = pooled_pair_permutation_null_joint_mi_floor_cupy(mm_debias=False, mm_bias=None, **kw)
+    assert twin is not None
+    assert 0.6 < twin / cpu < 1.6, f"twin floor {twin} is on another scale than the CPU floor {cpu} (full-n scale would be about 4x lower at this size)"

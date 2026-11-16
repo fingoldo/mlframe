@@ -293,7 +293,9 @@
     "_fe_additive_fusion_ktc": "the tuner entry of the additive-fusion proposal (kernel_tuner fe_additive_fusion_backend, sweep over the row count of host against device at identical admitted sets, fallback = the measured row window, MLFRAME_FE_FUSION_DEVICE=0|1 forces a side): it owns no kernel and no array work; the resident proposal and its profile are _fe_additive_fusion_gpu_resident",
     "_usability_pool_resident_pairs": "measured exemption: the per-pair stage of score_pair_combos_table_resident (operand upload through the content-keyed resident cache, one fused_gen launch per combo chunk, then _degenerate_combo_gpu and the MI write); it owns no kernel and the 40-pair table at 100000 rows is 5.7 to 8.4 s of device-bound work, 77.1 s on the njit per-pair path (audits/2026-10-22/profiles/_usability_pool_resident.md); the host or resident choice is fe_usability_pool_combo_mi_table_resident_crossover of _usability_pool_resident_ktc",
     "_degenerate_combo_gpu": "measured exemption: one-launch helper kernel (per-row near-constant mask and row extremes of a combo block) with no host alternative on the resident path: 1.96 ms against 15.8 ms for the cupy var / abs / max expression it replaces on a (450, 100000) float32 block, occupancy 0.96 to 0.99, 82 GB/s of 112 GB/s read; the host or resident choice is made by the caller (fe_usability_pool_combo_mi_table_resident_crossover); profile in audits/2026-10-22/profiles/_usability_pool_resident.md",
-    "_fe_batch_dispatch_ktc": "the tuner entry of the FE batcher choice (kernel_tuner fe_batch_backend_choice, sweep over the candidate work n x K of cpu_fe_batch_mi against multi_gpu_fe_batch_mi at identical MI vectors, fallback = the work mark, MLFRAME_FE_BATCH_DEVICE=0|1 forces a side): it owns no kernel and no array work; the two scorers and their profiles are _fe_cpu_batch and _fe_gpu_batch"
+    "_fe_batch_dispatch_ktc": "the tuner entry of the FE batcher choice (kernel_tuner fe_batch_backend_choice, sweep over the candidate work n x K of cpu_fe_batch_mi against multi_gpu_fe_batch_mi at identical MI vectors, fallback = the work mark, MLFRAME_FE_BATCH_DEVICE=0|1 forces a side): it owns no kernel and no array work; the two scorers and their profiles are _fe_cpu_batch and _fe_gpu_batch",
+    "_permutation_null_pair_resident": "measured exemption: the cupy fallback of the order-2 maxT floor, tried only when the one-launch pair_mi_perm kernel of _pair_mi_perm_cuda declines the pool; at 100000 x 60 (1770 pairs, 25 shuffles) the one-launch floor takes 0.032 s, the njit floor 0.29 s and this twin 0.95 s (25.9 s before it read the same capped rows as the other two), so it is never the fast path and owns no kernel of its own (cupy bincount / argsort stages); profile in audits/2026-10-22/profiles/_pair_mi_perm_cuda.md and _mrmr_fe_step_helpers.md",
+    "_permutation_null_pair_tiles": "measured exemption: the perm-tile stage of the cupy fallback _permutation_null_pair_resident (flat joint index and bincount per tile of shuffles); no kernel of its own, 0.95 s for the whole fallback floor at 100000 x 60 against 0.032 s for the one-launch kernel it stands behind"
   },
   "pending": [
     "_cat_pair_fe",
@@ -320,8 +322,6 @@
     "_orthogonal_scorer_auto_fe",
     "_orthogonal_shared",
     "_orthogonal_three_gate_mi_fe",
-    "_permutation_null_pair_resident",
-    "_permutation_null_pair_tiles",
     "_row_stat_fe",
     "_screen_predictors_gate",
     "_synergy_detector",
