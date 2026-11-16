@@ -317,6 +317,11 @@ def row_attention_stage4_cupy(
     Optional ``k_proj_device`` / ``y_train_device`` lets Mode-B inference pass already-resident cupy arrays (the K-bank stays on the device across many query
     batches), bypassing the per-call H2D upload that would otherwise dominate cost for small query batches.
     """
+    if topk_ids.shape[0] == 0:
+        # No queries: nothing to write, and a zero-sized grid is an invalid CUDA launch configuration.
+        return
+    if topk_ids.shape[1] == 0:
+        raise ValueError("row_attention_stage4_cupy: K must be at least 1 neighbour per query, got 0")
     if topk_ids.shape[1] > _MAX_STAGE4_K:
         # One block of K threads per query: a launch above the hardware block limit fails, so refuse it up front with the cause.
         raise ValueError(f"row_attention_stage4_cupy: K={topk_ids.shape[1]} exceeds the {_MAX_STAGE4_K}-thread block limit; use the njit path or a smaller top-k.")

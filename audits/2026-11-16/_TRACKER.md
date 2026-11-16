@@ -59,7 +59,7 @@ TODO total: 34. Nothing is fixed yet; no code was changed in this audit.
 | P11-04 (11) | RESOLVED | training/_io_save.py:453-455 | verbose=0 silently flipped lean (drops preds/probs/target); the flip is now always logged as a warning | tests/training/test_save_lean_flip_warns_when_quiet.py::test_lean_pre_flip_logs_warning_at_verbose_zero; test_io_save_size_sensor_and_lightning_bloat.py 9/9 |
 | G1 (12) | med | feature_engineering/transformer/_kernels_cupy.py:256-261 | rff_matmul_cupy allocates without VRAM budget check | test_rff_matmul_cupy_refuses_or_chunks_over_vram_budget |
 | G2 (12) | med | _kernels_cupy.py:341-342 | float64 device bank read as float32 by float* kernel | test_row_attention_rejects_or_converts_float64_device_bank |
-| G3 (12) | low | _kernels_cupy.py:320, 352-354 | K==0 and n_queries==0 launches unguarded | test_row_attention_empty_k_and_queries_do_not_launch |
+| G3 (12) | RESOLVED | feature_engineering/transformer/_kernels_cupy.py:320,352-354 | zero queries return before any launch; zero neighbours raise a clear ValueError instead of an invalid CUDA launch configuration | tests/feature_engineering/transformer/test_row_attention_stage4_empty_launch.py 2/2; test_hard_row_attention.py 8/8. Note: the zero-query test was not checked against the old code (it would launch a zero-sized grid there), so its failure-on-old-code is unmeasured |
 | G5 (12) | RESOLVED | calibration/ensembling.py | the two cupy fallback warnings go through the project's log_throttle with stable keys (per call site), so repeated fallbacks cannot flood the log | tests/calibration/test_ensembling_cupy_fallback_warns_once.py 1/1 (fails on old code: eight warnings instead of five plus a notice) |
 
 ## Plan
