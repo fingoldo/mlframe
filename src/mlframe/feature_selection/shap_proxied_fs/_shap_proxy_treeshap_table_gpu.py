@@ -28,10 +28,9 @@ void treeshap_table(const float* X, const int n, const int f,
                     const int* node_slot, const int* leaf_of_node,
                     const int* leaf_ud, const int* leaf_feat_off, const int* leaf_feat, const int* leaf_table_off,
                     const {REAL}* table, const int* roots, const int n_trees, {REAL}* phi){
-    // coalescing-ok: one thread walks the trees for one sample; the node and table reads are data-dependent gathers and the walks of different samples diverge, so no layout makes the lanes adjacent
+    // X is feature-major (f, n): the lanes of a warp (consecutive samples) read consecutive floats of one feature row, one coalesced transaction per node
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
-    const float* xi = X + (long long)i * f;
 #if STACK_SHARED
     // the DFS stack of every thread in shared memory, laid out [level][thread] so the lanes of a warp hit distinct banks (spill-free, costs shared memory per block)
     extern __shared__ int smem[];
@@ -63,7 +62,7 @@ void treeshap_table(const float* X, const int n, const int f,
                 }
                 continue;
             }
-            const float xv = xi[feat[node]];
+            const float xv = X[(long long)feat[node] * n + i];
             int hot;
             if (isnan(xv)) hot = cd[node];
             else if (xv < thr[node]) hot = left;
@@ -149,7 +148,7 @@ def treeshap_phi_base_table_gpu(ensemble: "TreeEnsemble", X: np.ndarray) -> Opti
     kern = _ensure_kernel(ensemble.max_depth, real, shared)
     i32 = np.int32
     args: tuple[Any, ...] = (
-        cp.asarray(Xf), i32(n), i32(f),
+        cp.ascontiguousarray(cp.asarray(Xf).T), i32(n), i32(f),  # feature-major (f, n): the node reads of a warp coalesce
         cp.asarray(ensemble.children_left), cp.asarray(ensemble.children_right), cp.asarray(ensemble.children_default), cp.asarray(ensemble.features), cp.asarray(ensemble.thresholds),
         cp.asarray(tab["node_slot"].astype(i32)), cp.asarray(tab["leaf_of_node"].astype(i32)),
         cp.asarray(tab["leaf_ud"].astype(i32)), cp.asarray(tab["leaf_feat_off"].astype(i32)), cp.asarray(tab["leaf_feat"].astype(i32)), cp.asarray(tab["leaf_table_off"].astype(i32)),

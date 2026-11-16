@@ -36,10 +36,9 @@ void treeshap_interactions_table(const float* X, const int n, const int f, const
                     const int* leaf_ud, const int* leaf_feat_off, const int* leaf_feat, const int* leaf_table_off,
                     const {REAL}* table, const {REAL}* leaf_zero, const long long* leaf_pair_off, const {REAL}* pair_table,
                     const int* roots, const int n_trees, {REAL}* phi, {REAL}* pairs){
-    // coalescing-ok: one thread walks the trees for one sample; the node and table reads are data-dependent gathers and the walks of different samples diverge, so no layout makes the lanes adjacent
+    // X is feature-major (f, n): the lanes of a warp (consecutive samples) read consecutive floats of one feature row, one coalesced transaction per node
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
-    const float* xi = X + (long long)i * f;
 #if STACK_SHARED
     extern __shared__ int smem[];
     int* st_node = smem;
@@ -81,7 +80,7 @@ void treeshap_interactions_table(const float* X, const int n, const int f, const
                 }
                 continue;
             }
-            const float xv = xi[feat[node]];
+            const float xv = X[(long long)feat[node] * n + i];
             int hot;
             if (isnan(xv)) hot = cd[node];
             else if (xv < thr[node]) hot = left;
@@ -200,7 +199,7 @@ def interaction_tensor_table_gpu(ensemble: "TreeEnsemble", X: np.ndarray) -> Opt
     for s in range(0, n, chunk):
         e = min(n, s + chunk)
         m = e - s
-        X_d = cp.asarray(Xf[s:e])
+        X_d = cp.ascontiguousarray(cp.asarray(Xf[s:e]).T)  # feature-major (f, m): the node reads of a warp coalesce
         phi_d = cp.zeros((P, m), dtype=real)  # (feature, sample): coalesced adds
         pairs_d = cp.zeros((P, P, m), dtype=real)  # (row feature, conditioned feature, sample)
         kern(((m + block - 1) // block,), (block,), (X_d, i32(m), i32(f), i32(P), *consts, phi_d, pairs_d), shared_mem=8 * _maxsp(ensemble.max_depth) * block if shared else 0)
