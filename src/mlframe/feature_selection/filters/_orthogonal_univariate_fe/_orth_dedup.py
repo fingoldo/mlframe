@@ -177,7 +177,7 @@ def _pc_corr_cupy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     q, n_obs = Q.shape
     r = R.shape[0]
     item = int(Q.dtype.itemsize)
-    # the 6 masked matmuls hold about 5 (rows, n) operand arrays per side and ~9 (q, r) result arrays; whole when that fits a quarter of the room, else in (rows x rows) tiles
+    # the 6 masked matmuls hold about 5 (rows, n) operand arrays per side and ~9 (q, r) result arrays; whole when that fits a quarter of the room, else in (row block x row block) tiles
     need = 5 * (q + r) * n_obs * item + 9 * q * r * item
     room = device_room(cp)
     if need <= room // 4:
@@ -201,25 +201,44 @@ def _pc_corr_cupy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     return out
 
 
+_FINAL_KERNELS: dict = {}
+
+
+def _corr_final_kernel(cp: Any) -> Any:
+    """One fused elementwise pass for the last stage of the masked-matmul correlation: covariance and both variances from the six sums, ``|r|``, and ``nan`` where fewer than 8 common rows or either
+    side is near-constant (the 12 or so cupy elementwise launches of the unfused form, one launch here)."""
+    ker = _FINAL_KERNELS.get("final")
+    if ker is None:
+        ker = _FINAL_KERNELS["final"] = cp.ElementwiseKernel(
+            "S n, T Sx, T Sy, T Sxx, T Syy, T Sxy",
+            "T out",
+            """
+            const T cov = Sxy - Sx * Sy / n;
+            const T vx = Sxx - Sx * Sx / n;
+            const T vy = Syy - Sy * Sy / n;
+            out = (n < 8 || vx <= 1e-24 || vy <= 1e-24) ? (T)nan("") : (T)fabs(cov / sqrt(vx * vy));
+            """,
+            "pc_corr_final",
+        )
+    return ker
+
+
 def _pc_corr_cupy_arrays(cp: Any, Qd: Any, Rd: Any) -> np.ndarray:
-    """The masked-matmul correlation of two resident blocks ``(q, n)`` and ``(r, n)``."""
+    """The masked-matmul correlation of two resident blocks ``(q, n)`` and ``(r, n)``: six explicit cuBLAS GEMMs and one fused elementwise pass for the rest."""
     Qm = cp.isfinite(Qd)
     Rm = cp.isfinite(Rd)
     Q0 = cp.where(Qm, Qd, 0.0)
     R0 = cp.where(Rm, Rd, 0.0)
-    Qmf = Qm.astype(crit_float_dtype())
-    Rmf = Rm.astype(crit_float_dtype())
-    n = Qmf @ Rmf.T
-    Sx = Q0 @ Rmf.T
-    Sy = Qmf @ R0.T
-    Sxx = (Q0 * Q0) @ Rmf.T
-    Syy = Qmf @ (R0 * R0).T
-    Sxy = Q0 @ R0.T
-    cov = Sxy - Sx * Sy / n
-    vx = Sxx - Sx * Sx / n
-    vy = Syy - Sy * Sy / n
-    corr = cp.abs(cov / cp.sqrt(vx * vy))
-    corr[(n < 8) | (vx <= 1e-24) | (vy <= 1e-24)] = cp.nan
+    mask_dtype = Qd.dtype if (Qd.dtype == Rd.dtype and Qd.dtype in (cp.float32, cp.float64)) else crit_float_dtype()  # the masks in the data's own dtype: a float32 mask against float64 data was copied to float64 inside each of three GEMMs
+    Qmf = Qm.astype(mask_dtype)
+    Rmf = Rm.astype(mask_dtype)
+    n = cp.matmul(Qmf, Rmf.T)
+    Sx = cp.matmul(Q0, Rmf.T)
+    Sy = cp.matmul(Qmf, R0.T)
+    Sxx = cp.matmul(Q0 * Q0, Rmf.T)
+    Syy = cp.matmul(Qmf, (R0 * R0).T)
+    Sxy = cp.matmul(Q0, R0.T)
+    corr = _corr_final_kernel(cp)(n, Sx.astype(Sxy.dtype, copy=False), Sy.astype(Sxy.dtype, copy=False), Sxx.astype(Sxy.dtype, copy=False), Syy.astype(Sxy.dtype, copy=False), Sxy)
     return np.asarray(cp.asnumpy(corr))
 
 
@@ -297,6 +316,87 @@ def _pairwise_complete_abs_corr(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     return _pc_corr_numpy(Q, R)
 
 
+_SWEEP_P = [16, 64, 256]
+_SWEEP_N = [5_000, 20_000, 100_000]
+_SALT = 1
+
+
+def _sweep_inputs(dims: dict) -> tuple:
+    """``(Q, R)``: ``p`` x ``n`` row-centred blocks in the criterion dtype (what the dedup hands its backends) with about 3 % missing values; ``R`` repeats a tenth of ``Q``'s rows with small noise, so the
+    block has true near-duplicates (|r| near 1) for the decision the dedup makes."""
+    rng = np.random.default_rng(0)
+    p, n = int(dims["p"]), int(dims["n"])
+    base = rng.standard_normal((p, n))
+    other = rng.standard_normal((p, n))
+    k = max(1, p // 10)
+    other[:k] = base[:k] + 0.02 * rng.standard_normal((k, n))
+    for a in (base, other):
+        a[rng.random((p, n)) < 0.03] = np.nan
+    dt = _crit_np_dtype()
+    return (_row_center_finite(base.astype(dt)), _row_center_finite(other.astype(dt)))
+
+
+def _nan_to_flag(a: np.ndarray) -> np.ndarray:
+    """The correlation block with ``nan`` ('not a duplicate') as -1, so the sweep's equivalence check compares like with like."""
+    return np.nan_to_num(np.asarray(a, dtype=np.float64), nan=-1.0)  # Intentional float64: comparison array
+
+
+def _sweep_variants() -> dict:
+    """The backends the sweep times (cupy only where a device is usable)."""
+    variants = {
+        "numpy": lambda q, r: _nan_to_flag(_pc_corr_numpy(q, r)),
+        "njit": lambda q, r: _nan_to_flag(_pc_corr_njit(np.ascontiguousarray(q, dtype=np.float64), np.ascontiguousarray(r, dtype=np.float64))),  # Intentional float64: njit signature
+    }
+    try:
+        import cupy as cp
+
+        cp.cuda.runtime.getDeviceCount()
+        variants["cupy"] = lambda q, r: _nan_to_flag(_pc_corr_cupy(q, r))
+    except Exception as exc:  # no usable device: the sweep decides between the host backends
+        logger.debug("pairwise-corr sweep without the cupy backend (%s: %s)", type(exc).__name__, exc)
+    return variants
+
+
+#: Equivalence of the backends in the sweep, absolute on |r|. The block is in the criterion dtype (float32 by default), so a backend that accumulates in float64 (njit) differs from the float32 GEMMs by the
+#: rounding of an n-term float32 sum. Measured on the sweep grid (p up to 256, n up to 100000): njit 6e-7, cupy 9e-7 against the numpy reference; 1e-5 is ten times that, and the dedup only compares |r| with a 0.999 threshold.
+_SWEEP_TOL = 1e-5
+
+
+def _run_pc_sweep() -> list:
+    """Grid sweep over (columns, rows): the three backends timed per cell, the fastest kept; every backend must equal the numpy reference to ``_SWEEP_TOL``."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
+
+    return list(sweep_backend_grid(_sweep_variants(), {"p": _SWEEP_P, "n": _SWEEP_N}, _sweep_inputs_adapter, reference="numpy", equiv_rtol=_SWEEP_TOL, equiv_atol=_SWEEP_TOL, repeats=3))
+
+
+def _sweep_inputs_adapter(dims: dict) -> tuple:
+    """Sweep input factory (named so the grid sweep can call it with the cell dims)."""
+    return _sweep_inputs(dims)
+
+
+def _pc_fallback_choice(p: int, n: int) -> str:
+    """Pre-sweep choice: numpy (the BLAS form), the measured default before any host has been swept."""
+    return "numpy"
+
+
+try:
+    from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+
+    _SPEC: Any = kernel_tuner(
+        kernel_name="fe_pairwise_complete_corr",
+        variant_fns=(_pc_corr_numpy, _pc_corr_njit, _pc_corr_cupy_arrays),  # the three bodies: an edit of any invalidates the entry
+        tuner=_run_pc_sweep,
+        axes={"p": list(_SWEEP_P), "n": list(_SWEEP_N)},
+        fallback=_pc_fallback_choice,
+        gpu_capable=True,
+        salt=_SALT,
+        cli_label="fe_pairwise_complete_corr",
+    )
+except Exception as e:  # best-effort: without a tuner entry the numpy default decides
+    logger.warning("kernel_tuner spec build for fe_pairwise_complete_corr failed: %s", e)
+    _SPEC = None
+
+
 def _resolve_pc_backend(q: int, r: int, n: int) -> str:
     """Pick 'numpy' | 'njit' | 'cupy'. Env force wins; else the per-host kernel-tuning cache (fallback 'numpy')."""
     forced = _os.environ.get("MLFRAME_FE_DEDUP_CORR_BACKEND", "").strip().lower()
@@ -317,12 +417,13 @@ def _resolve_pc_backend(q: int, r: int, n: int) -> str:
             return "cupy"
     except Exception as e:  # nosec B110 - strict-gate probe failure must never break the dedup itself
         logger.debug("fe_gpu_strict_enabled() probe failed, dedup keeps its default backend: %s", e)
+    if _SPEC is None:
+        return "numpy"
     try:
-        from mlframe.feature_selection._benchmarks.kernel_tuning_cache.dispatch import lookup_pairwise_corr_backend
-
-        return lookup_pairwise_corr_backend(max(q, r), n)
+        choice = str(_SPEC.choose(p=max(q, r), n=n))
+        return choice if choice in ("numpy", "njit", "cupy") else "numpy"
     except Exception as e:
-        logger.warning("_resolve_pc_backend: kernel_tuning_cache lookup failed, defaulting the pairwise-corr backend to numpy: %s", e)
+        logger.warning("_resolve_pc_backend: kernel-tuning choice failed, defaulting the pairwise-corr backend to numpy: %s", e)
         return "numpy"
 
 

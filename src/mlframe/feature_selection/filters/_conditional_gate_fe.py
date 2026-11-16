@@ -45,7 +45,14 @@ cProfile (n=2000, p=15, enabled path, measured): the batched plug-in MI dispatch
 scan wall); the argmax stack + ``np.argmax`` and the gate ``np.where`` / quantile arithmetic are <3% combined - the per-candidate
 build is dwarfed by the (already-tuned, batched) MI kernel. No further actionable caller-side speedup beyond the per-candidate tau
 batching + early-reject already applied. See ``_benchmarks/bench_conditional_gate_wideframe``.
-"""
+
+
+Backends and memory (2026-11-16): the row-argmax runs on the device through ``_row_argmax_gpu`` (a kernel over the resident operand columns, host numba twin, per-host choice) and the gate pruning
+(``_rank_and_prune``) through ``_gate_rank_divergence`` (one walk per probe for every gate column, numba and cupy forms, per-host choice); both are under the contract with their own records and
+tuning entries, and the host numba kernels of this family are the tau-grid builders of ``_conditional_gate_kernels``. The tau grids of the candidate triples are scored in column blocks: a flush
+takes pending specs until ``_GATE_MI_COL_BUDGET`` grid columns are collected, so the working set is bounded by that budget and not by the number of candidates. Outside STRICT the device-born
+grid bins by percentile edge from ``_GATE_AUTO_EDGE_MIN_ROWS`` rows (same gates, 5 to 9 times the host scan) and by rank below it, where the ``fe_gate_grid_backend`` entry decides between the host
+scan and the device. ``audits/2026-10-22/profiles/_conditional_gate_fe.md`` has the figures."""
 from __future__ import annotations
 
 import logging
@@ -621,6 +628,30 @@ def cheap_row_argmax_scan(
     hits.sort(key=lambda h: (-h.margin_over_operands, tuple(str(c) for c in h.cols)))
     return hits
 
+def _walked_gate_divergence(mat, yi, probe_idx, nbins, gate_dev, gate_meds):
+    """Divergence of every gate column in one walk per probe (``_gate_rank_divergence``: the rank binner's bins and tie rule inside each half, no re-sort, 2 p batched-MI calls become none), or ``None``
+    when the per-column loop of ``_rank_and_prune`` must run (``MLFRAME_GATE_RANK_LOOP=1``, a non-finite matrix, a device fault).
+
+    ``gate_dev`` is the resident ``(cupy, matrix, labels, probes)`` tuple of the STRICT path (the device walk on it, the device medians reused); otherwise the per-host tuning cache picks the host or the
+    device walk by row count (the device one uploads the matrix once)."""
+    if os.environ.get("MLFRAME_GATE_RANK_LOOP", "").strip() == "1":
+        return None
+    from ._gate_rank_divergence import gate_divergence, gate_divergence_device, gate_divergence_on_device
+
+    if gate_dev is not None:
+        return gate_divergence_device(gate_dev[0], gate_dev[1], gate_dev[2], probe_idx, nbins, medians=gate_meds)
+    if gate_divergence_on_device(int(mat.shape[0])) and np.isfinite(mat).all():
+        try:
+            import cupy as cp
+
+            walked = gate_divergence_device(cp, cp.asarray(mat), cp.asarray(np.asarray(yi)), probe_idx, nbins)
+            if walked is not None:
+                return walked
+        except Exception as exc:  # no usable device: the host walk gives the same values
+            logger.debug("device gate walk unavailable (%s); host walk", exc)
+    return gate_divergence(mat, yi, probe_idx, nbins)
+
+
 def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: int, k_operand: int) -> tuple[list[str], list[str]]:
     """Cheap-first candidate prune that makes the gate sweep O(k_operand^2 * k_gate), FLAT in p, returning (gate pool, operand pool).
 
@@ -696,7 +727,10 @@ def _rank_and_prune(X, cols: Sequence[str], yi: np.ndarray, nbins: int, k_gate: 
         except Exception as _gm_exc:  # best-effort: the per-column cp.median gives the same medians
             logger.debug("batched gate medians not used (%s); per-column cp.median", _gm_exc)
             _gate_meds = None
-    for gi in range(len(cols)):
+    _walked = _walked_gate_divergence(mat, yi, probe_idx, nbins, _gate_dev, _gate_meds)
+    if _walked is not None:
+        div[:] = _walked
+    for gi in range(0 if _walked is not None else len(cols)):
         if _gate_dev is not None:
             _cp, _mat_dev, _yi_dev, _probe_dev = _gate_dev
             _cvd = _mat_dev[:, gi]
@@ -764,6 +798,22 @@ def _gate_auto_device_enabled() -> bool:
     return bool(_cuda_usable())
 
 
+#: Rows from which the AUTO device-born tau grid bins by percentile edge (the STRICT binner) instead of by rank. The rank binner sorts every grid column and the device gains nothing on it
+#: (0.41 s against the host scan's 0.35 s for 204 grid columns at 100000 rows); the edge binner is a radix select and takes the whole gate pass 5 to 9 times under the host's (12.6 s ->
+#: 1.4 s at 50000 rows, 26.6 s -> 3.8 s at 100000). The gates chosen are the same: gate, operands and tau, to eight digits, on three seeds each at 5000, 10000, 20000 and 50000 rows and
+#: on the 100000-row frame. At 2000 rows the two binners pick different taus (the F2 two-pair frame at 1000 lost a planted pair), so below the mark the rank binner stays.
+_GATE_AUTO_EDGE_MIN_ROWS = 10_000
+
+
+def _gate_auto_edge_enabled(n_rows: int) -> bool:
+    """Whether the AUTO (non-STRICT) device-born grid of ``n_rows`` rows bins by percentile edge: from ``_GATE_AUTO_EDGE_MIN_ROWS`` rows, unless ``MLFRAME_FE_GATE_AUTO_EDGE=0``."""
+    import os
+
+    if os.environ.get("MLFRAME_FE_GATE_AUTO_EDGE", "1").strip().lower() in ("0", "false", "off", "no"):
+        return False
+    return int(n_rows) >= _GATE_AUTO_EDGE_MIN_ROWS
+
+
 # DEVICE-BORN gate-grid: under STRICT residency, build the tau-grid candidates on the device
 # from resident operand columns + score per-column MI via the resident plug-in - the host gate-grid matrix
 # is never materialised + uploaded (collapses the dominant :311 H2D). Threads the SAME rank_binning the host
@@ -776,6 +826,13 @@ def _gate_device_born_all_mi(_pending, yi, nbins):
         strict = fe_gpu_device_born_gate_enabled()
         if not strict and not _gate_auto_device_enabled():
             return None
+        n_rows = int(np.asarray(yi).size)
+        edge_auto = (not strict) and _gate_auto_edge_enabled(n_rows)
+        if not strict and not edge_auto:
+            from ._resident_candidate_mi_ktc import gate_grid_use_device
+
+            if not gate_grid_use_device(n_rows):  # rank-binned device grid: the per-host tuning cache decides against the host scan
+                return None
         from ._resident_candidate_mi import gate_grid_mi_resident
         _yi64 = np.ascontiguousarray(np.asarray(yi)).astype(np.int64).ravel()
         _ym = int(_yi64.min()) if _yi64.size else 0
@@ -785,7 +842,7 @@ def _gate_device_born_all_mi(_pending, yi, nbins):
         specs = [(mode, ctup, operands, taus) for (mode, ctup, operands, taus, _bkey) in _pending]
         # Outside STRICT the device must give the host's numbers (the host scan bins by rank): the percentile-edge binner collapses the tied zeros of a mask column and its MI differs from
         # the host's by up to 0.49 on the F2 two-pair frame at n=1000, which moved the chosen tau and lost a planted pair. The rank binner matches the host to 1e-15.
-        return gate_grid_mi_resident(specs, yi, nbins, rank_binning=(True if _gate_rank_binning() else not strict), y_min=_ym, n_classes=_nc)
+        return gate_grid_mi_resident(specs, yi, nbins, rank_binning=(True if _gate_rank_binning() else (not strict and not edge_auto)), y_min=_ym, n_classes=_nc)
     except Exception as _resident_exc:
         logger.debug("gate_grid_mi_resident batch failed (%s); caller falls back to per-spec host scoring.", _resident_exc)
         return None

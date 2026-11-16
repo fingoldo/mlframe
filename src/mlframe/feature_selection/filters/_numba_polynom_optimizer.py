@@ -36,6 +36,13 @@ shape. The full multi-pair kernel is exposed via
 all pair data at once (the polynom-pair FE dispatch loop is the
 target consumer).
 
+Device twin and choice: the default optimizer of the pair search (``fe_optimizer="cupy_kernel"``) is the generation-batched device twin of this kernel,
+``_cupy_polynom_optimizer`` (``run_cupy_kernel_search``: two cuBLAS GEMMs per generation, the fused ``bf_apply`` kernel, the radix-edge binner and ``mi_from_codes_tile``), and the per-host choice
+between the host generation scorer and the device one is the tuner entry ``polynom_generation_backend`` of ``_polynom_search_backend``. This module stays the explicit ``optimizer="numba_kernel"``
+opt-in and the reference the device twin's return contract follows. Measured (Chebyshev pair of degree 3, 300 trials, 100000 rows, GTX 1050 Ti host with 8 threads): this kernel 6.9 s for one
+pair against 0.149 s for the device twin, because ``prange`` runs over pairs and a single-pair call uses one thread (``audits/2026-10-22/profiles/_numba_polynom_optimizer.md``). The memory of a
+search is the candidate scratch, a column block of ``batch_size`` candidate columns of ``n`` rows per pair, so it is bounded by the batch and not by the number of trials.
+
 Limitations:
   - Factory bases (RBF, Sigmoid) with Python preprocess closures NOT
     supported - falls back to caller.

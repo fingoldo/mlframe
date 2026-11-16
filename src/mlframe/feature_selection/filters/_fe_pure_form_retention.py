@@ -21,7 +21,11 @@ a tree pipeline keeps its features and only gains the pure forms a linear model 
 The CV-MAE gate is the firing discriminator: on a dataset where the pure form adds no linear value
 (its operands carry no joint interaction, or the MI selection already holds the pure form) the greedy
 does not pick it and the pass is a no-op - so the default selection stays byte-identical there.
-"""
+
+
+Backends and memory (2026-11-16): the pass scores on a row block of at most ``max_rows`` rows (the CV scoring subsample) over at most ``max_base_features`` base columns, so its working set is bounded by those caps and not by
+the frame. The relevance gate has its device form in ``_fe_pure_form_retention_gpu_resident`` (host twin ``_pure_form_gate_njit``, tuned choice) and the usability greedy a resident scorer
+(``_usability_greedy_gpu_resident``); STRICT-GPU and the AUTO fit-size gate route to them. ``audits/2026-10-22/profiles/_fe_pure_form_retention.md`` has the measured figures."""
 from __future__ import annotations
 
 import logging

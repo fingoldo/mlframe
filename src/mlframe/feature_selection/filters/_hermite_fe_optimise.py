@@ -5,6 +5,12 @@ Holds the Optuna/CMA outer-loop search + per-pair evaluation. Re-imported
 at the parent's module bottom so historical
 ``from mlframe.feature_selection.filters.hermite_fe import optimise_hermite_pair``
 resolves transparently.
+
+Backends and memory: a generation of candidates is scored as one column block, the ``batch_size`` candidate columns of ``n`` rows that ``_candidate_h_arrays`` builds on the host (the njit batch
+evaluators of ``_numba_polynom_optimizer`` and the plug-in MI row kernels) or that ``bf_apply`` writes on the device, so the working set is bounded by the batch and not by the number of
+trials. The default ``fe_optimizer="cupy_kernel"`` is ``run_cupy_kernel_search`` of ``_cupy_polynom_optimizer`` (two cuBLAS GEMMs per generation, the fused ``bf_apply`` kernel, the radix-edge
+binner, ``mi_from_codes_tile``), chosen per host against the host scorer by the ``polynom_generation_backend`` entry of ``_polynom_search_backend``;
+``audits/2026-10-22/profiles/_hermite_fe_optimise.md`` has the measured end-to-end figures.
 """
 from __future__ import annotations
 

@@ -166,6 +166,79 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_fe_pure_form_retention": (
+        ("_fe_pure_form_retention_gpu_resident",),
+        (
+            "the device form of the pure-form relevance gate and the resident usability scoring is _fe_pure_form_retention_gpu_resident (njit twin _pure_form_gate_njit, tuned host/device choice, column-block streaming); "
+            "the pool-wide usability greedy has its own resident scorer (_usability_greedy_gpu_resident), reached from retain_usable_pure_forms"
+        ),
+        True,
+    ),
+    "_fe_retention_subsumption": (
+        ("_fe_cmi_redundancy_gate",),
+        (
+            "the subsumption guard is the CMI redundancy gate applied to a re-attached form: _conditional_perm_null and _cmi_from_binned of _fe_cmi_redundancy_gate score it "
+            "(device partition counting, the device or host-table null, tuned choice)"
+        ),
+        True,
+    ),
+    "_fe_raw_redundancy_drop": (
+        ("_fe_cmi_redundancy_gate",),
+        (
+            "the observed CMI and the conditional permutation null of each raw operand are scored by _cmi_from_binned and _conditional_perm_null of _fe_cmi_redundancy_gate (compliant: device partition counting, the "
+            "device null and the host table null, the host-versus-device choice of cmi_perm_null_backend); the pass itself touches only the final selection"
+        ),
+        True,
+    ),
+    "_fe_cmi_redundancy_gate": (
+        ("_fe_cmi_perm_null_gpu", "_fe_batched_mi"),
+        (
+            "the gate scores a round of candidates with batched_cmi_gpu of _fe_batched_mi (the device partition counting, own tuning entries and column-block streaming) and its conditional permutation null runs on the device "
+            "through conditional_perm_null_gpu of _fe_cmi_perm_null_gpu, with the host-versus-device choice of the cmi_perm_null_backend entry (_swept_device_null); STRICT-GPU routes the whole gate to the device"
+        ),
+        True,
+    ),
+    "_conditional_gate_fe": (
+        ("_row_argmax_gpu", "_gate_rank_divergence"),
+        (
+            "the row-argmax candidate is built by the fused row_argmax kernel of _row_argmax_gpu (numba twin, per-host choice) and the gate columns are ranked by the one-walk divergence of _gate_rank_divergence "
+            "(numba and cupy forms, per-host choice); the tau grids go through gate_grid_mi_resident / the host scan under the fe_gate_grid_backend entry of _resident_candidate_mi_ktc"
+        ),
+        True,
+    ),
+    "_hermite_fe_optimise": (
+        ("_cupy_polynom_optimizer",),
+        (
+            "the pair-polynomial optimizer dispatcher: optimise_hermite_pair (carved into _hermite_fe_optimise_pair) runs the host optimizers (random_batch / cma_batch through _eval_coef_pair_batch, the njit batch "
+            "evaluators) or, as the default fe_optimizer=cupy_kernel, run_cupy_kernel_search of _cupy_polynom_optimizer (cuBLAS GEMMs, bf_apply, the radix-edge binner, mi_from_codes_tile); the host-versus-device "
+            "scoring of a generation is the polynom_generation_backend entry of _polynom_search_backend"
+        ),
+        True,
+    ),
+    "_numba_polynom_optimizer": (
+        ("_cupy_polynom_optimizer",),
+        (
+            "the pair-polynomial search kernel on the host; its generation-batched device twin run_cupy_kernel_search (two cuBLAS GEMMs per generation, bf_apply, the radix-edge binner, mi_from_codes_tile) "
+            "is the default optimizer (fe_optimizer=cupy_kernel) and the host-versus-device choice is the polynom_generation_backend entry of _polynom_search_backend"
+        ),
+        True,
+    ),
+    "_orth_mi_backends": (
+        ("_hermite_fe_mi",),
+        (
+            "the resident device path of the batched MI is _plugin_mi_classif_batch_cuda_resident of _hermite_fe_mi (radix-select edges, mi_hist_split, mi_from_counts_col), reached through _strict_resident_mi; "
+            "the streamed path (_streamed_gpu_mi) runs the same MI in column blocks sized to free VRAM, and the choice between the paths is made per call from free VRAM and RAM"
+        ),
+        True,
+    ),
+    "_class_encoding": (
+        ("_fe_batched_mi",),
+        (
+            "the numba forms of the class merge and the 2-variable joint counts; the device form of the same partition counting for a block of candidate columns is _fe_batched_mi (batched_joint_hist2_i32 and its "
+            "shared-memory / global-slice twins, the rows-entropy kernels), which has its own kernel-tuning entries and column-block streaming"
+        ),
+        True,
+    ),
     "_orthogonal_adaptive_degree_fe": (
         ("_gpu_resident_basis",),
         (
@@ -194,6 +267,36 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_fe_pure_form_retention": (
+        "_pure_form_gate_njit",
+        "the host form of the pure-form relevance gate is the njit kernel family of _pure_form_gate_njit (parallel over candidate forms), the usability pool is built by the njit pair kernels (_pair_combo_mi_njit_table_parallel, _combine_factorize_njit)",
+    ),
+    "_fe_retention_subsumption": (
+        "_cmi_strata_tables_njit",
+        "the subsumption guard conditions a re-attached form on the admitted engineered survivors through the CMI redundancy gate, whose host null is the numba contingency-table draw (StratifiedNull) and whose observed CMI is the njit partition kernels",
+    ),
+    "_fe_raw_redundancy_drop": (
+        "_cmi_strata_tables_njit",
+        (
+            "the pass is a decision layer over a handful of raw operands: its conditional permutation null on the host is the numba contingency-table draw (StratifiedNull, through _conditional_perm_null of "
+            "_fe_cmi_redundancy_gate) and its observed CMI the njit partition kernels of _mi_greedy_cmi_fe"
+        ),
+    ),
+    "_fe_cmi_redundancy_gate": (
+        "_cmi_strata_tables_njit",
+        (
+            "the conditional permutation null of the gate on the host is the numba contingency-table draw StratifiedNull(debias=True) (prange over permutations, one multivariate-hypergeometric table per non-trivial stratum, the "
+            "Miller-Madow CMI), reached through _fe_cmi_redundancy_null._conditional_table_null; the joint entropies of the observed CMI are the njit partition kernels of _mi_greedy_cmi_fe_steps"
+        ),
+    ),
+    "_hermite_fe_optimise": (
+        "_numba_polynom_optimizer",
+        "the host optimizers of the pair search: _eval_coef_pair_batch scores a generation with the njit batch evaluators (_fill_bf_batch_njit of _numba_polynom_optimizer, the plug-in MI row kernels), and optimizer=numba_kernel is the all-njit search",
+    ),
+    "_orth_mi_backends": (
+        "_hermite_fe_mi",
+        "the batched plug-in MI the orthogonal stage scores with is routed here to the numba plug-in kernel (plugin_mi_classif_batch_njit through plugin_mi_classif_batch_dispatch, parallel over columns) on the host path",
+    ),
     "_fe_cmi_perm_null_gpu": (
         "_cmi_strata_tables_njit",
         (
@@ -341,6 +444,12 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_fe_pure_form_retention": ("_fe_pure_form_sides",),
+    "_fe_raw_redundancy_drop": ("_fe_raw_redundancy_anchors", "_fe_raw_redundancy_helpers"),
+    "_fe_cmi_redundancy_gate": ("_fe_cmi_redundancy_null",),
+    "_fe_batched_mi_cmi": ("_fe_cmi_fused_backend",),
+    "_conditional_gate_fe": ("_conditional_gate_hybrid", "_conditional_gate_kernels"),
+    "_hermite_fe_optimise": ("_hermite_fe_optimise_pair", "_hermite_fe_optimise_parts"),
     "_target_encoding_order_stats": ("_order_stats_gpu",),
     "_temporal_agg_fe_rolling": ("_rolling_window_gpu",),
     "_periodic_fe": ("_modular_codes_gpu",),

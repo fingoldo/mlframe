@@ -93,7 +93,12 @@ All MI/CMI is computed via the production primitives
 (``_cmi_from_binned`` / ``_quantile_bin`` / ``_renumber_joint`` from
 ``_mi_greedy_cmi_fe``) - this module does NOT reimplement MI. The function is
 pure (no live framework state captured), so a fitted MRMR remains picklable.
-"""
+
+
+Backends and memory (2026-11-16): a round scores the remaining candidates in one batched device workload (``batched_cmi_gpu`` of ``_fe_batched_mi``, whose column blocks are sized by the free VRAM), and the
+conditional permutation null of each candidate runs on the host as the contingency-table draw of ``_cmi_strata_tables_njit`` (``_fe_cmi_redundancy_null._conditional_table_null``) or on the device through
+``_fe_cmi_perm_null_gpu``, chosen per host by the ``cmi_perm_null_backend`` entry; STRICT-GPU routes the whole gate to the device. Candidate columns are binned and scored in column blocks, so the working set is
+bounded by the block width and not by the candidate count. ``audits/2026-10-22/profiles/_fe_cmi_redundancy_gate.md`` has the measured figures."""
 
 from __future__ import annotations
 

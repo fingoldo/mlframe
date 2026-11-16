@@ -33,6 +33,7 @@ def test_device_scan_equals_host_scan(monkeypatch):
     """Same recipes (names and thresholds) with the device path on and off, and the planted gate is among them."""
     monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
     monkeypatch.delenv("MLFRAME_FE_GPU_GATE_AUTO", raising=False)
+    monkeypatch.setenv("MLFRAME_FE_GATE_GRID_DEVICE", "1")  # the per-host tuning cache may prefer the host scan at this size; this test compares the device path with it
     if not _gate_auto_device_enabled():
         pytest.skip("needs a CUDA device")
     X, y = _planted()
@@ -49,6 +50,7 @@ def test_device_grid_mi_equals_host_on_tied_mask_columns(monkeypatch):
 
     monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
     monkeypatch.delenv("MLFRAME_FE_GPU_GATE_AUTO", raising=False)
+    monkeypatch.setenv("MLFRAME_FE_GATE_GRID_DEVICE", "1")  # force the rank-binned device grid: below the edge-binning mark the tuning cache may pick the host scan, which returns None here
     if not _gate_auto_device_enabled():
         pytest.skip("needs a CUDA device")
     rng = np.random.default_rng(3)
@@ -61,3 +63,20 @@ def test_device_grid_mi_equals_host_on_tied_mask_columns(monkeypatch):
     assert device is not None
     host = gate._gate_grid_mi(np.ascontiguousarray(np.concatenate([gate._gate_build_feats(m, o, t) for (m, _c, o, t, _b) in pending], axis=1)), y, 12)
     assert np.abs(np.asarray(device, dtype=np.float64) - np.asarray(host, dtype=np.float64)).max() < 1e-6
+
+
+def test_edge_binned_auto_scan_equals_host_scan_above_the_row_mark(monkeypatch):
+    """From the edge-binning mark up (percentile-edge binner on the device, rank binner on the host) the scan still emits the same recipes, names and thresholds, and the planted gate is among them."""
+    from mlframe.feature_selection.filters import _conditional_gate_fe as gate
+
+    monkeypatch.delenv("MLFRAME_FE_GPU_STRICT", raising=False)
+    monkeypatch.delenv("MLFRAME_FE_GPU_GATE_AUTO", raising=False)
+    monkeypatch.delenv("MLFRAME_FE_GATE_AUTO_EDGE", raising=False)
+    if not _gate_auto_device_enabled():
+        pytest.skip("needs a CUDA device")
+    X, y = _planted(seed=2, n=gate._GATE_AUTO_EDGE_MIN_ROWS + 2000)
+    on = _scan(X, y)
+    monkeypatch.setenv("MLFRAME_FE_GPU_GATE_AUTO", "0")
+    off = _scan(X, y)
+    assert on == off
+    assert any("x2" in name for name, _ in on)

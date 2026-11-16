@@ -203,7 +203,19 @@ def all_variants() -> list:
         recipe: Callable | None = next((fn for suffix, fn in _RECIPES.items() if key.endswith(suffix) or key.endswith(suffix.lstrip("./"))), None)
         for label, text, options in (recipe(src) if recipe else _default_variant(src)):
             out.append(KernelVariant(key, label, _arch_header() + text, tuple(options)))
+    out.extend(_elementwise_variants())
     return out
+
+
+def _elementwise_variants() -> list:
+    """The ``cupy.ElementwiseKernel`` and ``cupy.ReductionKernel`` builds (see ``_offline_elementwise_sources``); none when cupy is not importable (the NVRTC tests skip then as well)."""
+    try:
+        from _offline_elementwise_sources import include_options, kernel_builds
+
+        includes = include_options()
+        return [KernelVariant(f"mlframe/{key}", label, text, includes + tuple(options)) for key, label, text, options in kernel_builds()]
+    except ImportError:
+        return []
 
 
 def leftover_placeholders(variant: KernelVariant) -> list:

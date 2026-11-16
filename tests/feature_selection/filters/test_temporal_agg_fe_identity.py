@@ -165,3 +165,35 @@ def test_entity_key_series_multicol_matches_canonical_token():
     for p in parts[1:]:
         ref = ref.str.cat(p, sep="\x00")
     pd.testing.assert_series_equal(got, ref, check_names=False, check_dtype=False)
+
+
+def _reference_history(X, entity_cols, value_col, time_col):
+    """The per-entity ``{"t": ..., "v": ...}`` history built entity by entity (the construction the whole-array split replaces)."""
+    import pandas as pd
+
+    from mlframe.feature_selection.filters import _temporal_agg_fe as T
+
+    key = T._entity_key_series(X, entity_cols).to_numpy()
+    tv = X[time_col].to_numpy()
+    order = T._stable_time_order(tv)
+    key_sorted = key[order]
+    codes, _ = pd.factorize(key_sorted, sort=False)
+    times_ord = tv[order]
+    if T._is_datetime_like(times_ord):
+        times_ord = times_ord.astype("datetime64[ns]").astype(np.int64)
+    vals = np.asarray(X[value_col].to_numpy(), dtype=T._STAT_DTYPE)[order]
+    return {str(key_sorted[r[0]]): {"t": times_ord[r].tolist(), "v": vals[r].tolist()} for r in T._group_row_slices(codes, int(codes.max()) + 1)}
+
+
+def test_expanding_history_equals_the_entity_by_entity_construction():
+    """The history stored in the recipe (built from one whole-array ``tolist`` per column and sliced by group bounds) is the per-entity construction's, for an integer and for a ``datetime64[us]`` time axis."""
+    import pandas as pd
+
+    from mlframe.feature_selection.filters import _temporal_agg_fe as T
+
+    rng = np.random.default_rng(2)
+    n = 4000
+    for time_col in (rng.permutation(n), pd.to_datetime(rng.integers(0, 10**8, n), unit="s").astype("datetime64[us]")):
+        X = pd.DataFrame({"e": rng.integers(0, 200, n), "e2": rng.integers(0, 3, n), "t": time_col, "v": rng.normal(size=n)})
+        _enc, rec = T.generate_expanding_agg_features(X, ["e", "e2"], ["v"], "t", stats=("mean",))
+        assert next(iter(rec.values()))["history"] == _reference_history(X, ["e", "e2"], "v", "t")

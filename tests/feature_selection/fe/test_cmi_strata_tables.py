@@ -1,6 +1,7 @@
 """The table-drawn within-stratum null equals the shuffle null in distribution, is chunk-invariant, and keeps the margins of every stratum."""
 
 import numpy as np
+import pytest
 
 from mlframe.feature_selection.filters import _cmi_strata_njit as S
 from mlframe.feature_selection.filters import _cmi_strata_tables_njit as T
@@ -44,5 +45,22 @@ def test_a_drawn_table_keeps_the_margins_of_its_stratum():
     state = T.seed_state(5)
     tab = np.zeros((4, 2), dtype=np.int64)
     for _ in range(200):
-        state = T._draw_table(state, row_m, col_m, lf, tab)
+        state = T._draw_table(state, row_m, col_m, lf, tab, np.zeros(col_m.shape[0], dtype=np.int64))
         assert (tab.sum(axis=1) == row_m).all() and (tab.sum(axis=0) == col_m).all() and (tab >= 0).all()
+
+
+@pytest.mark.parametrize("debias", [False, True])
+def test_trivial_strata_and_zero_levels_change_no_null_value(debias):
+    """Dropping the strata with one occupied level on an axis and left-compacting the zero margins is exact: the null values equal those of the full-width margins of every stratum (many singleton and two-row strata here)."""
+    from mlframe.feature_selection.filters import _cmi_strata_tables_njit as tab
+
+    rng = np.random.default_rng(5)
+    n = 6000
+    s = rng.integers(0, 2500, n)  # near-continuous support: mostly 1 to 4 rows per stratum
+    x = rng.integers(0, 7, n)
+    y = (rng.integers(0, 4, n) + x // 3) % 4
+    sn = tab.StratifiedNull(x, y, s, 1, debias=debias)
+    row_m, col_m = tab._stratum_margins(x, y, s, int(s.max()) + 1, int(x.max()) + 1, int(y.max()) + 1)
+    assert sn.row_m.shape[0] < row_m.shape[0] and sn.row_m.shape[1] < row_m.shape[1]  # strata dropped and levels packed
+    full = tab._null_njit(row_m, col_m, sn.n, 20, 11, 1, sn.lf, debias)
+    np.testing.assert_array_equal(sn.chunk(0, 20, 11), full)

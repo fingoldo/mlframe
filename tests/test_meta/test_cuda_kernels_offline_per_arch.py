@@ -154,6 +154,18 @@ def test_every_production_kernel_source_is_covered():
     assert not unresolved, f"placeholders without a fill in tests/test_meta/_offline_kernel_sources.py: {unresolved}"
 
 
+def test_every_elementwise_kernel_site_is_built():
+    """Every ``cupy.ElementwiseKernel`` and ``cupy.ReductionKernel`` call is either all-literal or listed with the values its arguments are evaluated under, and no listing is stale: a site the table cannot build fails here, it is not skipped."""
+    pytest.importorskip("cupy")
+    import _offline_elementwise_sources as ew
+
+    assert not ew.unresolved_sites(), f"elementwise kernel sites that are neither literal nor listed in _TEMPLATED: {ew.unresolved_sites()}"
+    assert not ew.stale_templates(), f"_TEMPLATED entries that match no call site: {ew.stale_templates()}"
+    built = {v.key for v in _VARIANTS if v.label.startswith(("ew", "red"))}
+    sites = {s.key for s in ew.elementwise_sites() + ew.reduction_sites()}
+    assert sites == {k.split("mlframe/", 1)[1] for k in built}, f"call sites without a build: {sorted(sites - {k.split('mlframe/', 1)[1] for k in built})}"
+
+
 _FAILURE_ROWS: list = []  # (variant id, arch, first line of the failure), the per-architecture failure table of the report
 
 

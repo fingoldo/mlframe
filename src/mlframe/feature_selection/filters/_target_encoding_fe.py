@@ -570,8 +570,9 @@ def kfold_target_encode_fit(
         if fe_deadline_passed():
             break
         cats = _column_to_str(X[col])
-        # Unique categories with stable integer codes.
-        unique_cats, inverse = np.unique(cats, return_inverse=True)
+        # Unique categories with stable integer codes: the sorted distinct values and the inverse codes of ``np.unique(cats, return_inverse=True)``, from a hash factorisation that sorts only the distinct values
+        # (``np.unique`` sorts all ``n`` strings: 100 ms against ~10 ms per 100000-row column).
+        unique_cats, inverse = sorted_string_codes(cats)
         n_cats = unique_cats.shape[0]
 
         # Full-data counts, needed for order stats + the persisted replay lookup below.

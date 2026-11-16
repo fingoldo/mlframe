@@ -391,12 +391,9 @@ def lookup_offset_scan_backend(n_scan_rows: int, n_tasks: int, *, strict_residen
 def lookup_pairwise_corr_backend(p: int, n: int) -> str:
     """Return ``"numpy"`` | ``"cupy"`` | ``"njit"`` for ``_pairwise_complete_abs_corr`` (the FE source-dedup corr kernel).
 
-    Hits the pyutilz ``KernelTuningCache`` for ``fe_pairwise_complete_corr`` so a per-host verdict (if one has been
-    measured) overrides the fallback. Fallback is ``"numpy"``: njit measured slower everywhere, and cupy's solo 2-2.7x
-    win is eroded by joblib-worker GPU contention in the real FE pipeline (same reasoning as
-    :func:`lookup_mi_classif_backend`). No auto-sweep is registered yet -- a contention-aware sweep can be added later;
-    until then the cache is a per-host override hook, not a live tuner. Force any backend with
-    ``MLFRAME_FE_DEDUP_CORR_BACKEND``."""
+    Hits the pyutilz ``KernelTuningCache`` for ``fe_pairwise_complete_corr``: a per-host verdict written by the live sweep (the tuner entry ``fe_pairwise_complete_corr`` registered in
+    ``_orth_dedup``, which times numpy, njit and cupy on the criterion dtype over a (columns, rows) grid) or by an operator overrides the fallback ``"numpy"``. The dedup itself asks the
+    registered entry (``_resolve_pc_backend``); this read-only lookup stays for callers that only want the cached region. Force any backend with ``MLFRAME_FE_DEDUP_CORR_BACKEND``."""
     cache = _get_cache()
     if cache is False or cache is None:
         return "numpy"
