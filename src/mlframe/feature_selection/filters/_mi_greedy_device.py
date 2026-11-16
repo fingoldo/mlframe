@@ -228,19 +228,9 @@ except Exception as e:
     _SPEC = None
 
 
-def use_device(n_rows: int) -> bool:
-    """Whether ``n_rows`` rows take the device path: the per-host kernel-tuning cache decides (fallback ``DEVICE_FALLBACK_ROWS``, the host until a sweep says otherwise)."""
-    from ._gpu_policy import gpu_globally_disabled
+from ._ktc_fallback import ktc_device_chooser as _ktc_device_chooser
 
-    if gpu_globally_disabled():
-        return False
-    if _SPEC is None:
-        return int(n_rows) >= DEVICE_FALLBACK_ROWS
-    try:
-        return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
-    except Exception as exc:
-        logger.debug("fe_mi_greedy_candidates_device: KTC choose() failed, using the fallback: %s", exc)
-        return int(n_rows) >= DEVICE_FALLBACK_ROWS
+use_device = _ktc_device_chooser(__name__, "fe_mi_greedy_candidates_device")
 
 
 __all__ = ["score_candidates_device", "use_device"]

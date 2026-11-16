@@ -57,6 +57,16 @@ KNOWN_DUPLICATE_GROUPS = {
     # shared shape is argparse boilerplate, and a common helper would have to take every flag definition as a parameter.
     "main": "DELIBERATE: per-tool CLI entry points sharing only argparse boilerplate",
     "render": "DELIBERATE: the calibration_params and fs_params generators each render their own table schema to its own module text",
+    # DELIBERATE -- the compile points of the GPU kernels. tests/test_meta/test_cuda_kernel_register_pressure.py and the offline per-arch test resolve each registered kernel by
+    # ``module.attribute`` through a factory ``kernel(cp, real)`` / ``kernel_<stage>(cp, real)`` / ``_kernel`` that compiles THAT module's own source for the given dtype; the factories
+    # share only the get-or-compile-under-a-lock shape, the source, the entry name, the build options and the cache key differ per module, so a common helper would take all four.
+    "kernel": "DELIBERATE: registry compile point of each kernel module (register-pressure and offline per-arch tests resolve module.kernel); only the cache shape is shared",
+    "_kernel": "DELIBERATE: module-private compile point of one kernel source, named by the registry entry of its module",
+    "_entry": "DELIBERATE: one-line entry-point getters over each module's own compiled-module cache",
+    "kernel_power": "DELIBERATE: registry compile point of the power-iteration kernel of each ALS family module",
+    "kernel_deflate": "DELIBERATE: registry compile point of the deflation kernel of each ALS family module",
+    "kernel_gram": "DELIBERATE: registry compile point of the Gram kernel of each ALS family module",
+    "kernel_solve": "DELIBERATE: registry compile point of the small-solve kernel of each ALS family module",
 }
 
 #: Names whose detection depends on the interpreter, so they are reported on some CI shards and not others.

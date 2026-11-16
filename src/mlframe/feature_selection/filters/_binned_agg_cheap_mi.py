@@ -50,10 +50,9 @@ def _sweep_device(x: np.ndarray) -> np.ndarray:
     return cast("np.ndarray", np.unique(dev))
 
 
-def _fallback_choice(n_samples: int) -> str:
-    """Pre-sweep fallback: the device from ``_DEVICE_QUANTILE_MIN_N`` rows."""
-    return "device" if int(n_samples) >= _DEVICE_QUANTILE_MIN_N else "host"
+from ._ktc_fallback import rows_fallback
 
+_fallback_choice = rows_fallback(__name__, "_DEVICE_QUANTILE_MIN_N")
 
 try:
     from pyutilz.performance.kernel_tuning.registry import kernel_tuner

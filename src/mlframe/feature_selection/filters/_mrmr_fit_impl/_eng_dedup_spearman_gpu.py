@@ -17,7 +17,6 @@ because re-uploading ~100 columns per candidate would cost more than the host ke
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import weakref
 from typing import Any, Optional
@@ -368,22 +367,9 @@ except Exception as e:
     _SPEC = None
 
 
-def use_device(n_rows: int) -> bool:
-    """Whether ``n_rows`` rows take the device kernel: ``MLFRAME_DEDUP_SPEARMAN_DEVICE=0|1`` forces a path, else the per-host tuner (fallback ``DEVICE_FALLBACK_ROWS``)."""
-    from .._gpu_policy import gpu_globally_disabled
+from .._ktc_fallback import ktc_device_chooser as _ktc_device_chooser
 
-    if gpu_globally_disabled():
-        return False
-    forced = os.environ.get("MLFRAME_DEDUP_SPEARMAN_DEVICE", "").strip()
-    if forced in ("0", "1"):
-        return forced == "1"
-    if _SPEC is None:
-        return int(n_rows) >= DEVICE_FALLBACK_ROWS
-    try:
-        return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
-    except Exception as exc:
-        logger.debug("fe_dedup_spearman_device: KTC choose() failed, using the fallback: %s", exc)
-        return int(n_rows) >= DEVICE_FALLBACK_ROWS
+use_device = _ktc_device_chooser(__name__, "fe_dedup_spearman_device", env="MLFRAME_DEDUP_SPEARMAN_DEVICE")
 
 
 __all__ = ["masked_abs_spearman_device", "use_device", "clear_device_column_cache"]
