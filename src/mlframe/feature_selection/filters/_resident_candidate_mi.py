@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Optional
+from typing import Any, Optional
 from collections.abc import Sequence
 
 import numpy as np
@@ -429,7 +429,7 @@ def gate_grid_mi_resident(
         blocks = []  # device (k_combo, n) [column-major] or (n, k_combo) matrices, built op-for-op like the host tau-grid
         # Column-major: the (sum_k, n) matrix is allocated once and each combo's kernel writes its (k_combo, n) rows straight into their slice: no per-combo block, no concatenate (one copy launch per combo)
         # and no second copy of the whole matrix. The kernel writes the same elements as before.
-        grid_out = None
+        grid_out: Any = None
         grid_off = 0
         if cm:
             grid_out = cp.empty((int(sum(len(t) for (_m, _c, _o, t) in specs)), int(np.asarray(specs[0][2][0]).shape[0])), dtype=_gdt)

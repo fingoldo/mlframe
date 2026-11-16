@@ -72,7 +72,7 @@ def _column_median(mat: np.ndarray, g: int) -> float:
     col = np.empty(mat.shape[0], dtype=mat.dtype)
     for i in range(mat.shape[0]):
         col[i] = mat[i, g]
-    return np.median(col)
+    return float(np.median(col))
 
 
 @njit(cache=True, nogil=True)
