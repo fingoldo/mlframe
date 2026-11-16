@@ -60,7 +60,7 @@ TODO total: 34. Nothing is fixed yet; no code was changed in this audit.
 | G1 (12) | med | feature_engineering/transformer/_kernels_cupy.py:256-261 | rff_matmul_cupy allocates without VRAM budget check | test_rff_matmul_cupy_refuses_or_chunks_over_vram_budget |
 | G2 (12) | med | _kernels_cupy.py:341-342 | float64 device bank read as float32 by float* kernel | test_row_attention_rejects_or_converts_float64_device_bank |
 | G3 (12) | low | _kernels_cupy.py:320, 352-354 | K==0 and n_queries==0 launches unguarded | test_row_attention_empty_k_and_queries_do_not_launch |
-| G5 (12) | low | calibration/ensembling.py:161-162, 181-182 | repeated cupy-fallback warning floods log | test_ensembling_cupy_fallback_warns_once_per_process |
+| G5 (12) | RESOLVED | calibration/ensembling.py | the two cupy fallback warnings go through the project's log_throttle with stable keys (per call site), so repeated fallbacks cannot flood the log | tests/calibration/test_ensembling_cupy_fallback_warns_once.py 1/1 (fails on old code: eight warnings instead of five plus a notice) |
 
 ## Plan
 
