@@ -18,9 +18,10 @@ def _device_available():
 
 
 @pytest.mark.skipif(not _device_available(), reason="needs a CUDA device")
-def test_fused_candidates_match_the_host_materialisation():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_fused_candidates_match_the_host_materialisation(seed):
     """Every (external factor, operand) column, with zeros, NaN and infinities in both operands, equals ``_materialise_extval_njit``."""
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     n, n_ext = 3000, 4
     pa = rng.normal(size=n)
     pa[::97] = 0.0
@@ -36,9 +37,10 @@ def test_fused_candidates_match_the_host_materialisation():
 
 
 @pytest.mark.skipif(not _device_available(), reason="needs a CUDA device")
-def test_float32_candidates_follow_the_operand_type_and_match_the_host_to_float32_rounding():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_float32_candidates_follow_the_operand_type_and_match_the_host_to_float32_rounding(seed):
     """float32 operands run the float kernel (no read past the buffer): the output is float32 and every cell equals the double host cell rounded to float32, NaN and inf in the same cells."""
-    rng = np.random.default_rng(1)
+    rng = np.random.default_rng(seed)
     n, n_ext = 2000, 3
     pa = rng.normal(size=n).astype(np.float32)
     pa[::97] = 0.0

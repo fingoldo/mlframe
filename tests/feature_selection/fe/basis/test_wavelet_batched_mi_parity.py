@@ -11,14 +11,15 @@ from tests.conftest import _need_cuda
 pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
 
-def test_wavelet_batched_mi_matches_per_column_cpu():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_wavelet_batched_mi_matches_per_column_cpu(seed):
     """Wavelet batched mi matches per column cpu."""
     pytest.importorskip("cupy")
     import mlframe.feature_selection.filters.hermite_fe  # noqa: F401  (resolve import cycle first)
     from mlframe.feature_selection.filters._wavelet_basis_fe import _binned_mi
     from mlframe.feature_selection.filters._wavelet_basis_fe_batched import batched_binned_mi_gpu
 
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     n, K = 4000, 24
     Ky = 6
     y = rng.integers(0, Ky, n).astype(np.int64)

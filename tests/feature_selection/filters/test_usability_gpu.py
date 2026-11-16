@@ -67,10 +67,11 @@ class TestGpuAbscorrParity:
 
     pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
-    def test_gpu_abscorr_matches_host_reference(self):
+    @pytest.mark.parametrize("seed", [0, 1])
+    def test_gpu_abscorr_matches_host_reference(self, seed):
         """A genuinely correlated pair's GPU |corr| must match the host reference to near-fp precision."""
         pytest.importorskip("cupy")
-        rng = np.random.default_rng(0)
+        rng = np.random.default_rng(seed)
         u = rng.standard_normal(500)
         v = 0.6 * u + 0.4 * rng.standard_normal(500)
         assert ug.gpu_abscorr(u, v) == pytest.approx(_host_abscorr(u, v), abs=1e-9)
@@ -87,10 +88,11 @@ class TestGpuAbscorrParity:
         pytest.importorskip("cupy")
         assert ug.gpu_abscorr(np.array([]), np.array([])) == 0.0
 
-    def test_gpu_abscorr_batch_matches_per_column_host_reference(self):
+    @pytest.mark.parametrize("seed", [0, 1])
+    def test_gpu_abscorr_batch_matches_per_column_host_reference(self, seed):
         """The batched multi-column kernel must match looping the scalar host reference per column."""
         pytest.importorskip("cupy")
-        rng = np.random.default_rng(1)
+        rng = np.random.default_rng(seed)
         n, k = 400, 5
         cols = rng.standard_normal((n, k))
         v = cols[:, 0] * 0.7 + rng.standard_normal(n) * 0.3
@@ -110,14 +112,15 @@ class TestGpuAdditiveBasisResidualParity:
 
     pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
-    def test_residual_matches_sklearn_reference(self):
+    @pytest.mark.parametrize("seed", [0, 1])
+    def test_residual_matches_sklearn_reference(self, seed):
         """The mean-centered-OLS residual must match the CPU StandardScaler+LinearRegression residual
         to near-fp precision, per the module's own documented equivalence."""
         pytest.importorskip("cupy")
         from sklearn.linear_model import LinearRegression
         from sklearn.preprocessing import StandardScaler
 
-        rng = np.random.default_rng(2)
+        rng = np.random.default_rng(seed)
         n = 600
         xa = rng.standard_normal(n)
         xb = rng.uniform(0.5, 3.0, n)

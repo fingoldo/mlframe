@@ -29,11 +29,12 @@ def _reference(basis, x):
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("basis", ["hermite", "legendre", "chebyshev", "laguerre"])
-def test_fused_basis_matches_the_recurrence_and_leaves_neighbours_alone(basis, dtype):
+@pytest.mark.parametrize("seed", [0, 1])
+def test_fused_basis_matches_the_recurrence_and_leaves_neighbours_alone(basis, dtype, seed):
     """The design has the input dtype, matches the recurrence, and arrays allocated around it keep their contents."""
     from mlframe.feature_selection.filters.hermite_fe._basis_fused_gpu import build_basis_fused
 
-    x = np.random.default_rng(0).uniform(-1.0, 1.0, 1333).astype(dtype)
+    x = np.random.default_rng(seed).uniform(-1.0, 1.0, 1333).astype(dtype)
     before = cp.full(50000, 7, dtype=cp.int32)
     B = build_basis_fused(cp, basis, cp.asarray(x), _DEGREE + 1)
     after = cp.full(50000, 7, dtype=cp.int32)

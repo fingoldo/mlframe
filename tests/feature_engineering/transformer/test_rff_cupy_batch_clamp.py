@@ -63,11 +63,12 @@ def test_staging_buffers_are_clamped_to_the_row_count(monkeypatch):
 
 @needs_cublas
 @pytest.mark.parametrize("n,batch", [(7, 3), (8, 4), (1, 100)])
-def test_multi_batch_result_matches_numpy(n, batch):
+@pytest.mark.parametrize("seed", [0, 1])
+def test_multi_batch_result_matches_numpy(n, batch, seed):
     """Row counts that are and are not a multiple of the batch size, and a single row, all reproduce the NumPy result."""
     from mlframe.feature_engineering.transformer import _kernels_cupy as k
 
-    rng = np.random.default_rng(1)
+    rng = np.random.default_rng(seed)
     X = rng.normal(size=(n, 5)).astype(np.float32)
     W = rng.normal(size=(5, 2)).astype(np.float32)
     b = rng.uniform(0, 6, 2).astype(np.float32)
