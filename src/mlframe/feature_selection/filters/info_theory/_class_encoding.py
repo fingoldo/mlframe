@@ -1,4 +1,10 @@
-"""Class-encoding histogram building blocks: collapse ordinal-encoded variables into a single 1-D class array and the 2-variable joint-frequency / joint-entropy fast paths."""
+"""Class-encoding histogram building blocks: collapse ordinal-encoded variables into a single 1-D class array and the 2-variable joint-frequency / joint-entropy fast paths.
+
+These are the numba (host) forms of the partition counting every information-theoretic score is built on. The device form of the same counting, for a whole block of candidate columns against a fixed
+target and conditioning set in one launch, is :mod:`_fe_batched_mi` (``batched_joint_hist2_i32`` and its shared-memory and global-slice twins, the rows-entropy kernels): it counts the same occupied
+cells without materialising the merged class array, and the host-versus-device choice is its kernel-tuning entries (``cmi_fused_entropy_backend`` and the batch crossover). The device path
+streams the candidate columns in column blocks bounded by the free VRAM, so no merged array of the whole matrix is built; the profile record is ``audits/2026-10-22/profiles/_class_encoding.md``.
+"""
 from __future__ import annotations
 
 from typing import Optional, Sequence

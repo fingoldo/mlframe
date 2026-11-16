@@ -166,6 +166,14 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_class_encoding": (
+        ("_fe_batched_mi",),
+        (
+            "the numba forms of the class merge and the 2-variable joint counts; the device form of the same partition counting for a block of candidate columns is _fe_batched_mi (batched_joint_hist2_i32 and its "
+            "shared-memory / global-slice twins, the rows-entropy kernels), which has its own kernel-tuning entries and column-block streaming"
+        ),
+        True,
+    ),
     "_orthogonal_adaptive_degree_fe": (
         ("_gpu_resident_basis",),
         (
