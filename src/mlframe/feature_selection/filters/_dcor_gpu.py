@@ -30,13 +30,12 @@ extern "C" __global__ void dcor_cols(const {ACC}* __restrict__ xs, const {ACC}* 
     {ACC} total = 0.0, sq = 0.0, cross = 0.0, sum_r2 = 0.0;
     for (int i = threadIdx.x; i < m; i += blockDim.x) {
         const {ACC} xi = sx[i];
-        const {ACC}* brow = b + (long long)i * m;
         {ACC} row = 0.0;
         for (int q = 0; q < m; ++q) {
             const {ACC} d = fabs(xi - sx[q]);
             row += d;
             sq += d * d;
-            cross += d * brow[q];
+            cross += d * b[(long long)q * m + i];  // b is symmetric (double-centred distances): column i of row q is row i of column q, so neighbouring threads (i, i+1) read consecutive words
         }
         total += row;
         const {ACC} r = row / m;
