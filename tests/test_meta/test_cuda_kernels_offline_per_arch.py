@@ -155,22 +155,15 @@ def test_every_production_kernel_source_is_covered():
 
 
 def test_every_elementwise_kernel_site_is_built():
-    """Every ``cupy.ElementwiseKernel`` call is either all-literal or listed with the values its arguments are evaluated under, and no listing is stale: a site the table cannot build fails here, it is not skipped."""
+    """Every ``cupy.ElementwiseKernel`` and ``cupy.ReductionKernel`` call is either all-literal or listed with the values its arguments are evaluated under, and no listing is stale: a site the table cannot build fails here, it is not skipped."""
     pytest.importorskip("cupy")
     import _offline_elementwise_sources as ew
 
     assert not ew.unresolved_sites(), f"elementwise kernel sites that are neither literal nor listed in _TEMPLATED: {ew.unresolved_sites()}"
     assert not ew.stale_templates(), f"_TEMPLATED entries that match no call site: {ew.stale_templates()}"
-    built = {v.key for v in _VARIANTS if v.label.startswith("ew")}
-    assert len(built) >= len(ew.elementwise_sites()), f"{len(ew.elementwise_sites())} elementwise sites but {len(built)} built"
-
-
-def test_reduction_kernel_sites_are_known():
-    """``ReductionKernel`` call sites are not built offline yet: their number is pinned so a new one is noticed (build it, then lower the number)."""
-    pytest.importorskip("cupy")
-    import _offline_elementwise_sources as ew
-
-    assert len(ew.reduction_sites()) == 5, f"reduction kernel sites changed: {[s.key for s in ew.reduction_sites()]}"
+    built = {v.key for v in _VARIANTS if v.label.startswith(("ew", "red"))}
+    sites = {s.key for s in ew.elementwise_sites() + ew.reduction_sites()}
+    assert sites == {k.split("mlframe/", 1)[1] for k in built}, f"call sites without a build: {sorted(sites - {k.split('mlframe/', 1)[1] for k in built})}"
 
 
 _FAILURE_ROWS: list = []  # (variant id, arch, first line of the failure), the per-architecture failure table of the report
