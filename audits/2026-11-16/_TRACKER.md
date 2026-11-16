@@ -39,14 +39,14 @@ TODO total: 34. Nothing is fixed yet; no code was changed in this audit.
 | API-02 (08) | med | feature_engineering/transformer/ib_baseline_codes.py:84-85 | n_bits accepted and never read | test_ib_baseline_codes_n_bits_is_used_or_removed |
 | API-03 (08) | med | feature_engineering/transformer/apriori_itemsets.py:83 | standardize accepted and never referenced | test_apriori_itemsets_standardize_not_silently_ignored |
 | API-04 (08) | med | feature_engineering/transformer/mdl_binning_pairwise.py:159 | top_k_pairs and standardize accepted, unused | test_mdl_binning_pairwise_unused_params_documented_or_removed |
-| TQ-01 (09) | med | tests/feature_selection/wrappers/rfecv/test_rfecv_fast_perm_scorer_identity.py:183 | `assert ... or True` cannot fail | test_rfecv_fast_perm_scorer_cache_does_not_drift (real assertion) |
+| TQ-01 (09) | RESOLVED | tests/feature_selection/wrappers/rfecv/test_rfecv_fast_perm_scorer_identity.py | `or True` replaced with a real repeat-call equality | file 11/11 |
 | TQ-02 (09) | RESOLVED | tests/feature_selection/wrappers/test_wrappers_bug_fixes.py | `or True` replaced with `assert not hasattr(outer, "coef_")`; test passes | test_wrappers_bug_fixes.py -k outer 1/1 |
 | TQ-03 (09) | RESOLVED | tests/feature_engineering/test_coverage_fill.py | `or True` removed; asserts the rsi5 output name; test passes | test_apply_ta_indicator_with_window 1/1 |
-| TQ-04 (09) | low | tests/preprocessing/test_biz_val_align_feature_direction.py:49 | `or True` on list truthiness | test_align_feature_direction_pooled_sign_is_checked |
+| TQ-04 (09) | RESOLVED | tests/preprocessing/test_biz_val_align_feature_direction.py | `or True` on a list replaced with a finiteness check | align/f10 selection 8/8 |
 | TQ-05 (09) | RESOLVED | tests/reporting/test_renderer_divergences_and_dead_paths.py | `!= viridis or True` (the default is CALIBRATION, not viridis); replaced with the override-cleared assertion | test_clearing_the_override_still_works 1/1 |
-| TQ-06 (09) | low | tests/test_x_ml_correctness_meta_fixes.py:361 | `or True` import sanity | test_sibling_mod_exposes_combine_probs |
+| TQ-06 (09) | RESOLVED | tests/test_x_ml_correctness_meta_fixes.py | `or True` removed; asserts the attribute | f10 selection 8/8 |
 | TQ-08 (09) | low | tests/feature_selection/fe/provenance/test_engineered_recipes.py:318 | `assert r == r` | test_engineered_recipe_equality_distinguishes_extr... (name to finalise with the fix) |
-| TQ-10 (09) | low | tests/calibration/test_calibration_fixes.py:336 | redundant is-not-None, no content check on NaN-AUC fallback | test_calibration_nan_auc_fallback_value_is_nan |
+| TQ-10 (09) | RESOLVED | tests/calibration/test_calibration_fixes.py | added finiteness assertion to the NaN-AUC fallback test | test_f5_n_iterations_returns_ndarray_when_score_is_nan_every_draw 1/1 |
 | CI-05 (10) | med | .github/workflows/black-filtered.yml, mypy-full.yml | no workflow-level permissions block in mypy-full | (CI config; verify by reading the workflow; no unit test) |
 | CI-06 (10) | med | .github/workflows/mypy-full.yml:36-37 | blocking mypy gate has no timeout-minutes | (CI config) |
 | CI-07 (10) | med | .github/workflows/docs.yml:33-34 | docs caller job without timeout-minutes | (CI config) |

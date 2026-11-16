@@ -46,7 +46,7 @@ def test_biz_val_align_feature_direction_recovers_pooled_signal():
 
     assert auc_naive < 0.6, f"expected the naive pooled mean (mixed orientation, half cancels the other half) to carry weak signal, got AUC={auc_naive:.4f}"
     assert auc_aligned > 0.9, f"expected the direction-aligned pooled mean to carry strong signal, got AUC={auc_aligned:.4f}"
-    assert list(np.sign(aligned_pooled_train)) or True  # sanity: aligned_pooled_train computed without error
+    assert np.isfinite(aligned_pooled_train).all()
 
 
 def test_align_feature_direction_flips_correct_columns():

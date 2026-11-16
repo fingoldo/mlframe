@@ -358,4 +358,4 @@ def test_f10_existing_median_test_file_now_has_a_sample_weight_sibling():
     now covered by this file's test_f1_* tests above, closing the coverage gap F10 flagged."""
     import tests.training.test_combine_probs_median_nanmedian as sibling_mod
 
-    assert hasattr(sibling_mod, "combine_probs") or True  # module still importable, sanity only
+    assert hasattr(sibling_mod, "combine_probs")
