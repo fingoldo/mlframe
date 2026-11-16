@@ -2,7 +2,7 @@
 
 A dispatcher that calls ``cache.lookup("some_key")`` for a key nothing ever writes always gets a miss and silently stays on its conservative default: ``_fe_batch_dispatch`` read ``fe_batch_backend`` for
 months while the device was 7 to 11 times faster than the numba path it kept choosing (CT11-122). The scan is static (AST). A key counts as written when it is a literal ``kernel_name=`` of a
-``kernel_tuner(...)`` registration, the literal first argument of a cache write (``update`` / ``record`` / ``put`` / ``set_regions``), or any string literal of the auto-tune sweep package
+``kernel_tuner(...)`` registration, the literal first argument of a cache write (``update`` / ``record`` / ``put`` / ``set_regions`` / ``get_or_tune``), or any string literal of the auto-tune sweep package
 ``_benchmarks/kernel_tuning_cache``. The keys that are read but written by nothing today are a debt ratchet (``_kernel_tuning_unwritten_keys_baseline.json``, tracker OP11-15): the list may only shrink, a
 new unwritten read fails at once, and a key that became written or is no longer read must leave the list.
 """
@@ -15,7 +15,7 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[2] / "src"
 BASELINE = Path(__file__).with_name("_kernel_tuning_unwritten_keys_baseline.json")
-_WRITE_METHODS = ("update", "record", "put", "set_regions", "store", "save_regions", "write")
+_WRITE_METHODS = ("update", "record", "put", "set_regions", "store", "save_regions", "write", "get_or_tune")
 
 
 def _py_files() -> list[Path]:
