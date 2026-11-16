@@ -183,7 +183,10 @@ def optimize_pipeline_by_gridsearch(
         cv_results[title][paramset_hash] = cv_func(X=X, Y=Y, title=title, **constants)
 
         _dump_path = os.path.join(output_dir, f"cv_results-{slugify(title)}.dump")
-        joblib.dump(cv_results, _dump_path, compress=9)
+        # Atomic: a crash mid-dump must not truncate the previous dump (which replay_cv_results would then reject or mis-read).
+        from mlframe.training.io import atomic_write_bytes
+
+        atomic_write_bytes(_dump_path, lambda fh: joblib.dump(cv_results, fh, compress=9))
         # replay_cv_results (below) fail-closed-refuses any dump lacking a .sha256 sidecar -- without this
         # call the module's own documented round-trip was broken by default (every other joblib/pickle
         # writer in the codebase pairs a dump with write_sidecar).
