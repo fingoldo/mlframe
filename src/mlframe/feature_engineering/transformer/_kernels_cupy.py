@@ -207,6 +207,15 @@ def _rff_numpy(X: np.ndarray, W: np.ndarray, b: np.ndarray) -> np.ndarray:
     return np.hstack([np.cos(ang), np.sin(ang)])
 
 
+def _clamp_rff_batch_rows(batch_rows: int, d: int, m: int, itemsize: int, free_bytes: int) -> int:
+    """Largest batch size whose double-buffered device input and output fit in half of the free VRAM (never below 1)."""
+    per_row = 2 * (d + 2 * m) * itemsize
+    if free_bytes <= 0 or per_row <= 0:
+        return max(1, batch_rows)
+    fit_rows = int(free_bytes // 2 // per_row)
+    return max(1, min(batch_rows, fit_rows))
+
+
 def rff_matmul_cupy(
     X: np.ndarray,
     W: np.ndarray,
@@ -247,7 +256,7 @@ def rff_matmul_cupy(
         out[...] = scale * _rff_numpy(X, W, b)
         return
     import cupy as cp
-    batch_rows = max(1, min(int(batch_rows), n))
+    batch_rows = _clamp_rff_batch_rows(min(int(batch_rows), n), d, m, np.dtype(W.dtype).itemsize, gpu_available_bytes())
 
     # One-shot upload of W and b - they're tiny (a few MB at most) and reused across all batches.
     W_dev = cp.asarray(W)
