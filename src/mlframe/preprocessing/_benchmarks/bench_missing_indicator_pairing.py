@@ -3,6 +3,7 @@
 Run: ``python -m mlframe.preprocessing._benchmarks.bench_missing_indicator_pairing``
 """
 from __future__ import annotations
+from typing import Any
 
 import cProfile
 import pstats
@@ -17,7 +18,7 @@ from mlframe.preprocessing.missing_indicator_pairing import impute_with_missing_
 
 def _make_dataset(n_rows: int, n_cols: int, seed: int, n_groups: int = 0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    data = {}
+    data: dict[str, Any] = {}
     for c in range(n_cols):
         col = rng.normal(size=n_rows)
         mask = rng.random(n_rows) < 0.3

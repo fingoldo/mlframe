@@ -18,6 +18,7 @@ Run: ``python -m mlframe.models.ensembling._benchmarks.bench_caruana_vs_nnls``
 """
 
 from __future__ import annotations
+from typing import Any
 
 import numpy as np
 from sklearn.metrics import log_loss, roc_auc_score
@@ -69,7 +70,7 @@ def _fit_apply(stacked_oof, y_oof, stacked_test):
     return aucs, lls
 
 
-y_test_cache = [None]  # filled per iteration (keeps _fit_apply signature small)
+y_test_cache: list[Any] = [None]  # filled per iteration (keeps _fit_apply signature small)
 
 
 def main(n: int = 4000, seeds: int = 25) -> None:
@@ -91,10 +92,10 @@ def main(n: int = 4000, seeds: int = 25) -> None:
             d_ll.append(lls["caruana"] - lls["nnls"])
             wins += int(aucs["caruana"] >= aucs["nnls"] - 1e-12)
             car_auc.append(aucs["caruana"]); nnls_auc.append(aucs["nnls"]); eq_auc.append(aucs["equal"])
-        d_auc = np.array(d_auc); d_ll = np.array(d_ll)
-        overall_auc_delta.extend(d_auc.tolist()); overall_ll_delta.extend(d_ll.tolist()); overall_win.append(wins / seeds)
+        d_auc_a = np.array(d_auc); d_ll_a = np.array(d_ll)
+        overall_auc_delta.extend(d_auc_a.tolist()); overall_ll_delta.extend(d_ll_a.tolist()); overall_win.append(wins / seeds)
         print(f"[{sc:22}] AUC caruana={np.mean(car_auc):.4f} nnls={np.mean(nnls_auc):.4f} equal={np.mean(eq_auc):.4f} "
-              f"| dAUC={d_auc.mean():+.4f}+-{d_auc.std():.4f} dLogLoss={d_ll.mean():+.4f} win={wins}/{seeds}")
+              f"| dAUC={d_auc_a.mean():+.4f}+-{d_auc_a.std():.4f} dLogLoss={d_ll_a.mean():+.4f} win={wins}/{seeds}")
     da = np.array(overall_auc_delta)
     dll = np.array(overall_ll_delta)
     print(f"\nOVERALL: mean dAUC(caruana-nnls)={da.mean():+.5f}  median={np.median(da):+.5f}  " f"scenario AUC win-rates={[round(w, 2) for w in overall_win]}")

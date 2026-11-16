@@ -36,7 +36,7 @@ def main():
     n_pairs = 300
     mat, err = _make(n, p)
     err = np.ascontiguousarray(err)
-    codes_c, _edges = _bin_matrix(mat, 4)  # current: C-order
+    codes_c, _edges, _ = _bin_matrix(mat, 4)  # current: C-order
     codes_f = np.asfortranarray(codes_c)  # proposed: F-order
     assert codes_c.flags["C_CONTIGUOUS"] and codes_f.flags["F_CONTIGUOUS"]  # nosec B101 - internal invariant check in src/mlframe/reporting/_benchmarks, not reachable with untrusted input
     rng = np.random.default_rng(1)

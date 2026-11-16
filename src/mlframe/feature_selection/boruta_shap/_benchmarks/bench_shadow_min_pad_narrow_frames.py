@@ -23,6 +23,7 @@ Re-run this file to refresh; results in _results/shadow_min_pad_narrow_frames.js
 """
 from __future__ import annotations
 
+from typing import Any
 import json
 from pathlib import Path
 
@@ -85,7 +86,7 @@ def main():
     for r in res:
         print(f"{r['config']:>10} {r['shadow_min_pad']:>4} {r['mean_truth_jaccard']:>11.4f} {r['mean_noise_false_accept']:>9.4f}")
     # per-shape pad-vs-nopad delta
-    by_shape = {}
+    by_shape: Any = {}
     for r in res:
         by_shape.setdefault((r["n_cols"], r["n_informative"]), {})[r["shadow_min_pad"]] = r
     print("\nper-shape delta (pad5 - no_pad):")

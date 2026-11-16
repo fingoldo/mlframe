@@ -18,6 +18,7 @@ ceiling (left-skewed, capped sampling distribution). Run:
     python -m mlframe.evaluation._benchmarks.bench_auc_ci_delong_vs_bootstrap
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import sys
 
@@ -28,7 +29,7 @@ try:
     import numba  # noqa: F401
 except ImportError:  # nosec B110 - optional dependency import guard
     pass
-sys.modules.setdefault("cupy", None)
+cast(Any, sys.modules).setdefault("cupy", None)
 
 from sklearn.metrics import roc_auc_score
 
@@ -127,10 +128,10 @@ def main():
         for _ in range(N_COVER):
             y, s = _draw(cov_rng, n, auc_t)
             dci = auc_ci(y, s, alpha=0.05, method="delong")
-            if np.isfinite(dci["lo"]) and dci["lo"] <= mean_auc <= dci["hi"]:
+            if np.isfinite(dci["lo"]) and float(dci["lo"]) <= mean_auc <= float(dci["hi"]):
                 d_hit += 1
             bci = auc_ci(y, s, alpha=0.05, method="bootstrap", n_bootstrap=COVER_BOOT, random_state=int(cov_rng.integers(1 << 30)))
-            if np.isfinite(bci["lo"]) and bci["lo"] <= mean_auc <= bci["hi"]:
+            if np.isfinite(bci["lo"]) and float(bci["lo"]) <= mean_auc <= float(bci["hi"]):
                 b_hit += 1
         d_cov = d_hit / N_COVER
         b_cov = b_hit / N_COVER

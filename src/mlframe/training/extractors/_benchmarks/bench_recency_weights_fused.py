@@ -17,13 +17,14 @@ Verdict: RESOLVED. The ~250ms arithmetic chain is mlframe-own (the ~250ms ``.dt.
 """
 from __future__ import annotations
 
+from typing import Any
 import time
 
 import numpy as np
 import pandas as pd
 
 
-def _old_chain(delta_secs: np.ndarray, span_days: float, min_weight: float = 1.0, wdpy: float = 0.1) -> np.ndarray:
+def _old_chain(delta_secs: np.ndarray, span_days: float, min_weight: float = 1.0, wdpy: float = 0.1) -> Any:
     min_age_days = 1.0 / 86400.0
     log_min_age = np.log(min_age_days)
     days_from_max = np.maximum(delta_secs / 86400.0, min_age_days)

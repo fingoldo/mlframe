@@ -52,7 +52,7 @@ NEW = """    for (long long i0 = tid; i0 < n_samples; i0 += 4LL * nt) {
         }
     }"""
 if not (ROW_MAJOR_SRC.count(OLD) == 1):
-    raise AssertionError('ROW_MAJOR_SRC.count(OLD) == 1')
+    raise AssertionError("ROW_MAJOR_SRC.count(OLD) == 1")
 unrolled = cp.RawKernel(ROW_MAJOR_SRC.replace(OLD, NEW), "pair_mi_shared_fused")
 plain = cp.RawKernel(ROW_MAJOR_SRC, "pair_mi_shared_fused")
 

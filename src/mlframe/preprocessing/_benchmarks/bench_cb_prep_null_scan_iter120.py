@@ -11,7 +11,8 @@ Run:
     PYTHONPATH=src CUDA_VISIBLE_DEVICES="" NUMBA_DISABLE_CUDA=1 python src/mlframe/preprocessing/_benchmarks/bench_cb_prep_null_scan_iter120.py
 """
 import sys
-sys.modules["cupy"] = None
+from typing import Any, cast
+cast(Any, sys.modules)["cupy"] = None
 import time
 
 import numpy as np

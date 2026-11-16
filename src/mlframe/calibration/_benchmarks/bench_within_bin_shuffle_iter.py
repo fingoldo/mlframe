@@ -1,3 +1,4 @@
+from typing import Any
 """Bench PERF#2: within-bin shuffle in generate_similar_probs_by_ranking.
 
 Old path: per bin does np.unique + full-array np.where scan -> O(n_bins*N).
@@ -9,7 +10,7 @@ import numpy as np
 from sklearn.utils import check_random_state
 
 
-def old_shuffle(predicted_probs, bins, similar_probs, rng):
+def old_shuffle(predicted_probs: Any, bins: Any, similar_probs: Any, rng: Any) -> Any:
     for bin_value in np.unique(bins):
         bin_indices = np.where(bins == bin_value)[0]
         bin_probs = similar_probs[bin_indices]
@@ -18,7 +19,7 @@ def old_shuffle(predicted_probs, bins, similar_probs, rng):
     return similar_probs
 
 
-def new_shuffle(predicted_probs, bins, similar_probs, rng):
+def new_shuffle(predicted_probs: Any, bins: Any, similar_probs: Any, rng: Any) -> Any:
     order = np.argsort(bins, kind="stable")
     sorted_bins = bins[order]
     boundaries = np.flatnonzero(np.diff(sorted_bins)) + 1
@@ -32,7 +33,7 @@ def new_shuffle(predicted_probs, bins, similar_probs, rng):
     return similar_probs
 
 
-def new_shuffle_contig(predicted_probs, bins, similar_probs, rng):
+def new_shuffle_contig(predicted_probs: Any, bins: Any, similar_probs: Any, rng: Any) -> Any:
     # gather to contiguous once, shuffle contiguous slices, scatter once.
     order = np.argsort(bins, kind="stable")
     sorted_bins = bins[order]
@@ -48,7 +49,7 @@ def new_shuffle_contig(predicted_probs, bins, similar_probs, rng):
     return similar_probs
 
 
-def run(n, n_bins, seed=0, reps=5):
+def run(n: Any, n_bins: Any, seed: Any = 0, reps: Any = 5) -> Any:
     rng0 = np.random.default_rng(seed)
     probs = rng0.random(n)
     from scipy.stats import rankdata
@@ -61,7 +62,7 @@ def run(n, n_bins, seed=0, reps=5):
     c = new_shuffle_contig(probs, bins, probs.copy(), check_random_state(123))
     identical = np.array_equal(a, b) and np.array_equal(a, c)
 
-    def timeit(fn):
+    def timeit(fn: Any) -> Any:
         best = np.inf
         for _ in range(reps):
             sp = probs.copy()

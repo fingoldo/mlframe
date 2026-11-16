@@ -12,12 +12,13 @@ Measured (Win11 / py3.14 store / CUDA off, cupy blocked to dodge cold-import seg
   e2e _uncertainty_calibration @200k (nbins=20): OLD 110.7 ms -> NEW 56.8 ms = ~1.95x, Spearman + mid/err bit-identical.
 """
 
+from typing import Any, cast
 import sys
 import time
 
 import numpy as np
 
-sys.modules.setdefault("cupy", None)  # block cupy: cold import native-segfaults under contention on py3.14
+cast(Any, sys.modules).setdefault("cupy", None)  # block cupy: cold import native-segfaults under contention on py3.14
 
 import scipy.stats  # noqa: F401  (import before mlframe to avoid the cold-import segfault)
 import numba  # noqa: F401
@@ -47,11 +48,11 @@ def main():
     new_min, new_med = _bench(lambda: ps._uncertainty_calibration(spread, abs_err, nbins=20))
     new_out = ps._uncertainty_calibration(spread, abs_err, nbins=20)
 
-    orig = ps._SPEARMAN_NJIT_MIN_N
-    ps._SPEARMAN_NJIT_MIN_N = 10**12
+    orig = cast(Any, ps)._SPEARMAN_NJIT_MIN_N
+    cast(Any, ps)._SPEARMAN_NJIT_MIN_N = 10**12
     old_min, old_med = _bench(lambda: ps._uncertainty_calibration(spread, abs_err, nbins=20))
     old_out = ps._uncertainty_calibration(spread, abs_err, nbins=20)
-    ps._SPEARMAN_NJIT_MIN_N = orig
+    cast(Any, ps)._SPEARMAN_NJIT_MIN_N = orig
 
     print(f"e2e @200k: OLD {old_min:.3f} ms (med {old_med:.3f}) -> NEW {new_min:.3f} ms (med {new_med:.3f}) = {old_min/new_min:.2f}x")
     print(f"Spearman  OLD {old_out[2]:.17g}  NEW {new_out[2]:.17g}  diff {abs(old_out[2]-new_out[2]):.3e}")

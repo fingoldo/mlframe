@@ -14,6 +14,7 @@ Scenarios (>=2) x seeds (>=5). Run:
 """
 from __future__ import annotations
 
+from typing import Any
 import warnings
 
 import numpy as np
@@ -94,8 +95,8 @@ def main():
     seeds = list(range(11, 21))  # 10 seeds
     n = 3000
 
-    results = {s: {t: [] for t in thresholds} for s in scenarios}
-    kcount = {s: {t: [] for t in thresholds} for s in scenarios}
+    results: Any = {s: {t: [] for t in thresholds} for s in scenarios}
+    kcount: Any = {s: {t: [] for t in thresholds} for s in scenarios}
     for scen in scenarios:
         for seed in seeds:
             rng = np.random.default_rng(seed)

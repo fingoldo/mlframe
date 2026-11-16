@@ -16,8 +16,9 @@ Kept as a committed negative result; re-run on an older numpy may still show the
 """
 
 import sys
+from typing import Any, cast
 
-sys.modules["cupy"] = None
+cast(Any, sys.modules)["cupy"] = None
 import time
 
 import numpy as np

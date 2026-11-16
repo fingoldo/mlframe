@@ -24,6 +24,7 @@ ranking; weighted hides it. KEEP macro as the default. See JSON dumped to
 _results/multiclass_auc_averaging.json.
 """
 from __future__ import annotations
+from typing import Any
 
 import json
 import os
@@ -69,7 +70,7 @@ def run():
     minority_strength = 0.9
     majority_strength = 0.9
 
-    results = {"macro": {"B_wins": 0, "total": 0}, "weighted": {"B_wins": 0, "total": 0}}
+    results: dict[str, Any] = {"macro": {"B_wins": 0, "total": 0}, "weighted": {"B_wins": 0, "total": 0}}
     detail = []
 
     for n, k, mf in scenarios:

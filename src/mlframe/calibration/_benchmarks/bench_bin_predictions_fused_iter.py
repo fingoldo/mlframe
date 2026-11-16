@@ -1,3 +1,4 @@
+from typing import Any
 """Bench PERF#5: fuse 2 np.nanmean passes in bin_predictions into one nan-aware loop."""
 import time
 import numpy as np
@@ -5,7 +6,7 @@ from numba import njit
 
 
 @njit(cache=True, nogil=True, fastmath=False)
-def bin_predictions_old(y_true, y_pred, indices, nbins=20):
+def bin_predictions_old(y_true: Any, y_pred: Any, indices: Any, nbins: Any = 20) -> Any:
     pockets_predicted, pockets_true = np.zeros(nbins, dtype=np.float64), np.zeros(nbins, dtype=np.float64)
     data = np.zeros((nbins, 4), dtype=np.float64)
     s = len(y_pred)
@@ -26,7 +27,7 @@ def bin_predictions_old(y_true, y_pred, indices, nbins=20):
 
 
 @njit(cache=True, nogil=True, fastmath=False)
-def bin_predictions_fused(y_true, y_pred, indices, nbins=20):
+def bin_predictions_fused(y_true: Any, y_pred: Any, indices: Any, nbins: Any = 20) -> Any:
     pockets_predicted, pockets_true = np.zeros(nbins, dtype=np.float64), np.zeros(nbins, dtype=np.float64)
     data = np.zeros((nbins, 4), dtype=np.float64)
     s = len(y_pred)
@@ -61,7 +62,7 @@ def bin_predictions_fused(y_true, y_pred, indices, nbins=20):
     return pockets_predicted, pockets_true, data
 
 
-def run(n, nbins, seed=0, reps=7, nan_frac=0.0):
+def run(n: Any, nbins: Any, seed: Any = 0, reps: Any = 7, nan_frac: Any = 0.0) -> Any:
     rng = np.random.default_rng(seed)
     y_pred = rng.random(n)
     y_true = (rng.random(n) < y_pred).astype(np.float64)
@@ -75,7 +76,7 @@ def run(n, nbins, seed=0, reps=7, nan_frac=0.0):
     b = bin_predictions_fused(y_true, y_pred, indices, nbins)
     identical = all(np.array_equal(x, y, equal_nan=True) for x, y in zip(a, b))
 
-    def timeit(fn):
+    def timeit(fn: Any) -> Any:
         best = np.inf
         for _ in range(reps):
             t = time.perf_counter()

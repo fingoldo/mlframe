@@ -7,8 +7,9 @@ OLD side = the actual prior numpy expressions (faithfully reproduced inline).
 NEW side = the shipped helpers. Both warmed (njit JIT) before timing; best-of-N.
 Identity is asserted inside (counts / n_outliers / values_in_span equal).
 """
+from typing import Any, cast
 import sys
-sys.modules.setdefault("cupy", None)  # avoid pre-existing cupy native-AV at import on this box
+cast(Any, sys.modules).setdefault("cupy", None)  # avoid pre-existing cupy native-AV at import on this box
 import numpy as np
 
 from mlframe.preprocessing.cleaning import _get_nunique, _get_span_fence_njit

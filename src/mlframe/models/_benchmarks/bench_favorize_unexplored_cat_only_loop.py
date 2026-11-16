@@ -14,6 +14,7 @@ Measured (n_candidates=5000, 6 cat params, 8 numeric params, 50 prior trials), p
 
 from __future__ import annotations
 
+from typing import Any
 import sys
 import time
 from os.path import abspath, join, dirname
@@ -37,7 +38,7 @@ def OLD(candidates, probs, trials, cat_features, order: int = 1) -> None:
     if len(cat_features) == 0 or len(trials) == 0:
         return
     already_sampled = {col: set(trials[col].unique().tolist()) for col in cat_features}
-    newly_seen = {col: set() for col in cat_features}
+    newly_seen: Any = {col: set() for col in cat_features}
     favorized_items = []
     for i in range(len(probs)):
         candidate = candidates[i]
@@ -61,7 +62,7 @@ def _make_workload(ncand: int = 5000, seed: int = 0):
     extra = ["learning_rate", "depth", "l2_leaf_reg", "random_strength", "bagging_temperature", "iterations", "border_count", "min_data_in_leaf"]
     cands = []
     for _ in range(ncand):
-        d = {c: str(rng.choice(choices[c])) for c in cat_features}
+        d: dict[str, Any] = {c: str(rng.choice(choices[c])) for c in cat_features}
         for e in extra:
             d[e] = float(rng.random())
         cands.append(d)

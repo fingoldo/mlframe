@@ -56,10 +56,7 @@ if __name__ == "__main__":
         t0 = time.perf_counter()
         _run_iterative(n_train, n_test, n_features, n_iterations=3, top_k_drop=2)
         wall = time.perf_counter() - t0
-        print(
-            f"iterative  n_train={n_train:>7,} n_test={n_test:>7,} n_features={n_features:>3} "
-            f"n_iterations=3 top_k_drop=2 -> {wall * 1000:9.2f} ms"
-        )
+        print(f"iterative  n_train={n_train:>7,} n_test={n_test:>7,} n_features={n_features:>3} " f"n_iterations=3 top_k_drop=2 -> {wall * 1000:9.2f} ms")
 
     profiler = cProfile.Profile()
     profiler.enable()

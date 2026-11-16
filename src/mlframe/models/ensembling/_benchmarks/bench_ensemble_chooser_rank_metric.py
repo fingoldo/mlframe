@@ -27,6 +27,7 @@ Run: python -m mlframe.models.ensembling._benchmarks.bench_ensemble_chooser_rank
 """
 from __future__ import annotations
 
+from typing import Any, cast
 import numpy as np
 from sklearn.metrics import roc_auc_score
 
@@ -67,7 +68,7 @@ _ICE_FIRST = (("ice", "lower"), ("roc_auc", "higher"))
 _AUC_FIRST = (("roc_auc", "higher"), ("ice", "lower"))
 
 
-def _choose(flavour_metrics: dict, order, split="oof") -> str:
+def _choose(flavour_metrics: dict, order, split="oof") -> Any:
     """Mirror of _choose_ensemble_flavour ranking logic for a given probe order."""
     for metric, direction in order:
         scored = [(k, m[split].get(metric)) for k, m in flavour_metrics.items()]
@@ -116,7 +117,7 @@ def run():
                 except ValueError:
                     auc_oof = auc_test = None
                 fmetrics[flav] = {
-                    "oof": {"ice": float(ice), "roc_auc": auc_oof},
+                    "oof": {"ice": float(cast(Any, ice)), "roc_auc": auc_oof},
                     "test": {"roc_auc": auc_test},
                 }
 

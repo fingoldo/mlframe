@@ -10,6 +10,7 @@ order -> FP divergence that can move the reported ECE). The kernel streams 2x8MB
 to amortise. Serial single-pass stays the default. Do not re-ship parallel ECE without a bandwidth win.
 """
 from __future__ import annotations
+from typing import Any
 import time
 import numpy as np
 import numba
@@ -17,7 +18,7 @@ from numba import njit
 
 
 @njit(cache=True, nogil=True)
-def _ece_serial(y, p, n_bins):
+def _ece_serial(y: Any, p: Any, n_bins: Any) -> Any:
     n = p.size
     sum_p = np.zeros(n_bins); sum_y = np.zeros(n_bins); nf = 0.0
     for i in range(n):
@@ -37,7 +38,7 @@ def _ece_serial(y, p, n_bins):
 
 
 @njit(cache=True, nogil=True, parallel=True)
-def _ece_par(y, p, n_bins):
+def _ece_par(y: Any, p: Any, n_bins: Any) -> Any:
     n = p.size
     nt = numba.get_num_threads()
     pp = np.zeros((nt, n_bins)); py = np.zeros((nt, n_bins)); cnt = np.zeros(nt)
@@ -65,14 +66,14 @@ def _ece_par(y, p, n_bins):
     return tot / nf
 
 
-def med(fn, it):
+def med(fn: Any, it: Any) -> Any:
     xs = []
     for _ in range(it):
         t0 = time.perf_counter(); fn(); xs.append((time.perf_counter()-t0)*1e3)
     return float(np.median(xs))
 
 
-def main():
+def main() -> None:
     print("threads", numba.get_num_threads())
     rng = np.random.default_rng(0)
     for n in (200_000, 1_000_000):

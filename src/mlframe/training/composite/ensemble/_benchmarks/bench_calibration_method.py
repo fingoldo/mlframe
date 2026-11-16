@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 
@@ -59,7 +59,7 @@ def run() -> dict:
     results: dict = {}
     for scenario in ("s_shape", "saturating"):
         for n_oof in N_OOF_GRID:
-            cell = {m: [] for m in METHODS}
+            cell: Any = {m: [] for m in METHODS}
             cell["raw"] = []
             for seed in SEEDS:
                 rng = np.random.default_rng(1000 * (1 + N_OOF_GRID.index(n_oof)) + seed + hash(scenario) % 97)
@@ -71,7 +71,7 @@ def run() -> dict:
                     pred = cal.predict(p_hold)
                     cell[m].append(_rmse(pred, y_hold))
             key = f"{scenario}|n_oof={n_oof}"
-            summary = {m: {"median": float(np.median(cell[m])), "mean": float(np.mean(cell[m]))} for m in (*METHODS, "raw")}
+            summary: dict[str, Any] = {m: {"median": float(np.median(cell[m])), "mean": float(np.mean(cell[m]))} for m in (*METHODS, "raw")}
             # per-seed winner among the three methods
             arr = {m: np.asarray(cell[m]) for m in METHODS}
             iso_beats_sig = int(np.sum(arr["isotonic"] < arr["sigmoid"]))

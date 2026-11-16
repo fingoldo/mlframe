@@ -5,8 +5,9 @@ A fused njit(parallel=True) kernel computes both bounds in ONE pass with prange 
 Run: python -m mlframe.preprocessing._benchmarks.bench_naive_outlier_minmax
 """
 from __future__ import annotations
+from typing import Any, cast
 import sys, time
-sys.modules.setdefault("cupy", None)
+cast(Any, sys.modules).setdefault("cupy", None)
 import numpy as np
 from mlframe.preprocessing.outliers import _nanminmax_cols
 

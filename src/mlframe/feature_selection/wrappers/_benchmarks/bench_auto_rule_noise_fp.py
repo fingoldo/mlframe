@@ -52,6 +52,7 @@ wrappers/_rfecv_stability_select.py (select_optimal_nfeatures_, 'auto' branch).
 """
 from __future__ import annotations
 
+from typing import Any
 import warnings
 
 import numpy as np
@@ -165,7 +166,7 @@ def _report(tag, rule):
     return noise, strong, weak
 
 
-def main() -> tuple[dict, dict, dict]:
+def main() -> Any:
     print("=== RFECV auto-rule noise-FP biz_value harness (seeds=[0,1,2], majority=median) ===\n")
     # 'one_se_max' is what pre-fix 'auto' resolved to uniformly; running it gives the pre-fix baseline.
     _report("PRE-FIX baseline", "one_se_max")

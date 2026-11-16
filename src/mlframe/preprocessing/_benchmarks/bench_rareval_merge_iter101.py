@@ -2,7 +2,8 @@
 Run: python bench_rareval_merge_iter101.py    Drives the full cleaning pass on a 10M discrete column with a rare tail.
 Result: NEW 13.5x faster on the merge step, full-frame bit-identical. See _loop_iter_log.md iter101."""
 import sys
-sys.modules['cupy']=None
+from typing import Any, cast
+cast(Any, sys.modules)['cupy']=None
 import numpy as np, pandas as pd, time
 from mlframe.preprocessing.cleaning import analyse_and_clean_features
 
@@ -16,7 +17,7 @@ def make(n=10_000_000, seed=0):
 if __name__=="__main__":
     out=make()
     t=time.perf_counter()
-    analyse_and_clean_features(out, update_data=True, verbose=0)
+    analyse_and_clean_features(out, update_data=True, verbose=cast(Any, 0))
     dt = time.perf_counter() - t
     print(f"clean wall: {dt:.3f}s ; nunique_after={out['x'].nunique(dropna=False)}")
     vc = out["x"].value_counts(dropna=False).sort_index()

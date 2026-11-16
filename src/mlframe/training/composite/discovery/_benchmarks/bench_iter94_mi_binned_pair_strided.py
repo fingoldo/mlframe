@@ -15,10 +15,11 @@ Run:
         python -m mlframe.training.composite.discovery._benchmarks.bench_iter94_mi_binned_pair_strided
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import sys
 
-sys.modules.setdefault("cupy", None)
+cast(Any, sys.modules).setdefault("cupy", None)
 import scipy.stats  # noqa: F401
 import numba  # noqa: F401
 
@@ -37,7 +38,7 @@ def _wrapper_old(x_idx, y_idx, *, nbins):
     """HEAD wrapper: ascontiguousarray on both inputs before the njit kernel."""
     xi = np.ascontiguousarray(x_idx)
     yi = np.ascontiguousarray(y_idx)
-    return float(_mi_from_binned_pair_njit_kernel(xi, yi, int(nbins)))
+    return float(cast(Any, _mi_from_binned_pair_njit_kernel)(xi, yi, int(nbins)))
 
 
 def _bench_one(n, F, nbins, reps):

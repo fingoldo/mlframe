@@ -73,7 +73,10 @@ def main():
     here = os.path.dirname(os.path.abspath(__file__))
     mod_path = os.path.join(here, "..", "_noise_floor.py")
     spec = importlib.util.spec_from_file_location("_noise_floor_bench", mod_path)
+    assert spec is not None
     nf = importlib.util.module_from_spec(spec)
+    assert spec is not None
+    assert spec.loader is not None
     spec.loader.exec_module(nf)
     noise_floor_plateau, _default_grid = nf.noise_floor_plateau, nf._default_grid
 

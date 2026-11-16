@@ -16,10 +16,11 @@ Run:
         python -m mlframe.training.composite.discovery._benchmarks.bench_iter92_block_shuffle_gather [m]
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import sys
 
-sys.modules.setdefault("cupy", None)
+cast(Any, sys.modules).setdefault("cupy", None)
 import scipy.stats  # noqa: F401
 import numba  # noqa: F401
 
@@ -43,8 +44,8 @@ def _bench_one(m: int) -> None:
     for dt in (np.int64, np.float32):
         arr = np.random.default_rng(0).integers(0, 50, m).astype(dt)
         # Identity across seeds (incl. trailing short block).
-        for s in range(8):
-            perm = np.random.default_rng(s).permutation(n_blocks)
+        for seed_i in range(8):
+            perm = np.random.default_rng(seed_i).permutation(n_blocks)
             if not (np.array_equal(_legacy(arr, perm, block_len), block_shuffle_gather(arr, perm, block_len))):
                 raise AssertionError
         rng = np.random.default_rng(1)
@@ -53,7 +54,7 @@ def _bench_one(m: int) -> None:
         N = 3000
         rng = np.random.default_rng(2)
         perms = [rng.permutation(n_blocks) for _ in range(N)]
-        s = timer()
+        s: Any = timer()
         for p in perms:
             _legacy(arr, p, block_len)
         old = (timer() - s) / N * 1e6

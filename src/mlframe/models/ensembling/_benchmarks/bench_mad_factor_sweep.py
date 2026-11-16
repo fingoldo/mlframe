@@ -16,7 +16,7 @@ corrupted cells is the production default candidate. Run::
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 
@@ -54,8 +54,8 @@ def _outlier_members(rng, y, k, n_bad):
 
 
 def run(n: int = 3000):
-    clean = {f: [] for f in FACTORS}  # ratio robust/mean per clean cell
-    outlier = {f: [] for f in FACTORS}  # ratio mean/robust (protection) per outlier cell
+    clean: Any = {f: [] for f in FACTORS}  # ratio robust/mean per clean cell
+    outlier: Any = {f: [] for f in FACTORS}  # ratio mean/robust (protection) per outlier cell
 
     for k in CLEAN_K:
         for seed in SEEDS:

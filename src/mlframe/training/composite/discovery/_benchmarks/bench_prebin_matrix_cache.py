@@ -26,6 +26,7 @@ Usage::
 """
 
 from __future__ import annotations
+from typing import Any, cast
 
 import json
 import os
@@ -82,7 +83,7 @@ def main() -> None:
     t_cached = _time(_cached)
 
     codes_b = cache.get(sig)
-    bit_identical = bool(np.array_equal(codes_b, _prebin_feature_columns(x, nbins=_NBINS)))
+    bit_identical = bool(np.array_equal(cast(Any, codes_b), cast(Any, _prebin_feature_columns(x, nbins=_NBINS))))
     speedup = t_recompute / max(t_cached, 1e-12)
 
     result = {

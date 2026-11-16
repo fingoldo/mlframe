@@ -11,12 +11,13 @@ Run:
         python -m mlframe.training.composite.discovery._benchmarks.bench_iter91_regression_discovery_1m [n]
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import functools
 import sys
 
 # py3.14 native-segfault workaround for cold mlframe.training.core / metrics.core import.
-sys.modules.setdefault("cupy", None)
+cast(Any, sys.modules).setdefault("cupy", None)
 import scipy.stats  # noqa: F401
 import numba  # noqa: F401
 

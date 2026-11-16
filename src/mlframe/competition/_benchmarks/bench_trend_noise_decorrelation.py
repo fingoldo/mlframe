@@ -27,7 +27,6 @@ def run_once(n: int, seed: int) -> None:
     segment = _make_segment(n, seed)
     inject_noise_and_recenter(segment, noise_std=0.5, random_state=seed)
 
-
     # Profiled at n up to 1M: cumtime is dominated by numpy's median (partition) and the RNG draw,
     # both already C-speed vectorized ops; the function is called far below the ~100x/fit threshold
     # that would justify njit/parallel — no actionable speedup here.

@@ -39,6 +39,7 @@ land many UNFITTED-pp components sharing one pp on one slice.
 Run: ``python -m mlframe.training.composite.ensemble._benchmarks.bench_oof_prepipeline_space``
 """
 from __future__ import annotations
+from typing import Any, cast
 
 import logging
 import time
@@ -127,8 +128,8 @@ def main() -> None:
     print(f"UNFITTED pp NEW clone-fit : {t_new * 1e3:8.2f} ms/call  warns/call={n_warns['n'] / 20:.0f}")
 
     # 3) UNFITTED pp -- OLD raise+log+rawX (monkeypatched).
-    _orig = oof_mod._transform_pair_via
-    oof_mod._transform_pair_via = _old_pair
+    _orig: Any = oof_mod._transform_pair_via
+    cast(Any, oof_mod)._transform_pair_via = _old_pair
     try:
         n_warns["n"] = 0
         t_old = _bench([shim_unfit] * 5, names, X, y)
