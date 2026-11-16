@@ -166,6 +166,14 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_fe_cmi_redundancy_gate": (
+        ("_fe_cmi_perm_null_gpu", "_fe_batched_mi"),
+        (
+            "the gate scores a round of candidates with batched_cmi_gpu of _fe_batched_mi (the device partition counting, own tuning entries and column-block streaming) and its conditional permutation null runs on the device "
+            "through conditional_perm_null_gpu of _fe_cmi_perm_null_gpu, with the host-versus-device choice of the cmi_perm_null_backend entry (_swept_device_null); STRICT-GPU routes the whole gate to the device"
+        ),
+        True,
+    ),
     "_conditional_gate_fe": (
         ("_row_argmax_gpu", "_gate_rank_divergence"),
         (
@@ -235,6 +243,13 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_fe_cmi_redundancy_gate": (
+        "_cmi_strata_tables_njit",
+        (
+            "the conditional permutation null of the gate on the host is the numba contingency-table draw StratifiedNull(debias=True) (prange over permutations, one multivariate-hypergeometric table per non-trivial stratum, the "
+            "Miller-Madow CMI), reached through _fe_cmi_redundancy_null._conditional_table_null; the joint entropies of the observed CMI are the njit partition kernels of _mi_greedy_cmi_fe_steps"
+        ),
+    ),
     "_hermite_fe_optimise": (
         "_numba_polynom_optimizer",
         "the host optimizers of the pair search: _eval_coef_pair_batch scores a generation with the njit batch evaluators (_fill_bf_batch_njit of _numba_polynom_optimizer, the plug-in MI row kernels), and optimizer=numba_kernel is the all-njit search",
@@ -390,6 +405,8 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_fe_cmi_redundancy_gate": ("_fe_cmi_redundancy_null",),
+    "_fe_batched_mi_cmi": ("_fe_cmi_fused_backend",),
     "_conditional_gate_fe": ("_conditional_gate_hybrid", "_conditional_gate_kernels"),
     "_hermite_fe_optimise": ("_hermite_fe_optimise_pair", "_hermite_fe_optimise_parts"),
     "_target_encoding_order_stats": ("_order_stats_gpu",),

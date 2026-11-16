@@ -17,7 +17,6 @@ import math
 import numpy as np
 from numba import njit, prange
 
-from ._numba_utils import _cmi_from_counts
 from ._numba_utils_shuffle import next_state, seed_state
 
 
@@ -69,11 +68,12 @@ def _hypergeom(x, good, bad, draws, lf):
 
 
 @njit(cache=True, nogil=True)
-def _draw_table(x, row_m, col_m, lf, out):
+def _draw_table(x, row_m, col_m, lf, out, rem):
     """Fill ``out`` (x levels, y levels) with a random contingency table of margins ``row_m`` (x level counts) and ``col_m`` (y level counts) of one stratum; returns the next state."""
     n_x = row_m.shape[0]
     n_y = col_m.shape[0]
-    rem = col_m.copy()
+    for j in range(n_y):
+        rem[j] = col_m[j]  # the scratch ``rem`` holds the y margins still to place (an allocation per stratum and permutation otherwise)
     for i in range(n_x - 1):
         draws = row_m[i]
         pop = 0
@@ -105,46 +105,56 @@ def _stratum_margins(x_codes, y_codes, s_codes, n_s, n_x, n_y):
 
 
 @njit(cache=True, nogil=True)
-def _occupied_terms(counts):
-    """``(k_xyz - k_xz - k_yz + k_z)``: the occupied-cell counts of the ``(strata, x levels, y levels)`` table that make the Miller-Madow bias of the plug-in CMI (the plug-in is high by this over ``2 n``)."""
-    n_s, n_x, n_y = counts.shape
+def _table_terms(tab: np.ndarray, m: int, px: np.ndarray, py: np.ndarray) -> tuple:
+    """``(mi, bias)`` of one stratum's ``(x levels, y levels)`` table of ``m`` rows: the plug-in MI in nats (the arithmetic of ``_cmi_from_counts`` for one stratum, same loop order) and the occupied-cell
+    count ``k_xyz - k_xz - k_yz + k_z`` of the Miller-Madow bias (the plug-in is high by this over ``2 n``)."""
+    n_x, n_y = tab.shape
+    for a in range(n_x):
+        px[a] = 0
+    for b in range(n_y):
+        py[b] = 0
     k_xyz = 0
-    k_xz = 0
-    k_yz = 0
-    k_z = 0
-    for sv in range(n_s):
-        total = 0
-        for a in range(n_x):
-            row = 0
-            for b in range(n_y):
-                c = counts[sv, a, b]
-                if c > 0:
-                    k_xyz += 1
-                row += c
-            if row > 0:
-                k_xz += 1
-            total += row
-        if total > 0:
-            k_z += 1
+    for a in range(n_x):
         for b in range(n_y):
-            col = 0
-            for a in range(n_x):
-                col += counts[sv, a, b]
-            if col > 0:
-                k_yz += 1
-    return k_xyz - k_xz - k_yz + k_z
+            c = tab[a, b]
+            px[a] += c
+            py[b] += c
+            if c > 0:
+                k_xyz += 1
+    mi = 0.0
+    k_xz = 0
+    for a in range(n_x):
+        if px[a] == 0:
+            continue
+        k_xz += 1
+        for b in range(n_y):
+            c = tab[a, b]
+            if c == 0:
+                continue
+            mi += (c / m) * math.log((c * m) / (px[a] * py[b]))
+    k_yz = 0
+    for b in range(n_y):
+        if py[b] > 0:
+            k_yz += 1
+    return mi, k_xyz - k_xz - k_yz + 1
 
 
 @njit(cache=True, parallel=True, nogil=True)
 def _null_njit(row_m, col_m, n, n_perm, seed, min_rows, lf, debias):
-    """The stratified CMI of ``n_perm`` random within-stratum permutation tables (permutation ``p`` seeded ``seed + p``); with ``debias`` the Miller-Madow corrected CMI clamped at zero."""
+    """The stratified CMI of ``n_perm`` random within-stratum permutation tables (permutation ``p`` seeded ``seed + p``); with ``debias`` the Miller-Madow corrected CMI clamped at zero.
+
+    A stratum's contribution is added right after its table is drawn (the plug-in sum in stratum order, as ``_cmi_from_counts`` adds them), so no ``(strata, x, y)`` array exists."""
     n_s, n_x = row_m.shape
     n_y = col_m.shape[1]
     out = np.zeros(n_perm, dtype=np.float64)  # Intentional float64: statistic vector (null values), exact permutation ties
     for p in prange(n_perm):
-        counts = np.zeros((n_s, n_x, n_y), dtype=np.int64)
         x = seed_state(seed + p)
         tab = np.zeros((n_x, n_y), dtype=np.int64)
+        px = np.zeros(n_x, dtype=np.int64)
+        py = np.zeros(n_y, dtype=np.int64)
+        rem = np.zeros(n_y, dtype=np.int64)
+        total = 0.0
+        bias = 0
         for sv in range(n_s):
             tab[:, :] = 0
             m = 0
@@ -152,12 +162,14 @@ def _null_njit(row_m, col_m, n, n_perm, seed, min_rows, lf, debias):
                 m += row_m[sv, a]
             if m == 0:
                 continue
-            x = _draw_table(x, row_m[sv], col_m[sv], lf, tab)
-            counts[sv, :, :] = tab
-        v = _cmi_from_counts(counts, n, min_rows)
+            x = _draw_table(x, row_m[sv], col_m[sv], lf, tab, rem)
+            mi, k_terms = _table_terms(tab, m, px, py)
+            bias += k_terms
+            if m >= min_rows and mi > 0.0:
+                total += (m / n) * mi
         if debias:
-            v = max(v - _occupied_terms(counts) / (2.0 * n), 0.0)
-        out[p] = v
+            total = max(total - bias / (2.0 * n), 0.0)
+        out[p] = total
     return out
 
 
@@ -168,6 +180,19 @@ def _log_factorials(n: int) -> np.ndarray:
     return lf
 
 
+def _left_compact(margins: np.ndarray) -> np.ndarray:
+    """The occupied levels of each row of ``margins`` moved to the front in their own order, the zeros after them, the columns cut to the largest occupied count.
+
+    A level with a zero margin draws no random number and adds nothing to a table, a MI or a bias term, and the arithmetic over the levels runs in level order, which this keeps: the null values
+    are bit for bit those of the full-width margins, at the cost of the occupied levels only (a stratum of a few rows has two or three)."""
+    if margins.shape[0] == 0:
+        return np.ascontiguousarray(margins[:, :1])
+    order = np.argsort(margins == 0, axis=1, kind="stable")
+    packed = np.take_along_axis(margins, order, axis=1)
+    width = max(1, int((margins > 0).sum(axis=1).max()))
+    return np.ascontiguousarray(packed[:, :width])
+
+
 class StratifiedNull:
     """The margins of ``(x, y, s)`` (dense non-negative codes) and the log-factorial table, built once (``debias``: the Miller-Madow corrected CMI of the device scorers instead of the plug-in); :meth:`chunk` draws permutations ``first .. first + count - 1`` of the null seeded by ``seed``."""
 
@@ -175,7 +200,13 @@ class StratifiedNull:
         self.n = int(x_codes.shape[0])
         self.min_rows = int(min_rows)
         self.debias = bool(debias)
-        self.row_m, self.col_m = _stratum_margins(x_codes, y_codes, s_codes, int(s_codes.max()) + 1, int(x_codes.max()) + 1, int(y_codes.max()) + 1)
+        row_m, col_m = _stratum_margins(x_codes, y_codes, s_codes, int(s_codes.max()) + 1, int(x_codes.max()) + 1, int(y_codes.max()) + 1)
+        # A stratum with at most one occupied x level or at most one occupied y level has the same table in every permutation, and a table with one occupied margin level has zero MI and
+        # zero Miller-Madow term, so it adds nothing to any null value and draws no random number: only the strata with two or more occupied levels on both axes are kept (near-continuous
+        # supports are mostly singletons). The null values are bit for bit those of the full table.
+        active = ((row_m > 0).sum(axis=1) >= 2) & ((col_m > 0).sum(axis=1) >= 2)
+        self.row_m, self.col_m = _left_compact(row_m[active]), _left_compact(col_m[active])
+        self.n_active = int(active.sum())
         self.lf = _log_factorials(self.n)
 
     def chunk(self, first: int, count: int, seed: int) -> np.ndarray:

@@ -175,7 +175,10 @@
     "_hermite_fe_optimise_parts",
     "_conditional_gate_fe",
     "_conditional_gate_hybrid",
-    "_conditional_gate_kernels"
+    "_conditional_gate_kernels",
+    "_fe_cmi_redundancy_gate",
+    "_fe_cmi_redundancy_null",
+    "_fe_cmi_fused_backend"
   ],
   "exempt": {
     "_basis_cells_ktc": "the tuner entry of the device basis-cell path (kernel_tuner fe_basis_cells_device, sweep over the row count against the host variant at 1e-6 equivalence, fallback = the measured row mark, MLFRAME_BASIS_CELLS_DEVICE=0|1 forces a side): it owns no kernel and no array work; the cell kernels and their profile belong to _orthogonal_routing_device and _orthogonal_adaptive_degree_device, which are tracked in this registry as pending",
@@ -274,9 +277,6 @@
     "_fe_additive_fusion_gpu_resident",
     "_fe_auto_escalation",
     "_fe_auto_escalation_proposers",
-    "_fe_cmi_fused_backend",
-    "_fe_cmi_redundancy_gate",
-    "_fe_cmi_redundancy_null",
     "_fe_cpu_batch",
     "_fe_gpu_batch",
     "_fe_matrix_io",
