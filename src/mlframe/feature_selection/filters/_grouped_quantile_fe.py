@@ -131,6 +131,89 @@ def _quantile_recipe(group_col: str, num_col: str, op: str, group_sorted: Any, g
     }
 
 
+def _groups_on_host(x: np.ndarray, group_rows: dict, global_sorted: np.ndarray, global_iqr: float, global_p90p10: float) -> tuple:
+    """``(group_sorted, iqr_lookup, p90p10_lookup, pct_out)`` of one numeric column over the groups, the per-group host loop: a radix order of the finite values, the average-rank percentiles, the
+    linear quantiles read off the sorted segment; a group below ``_MIN_GROUP_SIZE`` finite values takes the pooled column."""
+    pct_out = np.empty(x.shape, dtype=_crit_np_dtype())
+    # Per-group sorted-value arrays (str-keyed) for the CDF position.
+    group_sorted: dict[str, np.ndarray] = {}
+    iqr_lookup: dict[str, float] = {}
+    p90p10_lookup: dict[str, float] = {}
+
+    for gv, rows in group_rows.items():
+        vals = x[rows]
+        finite = np.isfinite(vals)
+        fin = vals[finite]
+        pct_vals = None
+        if fin.size >= _MIN_GROUP_SIZE:
+            # one stable argsort gives the sorted values AND the rank position of every member, so the group's own values need no binary search
+            # (a radix order of the finite values: the same permutation as the stable comparison argsort, about 3 times faster)
+            order = radix_order_f64(np.ascontiguousarray(fin, dtype=np.float64))  # Intentional float64: radix_order_f64 takes float64 keys
+            sv = fin[order]
+            pct_vals = _member_pct_ranks(order, sv, vals, finite)
+            # Same linear-interpolation quantiles as np.quantile(fin, q), read off the sorted array (exact, no second partition per call).
+            q25, q75, p10, p90 = _sorted_linear_quantiles(sv, (0.25, 0.75, 0.10, 0.90))
+            group_iqr = float(q75 - q25)
+            group_p90p10 = float(p90 - p10)
+        else:
+            sv = global_sorted
+            group_iqr = global_iqr
+            group_p90p10 = global_p90p10
+        group_sorted[str(gv)] = sv  # an array: only the winners' recipes convert it (build_grouped_quantile_recipe); a list per group of every candidate held the GIL
+        iqr_lookup[str(gv)] = group_iqr
+        p90p10_lookup[str(gv)] = group_p90p10
+        # Fit ranks each train value within a sorted set that INCLUDES itself, whereas replay ranks a test
+        # value against the stored train-only sorted array: a small systematic ~1/m per-group distributional
+        # offset (not a y-leak). Acceptable and unchanged by design; documented so a future reader does not
+        # mistake it for a fit/serve skew (mrmr_critique FE-F6).
+        pct_out[rows] = pct_vals if pct_vals is not None else _pct_rank_in_sorted(sv, vals)
+
+    return group_sorted, iqr_lookup, p90p10_lookup, pct_out
+
+
+def _groups_from_device(c: int, stats: dict, x: np.ndarray, group_rows: dict, global_sorted: np.ndarray, global_iqr: float, global_p90p10: float) -> tuple:
+    """:func:`_groups_on_host` for column ``c`` of a block whose percentile ranks, sorted segments and spreads came from :mod:`._grouped_quantile_gpu` (equal to the host loop bit for bit); a group below
+    ``_MIN_GROUP_SIZE`` rows takes the pooled column as the host loop does."""
+    seg = stats["seg"]
+    group_sorted: dict[str, np.ndarray] = {}
+    iqr_lookup: dict[str, float] = {}
+    p90p10_lookup: dict[str, float] = {}
+    pct_out = stats["pct"][c].copy()
+    for g, (gv, rows) in enumerate(group_rows.items()):
+        if int(seg[g + 1] - seg[g]) >= _MIN_GROUP_SIZE:
+            group_sorted[str(gv)] = stats["sorted"][c, seg[g] : seg[g + 1]]
+            iqr_lookup[str(gv)] = float(stats["iqr"][c, g])
+            p90p10_lookup[str(gv)] = float(stats["p90p10"][c, g])
+        else:
+            group_sorted[str(gv)] = global_sorted
+            iqr_lookup[str(gv)] = global_iqr
+            p90p10_lookup[str(gv)] = global_p90p10
+            pct_out[rows] = _pct_rank_in_sorted(global_sorted, x[rows])
+    return group_sorted, iqr_lookup, p90p10_lookup, pct_out
+
+
+def _device_group_stats(X: "pd.DataFrame", cols: list, g_keys: np.ndarray, group_rows: dict) -> dict:
+    """``{numeric column: (block stats, row of the column in the block)}`` for the all-finite float32 columns of ``cols`` over the groups of ``g_keys``, from the batched forms of
+    :mod:`._grouped_quantile_gpu` (the device or the numba form per the kernel-tuning cache), or ``{}`` when they do not apply (another criterion dtype, the group order differs from the host's)."""
+    if _crit_np_dtype() != np.float32 or not cols:
+        return {}
+    try:
+        from ._grouped_quantile_gpu import grouped_stats_block
+
+        codes, uniques = pd.factorize(g_keys)
+        if [str(u) for u in uniques] != [str(k) for k in group_rows]:
+            return {}
+        columns = [(c, np.ascontiguousarray(X[c].to_numpy(), dtype=np.float32)) for c in cols]
+        columns = [(c, x) for c, x in columns if np.isfinite(x).all()]
+        if not columns:
+            return {}
+        stats = grouped_stats_block(np.stack([x for _c, x in columns]), codes.astype(np.int64), len(uniques))
+        return {} if stats is None else {c: (stats, i) for i, (c, _x) in enumerate(columns)}
+    except Exception as exc:
+        log_throttle(logger, "grouped_quantile_device_stats", logging.WARNING, "grouped-quantile batched statistics not used (%s: %s); the per-group host loop", type(exc).__name__, exc)
+        return {}
+
+
 @fe_timed("grouped_quantile")
 def generate_grouped_quantile_features(
     X: pd.DataFrame,
@@ -167,7 +250,9 @@ def generate_grouped_quantile_features(
         # group_rows) instead of rebuilding the groupby-of-arange for every num_col.
         n = len(X)
         group_rows: dict[str, np.ndarray] = {str(gv): idx.to_numpy() for gv, idx in pd.Series(np.arange(n)).groupby(g_keys, sort=False)}
-        def _one_num_col(num_col, group_col=group_col, g_keys=g_keys, group_rows=group_rows):
+        device_stats = _device_group_stats(X, cur_num_cols, g_keys, group_rows)
+
+        def _one_num_col(num_col, group_col=group_col, g_keys=g_keys, group_rows=group_rows, device_stats=device_stats):
             """The three engineered columns and recipes of one numeric column within this group column; reads only its own data, so columns may run on the pool."""
             encoded: dict[str, np.ndarray] = {}
             raw_recipes: dict[str, dict] = {}
@@ -186,39 +271,11 @@ def generate_grouped_quantile_features(
                 cached = global_stats[num_col] = (global_sorted, global_iqr, global_p90p10)
             global_sorted, global_iqr, global_p90p10 = cached
 
-            # Per-group sorted-value arrays (str-keyed) for the CDF position.
-            group_sorted: dict[str, np.ndarray] = {}
-            iqr_lookup: dict[str, float] = {}
-            p90p10_lookup: dict[str, float] = {}
-            pct_out = np.empty(x.shape, dtype=_crit_np_dtype())
-
-            for gv, rows in group_rows.items():
-                vals = x[rows]
-                finite = np.isfinite(vals)
-                fin = vals[finite]
-                pct_vals = None
-                if fin.size >= _MIN_GROUP_SIZE:
-                    # one stable argsort gives the sorted values AND the rank position of every member, so the group's own values need no binary search
-                    # (a radix order of the finite values: the same permutation as the stable comparison argsort, about 3 times faster)
-                    order = radix_order_f64(np.ascontiguousarray(fin, dtype=np.float64))  # Intentional float64: radix_order_f64 takes float64 keys
-                    sv = fin[order]
-                    pct_vals = _member_pct_ranks(order, sv, vals, finite)
-                    # Same linear-interpolation quantiles as np.quantile(fin, q), read off the sorted array (exact, no second partition per call).
-                    q25, q75, p10, p90 = _sorted_linear_quantiles(sv, (0.25, 0.75, 0.10, 0.90))
-                    group_iqr = float(q75 - q25)
-                    group_p90p10 = float(p90 - p10)
-                else:
-                    sv = global_sorted
-                    group_iqr = global_iqr
-                    group_p90p10 = global_p90p10
-                group_sorted[str(gv)] = sv  # an array: only the winners' recipes convert it (build_grouped_quantile_recipe); a list per group of every candidate held the GIL
-                iqr_lookup[str(gv)] = group_iqr
-                p90p10_lookup[str(gv)] = group_p90p10
-                # Fit ranks each train value within a sorted set that INCLUDES itself, whereas replay ranks a test
-                # value against the stored train-only sorted array: a small systematic ~1/m per-group distributional
-                # offset (not a y-leak). Acceptable and unchanged by design; documented so a future reader does not
-                # mistake it for a fit/serve skew (mrmr_critique FE-F6).
-                pct_out[rows] = pct_vals if pct_vals is not None else _pct_rank_in_sorted(sv, vals)
+            dev = device_stats.get(num_col)
+            if dev is not None:
+                group_sorted, iqr_lookup, p90p10_lookup, pct_out = _groups_from_device(dev[1], dev[0], x, group_rows, global_sorted, global_iqr, global_p90p10)
+            else:
+                group_sorted, iqr_lookup, p90p10_lookup, pct_out = _groups_on_host(x, group_rows, global_sorted, global_iqr, global_p90p10)
 
             pct_out = np.nan_to_num(pct_out, nan=0.5, posinf=1.0, neginf=0.0)
 

@@ -95,7 +95,7 @@ def run(ns=(50_000, 100_000, 200_000), cap=30_000, n_groups=40, kfold=5) -> list
         oof_sub, wall_sub = _oof_call(Xs, y[sub], groups[sub], kfold)
         w_sub = _nnls_weights(oof_sub, y[sub])
 
-        cos = float(safe_div(np.dot(w_full, w_sub), np.linalg.norm(w_full) * np.linalg.norm(w_sub)))
+        cos = float(safe_div(np.dot(w_full, w_sub), np.asarray(np.linalg.norm(w_full) * np.linalg.norm(w_sub))))
         # Ensemble RMSE on the FULL OOF surface using each weight vector (apples-to-apples target).
         finite = np.isfinite(oof_full).all(axis=1) & np.isfinite(y)
         rmse_full = float(np.sqrt(np.mean((oof_full[finite] @ w_full - y[finite]) ** 2)))

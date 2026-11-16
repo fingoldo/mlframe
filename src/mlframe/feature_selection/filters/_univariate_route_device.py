@@ -17,6 +17,20 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
+def _native_column(series: Any) -> np.ndarray:
+    """The column as a host array of its own floating dtype (float32 stays float32); other dtypes become float32 only when exact there is not required, i.e. never float64 by default."""
+    a = np.asarray(series.to_numpy())
+    return a if a.dtype.kind == "f" else a.astype(np.float32)
+
+
+def _upload_columns(cp: Any, columns: list, dtype: Any) -> Any:
+    """The ``(n, k)`` device matrix of the host columns, filled column by column on the device (no host ``column_stack`` copy of the whole block: 0.1 s for 100 columns of 100000 rows)."""
+    out = cp.empty((int(columns[0].shape[0]), len(columns)), dtype=dtype)
+    for j, col in enumerate(columns):
+        out[:, j] = cp.asarray(col)
+    return out
+
+
 def route_columns_on_device(X: Any, cols: Sequence[str], y: Any, degrees: Sequence[int], cols_auto: bool, aux_pool: Any) -> "dict[str, str]":
     """``{column: basis}`` of the columns routed on the device; empty when the device path does not apply."""
     try:
@@ -43,7 +57,7 @@ def route_columns_on_device(X: Any, cols: Sequence[str], y: Any, degrees: Sequen
             return {}  # the host router falls back to the moment router there
         eligible, columns = [], []
         for col in cols:
-            x = np.asarray(X[col].to_numpy(), dtype=np.float64)  # Intentional float64: the generator's own filters read the float64 column
+            x = _native_column(X[col])
             if (cols_auto and _is_int_as_cat_axis(x)) or not np.isfinite(x).all():
                 continue
             eligible.append(col)
@@ -59,7 +73,7 @@ def route_columns_on_device(X: Any, cols: Sequence[str], y: Any, degrees: Sequen
 
         def route(lo: int, hi: int) -> list:
             """The routed bases of the columns ``lo:hi``."""
-            return list(_gpu_route_bases_batched(cp, cp.asarray(np.column_stack(columns[lo:hi]), dtype=dt), y_dev, bases, degs, robust_axis=robust))
+            return list(_gpu_route_bases_batched(cp, _upload_columns(cp, columns[lo:hi], dt), y_dev, bases, degs, robust_axis=robust))
 
         multiple = (len(bases) * max(1, len(degs))) + 4
         chosen = [b for piece in run_column_blocks(cp, len(columns), first_block(cp, n, len(columns), np.dtype(dt).itemsize, multiple), route) for b in piece]
@@ -67,3 +81,47 @@ def route_columns_on_device(X: Any, cols: Sequence[str], y: Any, degrees: Sequen
         log_throttle(logger, "univariate_route_device_failed", logging.WARNING, "device routing of the univariate columns failed (%s: %s); the host router decides", type(exc).__name__, exc)
         return {}
     return {c: b for c, b in zip(eligible, chosen) if b is not None}
+
+
+def build_cells_on_device(X: Any, chosen: "dict[str, str]", degrees: Sequence[int], code: "dict[str, str]") -> "dict[str, dict[str, np.ndarray]]":
+    """``{column: {cell name: values}}`` of the columns routed on the device, with the cells of every (column, degree) built there too and returned as host columns of the criterion dtype.
+
+    Owner decision (2026-11-16): bit identity with the host cells and float64 are not required while the selected features stay the same. The host built each cell from a float64 fit axis one column at a time
+    (the polynomial evaluators, and for rbf / sigmoid / pade / fourier their own njit kernels); here a block of columns is uploaded once and ``_gpu_evaluate_basis_matrix`` builds all of the block's
+    cells in a few launches. The recipes of the winners are rebuilt from the cell NAMES by the host path, which replays the same function to float32 rounding. Empty when the device cannot build them."""
+    if not chosen:
+        return {}
+    try:
+        import cupy as cp
+
+        from ._device_blocks import first_block, run_column_blocks
+        from ._fe_gpu_batch._devices import crit_float_dtype
+        from ._gpu_resident_basis import _gpu_evaluate_basis_matrix
+        from .hermite_fe.shared import robust_axis_enabled as _robust_axis_enabled
+
+        names = list(chosen)
+        dt = crit_float_dtype()
+        columns = [_native_column(X[c]) for c in names]  # the host column in its own dtype; the cast to the criterion dtype happens on the device
+        robust = bool(_robust_axis_enabled())
+        degs = [int(d) for d in degrees]
+        n = len(X)
+
+        def block(lo: int, hi: int) -> "dict[str, dict[str, np.ndarray]]":
+            """The cells of the columns ``lo:hi``."""
+            out: "dict[str, dict[str, np.ndarray]]" = {}
+            cand, meta = _gpu_evaluate_basis_matrix(cp, _upload_columns(cp, columns[lo:hi], dt), [chosen[c] for c in names[lo:hi]], degs, robust_axis=robust)
+            if cand is None:
+                return out
+            host = cp.asnumpy(cp.ascontiguousarray(cand.T))  # (cells, n): every cell is a contiguous host row, no strided copy per cell
+            for j, (ci, basis, deg) in enumerate(meta):
+                out.setdefault(names[lo + ci], {})[f"{names[lo + ci]}__{code.get(basis, basis)}{deg}"] = host[j]
+            return out
+
+        multiple = len(degs) + 6
+        merged: "dict[str, dict[str, np.ndarray]]" = {}
+        for piece in run_column_blocks(cp, len(names), first_block(cp, n, len(names), np.dtype(dt).itemsize, multiple), block):
+            merged.update(piece)
+        return {c: cells for c, cells in merged.items() if len(cells) == len(degs)}  # a column missing a cell is left to the host path
+    except Exception as exc:
+        log_throttle(logger, "univariate_cells_device_failed", logging.WARNING, "device build of the univariate cells failed (%s: %s); the host builds them", type(exc).__name__, exc)
+        return {}

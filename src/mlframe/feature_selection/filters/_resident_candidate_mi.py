@@ -301,6 +301,60 @@ def best_existing_op_mi_resident(
         return None
 
 
+def best_existing_op_mi_resident_many(
+    arrs: dict, key_list: Sequence[Sequence[str]], yi: np.ndarray, nbins: int,
+    *, y_min: int | None = None, n_classes: int | None = None, rank_binning: bool = False, col_budget: int = 512,
+) -> Optional[list]:
+    """:func:`best_existing_op_mi_resident` for many operand sets at once: the candidate blocks of ``col_budget`` columns' worth of sets are built on the device, joined, and scored by ONE plug-in MI call
+    (one synchronising read for the block instead of one per set); each set's floor is the maximum over its own columns. A column's MI does not depend on the other columns of the call, so the values
+    are the per-set ones. ``None`` when the device route fails for any block (the caller scores the sets one by one)."""
+    try:
+        import cupy as cp
+
+        from ._fe_gpu_vram import fe_gpu_has_vram_cushion
+        from ._fe_resident_operands import resident_operand
+        from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident, relaxed_candidate_dtype
+
+        keys = [list(k) for k in key_list]
+        cdt = relaxed_candidate_dtype(cp)
+        itemsize = np.dtype(crit_float_dtype()).itemsize if rank_binning else np.dtype(cdt).itemsize
+        y_gpu = resident_operand(yi, "y", dtype=np.int64)
+        out: list = []
+        i = 0
+        while i < len(keys):
+            blocks: list = []
+            spans: list = []
+            total = 0
+            while i < len(keys):
+                m = len(keys[i])
+                k_i = m + 4 * (m * (m - 1) // 2) + 2 + (1 if m >= 3 else 0)
+                if blocks and total + k_i > col_budget:
+                    break
+                cols_gpu = [resident_operand(arrs[c], ("op", c), dtype=crit_float_dtype()) for c in keys[i]]
+                if not blocks and not fe_gpu_has_vram_cushion(int(cols_gpu[0].shape[0]) * max(k_i, col_budget) * itemsize):
+                    return None
+                blocks.append(_build_best_existing_op_candidates_gpu(cols_gpu, cp) if rank_binning else _build_best_existing_op_candidates_gpu_cm(cols_gpu, cp, out_dtype=cdt))
+                spans.append((total, total + k_i))
+                total += k_i
+                i += 1
+            mat = cp.concatenate(blocks, axis=1 if rank_binning else 0)
+            del blocks
+            if rank_binning:
+                from ._gpu_resident_rank_bin import plugin_mi_classif_batch_rank_cuda_resident
+
+                mis = plugin_mi_classif_batch_rank_cuda_resident(mat, y_gpu, nbins, y_min=y_min, n_classes=n_classes)
+                if mis is None:
+                    return None
+            else:
+                mis = _plugin_mi_classif_batch_cuda_resident(mat, y_gpu, nbins, y_min=y_min, n_classes=n_classes, relax_binning=True, keep_dtype=True, x_is_cm=True)
+            mis = np.asarray(mis)
+            out.extend(float(np.max(mis[lo:hi])) for lo, hi in spans)
+        return out
+    except Exception as exc:
+        logger.debug("best_existing_op_mi_resident_many: device route failed (%s); the sets are scored one by one", exc)
+        return None
+
+
 _TAU_KERNELS: dict = {}
 _TAU_KERNELS_LOCK = threading.Lock()
 

@@ -116,6 +116,7 @@ import pandas as pd
 from numba import njit, prange
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+from ._meta_fingerprint_gpu import column_moments
 from ._numba_utils_shared import radix_order_f32
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
@@ -184,6 +185,16 @@ def _mean_distinct(X_num: pd.DataFrame, num_cols: list, n: int) -> float:
                 _distinct_counts_f32(rows, counts)
             return float(np.mean(np.minimum(counts, n)))
     return float(np.mean([min(int(X_num[c].nunique(dropna=True)), n) for c in num_cols]))
+
+
+def _pearson_from_moments(A: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """:func:`_pearson_columns` from the column-moment kernel: ``r = cxy / sqrt(sum(c^2) * sum(bc^2))``, NaN where either side has no variance."""
+    bc = b - b.mean()
+    mom = column_moments(np.ascontiguousarray(A.T), bc)
+    den = np.sqrt(mom[:, 1] * A.shape[0] * float(bc @ bc))
+    with np.errstate(invalid="ignore", divide="ignore"):
+        r = mom[:, 4] / den
+    return np.where(den > 0.0, r, np.nan)
 
 
 def _pearson_columns(A: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -312,11 +323,11 @@ def _mean_abs_skew_and_kurtosis(X_num: pd.DataFrame) -> tuple[float, float]:
         A = np.asarray(X_num.to_numpy(dtype=np.float64)) if all(pd.api.types.is_numeric_dtype(t) for t in X_num.dtypes) else None
         if A is not None and np.isfinite(A).all():
             n = A.shape[0]
-            c = A - A.mean(axis=0)
-            c2 = c * c
-            m2, m3, m4 = c2.mean(axis=0), (c2 * c).mean(axis=0), (c2 * c2).mean(axis=0)
+            # the central moments of every column from one two-pass kernel (numba or CUDA per the kernel-tuning cache) instead of four (n, K) temporaries
+            mom = column_moments(np.ascontiguousarray(A.T))
+            col_mean, m2, m3, m4 = mom[:, 0], mom[:, 1], mom[:, 2], mom[:, 3]
             flat = m2 == 0.0
-            if not np.any((m2 > 0.0) & (m2 < 1e-12 * (1.0 + A.mean(axis=0) ** 2))):  # a near-constant column is left to pandas' own guard
+            if not np.any((m2 > 0.0) & (m2 < 1e-12 * (1.0 + col_mean**2))):  # a near-constant column is left to pandas' own guard
                 with np.errstate(all="ignore"):
                     sk = np.where(flat, 0.0, m3 / m2**1.5 * np.sqrt(n * (n - 1.0)) / (n - 2.0))  # the bias-corrected G1 / G2 of pandas; a constant column is 0.0 there
                     ku = np.where(flat, 0.0, (n - 1.0) / ((n - 2.0) * (n - 3.0)) * ((n + 1.0) * m4 / m2**2 - 3.0 * (n - 1.0)))
@@ -350,7 +361,7 @@ def _mean_abs_pearson(X_num: pd.DataFrame, num_cols: list, y_arr: np.ndarray) ->
                 y_vals = np.asarray(y_series.to_numpy(dtype=np.float64))
                 A = np.asarray(X_num[num_cols].to_numpy(dtype=np.float64))
                 if np.isfinite(y_vals).all() and np.isfinite(A).all():
-                    r_all = _pearson_columns(A, y_vals)
+                    r_all = _pearson_from_moments(A, y_vals)
                     r_all = r_all[np.isfinite(r_all)]
                     return float(np.mean(np.abs(r_all))) if r_all.size else 0.0
             for c in num_cols:

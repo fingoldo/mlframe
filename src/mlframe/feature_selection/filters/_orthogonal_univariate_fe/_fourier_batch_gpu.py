@@ -394,14 +394,24 @@ def detect_fourier_freqs_batch_gpu(
 
     results: "list[list[float]]" = [[] for _ in jobs]
     groups: "dict[tuple, list]" = {}
-    for j, (z01, y, f_grid) in enumerate(jobs):
+
+    def _prepare(item: "tuple[int, tuple]") -> "tuple | None":
+        """The host preparation of one column (guards, the seeded split and subsample, the core span), or ``None`` when the column cannot carry a detection; columns are independent, so this runs on the pool."""
+        j, (z01, y, f_grid) = item
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         z01 = np.asarray(z01, dtype=np.float64).ravel()
         prep = _host_split_for_detect(z01, y, f_grid, min_rows=min_rows, fourier_detect_max_n=fourier_detect_max_n)
         if prep is None:
-            continue
+            return None
         grid, z_tr, z_va, y_tr, y_va = prep
-        groups.setdefault((z_tr.size, z_va.size), []).append((j, grid, z_tr, z_va, y_tr, y_va, core_span(z01)))
+        return j, grid, z_tr, z_va, y_tr, y_va, core_span(z01)
+
+    from .._edge_pool import map_on_edge_pool
+
+    # the guards, the boolean-mask splits and the two-quantile core span of ~100 columns were a serial loop (0.5 s at 100000 rows): they are numpy calls that release the GIL, folded here in column order
+    for member in map_on_edge_pool(_prepare, list(enumerate(jobs)), min_items=8):
+        if member is not None:
+            groups.setdefault((member[2].size, member[3].size), []).append(member)
     for all_members in groups.values():
         width = _column_block_width(all_members[0][2].size + all_members[0][3].size, len(all_members))
         for start in range(0, len(all_members), width):

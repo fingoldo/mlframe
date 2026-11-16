@@ -211,8 +211,8 @@ def _block_sweep() -> list:
             _sweep_columns,
             reference="per_column",
             repeats=3,
-            equiv_rtol=1e-3,
-            equiv_atol=1e-2,
+            equiv_rtol=1e-6,
+            equiv_atol=1e-6,
         )
     )
 

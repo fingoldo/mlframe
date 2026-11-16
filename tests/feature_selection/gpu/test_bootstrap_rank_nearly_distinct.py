@@ -1,4 +1,4 @@
-"""The device walk of nearly distinct columns (opt-in) gives the host walk's MI: columns with a bin end inside a run of equal values are left to the host, the others match to rounding."""
+"""The device walk of nearly distinct columns (default on, switchable) gives the host walk's MI: columns with a bin end inside a run of equal values are left to the host, the others match to rounding."""
 
 import numpy as np
 import pytest
@@ -49,14 +49,19 @@ def test_nearly_distinct_columns_match_the_host_walk(monkeypatch):
     np.testing.assert_allclose(mi_dev[:, done], host_mi[:, done], rtol=0, atol=1e-12)
 
 
-def test_default_leaves_tied_columns_to_the_host(monkeypatch):
-    """Without the opt-in only fully distinct columns are finished on the device."""
+def test_default_finishes_nearly_distinct_columns_and_the_switch_restores_the_old_rule(monkeypatch):
+    """The default walks nearly distinct columns on the device (equal to the host's MI); ``MLFRAME_BOOTSTRAP_RANK_TIES_DEVICE=0`` finishes only fully distinct columns, as the opt-in era default did."""
     arr, y, reps = _inputs()
     prep = H._resample_tables(reps, y, arr.shape[0], 10, True)
-    monkeypatch.delenv("MLFRAME_BOOTSTRAP_RANK_TIES_DEVICE", raising=False)
-    _mi, done = G.distinct_walk_gpu(arr, prep, 10)
     has_ties = np.array([len(np.unique(arr[:, j])) < arr.shape[0] for j in range(arr.shape[1])])
-    assert not (done & has_ties).any()
+    monkeypatch.delenv("MLFRAME_BOOTSTRAP_RANK_TIES_DEVICE", raising=False)
+    mi_on, done_on = G.distinct_walk_gpu(arr, prep, 10)
+    assert (done_on & has_ties).any()
+    host_mi, _ok = H.bootstrap_rank_mi(arr, y, reps, 10, try_tied_device=False)
+    np.testing.assert_allclose(mi_on[:, done_on], host_mi[:, done_on], rtol=0, atol=1e-12)
+    monkeypatch.setenv("MLFRAME_BOOTSTRAP_RANK_TIES_DEVICE", "0")
+    _mi, done_off = G.distinct_walk_gpu(arr, prep, 10)
+    assert not (done_off & has_ties).any()
 
 
 def test_full_call_is_unchanged_by_the_opt_in(monkeypatch):

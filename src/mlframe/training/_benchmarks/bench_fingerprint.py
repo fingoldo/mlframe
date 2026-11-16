@@ -48,7 +48,8 @@ def _variant_b(sub: pl.DataFrame) -> str:
     h = xxhash.xxh3_64()
     # hash_rows returns a UInt64 Series; bytes form is portable across polars versions.
     h.update(sub.hash_rows().to_numpy().tobytes())
-    return h.hexdigest()
+    hexdigest: str = h.hexdigest()
+    return hexdigest
 
 
 def _variant_c(sub: pl.DataFrame) -> str:
@@ -57,7 +58,8 @@ def _variant_c(sub: pl.DataFrame) -> str:
         return ""
     buf = io.BytesIO()
     sub.write_ipc(buf)
-    return xxhash.xxh3_64(buf.getvalue()).hexdigest()
+    digest: str = xxhash.xxh3_64(buf.getvalue()).hexdigest()
+    return digest
 
 
 def _bench(fn, sub: pl.DataFrame, trials: int = 7) -> float:

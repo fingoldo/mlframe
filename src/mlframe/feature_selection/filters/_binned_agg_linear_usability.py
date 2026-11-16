@@ -35,9 +35,11 @@ import zlib
 
 import numpy as np
 
-from mlframe.feature_selection.filters._internals import stable_argsort_codes
+from mlframe.feature_selection.filters._internals import dense_codes, stable_argsort_codes
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from typing import Any
+
+from numba import njit
 
 _MAX_ROWS = 100_000
 _N_FOLDS = 5
@@ -73,6 +75,29 @@ def _standardised(col: np.ndarray) -> np.ndarray:
     std = float(col[finite].std())
     out = np.where(finite, col - mean, 0.0)
     return out / std if std > 0 else np.zeros_like(col)
+
+
+@njit(cache=True, nogil=True)
+def _fold_cross_sums(base: np.ndarray, Y: np.ndarray, cand: np.ndarray, starts: np.ndarray) -> tuple:
+    """Per-fold cross sums of one candidate in the fold-sorted row order: ``u[f, j] = sum base[:, j] * cand``, ``cc[f] = sum cand^2``, ``cy[f, c] = sum cand * Y[:, c]`` in one pass over the rows (three
+    ``reduceat`` passes with a ``(rows, p)`` and a ``(rows, k)`` temporary before); the loops release the GIL, so the pair pool scales."""
+    n_f = starts.shape[0]
+    m = cand.shape[0]
+    p = base.shape[1]
+    k = Y.shape[1]
+    u = np.zeros((n_f, p), dtype=np.float64)
+    cc = np.zeros(n_f, dtype=np.float64)
+    cy = np.zeros((n_f, k), dtype=np.float64)
+    for f in range(n_f):
+        hi = starts[f + 1] if f + 1 < n_f else m
+        for i in range(starts[f], hi):
+            c = cand[i]
+            cc[f] += c * c
+            for j in range(p):
+                u[f, j] += base[i, j] * c
+            for j in range(k):
+                cy[f, j] += Y[i, j] * c
+    return u, cc, cy
 
 
 def _solve_batch(gram: np.ndarray, rhs: np.ndarray) -> np.ndarray:
@@ -138,10 +163,7 @@ def _gains_from_sums(prep: dict, u: np.ndarray, cc: np.ndarray, cy: np.ndarray) 
 
 def _gain(prep: dict, cand_sorted: np.ndarray) -> np.ndarray:
     """Per-fold out-of-fold gain of one candidate given in the fold-sorted row order of ``prep``."""
-    starts = prep["starts"]
-    u = np.add.reduceat(prep["base"] * cand_sorted[:, None], starts, axis=0)
-    cc = np.add.reduceat(cand_sorted * cand_sorted, starts)
-    cy = np.add.reduceat(cand_sorted[:, None] * prep["Y"], starts, axis=0)
+    u, cc, cy = _fold_cross_sums(prep["base"], prep["Y"], np.ascontiguousarray(cand_sorted, dtype=np.float64), prep["starts"])
     gains: np.ndarray = _gains_from_sums(prep, u[None], cc[None], cy[None])[0]
     return gains
 
@@ -178,7 +200,7 @@ def _pair_state(X, srcs, y_cls, cell_ids, pair_key: str):
     classes = np.unique(y_all[rows])
     if rows.size < _MIN_ROWS or classes.size < 2 or classes.size > _MAX_CLASSES:
         return None
-    _, cells = np.unique(np.asarray(cell_ids).ravel()[rows], return_inverse=True)
+    cells = dense_codes(np.asarray(cell_ids).ravel()[rows])
     n_cells = int(cells.max()) + 1
     if n_cells < 3:
         return None

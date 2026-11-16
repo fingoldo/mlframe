@@ -19,11 +19,11 @@ import numpy as np
 
 from ._ktc_fallback import device_from_rows
 
-from pyutilz.performance.gpu_hw_launch import block_size_for
 
 from ._raw_module_cache import RawModuleCache
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 from ._fe_gpu_vram import pool_column_block
+from ._gpu_resident_select_kernels import _transpose_to_cm
 from ._kernel_types import render
 
 logger = logging.getLogger(__name__)
@@ -85,13 +85,80 @@ extern "C" __global__ void bootstrap_rank_walk(const int* __restrict__ ord, cons
     }
     out[(long long)b * kc + j] = mi < 0.0 ? 0.0 : mi;
 }
+
+extern "C" __global__ void bootstrap_rank_walk_blocks(const int* __restrict__ ord, const unsigned char* __restrict__ tie, const int* __restrict__ counts_bt, const int* __restrict__ ycode,
+                                                      const int* __restrict__ cum, const int n, const int kc, const int B, const int nbins, const int ncls, {ACC}* __restrict__ out) {
+    // One block per (column, resample); the block walks the sorted rows in chunks of blockDim.x. The draws before a row are the exclusive prefix sum of the multiplicities along the sorted order, a run of
+    // equal values takes the bin of the draws before its FIRST row (a running maximum of those prefixes over the run starts, which only grow), the (bin, class) table is a shared histogram.
+    const int j = blockIdx.x / B, b = blockIdx.x - (blockIdx.x / B) * B;
+    __shared__ int hist[BMAX * KMAX];
+    __shared__ int cums[BMAX];
+    __shared__ int wsum[32], wmax[32];
+    __shared__ int carry_p, carry_f, block_total, next_f;
+    const int lane = threadIdx.x & 31, warp = threadIdx.x >> 5, nwarps = (blockDim.x + 31) >> 5;
+    for (int u = threadIdx.x; u < nbins * ncls; u += blockDim.x) hist[u] = 0;
+    for (int u = threadIdx.x; u < nbins; u += blockDim.x) cums[u] = cum[b * nbins + u];
+    if (threadIdx.x == 0) { carry_p = 0; carry_f = 0; }
+    __syncthreads();
+    const int* oj = ord + (long long)j * n;
+    const unsigned char* tj = tie + (long long)j * n;
+    const int* cb = counts_bt + (long long)b * n;
+    for (int base = 0; base < n; base += blockDim.x) {
+        const int i = base + threadIdx.x;
+        int c = 0, row = 0, start = 0;
+        if (i < n) { row = oj[i]; c = cb[row]; start = (i == 0) || !tj[i - 1]; }
+        int v = c;
+#pragma unroll
+        for (int o = 1; o < 32; o <<= 1) { const int t = __shfl_up_sync(0xffffffffu, v, o); if (lane >= o) v += t; }
+        if (lane == 31) wsum[warp] = v;
+        __syncthreads();
+        if (threadIdx.x == 0) { int run = 0; for (int w = 0; w < nwarps; ++w) { const int t = wsum[w]; wsum[w] = run; run += t; } block_total = run; }
+        __syncthreads();
+        const int pos = carry_p + wsum[warp] + v - c;       // draws before row i
+        int q = (i < n && start) ? pos : -1;
+#pragma unroll
+        for (int o = 1; o < 32; o <<= 1) { const int t = __shfl_up_sync(0xffffffffu, q, o); if (lane >= o && t > q) q = t; }
+        if (lane == 31) wmax[warp] = q;
+        __syncthreads();
+        if (threadIdx.x == 0) { int run = carry_f; for (int w = 0; w < nwarps; ++w) { const int t = wmax[w]; wmax[w] = run; if (t > run) run = t; } next_f = run; }
+        __syncthreads();
+        const int first = q > wmax[warp] ? q : wmax[warp];   // draws before the first row of this row's run
+        if (i < n && c > 0) {
+            int cur = 0;
+            while (first >= cums[cur] && cur < nbins - 1) ++cur;
+            atomicAdd(&hist[cur * ncls + ycode[row]], c);
+        }
+        __syncthreads();
+        if (threadIdx.x == 0) { carry_p += block_total; carry_f = next_f; }
+        __syncthreads();
+    }
+    if (threadIdx.x == 0) {
+        long long hx[BMAX], hy[KMAX];
+        for (int u = 0; u < nbins; ++u) hx[u] = 0;
+        for (int c = 0; c < ncls; ++c) hy[c] = 0;
+        for (int u = 0; u < nbins; ++u) for (int c = 0; c < ncls; ++c) { hx[u] += hist[u * ncls + c]; hy[c] += hist[u * ncls + c]; }
+        const int m = carry_p;
+        const {ACC} log_n = log(({ACC})m);
+        {ACC} mi = 0.0;
+        for (int u = 0; u < nbins; ++u) {
+            if (hx[u] == 0) continue;
+            const {ACC} log_hx = log(({ACC})hx[u]);
+            for (int c = 0; c < ncls; ++c) {
+                const long long nxy = hist[u * ncls + c];
+                if (nxy == 0 || hy[c] == 0) continue;
+                mi += (({ACC})nxy / ({ACC})m) * (log(({ACC})nxy) + log_n - log_hx - log(({ACC})hy[c]));
+            }
+        }
+        out[(long long)b * kc + j] = mi < 0.0 ? 0.0 : mi;
+    }
+}
 """)
 
 _MODULE = RawModuleCache(_SRC)
 
 
 #: Device bytes one column of a block holds at its peak: the float32 block, the int64 argsort, the sorted copy, the int32 order and the walk's int32 table, per row.
-_BYTES_PER_COLUMN_ROW = 32
+_BYTES_PER_COLUMN_ROW = 64
 _BUDGET_FRACTION = 0.3
 
 
@@ -111,13 +178,15 @@ def _release_pool_cache(cp) -> None:
 
 
 def _ties_on_device() -> bool:
-    """Whether nearly distinct columns are walked on the device (``MLFRAME_BOOTSTRAP_RANK_TIES_DEVICE=1``; default off).
+    """Whether nearly distinct columns are walked on the device (``MLFRAME_BOOTSTRAP_RANK_TIES_DEVICE=0`` turns it off; default on).
 
-    bench-attempt-rejected (2026-11-07, GTX 1050 Ti, 10 resamples, continuous float32 columns with about 0.5% equal neighbours, one process, warm kernels): 200000 x 24 host 0.15 s / device 0.35 s,
-    1000000 x 40 host 1.81 s / device 3.84 s, with 20 of 24 and 27 of 40 columns finished on the device and the rest (a bin end inside a run of equal values) on the host; MI equal to the host's
-    to 1.8e-15. In a 1M fit the same kind of columns cost 0.64 s per column on the host (against 0.045 s here), which is host contention between the FE stages, not the walk itself: the device
-    version does not beat the host in isolation, so it stays opt-in until an A/B of the whole fit shows a gain."""
-    return os.environ.get("MLFRAME_BOOTSTRAP_RANK_TIES_DEVICE", "0").strip().lower() in ("1", "true", "on", "yes")
+    A run of equal values takes the bin of the draws before its first row whatever the draw order inside it, so the walk needs no host rule for ties; continuous float32 columns of 100000 rows nearly
+    always hold a few equal neighbours (birthday collisions of 24-bit mantissas), and with the fully-distinct restriction almost no column ever reached the device.
+
+    History: bench-attempt-rejected (2026-11-07, GTX 1050 Ti, 10 resamples): with the per-column sorts and one thread per (column, resample) the opt-in version lost to the host (200000 x 24 host 0.15 s / device
+    0.35 s). 2026-11-16: the block is sorted by ONE 64-bit-key sort and walked by ``bootstrap_rank_walk_blocks`` (a block per (column, resample), the draws before a row by a block-wide prefix sum): 100000 x 100,
+    10 resamples, host 0.62 s / device 0.23 s, MI equal to 1.8e-15; the kernel-tuning entry decides per host."""
+    return os.environ.get("MLFRAME_BOOTSTRAP_RANK_TIES_DEVICE", "1").strip().lower() in ("1", "true", "on", "yes")
 
 
 def distinct_walk_gpu(arr: np.ndarray, prep: dict, n_bins: int) -> "tuple[np.ndarray, np.ndarray] | None":
@@ -136,42 +205,41 @@ def distinct_walk_gpu(arr: np.ndarray, prep: dict, n_bins: int) -> "tuple[np.nda
         return None
     _release_pool_cache(cp)  # start from a pool without cached blocks of other sizes: the argsort asks thrust for large temporaries that must fit contiguously
     try:
-        kernel = _MODULE.get(cp).get_function("bootstrap_rank_walk")
         counts = cp.asarray(np.ascontiguousarray(prep["counts_t"], dtype=np.int32))
         ycode = cp.asarray(np.ascontiguousarray(prep["y_codes"], dtype=np.int32))
         cum = cp.asarray(np.ascontiguousarray(prep["cum"], dtype=np.int32))
-        lens = cp.asarray(np.ascontiguousarray(prep["lens"], dtype=np.int32))
         mi = np.zeros((n_rep, k), dtype=np.float64)  # Intentional float64: MI statistic matrix
         done = np.zeros(k, dtype=bool)
         block_cols = _bootstrap_walk_column_block(cp, n)
+        counts_bt = cp.ascontiguousarray(counts.T)  # (resample, row): one resample's multiplicities contiguous for the block that walks it
+        walk = _MODULE.get(cp).get_function("bootstrap_rank_walk_blocks")
         for c0 in range(0, k, block_cols):
             c1 = min(k, c0 + block_cols)
-            block = cp.asarray(np.ascontiguousarray(arr[:, c0:c1]))
-            finite = cp.isfinite(block).all(axis=0)
-            order = device_argsort(block, axis=0)
-            sv = cp.take_along_axis(block, order, axis=0)
-            equal_next = sv[1:] == sv[:-1]
-            n_equal = equal_next.sum(axis=0)
-            # fully distinct columns, and (unless switched off) nearly distinct ones: a few runs of equal values, scored here when no bin end falls inside a run
-            take = finite & (n_equal == 0)
-            if _ties_on_device():
-                take = take | (finite & (n_equal <= int(MAX_TIE_FRACTION * n)))
+            width = c1 - c0
+            # (columns, rows) block built on the device by the coalesced tiled transpose; ONE sort of the whole block: the 64-bit key is the column index above the order-preserving key of the value
+            # (-0.0 made +0.0 so equal values have equal keys), so the sorted array holds every column's sorted rows one after the other and the per-column sort launches are gone
+            xd = _transpose_to_cm(cp.asarray(np.ascontiguousarray(arr[:, c0:c1]))) + np.float32(0.0)
+            finite = cp.isfinite(xd).all(axis=1)
+            bits = xd.view(cp.uint32)
+            mono = cp.where(bits >> 31 == 1, ~bits, bits | np.uint32(0x80000000)).astype(cp.uint64)
+            keys = ((cp.arange(width, dtype=cp.uint64)[:, None] << np.uint64(32)) | mono).ravel()
+            del xd, bits, mono
+            order = device_argsort(keys)
+            tie = cp.zeros(width * n, dtype=cp.uint8)
+            tie[:-1] = (keys[order][1:] == keys[order][:-1]).astype(cp.uint8)  # a row equal to the next sorted row (the high word keeps columns apart)
+            tie = tie.reshape(width, n)
+            n_equal = tie.sum(axis=1)
+            ord32 = (order.reshape(width, n) - (cp.arange(width, dtype=cp.int64) * n)[:, None]).astype(cp.int32)
+            del keys, order
+            take = finite & (n_equal <= int(MAX_TIE_FRACTION * n if _ties_on_device() else 0))
             ok = np.flatnonzero(cp.asnumpy(take))
             if ok.size == 0:
                 continue
-            ok_dev = cp.asarray(ok)
-            ord_t = cp.ascontiguousarray(order[:, ok_dev].T.astype(cp.int32))
-            tie_t = cp.zeros((int(ok.size), n), dtype=cp.uint8)
-            tie_t[:, : n - 1] = equal_next[:, ok_dev].T.astype(cp.uint8)
             # Intentional float64: device MI statistic matrix, same element type as the host array
-            out = cp.zeros((n_rep, ok.size), dtype=cp.float64)
-            bad = cp.zeros((n_rep, ok.size), dtype=cp.uint8)
-            threads = block_size_for(kernel, work_items=int(ok.size) * n_rep)
-            grid = (int(ok.size) * n_rep + threads - 1) // threads
-            kernel((grid,), (threads,), (ord_t, tie_t, counts, ycode, cum, lens, np.int32(n), np.int32(ok.size), np.int32(n_rep), np.int32(n_bins), np.int32(n_classes), out, bad))
-            clean = ~cp.asnumpy(bad.any(axis=0).astype(cp.bool_))
-            mi[:, c0 + ok] = cp.asnumpy(out)
-            done[c0 + ok] = clean  # a column with a bin end inside a run of equal values is left to the host walk, which owns the draw order of the run
+            out = cp.zeros((n_rep, width), dtype=cp.float64)
+            walk((width * n_rep,), (256,), (ord32, tie, counts_bt, ycode, cum, np.int32(n), np.int32(width), np.int32(n_rep), np.int32(n_bins), np.int32(n_classes), out))  # launch-ok: the block-wide scan needs a warp multiple, 256 threads is the chunk of sorted rows a block walks per step
+            mi[:, c0 + ok] = cp.asnumpy(out)[:, ok]
+            done[c0 + ok] = True
         return mi, done
     except Exception as exc:  # out of device memory or a driver fault: the host walk scores every column
         logger.warning("device bootstrap rank walk failed (%s: %s); using the host walk", type(exc).__name__, exc)

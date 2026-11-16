@@ -252,6 +252,78 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
         return float(max(float(np.max(mis)), memo_hit_best))
     return float(np.max(mis))
 
+_BASELINE_BATCH_COLS = 1024  # candidate columns of one batched baseline call (the matrix is n x this many)
+
+
+def _operand_set_candidates(cols_arr: list) -> list:
+    """The non-raw candidate columns of one operand set, in the order :func:`best_existing_op_mi` builds them: the four pairwise operators of every pair, then row max, row min and (for three or more) the row sum."""
+    cands: list = []
+    for i in range(len(cols_arr)):
+        for j in range(i + 1, len(cols_arr)):
+            u, v = cols_arr[i], cols_arr[j]
+            cands.append(u * v)
+            cands.append(u - v)
+            cands.append(u / np.maximum(np.abs(v), 1e-6))
+            cands.append(u + v)
+    stk = np.stack(cols_arr, axis=1)
+    cands.append(stk.max(axis=1))
+    cands.append(stk.min(axis=1))
+    if len(cols_arr) >= 3:
+        cands.append(stk.sum(axis=1))
+    return cands
+
+
+def best_existing_op_mi_many(arrs: dict, key_list: Sequence[Sequence[str]], yi: np.ndarray, nbins: int, raw_mi_memo: dict) -> list:
+    """``[best_existing_op_mi(arrs, key, yi, nbins, raw_mi_memo) for key in key_list]`` from a few batched MI calls instead of one small call per operand set.
+
+    The scan asks for a hardened floor per distinct operand set (411 sets at 100000 x 100: 411 calls of 14 columns, each paying its own dispatch and, on the device, its own synchronising read, 1.5 s).
+    The MI of a column does not depend on the other columns of its batch, so the non-raw candidates of many sets go into one matrix (``_BASELINE_BATCH_COLS`` columns at a time) and the raw operand
+    columns not in the memo into one more call; each set's floor is the maximum over its slice and the raw MIs of its operands: the same numbers. Sets the resident route would take stay on
+    :func:`best_existing_op_mi` (its own backend)."""
+    from ._orthogonal_univariate_fe import _mi_classif_batch
+
+    keys = [list(k) for k in key_list]
+    if not keys:
+        return []
+    n = length_of(arrs[keys[0][0]])
+    try:
+        from ._resident_candidate_mi_ktc import rescand_use_resident
+
+        if any(rescand_use_resident(n, len(k) + 4 * (len(k) * (len(k) - 1) // 2) + (3 if len(k) >= 3 else 2)) for k in keys):
+            from ._resident_candidate_mi import best_existing_op_mi_resident_many
+
+            _yi = np.ascontiguousarray(np.asarray(yi)).astype(np.int64).ravel()
+            _ym = int(_yi.min()) if _yi.size else 0
+            got = best_existing_op_mi_resident_many(arrs, keys, yi, nbins, y_min=_ym, n_classes=(int(_yi.max()) - _ym + 1) if _yi.size else 1, rank_binning=_gate_rank_binning())
+            return got if got is not None else [best_existing_op_mi(arrs, k, yi, nbins, raw_mi_memo) for k in keys]
+    except Exception as exc:  # nosec B110 - the tuner probe is optional; the batched host route below is exact either way
+        logger.debug("baseline batch: resident probe unavailable (%s)", exc)
+    dt = _crit_np_dtype()
+    y64 = yi.astype(np.int64)
+    rank = _gate_rank_binning()
+    fresh = list(dict.fromkeys(c for k in keys for c in k if c not in raw_mi_memo))
+    for a in range(0, len(fresh), _BASELINE_BATCH_COLS):
+        part = fresh[a : a + _BASELINE_BATCH_COLS]
+        mis = _mi_classif_batch(np.ascontiguousarray(np.column_stack([np.asarray(arrs[c], dtype=dt) for c in part])), y64, nbins=nbins, rank_binning=rank)
+        for c, m in zip(part, mis):
+            raw_mi_memo[c] = float(m)
+    out = [0.0] * len(keys)
+    i = 0
+    while i < len(keys):
+        cands: list = []
+        spans: list = []
+        while i < len(keys) and (not cands or len(cands) + 4 * len(keys[i]) * len(keys[i]) <= _BASELINE_BATCH_COLS):
+            cols = [np.asarray(arrs[c], dtype=dt) for c in keys[i]]
+            mine = _operand_set_candidates(cols)
+            spans.append((i, len(cands), len(cands) + len(mine)))
+            cands.extend(mine)
+            i += 1
+        mis = _mi_classif_batch(np.ascontiguousarray(np.column_stack(cands).astype(dt, copy=False)), y64, nbins=nbins, rank_binning=rank)
+        for idx, lo, hi in spans:
+            out[idx] = float(max(float(np.max(mis[lo:hi])), max(raw_mi_memo[c] for c in keys[idx])))
+    return out
+
+
 def _responded(feat_mi: float, baseline: float, null_hi: float, min_margin: float = _MIN_MARGIN, null_margin: float = _MIN_NULL_MARGIN) -> bool:
     """Gate: the engineered column's MI must clear BOTH the operand baseline (by ``min_margin``) AND the permutation-null upper band by an
     absolute ``null_margin`` (not just ``> null_hi`` - guards the cardinality-inflation false positive on a few-class y; see ``_MIN_NULL_MARGIN``).
@@ -295,6 +367,16 @@ def _resident_cand(feat: np.ndarray, role):
         logger.debug("gate resident-candidate upload failed; host fallback", exc_info=True)
         return feat
 
+def _argmax_host(columns):
+    """First-max index of the host operand columns in the crit dtype: the parallel numba kernel for finite columns, ``np.argmax`` (its NaN semantics) otherwise."""
+    from ._row_argmax_gpu import all_finite_cached, row_argmax_host
+
+    cols = [np.ascontiguousarray(np.asarray(c, dtype=_crit_np_dtype())) for c in columns]
+    if all(all_finite_cached(c) for c in cols):
+        return row_argmax_host(cols).astype(_crit_np_dtype())
+    return np.argmax(np.stack(cols, axis=1), axis=1).astype(_crit_np_dtype())
+
+
 def _argmax_resident(arrs, tri):
     """DEVICE-BORN the row-argmax candidate ``argmax_k(operand_k)`` from the RESIDENT operand columns, returning
     the resident double index column, or ``None`` when residency is off / any operand is non-finite / cupy faults
@@ -310,12 +392,14 @@ def _argmax_resident(arrs, tri):
         import cupy as cp
 
         from ._fe_resident_operands import resident_operand
-        from ._row_argmax_gpu import all_finite_cached, row_argmax_cm
-        _ops = []
+        from ._row_argmax_gpu import all_finite_cached, row_argmax_cm, row_argmax_on_device
+        _ops: list = []
         for c in tri:
             _h = np.ascontiguousarray(np.asarray(arrs[c], dtype=_crit_np_dtype()))
             if not all_finite_cached(_h):
                 return None  # host np.argmax NaN semantics differ -> keep the host path for a non-finite operand
+            if not _ops and not row_argmax_on_device(int(_h.shape[0])):
+                return None  # the per-host kernel-tuning cache prefers the host numba kernel at this row count
             _ops.append(resident_operand(_h, ("argmax_op", str(c)), dtype=_crit_np_dtype()))
         return row_argmax_cm(cp, _ops)  # first-max index as double, one launch (cp.argmax over the interleaved stack ran a 15 ms cub reduction)
     except Exception:
@@ -523,7 +607,7 @@ def cheap_row_argmax_scan(
         # is off / an operand is non-finite (host argmax NaN semantics) / any cupy fault.
         feat_r = _argmax_resident(arrs, tri)
         if feat_r is None:
-            feat = np.argmax(np.stack([arrs[c] for c in tri], axis=1), axis=1).astype(_crit_np_dtype())
+            feat = _argmax_host([arrs[c] for c in tri])
             feat_r = _resident_cand(feat, ("gate_cand_argmax", tuple(str(c) for c in tri)))
         feat_mi = _mi(feat_r, yi, nbins=nbins)
         # Early-reject: the null only matters for a triple already clearing the operand margin (``_responded`` needs BOTH).
@@ -707,8 +791,10 @@ def _gate_device_born_all_mi(_pending, yi, nbins):
         return None
 
 
-def _gate_flush_pending(_pending: list, yi: np.ndarray, nbins: int, seed: int, _baseline: Any, hits: list) -> None:
+def _gate_flush_pending(_pending: list, yi: np.ndarray, nbins: int, seed: int, _baseline: Any, hits: list, _prefill: Any = None) -> None:
     """Score every pending spec's tau grid in one batched call (device-born if available, else host), gate each on its margin over the baseline and append the ``GateHit``(s) to ``hits``."""
+    if _prefill is not None:
+        _prefill([bkey for (_m, _c, _o, _t, bkey) in _pending])  # the floors of every operand set of the batch in a few batched calls, before the loop reads them one by one
     all_mi = _gate_device_born_all_mi(_pending, yi, nbins)
     if all_mi is None:
         big = np.ascontiguousarray(np.concatenate([_gate_build_feats(m, o, t) for (m, _c, o, t, _b) in _pending], axis=1))
@@ -826,6 +912,12 @@ def cheap_conditional_gate_scan(
             _baseline_cache[key] = best_existing_op_mi(arrs, key, yi, nbins, _raw_mi_memo)
         return _baseline_cache[key]
 
+    def _prefill_baselines(operand_sets: list) -> None:
+        """Fill the baseline cache for the operand sets in ``operand_sets`` that it does not hold yet, from the batched floor."""
+        todo = list(dict.fromkeys(tuple(sorted(o)) for o in operand_sets if tuple(sorted(o)) not in _baseline_cache))
+        if todo:
+            _baseline_cache.update(zip(todo, best_existing_op_mi_many(arrs, todo, yi, nbins, _raw_mi_memo)))
+
     # BATCHED gate-MI: every (gate, operand-combo) builds a (n, n_tau) residue block
     # and previously scored it with its OWN ``_mi_classif_batch`` call (686+ small calls -> per-call njit
     # launch overhead + underfilled prange). The per-column MIs are INDEPENDENT, so we accumulate combos'
@@ -846,7 +938,7 @@ def cheap_conditional_gate_scan(
         nonlocal _pending, _pending_cols
         if not _pending:
             return
-        _gate_flush_pending(_pending, yi, nbins, seed, _baseline, hits)
+        _gate_flush_pending(_pending, yi, nbins, seed, _baseline, hits, _prefill_baselines)
         _pending = []; _pending_cols = 0
 
     def _add(mode, ctup, operands, taus, bkey):

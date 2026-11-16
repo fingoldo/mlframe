@@ -6,7 +6,7 @@ skipping the points of other classes (the neighbours of a point sit next to it, 
 comparisons. Only ``sum psi(m)`` depends on the data; ``sum psi(k)`` and ``sum psi(class count)`` are class sums formed on the host. Each block writes its partial sum of ``psi(m)``
 and the partials are added in a fixed order, so a run is reproducible; they differ from the host's sequential sum only by floating-point rounding (measured: 7e-12 absolute at 100000 rows).
 
-Rows of classes with a single member are dropped before the sort (the host drops them from the sorted list, which leaves the order of the others unchanged). Columns go to the device in blocks
+Rows of classes with a single member are dropped before the sort (the host drops them from the sorted list, which leaves the order of the others unchanged). Columns go to the device in column blocks
 that fit ``_BUDGET_FRACTION`` of the free memory; on any device fault the caller runs the host kernel.
 
 The kernel-tuning cache decides by row count (fallback ``DEVICE_FALLBACK_ROWS``).
@@ -15,7 +15,7 @@ The kernel-tuning cache decides by row count (fallback ``DEVICE_FALLBACK_ROWS``)
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -23,6 +23,7 @@ import numpy as np
 from ._device_sort_safe import device_argsort, device_room
 from ._gpu_resident_select_kernels import _transpose_to_cm
 from ._ktc_fallback import host_device_sweep, rows_fallback
+from ._kernel_types import render
 from ._raw_module_cache import RawModuleCache
 from mlframe.utils.log_throttle import log_throttle
 
@@ -34,29 +35,29 @@ _BLOCKS_PER_COLUMN = 64
 
 _SRC = r"""
 #define POS_INF __longlong_as_double(0x7ff0000000000000LL)
-// dtype-ok: Intentional float64: the host kernel works on noised double columns; the distance comparisons must match it exactly.
-extern "C" __global__ void ksg_psi_m_sums(const double* __restrict__ xs, const int* __restrict__ ds, const long long nk, const int* __restrict__ counts,
-                                          const int nn, const double* __restrict__ psi, double* __restrict__ partial) {
-    __shared__ double red[256];
+// {REAL} is instantiated at 64 bits on purpose: the host kernel works on noised 64-bit columns and the distance comparisons must match it exactly; {ACC} is the accumulator type.
+extern "C" __global__ void ksg_psi_m_sums(const {REAL}* __restrict__ xs, const int* __restrict__ ds, const long long nk, const int* __restrict__ counts,
+                                          const int nn, const {ACC}* __restrict__ psi, {ACC}* __restrict__ partial) {
+    __shared__ {ACC} red[256];
     const int col = blockIdx.y;
-    const double* x = xs + (long long)col * nk;
+    const {REAL}* x = xs + (long long)col * nk;
     const int* d = ds + (long long)col * nk;
-    double acc = 0.0;
+    {ACC} acc = 0.0;
     for (long long j = (long long)blockIdx.x * blockDim.x + threadIdx.x; j < nk; j += (long long)gridDim.x * blockDim.x) {
         const int c = d[j];
         const int cnt = counts[c];
         const int k = min(nn, cnt - 1);
-        const double v = x[j];
+        const {REAL} v = x[j];
         long long lo = j - 1, hi = j + 1;
-        double r = 0.0;
+        {REAL} r = 0.0;
         for (int t = 0; t < k; ++t) {
             while (lo >= 0 && d[lo] != c) --lo;
             while (hi < nk && d[hi] != c) ++hi;
-            const double dl = lo >= 0 ? v - x[lo] : POS_INF;
-            const double dh = hi < nk ? x[hi] - v : POS_INF;
+            const {REAL} dl = lo >= 0 ? v - x[lo] : POS_INF;
+            const {REAL} dh = hi < nk ? x[hi] - v : POS_INF;
             if (dl <= dh) { r = dl; --lo; } else { r = dh; ++hi; }
         }
-        const double lo_key = v - r, hi_key = v + r;
+        const {REAL} lo_key = v - r, hi_key = v + r;
         long long lo_m = j;
         while (lo_m > 0 && x[lo_m - 1] >= lo_key) --lo_m;
         long long hi_m = j + 1;
@@ -75,7 +76,15 @@ extern "C" __global__ void ksg_psi_m_sums(const double* __restrict__ xs, const i
 }
 """
 
-_MODULE = RawModuleCache(_SRC)
+_MODULE = RawModuleCache(render(_SRC, real=np.float64))  # Intentional float64: the data type is 64-bit on purpose (see the comment in the kernel); {ACC} is the 64-bit accumulator
+
+
+def kernel(cp: Any, real: Any = np.float64) -> Any:
+    """``ksg_psi_m_sums`` for 64-bit columns (the only instantiation: ``real`` is accepted for the registry's factory protocol); compile point of :func:`mi_cd_columns_device` and of the register-pressure registry."""
+    if np.dtype(real) != np.float64:
+        raise ValueError("ksg_psi_m_sums is instantiated for 64-bit columns only")
+    return _MODULE.get(cp).get_function("ksg_psi_m_sums")
+
 _THREADS = 256
 
 
@@ -103,7 +112,7 @@ def mi_cd_columns_device(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbo
         d_dev = cp.asarray(np.ascontiguousarray(d[keep], dtype=np.int32))
         counts_dev = cp.asarray(counts.astype(np.int32))
         psi_dev = cp.asarray(psi)
-        kernel = _MODULE.get(cp).get_function("ksg_psi_m_sums")
+        ksg_kernel = kernel(cp)
         free = device_room(cp)
         per_col = n_kept * (8 + 8 + 8 + 8 + 4)  # row-major upload, transposed values, sort order, sorted values, sorted labels
         block = int(max(1, min(n_cols, (_BUDGET_FRACTION * free) // per_col)))
@@ -120,7 +129,7 @@ def mi_cd_columns_device(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbo
             del xd
             width = xs.shape[0]
             partial = partial_buf[:width]
-            kernel(  # launch-ok: _THREADS=256 is the compile-time size of the kernel's `__shared__ double red[256]` reduction buffer, not a tuned size
+            ksg_kernel(  # launch-ok: _THREADS=256 is the compile-time size of the kernel's `__shared__ double red[256]` reduction buffer, not a tuned size
                 (_BLOCKS_PER_COLUMN, width), (_THREADS,), (xs, ds, np.int64(n_kept), counts_dev, np.int32(n_neighbors), psi_dev, partial)
             )
             sum_m_dev[c0 : c0 + width] = partial.sum(axis=1)

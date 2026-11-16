@@ -43,3 +43,26 @@ of a mergesort (the MI depends only on the runs); bit-identical, 300 columns x 3
 copula kernel): bit-identical, 300 x 30000 0.219 -> 0.046 s.
 `_ksg_cd_fast._mi_cd_column`: the per-column `np.argsort` is an 8-pass LSD radix order of the float64 keys (`_numba_utils_shared.radix_order_f64`); the k-NN
 walk reads the sorted values only, so the MI is bit-identical. 300 columns x 30000 rows: 0.459 -> 0.418 s (2 classes), 0.506 -> 0.371 s (3 classes).
+
+## 2026-11-16: under the contract (owner: the CT11-58 exemption is replaced by the real contract)
+
+The auto scorer draws the bootstrap resamples, builds the `(n, k)` block of the finite columns and its transposed device copy once per resample, and hands them to the seven batched scorers (plug-in MI, KSG, copula MI, xi, dCor, HSIC, tail dependence). The numba and CUDA kernels and the tuner entries are owned by the scorer modules (`GPU_BACKENDS` of `fe_gpu_coverage_inventory` lists them, the test pins that every one meets the whole contract itself: `_orthogonal_ksg_mi_fe` (this session, CT11-67), `_orthogonal_copula_mi_fe`, `_orthogonal_xi_fe`, `_orthogonal_dcor_fe`, `_orthogonal_hsic_fe`, `_orthogonal_tail_dependence_fe`, `_orthogonal_univariate_fe`); the host form is the numba KSG kernel of `_ksg_cd_fast` plus the host batches of the same modules.
+
+Column blocks (new): `_batched_bootstrap_values_in_column_blocks` hands the scorers at most `_BOOTSTRAP_BLOCK_BYTES` (256 MB) of a resample at a time; the scorers are column-separable, so the blocks laid side by side equal one call (new test); a 1000-column frame of a million rows was a 4 GB block per resample.
+
+### Per-scorer cost of one resample (100 columns, GTX 1050 Ti, strict-resident, warm, synchronized)
+
+| rows | plug-in | KSG | copula | xi | dCor | HSIC | tail | device block |
+|---|---|---|---|---|---|---|---|---|
+| 30000 | 0.006 s | 0.088 | 0.039 | 0.039 | 0.009 | 0.010 | 0.009 | 0.004 |
+| 100000 | 0.017 s | 0.284 | 0.081 | 0.112 | 0.010 | 0.011 | 0.028 | 0.014 |
+
+KSG is half of a resample at 100000 rows; its record is `_orthogonal_ksg_mi_fe.md`.
+
+### cProfile and timings (`hybrid_orth_mi_auto_scorer_fe`, 100 columns)
+
+30000 rows: 1.51-1.64 s wall, 5.4-5.8 CPU-s (3.6 cores busy); 100000 rows: 5.77 s, 12.4 CPU-s. cProfile of the 30000-row call: 1.28 s of the 1.40 s is `lock.acquire`, the main thread waiting for the resample pool (the scorers run in the pool threads, which cProfile does not see).
+
+### nvprof (30000 rows, 2 calls)
+
+Kernel launches per call: about 100 radix-sort / merge-sort launches (DeviceMergeSortMerge 22 %, BlockSort 12.7 %, RadixSortOnesweep 4.8 %: the rank transforms of copula and xi and the order of the dCor / HSIC samples), 10 `dcor_cols`, 10 `ksg_psi_m_sums`, 10 `radix_select_interp`, 10 `hsic_biased_cols`, 10 `tail_counts`, 134 uploads (17 % of the device time). Device time about 0.33 s of the 1.5 s call (22 % busy): the call is bound by the host scorers and the order of the resamples, not by the kernels. Kernel metrics: `tail_counts` occupancy 0.65, SM activity 88 %, 20 GB/s; the radix histogram kernel occupancy 0.37, SM activity 98.8 %, 45 GB/s of the 112 GB/s card; the exclusive-sum kernel of the sort occupancy 0.17, SM activity 37 % (a small scan, 10 launches). Whole-GPU utilization of the call 22 % (device busy), CPU 3.6 of 8 cores.

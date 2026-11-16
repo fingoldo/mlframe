@@ -12,6 +12,7 @@ The statistic is the plug-in I(operand; y | engineered feature) over the bins of
 
 from __future__ import annotations
 
+import os
 import zlib
 from collections.abc import Sequence
 
@@ -27,7 +28,8 @@ def operand_adds_information(data: np.ndarray, target_col: int, operand_col: int
     ``data`` is the discretised factors matrix; ``operand_col``, ``owner_cols`` and ``target_col`` are column indices into it. ``key`` names the operand so
     its permutation stream does not depend on the order the operands are tested in.
     """
-    from mlframe.feature_selection.filters._cmi_strata_njit import permutation_sources, stratified_cmi, stratified_cmi_null
+    from mlframe.feature_selection.filters._cmi_strata_njit import permutation_seed, permutation_sources, stratified_cmi, stratified_cmi_null
+    from mlframe.feature_selection.filters._cmi_strata_tables_njit import StratifiedNull
     from mlframe.feature_selection.filters._orthogonal_triplet_fe import _dense_codes
 
     y = data[:, int(target_col)]
@@ -35,7 +37,10 @@ def operand_adds_information(data: np.ndarray, target_col: int, operand_col: int
         x_d, y_d, s_d = _dense_codes(data[:, int(operand_col)], y, data[:, int(owner)])
         observed = float(stratified_cmi(x_d, y_d, s_d, _MIN_STRATUM_ROWS))
         rng = np.random.default_rng([int(seed), zlib.crc32(f"{key}|{owner}".encode())])
-        null = stratified_cmi_null(x_d, y_d, s_d, permutation_sources(s_d, _PERMUTATIONS, rng), _MIN_STRATUM_ROWS)
+        if os.environ.get("MLFRAME_TRIPLET_NULL_SHUFFLE", "0").strip() == "1":
+            null = stratified_cmi_null(x_d, y_d, s_d, permutation_sources(s_d, _PERMUTATIONS, rng), _MIN_STRATUM_ROWS)
+        else:
+            null = StratifiedNull(x_d, y_d, s_d, _MIN_STRATUM_ROWS).chunk(0, _PERMUTATIONS, permutation_seed(rng))  # the tables drawn directly (the law of the shuffles, O(strata x levels) a draw)
         if (1.0 + float(np.count_nonzero(null >= observed))) / (_PERMUTATIONS + 1.0) >= alpha:
             return False  # this owner explains the operand
     return True
