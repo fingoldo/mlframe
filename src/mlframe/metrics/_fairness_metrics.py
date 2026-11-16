@@ -119,7 +119,7 @@ def create_fairness_subgroups(
             cats = rarecats.index.values.tolist()
             if merge_lowpop_cats and rarecats.sum() >= min_pop_cat_thresh:
                 # merging is possible
-                feature_vals = feature_vals.copy().replace({cat: rare_group_name for cat in cats})
+                feature_vals = feature_vals.replace({cat: rare_group_name for cat in cats})  # replace() already returns a new object
                 val_cnts = feature_vals.value_counts()  # this needs recalculation now
                 cats_to_use = val_cnts.index.values.tolist()
                 logger.info("For feature %s, had to merge %s bins %s, %s records.", feature_name, f"{len(cats):_}", ",".join(map(str, cats)), f"{rarecats.sum():_}")

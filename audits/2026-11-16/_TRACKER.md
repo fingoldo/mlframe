@@ -33,7 +33,7 @@ TODO total: 34. Nothing is fixed yet; no code was changed in this audit.
 | C3 (05) | low | metrics/_gpu_metrics.py:116-125, 222 | lazy GPU probe and kernel init unlocked; two threads can both probe | test_gpu_metrics_lazy_init_runs_probe_once_under_threads |
 | C6 (05) | low | utils/log_sanitize.py:72-80 | install_log_sanitizer check-then-set not atomic | test_install_log_sanitizer_idempotent_under_threads |
 | M1 (06) | med | competition/leak_scan.py:119 | full-frame df.copy() just to insert __target__; only a mask is needed | test_leak_scan_does_not_copy_full_frame |
-| M2 (06) | low | metrics/_fairness_metrics.py:122 | redundant .copy() before .replace | test_fairness_replace_result_unchanged_without_copy |
+| M2 (06) | RESOLVED | metrics/_fairness_metrics.py | redundant `.copy()` before `.replace` removed. Note: the copy is not observable in results, so the pinning test passes on old code too; the fix is a perf-only change | test_fairness_merge_lowpop_keeps_input_intact.py + test_fairness_subgroups_keep_rare_bins_when_not_excluded.py 3/3 |
 | P1 (07) | med | feature_engineering/transformer/apriori_itemsets.py:54 | per-itemset iterrows loop with fancy-index np.all | test_apriori_itemset_lifts_matches_reference_after_vectorization |
 | API-01 (08) | med | estimators/early_stopping.py:95, 141 | max_iter=None default cannot be fitted | test_early_stopping_wrapper_default_max_iter_fits_or_is_rejected_at_init |
 | API-02 (08) | med | feature_engineering/transformer/ib_baseline_codes.py:84-85 | n_bits accepted and never read | test_ib_baseline_codes_n_bits_is_used_or_removed |
