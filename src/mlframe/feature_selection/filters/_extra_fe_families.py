@@ -580,6 +580,22 @@ def _apply_conditional_residual_recipe(recipe, X) -> np.ndarray:
     )
 
 
+def _top_mi_fit_memo_key(X: pd.DataFrame, num_cols: Sequence[str], y_bin: np.ndarray) -> "tuple[dict, tuple] | None":
+    """``(the fit's table, key)`` under which the raw MI vector of ``num_cols`` on this frame object is kept, or ``None`` outside a fit.
+
+    Ten families bound their candidate pools with ``_top_mi_num_cols`` over the same raw columns of the step-input frame, all rows; each call copied the block out of the frame,
+    uploaded it and scored it (1.1-1.2 thread-seconds a fit). The cascades hand every family the same frame object and never write to it, so the vector is kept per frame object
+    (checked through a weak reference, so a recycled id cannot answer for another frame), column list and target bytes in the fit-wide table of ``_orth_scoring_memo``. Keying by the
+    columns' bytes instead was measured slower than no memo (1.85 thread-seconds: a contiguous copy and a hash of every full-length column per call)."""
+    from ._fe_resident_operands import _content_hash
+    from ._orthogonal_univariate_fe._orth_scoring_memo import _SCORING_MEMO
+
+    table = _SCORING_MEMO["cache"]
+    if table is None:
+        return None
+    return table, ("top_mi_num_cols", id(X), tuple(map(str, num_cols)), len(X), y_bin.dtype.str, _content_hash(np.ascontiguousarray(y_bin)), 10)
+
+
 _TOP_MI_CHUNK_COLS = 64
 
 
@@ -603,9 +619,21 @@ def _top_mi_num_cols(
     from ._binned_numeric_agg_batches import _free_host_bytes, rows_per_batch
 
     width = max(1, min(_TOP_MI_CHUNK_COLS, rows_per_batch(len(X), int(np.dtype(_crit_np_dtype()).itemsize), _free_host_bytes(), None)))
-    for start in range(0, len(num_cols), width):
-        block = X[num_cols[start : start + width]].to_numpy(dtype=_crit_np_dtype())
-        mi[start : start + block.shape[1]] = np.asarray(_mi_classif_batch(block, y_bin, nbins=10), dtype=_crit_np_dtype())
+    memo = _top_mi_fit_memo_key(X, num_cols, y_bin)
+    hit = memo[0].get(memo[1]) if memo is not None else None
+    if hit is not None and hit[0]() is X:
+        mi = hit[1]
+    else:
+        for start in range(0, len(num_cols), width):
+            block = X[num_cols[start : start + width]].to_numpy(dtype=_crit_np_dtype())
+            mi[start : start + block.shape[1]] = np.asarray(_mi_classif_batch(block, y_bin, nbins=10), dtype=_crit_np_dtype())
+        if memo is not None:
+            import weakref
+
+            try:
+                memo[0][memo[1]] = (weakref.ref(X), mi)
+            except TypeError:  # a frame type that cannot be weakly referenced is scored every time
+                pass
     order = np.argsort(-mi, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
     return [num_cols[i] for i in order[: int(max_cols)]]
 
