@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from tests._cuda_require import require_cuda_device
 
 from mlframe.feature_selection.filters import _gate_rank_divergence as gd
 
@@ -65,14 +66,13 @@ def test_non_finite_matrix_is_left_to_the_loop():
 def test_device_walk_equals_the_host_walk(ties):
     """The cupy form (stable argsort, run starts, prefix counts, one bincount) gives the host walk's values."""
     cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
-        pytest.skip("no CUDA device")
+    require_cuda_device()
     mat, y = _frame(4000, 21, ties)
     got = gd.gate_divergence_device(cp, cp.asarray(mat), cp.asarray(y), [0, 1, 2], 10)
-    assert got is not None
-    np.testing.assert_allclose(got, gd.gate_divergence(mat, y, [0, 1, 2], 10), atol=1e-12)
+    want = gd.gate_divergence(mat, y, [0, 1, 2], 10)
+    assert got is not None and want is not None
+    assert got.shape == want.shape
+    assert np.allclose(got, want, atol=1e-12)
 
 
 def test_rank_and_prune_ranking_is_the_loops(monkeypatch):
@@ -101,11 +101,8 @@ def test_device_choice_is_forced_by_the_environment(monkeypatch):
 
 def test_sweep_inputs_take_the_row_axis_and_the_two_walks_agree():
     """The sweep builds ``n_samples`` rows by ``_SWEEP_COLS`` columns, and its host and device callables agree to the sweep's tolerance."""
-    cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
-        pytest.skip("no CUDA device")
+    pytest.importorskip("cupy")
+    require_cuda_device()
     mat, y = gd._sweep_inputs({"n_samples": 3000})
     assert mat.shape == (3000, gd._SWEEP_COLS)
     np.testing.assert_allclose(gd._sweep_device(mat, y), gd._sweep_host(mat, y), rtol=1e-9, atol=1e-9)

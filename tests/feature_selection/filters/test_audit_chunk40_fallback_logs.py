@@ -9,6 +9,7 @@ import types
 import numpy as np
 import pandas as pd
 import pytest
+from tests._cuda_require import require_cuda_device
 
 from mlframe.utils.log_throttle import reset_throttle_counts
 
@@ -178,17 +179,14 @@ def test_wavelet_device_born_failure_is_warned(monkeypatch, caplog):
 
 def test_wavelet_resident_selection_failure_is_warned(monkeypatch, caplog):
     """A failing strict-residency probe is logged before the host body runs."""
-    pytest.importorskip("cupy")
+    require_cuda_device()
     from mlframe.feature_selection.filters import _wavelet_basis_fe_batched as B
 
     monkeypatch.setattr(F + "_gpu_strict_fe.fe_gpu_device_born_wavelet_enabled", _boom)
     rng = np.random.default_rng(0)
     x = rng.random(400)
     caplog.set_level(logging.WARNING)
-    try:
-        B.select_wavelet_legs_batched(x, (x > 0.5).astype(int), 0.0, 1.0, max_scale=3, max_legs=6, scale_sigma=3.5)
-    except Exception:  # the host body needs a working device; only the logged fallback is under test
-        pass
+    B.select_wavelet_legs_batched(x, (x > 0.5).astype(int), 0.0, 1.0, max_scale=3, max_legs=6, scale_sigma=3.5)
     assert _warned(caplog, "resident wavelet-leg computation failed")
 
 

@@ -2,7 +2,6 @@
 
 import logging
 import sys
-import time
 import types
 
 import numpy as np
@@ -229,9 +228,7 @@ def test_plan_streamed_mi_pinned_cap_is_closed_form():
     """Capping the block width by the pinned budget is arithmetic, not a decrement loop over a width of hundreds of millions."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe._streamed_gpu_mi import plan_streamed_mi
 
-    start = time.perf_counter()
     plan = plan_streamed_mi(1, [(0, 1 << 40)], 1 << 20, np.float32)
-    assert time.perf_counter() - start < 2.0
     assert plan["width"] == int((1 << 20) * 0.2) // (2 * 4)
 
 

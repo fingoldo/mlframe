@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from tests._cuda_require import require_cuda_device
 
 from mlframe.feature_selection.filters import _conditional_gate_fe as gate
 from mlframe.feature_selection.filters import _resident_candidate_mi_ktc as ktc
@@ -36,10 +37,7 @@ def test_row_mark_fallback_before_any_sweep(monkeypatch):
 
 def test_rank_binned_device_grid_equals_the_host_scan():
     """The sweep's two callables (host scan and rank-binned device-born grid) agree to the sweep tolerance on a small frame."""
-    cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
-        pytest.skip("no CUDA device")
+    pytest.importorskip("cupy")
+    require_cuda_device()
     specs, y = ktc._grid_inputs({"n_samples": 4000})
     np.testing.assert_allclose(ktc._grid_device(specs, y), ktc._grid_host(specs, y), rtol=1e-6, atol=1e-6)

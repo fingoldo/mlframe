@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from tests._cuda_require import require_cuda_device
 
 from mlframe.feature_selection.filters import _gpu_resident_operand_build as ob
 from mlframe.feature_selection.filters._gpu_resident_shared import _unary_apply
@@ -12,10 +13,7 @@ from mlframe.feature_selection.filters._gpu_resident_shared import _unary_apply
 def _cp():
     """cupy with a usable device, else skip."""
     cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
-        pytest.skip("no usable CUDA device")
+    require_cuda_device()
     return cp
 
 

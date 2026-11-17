@@ -6,6 +6,7 @@ import types
 
 import numpy as np
 import pytest
+from tests._cuda_require import require_cuda_device
 
 from mlframe.feature_selection.filters._cupy_solve_checked import cupy_solve_checked
 
@@ -33,11 +34,7 @@ def test_finite_solution_is_returned_unchanged() -> None:
 def test_real_cupy_singular_matrix_raises() -> None:
     """On a real device a singular matrix gives NaN from cupy itself and the helper raises."""
     cp = pytest.importorskip("cupy")
-    try:
-        if cp.cuda.runtime.getDeviceCount() < 1:
-            pytest.skip("no CUDA device")
-    except Exception:
-        pytest.skip("no usable CUDA runtime")
+    require_cuda_device()
     with pytest.raises(np.linalg.LinAlgError):
         cupy_solve_checked(cp, cp.zeros((3, 3)), cp.ones(3))
 

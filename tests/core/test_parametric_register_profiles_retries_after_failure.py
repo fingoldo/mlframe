@@ -39,7 +39,6 @@ def test_register_profiles_retries_after_transient_failure(monkeypatch):
 def test_register_profiles_concurrent_callers_register_once(monkeypatch):
     """A second thread calling while the first is mid-registration waits instead of registering again."""
     import threading
-    import time
 
     real = settings.register_profile
     calls = {"n": 0}
@@ -67,7 +66,8 @@ def test_register_profiles_concurrent_callers_register_once(monkeypatch):
     t1.start()
     assert entered.wait(timeout=3)
     t2.start()
-    time.sleep(0.2)
+    t2.join(timeout=0.2)
+    assert t2.is_alive(), "the second caller registered while the first was mid-registration"
     release.set()
     t1.join(timeout=5)
     t2.join(timeout=5)

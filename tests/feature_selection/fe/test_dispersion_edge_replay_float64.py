@@ -7,6 +7,7 @@ import logging
 import numpy as np
 import pandas as pd
 import pytest
+from tests._cuda_require import require_cuda_device
 
 from mlframe.feature_selection.filters._extra_fe_families_dispersion import (
     apply_conditional_dispersion,
@@ -84,10 +85,7 @@ def test_block_width_fallback_warning_is_throttled(monkeypatch: pytest.MonkeyPat
 def test_device_bin_codes_use_float64_edges() -> None:
     """The device bin codes equal the host digitiser's on a value that sits on a float32-rounded edge."""
     cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
-        pytest.skip("no CUDA device")
+    require_cuda_device()
     from mlframe.feature_selection.filters._extra_fe_families import _digitize_with_edges
     from mlframe.feature_selection.filters._extra_fe_families_dispersion_resident import _bin_codes_block
     from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype

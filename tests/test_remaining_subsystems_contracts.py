@@ -306,34 +306,30 @@ class TestTheDocumentedContractsMatchTheCode:
     def test_the_ridge_tolerance_is_relative(self):
         """`tol` is a RELATIVE drop from the best score, not an absolute one.
 
-        Driven on data where the two forms disagree outright. The signal is weak, so the best CV r2 is about
-        +0.0033; a relative 1% floor is +0.00331 and only the 3-feature prefix clears it, while an absolute
-        floor of best - 0.01 is -0.0067 and the 1-feature prefix -- scoring -0.0058, i.e. WORSE than predicting
-        the mean -- clears that comfortably. Subtracting absolutely on a small-magnitude score turns `tol` into
-        an enormous relative allowance, which is how a far smaller set than the operator asked for gets
-        through. The gap widens with tol, so all three settings are checked.
+        Driven on data where the two forms disagree outright. The pool scores are honest held-out scores (the
+        scaler and the ranking are refit inside each training fold), so the best CV r2 is about +0.03. A
+        relative 1% floor keeps only the pools that are that close to it, while an absolute floor of best - tol
+        is far looser on this small score and keeps a much smaller set. Subtracting absolutely on a small-magnitude
+        score turns `tol` into a far larger relative allowance, which is how a set smaller than the operator asked
+        for gets through. Only the tolerances where the two rules disagree are checked (at 0.2 they coincide here).
         """
         import numpy as _np
-        from sklearn.linear_model import Ridge
-        from sklearn.model_selection import cross_val_score
 
-        from mlframe.feature_selection.ridge_forward_prefilter import ridge_coefficient_prefilter
+        from mlframe.feature_selection.ridge_forward_prefilter import nested_pool_cv_scores, ridge_coefficient_prefilter
 
         rng = _np.random.default_rng(0)
         n, p = 400, 8
         X = rng.normal(size=(n, p))
-        y = 0.10 * X[:, 0] + 0.08 * X[:, 1] + 0.06 * X[:, 2] + 0.05 * X[:, 3] + rng.normal(0, 1.0, n)
+        y = 0.20 * X[:, 0] + 0.16 * X[:, 1] + 0.12 * X[:, 2] + 0.10 * X[:, 3] + rng.normal(0, 1.0, n)
         names = [f"f{i}" for i in range(p)]
         sizes = [1, 2, 3, 4, 6, 8]
 
-        # Score each ridge-ranked prefix the way the prefilter does, so the fixture's premise is asserted
-        # rather than assumed.
-        order = _np.argsort(_np.abs(Ridge(alpha=1.0).fit(X, y).coef_))[::-1]
-        scores = {s: float(_np.mean(cross_val_score(Ridge(alpha=1.0), X[:, order[:s]], y, cv=3, scoring="r2"))) for s in sizes}
+        # The prefilter's own nested scores, so the fixture's premise is asserted rather than assumed.
+        scores = nested_pool_cv_scores(X, y, sizes, 3, False, 1.0, 0)
         best = max(scores.values())
         assert 0.0 < best < 0.05, f"the fixture needs a small POSITIVE best score for the two floors to diverge; got {best:+.5f}"
 
-        for tol in (0.01, 0.05, 0.2):
+        for tol in (0.01, 0.05):
             relative_pick = next(s for s in sizes if scores[s] >= best - abs(best) * tol)
             absolute_pick = next(s for s in sizes if scores[s] >= best - tol)
             assert relative_pick != absolute_pick, f"tol={tol} does not separate the two rules on this fixture"

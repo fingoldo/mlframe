@@ -26,7 +26,7 @@ def _kernel_files():
 def test_kernel_files_were_found():
     """The scan sees the known kernel modules, so an empty result cannot pass the gate by accident."""
     names = {p.name for p in _kernel_files()}
-    assert {"_fe_batched_mi.py", "_cell_moments_kernel.py", "_hermite_fe_mi.py"} <= names
+    assert {"_fe_batched_mi.py", "_cell_moments_kernel.py", "_quantile_codes_gpu.py"} <= names
 
 
 def test_every_hard_double_kernel_file_states_why():

@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from tests._cuda_require import require_cuda_device
 
 from mlframe.feature_selection.filters import _wavelet_basis_fe as W
 from mlframe.feature_selection.filters._wavelet_basis_fe_recipes import _apply_orth_wavelet, build_orth_wavelet_recipe
@@ -37,10 +38,7 @@ def test_integer_target_with_negative_labels_selects_the_same_legs_as_zero_based
 def test_fused_leg_builder_cuts_cells_on_float64_z(monkeypatch):
     """z values 1e-9 below a cell edge stay below it in the fused GPU builder, as in the per-leg float64 reference."""
     cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
-        pytest.skip("no CUDA device")
+    require_cuda_device()
     from mlframe.feature_selection.filters._wavelet_basis_fe_batched import _per_leg_matrices
     from mlframe.feature_selection.filters._wavelet_legs_fused_gpu import leg_code_matrices
 

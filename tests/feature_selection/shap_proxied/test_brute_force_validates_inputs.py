@@ -48,4 +48,6 @@ def test_brute_force_min_card_zero_behaves_as_one():
     phi, base, y = _data()
     a = brute_force_top_n(phi, base, y, classification=False, metric="mse", min_card=0, top_n=5, parallel=False)
     b = brute_force_top_n(phi, base, y, classification=False, metric="mse", min_card=1, top_n=5, parallel=False)
-    assert a == b and all(len(c) >= 1 for _, c in a)
+    assert a, "the search returned no combinations"
+    assert a == b
+    assert all(len(c) >= 1 for _, c in a)

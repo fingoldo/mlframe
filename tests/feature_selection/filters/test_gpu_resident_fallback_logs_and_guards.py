@@ -9,6 +9,7 @@ import logging
 
 import numpy as np
 import pytest
+from tests._cuda_require import require_cuda_device
 
 from mlframe.utils.log_throttle import reset_throttle_counts
 
@@ -25,11 +26,7 @@ def _fresh_throttle_counts():
 def cp():
     """The cupy module, skipping the test when there is no usable device."""
     cupy = pytest.importorskip("cupy")
-    try:
-        if cupy.cuda.runtime.getDeviceCount() < 1:
-            pytest.skip("no CUDA device")
-    except Exception:
-        pytest.skip("no CUDA device")
+    require_cuda_device()
     return cupy
 
 
