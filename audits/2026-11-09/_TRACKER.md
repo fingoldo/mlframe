@@ -959,3 +959,7 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 ### MR11-28 dropped lead: CMI-greedy family beside the hybrid variants (2026-11-17)
 - early_a at 47.2 s: hybrid main 0.9 s, extra bases 1.7, variants 10.2 (lanes end at 8.4, then about 1.8 s of ordered folds and the three-gate stage), CMI-greedy 1.1, dominant-candidate check 0.8 (full-n column stack 0.3 + MI 0.4).
 - Tried: the CMI-greedy family (reads the step input only) on a fourth worker beside the three variant lanes, private estimator copy and recipe dict, folded by name at its sequential position. Same selection, but the lanes went from 7.2 / 8.4 / 8.2 to 8.1 / 9.4 / 9.1 s and the fit stayed at 46.5 / 46.6 / 47.0 s: a fourth interpreter-bound thread takes from the three what it saves. Reverted. The same holds for moving the extra-basis stage beside the lanes; rebalancing pays only while lanes are uneven.
+
+### MR11-29 dominant-candidate check: matrix built in place without `nan_to_num` (2026-11-17)
+- `dominant_candidate` runs on the serial path after early_a over every numeric column at full n (0.8 s: 0.3 s building the matrix, 0.4 s MI). The matrix was a `column_stack` of `nan_to_num` copies (2.4 ms a column); each column is now written into a preallocated matrix, with a `where` only for a column that has a non-finite value. 150 columns x 100000 rows: 0.22 s for the whole call. Same values.
+- Wall 46.3 / 47.5 s, the same seven features.
