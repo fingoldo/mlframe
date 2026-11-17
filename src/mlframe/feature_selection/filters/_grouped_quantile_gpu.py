@@ -6,7 +6,7 @@ group's IQR and p90 - p10 spreads. On the host that is one radix order per group
 Here the whole block of numeric columns is done at once. Each column is sorted ONCE by the pair (group, value): the 32-bit order-preserving key of the float32 value under the group code in the
 high word, so one 64-bit sort per column puts every group's values side by side (a ``-0.0`` is canonicalised to ``+0.0`` first, so equal values have equal keys). Then
 ``group_pct_ranks`` (one thread per sorted position, a binary search for the bounds of the thread's run of equal values inside its group's segment) writes ``(lo + hi) / (2 m)`` to the
-member's own row, and ``group_quantiles`` (one block per (group, column)) reads the four linear quantiles off the segment with numpy's own lerp (the float32 difference, the float64 interpolation),
+member's own row, and ``group_quantiles`` (one block per (group, column)) reads the four linear quantiles off the segment with numpy's own lerp (the float32 difference, the double precision interpolation),
 so the values equal the host's bit for bit.
 
 Two forms of one function: ``_stats_host`` (the per-group radix order and the nogil rank kernel of ``_grouped_quantile_ranks``, the host form the family used) and ``_stats_device`` (the kernels above);
@@ -168,7 +168,7 @@ def _stats_device(xs: np.ndarray, codes: np.ndarray, n_groups: int) -> Optional[
             sv = cp.ascontiguousarray(cp.take_along_axis(xd, order, axis=1))
             width = c1 - c0
             out = cp.empty((width, n), dtype=cp.float32)
-            iq = cp.empty((width, n_groups), dtype=cp.float64)
+            iq = cp.empty((width, n_groups), dtype=cp.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
             pp = cp.empty((width, n_groups), dtype=cp.float64)
             rank_kernel((64, width), (_THREADS,), (sv, gs, order, seg_d, np.int64(n), out))  # launch-ok: a grid-stride loop over the sorted positions, any block of a warp multiple is correct
             quant_kernel(((n_groups + 31) // 32, width), (32,), (sv, seg_d, np.int64(n), np.int32(n_groups), iq, pp))  # launch-ok: one thread per group, a warp of groups per block
@@ -199,7 +199,7 @@ def _sweep_inputs(dims: dict) -> tuple:
 def _sweep_host(xs: np.ndarray, codes: np.ndarray, n_groups: int) -> np.ndarray:
     """The host form's percentile ranks and spreads on the sweep inputs, as one comparable array."""
     got = _stats_host(xs, codes, n_groups)
-    return np.concatenate([got["pct"].ravel().astype(np.float64), got["iqr"].ravel(), got["p90p10"].ravel()])
+    return np.concatenate([got["pct"].ravel().astype(np.float64), got["iqr"].ravel(), got["p90p10"].ravel()])  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
 
 
 def _sweep_device(xs: np.ndarray, codes: np.ndarray, n_groups: int) -> np.ndarray:
@@ -207,7 +207,7 @@ def _sweep_device(xs: np.ndarray, codes: np.ndarray, n_groups: int) -> np.ndarra
     got = _stats_device(xs, codes, n_groups)
     if got is None:
         raise RuntimeError("device grouped quantile declined")
-    return np.concatenate([got["pct"].ravel().astype(np.float64), got["iqr"].ravel(), got["p90p10"].ravel()])
+    return np.concatenate([got["pct"].ravel().astype(np.float64), got["iqr"].ravel(), got["p90p10"].ravel()])  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
 
 
 _fallback_choice = rows_fallback(__name__)

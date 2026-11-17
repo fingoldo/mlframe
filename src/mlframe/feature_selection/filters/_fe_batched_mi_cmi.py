@@ -796,7 +796,7 @@ def _cmi_assemble(he1, he2, hc, kc1, kc2, kc, inv2n):
             (threads,),
             # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             (
-                cp.ascontiguousarray(he1.astype(cp.float64, copy=False)),
+                cp.ascontiguousarray(he1.astype(cp.float64, copy=False)),  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
                 # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
                 cp.ascontiguousarray(he2.astype(cp.float64, copy=False)),
                 float(hc),

@@ -97,9 +97,9 @@ def _edge_keys(cp: Any, edges_all: Any, interior: Any, ndistinct: Any, real: str
     imax: Any
     kdt: Any
     if real == "float":
-        e64 = cp.ascontiguousarray(edges_all.astype(cp.float64, copy=False))
+        e64 = cp.ascontiguousarray(edges_all.astype(cp.float64, copy=False))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
         e32 = e64.astype(cp.float32)
-        e32 = cp.where(e32.astype(cp.float64) < e64, cp.nextafter(e32, cp.float32(np.inf)), e32)  # x >= edge <=> x >= the smallest float32 not below the edge
+        e32 = cp.where(e32.astype(cp.float64) < e64, cp.nextafter(e32, cp.float32(np.inf)), e32)  # x >= edge <=> x >= the smallest float32 not below the edge  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
         eb = (e32 + cp.float32(0.0)).view(cp.int32)
         sign, imax, kdt = np.int32(0x7FFFFFFF), np.int32(np.iinfo(np.int32).max), np.int32
     else:
@@ -195,9 +195,9 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int, byte_codes: bool = False) 
     ``byte_codes``: return the codes as ``uint8`` (applies when ``nbins <= 255``; a code never exceeds ``nbins - 1``). The coder then writes one byte per value instead of eight, and the batched
     CMI / MI histogram kernels read a byte matrix with an eighth of the traffic (``batched_cmi_gpu`` keeps a uint8 matrix as bytes). Callers whose consumer does arithmetic on the codes keep the default.
 
-    The working type is the INPUT dtype: a float32 column stays float32 (no (n, K) float64 copy, half the bytes read by the edge select and the coder, and the coder compares 32-bit
-    keys against the edges rounded UP to float32: x >= edge <=> x >= ceil32(edge) for a float32 x, so the codes equal the float64 route's), every other input is binned in float64.
-    Narrowing a float64 column to the criterion dtype would change its codes for no gain, so the criterion dtype is not consulted here.
+    The working type is the INPUT dtype: a float32 column stays float32 (no (n, K) double precision copy, half the bytes read by the edge select and the coder, and the coder compares 32-bit
+    keys against the edges rounded UP to float32: x >= edge <=> x >= ceil32(edge) for a float32 x, so the codes equal the double precision route's), every other input is binned in double precision.
+    Narrowing a double precision column to the criterion dtype would change its codes for no gain, so the criterion dtype is not consulted here.
 
     When the whole matrix's working set does not fit the VRAM cushion the columns go through in column blocks (``block_cols`` wide, each binned independently and written into the
     one codes matrix): a column's codes depend on that column alone, so the blocks give the single-pass result."""

@@ -53,7 +53,7 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 
 from __future__ import annotations
 
-from mlframe.system._ram_probe import host_memory
+from mlframe.system import host_memory
 from typing import cast
 import logging
 import math

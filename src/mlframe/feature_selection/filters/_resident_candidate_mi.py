@@ -383,7 +383,7 @@ def _tau_grid_kernel(cp, mode: str, out_ctype: str):
 def _tau_grid_block(cp, mode: str, ctup: tuple, cols: tuple, taus_g, out_ctype: str, out):
     """The tau-grid block of one combo built from its resident operands, op for op like the host grid; ``None`` for an unknown mode.
 
-    Column-major (``out`` given): the kernel writes the ``(k, n)`` rows straight into ``out``. Row-major: a new ``(n, k)`` float64 block (the layout the rank-binning kernel takes)."""
+    Column-major (``out`` given): the kernel writes the ``(k, n)`` rows straight into ``out``. Row-major: a new ``(n, k)`` double precision block (the layout the rank-binning kernel takes)."""
     from ._fe_resident_operands import resident_operand
 
     if mode == "mask":

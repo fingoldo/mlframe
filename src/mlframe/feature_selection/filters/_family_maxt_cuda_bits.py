@@ -243,7 +243,7 @@ def _get_kernel_v3(cp, ny1: int, pb: int, cap: int, real: str):
 
 
 def kernel_v3(cp, real, ny1: int = 1, pb: int = _V3_MAX_PB, cap: int = 8):
-    """The v3 kernel for the value type ``real`` (a float32 / float64 dtype or the C type name ``"float"`` / ``"double"``): the launcher and the register-pressure registry both resolve it here;
+    """The v3 kernel for the value type ``real`` (a float32 / double precision dtype or the C type name ``"float"`` / ``"double"``): the launcher and the register-pressure registry both resolve it here;
     the defaults are one stored class, four permutations per block, eight bins."""
     c_type = real if isinstance(real, str) else ("float" if np.dtype(real) == np.float32 else "double")
     return _get_kernel_v3(cp, ny1, pb, cap, c_type)
@@ -375,7 +375,7 @@ def _run(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.ndarray, reduce_m
     # Intentional float64: label-entropy constants of the MI formula, converted to the table's element type below
     const_d = cp.asarray(np.ascontiguousarray(const_b, dtype=np.float64)).astype(dev.table.dtype, copy=False)
     best = (
-        cp.zeros(B, dtype=cp.float64) if acc is None else acc
+        cp.zeros(B, dtype=cp.float64) if acc is None else acc  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     )  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     parts = []
     use_v2 = _v2_applies(cp, n_y, dev.words)

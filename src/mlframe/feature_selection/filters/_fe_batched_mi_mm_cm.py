@@ -70,7 +70,7 @@ def binned_mm_mi_from_cm_gpu(
     _assert_codes_in_range(yv, Ky, "binned_mm_mi_from_cm_gpu y codes", codes_trusted)
     ne = int(E.shape[0])
     if row_bounds is not None and row_bounds[0] is not None:
-        cmin, cmax = row_bounds  # the row extremes the caller already produced in its own pass over the block (float64 device vectors)
+        cmin, cmax = row_bounds  # the row extremes the caller already produced in its own pass over the block (double device vectors)
     else:
         cmin = cp.ascontiguousarray(Xc.min(axis=1).astype(cp.float64, copy=False))  # Intentional float64: GPU MI edge bounds; compared at full precision
         cmax = cp.ascontiguousarray(Xc.max(axis=1).astype(cp.float64, copy=False))  # Intentional float64: GPU MI edge bounds; compared at full precision

@@ -90,7 +90,7 @@ _BIN_CODES_KERNELS_LOCK = threading.Lock()
 
 
 def kernel_bin(cp, real, out_name: str = "int32"):
-    """``bin_codes_<f32|f64>_<out_name>``: the fused binning kernel for float32 / float64 input (``real``) writing ``out_name`` codes; compile point of the getter and of the register-pressure registry."""
+    """``bin_codes_<f32|f64>_<out_name>``: the fused binning kernel for float32 / double precision input (``real``) writing ``out_name`` codes; compile point of the getter and of the register-pressure registry."""
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     in_key = "f64" if real == cp.float64 else "f32"
     ctype = "double" if in_key == "f64" else "float"

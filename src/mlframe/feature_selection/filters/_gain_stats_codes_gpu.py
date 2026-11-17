@@ -76,7 +76,7 @@ def _bin_list(bins: Any) -> list:
 
 
 def kernel(cp: Any, real: Any) -> Any:
-    """``quantile_codes_right`` for columns of dtype ``real`` (float32 or float64); compile point of :func:`_codes_of_block` and of the register-pressure registry."""
+    """``quantile_codes_right`` for columns of dtype ``real`` (float32 or double precision); compile point of :func:`_codes_of_block` and of the register-pressure registry."""
     return _MODULES["float" if np.dtype(real) == np.float32 else "double"].get(cp).get_function("quantile_codes_right")
 
 
@@ -87,7 +87,7 @@ def _host_codes(cols: Sequence[np.ndarray], n_bins: int) -> np.ndarray:
 
 def _numpy_edges(cp: Any, sorted_cols: Any, n_bins: int) -> Any:
     """``(k, n_bins - 1)`` interior edges of the ascending ``(k, n)`` block ``sorted_cols`` by numpy's 'linear' rule (virtual index ``(n - 1) q``, difference taken in the data dtype, the
-    ``t >= 0.5`` branch ``b - diff (1 - t)``), so each edge equals ``np.quantile`` of that column bit for bit; float64 whatever the data dtype."""
+    ``t >= 0.5`` branch ``b - diff (1 - t)``), so each edge equals ``np.quantile`` of that column bit for bit; double precision whatever the data dtype."""
     n = int(sorted_cols.shape[1])
     q = np.linspace(0.0, 1.0, int(n_bins) + 1)[1:-1]
     virtual = (n - 1) * q

@@ -282,7 +282,7 @@ def _member_pct_ranks_njit(order: np.ndarray, sv: np.ndarray, ranks: np.ndarray)
     """Fill ``ranks[order[k]]`` with the average rank of the run of equal values around sorted position ``k``, as the numpy twin below does.
 
     One pass instead of its eight (concatenate, compare, flatnonzero, diff, two repeats, a fancy assignment), and it releases the GIL so a lane thread does not hold it for every group of
-    every numeric column. The arithmetic is the twin's: the run bounds are integers and ``(lo + hi) / (2.0 * m)`` is one float64 division, so the values are bit-identical.
+    every numeric column. The arithmetic is the twin's: the run bounds are integers and ``(lo + hi) / (2.0 * m)`` is one double precision division, so the values are bit-identical.
     """
     m = sv.shape[0]
     denom = 2.0 * m

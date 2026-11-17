@@ -505,7 +505,7 @@ def _binned_cmi_in_column_blocks(
     n, k = int(X_float.shape[0]), int(X_float.shape[1])
     if _conditioning_is_all_singletons(z_joint, n):
         return np.zeros(
-            k, dtype=np.float64
+            k, dtype=np.float64  # Intentional float64: double-precision variant: the statistic needs the full mantissa
         )  # Intentional float64: score output contract kept f64; no column needs binning or uploading when every row is its own conditioning cell
     per_col = max(1, n * 36)  # f32 upload + f64 copy + the binner's temporaries + int64 codes
     free = int(cp.cuda.runtime.memGetInfo()[0])

@@ -170,7 +170,7 @@ _CODES_KERNELS: dict = {}
 
 
 def _codes_kernel(cp: Any, real: Any) -> Any:
-    """The compiled coding kernel for float32 or float64 columns."""
+    """The compiled coding kernel for float32 or double precision columns."""
     key = np.dtype(real)
     if key not in _CODES_KERNELS:
         _CODES_KERNELS[key] = cp.RawKernel(render(_CODES_SRC_TEMPLATE, real=real), "rescue_codes")

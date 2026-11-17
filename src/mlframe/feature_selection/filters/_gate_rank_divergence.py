@@ -101,13 +101,13 @@ def _walk_chunk(mat: np.ndarray, g0: int, g1: int, meds: np.ndarray, order: np.n
     r_lo = np.zeros(w, dtype=np.int64)
     gs_hi = np.zeros(w, dtype=np.int64)
     gs_lo = np.zeros(w, dtype=np.int64)
-    prev_hi = np.zeros(w, dtype=np.float64)
+    prev_hi = np.zeros(w, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     prev_lo = np.zeros(w, dtype=np.float64)
     bin_hi = np.zeros(w, dtype=np.int64)  # bin of the run start, advanced as the run start moves up the positions (no division per row)
     bin_lo = np.zeros(w, dtype=np.int64)
     end_hi = np.zeros(w, dtype=np.int64)  # first position past the current bin
     end_lo = np.zeros(w, dtype=np.int64)
-    total = np.zeros(w, dtype=np.float64)
+    total = np.zeros(w, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     for a in range(order.shape[0]):
         hi[:, :, :] = 0
         lo[:, :, :] = 0
@@ -250,7 +250,7 @@ def _device_block(cp: Any, mat: Any, meds: Any, y: Any, n_classes: int, probe_id
 
 def gate_divergence_device(cp: Any, mat: Any, y: Any, probe_idx: "list[int]", nbins: int, medians: Any = None) -> Optional[np.ndarray]:
     """Device form of :func:`gate_divergence` for the resident finite matrix ``mat`` ``(n, p)`` and class codes ``y`` (a device vector); the columns go through in column blocks of
-    ``_DEVICE_BLOCK_BYTES`` of temporaries. ``medians`` (device, ``(p,)``) when the caller already has them. A host ``(p,)`` float64 vector, or ``None`` on any device fault."""
+    ``_DEVICE_BLOCK_BYTES`` of temporaries. ``medians`` (device, ``(p,)``) when the caller already has them. A host ``(p,)`` double precision vector, or ``None`` on any device fault."""
     try:
         n, p = int(mat.shape[0]), int(mat.shape[1])
         classes, y_dense = cp.unique(y, return_inverse=True)

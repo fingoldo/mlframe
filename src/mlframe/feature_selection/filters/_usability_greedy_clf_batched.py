@@ -83,7 +83,7 @@ def _logistic_p_and_weight(cp: Any, z: Any) -> "tuple[Any, Any]":
     dt = str(z.dtype)
     kernel = _LOGISTIC_KERNELS.get(dt)
     if kernel is None:
-        c = {"float32": "float", "float64": "double"}[dt]
+        c = {"float32": "float", "float64": "double"}[dt]  # Intentional float64: dtype-name table of the kernel source rendering: float64 data maps to the C type double
         kernel = _LOGISTIC_KERNELS[dt] = cp.ElementwiseKernel("%s z" % dt, "%s p, %s w" % (dt, dt), "p = (%s)1 / ((%s)1 + exp(-z)); w = p * ((%s)1 - p);" % (c, c, c), "mlframe_logistic_p_w_" + dt)
     out: "tuple[Any, Any]" = kernel(z)
     return out

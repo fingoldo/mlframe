@@ -44,7 +44,7 @@ cached kernels in sibling modules - so it is pickle-clean by construction.
 """
 from __future__ import annotations
 
-from mlframe.system._ram_probe import host_memory
+from mlframe.system import host_memory
 import logging
 from typing import Any, Optional
 

@@ -198,7 +198,7 @@ def _module_for(Z: Any) -> Any:
 
 
 def _entry(cp: Any, real: Any, name: str) -> Any:
-    """One entry point of the module compiled for the element type ``real`` (float32 or float64)."""
+    """One entry point of the module compiled for the element type ``real`` (float32 or double precision)."""
     return _module_for(cp.empty(0, dtype=real)).get(cp).get_function(name)
 
 

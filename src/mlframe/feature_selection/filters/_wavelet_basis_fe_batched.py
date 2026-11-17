@@ -221,7 +221,7 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
             kx_b = [3] * len(metas_b)
             # The codes are in range by construction (the legs are leg + 1 in {0, 1, 2}; the labels are ``_bin_y_codes``, non-negative with cardinality max + 1),
             # so the in-range guard, a pair of device reductions per call, is skipped (codes_trusted).
-            mi_tr_b = np.asarray(binned_mi_from_codes_gpu(tr_b, np.asarray(yb_tr), kx_per_col=kx_b, ky=ky_tr, codes_trusted=True), dtype=np.float64)
+            mi_tr_b = np.asarray(binned_mi_from_codes_gpu(tr_b, np.asarray(yb_tr), kx_per_col=kx_b, ky=ky_tr, codes_trusted=True), dtype=np.float64)  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
             mi_va_b = np.asarray(binned_mi_from_codes_gpu(va_b, np.asarray(yb_va), kx_per_col=kx_b, ky=ky_va, codes_trusted=True), dtype=np.float64)
             return metas_b, mi_tr_b, mi_va_b
 
@@ -438,7 +438,7 @@ def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: f
         tr_mat = np.stack(tr_cols[lo:hi], axis=1)  # (n_tr, block)
         va_mat = np.stack(va_cols[lo:hi], axis=1)  # (n_va, block)
         return (
-            np.asarray(binned_mi_from_codes_gpu(tr_mat, np.asarray(yb_tr), kx_per_col=tr_kx[lo:hi], ky=ky_tr), dtype=np.float64),
+            np.asarray(binned_mi_from_codes_gpu(tr_mat, np.asarray(yb_tr), kx_per_col=tr_kx[lo:hi], ky=ky_tr), dtype=np.float64),  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
             np.asarray(binned_mi_from_codes_gpu(va_mat, np.asarray(yb_va), kx_per_col=va_kx[lo:hi], ky=ky_va), dtype=np.float64),
         )
 

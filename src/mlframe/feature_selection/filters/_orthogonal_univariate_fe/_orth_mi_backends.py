@@ -9,7 +9,7 @@ modules import.
 """
 from __future__ import annotations
 
-from mlframe.system._ram_probe import host_memory
+from mlframe.system import host_memory
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 import logging
@@ -502,7 +502,7 @@ def _strict_mi_keeps_float32(X: Any) -> bool:
 
         return bool(crit_dtype_relaxed())
     except Exception as exc:
-        logger.warning("_strict_mi_keeps_float32: crit_dtype_relaxed unavailable (%s); float64 operand", exc)
+        logger.warning("_strict_mi_keeps_float32: crit_dtype_relaxed unavailable (%s); double operand", exc)
         return False
 
 def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_binning: bool = False) -> np.ndarray:

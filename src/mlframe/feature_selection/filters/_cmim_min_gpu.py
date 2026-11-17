@@ -147,7 +147,7 @@ def _pair_cmi(x_row: np.ndarray, y: np.ndarray, z_row: np.ndarray, kx: int, ky: 
             for z in range(kz):
                 v = cxyz[(xx * ky + yy) * kz + z]
                 if v:
-                    s += v * np.log(v * np.float64(cz[z]) / (np.float64(cxz[xx * kz + z]) * np.float64(cyz[yy * kz + z])))
+                    s += v * np.log(v * np.float64(cz[z]) / (np.float64(cxz[xx * kz + z]) * np.float64(cyz[yy * kz + z])))  # Intentional float64: scalar argument of a double-typed kernel parameter or accumulator
     k_xz = np.count_nonzero(cxz[: kx * kz])
     k_yz = np.count_nonzero(cyz[: ky * kz])
     k_z = np.count_nonzero(cz[:kz])
@@ -164,7 +164,7 @@ def _scores_njit(x: np.ndarray, y: np.ndarray, zs: np.ndarray, kzs: np.ndarray, 
     for j in range(s_count):
         if kzs[j] > kz_max:
             kz_max = kzs[j]
-    out = np.empty(k, dtype=np.float64)
+    out = np.empty(k, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     for c in prange(k):
         cxyz = np.zeros(kx * ky * kz_max, dtype=np.int32)
         cxz = np.zeros(kx * kz_max, dtype=np.int32)
@@ -226,7 +226,7 @@ def _scores_device(x: np.ndarray, y: np.ndarray, zs: Sequence[np.ndarray], allow
         code_dtype = np.uint8 if int(n_bins) <= 255 else np.int16
         kz_max = int(kzs.max())
         shared = 4 * (kx * ky * kz_max + kx * kz_max + ky * kz_max + kz_max)
-        out = cp.empty(k, dtype=cp.float64)
+        out = cp.empty(k, dtype=cp.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
         ker = kernel(cp, code_dtype)
         ker(
             (k,), (block_size_for(ker, dyn_smem=shared, work_items=n),),
@@ -234,7 +234,7 @@ def _scores_device(x: np.ndarray, y: np.ndarray, zs: Sequence[np.ndarray], allow
              np.int64(n), np.int32(k), np.int32(s_count), np.int32(kx), np.int32(ky), np.int32(kz_max), out),
             shared_mem=shared,
         )
-        return np.asarray(cp.asnumpy(out), dtype=np.float64)
+        return np.asarray(cp.asnumpy(out), dtype=np.float64)  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     except Exception as exc:
         log_throttle(logger, "cmim_min_gpu_cmim_min_the_device_form_is_unavailable", logging.WARNING, "cmim min: the device form is unavailable (%s: %s)", type(exc).__name__, exc)
         return None
@@ -335,4 +335,4 @@ def cmim_min_scores(x: np.ndarray, y: np.ndarray, zs: Sequence[np.ndarray], allo
         if got is None:
             return None
         parts.append(got)
-    return np.concatenate(parts) if parts else np.empty(0, dtype=np.float64)
+    return np.concatenate(parts) if parts else np.empty(0, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision

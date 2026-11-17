@@ -29,7 +29,7 @@ available; auto-skip otherwise).
 """
 from __future__ import annotations
 
-from mlframe.system._ram_probe import host_memory
+from mlframe.system import host_memory
 import logging
 
 from mlframe.utils.log_throttle import log_throttle

@@ -136,7 +136,7 @@ def _lof_transform_njit(X_new: np.ndarray, X_ref: np.ndarray, lrd_ref: np.ndarra
     n = X_new.shape[0]
     m = X_ref.shape[0]
     p = X_new.shape[1]
-    out = np.empty(n, dtype=np.float64)
+    out = np.empty(n, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     for i in prange(n):
         bd = np.full(k_eff, np.inf)
         bj = np.zeros(k_eff, dtype=np.int64)

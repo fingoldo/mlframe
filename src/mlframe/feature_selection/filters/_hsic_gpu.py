@@ -163,7 +163,7 @@ def hsic_backend(m: int, k: int) -> str:
 def _scored_view(scores) -> np.ndarray:
     """What the HSIC screen reads from a scoring pass: the count and the best quarter of the columns (``_ktc_fallback.selection_view``, tie band at the cut).
 
-    The device scorer works in the criterion dtype (float32) against the host's float64, so the scores themselves agree only to the dtype's precision (1.6e-6 relative, measured over
+    The device scorer works in the criterion dtype (float32) against the host's double precision, so the scores themselves agree only to the dtype's precision (1.6e-6 relative, measured over
     (m, k) from (200, 8) to (1000, 400)); the columns they rank at the top agree, and that is what the sweep holds to the strict tolerance."""
     scores = np.asarray(scores, dtype=np.float64)  # Intentional float64: comparison vector
     return selection_view(scores, top=max(1, scores.size // 4))

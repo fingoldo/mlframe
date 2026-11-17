@@ -35,7 +35,7 @@ def marginal_mi_pvalues(codes: np.ndarray, levels: np.ndarray, y_codes: np.ndarr
     with np.errstate(divide="ignore", invalid="ignore"):
         term = joint * (np.log(joint) + np.log(float(m)) - np.log(px) - np.log(py))
     mi = np.nansum(np.where(joint > 0, term, 0.0), axis=(1, 2)) / m
-    df = np.maximum(1, (np.asarray(levels, dtype=np.float64) - 1.0) * (ky - 1))
+    df = np.maximum(1, (np.asarray(levels, dtype=np.float64) - 1.0) * (ky - 1))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     p = np.array([1.0 if d <= 0 or ky < 2 else float(_chi2_sf(max(0.0, 2.0 * m * v), float(d))) for v, d in zip(mi, df)])
     return mi, p
 

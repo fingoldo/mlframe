@@ -198,7 +198,7 @@ def _get_clenshaw_kernel(real_t: str = "double"):
         kern = _CLENSHAW_KERNELS.get(real_t)
         if kern is None:
             import cupy as cp
-            kern = _basis_factories().kernel_clenshaw(cp, np.float32 if real_t == "float" else np.float64)
+            kern = _basis_factories().kernel_clenshaw(cp, np.float32 if real_t == "float" else np.float64)  # Intentional float64: the device kernel is built in the data's own precision: float64 data keeps double
             _CLENSHAW_KERNELS[real_t] = kern
     return kern
 
@@ -369,7 +369,7 @@ def _get_robust_scale_combine_kernel(cp, real_t: str = "double"):
     with _KERNEL_CACHE_LOCK:
         kern = _ROBUST_SCALE_COMBINE_KERNELS.get(real_t)
         if kern is None:
-            kern = _basis_factories().kernel_robust_scale(cp, np.float32 if real_t == "float" else np.float64)
+            kern = _basis_factories().kernel_robust_scale(cp, np.float32 if real_t == "float" else np.float64)  # Intentional float64: the device kernel is built in the data's own precision: float64 data keeps double
             _ROBUST_SCALE_COMBINE_KERNELS[real_t] = kern
     return kern
 
@@ -486,7 +486,7 @@ def _get_heavy_tail_stats_tiled_kernel(cp, real_t: str = "double"):
         kern = _HEAVY_TAIL_STATS_TILED_KERNELS.get(real_t)
         if kern is None:
             f = _basis_factories()
-            kern = (f.kernel_heavy_tail(cp, np.float32 if real_t == "float" else np.float64), f.kernel_heavy_tail_finish(cp, np.float32 if real_t == "float" else np.float64))
+            kern = (f.kernel_heavy_tail(cp, np.float32 if real_t == "float" else np.float64), f.kernel_heavy_tail_finish(cp, np.float32 if real_t == "float" else np.float64))  # Intentional float64: the device kernel is built in the data's own precision: float64 data keeps double
             _HEAVY_TAIL_STATS_TILED_KERNELS[real_t] = kern
     return kern
 
@@ -589,7 +589,7 @@ def _get_basis_preprocess_kernel(cp, real_t: str = "double"):
     with _KERNEL_CACHE_LOCK:
         kern = _BASIS_PREPROCESS_KERNELS.get(real_t)
         if kern is None:
-            kern = _basis_factories().kernel_preprocess(cp, np.float32 if real_t == "float" else np.float64)
+            kern = _basis_factories().kernel_preprocess(cp, np.float32 if real_t == "float" else np.float64)  # Intentional float64: the device kernel is built in the data's own precision: float64 data keeps double
             _BASIS_PREPROCESS_KERNELS[real_t] = kern
     return kern
 
@@ -625,7 +625,7 @@ def _get_basis_preprocess_nr_kernel(cp, real_t: str = "double"):
     with _KERNEL_CACHE_LOCK:
         kern = _BASIS_PREPROCESS_NR_KERNELS.get(real_t)
         if kern is None:
-            kern = _basis_factories().kernel_preprocess_nr(cp, np.float32 if real_t == "float" else np.float64)
+            kern = _basis_factories().kernel_preprocess_nr(cp, np.float32 if real_t == "float" else np.float64)  # Intentional float64: the device kernel is built in the data's own precision: float64 data keeps double
             _BASIS_PREPROCESS_NR_KERNELS[real_t] = kern
     return kern
 
@@ -676,7 +676,7 @@ def _col_meanstd_tiled_kernel(cp, real_t):
     with _KERNEL_CACHE_LOCK:
         kern = _COL_MEANSTD_TILED_KERNELS.get(real_t)
         if kern is None:
-            kern = _basis_factories().kernel_meanstd(cp, np.float32 if real_t == "float" else np.float64)
+            kern = _basis_factories().kernel_meanstd(cp, np.float32 if real_t == "float" else np.float64)  # Intentional float64: the device kernel is built in the data's own precision: float64 data keeps double
             _COL_MEANSTD_TILED_KERNELS[real_t] = kern
     return kern
 
@@ -750,7 +750,7 @@ def _col_minmax_tiled_kernel(cp, real_t):
     with _KERNEL_CACHE_LOCK:
         kern = _COL_MINMAX_TILED_KERNELS.get(real_t)
         if kern is None:
-            kern = _basis_factories().kernel_minmax(cp, np.float32 if real_t == "float" else np.float64)
+            kern = _basis_factories().kernel_minmax(cp, np.float32 if real_t == "float" else np.float64)  # Intentional float64: the device kernel is built in the data's own precision: float64 data keeps double
             _COL_MINMAX_TILED_KERNELS[real_t] = kern
     return kern
 

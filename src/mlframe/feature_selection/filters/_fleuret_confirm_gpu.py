@@ -298,7 +298,7 @@ def fleuret_confirm_batch(
             cells = int(nx_tot.max() * ny * nz_tot.max())
             threads = min(_THREADS, block_size_for(kern, dyn_smem=4 * cells, work_items=n))
             threads = 1 << (int(threads).bit_length() - 1)  # a power of two for the reduction tree
-            d_out = cp.empty((n_jobs, len(scored), N_STATS), dtype=cp.float64)
+            d_out = cp.empty((n_jobs, len(scored), N_STATS), dtype=cp.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
             kern(
                 (n_jobs, len(scored)),
                 (threads,),

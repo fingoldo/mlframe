@@ -43,12 +43,12 @@ def run_column_blocks(cp: Any, n_cols: int, block: int, work: Callable[[int, int
     return pieces
 
 
-def float64_block_width_of(owner: str, name: str = "_BLOCK_BYTES") -> "Callable[[int], int]":
-    """The column-block width function of a module that bounds a block of float64 rows by a byte constant: ``width(n_rows)`` is as many columns as the constant ``name`` of the module named
-    ``owner`` (pass ``__name__``) holds at ``n_rows`` rows of float64, at least one. The constant is read at call time, so a test or an operator replacing it takes effect."""
+def double_block_width_of(owner: str, name: str = "_BLOCK_BYTES") -> "Callable[[int], int]":
+    """The column-block width function of a module that bounds a block of double precision rows by a byte constant: ``width(n_rows)`` is as many columns as the constant ``name`` of the module named
+    ``owner`` (pass ``__name__``) holds at ``n_rows`` rows of double precision, at least one. The constant is read at call time, so a test or an operator replacing it takes effect."""
 
     def column_block_width(n_rows: int) -> int:
-        """Columns per column block: as many as the owner's byte budget holds at ``n_rows`` rows of float64 (at least one)."""
+        """Columns per column block: as many as the owner's byte budget holds at ``n_rows`` rows of double precision (at least one)."""
         return int(max(1, getattr(sys.modules[owner], name) // max(1, 8 * int(n_rows))))
 
     return column_block_width

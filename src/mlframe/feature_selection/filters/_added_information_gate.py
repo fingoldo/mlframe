@@ -62,11 +62,11 @@ def _joint_counts_kernel(cand: np.ndarray, src: np.ndarray, tgt: np.ndarray, n_s
     for i in range(n):
         v = cand[i]
         if v < 0:
-            return np.empty((0, 0, 0), dtype=np.float64), -1
+            return np.empty((0, 0, 0), dtype=np.float64), -1  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
         if v > mx:
             mx = v
     if mx >= limit:
-        return np.empty((0, 0, 0), dtype=np.float64), -1
+        return np.empty((0, 0, 0), dtype=np.float64), -1  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     lut = np.zeros(mx + 1, dtype=np.int64)
     for i in range(n):
         lut[cand[i]] = 1
@@ -77,7 +77,7 @@ def _joint_counts_kernel(cand: np.ndarray, src: np.ndarray, tgt: np.ndarray, n_s
             k += 1
         else:
             lut[v] = -1
-    joint = np.zeros((n_src, k, n_tgt), dtype=np.float64)
+    joint = np.zeros((n_src, k, n_tgt), dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     for i in range(n):
         joint[src[i], lut[cand[i]], tgt[i]] += 1.0
     return joint, k

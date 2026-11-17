@@ -162,7 +162,7 @@ def _ensure_kernel(max_depth: int, real, shared_stack: bool = False):
 
 
 def interaction_tensor_table_gpu(ensemble: "TreeEnsemble", X: np.ndarray) -> Optional[tuple]:
-    """``(Phi (n, P, P) float64, phi (n, P) float64, base)`` from the device pair-table kernel, or ``None`` when the ensemble does not fit the table form (the caller keeps the path kernel)."""
+    """``(Phi (n, P, P) double precision, phi (n, P) double precision, base)`` from the device pair-table kernel, or ``None`` when the ensemble does not fit the table form (the caller keeps the path kernel)."""
     import cupy as cp
 
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table import build_tables

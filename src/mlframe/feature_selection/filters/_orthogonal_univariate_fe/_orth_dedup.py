@@ -237,7 +237,7 @@ def _pc_corr_cupy_arrays(cp: Any, Qd: Any, Rd: Any) -> np.ndarray:
     Rm = cp.isfinite(Rd)
     Q0 = cp.where(Qm, Qd, 0.0)
     R0 = cp.where(Rm, Rd, 0.0)
-    mask_dtype = Qd.dtype if (Qd.dtype == Rd.dtype and Qd.dtype in (cp.float32, cp.float64)) else crit_float_dtype()  # the masks in the data's own dtype: a float32 mask against float64 data was copied to float64 inside each of three GEMMs
+    mask_dtype = Qd.dtype if (Qd.dtype == Rd.dtype and Qd.dtype in (cp.float32, cp.float64)) else crit_float_dtype()  # the masks in the data's own dtype: a float32 mask against float64 data was copied to float64 inside each of three GEMMs  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
     Qmf = Qm.astype(mask_dtype)
     Rmf = Rm.astype(mask_dtype)
     n = cp.matmul(Qmf, Rmf.T)

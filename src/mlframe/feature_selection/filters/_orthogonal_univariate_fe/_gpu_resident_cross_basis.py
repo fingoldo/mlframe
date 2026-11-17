@@ -302,19 +302,19 @@ def _fused_leg_products(cp: Any, col_specs: Sequence[dict], leg_cache: dict, bas
     if not rows or not leg_cols:
         return None
     dtypes = {str(h.dtype) for h in leg_cols}
-    if len(dtypes) != 1 or next(iter(dtypes)) not in ("float32", "float64"):
+    if len(dtypes) != 1 or next(iter(dtypes)) not in ("float32", "float64"):  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
         return None
     dt = next(iter(dtypes))
     width = max(len(r) for r in rows)
     idx = np.full((len(rows), width), -1, dtype=np.int32)
     for s_, r_ in enumerate(rows):
         idx[s_, : len(r_)] = r_
-    ctype = {"float32": "float", "float64": "double"}[dt]
+    ctype = {"float32": "float", "float64": "double"}[dt]  # Intentional float64: dtype-name table of the kernel source rendering: float64 data maps to the C type double
     kernel = _LEG_PRODUCT_KERNELS.get(dt)
     if kernel is None:
         kernel = _LEG_PRODUCT_KERNELS[dt] = cp.ElementwiseKernel(
             "raw %s L, raw int32 idx, int32 width, int32 nrows, int32 ncols" % dt,
-            "float64 out",
+            "float64 out",  # Intentional float64: CUDA signature text: the parameter is a double in the kernel source
             "int s = i / nrows; int r = i - s * nrows; %s acc = (%s)1; bool first = true;"
             " for (int p = 0; p < width; ++p) { int k = idx[s * width + p]; if (k < 0) break; %s v = L[(size_t)k * nrows + r]; acc = first ? v : acc * v; first = false; }"
             " out = (double)acc;" % (ctype, ctype, ctype),

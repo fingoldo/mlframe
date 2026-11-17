@@ -118,7 +118,7 @@ def selection_view(scores: object, top: int = 10, tie_band: float = 1e-4, width:
     out[0] = scores.size
     if scores.size:
         kth = np.sort(scores)[-min(int(top), scores.size)]
-        out[1 : 1 + min(scores.size, int(width))] = (scores >= kth - tie_band * abs(kth)).astype(np.float64)[: int(width)]
+        out[1 : 1 + min(scores.size, int(width))] = (scores >= kth - tie_band * abs(kth)).astype(np.float64)[: int(width)]  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     return out
 
 

@@ -42,7 +42,7 @@ Leakage safety (CRITICAL)
 """
 from __future__ import annotations
 
-from mlframe.system._ram_probe import host_memory
+from mlframe.system import host_memory
 from mlframe.feature_selection.filters._fe_frame_ops import fe_column_values
 from ._grouped_coerce_shared import auto_detect_group_cols, coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols, broadcast_lookup as _broadcast_lookup
 

@@ -7,7 +7,7 @@ resolves transparently.
 """
 from __future__ import annotations
 
-from mlframe.system._ram_probe import host_memory
+from mlframe.system import host_memory
 import logging
 import math
 from typing import Tuple, Any

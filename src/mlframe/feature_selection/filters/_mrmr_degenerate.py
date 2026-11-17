@@ -29,7 +29,7 @@ column-side diagnostic.
 """
 from __future__ import annotations
 
-from mlframe.system._ram_probe import host_memory
+from mlframe.system import host_memory
 from typing import Any, Iterator
 import logging
 from typing import Callable, Optional
@@ -175,9 +175,9 @@ def _content_key(values: np.ndarray):
 def _standardise_rows(M: np.ndarray) -> np.ndarray:
     """Standardise every row of ``M`` in place for the Gram matrix and return the per-row scale: a non-finite value takes the row's finite mean, the row is centred and divided by the root of its
     sum of squares, and a row with no spread (scale 0) is zeroed. One parallel pass per row replaces the finite mask, the mean fill, the centring, the scale and the division, each of which
-    was a separate numpy pass over the whole ``(K, n)`` matrix. Sums accumulate in float64."""
+    was a separate numpy pass over the whole ``(K, n)`` matrix. Sums accumulate in double precision."""
     k, n = M.shape
-    stds = np.zeros(k, dtype=np.float64)
+    stds = np.zeros(k, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     for r in prange(k):
         s = 0.0
         c = 0

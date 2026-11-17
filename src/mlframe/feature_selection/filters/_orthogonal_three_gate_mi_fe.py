@@ -61,7 +61,7 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 
 from __future__ import annotations
 
-from mlframe.system._ram_probe import host_memory
+from mlframe.system import host_memory
 from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name, split_engineered_name
 
 import logging
@@ -862,7 +862,7 @@ def hybrid_orth_mi_three_gate_fe_with_recipes(
         _pp = None
         try:
             _col_full = np.asarray(
-                X[src].to_numpy(), dtype=np.float64
+                X[src].to_numpy(), dtype=np.float64  # Intentional float64: double-precision variant: the statistic needs the full mantissa
             )  # Intentional float64: engineered operand for the CMI statistic, compared at full precision
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:

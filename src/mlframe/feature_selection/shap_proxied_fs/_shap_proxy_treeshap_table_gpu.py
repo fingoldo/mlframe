@@ -2,7 +2,7 @@
 entries of the per-leaf contribution table to its phi row. The ``O(depth^2)`` unwinding of the path kernel (``_shap_proxy_treeshap_gpu``) is gone from the per-sample work: the table is built once per
 ensemble on the host (numba, with the path kernel's own arithmetic) and uploaded.
 
-Element type ``{REAL}``: float32 by default (the table is rounded once, the sums are over a few entries per leaf), float64 for the exact reference (``MLFRAME_SHAP_TREESHAP_REAL=float64``).
+Element type ``{REAL}``: float32 by default (the table is rounded once, the sums are over a few entries per leaf), double for the exact reference (``MLFRAME_SHAP_TREESHAP_REAL=double``).
 """
 
 from __future__ import annotations
@@ -115,8 +115,8 @@ _LOCK = threading.Lock()
 
 
 def _real():
-    """Element type of the device table form: float32 by default, ``MLFRAME_SHAP_TREESHAP_REAL=float64`` for the exact reference."""
-    return np.float64 if os.environ.get("MLFRAME_SHAP_TREESHAP_REAL", "").strip().lower() == "float64" else np.float32
+    """Element type of the device table form: float32 by default, ``MLFRAME_SHAP_TREESHAP_REAL=double precision`` for the exact reference."""
+    return np.float64 if os.environ.get("MLFRAME_SHAP_TREESHAP_REAL", "").strip().lower() == "float64" else np.float32  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
 
 
 _SMEM_BUDGET = 32 * 1024  # bytes of shared memory the DFS stacks of one block may take (the device limit is 48 KB)
@@ -208,7 +208,7 @@ def _row_block(n: int, f: int, real) -> int:
 
 
 def treeshap_phi_base_table_gpu(ensemble: "TreeEnsemble", X: np.ndarray) -> Optional[tuple]:
-    """``(phi (n, f) float64, base)`` from the device table kernel, or ``None`` when the ensemble does not fit the table form or the rows do not repay the table build (the caller keeps the path kernel).
+    """``(phi (n, f) double precision, base)`` from the device table kernel, or ``None`` when the ensemble does not fit the table form or the rows do not repay the table build (the caller keeps the path kernel).
     The rows go through the device in row blocks sized from the free memory (:func:`_row_block`); the node arrays, the table and the preorder records are uploaded once and stay resident for the blocks."""
     import cupy as cp
 

@@ -327,7 +327,7 @@ def _launch_pairs(
     d_nbins = _cp.asarray(np.ascontiguousarray(nbins_i[used]))
     d_classes_y = _cp.asarray(np.ascontiguousarray(classes_y, dtype=np.int32))
     d_freqs_y = _cp.asarray(
-        np.ascontiguousarray(freqs_y, dtype=np.float64)
+        np.ascontiguousarray(freqs_y, dtype=np.float64)  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     )  # Intentional float64: the CUDA kernel signature declares double, so this must stay float64
     d_mi_out = _cp.zeros(n_pairs, dtype=_cp.float64)  # Intentional float64: the CUDA kernel signature declares double, so this must stay float64
 

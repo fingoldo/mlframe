@@ -560,7 +560,7 @@ def _get_fused_gen_cm_kernel(float32: bool = False):
             _FUSED_GEN_CM_F32_KERNEL = kernel_cm(cp, np.float32)
         return _FUSED_GEN_CM_F32_KERNEL
     if _FUSED_GEN_CM_KERNEL is None:
-        _FUSED_GEN_CM_KERNEL = kernel_cm(cp, np.float64)
+        _FUSED_GEN_CM_KERNEL = kernel_cm(cp, np.float64)  # Intentional float64: double-precision variant: the statistic needs the full mantissa
     return _FUSED_GEN_CM_KERNEL
 
 

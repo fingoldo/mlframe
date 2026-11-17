@@ -191,7 +191,7 @@ def codes_device_chosen(n: int, p: int) -> bool:
 def codes_matrix_dispatch(host_codes: Any, M: np.ndarray, n_bins: int, sample: int, min_finite: int, few_classes: int) -> "tuple[np.ndarray, np.ndarray]":
     """``(codes, ok)`` of the rows of ``M``: on the device when the tuned choice says so, else with ``host_codes`` (the numba loop). A device fault falls back to the host."""
     p, n = M.shape
-    if p and M.dtype in (np.float32, np.float64) and int(n_bins) <= 127 and codes_device_chosen(n, p):
+    if p and M.dtype in (np.float32, np.float64) and int(n_bins) <= 127 and codes_device_chosen(n, p):  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
         try:
             from ._gpu_policy import cuda_available_for_run
 

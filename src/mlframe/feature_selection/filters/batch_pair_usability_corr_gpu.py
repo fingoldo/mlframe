@@ -281,7 +281,7 @@ def batch_pair_usability_corr_njit_parallel(
     n_pairs = pair_a.shape[0]
     n_forms = form_ids.shape[0]
     out = np.zeros(
-        (n_pairs, n_forms), dtype=np.float64
+        (n_pairs, n_forms), dtype=np.float64  # Intentional float64: double-precision variant: the statistic needs the full mantissa
     )  # Intentional float64: numba/CUDA kernel body, f64 Pearson output buffer (crit helper cannot run inside the kernel)
     total = n_pairs * n_forms
     for tid in prange(total):
@@ -485,14 +485,14 @@ def _cuda_kernel_warp_factory(ft=np.float64):  # Intentional float64: the usabil
 def _float32_unsafe(y: np.ndarray, operand_matrix: np.ndarray) -> bool:
     """True when some column's offset is more than 1000 times its spread, or a value is not finite: the inputs float32 cannot represent."""
     cols = np.concatenate(
-        [np.asarray(y, dtype=np.float64).reshape(-1, 1), np.asarray(operand_matrix, dtype=np.float64).reshape(len(y), -1)], axis=1
+        [np.asarray(y, dtype=np.float64).reshape(-1, 1), np.asarray(operand_matrix, dtype=np.float64).reshape(len(y), -1)], axis=1  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     )  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
     if not np.all(np.isfinite(cols)):
         return True
     spread = cols.std(axis=0)
     offset = np.abs(cols.mean(axis=0))
     return bool(
-        np.any(offset > 1000.0 * np.maximum(spread, np.finfo(np.float64).tiny))
+        np.any(offset > 1000.0 * np.maximum(spread, np.finfo(np.float64).tiny))  # Intentional float64: double-precision tiny: the offset-to-spread test runs in float64 arithmetic as on the host
     )  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
 
 
@@ -500,13 +500,13 @@ def _float32_unsafe_columns(y: np.ndarray, operand_matrix: np.ndarray) -> "tuple
     """``(y_unsafe, operand_unsafe)``: the per-column form of :func:`_float32_unsafe` (a non-finite value, or an offset more than 1000 times the spread). ``operand_unsafe`` is a boolean per operand row."""
     y_unsafe = _float32_unsafe(y, np.empty((len(y), 0)))
     ops = np.asarray(
-        operand_matrix, dtype=np.float64
+        operand_matrix, dtype=np.float64  # Intentional float64: double-precision variant: the statistic needs the full mantissa
     )  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
     finite = np.isfinite(ops).all(axis=1)
     spread = ops.std(axis=1)
     offset = np.abs(ops.mean(axis=1))
     unsafe = ~finite | (
-        offset > 1000.0 * np.maximum(spread, np.finfo(np.float64).tiny)
+        offset > 1000.0 * np.maximum(spread, np.finfo(np.float64).tiny)  # Intentional float64: double-precision tiny: the offset-to-spread test runs in float64 arithmetic as on the host
     )  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
     return bool(y_unsafe), unsafe
 
@@ -542,7 +542,7 @@ def _batch_pair_usability_corr_cuda_warp_typed(
     # float32 forms and moments by default: this kernel was float64-bound on a 1/32-double card (5778 pairs x 5 forms x 33334 rows: 0.74 s float64, 0.17 s
     # float32; |corr| within 1.7e-6, the best form of every pair unchanged). MLFRAME_USABILITY_CORR_F32=0 keeps the double kernel.
     ft = (
-        np.float64 if os.environ.get("MLFRAME_USABILITY_CORR_F32", "1").strip() == "0" else np.float32
+        np.float64 if os.environ.get("MLFRAME_USABILITY_CORR_F32", "1").strip() == "0" else np.float32  # Intentional float64: selectable double-precision variant of the kernel (default and environment switch)
     )  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
     if forced_ft is not None:
         ft = forced_ft

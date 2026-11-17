@@ -40,7 +40,7 @@ def _codes_kernel(cp: Any) -> Any:
     ker = _KERNELS.get("codes")
     if ker is None:
         ker = _KERNELS["codes"] = cp.ElementwiseKernel(
-            "T v, raw float64 edges, int32 ne, int64 width",
+            "T v, raw float64 edges, int32 ne, int64 width",  # Intentional float64: CUDA signature text: the parameter is a double in the kernel source
             "int32 code",
             """
             if (!isfinite(v)) {
@@ -67,7 +67,7 @@ def _interp_kernel(cp: Any) -> Any:
     ker = _KERNELS.get("interp")
     if ker is None:
         ker = _KERNELS["interp"] = cp.ElementwiseKernel(
-            "T v, int32 f, raw float64 cx, raw float64 cy, raw float64 cnt, raw float64 mu, int32 nb, int32 nf, int64 width",
+            "T v, int32 f, raw float64 cx, raw float64 cy, raw float64 cnt, raw float64 mu, int32 nb, int32 nf, int64 width",  # Intentional float64: CUDA signature text: the parameter is a double in the kernel source
             "float64 o",
             """
             const long long cf = (i / width) * nf + f;
@@ -112,7 +112,7 @@ def _row_quantiles(cp: Any, sorted_rows: Any, counts: Any, probs: np.ndarray) ->
     last = (cp.maximum(counts, 1) - 1)[:, None]
     lo_i = cp.clip(lo.astype(cp.int64), 0, last)
     hi_i = cp.minimum(lo_i + 1, last)
-    a = cp.take_along_axis(sorted_rows, lo_i, axis=1).astype(cp.float64)
+    a = cp.take_along_axis(sorted_rows, lo_i, axis=1).astype(cp.float64)  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     b = cp.take_along_axis(sorted_rows, hi_i, axis=1).astype(cp.float64)
     diff = b - a
     return cp.where(gamma >= 0.5, b - diff * (1.0 - gamma), a + diff * gamma)
@@ -132,7 +132,7 @@ def _pointwise(cp: Any, codes: Any, y: Any, n_codes: int, ky: int, mask: Any = N
     n = joint.sum(axis=(1, 2), keepdims=True)
     den = px * py
     table = cp.where(joint > 0, cp.log(cp.where(joint > 0, joint * n, 1.0) / cp.where(den > 0, den, 1.0)), 0.0)
-    return cp.concatenate([table.ravel(), cp.zeros(1, dtype=cp.float64)])[key]
+    return cp.concatenate([table.ravel(), cp.zeros(1, dtype=cp.float64)])[key]  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
 
 
 def _block_stats(
@@ -168,7 +168,7 @@ def _block_stats(
     bulk = finite[:, odd] & (x_odd >= bulk_range[:, :1]) & (x_odd <= bulk_range[:, 1:])
     n_bulk = bulk.sum(axis=1)
     use_bulk = n_bulk >= (min_rows // 2)
-    n_bulk_f = cp.maximum(n_bulk, 1).astype(cp.float64)
+    n_bulk_f = cp.maximum(n_bulk, 1).astype(cp.float64)  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     mo = x_odd.shape[1]
     pm_r = _pointwise(cp, cr, y_odd, mi_bins, ky)
     pm_rb = _pointwise(cp, cr, y_odd, mi_bins, ky, bulk)

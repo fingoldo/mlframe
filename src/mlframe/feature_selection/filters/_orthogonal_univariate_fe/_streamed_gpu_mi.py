@@ -14,7 +14,7 @@ Safety margins (measured, pinned against pageable on this host: 5.8 vs 3.8 GB/s 
 
 from __future__ import annotations
 
-from mlframe.system._ram_probe import host_memory
+from mlframe.system import host_memory
 import logging
 import time
 from typing import Any, Iterable, Optional

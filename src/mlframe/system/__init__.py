@@ -9,6 +9,6 @@ from __future__ import annotations
 from ._gpu_guard import callable_looks_gpu_bound, try_import_cupy
 # Same reasoning as the cupy guard above: two feature-selection modules size their batches from this
 # probe, so it is part of this package's surface rather than something they reach in for.
-from ._ram_probe import available_ram_bytes
+from ._ram_probe import available_ram_bytes, host_memory
 
-__all__ = ["available_ram_bytes", "callable_looks_gpu_bound", "try_import_cupy"]
+__all__ = ["available_ram_bytes", "callable_looks_gpu_bound", "host_memory", "try_import_cupy"]

@@ -9,7 +9,7 @@ imports this module's functions at load time for re-export + ``@kernel_tuner`` r
 """
 from __future__ import annotations
 
-from mlframe.system._ram_probe import host_memory
+from mlframe.system import host_memory
 import time
 import logging
 

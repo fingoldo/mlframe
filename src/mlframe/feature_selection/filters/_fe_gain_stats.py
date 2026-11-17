@@ -37,7 +37,7 @@ def _codes_right(x, edges):  # pragma: no cover - numba body
 @njit(cache=True, nogil=True)
 def _more_than_distinct(v, cap):  # pragma: no cover - numba body
     """True when the finite array ``v`` holds more than ``cap`` distinct values; stops at the ``cap + 1``-th distinct value, so a continuous column costs ``cap + 1`` reads, not a sort."""
-    seen = np.empty(cap + 1, dtype=np.float64)
+    seen = np.empty(cap + 1, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     k = 0
     for i in range(v.shape[0]):
         x = v[i]

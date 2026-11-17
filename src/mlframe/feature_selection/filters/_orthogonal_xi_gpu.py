@@ -10,7 +10,7 @@ next one does not need:
    class in ``r_tab`` / ``l_tab``, read through the read-only cache) and adds ``|r - r_prev|`` and ``l (n - l)`` into two per-column sums.
 
 The rank sums are integer counts, so every term is an integer held exactly in a double and the block sums are exact in any order (``{ACC}`` is double and is never lowered): the result equals the
-host's value to the last bit. Values are ``{REAL}`` (float32 here; a float64 column goes to the host kernel). Operands may already be resident: ``cols`` is a numpy array that is uploaded, or a cupy array
+host's value to the last bit. Values are ``{REAL}`` (float32 here; a double column goes to the host kernel). Operands may already be resident: ``cols`` is a numpy array that is uploaded, or a cupy array
 that is used as is. Columns go in blocks that fit ``_BUDGET_FRACTION`` of the free device memory; any device fault returns ``None`` and the caller runs the host kernel. The host/device choice is the
 kernel-tuning cache entry ``fe_xi_columns_device`` (fallback: the host).
 """
@@ -146,9 +146,9 @@ def _order_wide(cp: Any, ordk: Any, tk: Any) -> Any:
 def xi_columns_device(cols: Any, seeds: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, y_side: "YSide | None" = None, *, allow_wide: bool = False) -> Optional[np.ndarray]:
     """Xi of each row of ``cols`` (columns, n; float32, numpy or a resident cupy array) with the column tie seeds ``seeds``; ``None`` when the device cannot take it (the caller runs the host kernel)."""
     kk, n = cols.shape
-    if kk == 0 or n < 2 or str(cols.dtype) not in ("float32", "float64"):
+    if kk == 0 or n < 2 or str(cols.dtype) not in ("float32", "float64"):  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
         return None
-    wide = str(cols.dtype) == "float64"
+    wide = str(cols.dtype) == "float64"  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
     if wide and not allow_wide:
         # The production criterion dtype is float32 (crit_float_dtype). The float64 wide path is exact but sort-bound and slower than the
         # host kernel (audits/2026-10-22/profiles/_orthogonal_xi_gpu.md), so it runs only when a caller opts in.
@@ -172,7 +172,7 @@ def xi_columns_device(cols: Any, seeds: np.ndarray, r_row: np.ndarray, l_row: np
         grid_x = (n + keys_threads - 1) // keys_threads
         walk_blocks = min((n + _THREADS - 1) // _THREADS, 64)
         keys_buf = None if wide else cp.empty((block, n), dtype=cp.uint64)  # one reusable sort-key buffer for every chunk, not one per chunk
-        sums_dev = cp.zeros(2 * kk, dtype=cp.float64)  # one resident accumulator; one D2H after the loop instead of one per chunk
+        sums_dev = cp.zeros(2 * kk, dtype=cp.float64)  # one resident accumulator; one D2H after the loop instead of one per chunk  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
         for c0 in range(0, kk, block):  # one column block per pass, bounded by the free-memory budget above
             w = min(block, kk - c0)
             col_d = cols[c0 : c0 + w] if resident else cp.asarray(np.ascontiguousarray(cols[c0 : c0 + w]))

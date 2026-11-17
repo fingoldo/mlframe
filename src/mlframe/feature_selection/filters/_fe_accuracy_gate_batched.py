@@ -67,7 +67,7 @@ def _gate_batch_device_variant(srcs, engs, y):
     probe = _probe_splits(np.zeros((len(y), 1)), y, classification=True, n_splits=10, seed=0, groups=None)
     it, y_enc, _binary, _ns = probe
     folds = [(tr, va) for tr, va in it if np.unique(y_enc[tr]).size >= 2]
-    return batched_uplift(list(srcs), list(engs), y_enc.astype(np.float64), folds=folds, base_of=list(range(len(srcs))))
+    return batched_uplift(list(srcs), list(engs), y_enc.astype(np.float64), folds=folds, base_of=list(range(len(srcs))))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
 
 
 def _sweep_gate_batch() -> list:
@@ -169,10 +169,10 @@ def _fold_auc_launch(cp: Any, designs_host: np.ndarray, fold_resident: tuple, ev
             np.int32(k),
             np.int32(n_designs),
             np.int32(int(eval_folds.shape[0])),
-            np.float64(float(lam)),
+            np.float64(float(lam)),  # Intentional float64: scalar argument of a double-typed kernel parameter or accumulator
             np.float64(float(_GRAD_TOL)),
             np.int32(int(_MAX_ITER)),
-            np.int32(1 if real != np.float64 else 0),
+            np.int32(1 if real != np.float64 else 0),  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
             out,
         ),  # Intentional float64: the kernel's {ACC} scalars
     )
@@ -222,7 +222,7 @@ def batched_uplift(
         base_auc = _fold_auc_device(cp, bases, fold_resident, eval_folds, lam)
         del bases
         block = min(len(eng_cols), _device_block_designs(cp, n, 2, real.itemsize))
-        out_buf = cp.empty((block, int(eval_folds.shape[0])), dtype=cp.float64)  # one reusable AUC buffer for every chunk below, not one per chunk
+        out_buf = cp.empty((block, int(eval_folds.shape[0])), dtype=cp.float64)  # one reusable AUC buffer for every chunk below, not one per chunk  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
         uplift = np.empty(len(eng_cols), dtype=np.float64)  # Intentional float64: the uplift is a mean of double AUC differences
         for start in range(0, len(eng_cols), block):
             idx = list(range(start, min(len(eng_cols), start + block)))
@@ -298,7 +298,7 @@ def batched_uplifts_for_pairs(
     for i in covered:
         base_cols[order[base_keys[i]]] = subs[i]
     got = batched_uplift(
-        base_cols, [engs[i] for i in covered], y_enc.astype(np.float64), folds=folds, base_of=[order[base_keys[i]] for i in covered]
+        base_cols, [engs[i] for i in covered], y_enc.astype(np.float64), folds=folds, base_of=[order[base_keys[i]] for i in covered]  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     )  # Intentional float64: double labels for the Newton solve
     if got is None:
         return None

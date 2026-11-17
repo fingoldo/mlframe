@@ -52,7 +52,7 @@ def _get_abs_corr_kernel(real_t: str = "double"):
         kern = _ABS_CORR_KERNELS.get(real_t)
         if kern is None:
             import cupy as cp
-            kern = kernel_abs_corr(cp, np.float32 if real_t == "float" else np.float64)
+            kern = kernel_abs_corr(cp, np.float32 if real_t == "float" else np.float64)  # Intentional float64: the device kernel is built in the data's own precision: float64 data keeps double
             _ABS_CORR_KERNELS[real_t] = kern
     return kern
 

@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 def _native_column(series: Any) -> np.ndarray:
-    """The column as a host array of its own floating dtype (float32 stays float32); other dtypes become float32 only when exact there is not required, i.e. never float64 by default."""
+    """The column as a host array of its own floating dtype (float32 stays float32); other dtypes become float32 only when exact there is not required, i.e. never double precision by default."""
     a = np.asarray(series.to_numpy())
     return a if a.dtype.kind == "f" else a.astype(np.float32)
 
@@ -108,7 +108,7 @@ def route_columns_on_device(X: Any, cols: Sequence[str], y: Any, degrees: Sequen
 def build_cells_on_device(X: Any, chosen: "dict[str, str]", degrees: Sequence[int], code: "dict[str, str]") -> "dict[str, dict[str, np.ndarray]]":
     """``{column: {cell name: values}}`` of the columns routed on the device, with the cells of every (column, degree) built there too and returned as host columns of the criterion dtype.
 
-    Owner decision (2026-11-16): bit identity with the host cells and float64 are not required while the selected features stay the same. The host built each cell from a float64 fit axis one column at a time
+    Owner decision (2026-11-16): bit identity with the host cells and double precision are not required while the selected features stay the same. The host built each cell from a double precision fit axis one column at a time
     (the polynomial evaluators, and for rbf / sigmoid / pade / fourier their own njit kernels); here a block of columns is uploaded once and ``_gpu_evaluate_basis_matrix`` builds all of the block's
     cells in a few launches. The recipes of the winners are rebuilt from the cell NAMES by the host path, which replays the same function to float32 rounding. Empty when the device cannot build them."""
     if not chosen:

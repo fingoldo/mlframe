@@ -381,7 +381,7 @@ def _mean_abs_pearson(X_num: pd.DataFrame, num_cols: list, y_arr: np.ndarray) ->
             if _VECTORISED and num_cols:
                 # Intentional float64: correlation sums run in double precision
                 y_vals = np.asarray(y_series.to_numpy(dtype=np.float64))
-                A = np.asarray(X_num[num_cols].to_numpy(dtype=np.float64))
+                A = np.asarray(X_num[num_cols].to_numpy(dtype=np.float64))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
                 if np.isfinite(y_vals).all():
                     # the all-finite columns from the moment kernel, a column with a missing value through pandas below
                     finite = np.isfinite(A).all(axis=0)

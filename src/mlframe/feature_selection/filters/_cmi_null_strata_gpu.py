@@ -113,7 +113,7 @@ _LOCK = threading.Lock()
 
 
 def kernel(cp: Any, real: Any = None) -> Any:
-    """``strata_xy_entropy`` compiled once per process (counts are integers and the sums are float64, so ``real`` does not change the module)."""
+    """``strata_xy_entropy`` compiled once per process (counts are integers and the sums are double precision, so ``real`` does not change the module)."""
     with _LOCK:
         mod = _MODULES.get("acc64")
         if mod is None:
@@ -136,7 +136,7 @@ _ENT_TABLES_MAX = 4
 
 
 def _entropy_table(cp: Any, n: int) -> Any:
-    """``ent[v] = -(v / n) ln(v / n)`` for v = 0..n as a float64 device table, cached per ``n`` (a gate round asks for the same ``n`` hundreds of times).
+    """``ent[v] = -(v / n) ln(v / n)`` for v = 0..n as a double precision device table, cached per ``n`` (a gate round asks for the same ``n`` hundreds of times).
 
     A table read replaces a double-precision ``log`` per occupied cell, which runs at 1/32 of the FP32 rate on consumer cards (15.1 ms against 1.4 ms at 36698 strata)."""
     with _ENT_LOCK:

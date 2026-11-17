@@ -835,7 +835,7 @@ def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
     n = x.size
     ranks64 = np.empty(n, dtype=np.float64)  # Intentional float64: average ranks are halves of integers, exact in double as scipy returns them
     _avg_ranks_inplace(np.ascontiguousarray(x), n, np.empty(n, dtype=np.int64), ranks64)
-    r2 = float(_cubic_heldout_r2_kernel(ranks64, np.ascontiguousarray(va), np.ascontiguousarray(y_tr, dtype=np.float64), np.ascontiguousarray(yv, dtype=np.float64), float(sst)))
+    r2 = float(_cubic_heldout_r2_kernel(ranks64, np.ascontiguousarray(va), np.ascontiguousarray(y_tr, dtype=np.float64), np.ascontiguousarray(yv, dtype=np.float64), float(sst)))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     if r2 == r2:  # a singular normal system returns NaN: the least-squares form below decides it
         return r2
     ranks = (ranks64 - 1.0).astype(_crit_np_dtype(), copy=False)

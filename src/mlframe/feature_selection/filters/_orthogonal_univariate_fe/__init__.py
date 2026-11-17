@@ -395,7 +395,7 @@ def _basis_source_cols(X: pd.DataFrame, cols: Any, dedup_collinear_sources: bool
 
 
 def _fit_basis_once(x: np.ndarray, chosen_basis: str, aux_col: Any) -> tuple:
-    """``(z, params)`` of the basis preprocess fitted once on ``x`` (float64, the replay precision), or ``(None, None)`` when the aux pool is in play (its fit concatenates the pool per degree) or the fit raised."""
+    """``(z, params)`` of the basis preprocess fitted once on ``x`` (double precision, the replay precision), or ``(None, None)`` when the aux pool is in play (its fit concatenates the pool per degree) or the fit raised."""
     if aux_col is not None and length_of(aux_col) != 0:
         return None, None
     try:

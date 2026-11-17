@@ -183,12 +183,12 @@ def _binning_dtype(X_cols: np.ndarray):
     """
     if isinstance(X_cols, np.ndarray) and X_cols.size:
         x = np.asarray(
-            X_cols, dtype=np.float64
+            X_cols, dtype=np.float64  # Intentional float64: double-precision variant: the statistic needs the full mantissa
         )  # Intentional float64: columns with a large offset are binned in double so the edges are not lost to float32 rounding
         spread = x.std(axis=0)
         offset = np.abs(x.mean(axis=0))
         if np.any(
-            offset > 1000.0 * np.maximum(spread, np.finfo(np.float64).tiny)
+            offset > 1000.0 * np.maximum(spread, np.finfo(np.float64).tiny)  # Intentional float64: double-precision tiny: the offset-to-spread test runs in float64 arithmetic as on the host
         ):  # Intentional float64: columns with a large offset are binned in double so the edges are not lost to float32 rounding
             return np.float64
     return crit_float_dtype()

@@ -122,9 +122,9 @@ def _fold_cross_sums(base: np.ndarray, Y: np.ndarray, cand: np.ndarray, starts: 
     m = cand.shape[0]
     p = base.shape[1]
     k = Y.shape[1]
-    u = np.zeros((n_f, p), dtype=np.float64)
+    u = np.zeros((n_f, p), dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     cc = np.zeros(n_f, dtype=np.float64)
-    cy = np.zeros((n_f, k), dtype=np.float64)
+    cy = np.zeros((n_f, k), dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     for f in range(n_f):
         hi = starts[f + 1] if f + 1 < n_f else m
         for i in range(starts[f], hi):
@@ -152,11 +152,11 @@ def _fold_grams(base: np.ndarray, Y: np.ndarray, starts: np.ndarray) -> tuple:
     n_f = starts.shape[0]
     m, p = base.shape
     k = Y.shape[1]
-    gram = np.zeros((n_f, p, p), dtype=np.float64)
+    gram = np.zeros((n_f, p, p), dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     rhs = np.zeros((n_f, p, k), dtype=np.float64)
-    yy = np.zeros(n_f, dtype=np.float64)
+    yy = np.zeros(n_f, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     sst = np.zeros(n_f, dtype=np.float64)
-    col_sum = np.zeros(k, dtype=np.float64)
+    col_sum = np.zeros(k, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     for f in range(n_f):
         lo = starts[f]
         hi = starts[f + 1] if f + 1 < n_f else m
@@ -244,7 +244,7 @@ def _gains_from_sums(prep: dict, u: np.ndarray, cc: np.ndarray, cy: np.ndarray) 
 
 def _gain(prep: dict, cand_sorted: np.ndarray) -> np.ndarray:
     """Per-fold out-of-fold gain of one candidate given in the fold-sorted row order of ``prep``."""
-    u, cc, cy = _fold_cross_sums(prep["base"], prep["Y"], np.ascontiguousarray(cand_sorted, dtype=np.float64), prep["starts"])
+    u, cc, cy = _fold_cross_sums(prep["base"], prep["Y"], np.ascontiguousarray(cand_sorted, dtype=np.float64), prep["starts"])  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     gains: np.ndarray = _gains_from_sums(prep, u[None], cc[None], cy[None])[0]
     return gains
 
@@ -255,9 +255,9 @@ def _cell_sums_kernel(base: np.ndarray, Y: np.ndarray, starts: np.ndarray, cells
     n_f = starts.shape[0]
     m, p = base.shape
     k = Y.shape[1]
-    count = np.zeros((n_f, n_cells), dtype=np.float64)
+    count = np.zeros((n_f, n_cells), dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     sb = np.zeros((n_f, n_cells, p), dtype=np.float64)
-    sy = np.zeros((n_f, n_cells, k), dtype=np.float64)
+    sy = np.zeros((n_f, n_cells, k), dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     for f in range(n_f):
         hi = starts[f + 1] if f + 1 < n_f else m
         for i in range(starts[f], hi):

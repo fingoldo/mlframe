@@ -524,7 +524,7 @@ def _precheck_survivors(cols_x: list, y_arr: np.ndarray) -> list:
     try:
         from ._hinge_precheck_gpu import hinge_precheck_drops
 
-        xs = np.stack([np.asarray(x, dtype=np.float64).ravel() for _c, x in cols_x])
+        xs = np.stack([np.asarray(x, dtype=np.float64).ravel() for _c, x in cols_x])  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
         drops = hinge_precheck_drops(xs, np.asarray(y_arr, dtype=np.float64).ravel(), _HINGE_PRECHECK_QS, _HINGE_MIN_SEG_ROWS)
         return [item for item, d in zip(cols_x, drops) if d >= _HINGE_PRECHECK_MIN_SSE_DROP]
     except Exception as exc:
