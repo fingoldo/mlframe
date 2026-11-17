@@ -149,18 +149,13 @@ def _sweep_host(*args: Any) -> np.ndarray:
     return _g_host(*args)
 
 
-def _sweep_device(*args: Any) -> np.ndarray:
-    """The device kernel; every sweep candidate fits, so a failed launch raises and is never recorded as a host time."""
-    return g_statistics_gpu(*args)
-
-
 try:
     from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
     _SPEC: Any = kernel_tuner(
         kernel_name="added_information_backend",
         variant_fns=(),  # the two backends are timed by the sweep callable
-        tuner=host_device_sweep(__name__, _sweep_host, _sweep_device, rtol=1e-9, atol=1e-9),
+        tuner=host_device_sweep(__name__, _sweep_host, g_statistics_gpu, rtol=1e-9, atol=1e-9),
         axes={"n_samples": list(_SWEEP_ROWS)},
         fallback=rows_fallback(__name__),
         gpu_capable=True,

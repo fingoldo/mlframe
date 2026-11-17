@@ -67,10 +67,9 @@ def _fusion_sweep() -> list:
     return cast(list, sweep_backend_grid({"host": _fusion_host, "device": _fusion_device}, {"n_samples": _SWEEP_N_SAMPLES}, _fusion_inputs, reference="host", repeats=2, equiv_rtol=0.0, equiv_atol=0.0))
 
 
-def _fallback_choice(n_samples: int) -> str:
-    """Pre-sweep choice from the row mark."""
-    return "device" if int(n_samples) >= DEVICE_FALLBACK_ROWS else "host"
+from ._ktc_fallback import rows_fallback
 
+_fallback_choice = rows_fallback(__name__, "DEVICE_FALLBACK_ROWS")
 
 try:
     from pyutilz.performance.kernel_tuning.registry import kernel_tuner

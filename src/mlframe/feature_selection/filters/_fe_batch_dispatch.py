@@ -92,7 +92,7 @@ def fe_batch_mi(
             from ._fe_gpu_batch import multi_gpu_fe_batch_mi
             from ._fe_gpu_batch._devices import fe_gpu_f32_enabled
             # Intentional float64: strict default of the separate MLFRAME_FE_VRAM_F32 knob (not the crit policy); f32 only when opted in.
-            _dt = _np.float32 if fe_gpu_f32_enabled() else _np.float64  # f32 opt-in: 2.2x, selection-equiv
+            _dt = _np.float32 if (fe_gpu_f32_enabled() or X.dtype == _np.float32) else _np.float64  # f32 opt-in: 2.2x, selection-equiv; a matrix that already is float32 is scored as such (no host up- and down-cast, half the upload)
             return multi_gpu_fe_batch_mi(X, y_codes, nbins, dtype=_dt)  # spreads across GPUs; single-GPU = 1 device
         except Exception as exc:
             # Was a bare `except Exception: pass`

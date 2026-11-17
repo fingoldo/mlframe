@@ -670,6 +670,24 @@ def run_optional_diagnostics_and_composite_discovery(
     return target_by_type, metadata
 
 
+def _without_sequence_columns(X: Any) -> Any:
+    """``X`` without the columns whose cells are sequences (embedding vectors held as lists / arrays): the mix-offset gate fits a gradient-boosting regressor on the frame and the selector bins it, neither of which takes a list cell
+    (``ValueError: setting an array element with a sequence`` failed a suite with an embedding feature). Scalar object columns (strings) are left to the estimators' own handling."""
+    import numpy as np
+    import pandas as pd
+
+    if not isinstance(X, pd.DataFrame):
+        return X
+    drop = []
+    for col in X.columns:
+        if X[col].dtype != object:
+            continue
+        first = X[col].dropna().head(1)
+        if len(first) and isinstance(first.iloc[0], (list, tuple, np.ndarray)):
+            drop.append(col)
+    return X.drop(columns=drop) if drop else X
+
+
 def _mix_offset_inputs_for_discovery(config, train_df_pd, val_df_pd, test_df_pd, train_idx, val_idx, test_idx):
     """The discovery hook's inputs when ``mix_offset_enabled`` is set and the splits rebuild the full frame; None otherwise."""
     if not getattr(config, "mix_offset_enabled", False):
@@ -685,6 +703,7 @@ def _mix_offset_inputs_for_discovery(config, train_df_pd, val_df_pd, test_df_pd,
     if X is None:
         logger.warning("mix_offset_enabled set, but the split frames do not rebuild the full table; the mix-offset hook is skipped.")
         return None
+    X = _without_sequence_columns(X)
     return {
         "X": X,
         "train_idx": np.asarray(train_idx, dtype=np.int64),

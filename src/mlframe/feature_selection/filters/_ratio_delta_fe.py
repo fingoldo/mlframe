@@ -211,37 +211,6 @@ def pairwise_log_ratio_features(
     enc_df = pd.DataFrame(encoded, index=X.index) if encoded else pd.DataFrame(index=X.index)
     return enc_df, accepted
 
-def _passes_redundancy(
-    candidate: np.ndarray, a_vals: np.ndarray, b_vals: np.ndarray, threshold: float,
-) -> bool:
-    """Reject the candidate column if |Pearson(candidate, a)| > threshold or
-    |Pearson(candidate, b)| > threshold - i.e. it would carry no new info
-    over the source pair.
-
-    One-pass njit correlation (``_abs_corr_finite_njit``, shared with the FE-pairs scorer's
-    identical masked-Pearson pattern) replaces the previous isfinite-mask + boolean-index
-    copies + full 2x2 ``np.corrcoef`` per (candidate, source) check - this fires up to
-    O(p^2) times per call (every ordered column pair x 2 sources), the dominant cost of
-    ``pairwise_ratio_features``/``pairwise_log_ratio_features`` per the file's own
-    bench-attempt-rejected note above. ``min_n=2`` (not the kernel's small-sample-noise
-    default of 8) matches what a masked ``np.corrcoef`` call implicitly requires - variance,
-    and hence Pearson r, is defined from as few as 2 points - so the redundancy verdict on a
-    thin joint-finite overlap between candidate and source is unchanged, not just close.
-    """
-    from ._feature_engineering_pairs._pairs_core import _abs_corr_finite_njit
-    cand = np.ascontiguousarray(candidate, dtype=_crit_np_dtype())
-    if cand.std() <= 1e-12:
-        return False
-    for src in (a_vals, b_vals):
-        src = np.ascontiguousarray(src, dtype=_crit_np_dtype())
-        if src.std() <= 1e-12:
-            continue
-        src_finite = np.isfinite(src)
-        rho_abs = _abs_corr_finite_njit(cand, src, src_finite, 2)
-        if rho_abs > float(threshold):
-            return False
-    return True
-
 def apply_ratio(X_test: pd.DataFrame, a: str, b: str, eps: float) -> np.ndarray:
     """Replay a fitted ratio recipe on new data: recompute ``a / b`` with the same sign-preserving safe division as fit time."""
     if not isinstance(X_test, pd.DataFrame):

@@ -701,7 +701,6 @@ log_cli = false
 source = ["src/mlframe"]
 omit = [
     "tests/*",
-    "legacy/*",
     # Was "benchmarks/*" -- a literal top-level match that never hit any real directory: every
     # actual benchmark dir in this tree is nested and underscore-prefixed (e.g.
     # feature_selection/_benchmarks/, hermite_fe/_benchmarks/), so this exclusion had been
@@ -869,7 +868,6 @@ DEP002 = [
     "codespell", "deptry", "interrogate", "vulture", "yamllint",  # invoked by pre-commit hooks as `python -m ...`, never imported
     "pillow", "setuptools", "tornado", "aiohttp", "cryptography", "starlette", "werkzeug", "virtualenv", "multidict", "urllib3",
     "pycddlib-standalone",  # the non-win32 twin of the win32-only `pycddlib` (same `cdd` module); on Windows it is never installed, so deptry cannot map it to its module
-    "py-ci-shared",  # invoked as `python -m py_ci_shared.*` CLI/pre-commit-hook commands, never `import py_ci_shared`
     "statsmodels",  # the [stats] extra is for users and benchmarks/bench_robust_linres_1M.py; src/ computes ACF with numpy since statsmodels' import broke under pandas 3
 ]
 
@@ -1095,7 +1093,6 @@ max-complexity = 25
 # tuples where only one half is used), G004 (f-string in a plain logger call, not the hot-path
 # %-formatting concern this rule targets in production code): all script-local style, not bugs.
 "src/mlframe/**/_benchmarks/**" = ["T201", "B023", "N811", "N812", "N814", "N999", "PERF401", "PERF402", "PERF403", "PERF203", "PERF102", "DTZ005", "E741", "B008", "RUF059", "G004"]
-"src/mlframe/**/benchmarks/**" = ["T201", "B023", "N811", "N812", "N814", "N999", "PERF401", "PERF402", "PERF403", "PERF203", "PERF102", "DTZ005", "E741", "B008", "RUF059", "G004"]
 "benchmarks/**" = ["T201", "B023", "N811", "N812", "N814", "N999", "PERF401", "PERF402", "PERF403", "PERF203", "PERF102", "DTZ005", "E741", "B008", "RUF059", "G004"]
 # Vendored third-party model code -- left at upstream shape.
 "src/mlframe/feature_selection/filters/_vendored/**" = ["T201", "A001", "A002", "N801"]

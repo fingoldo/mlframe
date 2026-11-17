@@ -32,6 +32,7 @@ _SOURCE_K3 = render(r"""
 #define XL(v) (((v) < 32768) ? tab[(v)] : ({ACC})(v) * log(({ACC})(v)))
 #define ENT2(m, c) (((c) > 0.f && (c) < (m)) ? -((c) * __logf((c) / (m)) + ((m) - (c)) * __logf(((m) - (c)) / (m))) : 0.f)
 // Block (x, b): the label bitset of permutation b in shared memory, thread j = blockIdx.x * blockDim.x + threadIdx.x scans column j. Same two passes and tie rule as root_split_stats_k2.
+// coalescing-ok: a thread scans the sorted order of its own column; the TILE = 8 loads of order[] are one 32-byte sector read in full and tie[] bytes reuse the line through L1, so no fetched byte is wasted; the lane-dependent part is the column choice
 extern "C" __global__ void root_split_stats_k3(const int* __restrict__ order, const unsigned char* __restrict__ tie, const unsigned int* __restrict__ yb,
                                                const {ACC}* __restrict__ tab, const long long* __restrict__ ctot, const int n, const int B,
                                                const int Kc, const int min_split, const {ACC} h_full, const int words, {ACC}* __restrict__ out_gain,

@@ -177,6 +177,8 @@ def generate_extra_basis_features(
     _gate_cache, _pre_freqs = _prefetch_adaptive_fourier(
         X, cols, extra_bases, fourier_powers, _y_adapt, _y_adapt_prep, fourier_adaptive, fourier_chirp, _adaptive_allowed, _adaptive_f_grid, fourier_adaptive_min_val_corr
     )
+    _pre_chirp = _prefetch_chirp_fourier(X, cols, extra_bases, _y_adapt, _gate_cache, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr)
+
     def _one_column(col):
         """The extra-basis columns of one source column as ``(out_cols, meta)`` (own dictionaries, so columns can be scanned together), ``None`` once the wall-clock budget has passed."""
         out_cols: dict = {}
@@ -209,7 +211,7 @@ def generate_extra_basis_features(
             _emit_spline_legs(x, col, spline_knots, out_cols, meta)
         # Skip Fourier on integer-valued low-cardinality categorical group keys: sin/cos of an arbitrary label code (region 0..9)
         # is spurious periodicity that floods the support and displaces the genuinely useful grouped aggregates of that key.
-        _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_ok, _adaptive_f_grid, fourier_adaptive_min_val_corr, fourier_freqs, col, out_cols, meta, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr, _pre_freqs.get(col))
+        _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_ok, _adaptive_f_grid, fourier_adaptive_min_val_corr, fourier_freqs, col, out_cols, meta, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr, _pre_freqs.get(col), _pre_chirp.get(col))
         # Backlog #13: Haar wavelet / localized multiresolution
         # legs. The per-column held-out scale-selection lives in the standalone
         # ``_wavelet_basis_fe`` module (candidate-count control via the noise-aware
@@ -289,19 +291,56 @@ def _adaptive_cols_by_relevance(X, cols, y, max_adaptive_cols):
     return set(ranked[: int(max_adaptive_cols)])
 
 
-def _emit_chirp_fourier_legs(x, col, y_adapt, adaptive_fe_ok, fourier_chirp, chirp_f_grid, fourier_chirp_min_val_corr, out_cols, meta) -> None:
+def _prefetch_chirp_fourier(X, cols, extra_bases, y_adapt, gate_cache, fourier_chirp, chirp_f_grid, min_val_corr) -> dict:
+    """``{col: chirp frequencies}`` of every gated column detected in one resident batch, the chirp-axis twin of :func:`_prefetch_adaptive_fourier` (same detector, held-out split and arithmetic as the
+    per-column call in :func:`_emit_chirp_fourier_legs`, so the lists are the same). Empty (the columns detect for themselves) when the device mode is off, there is no target or fewer than two columns qualify."""
+    if y_adapt is None or not fourier_chirp or "fourier" not in extra_bases:
+        return {}
+    from .._edge_pool import map_on_edge_pool
+    from ._fourier_detect_batch import detect_fourier_freqs_batch, device_batch_enabled
+
+    if not device_batch_enabled():
+        return {}
+
+    def prepare(col):
+        """``(col, u_axis)`` for a column the chirp emitter would detect on, else ``(col, None)``: the same finiteness, gate and axis conditions as the emitter."""
+        if col not in X.columns or not pd.api.types.is_numeric_dtype(X[col]) or not gate_cache.get(col):
+            return col, None
+        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())
+        if not np.isfinite(x).all() or _is_int_as_cat_axis(x):
+            return col, None
+        _c_mean, _c_std, _c_lo, _c_span = _fit_chirp_warp_for_col(x)
+        if not (_c_span > 1e-12 and _c_std > 1e-12):
+            return col, None
+        u_axis = _chirp_axis(x, _c_mean, _c_std, _c_lo, _c_span)
+        if not np.all(np.isfinite(u_axis)) or _std_vs(u_axis, 1e-12) <= 1e-12:
+            return col, None
+        return col, u_axis
+
+    jobs = [(col, u) for col, u in map_on_edge_pool(prepare, list(cols)) if u is not None]
+    if len(jobs) < 2:
+        return {}
+    found = detect_fourier_freqs_batch([(u, y_adapt, chirp_f_grid) for _c, u in jobs], min_val_corr=float(min_val_corr), min_rows=800, max_freqs=6)
+    return {col: freqs for (col, _u), freqs in zip(jobs, found)}
+
+
+def _emit_chirp_fourier_legs(x, col, y_adapt, adaptive_fe_ok, fourier_chirp, chirp_f_grid, fourier_chirp_min_val_corr, out_cols, meta, pre_freqs=None) -> None:
     """Emit the quadratic-warp (chirp axis) sin/cos legs of one column, detected by the same held-out multitone detector as the linear legs."""
     if fourier_chirp and y_adapt is not None and adaptive_fe_ok:
         _c_mean, _c_std, _c_lo, _c_span = _fit_chirp_warp_for_col(x)
         if _c_span > 1e-12 and _c_std > 1e-12:
             u_axis = _chirp_axis(x, _c_mean, _c_std, _c_lo, _c_span)
             if np.all(np.isfinite(u_axis)) and _std_vs(u_axis, 1e-12) > 1e-12:
-                _chirp_freqs = _detect_fourier_freqs_for_col(
-                    u_axis, y_adapt,
-                    f_grid=chirp_f_grid,
-                    min_val_corr=float(fourier_chirp_min_val_corr),
-                    min_rows=800,
-                    max_freqs=6,
+                _chirp_freqs = (
+                    list(pre_freqs)  # detected for all columns together beforehand (``_prefetch_chirp_fourier``)
+                    if pre_freqs is not None
+                    else _detect_fourier_freqs_for_col(
+                        u_axis, y_adapt,
+                        f_grid=chirp_f_grid,
+                        min_val_corr=float(fourier_chirp_min_val_corr),
+                        min_rows=800,
+                        max_freqs=6,
+                    )
                 )
                 for _cf in _chirp_freqs:
                     sc_vals, cc_vals = sincos_legs(u_axis, _cf)
@@ -338,7 +377,7 @@ def adaptive_fourier_grid(n_rows: int) -> tuple:
     return tuple(0.5 * k for k in range(1, 33)) + tuple(float(f) for f in range(17, top + 1))
 
 
-def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_ok, _adaptive_f_grid, fourier_adaptive_min_val_corr, fourier_freqs, col, out_cols, meta, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr, pre_freqs=None):
+def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_ok, _adaptive_f_grid, fourier_adaptive_min_val_corr, fourier_freqs, col, out_cols, meta, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr, pre_freqs=None, pre_chirp_freqs=None):
     """Build the Fourier extra-basis candidates of one column."""
     if "fourier" in extra_bases and not _is_int_as_cat_axis(x):
         try:
@@ -427,7 +466,7 @@ def _fourier_extra_basis(extra_bases, x, fourier_powers, _y_adapt, _adaptive_fe_
             # additive (on a plain linear target the chirp legs are harmless,
             # Ridge regularises them to ~0). N-gated identically (>= 800 rows
             # inside the detector); a pure-noise column admits none.
-            _emit_chirp_fourier_legs(x, col, _y_adapt, _adaptive_fe_ok, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr, out_cols, meta)
+            _emit_chirp_fourier_legs(x, col, _y_adapt, _adaptive_fe_ok, fourier_chirp, _chirp_f_grid, fourier_chirp_min_val_corr, out_cols, meta, pre_chirp_freqs)
         except Exception as exc:
             log_throttle(
                 logger, "extra_basis_fourier_raised", logging.WARNING,

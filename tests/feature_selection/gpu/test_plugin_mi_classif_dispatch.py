@@ -51,14 +51,16 @@ class TestPluginMIClassifEquivalence:
     @pytest.mark.parametrize("n", [1_000, 50_000, 100_000])
     @pytest.mark.parametrize("k", [1, 5, 20])
     @pytest.mark.parametrize("n_classes", [2, 3, 5])
+    @pytest.mark.parametrize("seed", [0, 1])
     def test_batch_cuda_matches_njit(
         self,
         n: int,
         k: int,
         n_classes: int,
+        seed: int,
     ) -> None:
         """Batch cuda matches njit."""
-        rng = np.random.default_rng(seed=11 + n + k + n_classes)
+        rng = np.random.default_rng(seed=11 + n + k + n_classes + seed)
         X = rng.normal(size=(n, k))
         y = rng.integers(0, n_classes, size=n).astype(np.int64)
         # The device path scores the columns in the critical dtype (float32 by default). Two estimators differ by design on TIED values (rank binning splits a tied group by row order, edge
@@ -74,9 +76,10 @@ class TestPluginMIClassifEquivalence:
         )
 
     @pytest.mark.parametrize("n", [1_000, 50_000, 100_000])
-    def test_single_cuda_matches_njit(self, n: int) -> None:
+    @pytest.mark.parametrize("seed", [0, 1])
+    def test_single_cuda_matches_njit(self, n: int, seed: int) -> None:
         """Single cuda matches njit."""
-        rng = np.random.default_rng(seed=11 + n)
+        rng = np.random.default_rng(seed=11 + n + seed)
         x = rng.normal(size=n)
         y = rng.integers(0, 4, size=n).astype(np.int64)
         njit_mi = float(_plugin_mi_classif_njit(x, y, 20))
@@ -363,6 +366,7 @@ class TestPluginMIClassifBizValue:
     """
 
     def test_cuda_faster_than_njit_at_production_scale(self) -> None:
+        # parity-ok: a timing assertion at production scale; it compares no values, so a second seed does not apply
         """Cuda faster than njit at production scale."""
         import time
 
@@ -414,12 +418,13 @@ def test_resident_batch_cuda_matches_host_input(seed):
     assert float(np.max(np.abs(mi_host - mi_res))) == 0.0, f"seed={seed}: resident MI must equal host-input MI bit-for-bit"
 
 
-def test_cuda_batch_refused_by_the_vram_cushion_returns_the_njit_reference(monkeypatch):
+@pytest.mark.parametrize("seed", [0, 1])
+def test_cuda_batch_refused_by_the_vram_cushion_returns_the_njit_reference(monkeypatch, seed):
     """With the VRAM cushion refusing the whole matrix, the CUDA batch returns the njit reference values instead of copying the matrix to the card."""
     from mlframe.feature_selection.filters import _fe_gpu_vram
     from mlframe.feature_selection.filters import _hermite_fe_mi as H
 
-    rng = np.random.default_rng(1)
+    rng = np.random.default_rng(seed)
     X = rng.standard_normal((5000, 4))
     y = rng.integers(0, 3, 5000)
     from mlframe.feature_selection.filters.hermite_fe import _plugin_mi_classif_batch_njit

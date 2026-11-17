@@ -1,18 +1,4 @@
 {
   "note": "Debt ratchet (tracker OP11-15): cache keys production code reads that nothing writes, so the dispatcher can never leave its default. Fix = register a kernel_tuner sweep for the key (or drop the lookup) and delete the entry here; the list only shrinks.",
-  "keys": [
-    "dcd_tau_cluster",
-    "ewma_dispatch",
-    "fe_hoist_headroom_overhead",
-    "fe_rung_keep_frac",
-    "frac_diff_inverse_dispatch",
-    "mrmr_default_screen_n",
-    "mrmr_fast_search_screen_n",
-    "shap_proxy_brute_force",
-    "shap_proxy_prefilter",
-    "shap_proxy_prefilter_univariate_batch",
-    "shap_proxy_score_margin",
-    "shap_proxy_subsetrank",
-    "shap_proxy_treeshap"
-  ]
+  "keys": []
 }

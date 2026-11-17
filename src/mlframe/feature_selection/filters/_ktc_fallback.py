@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import logging
 import sys
+from typing import Callable
 
 import numpy as np
+
+from mlframe.utils.log_throttle import log_throttle
 
 def device_from_rows(n_samples: int, min_rows: int) -> str:
     """``"device"`` when ``n_samples`` reaches ``min_rows`` (the measured crossover of the kernel), else ``"host"``."""
     return "device" if int(n_samples) >= int(min_rows) else "host"
 
 
-def rows_fallback(owner: str, name: str = "DEVICE_FALLBACK_ROWS"):
+def rows_fallback(owner: str, name: str = "DEVICE_FALLBACK_ROWS") -> "Callable[[int], str]":
     """The pre-sweep fallback of a row-count-gated kernel: ``device_from_rows`` with the threshold read from the module named ``owner`` (pass ``__name__``) at call
     time, so a test or an operator lowering the module constant takes effect."""
 
@@ -20,6 +24,52 @@ def rows_fallback(owner: str, name: str = "DEVICE_FALLBACK_ROWS"):
         return device_from_rows(n_samples, getattr(sys.modules[owner], name))
 
     return _fallback_choice
+
+
+def ktc_device_chooser(owner: str, label: str, *, env: "str | None" = None, pairs: bool = False):
+    """The device-or-host decision of a kernel module whose ``kernel_tuner`` entry sits in ``_SPEC`` (module named ``owner``, pass ``__name__``).
+
+    The returned function takes the row count (``pairs=True``: the row count and the pair count, the work being their product) and answers whether the device runs: never when the GPU is
+    globally disabled; ``env`` (``0`` / ``1``) forces a side; else the per-host tuning cache; else the owner's ``DEVICE_FALLBACK_ROWS`` floor. ``_SPEC`` and the floor are read from the
+    owner at call time, so a test or an operator replacing them takes effect. A failing ``choose`` is logged once per owner (throttled WARNING, with ``label``) and the floor decides."""
+    import os
+
+    logger = logging.getLogger(owner)
+
+    def _decide(work: int) -> bool:
+        """Whether ``work`` (rows, or rows x pairs) runs on the device."""
+        module = sys.modules[owner]
+        floor = module.DEVICE_FALLBACK_ROWS
+        spec = module._SPEC
+        if spec is None:
+            return bool(work >= floor)
+        try:
+            return bool(str(spec.choose(n_samples=work)) == "device")
+        except Exception as exc:
+            log_throttle(logger, f"{owner}.ktc_choose_failed", logging.WARNING, "%s: KTC choose() failed (%s: %s); the %d-row floor decides", label, type(exc).__name__, exc, floor)
+            return bool(work >= floor)
+
+    if pairs:
+
+        def pair_device_chosen(n: int, n_pairs: int) -> bool:
+            """Whether ``n_pairs`` pairs over ``n`` rows are scored on the device (the work is rows x pairs)."""
+            return _decide(int(n) * int(n_pairs))
+
+        return pair_device_chosen
+
+    def use_device(n_rows: int) -> bool:
+        """Whether ``n_rows`` rows take the device path."""
+        from ._gpu_policy import gpu_globally_disabled
+
+        if gpu_globally_disabled():
+            return False
+        if env is not None:
+            forced = os.environ.get(env, "").strip()
+            if forced in ("0", "1"):
+                return forced == "1"
+        return _decide(int(n_rows))
+
+    return use_device
 
 
 def host_device_sweep(owner: str, host, device, *, repeats: int = 3, rtol: float = 1e-9, atol: float | None = None, residency: bool = False):

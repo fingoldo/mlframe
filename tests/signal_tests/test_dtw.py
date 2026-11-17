@@ -143,13 +143,14 @@ class TestDtwBandedGpuBuffer:
         assert p_band == p_full, "banded warping path diverged from full-matrix path"
 
     @pytest.mark.parametrize("n,m,window", [(500, 500, 200), (800, 600, 250)])
-    def test_banded_cupy_matches_cpu_reference(self, n, m, window):
+    @pytest.mark.parametrize("seed", [0, 1])
+    def test_banded_cupy_matches_cpu_reference(self, n, m, window, seed):
         """Banded GPU distance matches the dtaidistance CPU reference (fp32 tol)."""
         pytest.importorskip("cupy")
         pytest.importorskip("dtaidistance")
         from mlframe.signal.dtw import dtw_cupy_banded, dtw_cpu
 
-        rng = np.random.default_rng(n + m + window)
+        rng = np.random.default_rng(n + m + window + seed)
         x = rng.standard_normal(n).astype(np.float32)
         y = rng.standard_normal(m).astype(np.float32)
         d_band, _ = dtw_cupy_banded(x, y, window=window)

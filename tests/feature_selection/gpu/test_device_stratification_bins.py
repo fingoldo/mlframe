@@ -25,11 +25,12 @@ def _host_bins(y: np.ndarray):
     return remap[ids].astype(np.int64), int(uniq.shape[0])
 
 
+@pytest.mark.parametrize("seed", [1, 2])
 @pytest.mark.parametrize("kind", ["normal", "ties", "nan_inf", "heavy"])
-def test_device_strata_equal_the_host_strata(monkeypatch, kind):
+def test_device_strata_equal_the_host_strata(monkeypatch, kind, seed):
     """Same codes and stratum count, for continuous, tie-heavy, non-finite-bearing and heavy-tailed targets."""
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
-    rng = np.random.default_rng(1)
+    rng = np.random.default_rng(seed)
     y = {"normal": rng.standard_normal(300_000), "ties": np.round(rng.standard_normal(300_000), 1), "heavy": rng.standard_normal(300_000) ** 3, "nan_inf": rng.standard_normal(300_000)}[kind]
     if kind == "nan_inf":
         y[::97] = np.nan

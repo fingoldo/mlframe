@@ -444,11 +444,9 @@ def _sweep_device(forms: list, pairs: list, names: list, cols: list, y: np.ndarr
     return np.asarray(out, dtype=np.float64)  # Intentional float64: comparison vector
 
 
-def _run_sweep() -> list:
-    """Time the host and the device batch per row count; both must give the same verdicts."""
-    from pyutilz.dev.benchmarking import sweep_backend_grid
+from ._ktc_fallback import host_device_sweep as _host_device_sweep
 
-    return list(sweep_backend_grid({"host": _sweep_host, "device": _sweep_device}, {"n_samples": _SWEEP_ROWS}, _sweep_inputs, reference="host", repeats=3, equiv_rtol=0.0, equiv_atol=0.0))
+_run_sweep = _host_device_sweep(__name__, _sweep_host, _sweep_device, rtol=0.0, atol=0.0)
 
 
 try:

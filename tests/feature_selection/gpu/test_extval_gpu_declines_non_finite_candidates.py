@@ -21,9 +21,10 @@ def _host_codes(a, bs, ops, nbins):
     return discretize_2d_quantile_batch(np.stack(cols, axis=1), nbins, np.int8)
 
 
-def test_nan_in_an_external_factor_gives_the_host_codes():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_nan_in_an_external_factor_gives_the_host_codes(seed):
     """30% NaN in the external factor: the codes equal the host binner's (NaN to the top bin), for several ops and a second finite factor."""
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     a = rng.normal(size=1000)
     b = rng.normal(size=1000)
     b_nan = b.copy()
@@ -36,6 +37,7 @@ def test_nan_in_an_external_factor_gives_the_host_codes():
 
 
 def test_an_infinite_candidate_is_handed_to_the_host():
+    # parity-ok: asserts that the device path declines infinite input; it compares no device value with the host, so there is no seed to vary
     """An infinite entry makes the interpolated edge undefined: the function declines (None) and the caller keeps the host binner."""
     rng = np.random.default_rng(1)
     a = rng.normal(size=1000)

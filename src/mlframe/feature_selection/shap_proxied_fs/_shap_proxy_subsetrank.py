@@ -33,7 +33,6 @@ import logging
 import time
 import math
 import os
-from typing import Any, cast
 
 import numpy as np
 from numba import njit, prange
@@ -164,31 +163,17 @@ def brute_force_top_n_cpu_ref(
 
 
 def _gpu_min_subsets() -> int:
-    """GPU break-even subset count from kernel_tuning_cache (key ``shap_proxy_subsetrank`` ->
-    ``gpu_min_subsets``), falling back to the measured ``_DEFAULT_GPU_MIN_SUBSETS``.
-
-    Never hardcoded into the route: a stable GPU host writes its own crossover; on this contended box
-    the lookup misses and we keep the conservative measured default, which (with the CPU-default policy)
-    means the GPU path is opt-in only. Env override ``MLFRAME_SHAP_SUBSETRANK_GPU_MIN_SUBSETS`` wins for
-    quick A/B without a cache write."""
+    """GPU break-even subset count: the env override ``MLFRAME_SHAP_SUBSETRANK_GPU_MIN_SUBSETS`` wins (quick A/B without a cache write), else the crossover of the registered ``shap_proxy_subsetrank``
+    kernel-tuning entry (``_shap_proxy_subsetrank_ktc``), else the measured ``_DEFAULT_GPU_MIN_SUBSETS``. The CPU stays the default backend: the GPU path is taken only with ``prefer_gpu``."""
     env = os.environ.get("MLFRAME_SHAP_SUBSETRANK_GPU_MIN_SUBSETS", "")
     if env:
         try:
             return int(env)
         except ValueError:
             pass
-    try:
-        from mlframe.feature_selection.filters import get_kernel_tuning_cache
+    from ._shap_proxy_subsetrank_ktc import crossover
 
-        ktc = get_kernel_tuning_cache()
-        if ktc is not None:
-            entry = cast(Any, ktc).lookup("shap_proxy_subsetrank")
-            if isinstance(entry, dict) and entry.get("gpu_min_subsets"):
-                return int(entry["gpu_min_subsets"])
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
-    return _DEFAULT_GPU_MIN_SUBSETS
+    return crossover()
 
 
 def brute_force_top_n_dispatch(

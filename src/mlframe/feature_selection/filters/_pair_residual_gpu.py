@@ -184,18 +184,13 @@ def _sweep_host(*args: Any) -> np.ndarray:
     return np.asarray(_score_pairs(*args))
 
 
-def _sweep_device(*args: Any) -> np.ndarray:
-    """The device kernel; a failed launch raises, so the sweep never records a host fallback as a device time."""
-    return score_pairs_gpu(*args)
-
-
 try:
     from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
     _SPEC: Any = kernel_tuner(
         kernel_name="pair_residual_backend",
         variant_fns=(),  # the two backends are timed by the sweep callable
-        tuner=host_device_sweep(__name__, _sweep_host, _sweep_device, rtol=1e-6, atol=1e-6),
+        tuner=host_device_sweep(__name__, _sweep_host, score_pairs_gpu, rtol=1e-6, atol=1e-6),
         axes={"n_samples": list(_SWEEP_ROWS)},
         fallback=rows_fallback(__name__),
         gpu_capable=True,
@@ -207,18 +202,9 @@ except Exception as e:  # best-effort: without a tuner entry the floor decides
     _SPEC = None
 
 
-def pair_device_chosen(n: int, n_pairs: int) -> bool:
-    """Whether ``n_pairs`` pairs over ``n`` rows are scored on the device: the per-host cache by rows x pairs, else the ``DEVICE_FALLBACK_ROWS`` floor."""
-    work = int(n) * int(n_pairs)
-    if _SPEC is None:
-        return work >= DEVICE_FALLBACK_ROWS
-    try:
-        return str(_SPEC.choose(n_samples=work)) == "device"
-    except Exception as exc:
-        from mlframe.utils.log_throttle import log_throttle
+from ._ktc_fallback import ktc_device_chooser as _ktc_device_chooser
 
-        log_throttle(logger, "pair_residual.ktc_choose_failed", logging.WARNING, "pair_residual_backend: KTC choose() failed (%s: %s), using the floor", type(exc).__name__, exc)
-        return work >= DEVICE_FALLBACK_ROWS
+pair_device_chosen = _ktc_device_chooser(__name__, "pair_residual_backend", pairs=True)
 
 
 def score_pairs_dispatch(host: Any, Q: np.ndarray, resid: np.ndarray, even: np.ndarray, pairs: np.ndarray, n_bins: int, shrink: float) -> np.ndarray:

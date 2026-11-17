@@ -86,3 +86,22 @@ def test_a_shared_xz_entropy_gives_the_same_cmi_for_within_stratum_shuffles():
     with_pre = cp.asnumpy(batched_cmi_gpu(xp, y, z_dev, kx=8, precomp_xz=(float(h), int(k)), return_device=True))
     without = cp.asnumpy(batched_cmi_gpu(xp, y, z_dev, kx=8, return_device=True))
     np.testing.assert_allclose(with_pre, without, rtol=0, atol=1e-12)
+
+
+def test_device_rng_is_deterministic_per_seed_and_has_the_draw_signatures():
+    """The null's device random source: the same seed gives the same draws, another seed another ones, ``randint`` keeps its dtype and half-open bounds, ``random_sample`` is in [0, 1)."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.filters._fe_cmi_perm_null_gpu import _DeviceRng
+
+    a = _DeviceRng(cp, 12345).randint(0, 1000, size=(500, 8), dtype=cp.int32)
+    b = _DeviceRng(cp, 12345).randint(0, 1000, size=(500, 8), dtype=cp.int32)
+    c = _DeviceRng(cp, 12346).randint(0, 1000, size=(500, 8), dtype=cp.int32)
+    assert a.dtype == cp.int32 and a.shape == (500, 8)
+    assert bool((a == b).all()) and not bool((a == c).all())
+    assert int(a.min()) >= 0 and int(a.max()) < 1000
+    wide = _DeviceRng(cp, 7).randint(0, 1 << 62, size=3, dtype=cp.int64)
+    assert wide.dtype == cp.int64 and bool((wide >= 0).all())
+    u = _DeviceRng(cp, 7).random_sample(size=(200, 4))
+    assert u.shape == (200, 4) and float(u.min()) >= 0.0 and float(u.max()) < 1.0
+    ones = cp.bincount(_DeviceRng(cp, 3).randint(0, 4, size=40000, dtype=cp.int32), minlength=4)
+    assert int(ones.min()) > 9000  # four buckets of 10000 each, a gross bias would show

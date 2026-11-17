@@ -106,10 +106,10 @@ def _bare_tokens(name: str, raw_name_set: set) -> set:
 def _fusion_auto_device(n_rows: int) -> bool:
     """AUTO / STRICT fit engaged the GPU strategies and the tuned host-or-device choice (``fe_additive_fusion_backend``) picks the device for ``n_rows`` rows."""
     try:
-        from ._fe_gpu_strict import fe_gpu_strict_enabled
+        from ._fe_gpu_strict import fe_gpu_strict_enabled, fe_gpu_strict_forced
         from ._fe_additive_fusion_ktc import fusion_use_device
 
-        return bool(fe_gpu_strict_enabled()) and fusion_use_device(n_rows)
+        return bool(fe_gpu_strict_enabled()) and (fe_gpu_strict_forced() or fusion_use_device(n_rows))
     except Exception as e:  # nosec B110 - optional dependency import guard
         log_throttle(logger, "fe_additive_fusion.auto_device_probe", logging.WARNING, "additive-fusion auto device probe failed (%s: %s); the host proposal runs", type(e).__name__, e)
         return False

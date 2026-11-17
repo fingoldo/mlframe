@@ -33,6 +33,7 @@ _KERNEL_INIT_LOCK = multiprocessing.Lock()
 _DEFAULT_BLOCK_SIZE = 256
 
 _KERNEL_SRC = r"""
+// coalescing-ok: every lane of a warp reads the same row i of phi (phi[i * f + comb[jj]], f floats, one or two cache lines) at its own combination's columns, so the row is a broadcast through L1 and the lane-dependent part is the column choice, not a row step; the kernel is absent from the whole-fit nvprof table
 extern "C" __global__
 void subset_loss(const {REAL}* phi, const {REAL}* base, const {REAL}* y,
                  const int* combos, const int n, const int f, const int r,

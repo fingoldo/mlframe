@@ -44,10 +44,11 @@ def _clear_cache():
     _BIN_BOUNDARIES_CACHE.clear()
 
 
-def test_rank_bin_codes_bit_identical_to_cpu_reference_tie_free():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_rank_bin_codes_bit_identical_to_cpu_reference_tie_free(seed):
     """Tie-free column: the GPU rank binner must be BIT-IDENTICAL to _quantile_bin_njit (per the module's
     own bit-identity contract docstring) -- a real regression pin, not previously tested anywhere."""
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     x = rng.standard_normal(5000).astype(np.float64)  # continuous -> tie-free w.p. 1
     for nb in (10, 20, 7):
         host_codes = _quantile_bin_njit(x, nb)
@@ -57,6 +58,7 @@ def test_rank_bin_codes_bit_identical_to_cpu_reference_tie_free():
 
 
 def test_boundaries_dedup_across_calls_same_n_nbins(monkeypatch):
+    # parity-ok: counts boundary uploads across calls; no device-versus-host value comparison
     """Two rank-bin calls on DIFFERENT columns but the SAME (n, n_bins) -- the realistic per-column FE-scan
     loop -- must upload the _bin_boundaries vector only ONCE."""
     n, nb = 6000, 12
@@ -85,6 +87,7 @@ def test_boundaries_dedup_across_calls_same_n_nbins(monkeypatch):
 
 
 def test_boundaries_dedup_batch_variant_shares_cache_with_single_column(monkeypatch):
+    # parity-ok: counts boundary uploads for the batch variant; no device-versus-host value comparison
     """The batched variant (rank_bin_codes_batch_gpu_resident) must hit the SAME (n, n_bins) cache entry
     the single-column variant already warmed -- one shared _BIN_BOUNDARIES_CACHE, not two separate caches."""
     n, nb = 4000, 8

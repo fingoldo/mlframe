@@ -36,11 +36,13 @@ original indices via ``working_cols``, so the sklearn ``support_`` stays in orig
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 
 from mlframe.utils.log_throttle import log_throttle
 import time
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -61,12 +63,14 @@ PREFILTER_METHODS = ("model", "univariate", "fast_model", "gpu_model", "two_stag
 # sub-4k width tested (no crossover found down to the lowest), so the auto switchover is lowered to the
 # smallest tested width. End-to-end at 2k (the threshold-just-above formerly routed to "model"): 89.7s
 # -> 26.0s = 3.45x with 8/8 -> 8/8 recall parity, so the prefilter win does not wash out downstream.
-# Overridable via kernel_tuning_cache ("shap_proxy_prefilter" -> "auto_fast_width") so the crossover is
+# Overridable via the env MLFRAME_SHAP_PREFILTER_TUNING (JSON, key "auto_fast_width") so the crossover is
 # tuned per-HW. Below ~500 the prefilter is a near-no-op anyway (prefilter_top default is 500).
 _AUTO_FAST_WIDTH = 1000
-# Row count at/above which "gpu_model" actually beats CPU "model" for the all-columns fit (GPU transfer
-# + kernel-launch overhead dominates on small n; the win scales with rows). Overridable via the cache.
-_GPU_MODEL_MIN_ROWS = 20000
+# Row count at/above which auto prefers the faithful "gpu_model" ranking over the CPU "fast_model" route. Measured with a CUDA xgboost on the GTX 1050 Ti (100 trees, depth 4, 1000 / 2000
+# columns): gpu_model beats the full CPU model 1.8x at 500 rows and 2.6x at 5000, and costs 19 to 45 percent more than fast_model at 2000 to 5000 rows (2.59 s against 2.18 s at 5000 x 1000)
+# while keeping every informative column (fast_model finds 4 to 5 of 6 on the interaction frame, tracker OP11-36/37), and is faster than fast_model from about 10000 rows on. A faithful
+# ranking for at most a fifth more time is the better trade, so the mark is 5000 (was 20000, calibrated on a CPU-only xgboost build). Overridable via MLFRAME_SHAP_PREFILTER_TUNING.
+_GPU_MODEL_MIN_ROWS = 5000
 # Width at/above which auto routes to the cheap-stage-A + capped-booster-stage-B "two_stage".
 #
 # Lowered 4000 -> 1000 (kept unified with ``_AUTO_FAST_WIDTH``) following the sub-4k micro-bench: at
@@ -92,19 +96,17 @@ _STAGE_B_GPU_MIN_FEATURES = 200
 
 
 def _prefilter_tuning() -> dict:
-    """Per-HW prefilter thresholds from kernel_tuning_cache (auto_fast_width / gpu_model_min_rows), or
-    ``{}`` when pyutilz / the entry is unavailable (callers fall back to the module defaults)."""
-    try:
-        from mlframe.feature_selection.filters import get_kernel_tuning_cache
-
-        ktc = get_kernel_tuning_cache()
-        if ktc is not None:
-            entry = cast(Any, ktc).lookup("shap_proxy_prefilter")
-            if isinstance(entry, dict):
-                return entry
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
+    """Per-host prefilter threshold overrides (``auto_fast_width`` / ``gpu_model_min_rows`` / ``two_stage_min_width`` / ``stage_b_gpu_min_rows`` / ``stage_b_gpu_min_features``) from the JSON object in the
+    env ``MLFRAME_SHAP_PREFILTER_TUNING``, or ``{}`` (the module defaults). Not a kernel-tuning entry: the thresholds choose between prefilter methods that differ in what they keep, not only in
+    speed (the two-stage funnel drops interaction-only columns, see the module notes), so a timing sweep cannot pick them and a silent cache entry must not."""
+    raw = os.environ.get("MLFRAME_SHAP_PREFILTER_TUNING", "").strip()
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+        except ValueError as e:
+            logger.warning("MLFRAME_SHAP_PREFILTER_TUNING is not valid JSON (%s); using the module defaults", e)
     return {}
 
 
@@ -153,13 +155,10 @@ def resolve_prefilter_method(method: str, *, n_features: int, n_rows: int) -> st
 
     ``"auto"`` (the recommended default) keeps the quality-safe full-booster ``"model"`` ranking for
     narrow widths (``n_features < _auto_fast_width()`` - the default crossover is 1000), and for wider
-    data routes to the cheap-funnel ``"two_stage"`` path - the sub-4k micro-bench measured a 4.47-5.25x
-    prefilter-stage speedup with identical 8/8 informative recall vs ``"model"`` at every width from 1k
-    to 6k (iter21 covered 2k-6k; the sub-4k sweep extended the crossover floor down to 1k). If a CUDA
+    data routes to ``"fast_model"`` on the CPU (the cheap-funnel ``"two_stage"`` measured a 4.47-5.25x prefilter-stage speedup with 8/8 recall on signals that have a marginal effect, but it drops
+    interaction-only columns, so it is opt-in; see the comment at the CPU route below). If a CUDA
     device is present AND the row count is large enough for the GPU to win, ``"auto"`` routes the
-    wide-data case to ``"gpu_model"`` instead - same faithful ranking, just on the GPU. ``"fast_model"``
-    is reachable only via an explicit method= argument; auto no longer routes through it because
-    two_stage strictly dominates it on the wide-data regime. Explicit methods pass through unchanged.
+    wide-data case to ``"gpu_model"`` instead - same faithful ranking, just on the GPU. Explicit methods pass through unchanged.
     """
     if method != "auto":
         if method not in PREFILTER_METHODS:
@@ -167,15 +166,13 @@ def resolve_prefilter_method(method: str, *, n_features: int, n_rows: int) -> st
         return method
     if n_features < _auto_fast_width():
         return "model"
-    # Wider data: prefer GPU full-fidelity ranking when it actually pays (enough rows + a device);
-    # otherwise the cheap-funnel two_stage path is the auto pick (iter21 measured it as a strict win
-    # over both "model" and "fast_model" everywhere two_stage is callable, with identical recovery).
-    # The trailing ``return "fast_model"`` is a safety net for non-default tunings where a user shrinks
-    # ``two_stage_min_width`` below ``auto_fast_width`` via kernel_tuning_cache (then there's still a
-    # window where two_stage is gated off and we want some interaction-aware ranking, not "model").
+    # Wider data: prefer the GPU full-fidelity ranking when it actually pays (enough rows + a device).
     if n_rows >= _gpu_model_min_rows() and gpu_model_available():
         return "gpu_model"
-    if n_features >= _two_stage_min_width():
+    # CPU route for wide data: ``fast_model`` keeps an interaction-aware ranking (a reduced-budget booster on all columns, 2.3x faster than the full one), while the two-stage funnel ranks its first
+    # stage by a univariate F score and drops columns that matter only through an interaction (20000 x 1000, six informative columns: model 5 to 6 found, fast_model 4 to 5, two_stage 2 to 3;
+    # tracker OP11-36/37). A speed lever must not cost the selection, so ``two_stage`` is opt-in: method="two_stage", or {"auto_wide_method": "two_stage"} in the per-host tuning.
+    if str(_prefilter_tuning().get("auto_wide_method", "fast_model")) == "two_stage" and n_features >= _two_stage_min_width():
         return "two_stage"
     return "fast_model"
 

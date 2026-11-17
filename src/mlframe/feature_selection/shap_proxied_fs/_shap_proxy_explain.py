@@ -208,27 +208,15 @@ _BASE_BLOAT_REL_TOL = 0.25
 # Max allowed relative additivity violation: |base + phi.sum(1) - margin| / (|margin| scale).
 _ADDITIVITY_REL_TOL = 1e-2
 
-# Min column count at which the custom numba TreeSHAP is expected to beat the ``shap`` library. On
-# narrow data the shap C-extension is already fast and the numba JIT warmup is not worth it; the win
-# grows with width (OOF-SHAP on ~2000 features was the profiled hotspot). Routed by ``_pick_backend``;
-# overridable via kernel_tuning_cache so the crossover is tuned per-HW rather than hardcoded.
-_TREESHAP_NUMBA_MIN_FEATURES = 64
-
-
-def _treeshap_numba_min_features() -> int:
-    """Crossover width for routing to the custom numba TreeSHAP, from kernel_tuning_cache if present."""
+# Cells (rows x columns) from which ``auto`` sends a supported xgboost / lightgbm model to the CUDA TreeSHAP instead of the numba one. Below it the upload and launch overhead is not repaid on a typical card.
+def _n_trees(est) -> int:
+    """Number of trees of a fitted xgboost / lightgbm model (0 when it cannot be read), the model-size axis of the TreeSHAP backend choice."""
     try:
-        from mlframe.feature_selection.filters import get_kernel_tuning_cache
-
-        ktc = get_kernel_tuning_cache()
-        if ktc is not None:
-            entry = cast(Any, ktc).lookup("shap_proxy_treeshap")
-            if isinstance(entry, dict) and entry.get("numba_min_features"):
-                return int(entry["numba_min_features"])
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
-    return _TREESHAP_NUMBA_MIN_FEATURES
+        if type(est).__name__.startswith("LGBM"):
+            return int(est.booster_.num_trees())
+        return int(est.get_booster().num_boosted_rounds())
+    except Exception:
+        return 0
 
 
 def _unwrap_estimator(model):
@@ -243,9 +231,16 @@ def _unwrap_estimator(model):
     return model
 
 
+def _treeshap_gpu_pays(n_rows: int, trees: int) -> bool:
+    """Whether the device table kernel beats the host one for this many rows and trees: the per-host kernel-tuning entry (``_shap_proxy_treeshap_ktc``), else its measured work mark."""
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_ktc import use_gpu
+
+    return use_gpu(n_rows, trees)
+
+
 def _pick_backend(explainer_base, X: pd.DataFrame, backend: str) -> str:
-    """Resolve the SHAP backend. ``"auto"`` picks the FASTEST correct path by model type + width:
-    the custom numba/cupy TreeSHAP for supported xgboost models on wide data, else the ``shap`` lib.
+    """Resolve the SHAP backend. ``"auto"`` picks our own TreeSHAP (numba table form, or the CUDA table kernel on a large problem) for every supported xgboost / lightgbm model, and
+    the public ``shap`` library only for a model family we do not implement.
     Explicit ``"shap"`` / ``"treeshap_numba"`` / ``"treeshap_gpu"`` force a path (latter two require a
     supported model and raise otherwise)."""
     if backend in ("treeshap_numba", "treeshap_gpu"):
@@ -256,13 +251,11 @@ def _pick_backend(explainer_base, X: pd.DataFrame, backend: str) -> str:
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import is_supported_lightgbm, is_supported_xgboost
 
     if not (is_supported_xgboost(explainer_base) or is_supported_lightgbm(explainer_base)):
-        return "shap"
-    if X.shape[1] < _treeshap_numba_min_features():
-        return "shap"  # narrow: shap C-extension already fast, skip JIT warmup
+        return "shap"  # a model family we do not implement
     try:
         from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu import gpu_treeshap_available
 
-        if gpu_treeshap_available() and X.shape[0] * X.shape[1] >= 1_000_000:
+        if gpu_treeshap_available() and _treeshap_gpu_pays(X.shape[0], _n_trees(explainer_base)):
             return "treeshap_gpu"
     except Exception as e:  # nosec B110 - optional dependency import guard
         logger.debug("gpu_treeshap_available() check failed, falling back to treeshap_numba: %s", e)
@@ -320,6 +313,14 @@ def _shap_phi_and_base(explainer_base, X: pd.DataFrame, backend: str = "auto"):
             cat_features = None
         if cat_features is None:
             cat_features = getattr(explainer_base, "_shap_proxy_cat_features", None)
+        if not cat_features:
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import treeshap_phi_base_numba
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_catboost import cached_nonsymmetric_ensemble
+
+            # CatBoost's native SHAP of non-symmetric trees does not add up to the prediction; our TreeSHAP over the JSON export does
+            ensemble = cached_nonsymmetric_ensemble(explainer_base)
+            if ensemble is not None:
+                return treeshap_phi_base_numba(ensemble, X.to_numpy() if hasattr(X, "to_numpy") else X)
         return catboost_shap(explainer_base, X, cat_features=cat_features)
 
     resolved = _pick_backend(explainer_base, X, backend)

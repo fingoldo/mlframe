@@ -168,16 +168,9 @@ except Exception as e:  # best-effort: without a tuner entry the floor decides
     _SPEC = None
 
 
-def pair_device_chosen(n: int, n_pairs: int) -> bool:
-    """Whether ``n_pairs`` pairs over ``n`` rows are scored on the device: the per-host cache by the work ``n * pairs``, else the ``DEVICE_FALLBACK_ROWS`` floor."""
-    work = int(n) * int(n_pairs)
-    if _SPEC is None:
-        return work >= DEVICE_FALLBACK_ROWS
-    try:
-        return str(_SPEC.choose(n_samples=work)) == "device"
-    except Exception as exc:
-        logger.debug("cat_pair_joint_backend: KTC choose() failed, using the floor: %s", exc)
-        return work >= DEVICE_FALLBACK_ROWS
+from ._ktc_fallback import ktc_device_chooser as _ktc_device_chooser
+
+pair_device_chosen = _ktc_device_chooser(__name__, "cat_pair_joint_backend", pairs=True)
 
 
 def pair_joint_mi_dispatch(codes: np.ndarray, radix: np.ndarray, first: np.ndarray, second: np.ndarray, y_b: np.ndarray, k_y: int) -> np.ndarray:

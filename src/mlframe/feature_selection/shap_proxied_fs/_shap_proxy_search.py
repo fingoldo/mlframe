@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Any, cast
+
 
 import numpy as np
 from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
@@ -251,10 +251,9 @@ def _resolve_brute_force_n_chunks() -> int:
     22-core box the n=540/f=25/max_card=10 (7.1M-subset) brute force ran 1.28x slower at 8 chunks than
     at ``2 * NUMBA_NUM_THREADS`` (11.7s -> 9.2s, selection bit-identical - chunking only partitions the
     combo enumeration, every subset's loss and the deterministic ``_merge_topn`` are unchanged). 2x the
-    thread count (not 1x) load-balances the uneven per-cardinality tail. Resolved once + memoized; a
-    kernel_tuning_cache override (``shap_proxy_brute_force`` -> ``n_chunks``) lets a host pin its own
-    crossover, falling back to the calibrated default on any lookup error so the route never changes the
-    numeric result, only the wall-clock."""
+    thread count (not 1x) load-balances the uneven per-cardinality tail. Resolved once and memoized. The
+    chunk count is not tuned per host: on an 8-thread host 8 to 256 chunks differ by at most 10 percent (27 percent, 10 ms, at 42504 combos; 1.05 s, 1.1 s, 2.4 s at 7 and 8 cards), so a sweep
+    would pick between noise-level options; pass ``n_chunks`` to pin it. The chunking never changes the numeric result, only the wall-clock."""
     global _brute_force_n_chunks_cache
     if _brute_force_n_chunks_cache is not None:
         return _brute_force_n_chunks_cache
@@ -265,16 +264,6 @@ def _resolve_brute_force_n_chunks() -> int:
     except Exception as e:
         logger.warning("numba.get_num_threads() failed, using the default 8: %s", e)
         val = 8
-    try:
-        from mlframe.feature_selection.filters import get_kernel_tuning_cache
-
-        ktc = get_kernel_tuning_cache()
-        if ktc is not None:
-            entry = cast(Any, ktc).lookup("shap_proxy_brute_force")
-            if isinstance(entry, dict) and entry.get("n_chunks"):
-                val = int(entry["n_chunks"])
-    except Exception as e:  # nosec B110 - best-effort path
-        logger.debug("kernel_tuning_cache lookup for shap_proxy_brute_force n_chunks failed: %s", e)
     _brute_force_n_chunks_cache = val
     return val
 

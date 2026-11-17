@@ -86,3 +86,20 @@ def test_the_second_coding_of_a_column_is_served_from_the_cache_and_is_not_alias
     te.column_string_codes(pd.Series(np.random.default_rng(2).integers(0, 9, 500)))
     te.column_string_codes(pd.Series(np.random.default_rng(2).integers(0, 9, 500)))
     assert len(calls) == 4  # the oversized entry is recomputed
+
+
+def test_two_object_columns_with_the_same_values_in_another_order_are_coded_separately():
+    """The content key is order sensitive: a permutation of a column has the same value counts but other row codes, and must not be served the first column's cached codes."""
+    import mlframe.feature_selection.filters._target_encoding_fe as te
+
+    te._COLUMN_CODES_CACHE.clear()
+    te._column_codes_cache_bytes = 0
+    rng = np.random.default_rng(0)
+    base = np.array(["a"] * 600 + ["b"] * 400, dtype=object)
+    first = pd.Series(rng.permutation(base))
+    second = pd.Series(rng.permutation(base))
+    assert not np.array_equal(first.to_numpy(), second.to_numpy())
+    _t1, c1 = te.column_string_codes(first)
+    _t2, c2 = te.column_string_codes(second)
+    assert np.array_equal(c1, (first.to_numpy() == "b").astype(np.int64))
+    assert np.array_equal(c2, (second.to_numpy() == "b").astype(np.int64))

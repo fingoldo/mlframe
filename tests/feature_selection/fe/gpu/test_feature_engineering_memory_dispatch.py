@@ -188,7 +188,7 @@ class TestHoistHeadroomAcceptance:
         assert can is False
 
     def test_headroom_overhead_resolver_env_override(self, monkeypatch):
-        """The headroom overhead multiplier honours the env override (KTC-tunable knob)."""
+        """The headroom overhead multiplier honours the env override (an env-only safety margin)."""
         monkeypatch.setenv("MLFRAME_FE_HOIST_HEADROOM_OVERHEAD", "5.0")
         assert fe_mod._fe_hoist_headroom_overhead() == 5.0
         monkeypatch.setenv("MLFRAME_FE_HOIST_HEADROOM_OVERHEAD", "garbage")

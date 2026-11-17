@@ -133,38 +133,21 @@ _FE_PEAK_OVERHEAD_FACTOR: float = 3.0
 # documented byte-identical to the recompute path (the hoist/recompute decision only chooses HOW
 # the survivors are produced, never WHICH). ``_FE_HOIST_HEADROOM_OVERHEAD`` is the peak-footprint
 # multiplier for THIS headroom check (defaults to the same conservative overhead so the worst-case
-# coexisting-buffer sum is accounted for); routed through the per-host kernel_tuning_cache so a box
-# with measured-tighter or measured-looser real peaks can record its own value (never hardcode a
-# per-HW memory threshold - mlframe is shared infra). Override via env ``MLFRAME_FE_HOIST_HEADROOM_OVERHEAD``.
+# coexisting-buffer sum is accounted for); overridable per host via env ``MLFRAME_FE_HOIST_HEADROOM_OVERHEAD``.
 _FE_HOIST_HEADROOM_OVERHEAD: float = 3.0
 
 
 def _fe_hoist_headroom_overhead() -> float:
     """Peak-footprint multiplier for the absolute-headroom hoist acceptance path.
 
-    Resolution order: env ``MLFRAME_FE_HOIST_HEADROOM_OVERHEAD`` (if set + parseable and > 0)
-    overrides the per-host ``kernel_tuning_cache`` entry under key ``fe_hoist_headroom_overhead``
-    (field ``overhead``), which overrides the module constant ``_FE_HOIST_HEADROOM_OVERHEAD``
-    (default 3.0, matching the conservative coexisting-buffer multiple). NEVER hardcode a per-HW
-    memory threshold; the cache lets a quiet/large-RAM box record a measured value. Read live each
-    call so tests / callers can monkeypatch the constant or env. Cold/missing cache + missing env
-    falls through to the safe constant default - byte-identical to the pre-KTC behaviour."""
+    Resolution order: env ``MLFRAME_FE_HOIST_HEADROOM_OVERHEAD`` (if set + parseable and > 0) overrides the module
+    constant ``_FE_HOIST_HEADROOM_OVERHEAD`` (default 3.0, the conservative coexisting-buffer multiple). It is a
+    safety margin on the worst-case peak, not a speed crossover, so it is not swept per host (no kernel-tuning
+    entry exists for it); a host with measured peaks sets the env. Read live each call so tests / callers can
+    monkeypatch the constant or env."""
     import os
 
     val = float(_get_live("_FE_HOIST_HEADROOM_OVERHEAD"))
-    try:
-        from ._kernel_tuning import get_kernel_tuning_cache
-
-        _cache = get_kernel_tuning_cache()
-        if _cache is not None:
-            tuned = _cache.lookup("fe_hoist_headroom_overhead")
-            if tuned:
-                _v = float(tuned.get("overhead", 0.0) or 0.0)
-                if _v > 0.0:
-                    val = _v
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
     env = os.environ.get("MLFRAME_FE_HOIST_HEADROOM_OVERHEAD")
     if env is not None:
         try:

@@ -36,11 +36,12 @@ extern "C" __global__ void hsic_biased_cols(const {REAL}* __restrict__ xs, const
     {ACC} acc = 0.0;
     for (int a = threadIdx.x; a < m - 1; a += blockDim.x) {
         const {REAL} xa = sx[a];
-        const {ACC}* row = lc + (long long)a * m;
         {ACC} part = 0.0;
-        for (int b = a + 1; b < m; ++b) {
+        // the pair (a, b), a < b, reads Lc[b][a] (Lc is symmetric): the threads of a warp hold consecutive a at a common b, so the row b of Lc is read contiguously
+        for (int b = 1; b < m; ++b) {  // b is common to the warp; a thread with a >= b has no pair at this b
+            if (a >= b) continue;
             const {REAL} d = xa - sx[b];
-            part += ({ACC})EXPF(-d * d * g) * row[b];   // Lc stays in the accumulator type: its rows sum to 0, which a narrow rounding would break for flat columns
+            part += ({ACC})EXPF(-d * d * g) * lc[(long long)b * m + a];   // Lc stays in the accumulator type: its rows sum to 0, which a narrow rounding would break for flat columns
         }
         acc += part;
     }

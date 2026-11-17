@@ -111,13 +111,14 @@ def test_structural_codes_fold_fallback_bit_exact():
         assert float(np.max(excess)) <= 0.0, f"column {spec['name']}: non-zero magnitudes differ by {float(np.max(np.abs(host[nz, j] - mat[nz, j])))} (> 1e-6 + 2 ULP band)"
 
 
-def test_codes_bit_identical_to_host_digitize():
+@pytest.mark.parametrize("seed", [3, 4])
+def test_codes_bit_identical_to_host_digitize(seed):
     """The device bin codes must reproduce ``_digitize_with_edges`` (interior edges, side='right', clip, NaN->0)
     bit-for-bit, including NaN x_j and out-of-range values."""
     from mlframe.feature_selection.filters._extra_fe_families import _digitize_with_edges, _quantile_edges
     from mlframe.feature_selection.filters._extra_fe_families_dispersion_resident import _codes_from_edges_gpu
 
-    rng = np.random.default_rng(3)
+    rng = np.random.default_rng(seed)
     xj = rng.normal(0.0, 1.0, 5000)
     xj[10] = np.nan
     xj[20] = 1e9

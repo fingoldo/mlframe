@@ -64,7 +64,8 @@ def test_observed_and_null_values_of_the_same_labels_are_bit_equal():
     assert null[0] == observed.max()
 
 
-def test_device_bitset_null_matches_the_host_bitset_null():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_device_bitset_null_matches_the_host_bitset_null(seed):
     """The CUDA bit-set kernel returns the host maxima (skipped without a device)."""
     cp = pytest.importorskip("cupy")
     _require_cuda(cp)
@@ -74,7 +75,7 @@ def test_device_bitset_null_matches_the_host_bitset_null():
 
     for classes in (2, 5, 10):
         cols, n_x, y = _family(3000, 25, 11, classes, seed=classes)
-        rng = np.random.default_rng(2)
+        rng = np.random.default_rng(seed)
         perms = y[np.stack([rng.permutation(len(y)) for _ in range(20)])]
         prep = V.bitset_groups(cols, n_x)
         host = V.null_max_bitsets(prep, n_x, perms, classes)

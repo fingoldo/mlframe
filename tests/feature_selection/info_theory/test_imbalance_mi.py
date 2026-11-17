@@ -287,3 +287,18 @@ def test_default_off_matches_plain_numba_batch(monkeypatch):
     hooked = _mi_classif_batch(X, y, nbins=10)
     plain = _mi_classif_batch_numba(X, y, nbins=10)
     np.testing.assert_array_equal(np.asarray(hooked), np.asarray(plain))
+
+
+def test_class_balanced_kernel_keeps_nan_ties_under_fastmath():
+    """The kernel compiles with fastmath and groups NaN values through ``prev != prev``; on columns with 20 to 70 percent NaN it must equal the plain-Python execution of the same source (a fastmath that folded the NaN test would split the NaN run into singleton groups and change the MI)."""
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe._imbalance_mi import _class_balanced_mi_batch_njit as kernel
+
+    rng = np.random.default_rng(0)
+    n = 400
+    X = rng.standard_normal((n, 6))
+    X[rng.random((n, 6)) < 0.2] = np.nan
+    X[:, 5] = np.where(rng.random(n) < 0.7, np.nan, X[:, 5])
+    y = (rng.random(n) < 0.3).astype(np.int64)
+    class_w = np.array([1.0, 2.0])
+    Xc = np.asfortranarray(X)
+    np.testing.assert_allclose(kernel(Xc, y, class_w, 20), kernel.py_func(Xc, y, class_w, 20), rtol=0, atol=1e-12)

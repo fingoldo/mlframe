@@ -20,12 +20,13 @@ except Exception:
 pytestmark = pytest.mark.skipif(not _HAS_DEVICE, reason="needs a CUDA device")
 
 
-def test_gpu_top1_tie_resolves_to_lower_combination_index():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_gpu_top1_tie_resolves_to_lower_combination_index(seed):
     """GPU and CPU pick the same subset when two identical columns tie for top-1."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_gpu import brute_force_top_n_gpu
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_search import brute_force_top_n
 
-    rng = np.random.default_rng(3)
+    rng = np.random.default_rng(seed)
     n, f = 400, 4
     phi = rng.normal(size=(n, f))
     phi[:, 2] = phi[:, 1]  # features 1 and 2 are identical: their single-feature losses tie exactly

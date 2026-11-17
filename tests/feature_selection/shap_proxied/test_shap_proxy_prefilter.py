@@ -44,8 +44,8 @@ def test_resolve_auto_keeps_model_for_moderate_width():
     assert resolve_prefilter_method("auto", n_features=narrow, n_rows=4000) == "model"
 
 
-def test_resolve_auto_switches_two_stage_for_wide_when_no_gpu(monkeypatch):
-    """Resolve auto switches two stage for wide when no gpu."""
+def test_resolve_auto_switches_fast_model_for_wide_when_no_gpu(monkeypatch):
+    """No CUDA xgboost: auto picks the interaction-aware ``fast_model`` for wide data (the two-stage funnel drops interaction-only columns, so it is opt-in)."""
     import mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter as PF
 
     # No CUDA -> auto must pick two_stage at/above auto_fast_width. iter21 unified two_stage_min_width
@@ -55,9 +55,13 @@ def test_resolve_auto_switches_two_stage_for_wide_when_no_gpu(monkeypatch):
     # fast_model auto window stays collapsed and starts further down.
     monkeypatch.setattr(PF, "gpu_model_available", lambda: False)
     wide = PF._auto_fast_width()
+    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=4000) == "fast_model"
+    # Even with many rows, no device means no gpu_model -> still fast_model on the wide side.
+    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=10**6) == "fast_model"
+    # The funnel stays reachable: explicitly, or per host through the tuning override.
+    assert PF.resolve_prefilter_method("two_stage", n_features=wide, n_rows=4000) == "two_stage"
+    monkeypatch.setattr(PF, "_prefilter_tuning", lambda: {"auto_wide_method": "two_stage"})
     assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=4000) == "two_stage"
-    # Even with many rows, no device means no gpu_model -> still two_stage on the wide side.
-    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=10**6) == "two_stage"
 
 
 def test_resolve_auto_routes_gpu_when_device_and_enough_rows(monkeypatch):
@@ -70,21 +74,19 @@ def test_resolve_auto_routes_gpu_when_device_and_enough_rows(monkeypatch):
     wide = PF._auto_fast_width()
     big_n = PF._gpu_model_min_rows()
     assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=big_n) == "gpu_model"
-    # Too few rows -> GPU transfer overhead not worth it -> two_stage takes over (iter21).
-    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=big_n - 1) == "two_stage"
+    # Too few rows -> GPU transfer overhead not worth it -> the CPU wide-data route (fast_model) takes over.
+    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=big_n - 1) == "fast_model"
 
 
-def test_resolve_auto_falls_back_to_fast_model_when_two_stage_gated_above_auto_fast(monkeypatch):
-    """Safety-net branch: when a user pushes ``two_stage_min_width`` ABOVE ``auto_fast_width`` via
-    kernel_tuning_cache, the window in between routes to ``"fast_model"`` (still interaction-aware,
-    just slower than two_stage). Defaults unify the two thresholds (iter21) so this branch is dormant
-    on the shipped config but the wiring is exercised here for safety."""
+def test_resolve_auto_two_stage_override_respects_its_min_width(monkeypatch):
+    """With the per-host ``auto_wide_method`` = ``two_stage`` and ``two_stage_min_width`` above ``auto_fast_width``, the window in between still routes to ``"fast_model"``."""
     import mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter as PF
 
     monkeypatch.setattr(PF, "gpu_model_available", lambda: False)
     afw = PF._auto_fast_width()
     monkeypatch.setattr(PF, "_two_stage_min_width", lambda: afw + 4000)
-    mid_wide = afw + 1000  # in the dormant window between the two thresholds
+    monkeypatch.setattr(PF, "_prefilter_tuning", lambda: {"auto_wide_method": "two_stage"})
+    mid_wide = afw + 1000  # in the window between the two thresholds
     assert PF.resolve_prefilter_method("auto", n_features=mid_wide, n_rows=4000) == "fast_model"
     # Above the (raised) two_stage threshold -> two_stage again.
     assert PF.resolve_prefilter_method("auto", n_features=afw + 5000, n_rows=4000) == "two_stage"
@@ -290,13 +292,10 @@ def test_prefilter_cap_none_is_legacy_uncapped_behaviour():
 
 
 # ----------------------------------------------------------- two_stage prefilter (iter12)
-def test_resolve_auto_routes_two_stage_at_wide_threshold_no_gpu(monkeypatch):
-    """auto routing edges around ``two_stage_min_width`` when no CUDA is available (iter21 unified
-    two_stage_min_width with auto_fast_width so the two edges collapse onto one threshold):
-    - n_features < auto_fast_width                    -> "model"      (faithful single-shot fit)
-    - n_features >= auto_fast_width (== tsmw default) -> "two_stage"  (cheap funnel + capped booster).
-    The dormant ``"fast_model"`` fallback for the case where a tuning cache override raises tsmw above
-    afw is covered by ``test_resolve_auto_falls_back_to_fast_model_when_two_stage_gated_above_auto_fast``.
+def test_resolve_auto_routes_wide_data_to_fast_model_no_gpu(monkeypatch):
+    """auto routing around ``auto_fast_width`` when no CUDA is available:
+    - n_features < auto_fast_width  -> "model"       (faithful single-shot fit)
+    - n_features >= auto_fast_width -> "fast_model"  (interaction-aware reduced booster; the two-stage funnel is opt-in).
     GPU branch is verified separately to keep this test deterministic."""
     import mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter as PF
 
@@ -309,22 +308,21 @@ def test_resolve_auto_routes_two_stage_at_wide_threshold_no_gpu(monkeypatch):
 
     # Below auto_fast_width -> "model"
     assert PF.resolve_prefilter_method("auto", n_features=afw - 1, n_rows=4000) == "model"
-    # At/above auto_fast_width -> "two_stage" (default tsmw == afw, so the same width crosses both)
-    assert PF.resolve_prefilter_method("auto", n_features=afw, n_rows=4000) == "two_stage"
-    assert PF.resolve_prefilter_method("auto", n_features=afw + 1000, n_rows=4000) == "two_stage"
+    # At/above auto_fast_width -> "fast_model"
+    assert PF.resolve_prefilter_method("auto", n_features=afw, n_rows=4000) == "fast_model"
+    assert PF.resolve_prefilter_method("auto", n_features=afw + 1000, n_rows=4000) == "fast_model"
 
 
-def test_resolve_auto_gpu_wins_over_two_stage_when_device_available(monkeypatch):
-    """When the row count clears the GPU crossover AND a CUDA device is enumerable, gpu_model
-    outranks two_stage (faithful full ranking on the GPU beats the funnel on big-n hardware)."""
+def test_resolve_auto_gpu_wins_when_device_available(monkeypatch):
+    """When the row count clears the GPU crossover AND a CUDA device is enumerable, gpu_model is chosen (faithful full ranking on the GPU)."""
     import mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter as PF
 
     monkeypatch.setattr(PF, "gpu_model_available", lambda: True)
     wide = PF._two_stage_min_width() + 5000
     big_n = PF._gpu_model_min_rows()
     assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=big_n) == "gpu_model"
-    # Below GPU min rows -> two_stage (not fast_model) because the width clears the two-stage threshold.
-    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=big_n - 1) == "two_stage"
+    # Below GPU min rows -> the CPU wide-data route.
+    assert PF.resolve_prefilter_method("auto", n_features=wide, n_rows=big_n - 1) == "fast_model"
 
 
 def test_two_stage_returns_original_indices_and_honors_prefilter_top():
@@ -762,10 +760,8 @@ def test_two_stage_calls_gpu_path_when_gate_fires(monkeypatch):
     assert calls["cpu"] == 1 and calls["gpu"] == 0
 
 
-def test_stage_b_gpu_thresholds_overridable_via_kernel_tuning_cache(monkeypatch):
-    """Both stage-B GPU thresholds (rows + features) must be overridable via the shared
-    ``kernel_tuning_cache`` entry under ``shap_proxy_prefilter``, NOT hardcoded. This is the per-HW
-    tuning contract; the cache lookup is the single point where users override conservative defaults."""
+def test_stage_b_gpu_thresholds_overridable_per_host(monkeypatch):
+    """Both stage-B GPU thresholds (rows + features) are overridable per host through ``_prefilter_tuning`` (the env ``MLFRAME_SHAP_PREFILTER_TUNING``), not hardcoded."""
     import mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter as PF
 
     # Override the cheap tuning helper with a synthetic dict; this is the only public hook on the
@@ -778,3 +774,17 @@ def test_stage_b_gpu_thresholds_overridable_via_kernel_tuning_cache(monkeypatch)
     # Defaults restored when no entry.
     assert PF._stage_b_gpu_min_rows() == PF._STAGE_B_GPU_MIN_ROWS
     assert PF._stage_b_gpu_min_features() == PF._STAGE_B_GPU_MIN_FEATURES
+
+
+def test_prefilter_tuning_reads_the_env_json(monkeypatch):
+    """``MLFRAME_SHAP_PREFILTER_TUNING`` carries the per-host overrides as a JSON object; unset, malformed or non-object values leave the module defaults."""
+    import mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter as PF
+
+    monkeypatch.delenv("MLFRAME_SHAP_PREFILTER_TUNING", raising=False)
+    assert PF._prefilter_tuning() == {} and PF._auto_fast_width() == PF._AUTO_FAST_WIDTH
+    monkeypatch.setenv("MLFRAME_SHAP_PREFILTER_TUNING", '{"auto_fast_width": 321, "gpu_model_min_rows": 99}')
+    assert PF._auto_fast_width() == 321 and PF._gpu_model_min_rows() == 99
+    monkeypatch.setenv("MLFRAME_SHAP_PREFILTER_TUNING", "not json")
+    assert PF._prefilter_tuning() == {} and PF._two_stage_min_width() == PF._TWO_STAGE_MIN_WIDTH
+    monkeypatch.setenv("MLFRAME_SHAP_PREFILTER_TUNING", "[1, 2]")
+    assert PF._prefilter_tuning() == {}

@@ -68,7 +68,8 @@ def _std_col(x):
     return (x - x.mean()) / (x.std() + 1e-12)
 
 
-def test_device_basis_matrix_matches_host_all_bases():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_device_basis_matrix_matches_host_all_bases(seed):
     """``_build_basis_matrix_gpu`` == host ``build_basis_matrix`` to 1e-13 for every
     orthogonal-polynomial basis, across degrees and a heavy-tailed z range."""
     cp = _require_gpu()
@@ -77,7 +78,7 @@ def test_device_basis_matrix_matches_host_all_bases():
         _build_basis_matrix_gpu,
     )
 
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     for n in (1, 2, 5000):
         z = _std_col(rng.standard_normal(n) * 3.0 + rng.standard_normal(n) ** 3)
         zg = cp.asarray(z)
@@ -115,7 +116,8 @@ def test_device_basis_matrix_rejects_unknown_basis():
         _build_basis_matrix_gpu(cp, "fourier_adaptive", cp.asarray(np.zeros(4)), 3)
 
 
-def test_als_coeffs_device_born_match_cpu():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_als_coeffs_device_born_match_cpu(seed):
     """``warm_start_als_seed_gpu_from_z`` (device-born design) coefficients == the CPU
     ``warm_start_als_seed`` (prebuilt host design) coefficients to ~1e-12 -- a
     product-structured target so the ALS actually recovers both factors."""
@@ -128,7 +130,7 @@ def test_als_coeffs_device_born_match_cpu():
         warm_start_als_seed_gpu_from_z,
     )
 
-    rng = np.random.default_rng(1)
+    rng = np.random.default_rng(seed)
     for n in (2000, 30000):
         for basis in _BASES:
             for deg in (2, 3, 4):

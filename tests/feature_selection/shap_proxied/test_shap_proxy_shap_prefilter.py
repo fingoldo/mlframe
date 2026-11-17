@@ -359,12 +359,13 @@ def test_selector_records_stage1_keep_tightened_when_lever_active():
     from mlframe.feature_selection._benchmarks._shap_proxy_regime_data import make_regime_dataset
     from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
 
-    # width >= _two_stage_min_width (1000) so the resolved method is "two_stage".
+    # width >= _two_stage_min_width (1000) and the method is pinned to "two_stage" (the lever concerns the funnel; auto now routes wide CPU data to fast_model).
     X, y, _ = make_regime_dataset(n_samples=600, n_informative=5, n_redundant=0, redundancy_rho=0.0, n_noise=1295, snr=8.0, task="binary", seed=0)  # 1300 cols
     sel = ShapProxiedFS(
         classification=True,
         metric="brier",
         optimizer="auto",
+        prefilter_method="two_stage",
         prefilter_top=500,
         cluster_features=False,
         top_n=10,

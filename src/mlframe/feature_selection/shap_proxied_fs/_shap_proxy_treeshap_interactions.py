@@ -316,7 +316,18 @@ def interaction_tensor_numba(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.
     identity), and ``base`` is the ensemble intercept so ``base + Phi.sum((1,2)) == model margin``.
     The off-diagonal is symmetrised inside the kernel so the exact symmetry invariant holds.
     """
-    Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_table import interaction_tensor_table
+
+    Xf = ensemble.as_float32(X)
+    tabled = interaction_tensor_table(ensemble, Xf)
+    if tabled is not None:
+        return tabled
+    return interaction_tensor_reference(ensemble, Xf)
+
+
+def interaction_tensor_reference(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
+    """The conditioned-pass kernel (two path scans per tree split feature): the reference of the table form and its fallback. Same return as ``interaction_tensor_numba``."""
+    Xf = ensemble.as_float32(X)
     n = Xf.shape[0]
     P = ensemble.n_features
     # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)

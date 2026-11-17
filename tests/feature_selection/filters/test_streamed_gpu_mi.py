@@ -46,14 +46,15 @@ def test_small_host_ram_shrinks_the_width(dtype):
 
 
 @pytest.mark.parametrize("dtype", DTYPES)
-def test_streamed_mi_matches_cpu_batch_mi(dtype):
+@pytest.mark.parametrize("seed", [0, 1])
+def test_streamed_mi_matches_cpu_batch_mi(dtype, seed):
     """Column blocks scored on the GPU agree with the CPU batch MI (tie-free data, values to 1e-6, same ranking)."""
     pytest.importorskip("cupy")
     if S._devices() == []:
         pytest.skip("no CUDA device")
     from mlframe.feature_selection.filters.hermite_fe import plugin_mi_classif_batch_dispatch as cpu
 
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     n, p = 200_000, 24
     dt = dtype
     X = rng.standard_normal((n, p)).astype(dt)

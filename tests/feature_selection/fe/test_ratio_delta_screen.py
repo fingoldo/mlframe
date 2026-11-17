@@ -47,5 +47,6 @@ def test_grouped_delta_gather_matches_the_lookup():
     rng = np.random.default_rng(1)
     X = pd.DataFrame({"x": rng.normal(size=3000).astype(np.float32), "g": rng.integers(0, 17, 3000)})
     enc, recipes = rd.grouped_delta_features(X, "g", ["x"])
+    assert len(recipes) == 2  # the mean-minus and the z-score column
     for name, recipe in recipes.items():
         assert np.array_equal(np.asarray(enc[name]), np.asarray(rd.apply_grouped_delta(X, recipe)))

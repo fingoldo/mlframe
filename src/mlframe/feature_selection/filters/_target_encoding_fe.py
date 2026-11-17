@@ -276,6 +276,8 @@ _column_codes_cache_bytes = 0
 def _column_content_key(arr: np.ndarray) -> tuple:
     """Content key of a column: dtype, length and a hash of its values (the object path hashes the elements)."""
     if arr.dtype.kind == "O":
+        # The key must depend on the ORDER of the values: a sum of the element hashes is the same for any permutation of a column, so two columns with the same value counts (two binary columns of equal
+        # prevalence) shared a key and the second one was served the first one's codes. The hash of the element-hash vector's bytes is order sensitive.
         return ("O", arr.shape[0], hash(pd.util.hash_array(arr, categorize=False).tobytes()))
     return (arr.dtype.str, arr.shape[0], hash(np.ascontiguousarray(arr).tobytes()))
 

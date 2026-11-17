@@ -170,16 +170,18 @@ def _null_max_strict_gpu(X: np.ndarray, y: np.ndarray, permutations: "list[np.nd
         # Intentional float64: GPU f64 MI path, the same upload the per-call STRICT route makes.
         from .._device_upload_f64 import upload_as_float64
 
-        Xd = upload_as_float64(cp, X)  # Intentional float64: the strict-resident MI kernels take float64 operands
+        # The observed MI (``_mi_classif_batch``) and its null must bin the same way: a float32 matrix stays float32 for both (``_strict_mi_keeps_float32``).
+        keep_f32 = be._strict_mi_keeps_float32(X)
+        Xd = cp.asarray(np.ascontiguousarray(X)) if keep_f32 else upload_as_float64(cp, X)  # Intentional float64: the double path of the strict-resident MI kernels
         cache: dict = {}
         y_arr = np.asarray(y)
-        batched = _strict_null_max_batched(cp, Xd, y_arr, permutations, int(nbins), cache)
+        batched = _strict_null_max_batched(cp, Xd, y_arr, permutations, int(nbins), cache, keep_dtype=keep_f32)
         if batched is not None:
             return batched
         out = np.empty(len(permutations), dtype=np.float64)  # Intentional float64: statistic vector (null max), exact permutation ties
         for b, perm in enumerate(permutations):
             yd, y_min, n_classes = be._resident_labels(y_arr[perm], cp)
-            mi = _plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=y_min, n_classes=n_classes, candidate_cache=cache)
+            mi = _plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=y_min, n_classes=n_classes, candidate_cache=cache, keep_dtype=keep_f32)
             out[b] = float(np.nanmax(np.asarray(mi, dtype=np.float64)))  # Intentional float64: statistic vector (MI), exact permutation ties
         return out
     except (ImportError, *be._device_error_classes()) as exc:

@@ -90,17 +90,24 @@ def reporting_cfg():
     return ReportingConfig(show_perf_chart=False, show_fi=False, plot_outputs="matplotlib[png]")
 
 
-def test_binary_suite_renders_opt_in_heavy_diagnostics_when_enabled(tmp_path):
-    """PDP/ICE, slice finder, SHAP, model card and risk-coverage are opt-in; enabling them explicitly renders every one."""
+@pytest.fixture(scope="module")
+def binary_optin_run(tmp_path_factory):
+    """ONE binary hgb suite run with every opt-in diagnostic enabled together (PDP/ICE, 2-D PDP, slice finder, SHAP panels + interaction +
+    per-instance, model card, risk-coverage, learning curve, per-model perfplot), shared by the sensors that each check that one artifact renders.
+
+    Returns ``(models, data_dir)``.
+    """
     skip_if_dependency_missing("hgb")
     df = _make_frame(900, binary=True)
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False, ts_field="timestamp")
     cfg = ReportingConfig(
-        show_perf_chart=False, show_fi=False, plot_outputs="matplotlib[png]",
+        show_perf_chart=True, show_fi=False, plot_outputs="matplotlib[png]",
         pdp_ice=True, slice_finder=True, shap_panels=True, model_card=True, risk_coverage_charts=True,
+        shap_interactions=True, shap_per_instance=True, pdp_2d_charts=True,
+        learning_curve=LearningCurveConfig(enabled=True, sizes=(0.3, 0.6, 1.0)),
     )
-    data_dir = str(tmp_path)
-    train_mlframe_models_suite(
+    data_dir = str(tmp_path_factory.mktemp("binary_optin"))
+    models, _ = train_mlframe_models_suite(
         df=df,
         target_name="diag_bin_optin",
         model_name="hgb_bin_optin",
@@ -113,6 +120,12 @@ def test_binary_suite_renders_opt_in_heavy_diagnostics_when_enabled(tmp_path):
         output_config=OutputConfig(data_dir=data_dir, models_dir="models", save_charts=True),
         verbose=0,
     )
+    return models, data_dir
+
+
+def test_binary_suite_renders_opt_in_heavy_diagnostics_when_enabled(binary_optin_run):
+    """PDP/ICE, slice finder, SHAP, model card and risk-coverage are opt-in; enabling them explicitly renders every one."""
+    _models, data_dir = binary_optin_run
     files = _saved_chart_files(data_dir)
     joined = " ".join(files)
     assert "pdp_ice" in joined, f"PDP/ICE not saved; files={files}"
@@ -120,6 +133,45 @@ def test_binary_suite_renders_opt_in_heavy_diagnostics_when_enabled(tmp_path):
     assert "shap" in joined, f"SHAP panels not saved for tree model; files={files}"
     assert "model_card" in joined, f"model card not saved; files={files}"
     assert "risk_coverage" in joined, f"risk-coverage not saved; files={files}"
+
+
+def test_opt_in_shap_interaction_and_per_instance_charts_render_when_enabled(binary_optin_run):
+    """The two opt-in SHAP charts are dormant by default; setting the flags True wires them into the per-(model, split)
+    SHAP dispatch and writes the interaction + per-instance artifacts for a tiny tree-model binary run."""
+    pytest.importorskip("shap")
+    _models, data_dir = binary_optin_run
+    files = _saved_chart_files(data_dir)
+    joined = " ".join(files)
+    assert "shap_interactions" in joined, f"opt-in SHAP interaction chart not saved; files={files}"
+    assert "shap_per_instance" in joined, f"opt-in SHAP per-instance chart not saved; files={files}"
+
+
+def test_opt_in_pdp_2d_chart_renders_when_enabled(binary_optin_run):
+    """The 2-D PDP surface is dormant by default; setting ``pdp_2d_charts=True`` wires it into the per-(model, split)
+    PDP dispatch and writes the pdp_2d artifact for a tiny tree-model binary run (the composer picks the feature pair)."""
+    _models, data_dir = binary_optin_run
+    files = _saved_chart_files(data_dir)
+    joined = " ".join(files)
+    assert "pdp_2d" in joined, f"opt-in 2-D PDP surface not saved; files={files}"
+
+
+def test_per_model_calibration_chart_is_written_without_missing_dir(binary_optin_run):
+    """Regression: ``plot_file`` reaches ``_compute_split_metrics`` as a filename prefix ending in the model-type name
+    (not a directory ending in os.sep). The split-chart path is derived from that prefix and its directory must exist
+    before ``show_calibration_plot`` savefigs the reliability diagram, otherwise the suite dies with FileNotFoundError.
+    Enable the per-class reliability chart so the exact savefig path is exercised."""
+    models, data_dir = binary_optin_run
+    assert TargetTypes.BINARY_CLASSIFICATION in models
+    perfplots = [p for p in glob.glob(os.path.join(data_dir, "charts", "**", "*perfplot*.png"), recursive=True) if os.path.isfile(p)]
+    assert perfplots, "per-model calibration perfplot.png was not saved (chart dir not created before savefig)"
+
+
+def test_learning_curve_opt_in_when_enabled(binary_optin_run):
+    """The learning-curve diagnostic is OFF by default and renders only when LearningCurveConfig(enabled=True)."""
+    _models, data_dir = binary_optin_run
+    files = _saved_chart_files(data_dir)
+    joined = " ".join(files)
+    assert "learning_curve" in joined, f"learning curve not saved when opted in; files={files}"
 
 
 @pytest.fixture(scope="module")
@@ -185,117 +237,6 @@ def test_binary_suite_renders_diagnostics_default_on(binary_default_run):
     # INV-48: chart accounting recorded somewhere in the returned artifacts.
     saved_acc = _collect_charts_acc(metadata) + _collect_charts_acc(models)
     assert saved_acc, "no charts accounting recorded in metadata/models"
-
-
-def test_opt_in_shap_interaction_and_per_instance_charts_render_when_enabled(tmp_path):
-    """The two opt-in SHAP charts are dormant by default; setting the flags True wires them into the per-(model, split)
-    SHAP dispatch and writes the interaction + per-instance artifacts for a tiny tree-model binary run."""
-    pytest.importorskip("shap")
-    skip_if_dependency_missing("hgb")
-    df = _make_frame(700, binary=True)
-    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-    cfg = ReportingConfig(
-        show_perf_chart=False,
-        show_fi=False,
-        plot_outputs="matplotlib[png]",
-        # Trim the other per-split diagnostics so the run is fast and isolates the two opt-in SHAP artifacts.
-        pdp_ice=False,
-        slice_finder=False,
-        decision_curve=False,
-        calibration_drift=False,
-        target_acf=False,
-        model_comparison=False,
-        decile_table=False,
-        model_card=False,
-        shap_interactions=True,
-        shap_per_instance=True,
-    )
-    data_dir = str(tmp_path)
-    train_mlframe_models_suite(
-        df=df,
-        target_name="diag_shap_optin",
-        model_name="hgb_shap",
-        features_and_targets_extractor=fte,
-        mlframe_models=["hgb"],
-        hyperparams_config=get_cpu_config("hgb", 20),
-        reporting_config=cfg,
-        use_ordinary_models=True,
-        use_mlframe_ensembles=False,
-        output_config=OutputConfig(data_dir=data_dir, models_dir="models", save_charts=True),
-        verbose=0,
-    )
-    files = _saved_chart_files(data_dir)
-    joined = " ".join(files)
-    assert "shap_interactions" in joined, f"opt-in SHAP interaction chart not saved; files={files}"
-    assert "shap_per_instance" in joined, f"opt-in SHAP per-instance chart not saved; files={files}"
-
-
-def test_opt_in_pdp_2d_chart_renders_when_enabled(tmp_path):
-    """The 2-D PDP surface is dormant by default; setting ``pdp_2d_charts=True`` wires it into the per-(model, split)
-    PDP dispatch and writes the pdp_2d artifact for a tiny tree-model binary run (the composer picks the feature pair)."""
-    skip_if_dependency_missing("hgb")
-    df = _make_frame(700, binary=True)
-    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-    cfg = ReportingConfig(
-        show_perf_chart=False,
-        show_fi=False,
-        plot_outputs="matplotlib[png]",
-        # Trim the other per-split diagnostics so the run is fast and isolates the opt-in 2-D PDP artifact.
-        pdp_ice=False,
-        slice_finder=False,
-        decision_curve=False,
-        calibration_drift=False,
-        target_acf=False,
-        model_comparison=False,
-        decile_table=False,
-        model_card=False,
-        shap_panels=False,
-        pdp_2d_charts=True,
-    )
-    data_dir = str(tmp_path)
-    train_mlframe_models_suite(
-        df=df,
-        target_name="diag_pdp2d_optin",
-        model_name="hgb_pdp2d",
-        features_and_targets_extractor=fte,
-        mlframe_models=["hgb"],
-        hyperparams_config=get_cpu_config("hgb", 20),
-        reporting_config=cfg,
-        use_ordinary_models=True,
-        use_mlframe_ensembles=False,
-        output_config=OutputConfig(data_dir=data_dir, models_dir="models", save_charts=True),
-        verbose=0,
-    )
-    files = _saved_chart_files(data_dir)
-    joined = " ".join(files)
-    assert "pdp_2d" in joined, f"opt-in 2-D PDP surface not saved; files={files}"
-
-
-def test_per_model_calibration_chart_is_written_without_missing_dir(tmp_path):
-    """Regression: ``plot_file`` reaches ``_compute_split_metrics`` as a filename prefix ending in the model-type name
-    (not a directory ending in os.sep). The split-chart path is derived from that prefix and its directory must exist
-    before ``show_calibration_plot`` savefigs the reliability diagram, otherwise the suite dies with FileNotFoundError.
-    Enable the per-class reliability chart so the exact savefig path is exercised."""
-    skip_if_dependency_missing("hgb")
-    df = _make_frame(600, binary=True)
-    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False, ts_field="timestamp")
-    data_dir = str(tmp_path)
-    models, _ = train_mlframe_models_suite(
-        df=df,
-        target_name="diag_bin",
-        model_name="hgb_bin",
-        features_and_targets_extractor=fte,
-        mlframe_models=["hgb"],
-        hyperparams_config=get_cpu_config("hgb", 20),
-        reporting_config=ReportingConfig(show_perf_chart=True, show_fi=False, plot_outputs="matplotlib[png]"),
-        use_ordinary_models=True,
-        use_mlframe_ensembles=False,
-        output_config=OutputConfig(data_dir=data_dir, models_dir="models", save_charts=True),
-        verbose=0,
-    )
-    assert TargetTypes.BINARY_CLASSIFICATION in models
-    perfplots = [p for p in glob.glob(os.path.join(data_dir, "charts", "**", "*perfplot*.png"), recursive=True) if os.path.isfile(p)]
-    assert perfplots, "per-model calibration perfplot.png was not saved (chart dir not created before savefig)"
 
 
 def test_regression_suite_renders_diagnostics_default_on(tmp_path, reporting_cfg):
@@ -447,44 +388,6 @@ def test_multilabel_suite_renders_threshold_sweep_default_on(tmp_path, reporting
     assert "multilabel_panels" in joined, f"multilabel panel grid not saved; files={files}"
     saved_acc = _collect_charts_acc(metadata) + _collect_charts_acc(models)
     assert saved_acc, "no charts accounting recorded in metadata/models"
-
-
-def test_learning_curve_opt_in_when_enabled(tmp_path):
-    """The learning-curve diagnostic is OFF by default and renders only when LearningCurveConfig(enabled=True)."""
-    skip_if_dependency_missing("hgb")
-    df = _make_frame(700, binary=True)
-    fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-    cfg = ReportingConfig(
-        show_perf_chart=False,
-        show_fi=False,
-        plot_outputs="matplotlib[png]",
-        # Disable the other standalone diagnostics so this run is fast + isolates the learning-curve artifact.
-        pdp_ice=False,
-        slice_finder=False,
-        decision_curve=False,
-        shap_panels=False,
-        calibration_drift=False,
-        target_acf=False,
-        model_comparison=False,
-        learning_curve=LearningCurveConfig(enabled=True, sizes=(0.3, 0.6, 1.0)),
-    )
-    data_dir = str(tmp_path)
-    _models, _metadata = train_mlframe_models_suite(
-        df=df,
-        target_name="diag_lc",
-        model_name="hgb_lc",
-        features_and_targets_extractor=fte,
-        mlframe_models=["hgb"],
-        hyperparams_config=get_cpu_config("hgb", 20),
-        reporting_config=cfg,
-        use_ordinary_models=True,
-        use_mlframe_ensembles=False,
-        output_config=OutputConfig(data_dir=data_dir, models_dir="models", save_charts=True),
-        verbose=0,
-    )
-    files = _saved_chart_files(data_dir)
-    joined = " ".join(files)
-    assert "learning_curve" in joined, f"learning curve not saved when opted in; files={files}"
 
 
 def test_learning_curve_off_by_default(binary_default_run):

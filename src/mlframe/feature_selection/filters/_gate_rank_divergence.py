@@ -33,17 +33,6 @@ def _bin_size(b: int, m: int, nbins: int) -> int:
 
 
 @njit(cache=True, nogil=True)
-def _bin_of_position(r: int, m: int, nbins: int) -> int:
-    """Bin of sorted position ``r`` among ``m`` rows: ``nbins`` equi-frequency bins, the first ``m % nbins`` of them one row larger."""
-    base = m // nbins
-    rem = m % nbins
-    thr = rem * (base + 1)
-    if r < thr:
-        return r // (base + 1)
-    return rem + (r - thr) // base
-
-
-@njit(cache=True, nogil=True)
 def _plug_in_mi(counts: np.ndarray, m: int) -> float:
     """Plug-in MI (nats) of a ``(bins, classes)`` count table of ``m`` rows."""
     nb, k = counts.shape

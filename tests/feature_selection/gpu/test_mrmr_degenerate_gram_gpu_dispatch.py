@@ -40,12 +40,13 @@ def test_gram_matrix_cpu_default_small_frame_unchanged():
     np.testing.assert_array_equal(_gram_matrix(M), M @ M.T)
 
 
-def test_gram_matrix_gpu_forced_matches_cpu(monkeypatch):
+@pytest.mark.parametrize("seed", [0, 1])
+def test_gram_matrix_gpu_forced_matches_cpu(seed, monkeypatch):
     """Forcing STRICT GPU mode on a frame that clears the work floor must route through cupy and produce
     a Gram matrix numerically equivalent to the CPU GEMM (both are the same float64 contraction, order
     differences are within the 1e-9 collinearity tolerance the caller applies)."""
     pytest.importorskip("cupy")
-    rng = np.random.default_rng(2)
+    rng = np.random.default_rng(seed)
     p, n = 80, 20000  # p*n = 1.6M >= the 1M strict work floor
     M = rng.normal(size=(p, n))
 
