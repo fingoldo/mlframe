@@ -52,7 +52,7 @@ def _reference_filter(
             corr = _spearman_corr(dev_sub, y_sub)
             full_sign = np.sign(full_sample_corr[col])
             sub_sign = np.sign(corr)
-            if full_sign == 0 or sub_sign == full_sign:
+            if full_sign != 0 and sub_sign == full_sign:
                 agreement_counts[col] += 1
     rows = []
     for col in feature_cols:

@@ -124,7 +124,7 @@ def _drop_exact_duplicate_columns(self, X, _group_protected):
         try:
             from pandas.util import hash_array as _hash_array
 
-            _hashes: dict[bytes, str] = {}
+            _hashes: dict[tuple, str] = {}
             _to_drop = []
             for _col in X.columns:
                 if _col in _group_protected:
@@ -133,13 +133,14 @@ def _drop_exact_duplicate_columns(self, X, _group_protected):
                 _dtype = _ser.dtype
                 if pd.api.types.is_numeric_dtype(_dtype) or pd.api.types.is_bool_dtype(_dtype):
                     _arr = _ser.to_numpy()
+                    _kind = "num"
                 elif isinstance(_dtype, pd.CategoricalDtype) or _dtype == object or pd.api.types.is_string_dtype(_dtype):  # noqa: E721 - pandas dtype `== object` comparison is intended
-                    # ``factorize`` is the canonical pandas pathway for collapsing label semantics into a code sequence dedup can compare; ``use_na_sentinel=True`` keeps NaN distinct from any real label without forcing a fillna copy.
-                    _codes, _ = pd.factorize(_ser, use_na_sentinel=True)
-                    _arr = _codes
+                    # Hash the VALUES (not factorize codes): a relabeled categorical, or a numeric column equal to another column's codes, is a different feature.
+                    _arr = pd.util.hash_pandas_object(_ser, index=False).to_numpy()
+                    _kind = "obj"
                 else:
                     continue
-                _key = bytes(_hash_array(_arr))
+                _key = (_kind, bytes(_hash_array(_arr)))
                 if _key in _hashes:
                     _to_drop.append(_col)
                 else:
@@ -169,6 +170,10 @@ def _sanitize_X_inputs(self, X, y):
     to each step.
     """
     _warn_fit_preconditions(self, X)
+
+    # must_exclude runs FIRST: an excluded column must not take part in the dedup passes (a kept column that duplicates an excluded one would be dropped
+    # as the "copy" and vanish with it), and a name auto-dropped as constant/duplicate is still a valid must_exclude name, not a typo.
+    X = _drop_must_exclude_columns(self, X)
 
     # Drop zero-variance / all-null columns BEFORE recording ``feature_names_in_``. Otherwise a constant column can land in support_ and
     # downstream pipeline steps that silently drop it (e.g. SimpleImputer with keep_empty_features=False) cause transform-time column-set
@@ -215,9 +220,6 @@ def _sanitize_X_inputs(self, X, y):
         _cv_thr = float(getattr(self, "id_like_spacing_cv", 1e-3))
         X = _screen_id_like_columns(self, _n, X, _group_protected, _ratio_thr, _cv_thr)
 
-    # must_exclude: drop named columns at fit entry so they never enter the optimiser's universe.
-    X = _drop_must_exclude_columns(self, X)
-
     # E5: warn on high-cardinality integer / int-encoded
     # columns that look like hashes / IDs. They pass Pearson leak (low corr),
     # but tree FI inflates them via split-frequency bias. Knockoffs assume
@@ -249,7 +251,7 @@ def _drop_degenerate_columns(self, X):
                         _v = float(np.nanvar(X[_c].to_numpy(dtype=float, na_value=np.nan)))
                     except (TypeError, ValueError):
                         continue
-                    if _v < 1e-12:
+                    if _v <= 1e-18 * float(np.nanmean(X[_c].to_numpy(dtype=float, na_value=np.nan))) ** 2:
                         degenerate.append(_c)
         except TypeError:
             # Fallback for exotic dtypes that nunique() can't hash.

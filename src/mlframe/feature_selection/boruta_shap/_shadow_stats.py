@@ -15,7 +15,6 @@ import numpy as np
 from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 from mlframe.feature_selection.filters import guarded_scale
 import pandas as pd
-from numpy.random import choice
 from scipy.stats import ks_2samp
 from sklearn.ensemble import IsolationForest
 
@@ -324,11 +323,11 @@ def feature_importance(self: Any, normalize: bool) -> Any:
 
     return X_feature_import, Shadow_feature_import
 
-def isolation_forest(X: pd.DataFrame | np.ndarray) -> np.ndarray:
+def isolation_forest(X: pd.DataFrame | np.ndarray, random_state: int | None = None) -> np.ndarray:
     """
     fits isolation forest to the dataset and gives an anomaly score to every sample
     """
-    clf = IsolationForest().fit(X)
+    clf = IsolationForest(random_state=random_state).fit(X)
     preds = clf.score_samples(X)
     return np.asarray(preds)
 
@@ -347,6 +346,12 @@ def get_5_percent_splits(self, length: int) -> np.ndarray:
     step = max(1, int(five_percent))
     return np.arange(step, length, step)
 
+def _sample_rng(self: Any) -> np.random.Generator:
+    """The instance's seeded Generator (the one the shadow permutations use), so ``sample=True`` row draws follow ``random_state``."""
+    rng = getattr(self, "_rng", None)
+    return rng if rng is not None else np.random.default_rng(getattr(self, "random_state", None))
+
+
 def find_sample(self) -> pd.DataFrame:
     """
     Finds a sample by comparing the distributions of the anomaly scores between the sample and the original
@@ -364,7 +369,7 @@ def find_sample(self) -> pd.DataFrame:
     # sample (next ``size`` element). Without incrementing it the bound never fired and a
     # frame where no sub-sample reaches the KS p>0.95 threshold looped forever.
     while True:
-        sample_indices = choice(np.arange(self.preds_.size), size=size[element], replace=False)
+        sample_indices = _sample_rng(self).choice(self.preds_.size, size=size[element], replace=False)
         sample = np.take(self.preds_, sample_indices)
         if ks_2samp(self.preds_, sample).pvalue > 0.95:
             break

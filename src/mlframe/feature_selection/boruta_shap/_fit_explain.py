@@ -10,6 +10,7 @@ from mlframe.utils.budgets import active_budget
 from typing import Any
 
 from mlframe.feature_selection._selection_log import logs_fit
+from mlframe.feature_selection.cv_policy import POLICY_ATTR, get_cv_policy
 from mlframe.utils.misc import get_pipeline_last_element
 from pyutilz.system import tqdmu
 
@@ -228,6 +229,8 @@ def _fit_with_subsample_stability(self, X, y):
     # and the length mismatch raises ValueError. Detect a per-row stratify array here so each sub-fit can
     # slice it positionally with its own ``idx`` (scalars / None / mismatched lengths are passed through).
     _stratify_arr = _per_row_stratify_array(getattr(self, "stratify", None), n)
+    # The suite's temporal / grouped split policy is stamped on ``self`` and not carried by ``get_params``; hand each sub-fit the policy restricted to its rows.
+    _policy = get_cv_policy(self)
 
     def _run_one_subfit(k: int):
         """Draw the k-th random row subsample (with a de-correlated model random_state) and run one full BorutaShap sub-fit for the stability-selection vote."""
@@ -253,6 +256,8 @@ def _fit_with_subsample_stability(self, X, y):
         if _stratify_arr is not None:
             sub_params["stratify"] = _stratify_arr[idx]
         sub = self.__class__(**sub_params)
+        if _policy is not None:
+            setattr(sub, POLICY_ATTR, _policy.subset(idx))
         sub.fit(Xk, yk)
         return list(getattr(sub, "accepted_", []) or [])
 
@@ -334,6 +339,9 @@ def _prepare_fit_state(self, X: Any, y: Any) -> None:
     # snapshot, so we reference it rather than taking a second copy. ``self.y_`` is never mutated (only
     # read for splits / model fit), so it is referenced, not copied.
     self.starting_X_ = X
+    # A previous fit in 'test' mode leaves its holdout split behind; the permutation measure reads ``X_boruta_test_`` whenever it is set, so a refit in 'train' mode
+    # would score permutation importance on the old fit's rows.
+    self.X_boruta_train_ = self.X_boruta_test_ = self.y_train_ = self.y_test_ = None
     # Below this many rows the default surrogate's per-trial forest is cheaper single-threaded: joblib's worker
     # dispatch on every trial costs more than the tree fits themselves (measured at 300 rows: n_jobs=-1 1.8x slower,
     # 3000 rows: 2.4x faster, 30000 rows: 6.9x faster; crossover between 300 and 3000).
@@ -383,7 +391,7 @@ def _prepare_fit_state(self, X: Any, y: Any) -> None:
     self.create_importance_history()
 
     if self.sample:
-        self.preds_ = self.isolation_forest(self.X_)
+        self.preds_ = self.isolation_forest(self.X_, random_state=self.random_state if isinstance(self.random_state, (int, np.integer)) else None)
 
 
 def _run_boruta_trials(self) -> Any:
@@ -573,6 +581,10 @@ def fit(self, X: pd.DataFrame | pl.DataFrame, y: pd.Series | pl.Series | np.ndar
     # Deferred from __init__ (sklearn clone-ability): resolve model=None -> default RF and validate fit/predict here,
     # before either the stability orchestration (which clones self.model) or the single-pass body uses it.
     self.check_model()
+
+    # Re-derive the shadow-permutation stream from random_state on every fit: ``_rng`` is built once in __init__, so a second fit() on the same instance
+    # would otherwise continue the previous fit's stream and give different shadows (and a different selection) for identical data.
+    self._rng = np.random.default_rng(self.random_state)
 
     # importance_measure='auto': probe (X, y) ONCE here and pin the concrete driver (gini/permutation)
     # for this fit. No-op for explicit measures. Done before stability orchestration / single-pass body

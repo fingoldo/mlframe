@@ -319,6 +319,8 @@ def _check_classification_target(self, y_arr):
                 "log_loss are unstable -- treat the ranking as indicative.",
                 min_class, cv_n, min_class,
             )
+            self._cv_requested_ = self.cv
+            self._cv_reduced_to_ = min_class
             self.cv = cv_n = min_class
         # E7: warn when minority just barely meets
         # n_splits; ROC AUC / log_loss likely to NaN on the all-train-no-test

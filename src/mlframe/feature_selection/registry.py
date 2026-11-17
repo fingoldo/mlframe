@@ -243,12 +243,13 @@ def _report_extract_shap_proxied_fs(selector, kept) -> dict:
         logger.warning("importance-scores extraction failed: %s", e)
         out["scores"] = None
     try:
-        _sel = set(str(c) for c in (getattr(selector, "selected_features_", None) or []))
+        _sel_raw = getattr(selector, "selected_features_", None)
+        _sel = set(str(c) for c in (_sel_raw if _sel_raw is not None else []))
         _all = getattr(selector, "feature_names_in_", None)
         if _all is not None and _sel:
             out["reason_per_feature"] = {str(c): ("selected" if str(c) in _sel else "dropped") for c in _all}
     except Exception as e:  # nosec B110 - best-effort path
-        logger.debug("reason_per_feature computation failed: %s", e)
+        logger.warning("reason_per_feature computation failed: %s", e)
     return out
 
 

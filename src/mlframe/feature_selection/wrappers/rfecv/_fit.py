@@ -75,6 +75,15 @@ def _densify_sparse_input(X):
     return np.asarray(X.toarray())
 
 
+def _restore_requested_cv(self) -> None:
+    """Undo a previous fit's minority-class reduction of ``cv`` so a refit on better-balanced data uses the cv the caller asked for."""
+    reduced_to = getattr(self, "_cv_reduced_to_", None)
+    if reduced_to is not None and self.cv == reduced_to:
+        self.cv = self._cv_requested_
+    self._cv_reduced_to_ = None
+    self._cv_requested_ = None
+
+
 def _revalidate_params(self) -> None:
     """Run the constructor's parameter checks again on the CURRENT parameters: ``set_params`` and ``GridSearchCV`` change them after ``__init__``."""
     from ._init_validate import validate_init_params_early, validate_init_params_late
@@ -91,6 +100,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     """Fit RFECV: densifies a sparse ``X`` (refusing inputs whose dense form would exceed ~2 GB), applies the optional prescreen, precomputes per-fold train-only prescreen universes, then drives the recursive elimination loop to select the final feature subset."""
     # The max_runtime_mins clock covers the whole fit, including the input hashing / leakage / cardinality checks, which take minutes on wide 500k+ row frames.
     _fit_t0 = timer()
+    _restore_requested_cv(self)
     _revalidate_params(self)
     # No estimator configured (neither estimators= nor estimator=) is a caller error; check it FIRST,
     # before anything downstream (_init_fit_state's is_classifier(None) check, or the
@@ -134,7 +144,7 @@ def fit(self, X: Union[pd.DataFrame, np.ndarray], y: Union[pd.DataFrame, pd.Seri
     # above -- _fit_stability_selection clones self.estimator internally, so with no estimator configured it crashed with a
     # confusing AttributeError from sklearn.base.clone(None) instead of this function's own clear ValueError.
     if self.stability_selection:
-        return self._fit_stability_selection(X=X, y=y, signature=signature)
+        return self._fit_stability_selection(X=X, y=y, signature=signature, groups=groups)
     fit_params = _resolve_fit_params(self, fit_params)
     state, loop_kw = _prepare_outer_loop(
         self, X=X, y=y, groups=groups, X_estimator=X_estimator, col_pos=col_pos, estimators_list=estimators_list,
@@ -181,6 +191,13 @@ def _resolve_fit_params(self: Any, fit_params: Any) -> dict:
     # is temporal (e.g. epoch-seconds in a separate array).
     _ts_hint_from_caller = fit_params.pop("timestamps", None) if isinstance(fit_params, dict) else None
     resolved: dict = copy.copy(self.fit_params) if self.fit_params else {}
+    _dropped = sorted(str(k) for k in (fit_params or {}) if k not in resolved)
+    if _dropped:
+        log_throttle(
+            logger, "rfecv_fit_kwargs_ignored", logging.WARNING,
+            "RFECV.fit ignores the keyword argument(s) %s: estimator fit parameters are taken from the constructor's fit_params=, only 'timestamps' is read from fit().",
+            _dropped,
+        )
     if _ts_hint_from_caller is not None:
         resolved["timestamps"] = _ts_hint_from_caller
     return resolved
@@ -367,6 +384,8 @@ def _prepare_outer_loop(
     frac = self.frac
     best_desired_score = self.best_desired_score
     max_noimproving_iters = self.max_noimproving_iters
+    self._consecutive_nan_iters = 0
+    self._fit_groups_ = groups
 
     n_jobs_effective, _is_multithreaded = resolve_effective_n_jobs(
         self.n_jobs, estimator, self.force_parallel, verbose,
@@ -479,6 +498,14 @@ def _prepare_outer_loop(
 
 def _run_outer_loop_and_finalize(self: Any, state: OuterLoopState, loop_kw: dict[str, Any], *, fit_t0: float) -> Any:
     """Drive the outer elimination loop, publish its outputs, finalize ``self`` and record provenance; returns ``self``."""
+    try:
+        return _drive_outer_loop_and_finalize(self, state, loop_kw, fit_t0=fit_t0)
+    finally:
+        self._fit_groups_ = None
+
+
+def _drive_outer_loop_and_finalize(self: Any, state: OuterLoopState, loop_kw: dict[str, Any], *, fit_t0: float) -> Any:
+    """Body of ``_run_outer_loop_and_finalize``: the elimination loop, output publication, finalisation and provenance."""
     while state.nsteps < len(loop_kw["original_features"]):
         outcome = run_outer_loop_iteration(self, state, **loop_kw)
         if outcome is IterationOutcome.BREAK:

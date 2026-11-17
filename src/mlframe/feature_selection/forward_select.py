@@ -231,7 +231,10 @@ def forward_select(
                 break
         trial_scores, trial_fold_scores = _score_trial_candidates(_subset, estimator_factory, selected, remaining, y, cv, scoring, diagnostics_needed)
 
-        best_candidate = max(trial_scores, key=lambda c: trial_scores[c])
+        finite_scores = {c: s for c, s in trial_scores.items() if np.isfinite(s)}
+        if not finite_scores:
+            break
+        best_candidate = max(finite_scores, key=lambda c: finite_scores[c])
         improvement = trial_scores[best_candidate] - best_score
         if selected and improvement < min_improvement:
             break

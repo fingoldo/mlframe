@@ -23,6 +23,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._stability_select import _sklearn_ranking_vector
 
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
@@ -196,10 +198,7 @@ def _run_sffs_swap_stage(
                     best_nfeatures = new_best_nf
                     best_score = _finite_means[new_best_nf]
         except Exception as _swap_exc:
-            if verbose:
-                logger.warning("RFECV: SFFS swap pass failed (%s); continuing.", _swap_exc)
-            else:
-                logger.debug("RFECV: SFFS swap pass failed (%s); continuing.", _swap_exc)
+            log_throttle(logger, "rfecv_sffs_swap_failed", logging.WARNING, "RFECV: SFFS swap pass failed (%s); continuing.", _swap_exc)
     elif self.swap_top_k and self.swap_top_k > 0 and _has_val_cv and not _allow_swap_without_es:
         if verbose:
             logger.info(

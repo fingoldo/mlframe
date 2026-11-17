@@ -17,7 +17,7 @@ from typing import Any, Callable, List, Optional
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
-from sklearn.model_selection import BaseCrossValidator, KFold
+from sklearn.model_selection import BaseCrossValidator, KFold, StratifiedKFold
 
 from ._selection_log import logs_selection, summ_selected_of_x
 
@@ -81,6 +81,11 @@ def _cv_score_repeated(
     return float(np.mean([_cv_score(estimator, X, y_arr, folds, scoring) for folds in repeat_folds]))
 
 
+def _supports_seed_repeats(cv: Any) -> bool:
+    """True when ``cv`` is a shuffled ``KFold`` / ``StratifiedKFold``, the only splitters whose folds a repeat seed can re-draw without dropping their policy."""
+    return isinstance(cv, (KFold, StratifiedKFold)) and bool(getattr(cv, "shuffle", False))
+
+
 @logs_selection("greedy_backward_elimination", summ_selected_of_x)
 def greedy_backward_elimination(
     estimator: Any,
@@ -141,7 +146,13 @@ def greedy_backward_elimination(
     y_arr = np.asarray(y)
     n = len(X)
 
-    if n_repeats > 1 and getattr(cv, "deterministic_folds", False):
+    if n_repeats > 1 and cv is not None and not getattr(cv, "deterministic_folds", False) and not _supports_seed_repeats(cv):
+        logger.warning(
+            "greedy_backward_elimination: cv=%s is not a shuffled KFold/StratifiedKFold, so its fold policy cannot be re-seeded; using it as given and ignoring n_repeats=%d.",
+            type(cv).__name__, n_repeats,
+        )
+        n_repeats = 1
+    elif n_repeats > 1 and getattr(cv, "deterministic_folds", False):
         # A time- / group-ordered splitter has no seed: repeating it under different shuffles would discard its ordering, and repeating it as-is
         # yields identical folds, so the repeat loop is skipped.
         logger.info("greedy_backward_elimination: cv has seed-independent folds; ignoring n_repeats=%d.", n_repeats)
@@ -151,7 +162,10 @@ def greedy_backward_elimination(
         n_splits = cv.get_n_splits() if cv is not None and hasattr(cv, "get_n_splits") else 5
         # Precompute every repeat's fold index arrays ONCE: the row count (hence every split) is invariant across
         # the O(d^2) column-drop candidates below, so re-deriving them per candidate is pure wasted shuffling.
-        repeat_folds = [list(KFold(n_splits=n_splits, shuffle=True, random_state=seed_base + repeat_idx).split(np.empty(n))) for repeat_idx in range(n_repeats)]
+        splitter_cls = StratifiedKFold if isinstance(cv, StratifiedKFold) else KFold
+        repeat_folds = [
+            list(splitter_cls(n_splits=n_splits, shuffle=True, random_state=seed_base + repeat_idx).split(np.empty(n), y_arr)) for repeat_idx in range(n_repeats)
+        ]
 
         def score_fn(frame: pd.DataFrame) -> float:
             """CV score for this column subset, repeated across the precomputed multi-seed folds."""

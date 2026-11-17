@@ -5,6 +5,8 @@ from __future__ import annotations
 # Numba
 # ----------------------------------------------------------------------------------------------------------------------------
 
+from typing import Any, Optional
+
 import numpy as np
 from numba import njit, prange
 
@@ -84,26 +86,34 @@ def grok_mutual_information(a: np.ndarray, b: np.ndarray, inv_n_samples: float, 
     return mi
 
 
-def _validate_bin_codes(data: np.ndarray, fn_name: str) -> np.ndarray:
-    """Ensure bin codes fit the int8 kernel range [0, 127] before the int8 cast.
+def _validate_bin_codes(data: np.ndarray, fn_name: str, n_bins: Optional[int] = None) -> np.ndarray:
+    """Ensure bin codes fit the int8 kernel range [0, 127] and the ``n_bins`` histogram before the int8 cast.
 
     The njit kernels index joint/marginal histograms with these codes under boundscheck=off, so a value
-    >127 (or <0) silently writes to the wrong cell after an int8 wraparound. Validate BEFORE the cast and
-    return a C-contiguous int8 view; honest failure beats silent corruption. Shared across grok / chatgpt /
+    >127 (or <0) silently writes to the wrong cell after an int8 wraparound, and a code >= ``n_bins`` writes past the
+    ``(n_bins, n_bins)`` histogram. Validate BEFORE the cast (int8 input included: a negative int8 code is just as
+    out of range) and return a C-contiguous int8 view; honest failure beats silent corruption. Shared across grok / chatgpt /
     deepseek so the same bad input raises consistently regardless of which kernel runs.
     """
     data = np.asarray(data)
-    if data.dtype != np.int8:
-        _d_min, _d_max = (int(data.min()), int(data.max())) if data.size else (0, 0)
-        if _d_min < 0 or _d_max > 127:
-            raise ValueError(
-                f"{fn_name}: input bin codes must be in [0, 127] for the int8 kernel; got range "
-                f"[{_d_min}, {_d_max}]. Re-bin with num_bins<=128 or use a wider kernel variant."
-            )
-        return np.ascontiguousarray(data, dtype=np.int8)
-    if not data.flags.c_contiguous:
+    _d_min, _d_max = (int(data.min()), int(data.max())) if data.size else (0, 0)
+    if _d_min < 0 or _d_max > 127:
+        raise ValueError(
+            f"{fn_name}: input bin codes must be in [0, 127] for the int8 kernel; got range "
+            f"[{_d_min}, {_d_max}]. Re-bin with num_bins<=128 or use a wider kernel variant."
+        )
+    if n_bins is not None and _d_max >= int(n_bins):
+        raise ValueError(f"{fn_name}: input bin codes must be < n_bins={int(n_bins)}; got max code {_d_max}. Pass a larger n_bins or re-bin.")
+    if data.dtype != np.int8 or not data.flags.c_contiguous:
         return np.ascontiguousarray(data, dtype=np.int8)
     return data
+
+
+def _validate_target_indices(target_indices: Any, n_cols: int, fn_name: str) -> None:
+    """Reject target column indices outside ``[-n_cols, n_cols)``: the kernels read ``data[:, t]`` with bounds checking off."""
+    t = np.asarray(target_indices)
+    if t.size and (int(t.min()) < -n_cols or int(t.max()) >= n_cols):
+        raise ValueError(f"{fn_name}: target_indices must lie in [{-n_cols}, {n_cols}); got range [{int(t.min())}, {int(t.max())}].")
 
 
 @njit(parallel=True, cache=True)
@@ -152,7 +162,8 @@ def grok_compute_mutual_information(
     mi_matrix       : float ndarray of dtype out_dtype, shape (n_targets, n_cols)
                       Row k = MI(target_indices[k], all columns)
     """
-    data = _validate_bin_codes(data, "grok_compute_mutual_information")
+    data = _validate_bin_codes(data, "grok_compute_mutual_information", n_bins)
+    _validate_target_indices(target_indices, data.shape[1], "grok_compute_mutual_information")
     return np.asarray(_grok_compute_mutual_information_kernel(data, target_indices, n_bins=n_bins, hist_dtype=hist_dtype, out_dtype=out_dtype))
 
 
@@ -238,7 +249,8 @@ def chatgpt_compute_mutual_information(
     """
     # Validate the input range BEFORE the int8 cast: a bin code >127 (e.g. bin_dtype=Int16 + num_bins>128)
     # otherwise wraps negative and the boundscheck-off njit kernel writes to wrong joint-histogram cells.
-    data = _validate_bin_codes(data, "chatgpt_compute_mutual_information")
+    data = _validate_bin_codes(data, "chatgpt_compute_mutual_information", n_bins)
+    _validate_target_indices(target_indices, data.shape[1], "chatgpt_compute_mutual_information")
 
     targets = np.asarray(target_indices, dtype=np.int64)
     out: np.ndarray = np.empty((targets.size, data.shape[1]), dtype=out_dtype)
@@ -334,5 +346,6 @@ def deepseek_compute_mutual_information(
     mi_matrix       : float ndarray of dtype out_dtype, shape (n_targets, n_cols)
                       Row k = MI(target_indices[k], all columns)
     """
-    data = _validate_bin_codes(data, "deepseek_compute_mutual_information")
+    data = _validate_bin_codes(data, "deepseek_compute_mutual_information", n_bins)
+    _validate_target_indices(target_indices, data.shape[1], "deepseek_compute_mutual_information")
     return np.asarray(_deepseek_compute_mutual_information_kernel(data, target_indices, n_bins=n_bins, hist_dtype=hist_dtype, out_dtype=out_dtype))

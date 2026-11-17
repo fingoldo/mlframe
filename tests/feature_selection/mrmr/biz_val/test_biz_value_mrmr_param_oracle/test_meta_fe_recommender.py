@@ -276,12 +276,12 @@ class TestFeAutoEndToEnd:
     def test_fe_auto_false_byte_identical_default(self):
         """fe_auto=False (the default) leaves the legacy path untouched: no
         grouped_agg features, fe_grouped_agg_enable stays False before/after."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
+        from tests.feature_selection.conftest import legacy_mrmr
 
         X, y = _build_group_fixture(42, n=2000)
         ys = pd.Series(y, name="y")
 
-        m = MRMR(max_runtime_mins=0.5)
+        m = legacy_mrmr(max_runtime_mins=0.5)
         assert bool(getattr(m, "fe_auto", False)) is False
         assert bool(getattr(m, "fe_grouped_agg_enable", False)) is False
         m.fit(X, ys)
@@ -294,10 +294,10 @@ class TestFeAutoEndToEnd:
         """fe_auto flips flags ON only for the duration of the fit; after fit
         the constructor-arg semantics are restored (so clone / pickle / refit
         are stable)."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
+        from tests.feature_selection.conftest import legacy_mrmr
 
         X, y = _build_group_fixture(7, n=2000)
-        m = MRMR(max_runtime_mins=0.5, fe_auto=True)
+        m = legacy_mrmr(max_runtime_mins=0.5, fe_auto=True)
         assert bool(m.fe_grouped_agg_enable) is False
         m.fit(X, pd.Series(y, name="y"))
         # auto flipped it ON during fit, but restored to the ctor value after.

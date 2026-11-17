@@ -103,7 +103,7 @@ def drop_raw_after_embedding(
         order as ``df`` - same contract as ``drop_near_noise_univariate_auc``; binarize a continuous target
         (e.g. a median split or a business-relevant threshold) before calling if needed. For each candidate
         raw column, a raw-column signal strength (univariate AUC-derived, categoricals via
-        an in-sample target-mean encoding) is compared against the best signal strength among its present
+        an out-of-fold target-mean encoding) is compared against the best signal strength among its present
         derived columns. The raw column is only dropped if
         ``derived_signal >= min_retained_fraction * raw_signal`` (a raw column with ~zero signal of its own is
         always treated as safe to drop, since the embedding can't lose signal that wasn't there). Columns

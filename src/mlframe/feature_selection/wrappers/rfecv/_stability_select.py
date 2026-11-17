@@ -163,6 +163,15 @@ def _stability_wide_data_guard(self: Any, importance_getter: Any, n_features: in
     return importance_getter
 
 
+def _group_subsample_index(rng: np.random.Generator, groups_arr: np.ndarray, n_samples: int) -> Optional[np.ndarray]:
+    """Rows of a random half of the distinct groups, so a bootstrap's fitted and held-out rows never share a group; ``None`` when there are fewer than two groups."""
+    uniq = np.unique(groups_arr)
+    if uniq.size < 2:
+        return None
+    chosen = rng.choice(uniq.size, size=max(1, uniq.size // 2), replace=False)
+    return np.flatnonzero(np.isin(groups_arr, uniq[chosen]))
+
+
 def _run_stability_bootstraps(
     self: Any,
     X: Any,
@@ -177,6 +186,7 @@ def _run_stability_bootstraps(
     importance_getter: Any,
     sub_size: int,
     top_k: int,
+    groups: Any = None,
 ) -> np.ndarray:
     """Run the ``stability_n_bootstrap`` subsample fits and return how often each feature landed in a bootstrap's positive-importance top-K."""
     selection_counts = np.zeros(n_features, dtype=int)
@@ -189,8 +199,20 @@ def _run_stability_bootstraps(
     _fit_sw = getattr(self, "_fit_sample_weight_", None)
     _fit_sw_arr = np.asarray(_fit_sw) if _fit_sw is not None else None
 
+    _groups_arr = np.asarray(groups) if groups is not None else None
+    if _groups_arr is not None and np.unique(_groups_arr).size < 2:
+        log_throttle(
+            logger, "stability_selection_groups_too_few", logging.WARNING,
+            "stability_selection: groups holds fewer than 2 distinct values; subsampling rows instead of groups.",
+        )
+        _groups_arr = None
+
     for b in range(int(self.stability_n_bootstrap)):
-        idx = rng.choice(n_samples, size=sub_size, replace=False)
+        idx = None
+        if _groups_arr is not None:
+            idx = _group_subsample_index(rng, _groups_arr, n_samples)
+        if idx is None:
+            idx = rng.choice(n_samples, size=sub_size, replace=False)
         X_sub, y_sub, X_eval, y_eval = _in_and_out_of_bag(X, np.asarray(y), idx, n_samples, is_df)
         sw_sub = _fit_sw_arr[idx] if _fit_sw_arr is not None else None
 
@@ -282,7 +304,7 @@ def _publish_stability_state(self: Any, feature_names: list, n_features: int, su
     self.stability_selection_freq_ = selection_freq
 
 
-def _fit_stability_selection(self, X, y, signature):
+def _fit_stability_selection(self, X, y, signature, groups=None):
     """Stability Selection (Meinshausen & Buhlmann 2010, JRSS-B).
 
     Bootstrap-based feature selection. For each of B bootstrap subsamples (n/2, no replacement), fit the estimator(s) and record which
@@ -310,7 +332,13 @@ def _fit_stability_selection(self, X, y, signature):
         )
     estimators_list = list(self.estimators) if self.estimators else [self.estimator]
     importance_getter = self.importance_getter if self.importance_getter else "auto"
-    rng = np.random.default_rng(self.random_state)
+    if self.random_state is None:
+        from ._fit import _seed_fit_rng
+
+        _seed_fit_rng(self, None, signature)
+        rng = self._rng
+    else:
+        rng = np.random.default_rng(self.random_state)
     is_df = isinstance(X, pd.DataFrame)
     n_samples = X.shape[0]
     n_features = X.shape[1]
@@ -336,7 +364,7 @@ def _fit_stability_selection(self, X, y, signature):
 
     selection_counts = _run_stability_bootstraps(
         self, X, y, rng=rng, is_df=is_df, n_samples=n_samples, n_features=n_features, feature_names=feature_names,
-        estimators_list=estimators_list, importance_getter=importance_getter, sub_size=sub_size, top_k=top_k,
+        estimators_list=estimators_list, importance_getter=importance_getter, sub_size=sub_size, top_k=top_k, groups=groups,
     )
 
     selection_freq = selection_counts / max(1, int(self.stability_n_bootstrap))
@@ -362,6 +390,8 @@ def _fit_stability_selection(self, X, y, signature):
         for c in must_include_resolved:
             if c in feature_names:
                 support_mask[feature_names.index(c)] = True
+            elif not is_df and isinstance(c, (int, np.integer)) and 0 <= int(c) < n_features:
+                support_mask[int(c)] = True
 
     _publish_stability_state(self, feature_names, n_features, support_mask, selection_freq)
 
@@ -492,9 +522,11 @@ def _pick_best_idx_by_rule(
         sorted_idx = np.argsort(ultimate_perf)[::-1]
         best_idx = None
         for idx in sorted_idx:
-            if nonzero_mask[idx]:
+            if nonzero_mask[idx] and np.isfinite(ultimate_perf[idx]):
                 best_idx = idx
                 break
+        if best_idx is None:
+            raise ValueError("RFECV: the adjusted CV score is NaN for every non-zero candidate; cannot pick a winner.")
     else:
         # one_se_max / one_se_min: build the SE band around the best mean (cv_mean_perf - the *unadjusted* score, so 1-SE has its
         # standard interpretation), then pick the largest or smallest N within the band.

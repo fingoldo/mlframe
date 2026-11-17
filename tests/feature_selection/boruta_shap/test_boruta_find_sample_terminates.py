@@ -59,25 +59,25 @@ def test_find_sample_starts_at_5_percent_not_10_percent():
     """FS_BORUTA_ROOT-2: find_sample must start its KS-test sample search at the FIRST (~5%) split
     element, matching its own docstring ("Starts of a 5%") -- starting at element=1 (~10%) skipped
     the documented first size entirely."""
-    import mlframe.feature_selection.boruta_shap._shadow_stats as ss
-
     calls = []
-    real_choice = ss.choice
 
-    def _recording_choice(a, size, replace):
-        """Records every requested sample size, then delegates to the real np.random.choice."""
-        calls.append(size)
-        return real_choice(a, size=size, replace=replace)
+    class _RecordingRng:
+        """Records every requested sample size, then delegates to a real seeded Generator."""
 
-    orig_choice = ss.choice
-    ss.choice = _recording_choice
-    try:
-        preds = np.linspace(0.0, 1.0, 400)
-        stub = _Stub(preds)
-        expected_sizes = stub.get_5_percent_splits(stub.X_.shape[0])
-        stub.find_sample()
-    finally:
-        ss.choice = orig_choice
+        def __init__(self):
+            """Create the delegate Generator."""
+            self._real = np.random.default_rng(0)
+
+        def choice(self, a, size, replace):
+            """Record ``size`` and draw from the real Generator."""
+            calls.append(size)
+            return self._real.choice(a, size=size, replace=replace)
+
+    preds = np.linspace(0.0, 1.0, 400)
+    stub = _Stub(preds)
+    stub._rng = _RecordingRng()
+    expected_sizes = stub.get_5_percent_splits(stub.X_.shape[0])
+    stub.find_sample()
 
     assert calls, "find_sample never called choice()"
     assert calls[0] == expected_sizes[0], f"first sample draw must use the FIRST (~5%) split size {expected_sizes[0]}, got {calls[0]}"

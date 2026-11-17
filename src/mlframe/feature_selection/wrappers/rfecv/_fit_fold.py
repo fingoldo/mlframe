@@ -63,7 +63,13 @@ def _apply_fold_prescreen(self, train_index, current_features):
         _warn_unmatched_prescreen_fold()
         return current_features
     _masked = [f for f in current_features if f in _fold_set]
-    return _masked or current_features
+    if not _masked:
+        log_throttle(
+            logger, "rfecv_nested_prescreen_fold_mask_empty", logging.WARNING,
+            "RFECV: no searched feature survives a fold's train-only prescreen; that fold keeps the unmasked subset, which includes features chosen with its test rows.",
+        )
+        return current_features
+    return _masked
 
 
 def _warn_unmatched_prescreen_fold() -> None:
@@ -156,7 +162,10 @@ def _score_with_optional_weight(scoring, fitted, X_test, y_test, test_sample_wei
     try:
         return scoring(fitted, X_test, y_test, sample_weight=test_sample_weight)
     except TypeError as _exc:
-        logger.debug("_score_with_optional_weight fell back to its default after %s", type(_exc).__name__)
+        log_throttle(
+            logger, "rfecv_scorer_rejects_sample_weight", logging.WARNING,
+            "RFECV: the scorer rejected sample_weight (%s); fold test rows are scored UNWEIGHTED while the estimator was fit weighted.", _exc,
+        )
         return scoring(fitted, X_test, y_test)
 
 
@@ -320,6 +329,11 @@ def _fit_score_one_estimator(
         _fit_key = getattr(_fitted.fit, "__func__", _fitted.fit)
         if _fit_accepts_sample_weight(_fit_key):
             _per_est_fit_params["sample_weight"] = fold_train_sw
+        else:
+            log_throttle(
+                logger, "rfecv_estimator_fit_lacks_sample_weight", logging.WARNING,
+                "RFECV: %s.fit does not accept sample_weight; the folds are fit UNWEIGHTED while the scorer is weighted.", _model_type_name,
+            )
     _fast_done = getattr(self, "cb_cached_borders", True) and frac is None and _try_cached_border_fit(
         _fitted, source=X_estimator if X_estimator is not None else X, X_train=X_train, y_train=y_train, fit_features=fit_features,
         fit_params=_per_est_fit_params, train_rows=(train_index if true_train_index is None else train_index[true_train_index]),

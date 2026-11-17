@@ -448,6 +448,7 @@ class TestBizValue:
         on, off = [], []
         for seed in (1, 7, 42):
             from mlframe.feature_selection.filters.mrmr import MRMR
+            from tests.feature_selection.conftest import LEGACY_FE_OFF
 
             X, y = _gate_target(seed, n=3000)
             Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.3, random_state=seed, stratify=y)
@@ -477,7 +478,7 @@ class TestBizValue:
                     fe_binned_numeric_agg_enable=False,
                     max_runtime_mins=1,
                 )
-                m = MRMR(fe_conditional_gate_enable=flag, **_bare)
+                m = MRMR(fe_conditional_gate_enable=flag, **{**LEGACY_FE_OFF, **_bare})
                 m.fit(Xtr, pd.Series(ytr, name="y"))
                 clf = LogisticRegression(max_iter=2000).fit(m.transform(Xtr), ytr)
                 store.append(roc_auc_score(yte, clf.predict_proba(m.transform(Xte))[:, 1]))
@@ -517,9 +518,9 @@ class TestArgmaxAndGateTargetTypeRobustness:
 
     def _mrmr(self, **flags):
         """Helper that mrmr."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
+        from tests.feature_selection.conftest import legacy_mrmr
 
-        return MRMR(
+        return legacy_mrmr(
             verbose=0,
             interactions_max_order=1,
             # fe_max_steps=0 is the unconditional 'no FE at all' contract: no family fires under it,

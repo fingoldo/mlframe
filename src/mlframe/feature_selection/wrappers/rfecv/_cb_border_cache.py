@@ -21,6 +21,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 # Per-fold border tables are ~p * 254 floats; a handful of folds x a few distinct fold-row sets stays in the low MB.
@@ -97,7 +99,7 @@ def is_supported(estimator: Any, fit_params: dict) -> bool:
     try:
         params = estimator.get_params()
     except Exception as exc:
-        logger.warning("RFECV CatBoost cached-borders fast path disabled: get_params() raised %s: %s", type(exc).__name__, exc)
+        log_throttle(logger, "rfecv_cb_borders_get_params_failed", logging.WARNING, "RFECV CatBoost cached-borders fast path disabled: get_params() raised %s: %s", type(exc).__name__, exc)
         return False
     task_type = params.get("task_type")
     if task_type is not None and str(task_type).upper() != "CPU":
@@ -111,7 +113,7 @@ def is_supported(estimator: Any, fit_params: dict) -> bool:
 
 def _write_subset_borders(fold: _FoldBorders, fit_features: list, path: str) -> None:
     """Write the fold's quantization borders for ``fit_features`` to ``path``, renumbering columns to the subset order."""
-    with open(path, "w", encoding="utf-8") as fh:
+    with open(path, "w", encoding="utf-8", newline="\n") as fh:
         for new_idx, name in enumerate(fit_features):
             for row in fold.lines.get(name, ()):
                 fh.write(f"{new_idx}\t{row}\n")
@@ -220,5 +222,5 @@ def fit_catboost_with_cached_borders(
         return True
     except Exception as exc:
         TOTALS["fallbacks"] += 1
-        logger.warning("RFECV CatBoost cached-borders fast path failed (%s: %s); falling back to the generic fit.", type(exc).__name__, exc)
+        log_throttle(logger, "rfecv_cb_borders_fit_failed", logging.WARNING, "RFECV CatBoost cached-borders fast path failed (%s: %s); falling back to the generic fit.", type(exc).__name__, exc)
         return False
