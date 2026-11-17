@@ -113,6 +113,43 @@ def _fit_fourier_for_col(x: np.ndarray):
     return lo, span
 
 
+@numba.njit(cache=True, nogil=True)
+def _chirp_fit_kernel(x: np.ndarray) -> tuple:
+    """``(n_finite, mean, std, lo, hi)`` of the chirp axis of ``x``: the mean and standard deviation of the finite entries and the extremes of ``u = sign(z) * z**2``, ``z = (x - mean) / std``,
+    in three passes over the rows without temporaries and without the interpreter lock. The moments are accumulated in double precision (the numpy form of a float32 column accumulates in float32)."""
+    n = x.shape[0]
+    count = 0
+    total = 0.0
+    for i in range(n):
+        v = x[i]
+        if np.isfinite(v):
+            count += 1
+            total += v
+    if count == 0:
+        return 0, 0.0, 1.0, 0.0, 0.0
+    mean = total / count
+    sq = 0.0
+    for i in range(n):
+        v = x[i]
+        if np.isfinite(v):
+            d = v - mean
+            sq += d * d
+    std = np.sqrt(sq / count)
+    std = std if std > 1e-12 else 1.0
+    lo = np.inf
+    hi = -np.inf
+    for i in range(n):
+        v = x[i]
+        if np.isfinite(v):
+            z = (v - mean) / std
+            u = np.sign(z) * (z * z)
+            if u < lo:
+                lo = u
+            if u > hi:
+                hi = u
+    return count, mean, std, lo, hi
+
+
 def _fit_chirp_warp_for_col(x: np.ndarray):
     """Fit the QUADRATIC-ARGUMENT ("chirp") warp params on ``x``.
 
@@ -133,6 +170,15 @@ def _fit_chirp_warp_for_col(x: np.ndarray):
 
     All four are baked into the recipe at fit time and replayed verbatim at
     transform time (no y, so leakage-free)."""
+    x = np.ascontiguousarray(np.asarray(x, dtype=_crit_np_dtype()))
+    count, mean, std, lo, hi = _chirp_fit_kernel(x)
+    if count == 0:
+        return 0.0, 1.0, 0.0, 1.0
+    return float(mean), float(std), float(lo), max(float(hi - lo), 1e-12)
+
+
+def _fit_chirp_warp_numpy(x: np.ndarray):
+    """The numpy form of :func:`_fit_chirp_warp_for_col` (its reference; the moments of a float32 column accumulate in float32)."""
     x = np.asarray(x, dtype=_crit_np_dtype())
     finite = np.isfinite(x)
     if not finite.any():
