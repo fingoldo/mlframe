@@ -51,21 +51,28 @@ def _dedup_sample_idx(n_rows: int) -> Optional[np.ndarray]:
 # families on would otherwise repeat the identical O(P^2) corrcoef pass 2-5x within ONE MRMR.fit() call. The
 # memo is OFF by default (cache is None) so every call outside an explicit dedup_collinear_memo_scope() is
 # byte-for-byte unchanged. threading.local -> no cross-worker contamination.
-_DEDUP_MEMO = threading.local()
+_DEDUP_MEMO_LOCK = threading.Lock()
+_DEDUP_MEMO: dict = {"cache": None, "depth": 0}
 
 
 @contextlib.contextmanager
 def dedup_collinear_memo_scope() -> Iterator[None]:
     """Enable the fit-scoped ``_dedup_collinear_source_cols`` memo for one MRMR.fit() call, then clear it.
-    Nesting-safe: an inner scope reuses the outer cache and the outer owner clears it."""
-    if getattr(_DEDUP_MEMO, "cache", None) is not None:
-        yield  # reuse outer scope; outer owner clears
-        return
-    _DEDUP_MEMO.cache = {}
+
+    The memo is shared by every thread of the process while a scope is open (the FE stage cascades run on worker threads, and a thread-local memo was invisible to them: each of about seven
+    families then repeated the classification and the correlation pass, 1.9 s of a 100000 x 100 fit). It is keyed by content, so threads of different fits can share it safely; nested and
+    concurrent scopes are counted and the last one to close clears it."""
+    with _DEDUP_MEMO_LOCK:
+        if _DEDUP_MEMO["depth"] == 0:
+            _DEDUP_MEMO["cache"] = {}
+        _DEDUP_MEMO["depth"] += 1
     try:
         yield
     finally:
-        _DEDUP_MEMO.cache = None
+        with _DEDUP_MEMO_LOCK:
+            _DEDUP_MEMO["depth"] -= 1
+            if _DEDUP_MEMO["depth"] == 0:
+                _DEDUP_MEMO["cache"] = None
 
 
 def _dedup_cache_key(X: pd.DataFrame, cols: Sequence[str], corr_threshold: float) -> tuple:
@@ -603,7 +610,7 @@ def _dedup_collinear_source_cols(
     """
     if not cols:
         return list(cols)
-    _memo = getattr(_DEDUP_MEMO, "cache", None)
+    _memo = _DEDUP_MEMO["cache"]
     _memo_key = None
     if _memo is not None:
         _memo_key = _dedup_cache_key(X, cols, corr_threshold)
