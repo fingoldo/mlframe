@@ -216,6 +216,12 @@ def _device_group_stats(X: "pd.DataFrame", cols: list, g_keys: np.ndarray, group
         return {}
 
 
+def _pct_rank_scrubbed(pct: np.ndarray) -> np.ndarray:
+    """A within-group percentile-rank column with NaN -> 0.5, +inf -> 1 and -inf -> 0. An all-finite column (the usual case) is returned as it is after one test pass:
+    ``nan_to_num`` took 5.6 ms a column at 100000 rows whether or not anything needed replacing."""
+    return pct if bool(np.isfinite(pct).all()) else np.nan_to_num(pct, nan=0.5, posinf=1.0, neginf=0.0)
+
+
 @fe_timed("grouped_quantile")
 def generate_grouped_quantile_features(
     X: pd.DataFrame,
@@ -279,7 +285,7 @@ def generate_grouped_quantile_features(
             else:
                 group_sorted, iqr_lookup, p90p10_lookup, pct_out = _groups_on_host(x, group_rows, global_sorted, global_iqr, global_p90p10)
 
-            pct_out = np.nan_to_num(pct_out, nan=0.5, posinf=1.0, neginf=0.0)
+            pct_out = _pct_rank_scrubbed(pct_out)
 
             pct_name = engineered_name_grouped_pctrank(num_col, group_col)
             encoded[pct_name] = pct_out
@@ -360,7 +366,7 @@ def apply_grouped_quantile(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
                     sv = global_sorted
                 cache[key] = sv
             out[rows] = _pct_rank_in_sorted(sv, x[rows])
-        return np.nan_to_num(out, nan=0.5, posinf=1.0, neginf=0.0)
+        return _pct_rank_scrubbed(out)
     raise ValueError(f"apply_grouped_quantile: unknown op {op!r}")
 
 # ---------------------------------------------------------------------------

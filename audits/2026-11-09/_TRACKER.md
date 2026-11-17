@@ -963,3 +963,6 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 ### MR11-29 dominant-candidate check: matrix built in place without `nan_to_num` (2026-11-17)
 - `dominant_candidate` runs on the serial path after early_a over every numeric column at full n (0.8 s: 0.3 s building the matrix, 0.4 s MI). The matrix was a `column_stack` of `nan_to_num` copies (2.4 ms a column); each column is now written into a preallocated matrix, with a `where` only for a column that has a non-finite value. 150 columns x 100000 rows: 0.22 s for the whole call. Same values.
 - Wall 46.3 / 47.5 s, the same seven features.
+
+### MR11-30 grouped-quantile percentile ranks: `nan_to_num` only when something is non-finite (2026-11-17)
+- `nan_to_num` in the all-thread profile: 4670 calls, 3.6 s of thread time; after MR11-24 and MR11-29 the largest remaining caller was the per-column body of the grouped-quantile family (129 calls, 5.6 ms each). `_pct_rank_scrubbed` returns an all-finite column after one `isfinite` pass and calls `nan_to_num` (NaN -> 0.5, +inf -> 1, -inf -> 0) only otherwise; fit and replay share it. 38 grouped-quantile tests pass; wall 46.8 s, the same seven features.
