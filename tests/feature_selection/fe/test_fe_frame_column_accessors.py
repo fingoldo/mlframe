@@ -68,3 +68,19 @@ def test_std_below_equals_np_std_rule() -> None:
             with np.errstate(all="ignore"):
                 want = bool(float(np.std(arr)) < 1e-12) if arr.size else bool(float("nan") < 1e-12)
             assert fe_std_below(arr) == want, (dtype, arr[:3])
+
+
+def test_stack_columns_equals_column_stack() -> None:
+    """Strided and contiguous sources of mixed dtype, more rows than one tile: the tiled fill is ``np.column_stack`` of the casts, and ``out`` is filled in place."""
+    from mlframe.feature_selection.filters import _fe_frame_ops as ops
+
+    rng = np.random.default_rng(4)
+    src = rng.standard_normal((5000, 7))
+    cols = [src[:, j] for j in range(5)] + [rng.integers(0, 9, 5000), rng.standard_normal(5000).astype(np.float32)]
+    want = np.column_stack([np.asarray(c, dtype=np.float32) for c in cols])
+    got = ops.fe_stack_columns(cols, np.float32)
+    assert got.dtype == np.float32 and got.flags.c_contiguous and np.array_equal(got, want)
+    out = np.empty((5000, 7), dtype=np.float32)
+    assert ops.fe_stack_columns(cols, np.float32, out=out) is out and np.array_equal(out, want)
+    assert np.array_equal(ops.fe_stack_columns(cols[:1], np.float64), np.asarray(cols[0], dtype=np.float64)[:, None])
+    assert ops.fe_stack_columns([], np.float32).shape == (0, 0)

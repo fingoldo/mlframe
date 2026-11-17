@@ -177,6 +177,7 @@ def _mi_columns(X: Any, cols: Sequence[str], yi: np.ndarray, nbins: int = 12) ->
 
     The batch kernel bins every column on its own, so a column's value is the one its single-column call returns (equal bit for bit on the host and the STRICT-resident routes at
     4000, 30000 and 100000 rows); one call per column was 0.44 s for 100 columns at 30000 rows, the batch 0.10 s."""
+    from ._fe_frame_ops import fe_stack_columns
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
     cols = list(cols)
@@ -195,7 +196,7 @@ def _mi_columns(X: Any, cols: Sequence[str], yi: np.ndarray, nbins: int = 12) ->
     out: dict = {}
     for start in range(0, len(cols), width):
         block = cols[start : start + width]
-        mat = np.column_stack([np.asarray(X[c], dtype=dt) for c in block])
+        mat = fe_stack_columns([np.asarray(X[c]) for c in block], dt)  # filled in row tiles
         for c, v in zip(block, _mi_classif_batch(mat, y_enc, nbins=nbins, rank_binning=_rb)):
             out[c] = float(v)
     return out
