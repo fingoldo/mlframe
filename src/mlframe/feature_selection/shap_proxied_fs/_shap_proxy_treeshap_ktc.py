@@ -1,4 +1,4 @@
-"""Kernel-tuning entry of the TreeSHAP backend choice (``shap_proxy_treeshap_backend``): the numba table kernel against the device table kernel.
+"""Kernel-tuning entry of the TreeSHAP backend choice (``shap_proxy_treeshap_backend``): the numba table kernel against the device table kernel (``_shap_proxy_treeshap_table_gpu``, reached through ``treeshap_phi_base_gpu``).
 
 The device kernel pays a fixed upload and table-build cost and the host kernel scales with ``rows x leaves``, so the crossover depends on both the row count and the ensemble size. The sweep times the
 two over a (rows, trees) grid on small XGBoost ensembles of depth 5; the measured crossover on the development host (GTX 1050 Ti, 4 cores / 8 threads) is in ``_FALLBACK_MIN_WORK``, which decides until

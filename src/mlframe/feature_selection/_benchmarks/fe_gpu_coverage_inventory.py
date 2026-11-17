@@ -14,6 +14,12 @@ from pathlib import Path
 
 FILTERS = Path(__file__).resolve().parents[1] / "filters"
 MRMR_LAYER = ("_mrmr_fit_impl", "mrmr", "_mrmr_fe_step")
+# A second inventory root: kernel modules outside ``filters/`` that the owner directive of tracker OP11-21 puts under the same contract (every GPU kernel of the project, not only the FE ones). The MRMR-layer
+# import closure cannot reach them, so they are named here, each one a module that is taken on and has to meet the contract; a module is listed in this table only together with its evidence.
+EXTRA_ROOT = Path(__file__).resolve().parents[1] / "shap_proxied_fs"
+EXTRA_CONTRACT_MODULES: tuple[str, ...] = ("_shap_proxy_treeshap_table_gpu",)
+# Modules of the second root that are only the host twins named by a contract table (resolved for their text, not classified themselves).
+EXTRA_TWIN_FILES: tuple[str, ...] = ("_shap_proxy_treeshap_table", "_shap_proxy_treeshap_ktc")
 GPU_MARKERS = re.compile(r"\bcupy\b|\bcp\.|numba\.cuda|cuda\.jit|RawKernel|ElementwiseKernel|_cuda\b|_gpu\b|gpu_[a-z]|CUDA_AVAIL|_CUPY_AVAIL")
 DISPATCH_MARKERS = re.compile(r"kernel_tuner|kernel_tuning_cache|_backend_choice|dispatch_[a-z_]*\(|force_backend|gpu_globally_disabled")
 IMPORT = re.compile(r"from\s+(?:mlframe\.feature_selection\.filters|\.+)\s*\.?(_[A-Za-z0-9_]+|[a-z][A-Za-z0-9_]*)\s+import|from\s+\.+(_[A-Za-z0-9_]+)\s+import")
@@ -76,6 +82,8 @@ def module_file(name: str) -> Path | None:
     for cand in (FILTERS / f"{name}.py", FILTERS / name / "__init__.py"):
         if cand.is_file():
             return cand
+    if name in EXTRA_CONTRACT_MODULES or name in EXTRA_TWIN_FILES:
+        return EXTRA_ROOT / f"{name}.py"
     for cand in FILTERS.glob(f"*/{name}.py"):
         if cand.is_file():
             return cand
@@ -111,6 +119,10 @@ KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
 #: dispatcher registers a ``kernel_tuner(`` entry AND imports the backend (``ktc_dispatch_problems`` checks both, so a stale mapping fails the contract test). A backend with a choice of its own
 #: (its own thresholds, variants, block size) registers itself instead.
 KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
+    "_shap_proxy_treeshap_table_gpu": (
+        "_shap_proxy_treeshap_ktc",
+        "the host or device choice of the TreeSHAP table kernel is the kernel_tuner entry shap_proxy_treeshap_backend of _shap_proxy_treeshap_ktc (the numba table kernel timed against the device table kernel over rows and trees, float32 error under the shared 1e-6 cap)",
+    ),
     "_fe_cpu_batch": (
         "_fe_batch_dispatch_ktc",
         "the host or device choice of the FE batcher is the kernel_tuner entry fe_batch_backend_choice of _fe_batch_dispatch_ktc (cpu_fe_batch_mi timed against multi_gpu_fe_batch_mi over the candidate work n x K at identical MI vectors, the work mark as fallback, MLFRAME_FE_BATCH_DEVICE=0|1 forces a side)",
@@ -342,6 +354,10 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_shap_proxy_treeshap_table_gpu": (
+        "_shap_proxy_treeshap_table",
+        "the host path of the device table kernel is the numba table kernels of _shap_proxy_treeshap_table (per-leaf contribution table built once, blocked four-rows-abreast walk, prange over rows), the same arithmetic and the reference of the device equality tests",
+    ),
     "_orthogonal_routing_fe": (
         "_numba_utils",
         "the host path of the conditional basis routing builds every cell as a host vector and scores the stacked matrix with _mi_classif_batch (the njit batch plug-in MI of _numba_utils, reached through _orth_mi_backends) plus the host |Pearson corr|",
@@ -794,8 +810,8 @@ def contract_violations(name: str) -> list[str]:
 
 
 def fe_modules() -> list[str]:
-    """The FE modules the MRMR layer imports."""
-    return sorted(n for n in imported_modules() if FE_NAME.search(n))
+    """The FE modules the MRMR layer imports, plus the modules of the second inventory root (``EXTRA_CONTRACT_MODULES``)."""
+    return sorted({n for n in imported_modules() if FE_NAME.search(n)} | set(EXTRA_CONTRACT_MODULES))
 
 
 def main() -> None:

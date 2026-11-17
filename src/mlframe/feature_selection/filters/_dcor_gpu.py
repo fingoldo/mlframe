@@ -35,7 +35,7 @@ extern "C" __global__ void dcor_cols(const {ACC}* __restrict__ xs, const {ACC}* 
             const {ACC} d = fabs(xi - sx[q]);
             row += d;
             sq += d * d;
-            cross += d * b[(long long)q * m + i];  // b is symmetric (double-centred distances): column i of row q is row i of column q, so neighbouring threads (i, i+1) read consecutive words
+            cross += d * b[(long long)q * m + i];  // b is symmetric (twice-centred distances): column i of row q is row i of column q, so neighbouring threads (i, i+1) read consecutive words
         }
         total += row;
         const {ACC} r = row / m;

@@ -23,12 +23,12 @@ _DEFAULT_BLOCK_SIZE = 128
 
 _KERNEL_SRC = r"""
 extern "C" __global__
-void treeshap_table(const float* X, const int n, const int f,
-                    const int* cl, const int* cr, const int* cd, const int* feat, const float* thr,
+void treeshap_table(const {REAL}* X, const int n, const int f,
+                    const int* cl, const int* cr, const int* cd, const int* feat, const {REAL}* thr,
                     const int* node_slot, const int* leaf_of_node,
                     const int* leaf_ud, const int* leaf_feat_off, const int* leaf_feat, const int* leaf_table_off,
                     const {REAL}* table, const int* roots, const int n_trees, {REAL}* phi){
-    // X is feature-major (f, n): the lanes of a warp (consecutive samples) read consecutive floats of one feature row, one coalesced transaction per node
+    // X is feature-major (f, n): the lanes of a warp (consecutive samples) read consecutive values of one feature row, one coalesced transaction per node
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 #if STACK_SHARED
@@ -62,7 +62,7 @@ void treeshap_table(const float* X, const int n, const int f,
                 }
                 continue;
             }
-            const float xv = X[(long long)feat[node] * n + i];
+            const {REAL} xv = X[(long long)feat[node] * n + i];
             int hot;
             if (isnan(xv)) hot = cd[node];
             else if (xv < thr[node]) hot = left;
@@ -80,7 +80,7 @@ void treeshap_table(const float* X, const int n, const int f,
 
 _PREORDER_SRC = r"""
 extern "C" __global__
-void treeshap_table_preorder(const float* __restrict__ X, const int n, const int f, const int4* __restrict__ rec, const int n_rec,
+void treeshap_table_preorder(const {REAL}* __restrict__ X, const int n, const int f, const int4* __restrict__ rec, const int n_rec,
                              const {REAL}* __restrict__ table, const int* __restrict__ leaf_feat, {REAL}* phi){
     // X is feature-major (f, n); the records are the static preorder of every tree (_shap_proxy_treeshap_preorder), the same for all samples, so the loop has no node stack: only the masks of the
     // children of the node at each depth are kept (mL: the left child's mask, mR: the right child's), and the record loads do not depend on the previous step
@@ -101,7 +101,7 @@ void treeshap_table_preorder(const float* __restrict__ X, const int n, const int
             }
             continue;
         }
-        const float xv = X[(long long)r.y * n + i];
+        const {REAL} xv = X[(long long)r.y * n + i];
         const bool go_left = isnan(xv) ? (((r.x >> 10) & 1) != 0) : (xv < __int_as_float(r.z));
         const int cold = mask & ~(1 << r.w);   // the cold child clears the bit of this node's feature slot
         mL[depth] = go_left ? mask : cold;
@@ -237,7 +237,7 @@ def treeshap_phi_base_table_gpu(ensemble: "TreeEnsemble", X: np.ndarray) -> Opti
         kern = _ensure_kernel(ensemble.max_depth, real, shared)
         block = _block_size(ensemble.max_depth) if shared else min(_block_size(), 1024)
         consts: tuple[Any, ...] = (
-            cp.asarray(ensemble.children_left), cp.asarray(ensemble.children_right), cp.asarray(ensemble.children_default), cp.asarray(ensemble.features), cp.asarray(ensemble.thresholds),
+            cp.asarray(ensemble.children_left), cp.asarray(ensemble.children_right), cp.asarray(ensemble.children_default), cp.asarray(ensemble.features), cp.asarray(ensemble.thresholds.astype(real, copy=False)),
             cp.asarray(tab["node_slot"].astype(i32)), cp.asarray(tab["leaf_of_node"].astype(i32)),
             cp.asarray(tab["leaf_ud"].astype(i32)), cp.asarray(tab["leaf_feat_off"].astype(i32)), leaf_feat_d, cp.asarray(tab["leaf_table_off"].astype(i32)),
             table_d, cp.asarray(ensemble.tree_roots), i32(ensemble.tree_roots.shape[0]),
@@ -247,7 +247,7 @@ def treeshap_phi_base_table_gpu(ensemble: "TreeEnsemble", X: np.ndarray) -> Opti
     for start in range(0, n, rows):
         stop = min(n, start + rows)
         m = stop - start
-        xt_d = cp.ascontiguousarray(cp.asarray(Xf[start:stop]).T)  # feature-major (f, m): the node reads of a warp coalesce
+        xt_d = cp.ascontiguousarray(cp.asarray(Xf[start:stop].astype(real, copy=False)).T)  # feature-major (f, m): the node reads of a warp coalesce
         phi_d = cp.zeros((f, m), dtype=real)  # (feature, sample): coalesced adds, transposed once below
         grid = ((m + block - 1) // block,)
         if preorder:
