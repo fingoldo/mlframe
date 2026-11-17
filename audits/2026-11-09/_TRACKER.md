@@ -946,3 +946,7 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 ### MR11-25 held-out smooth R2 of the extra-basis gate: compiled average ranks (2026-11-17)
 - `_heldout_smooth_r2_fast` (one call per column in the adaptive extra-basis gate, 105 a fit) ranked the column with scipy `rankdata` (12 ms at 30000 rows, about half of the call). It now uses the compiled radix-order average ranks of the dedup module (`_avg_ranks_inplace`): the same ranks exactly (40 random cases with ties and signed zeros), 3.4 ms per call.
 - Wall 48.7 / 49.6 s, the same seven features. CI of the previous push still pending with no jobs started (7 h); 28 local commits wait for it.
+
+### MR11-26 Fourier detector host split: the target's part once per target (2026-11-17)
+- `_host_split_for_detect` runs once per column (200 calls a fit) and repeated, for the same target, two finiteness passes, three standard deviations, the seeded split and the row cap of `y` (800 `np.std` calls). `_target_side_of_split` does that once per target object (identity checked through a weak reference) and hands the columns the same read-only arrays; the column's part is unchanged. Old and new function compared on 360 cases (flat / non-finite targets and columns, with and without the cap): identical results.
+- Wall 48.1 / 47.9 s, the same seven features.
