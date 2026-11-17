@@ -651,10 +651,30 @@ def _cmi_gate_scores(
     y_bin = y_bin.astype(np.int64)
     eng_mat = engineered_X.to_numpy(dtype=np.float64)  # Intentional float64: engineered matrix for the CMI statistic
     eng_bins_mat = _quantile_bin_batched(eng_mat, nbins)
+    batched = _cmi_gate_scores_batched(eng_bins_mat, y_bin, z_joint)
+    if batched is not None:
+        return {c: float(batched[k]) for k, c in enumerate(engineered_X.columns)}
     out: dict[str, float] = {}
     for k, c in enumerate(engineered_X.columns):
         out[c] = float(_cmi_from_binned(np.ascontiguousarray(eng_bins_mat[:, k]), y_bin, z_joint))
     return out
+
+
+def _cmi_gate_scores_batched(eng_bins_mat: np.ndarray, y_bin: np.ndarray, z_joint: np.ndarray) -> Optional[np.ndarray]:
+    """The Miller-Madow CMI of every binned column against ``y`` given ``z`` in ONE device pass (``batched_cmi_gpu``), or ``None`` when the device CMI route is off or fails (the caller then scores the
+    columns one by one). The per-column route costs three joint-entropy launches and three blocking reads per column (120 columns x 30000 rows: 0.36 s against the batched pass); the statistic is the same
+    plug-in entropy combination over the same codes."""
+    from ._mi_greedy_cmi_fe_steps import _cmi_gpu_enabled
+
+    if eng_bins_mat.shape[1] < 2 or not _cmi_gpu_enabled(n=int(eng_bins_mat.shape[0]), p=int(eng_bins_mat.shape[1])):
+        return None
+    try:
+        from ._fe_batched_mi_blocks import batched_cmi_gpu
+
+        return np.asarray(batched_cmi_gpu(np.ascontiguousarray(eng_bins_mat, dtype=np.int64), y_bin, z_joint), dtype=np.float64)  # Intentional float64: CMI statistic vector
+    except Exception as exc:
+        log_throttle(logger, "three_gate.batched_cmi", logging.WARNING, "three-gate batched CMI failed (%s: %s); scoring the columns one by one", type(exc).__name__, exc)
+        return None
 
 
 def hybrid_orth_mi_three_gate_fe(
