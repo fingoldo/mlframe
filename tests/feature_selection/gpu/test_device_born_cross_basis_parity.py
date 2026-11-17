@@ -66,7 +66,8 @@ def _host_pair_matrix(X, pairs, max_degree, basis):
 
 @pytest.mark.parametrize("basis", ["hermite", "auto", "legendre", "chebyshev"])
 @pytest.mark.parametrize("max_degree", [1, 2])
-def test_pair_device_matrix_matches_host(basis, max_degree, monkeypatch):
+@pytest.mark.parametrize("seed", [20260630, 20260631])
+def test_pair_device_matrix_matches_host(basis, max_degree, seed, monkeypatch):
     """Pair device matrix matches host."""
     _strict(monkeypatch)
     from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_pair_cross_fe import (
@@ -76,7 +77,7 @@ def test_pair_device_matrix_matches_host(basis, max_degree, monkeypatch):
         build_leg_product_matrix_gpu,
     )
 
-    rng = np.random.default_rng(20260630)
+    rng = np.random.default_rng(seed)
     n = 4000
     X = pd.DataFrame(
         {

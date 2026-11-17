@@ -31,9 +31,10 @@ def _host_mi(codes: np.ndarray, y: np.ndarray, kx: int, ky: int) -> np.ndarray:
 
 
 @pytest.mark.parametrize("n_cols", [1, 5, 8, 13, 100])
-def test_tiled_path_matches_host_plugin_mi(n_cols):
+@pytest.mark.parametrize("seed", [0, 1])
+def test_tiled_path_matches_host_plugin_mi(seed, n_cols):
     """The public call returns the host plug-in MI for a column count of ``n_cols``."""
-    rng = np.random.default_rng(n_cols)
+    rng = np.random.default_rng(n_cols + 1000 * seed)
     n, kx, ky = 4000, 7, 3
     codes = rng.integers(0, kx, size=(n, n_cols)).astype(np.int64)
     y = rng.integers(0, ky, size=n).astype(np.int64)

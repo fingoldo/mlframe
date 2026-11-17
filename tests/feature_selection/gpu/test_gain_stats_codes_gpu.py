@@ -104,14 +104,15 @@ def test_screens_keep_their_verdicts_whether_the_device_or_the_host_codes_them(m
     assert answers["device"][0] is True, "the pair target must be found, otherwise the comparison proves nothing"
 
 
+@pytest.mark.parametrize("seed", [0, 1])
 @pytest.mark.parametrize("dt", [np.float32, np.float64])
-def test_device_main_effect_statistics_equal_the_host_loop(dt):
+def test_device_main_effect_statistics_equal_the_host_loop(dt, seed):
     """The held-out-gain t statistic of every column computed on the card equals the host loop (to 1e-9 relative), for continuous and heavily tied columns; a signal column is the strongest."""
     if not has_device(cp):
         pytest.skip("no usable device")
     from mlframe.feature_selection.filters._pair_residual_screen import main_effect_bins
 
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     n = 30_000
     cols = [rng.standard_normal(n).astype(dt) for _ in range(30)]
     cols[3] = np.round(cols[3] * 30).astype(dt)

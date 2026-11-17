@@ -29,15 +29,16 @@ def _host_mi(codes: np.ndarray, y: np.ndarray) -> np.ndarray:
     return np.maximum(np.array(out), 0.0)
 
 
+@pytest.mark.parametrize("seed", [0, 1])
 @pytest.mark.parametrize("kx", [40, 700])
-def test_wide_histogram_resident_codes_match_host(kx, monkeypatch):
+def test_wide_histogram_resident_codes_match_host(kx, seed, monkeypatch):
     """A narrow histogram (shared-memory kernel) and one over the cap (the batched-bincount branch), passed as device arrays."""
     from mlframe.feature_selection.filters import _wavelet_basis_fe_batched as W
 
     wide_calls = []
     real = W.batched_binned_mi_gpu
     monkeypatch.setattr(W, "batched_binned_mi_gpu", lambda *a, **k: (wide_calls.append(1), real(*a, **k))[1])
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     n, k, ky = 4000, 6, 20
     codes = rng.integers(0, kx, (n, k))
     y = rng.integers(0, ky, n)
