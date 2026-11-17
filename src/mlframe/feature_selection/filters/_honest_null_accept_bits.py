@@ -22,7 +22,7 @@ import numpy as np
 
 from ._kernel_arch_macros import ARCH_THREADS_HEADER
 from ._kernel_types import render
-from ._honest_null_device import _pack_bits_cached
+from ._honest_null_device import _pack_bits_cached, label_one_counts
 from ._raw_module_cache import RawModuleCache
 from typing import Any
 from mlframe.utils.log_throttle import log_throttle
@@ -294,13 +294,13 @@ def accept_fits(n: int, y_raw_perm: np.ndarray) -> bool:
     words = (int(n) + 31) // 32
     if words * 4 > SHARED_BUDGET_BYTES:
         return False
-    ones = (y_raw_perm == 1).sum(axis=1)
+    ones = label_one_counts(y_raw_perm)
     return bool(ones.size and (ones == ones[0]).all() and 0 < int(ones[0]) < int(n))
 
 
 def accept_fits_global(n: int, y_raw_perm: np.ndarray) -> bool:
     """Whether the bitset path applies with its tables in global memory (any row count): every permutation has the same number of label-1 rows."""
-    ones = (y_raw_perm == 1).sum(axis=1)
+    ones = label_one_counts(y_raw_perm)
     return bool(ones.size and (ones == ones[0]).all() and 0 < int(ones[0]) < int(n))
 
 
@@ -393,7 +393,7 @@ def root_split_accept_gpu(cp: Any, order: Any, tie: Any, y_raw_perm: Any, n: int
     if not shared_ok and not accept_fits_global(n, y_raw_perm):
         return False
     words = (int(n) + 31) // 32
-    m = int((y_raw_perm[0] == 1).sum())
+    m = int(label_one_counts(y_raw_perm)[0])
     d_order = cp.asarray(np.ascontiguousarray(order, dtype=np.int32))
     valid = cp.asarray(valid_cut_bits(tie, n, int(min_split)))
     thr = cp.asarray(threshold_table(int(n), float(alpha)))

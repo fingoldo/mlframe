@@ -250,6 +250,28 @@ def _pack_bits(y_perm: np.ndarray) -> np.ndarray:
     return out  # (permutations, words)
 
 
+@njit(cache=True, parallel=True, nogil=True)
+def _count_ones_rows(y_perm: np.ndarray) -> np.ndarray:
+    """Number of entries equal to 1 in every row of ``y_perm`` (int64), one parallel task per row and no boolean copy of the matrix."""
+    out = np.zeros(y_perm.shape[0], dtype=np.int64)
+    for b in prange(y_perm.shape[0]):
+        c = 0
+        for i in range(y_perm.shape[1]):
+            if y_perm[b, i] == 1:
+                c += 1
+        out[b] = c
+    return out
+
+
+def label_one_counts(y_perm: np.ndarray) -> np.ndarray:
+    """``(y_perm == 1).sum(axis=1)``: the number of label-1 rows of every permutation, by the parallel kernel for an integer matrix (4 ms at 999 x 100000, where the numpy form
+    built a boolean copy of the whole matrix: 136 ms, once per block of columns and once more for row 0). Counted on every call - at 4 ms a stored vector is not worth the risk
+    of answering for an array that was changed in place."""
+    if y_perm.ndim == 2 and y_perm.dtype.kind in "iub":
+        return np.asarray(_count_ones_rows(np.ascontiguousarray(y_perm)))
+    return np.asarray((y_perm == 1).sum(axis=1))
+
+
 _PACKED_LAST: "tuple[Any, np.ndarray] | None" = None
 _PACKED_LOCK = threading.Lock()
 

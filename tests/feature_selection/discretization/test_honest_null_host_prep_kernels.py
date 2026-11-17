@@ -20,3 +20,13 @@ def test_gather_and_class_counts_equal_numpy(dtype):
     ref = np.stack([np.bincount(want[b], minlength=4) for b in range(want.shape[0])])
     assert counts.dtype == ref.dtype and np.array_equal(counts, ref)
     assert int(counts[:, 3].sum()) == 0 and int(counts.sum()) == want.size
+
+
+@pytest.mark.parametrize("dtype", [np.int8, np.int64, np.float64])
+def test_label_one_counts_equal_numpy_and_follow_in_place_changes(dtype):
+    """The per-permutation count of label-1 rows equals ``(y == 1).sum(axis=1)``, also after the same array object is changed in place (nothing is remembered per array)."""
+    rng = np.random.default_rng(1)
+    y_perm = rng.integers(0, 3, (41, 3000)).astype(dtype)
+    assert np.array_equal(dev.label_one_counts(y_perm), (y_perm == 1).sum(axis=1))
+    y_perm[0, :] = 1
+    assert int(dev.label_one_counts(y_perm)[0]) == 3000
