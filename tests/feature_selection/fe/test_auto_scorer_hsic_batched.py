@@ -28,3 +28,28 @@ def test_batch_equals_per_column_and_nan_column_falls_back():
     X[5, 2] = np.nan
     got_nan, _ = _batch(X, y)
     assert got_nan.shape == (4,)
+
+
+def test_nan_column_keeps_the_other_columns_in_one_batch(monkeypatch):
+    """One NaN among four columns: three columns go through a single batch call (their all-finite values), the fourth through the per-column scorer."""
+    import mlframe.feature_selection.filters._orthogonal_hsic_fe as hsic_mod
+
+    rng = np.random.default_rng(0)
+    n = 1500
+    X = rng.normal(size=(n, 4))
+    y = (X[:, 0] + rng.normal(size=n) > 0).astype(np.int64)
+    whole, call = _batch(X, y)
+    widths = []
+    real = hsic_mod._hsic_batch
+
+    def spy(Xm, *a, **k):
+        """Record the width of each batch call."""
+        widths.append(int(Xm.shape[1]))
+        return real(Xm, *a, **k)
+
+    monkeypatch.setattr(hsic_mod, "_hsic_batch", spy)
+    X[5, 2] = np.nan
+    got, _ = _batch(X, y)
+    assert widths == [3]
+    np.testing.assert_allclose(got[[0, 1, 3]], whole[[0, 1, 3]], rtol=0.0, atol=2e-6)
+    assert got[2] == call("hsic", X[:, 2], y)

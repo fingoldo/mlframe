@@ -171,10 +171,17 @@ def _batch_one_scorer(s, Xmat, y_arr, *, nbins, random_state, n_neighbors, copul
         from ._orthogonal_hsic_fe import _hsic_batch
 
         # HSIC shares one subsample index set across columns (same seed), as the per-column call draws it, so the batch is the per-column value up to rounding.
-        if np.isfinite(Xmat).all():
+        complete = np.isfinite(Xmat).all(axis=0)
+        if complete.all():
             return _hsic_batch(Xmat, y_arr, n_sample=int(dcor_n_sample), random_state=int(random_state))
-        # Intentional float64: scorer values kept as a double precision vector, like the batched ones
-        return np.array([call(s, Xmat[:, j], y_arr) for j in range(Xmat.shape[1])], dtype=np.float64)
+        # One column with a missing value used to send every column to its own call (117 single-column HSIC calls, 1.5 s of a 100000 x 100 fit): the complete columns stay in
+        # one batch and only the incomplete ones are scored one by one.
+        out = np.zeros(Xmat.shape[1], dtype=np.float64)  # Intentional float64: scorer values kept as a double precision vector, like the batched ones
+        if complete.any():
+            out[complete] = _hsic_batch(np.ascontiguousarray(Xmat[:, complete]), y_arr, n_sample=int(dcor_n_sample), random_state=int(random_state))
+        for j in np.flatnonzero(~complete):
+            out[j] = call(s, Xmat[:, j], y_arr)
+        return out
     elif s == "ksg":
         # KSG is per column in the per-column path (one kNN build each); the batch draws each column's noise from its own seed, so every column equals its
         # single-column call bit for bit. A continuous target or a non-finite column keeps the per-column scorer.
@@ -204,10 +211,16 @@ def _batch_one_scorer(s, Xmat, y_arr, *, nbins, random_state, n_neighbors, copul
         # One parallel kernel for all columns (a column is ranked once and both tails read from it) in place of two scipy rank passes per column; a non-finite value keeps the per-column scorer (0.0 for that column).
         from ._orthogonal_tail_dependence_fe import tail_dependence_columns
 
-        if np.isfinite(Xmat).all() and np.isfinite(y_arr).all():
+        complete = np.isfinite(Xmat).all(axis=0) if np.isfinite(y_arr).all() else np.zeros(Xmat.shape[1], dtype=np.bool_)
+        if complete.all():
             return tail_dependence_columns(np.ascontiguousarray(Xmat.T), y_arr)
-        # Intentional float64: scorer values kept as a double precision vector, like the batched ones
-        return np.array([call(s, Xmat[:, j], y_arr) for j in range(Xmat.shape[1])], dtype=np.float64)
+        # the complete columns in one kernel call, a column with a missing value through the per-column scorer
+        out = np.zeros(Xmat.shape[1], dtype=np.float64)  # Intentional float64: scorer values kept as a double precision vector, like the batched ones
+        if complete.any():
+            out[complete] = tail_dependence_columns(np.ascontiguousarray(Xmat[:, complete].T), y_arr)
+        for j in np.flatnonzero(~complete):
+            out[j] = call(s, Xmat[:, j], y_arr)
+        return out
     raise ValueError(f"_batch_one_scorer: {s!r} is not a batchable scorer")
 
 
