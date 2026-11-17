@@ -992,3 +992,8 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 ### MR11-36 resident matrix assembled from the caller's columns (plan step D) (2026-11-17)
 - `_gpu_build_and_score_univariate` stacked its candidate / used columns into a host matrix and `assemble_resident_matrix` cut that matrix back into contiguous columns to look each one up in the operand cache (1486 strided column copies and two `column_stack` calls per variant call). `assemble_resident_matrix(columns=...)` takes the columns as they are (contiguous, requested dtype, the form the matrix route hands the cache, so they hit the same operands); the host matrix is built only for the fallback upload.
 - 55 related tests pass (a new one pins: same device matrix, no upload on the second route). Wall 45.1-46.6 s over five runs, the same seven features.
+
+### MR11-37 two leads checked and left (2026-11-17)
+- pandas frame-to-matrix copies (`_interleave`, 81 calls, 1.3 s of thread time): timed in place against the tiled column stack. All 192 numeric columns of the 94-block frame after the cascades: 146 ms through pandas, 112 ms tiled; 64 columns of one block: 1 ms through pandas (a view), 41 ms tiled. Left with pandas.
+- Pair loop of `check_prospective_fe_pairs` (11 pairs, 2.4 s, serial on the tail): the pairs share the chunk buffers, the external-validation generator, the rejection records and the running best MI, and are scored in order of promise; running them on threads means splitting that state per pair. Not a point fix; listed as a candidate for a dedicated change.
+- Honest null acceptance blocks (1.02 + 0.65 s of the FDR floor) are device time in the acceptance kernel and its presort; no host waste left there.
