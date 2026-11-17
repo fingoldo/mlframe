@@ -66,9 +66,11 @@ PREFILTER_METHODS = ("model", "univariate", "fast_model", "gpu_model", "two_stag
 # Overridable via the env MLFRAME_SHAP_PREFILTER_TUNING (JSON, key "auto_fast_width") so the crossover is
 # tuned per-HW. Below ~500 the prefilter is a near-no-op anyway (prefilter_top default is 500).
 _AUTO_FAST_WIDTH = 1000
-# Row count at/above which "gpu_model" actually beats CPU "model" for the all-columns fit (GPU transfer
-# + kernel-launch overhead dominates on small n; the win scales with rows). Overridable via the cache.
-_GPU_MODEL_MIN_ROWS = 20000
+# Row count at/above which auto prefers the faithful "gpu_model" ranking over the CPU "fast_model" route. Measured with a CUDA xgboost on the GTX 1050 Ti (100 trees, depth 4, 1000 / 2000
+# columns): gpu_model beats the full CPU model 1.8x at 500 rows and 2.6x at 5000, and costs 19 to 45 percent more than fast_model at 2000 to 5000 rows (2.59 s against 2.18 s at 5000 x 1000)
+# while keeping every informative column (fast_model finds 4 to 5 of 6 on the interaction frame, tracker OP11-36/37), and is faster than fast_model from about 10000 rows on. A faithful
+# ranking for at most a fifth more time is the better trade, so the mark is 5000 (was 20000, calibrated on a CPU-only xgboost build). Overridable via MLFRAME_SHAP_PREFILTER_TUNING.
+_GPU_MODEL_MIN_ROWS = 5000
 # Width at/above which auto routes to the cheap-stage-A + capped-booster-stage-B "two_stage".
 #
 # Lowered 4000 -> 1000 (kept unified with ``_AUTO_FAST_WIDTH``) following the sub-4k micro-bench: at
