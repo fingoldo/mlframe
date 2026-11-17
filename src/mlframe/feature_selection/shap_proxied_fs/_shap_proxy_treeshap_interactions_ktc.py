@@ -52,7 +52,7 @@ def _numba(ens, X) -> np.ndarray:
 
     out = interaction_tensor_table(ens, X)
     assert out is not None
-    return out[0]
+    return np.asarray(out[0])
 
 
 def _gpu(ens, X) -> np.ndarray:
@@ -61,7 +61,7 @@ def _gpu(ens, X) -> np.ndarray:
 
     out = interaction_tensor_table_gpu(ens, X)
     assert out is not None
-    return out[0]
+    return np.asarray(out[0])
 
 
 def _sweep() -> list:
