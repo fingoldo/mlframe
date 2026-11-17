@@ -934,3 +934,7 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 ### MR11-22 `pointwise_mi` compiled (2026-11-17)
 - `_fe_gain_stats.pointwise_mi` (the gain and paired-standard-error statistic of the warp, offset-product and gain-gated families): 1036 calls from the column pools, 1.5 s of own time in the all-thread profile, five full-length numpy temporaries per call with the lock held. One compiled pass without the lock: 162 -> 41 us at 15000 rows, values equal to the numpy form on 200 random cases (difference 0); an out-of-range code goes to the numpy form and raises as before.
 - Wall 49.1 / 48.2 s, the same seven features.
+
+### MR11-23 composite group aggregates: no object conversion of the keys when the de-duplication is supplied (2026-11-17)
+- `_composite_group_agg_fe._broadcast_lookup` converted the full-length key array to objects on every call (1152 calls, 0.84 ms of own time each) although every caller after the first passes the shared `uniq` / `inverse`, which make the keys unused. The conversion now happens only on the route that reads the keys: 74 us a call at 30000 string keys, same output.
+- Push: 25 local commits reached, held because the CI run of the previous push (1070c515c) is still pending and the nightly is queued.

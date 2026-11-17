@@ -246,8 +246,10 @@ def _broadcast_lookup(
     ``uniq`` / ``inverse`` may be supplied (from :func:`_unique_inverse`) so the
     de-duplication is shared across every stat for the same key array.
     """
-    keys = np.asarray(keys, dtype=object)
     if uniq is None or inverse is None:
+        # the object view of the keys is needed only to de-duplicate them here or for the per-row route below: with ``uniq`` / ``inverse`` supplied (every statistic of a
+        # key array after the first) converting a full-length string array to objects on each call was most of the call
+        keys = np.asarray(keys, dtype=object)
         uniq, inverse = _unique_inverse(keys)
     if uniq is not None and inverse is not None and isinstance(lookup, _ArrayLookup) and len(lookup.labels) == len(uniq):
         # one value per group code already: the per-key string lookup gives exactly these values (distinct labels, every key present)
