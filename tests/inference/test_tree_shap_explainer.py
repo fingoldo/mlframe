@@ -125,3 +125,18 @@ def test_to_explanation_carries_values_data_and_names():
     values = explainer.shap_values(X)
     exp = ts.to_explanation(values, X, base_values=explainer.expected_value)
     assert exp.values.shape == values.shape and list(exp.feature_names) == list(X.columns) and exp.data.shape == X.shape
+
+
+def test_xgboost_interactions_use_our_kernel_not_the_native_predict():
+    """XGBoost interaction values come from the pair-table kernel (the native ``pred_interactions`` is hundreds of times slower), equal to the native tensor and with the SHAP values as row sums."""
+    xgb = pytest.importorskip("xgboost")
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame(rng.normal(size=(150, 6)), columns=[f"c{i}" for i in range(6)])
+    y = X["c0"] * X["c1"] + X["c2"] + 0.1 * rng.normal(size=150)
+    model = xgb.XGBRegressor(n_estimators=12, max_depth=3, verbosity=0, n_jobs=1).fit(X, y)
+    explainer = ts.TreeExplainer(model)
+    Phi = explainer.shap_interaction_values(X)
+    assert explainer.backend_ == "treeshap_numba" and Phi.shape == (150, 6, 6)
+    native = model.get_booster().predict(xgb.DMatrix(X), pred_interactions=True)
+    np.testing.assert_allclose(Phi, native[:, :-1, :-1], rtol=0, atol=1e-5)
+    np.testing.assert_allclose(Phi.sum(axis=2), explainer.shap_values(X), rtol=0, atol=1e-5)

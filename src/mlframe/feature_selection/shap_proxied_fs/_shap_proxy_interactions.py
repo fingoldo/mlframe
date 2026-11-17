@@ -154,13 +154,10 @@ def compute_interaction_tensor(
         supported = is_xgb or is_supported_lightgbm(base_est)
         P = X.shape[1]
         if supported and P >= _interaction_numba_min_features():
-            # xgboost: shap hands path-dependent interactions to xgboost's own multithreaded C++
-            # (predict(pred_interactions=True)), which on a release build is ~10x faster than the numba kernel
-            # (1500x50, 200 depth-4 trees: 0.55s vs 5.2s on 8 threads). The kernel only won against a slow dev
-            # build of xgboost. LightGBM has no native interaction predict; shap's single-threaded C++ is what
-            # the kernel beats there (~1.6x on 2 threads, parity ~1e-15). The CUDA kernel is still preferred
-            # for either on a GPU box.
-            use_numba = not is_xgb
+            # Our pair-table kernels answer both families: xgboost's own ``predict(pred_interactions=True)`` (what shap hands the interactions to) needs 20 s for 1500 rows x 50 features x 200 depth-4
+            # trees where the numba pair table needs 55 ms and the device kernel 47 ms (xgboost 3.2.0, tracker OP11-52), values equal to 2e-6; LightGBM has no native interaction predict at all.
+            # The device kernel is preferred below when the tuner says it pays (``_interaction_gpu_pays``).
+            use_numba = True
             # Prefer the GPU interaction kernel on a CUDA box once the tensor is large enough that the
             # per-sample tree*cond-feat work amortises the upload + local-mem spill.
             try:
