@@ -50,16 +50,46 @@ def fe_columns(X: Any) -> list[str]:
     raise TypeError(f"fe_columns: unsupported frame type {type(X)!r}")
 
 
+def _pandas_column_array(X: Any, c: Any) -> Any:
+    """Backing array of pandas column ``c`` (an ndarray or an extension array) without building a Series, or ``None`` when the column is absent, its name is duplicated or the frame
+    has no direct accessor. ``X[c]`` constructs a Series on every call (30 us with pandas 3, 40 us with ``.to_numpy()``); the FE families read columns about 90000 times in a 100000 x 100 fit."""
+    try:
+        i = X.columns.get_loc(c)
+        if type(i) is not int:
+            return None
+        return X._get_column_array(i)
+    except Exception:
+        return None
+
+
+def fe_column_values(X: Any, c: Any) -> np.ndarray:
+    """``X[c].to_numpy()`` of a pandas frame: the column's values as a read-only view of the frame's block when it is numpy-backed."""
+    arr = _pandas_column_array(X, c) if is_pandas(X) else None
+    if type(arr) is np.ndarray:
+        out = arr.view()
+        out.flags.writeable = False
+        return out
+    return np.asarray(X[c].to_numpy())
+
+
+def fe_column_is_numeric(X: Any, c: Any) -> bool:
+    """``c in X.columns and pd.api.types.is_numeric_dtype(X[c])`` of a pandas frame, read from the column's dtype alone."""
+    arr = _pandas_column_array(X, c)
+    if arr is None:
+        if c not in X.columns:
+            return False
+        s = X[c]
+        return bool(getattr(s, "ndim", 1) == 1 and pd.api.types.is_numeric_dtype(s))
+    if type(arr) is np.ndarray:
+        return arr.dtype.kind in "biufc"
+    return bool(pd.api.types.is_numeric_dtype(arr.dtype))
+
+
 def fe_is_numeric_col(X: Any, c: str) -> bool:
     """Whether column ``c`` of ``X`` is a numeric (incl. bool) scalar column, for pandas or polars, without raising on
     categorical / string columns. Duplicate-named pandas columns (``X[c]`` -> 2D) are treated as non-numeric (ambiguous)."""
     if is_pandas(X):
-        if c not in X.columns:
-            return False
-        s = X[c]
-        if getattr(s, "ndim", 1) != 1:
-            return False
-        return bool(pd.api.types.is_numeric_dtype(s))
+        return fe_column_is_numeric(X, c)
     if is_polars(X):
         if c not in X.columns:
             return False
@@ -93,7 +123,7 @@ def fe_extract_columns(X: Any, names: Iterable[str]) -> dict[str, np.ndarray]:
     out: dict[str, np.ndarray] = {}
     for nm in names:
         if is_pandas(X):
-            out[nm] = X[nm].to_numpy()
+            out[nm] = fe_column_values(X, nm)
         elif is_polars(X):
             out[nm] = X[nm].to_numpy()
         else:

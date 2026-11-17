@@ -42,6 +42,7 @@ Leakage safety (CRITICAL)
 """
 from __future__ import annotations
 
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_values
 from ._grouped_coerce_shared import auto_detect_group_cols, coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols, broadcast_lookup as _broadcast_lookup
 
 import functools
@@ -630,7 +631,7 @@ def _grouped_quantile_mi_device(eng_X: pd.DataFrame, eng_cols: list, y_bin: np.n
 
         cols = []
         for c in eng_cols:
-            a = np.asarray(eng_X[c].to_numpy(), dtype=_crit_np_dtype())
+            a = np.asarray(fe_column_values(eng_X, c), dtype=_crit_np_dtype())
             if not np.isfinite(a).all():
                 continue
             # at most n_bins distinct values (integer or not): the host cuts at float32 quantiles, where an edge interpolated between two adjacent values can
@@ -671,7 +672,7 @@ def _prebinned_codes(frame: pd.DataFrame, cols: list, n_bins: int) -> dict:
         return {}
     keep, arrs = [], []
     for c in cols:
-        a = np.asarray(frame[c].to_numpy(), dtype=np.float32)
+        a = np.asarray(fe_column_values(frame, c), dtype=np.float32)
         # a column with at most n_bins distinct values stays on the host binner: its float32 quantile edges can merge two adjacent levels, which the kernel's exact level codes do not
         if a.size and np.isfinite(a).all() and not has_few_distinct(a, n_bins):
             keep.append(c)

@@ -5,6 +5,7 @@ re-exports ``_dedup_collinear_source_cols`` from its bottom). Self-contained - d
 """
 from __future__ import annotations
 
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_is_numeric, fe_column_values
 import contextlib
 import logging
 import threading
@@ -87,7 +88,7 @@ def _dedup_cache_key(X: pd.DataFrame, cols: Sequence[str], corr_threshold: float
     sample_idx = _dedup_sample_idx(n_rows)
     parts: list[tuple] = []
     for c in cols:
-        if c not in X.columns or not pd.api.types.is_numeric_dtype(X[c]):
+        if not fe_column_is_numeric(X, c):
             parts.append((c, "non_numeric"))
             continue
         arr = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())
@@ -526,10 +527,10 @@ def _classify_dedup_columns(X: pd.DataFrame, cols: Sequence[str], _sample_idx: O
     from .._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); coarse corr-threshold dedup is scale-robust. Hoisted out of the loop (was re-invoked once per column).
     for i, c in enumerate(cols):
-        if c not in X.columns or not pd.api.types.is_numeric_dtype(X[c]):
+        if not fe_column_is_numeric(X, c):
             classes.append("pass_through")
             continue
-        arr = np.asarray(X[c].to_numpy(), dtype=_dt)
+        arr = np.asarray(fe_column_values(X, c), dtype=_dt)
         if _sample_idx is not None:
             arr = arr[_sample_idx]
         finite = np.isfinite(arr)

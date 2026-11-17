@@ -45,6 +45,7 @@ from the source columns alone (no y reference).
 from __future__ import annotations
 
 import logging
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_is_numeric
 from typing import Optional, Sequence
 
 import numpy as np
@@ -199,12 +200,7 @@ def generate_quadruplet_cross_basis_features(
                 col_i, col_j, col_k, col_l,
             )
             continue
-        if not (
-            pd.api.types.is_numeric_dtype(X[col_i])
-            and pd.api.types.is_numeric_dtype(X[col_j])
-            and pd.api.types.is_numeric_dtype(X[col_k])
-            and pd.api.types.is_numeric_dtype(X[col_l])
-        ):
+        if not (fe_column_is_numeric(X, col_i) and fe_column_is_numeric(X, col_j) and fe_column_is_numeric(X, col_k) and fe_column_is_numeric(X, col_l)):
             continue
         from ._fe_usability_signal import _crit_np_dtype
         _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); matches the GPU device

@@ -8,6 +8,7 @@ and ``_raise_if_vram_insufficient`` keep their original import path for existing
 """
 from __future__ import annotations
 
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_values
 import logging
 from typing import Any
 
@@ -36,7 +37,7 @@ def _candidate_operands(X: Any, cols: list, cols_auto: bool) -> "tuple[list, lis
     for col in cols:
         if fe_deadline_passed():
             break
-        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+        x = np.asarray(fe_column_values(X, col), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
         if (cols_auto and _is_int_as_cat_axis(x)) or not np.isfinite(x).all():
             continue
         cand_cols.append(col)

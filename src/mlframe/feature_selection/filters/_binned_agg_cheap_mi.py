@@ -5,6 +5,7 @@ Carved out of ``_binned_numeric_agg_fe``, which re-exports every name so the his
 
 from __future__ import annotations
 
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_values
 from typing import Any, cast
 import logging
 from collections.abc import Sequence
@@ -186,7 +187,7 @@ def _cheap_mi_group_selection_device(X: pd.DataFrame, gcands: Sequence[str], y_c
     out: dict = {}
     usable: list = []
     for g in gcands:
-        cv = np.asarray(X[g].to_numpy(), dtype=dt)
+        cv = np.asarray(fe_column_values(X, g), dtype=dt)
         if not np.isfinite(cv).all() or float(np.min(cv)) == float(np.max(cv)):
             out[g] = 0.0
             continue

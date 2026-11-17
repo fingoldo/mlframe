@@ -30,6 +30,7 @@ broadcast would carry no generalisable signal. Refused keys emit nothing.
 """
 from __future__ import annotations
 
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_values
 import logging
 import threading
 from itertools import combinations
@@ -351,7 +352,7 @@ def _emit_num_col_features(
 ) -> None:
     """Compute one numeric column's per-composite-group broadcasts plus its z-within-group and ratio residuals into ``encoded`` / ``raw_recipes``."""
     # one contiguous copy of the column (a column of a row-major frame block is strided): the kernels, the content hashes and the residuals below each asked for their own copy of it, six per column
-    x = np.ascontiguousarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
+    x = np.ascontiguousarray(fe_column_values(X, num_col), dtype=_crit_np_dtype())
     # Group on the integer codes of the key when the caller has them (the key strings are then hashed once per column set, not once per numeric column and statistic);
     # the recipe lookups stay keyed by the key string, taken from the unique keys.
     label: Callable[[Any], str]
