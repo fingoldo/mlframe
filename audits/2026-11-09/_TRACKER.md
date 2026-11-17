@@ -975,3 +975,6 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 ### MR11-32 honest null: host preparation gathers and counts the permuted labels in parallel kernels (2026-11-17)
 - `host_prep` of `honest_null_columns_device` (the host leg of the screen's FDR floor, on the serial tail) gathered the evaluation rows of the (999, 100000) permuted-label matrix by fancy indexing (0.34 s, one core) and counted the classes with one `np.bincount` per permutation (0.23 s). Two compiled parallel kernels, `_labels_at_rows` and `_class_counts_rows`: 626 -> 81 ms and 59 -> 10 ms on an int64 matrix of that size, identical outputs for int8 / int16 / int64 labels.
 - Wall 46.2 / 46.1 s (47.2-47.4 in the previous pair), the same seven features.
+
+### MR11-33 honest spec: column sort through the radix order (2026-11-17)
+- `build_honest_spec` sorts every numeric column once (184 columns of 100000 rows, on the edge pool, on the serial tail): `np.sort` of a float32 column takes 6.7 ms on this CPU, the compiled radix order plus gather 1.5 ms. `_sorted_column` uses the radix order for float32 / float64 and `np.sort` otherwise; same values (signed zeros may swap, they compare equal). Wall 46.5 / 46.1 s, the same seven features.
