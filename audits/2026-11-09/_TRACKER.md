@@ -978,3 +978,7 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 
 ### MR11-33 honest spec: column sort through the radix order (2026-11-17)
 - `build_honest_spec` sorts every numeric column once (184 columns of 100000 rows, on the edge pool, on the serial tail): `np.sort` of a float32 column takes 6.7 ms on this CPU, the compiled radix order plus gather 1.5 ms. `_sorted_column` uses the radix order for float32 / float64 and `np.sort` otherwise; same values (signed zeros may swap, they compare equal). Wall 46.5 / 46.1 s, the same seven features.
+
+### MR11-34 MR11-33 reverted: the radix sort is slower inside the spec's pool (2026-11-17)
+- Measured in place, `build_honest_spec` on a 100000 x 185 frame, four runs each: 0.80-0.83 s with the radix order, 0.53-0.60 s with `np.sort`; same edges. The single-thread timing (1.5 ms against 6.7 ms a column) does not carry over to eight pool threads: `np.sort` sorts its copy in place with the lock released, the radix route makes a contiguous copy, an order array and a gathered array per column. `_sorted_column` and its test are removed, `np.sort` is back. The 46.1-46.5 s pair measured after MR11-33 was run-to-run spread, not that change.
+- Rule for the remaining steps: a replacement of a library call inside a pooled body is timed inside that body, not alone.

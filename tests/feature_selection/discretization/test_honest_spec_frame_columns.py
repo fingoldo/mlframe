@@ -43,24 +43,3 @@ def test_nan_column_is_served_median_filled():
     assert col[0] == np.float64(np.nanmedian(X["b"].to_numpy(dtype=np.float64)))
     assert np.array_equal(col[1:7], X["b"].to_numpy(dtype=np.float64)[1:7])
     assert spec["has_nan"] and spec["nan_mask"][::7, 1].all()
-
-
-def test_sorted_column_equals_np_sort():
-    """Float32, float64 (with ties and signed zeros), a strided column and an integer column: ``_sorted_column`` returns the values ``np.sort`` returns."""
-    import numpy as np
-
-    from mlframe.feature_selection.filters import _honest_spec as spec
-
-    rng = np.random.default_rng(0)
-    for trial in range(30):
-        n = int(rng.integers(1, 6000))
-        x = rng.standard_normal(n).astype(np.float32 if trial % 2 else np.float64)
-        if trial % 3 == 0:
-            x = np.round(x, 1)
-        if trial % 5 == 0:
-            x[:2] = [0.0, -0.0]
-        got = spec._sorted_column(x.copy())
-        assert got.dtype == x.dtype and np.array_equal(got, np.sort(x)), trial
-        strided = np.asfortranarray(np.column_stack([x, x]))[:, 0]
-        assert np.array_equal(spec._sorted_column(strided), np.sort(x))
-    assert np.array_equal(spec._sorted_column(np.array([3, 1, 2])), np.array([1, 2, 3]))

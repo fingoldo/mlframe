@@ -67,19 +67,6 @@ class _FrameColumns:
         return np.asarray(fe_column_values(self._X, name), dtype=self.dtype)
 
 
-def _sorted_column(col: np.ndarray) -> np.ndarray:
-    """The values of an all-finite column in ascending order: a radix order for float32 / float64 (1.5 ms at 100000 float32 values where ``np.sort`` takes 6.7 ms on this
-    instruction set), ``np.sort`` for anything else. The same values as ``np.sort``; only the order of ``-0.0`` and ``0.0``, which compare equal, can differ."""
-    from ._numba_utils_shared import radix_order_f32, radix_order_f64
-
-    col = np.ascontiguousarray(col)
-    if col.ndim == 1 and col.dtype == np.float32:
-        return np.asarray(col[radix_order_f32(col)])
-    if col.ndim == 1 and col.dtype == np.float64:  # Intentional float64: dtype dispatch of the sort, not a compute dtype
-        return np.asarray(col[radix_order_f64(col)])
-    return np.sort(col)
-
-
 def _median_filled_column(col: pd.Series) -> "tuple[np.ndarray, np.ndarray] | None":
     """``(values, NaN mask)`` of a numeric column with NaN replaced by the column median, or ``None`` when it holds an infinity or only NaN.
 
@@ -150,7 +137,7 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
     def _edges_of(j: int) -> "tuple[bool, np.ndarray, np.ndarray]":
         """``(is continuous, ranked-quantile edges, fallback edges)`` of the filled column ``j``."""
         # One sort serves the distinct count and both quantile edge sets (all three are order-invariant, and the percentile selection and the unique pass are cheap on sorted input).
-        v = _sorted_column(raw[:, j]).astype(np.float64, copy=False)  # Intentional float64: the edges are computed in double precision from the (exactly widened) sorted column
+        v = np.sort(raw[:, j]).astype(np.float64, copy=False)  # Intentional float64: the edges are computed in double precision from the (exactly widened) sorted column
         if 1 + int(np.count_nonzero(v[1:] != v[:-1])) <= _LOW_CARD_CAP:
             return False, np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width
         # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
