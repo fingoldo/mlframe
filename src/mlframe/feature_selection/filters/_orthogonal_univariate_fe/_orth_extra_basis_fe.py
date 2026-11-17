@@ -757,6 +757,68 @@ def _heldout_smooth_r2_prep(y: np.ndarray) -> Optional[tuple]:
     return va, tr, y[tr], yv, sst
 
 
+@numba.njit(cache=True, nogil=True)
+def _cubic_heldout_r2_kernel(ranks: np.ndarray, va: np.ndarray, y_tr: np.ndarray, yv: np.ndarray, sst: float) -> float:
+    """Held-out R^2 of the cubic fit of ``y`` on ``zx = 2 * (rank - 1) / (n - 1) - 1`` (``ranks`` are the 1-based average ranks): the normal equations of ``[z^3, z^2, z, 1]`` on the training rows
+    (``va`` False) from their power sums, a pivoted 4 x 4 elimination, and the squared error on the validation rows, in double precision and two passes over the rows. ``NaN`` when the system is
+    singular, so the caller takes the numpy form (``np.linalg.lstsq``)."""
+    n = ranks.shape[0]
+    denom = max(n - 1, 1)
+    pw = np.zeros(7)
+    rhs = np.zeros(4)
+    t = 0
+    for i in range(n):
+        if va[i]:
+            continue
+        z = (ranks[i] - 1.0) / denom * 2.0 - 1.0
+        yy = y_tr[t]
+        t += 1
+        p = 1.0
+        for k in range(7):
+            pw[k] += p
+            if k < 4:
+                rhs[3 - k] += yy * p
+            p *= z
+    a = np.empty((4, 5))
+    for r in range(4):
+        for c in range(4):
+            a[r, c] = pw[6 - r - c]  # column order [z^3, z^2, z, 1]: entry (r, c) is the sum of z^((3 - r) + (3 - c))
+        a[r, 4] = rhs[r]
+    for col in range(4):
+        piv = col
+        for r in range(col + 1, 4):
+            if abs(a[r, col]) > abs(a[piv, col]):
+                piv = r
+        if abs(a[piv, col]) < 1e-300:
+            return np.nan
+        if piv != col:
+            for c in range(5):
+                tmp = a[col, c]
+                a[col, c] = a[piv, c]
+                a[piv, c] = tmp
+        for r in range(col + 1, 4):
+            f = a[r, col] / a[col, col]
+            for c in range(col, 5):
+                a[r, c] -= f * a[col, c]
+    coef = np.empty(4)
+    for r in range(3, -1, -1):
+        acc = a[r, 4]
+        for c in range(r + 1, 4):
+            acc -= a[r, c] * coef[c]
+        coef[r] = acc / a[r, r]
+    sse = 0.0
+    v = 0
+    for i in range(n):
+        if not va[i]:
+            continue
+        z = (ranks[i] - 1.0) / denom * 2.0 - 1.0
+        pred = ((coef[0] * z + coef[1]) * z + coef[2]) * z + coef[3]
+        d = yv[v] - pred
+        sse += d * d
+        v += 1
+    return 1.0 - sse / sst
+
+
 def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
     """Fast twin of :func:`_heldout_smooth_r2` given a precomputed ``prep`` from
     :func:`_heldout_smooth_r2_prep` (the SAME fixed ``y`` across many columns' ``x``) - only the
@@ -773,6 +835,9 @@ def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
     n = x.size
     ranks64 = np.empty(n, dtype=np.float64)  # Intentional float64: average ranks are halves of integers, exact in double as scipy returns them
     _avg_ranks_inplace(np.ascontiguousarray(x), n, np.empty(n, dtype=np.int64), ranks64)
+    r2 = float(_cubic_heldout_r2_kernel(ranks64, np.ascontiguousarray(va), np.ascontiguousarray(y_tr, dtype=np.float64), np.ascontiguousarray(yv, dtype=np.float64), float(sst)))
+    if r2 == r2:  # a singular normal system returns NaN: the least-squares form below decides it
+        return r2
     ranks = (ranks64 - 1.0).astype(_crit_np_dtype(), copy=False)
     zx = (ranks / max(n - 1, 1)) * 2.0 - 1.0
     try:
