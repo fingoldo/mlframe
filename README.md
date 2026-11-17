@@ -368,6 +368,64 @@ sel = ShapProxiedFS(classification=True, cluster_features=True, prefilter_top=20
 print(ShapProxiedFS.preflight(X, y, classification=True)["recommendation"])
 ```
 
+**Fast TreeSHAP: a drop-in replacement for `shap.TreeExplainer`.** mlframe computes the
+exact path-dependent TreeSHAP of XGBoost and LightGBM models with its own
+implementation (CatBoost goes through its own native kernel): a *table form* on numba (the work that depends only on the model, the
+`O(depth^2)` weight arithmetic of every leaf, is done once per ensemble and a sample
+only walks the tree keeping a bit mask) and a CUDA kernel of the same table on the
+GPU. The tree-model SHAP computations of mlframe (Boruta-SHAP, the SHAP-proxied
+selector, importance getters, knockoffs, the SHAP charts and the explainability
+module) go through it, and a meta-test fails on a new direct use of the public
+library for them; the public `shap` package draws plots on the values computed
+here and answers, with a logged warning, the families that are not implemented.
+
+```python
+from mlframe.inference.tree_shap import TreeExplainer
+
+explainer = TreeExplainer(fitted_lgbm_or_xgb_model)   # same interface as shap.TreeExplainer
+phi = explainer.shap_values(X)                         # (n, features) margin / log-odds values
+Phi = explainer.shap_interaction_values(X)             # (n, features, features)
+print(explainer.backend_)                              # treeshap_numba | treeshap_gpu | shap (fallback)
+```
+
+Measured against `shap` 0.51.0 in its default exact mode (`approximate=False`, path-dependent TreeSHAP, the same quantity our kernels compute; its `approximate=True` is Saabas, a different
+value, supported for XGBoost only) on one machine (4 cores / 8 threads, GTX 1050 Ti, 100 trees
+of depth 6, 100 features; best of several runs, GPU calls include the upload):
+
+| model, rows | public `shap` | mlframe numba | mlframe CUDA | max abs difference to `shap` (numba / CUDA) |
+|---|---|---|---|---|
+| LightGBM, 20 000 | 3 192 ms | 223 ms (**14.3x**) | 56 ms (**57x**) | 7.1e-15 / 1.7e-5 |
+| LightGBM, 100 000 | 18 945 ms | 1 461 ms (**13.0x**) | 275 ms (**69x**) | 8.9e-15 / 2.8e-5 |
+| XGBoost, 20 000 | 8 207 ms | 435 ms (**18.9x**) | 75 ms (**110x**) | 4.3e-6 / 1.7e-5 |
+| XGBoost, 100 000 | 40 854 ms | 1 696 ms (**24.1x**) | 318 ms (**129x**) | 6.3e-6 / 1.8e-5 |
+
+Thread counts matter for an honest comparison: the numba kernel is parallel over rows and uses every logical core by default, and `shap` computes LightGBM and XGBoost contributions in the
+library's own OpenMP code. With the same thread count on both sides (20 000 rows, best ms):
+
+| threads | LightGBM `shap` | LightGBM numba | ratio | XGBoost `shap` | XGBoost numba | ratio |
+|---|---|---|---|---|---|---|
+| 1 | 13 615 | 953 | 14.3x | 27 343 | 1 682 | 16.3x |
+| 2 | 7 173 | 508 | 14.1x | 14 335 | 851 | 16.8x |
+| 4 | 4 673 | 301 | 15.5x | 8 507 | 489 | 17.4x |
+| 8 | 3 410 | 232 | 14.7x | 6 811 | 395 | 17.2x |
+
+Our kernel is faster at every thread count (14x to 17x), and the 8-thread numba run is 59x (LightGBM) / 69x (XGBoost) faster than the single-threaded `shap` call. `shap`'s own
+`approximate=True` (Saabas values, XGBoost only) takes 192 ms at 20 000 rows, still slower than the exact CUDA kernel above (75 ms).
+
+In all four cases the per-feature mean |phi| ranking is identical to `shap` (Spearman 1.0000,
+the same top 10) and `base + sum(phi)` reproduces the model margin. The CUDA kernel works in
+float32 by default (the differences above), `MLFRAME_SHAP_TREESHAP_REAL=float64` selects the
+exact double kernel. On small inputs (a few hundred rows) the gain is 4x to 7x as well; below
+about 100 rows a fixed setup cost makes the public library marginally faster in absolute
+terms (sub-millisecond). Fair-comparison notes: for LightGBM the public library delegates to
+LightGBM's own multithreaded `pred_contrib`, and our *unoptimised* path kernel runs at the same
+speed as it at equal thread counts (3 092 ms vs 3 134 ms on one thread, 720 ms vs 717 ms on
+eight, 6 000 rows); the speed-up comes from the table algorithm and the GPU, not from
+threading. Not covered by our implementation and answered by `shap` with a logged warning:
+multiclass models and sklearn tree ensembles; XGBoost interaction values use XGBoost's own
+native `pred_interactions`. Reproduce:
+`python -m mlframe.feature_selection._benchmarks.profiling.treeshap_vs_shap 20000 lightgbm`.
+
 **Friend-graph post-analysis.** After screening, the `MRMR` estimator can build a
 graph of the selected features (node = feature sized by entropy, edge = pairwise
 mutual information, arrow = asymmetric dependency, colour = unique / suspected-sink /

@@ -44,21 +44,22 @@ def _cuda_demote_errors():
     return excs
 
 
-_TREESHAP_KERNELS: dict[int, Any] = {}
+_TREESHAP_KERNELS: dict[tuple[int, str], Any] = {}
 _KERNEL_INIT_LOCK = multiprocessing.Lock()
 
 # Max tree depth the local-memory scratch supports without spilling to slow global memory.
 _MAX_SUPPORTED_DEPTH = 24
-_DEFAULT_BLOCK_SIZE = 128
+_DEFAULT_BLOCK_SIZE = 32  # measured: 32 beat 64 / 128 / 256 by 14 % (n = 20000, 100 trees, depth 6, float32); the walks diverge, so small blocks balance the tail
 
 _KERNEL_SRC = r"""
-// dtype-ok: Intentional float64, reviewed 2026-11-05: the separate SHAP-proxy selector (shap_proxied_fs), not on the MRMR fit path, no GPU profile exists for it. The path-dependent TreeSHAP weight recurrences (unwound sums with divisions and subtractions) are double on purpose and the host uploads float64 explicitly (val, cover, phi). Open item: an A/B of float32 SHAP values against the double run on the SHAP rank before changing it.
+// Node record: the child cover shares of a node (cover of the child over the node's cover, ``0`` for a leaf or a zero-cover node) and the leaf value, read once per visited node.
+#define NODE_LOAD(nd) const int ncl = cl[nd], ncr = cr[nd], ncd = cd[nd], nfeat = feat[nd]; const float nthr = thr[nd]; const {ACC} nval = val[nd]; const {ACC} wn_ = cover[nd];     const {ACC} rl = (wn_ > 0 && ncl >= 0) ? cover[ncl] / wn_ : ({ACC})0; const {ACC} rr = (wn_ > 0 && ncl >= 0) ? cover[ncr] / wn_ : ({ACC})0;
 extern "C" __global__
 void treeshap(const float* X, const int n, const int f,
               const int* cl, const int* cr, const int* cd,
-              const int* feat, const float* thr, const double* val, const double* cover,
+              const int* feat, const float* thr, const {REAL}* val, const {REAL}* cover,
               const int* roots, const int n_trees, const int max_path,
-              double* phi){
+              {REAL}* phi){
     // coalescing-ok: one thread walks the trees for one sample; xi[feat[node]] is a data-dependent gather and the walks diverge, so no layout makes lanes adjacent; selector off the MRMR fit path
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
@@ -66,29 +67,29 @@ void treeshap(const float* X, const int n, const int f,
     // Per-thread path scratch (local memory). MAXW / MAXSP are injected #defines derived from the Python
     // ``_MAX_SUPPORTED_DEPTH`` cap (T1) so the buffer sizes can never drift out of sync with the host cap.
     int pf_feat[MAXW * MAXW];
-    double pf_zero[MAXW * MAXW];
-    double pf_one[MAXW * MAXW];
-    double pweight[MAXW * MAXW];
+    {ACC} pf_zero[MAXW * MAXW];
+    {ACC} pf_one[MAXW * MAXW];
+    {ACC} pweight[MAXW * MAXW];
 
     const float* xi = X + (long long)i * f;
-    double* phi_i = phi + (long long)i * f;
+    {REAL}* phi_i = phi + (long long)i * f;
 
     // Explicit stack replacing recursion: each frame is (node, level, unique_depth, zero, one, feat).
     int   st_node[MAXSP];
     int   st_level[MAXSP];
     int   st_ud[MAXSP];
-    double st_zero[MAXSP];
-    double st_one[MAXSP];
+    {ACC} st_zero[MAXSP];
+    {ACC} st_one[MAXSP];
     int   st_feat[MAXSP];
 
     for (int t = 0; t < n_trees; t++){
         int sp = 0;
-        st_node[sp]=roots[t]; st_level[sp]=0; st_ud[sp]=0; st_zero[sp]=1.0; st_one[sp]=1.0; st_feat[sp]=-1;
+        st_node[sp]=roots[t]; st_level[sp]=0; st_ud[sp]=0; st_zero[sp]=1; st_one[sp]=1; st_feat[sp]=-1;
         sp++;
         while (sp > 0){
             sp--;
             int node=st_node[sp]; int level=st_level[sp]; int ud=st_ud[sp];
-            double zfrac=st_zero[sp]; double ofrac=st_one[sp]; int fin=st_feat[sp];
+            {ACC} zfrac=st_zero[sp]; {ACC} ofrac=st_one[sp]; int fin=st_feat[sp];
             long long off = (long long)level * width;
 
             // Copy parent's path window into this level, then EXTEND.
@@ -100,61 +101,61 @@ void treeshap(const float* X, const int n, const int f,
                 }
             }
             pf_feat[off+ud]=fin; pf_zero[off+ud]=zfrac; pf_one[off+ud]=ofrac;
-            pweight[off+ud] = (ud==0)?1.0:0.0;
+            pweight[off+ud] = (ud==0)?({ACC})1:({ACC})0;
             for (int ii=ud-1; ii>=0; ii--){
-                pweight[off+ii+1] += ofrac*pweight[off+ii]*(ii+1.0)/(ud+1.0);
-                pweight[off+ii]    = zfrac*pweight[off+ii]*(ud-ii)/(ud+1.0);
+                pweight[off+ii+1] += ofrac*pweight[off+ii]*(ii+1)/(ud+1);
+                pweight[off+ii]    = zfrac*pweight[off+ii]*(ud-ii)/(ud+1);
             }
 
-            if (cl[node] < 0){   // leaf
-                double leaf = val[node];
+            NODE_LOAD(node)
+            if (ncl < 0){   // leaf
+                {ACC} leaf = nval;
                 for (int ii=1; ii<=ud; ii++){
-                    double one_f=pf_one[off+ii]; double zero_f=pf_zero[off+ii];
-                    double nxt=pweight[off+ud]; double total=0.0;
-                    if (one_f != 0.0){
+                    {ACC} one_f=pf_one[off+ii]; {ACC} zero_f=pf_zero[off+ii];
+                    {ACC} nxt=pweight[off+ud]; {ACC} total=0;
+                    if (one_f != 0){
                         for (int jj=ud-1; jj>=0; jj--){
-                            double tmp = nxt/((jj+1.0)*one_f);
+                            {ACC} tmp = nxt/((jj+1)*one_f);
                             total += tmp;
                             nxt = pweight[off+jj] - tmp*zero_f*(ud-jj);
                         }
-                        total *= (ud+1.0);
+                        total *= (ud+1);
                     } else {
                         for (int jj=ud-1; jj>=0; jj--)
                             total += pweight[off+jj]/(zero_f*(ud-jj));
-                        total *= (ud+1.0);
+                        total *= (ud+1);
                     }
-                    atomicAdd(&phi_i[pf_feat[off+ii]], total*(one_f-zero_f)*leaf);
+                    phi_i[pf_feat[off+ii]] += ({REAL})(total*(one_f-zero_f)*leaf);  // the thread owns its phi row: a plain add, no atomic
                 }
                 continue;
             }
 
-            int ff = feat[node];
+            int ff = nfeat;
             float xv = xi[ff];
             int hot, cold;
-            if (isnan(xv)) hot = cd[node];
-            else if (xv < thr[node]) hot = cl[node];
-            else hot = cr[node];
-            cold = (hot == cl[node]) ? cr[node] : cl[node];
+            if (isnan(xv)) hot = ncd;
+            else if (xv < nthr) hot = ncl;
+            else hot = ncr;
+            cold = (hot == ncl) ? ncr : ncl;
 
-            double wn = cover[node];
-            double hw = (wn>0.0)? cover[hot]/wn : 0.0;
-            double cw = (wn>0.0)? cover[cold]/wn : 0.0;
+            {ACC} hw = (hot == ncl) ? rl : rr;
+            {ACC} cw = (hot == ncl) ? rr : rl;
 
-            double inc_zero=1.0, inc_one=1.0; int pidx=0;
+            {ACC} inc_zero=1, inc_one=1; int pidx=0;
             for (int k=1;k<=ud;k++){ if (pf_feat[off+k]==ff){ pidx=k; break; } }
             int next_ud = ud + 1;
             if (pidx != 0){
                 inc_zero = pf_zero[off+pidx]; inc_one = pf_one[off+pidx];
                 // UNWIND in place
-                double one_f=pf_one[off+pidx]; double zero_f=pf_zero[off+pidx];
-                double nxt=pweight[off+ud];
+                {ACC} one_f=pf_one[off+pidx]; {ACC} zero_f=pf_zero[off+pidx];
+                {ACC} nxt=pweight[off+ud];
                 for (int ii=ud-1; ii>=0; ii--){
-                    if (one_f != 0.0){
-                        double tmp=pweight[off+ii];
-                        pweight[off+ii]=nxt*(ud+1.0)/((ii+1.0)*one_f);
-                        nxt = tmp - pweight[off+ii]*zero_f*(ud-ii)/(ud+1.0);
+                    if (one_f != 0){
+                        {ACC} tmp=pweight[off+ii];
+                        pweight[off+ii]=nxt*(ud+1)/((ii+1)*one_f);
+                        nxt = tmp - pweight[off+ii]*zero_f*(ud-ii)/(ud+1);
                     } else {
-                        pweight[off+ii]=pweight[off+ii]*(ud+1.0)/(zero_f*(ud-ii));
+                        pweight[off+ii]=pweight[off+ii]*(ud+1)/(zero_f*(ud-ii));
                     }
                 }
                 for (int ii=pidx; ii<ud; ii++){
@@ -166,7 +167,7 @@ void treeshap(const float* X, const int n, const int f,
 
             // push cold then hot (process hot first by popping last)
             st_node[sp]=cold; st_level[sp]=level+1; st_ud[sp]=next_ud;
-            st_zero[sp]=inc_zero*cw; st_one[sp]=0.0; st_feat[sp]=ff; sp++;
+            st_zero[sp]=inc_zero*cw; st_one[sp]=0; st_feat[sp]=ff; sp++;
             st_node[sp]=hot;  st_level[sp]=level+1; st_ud[sp]=next_ud;
             st_zero[sp]=inc_zero*hw; st_one[sp]=inc_one; st_feat[sp]=ff; sp++;
         }
@@ -190,30 +191,40 @@ def _block_size() -> int:
     """Hardware-tuned CUDA block size for the TreeSHAP kernel, or ``_DEFAULT_BLOCK_SIZE`` on a tuning-cache miss."""
     from ._gpu_block_size import block_size_from_tuning_cache
 
+    import os
+
+    forced = os.environ.get("MLFRAME_SHAP_TREESHAP_BLOCK", "").strip()
+    if forced.isdigit() and int(forced) > 0:
+        return int(forced)
     return block_size_from_tuning_cache("shap_proxy_treeshap", "gpu_block_size", _DEFAULT_BLOCK_SIZE)
 
 
-def kernel_for_depth(cp, max_depth: int):
-    """``treeshap`` with the per-thread path scratch sized for one ensemble depth: compile point of ``_ensure_kernel``."""
-    return cp.RawKernel(_kernel_source(int(max_depth)), "treeshap")
+def kernel_for_depth(cp, max_depth: int, real=np.float64):
+    """``treeshap`` with the per-thread path scratch sized for one ensemble depth and the tree data, path weights and output in ``real`` (float32 or float64): compile point of ``_ensure_kernel``."""
+    from mlframe.feature_selection.filters._kernel_types import render
+
+    import os
+
+    fast = np.dtype(real) == np.float32 and os.environ.get("MLFRAME_SHAP_TREESHAP_FASTMATH", "1").strip() != "0"
+    return cp.RawKernel(render(_kernel_source(int(max_depth)), real, acc=real), "treeshap", options=("--use_fast_math",) if fast else ())
 
 
-def kernel(cp, real=None):
-    """``treeshap`` at depth 6 (the reference depth of the offline per-arch recipe; ``real`` unused); the register-pressure registry compiles it through this."""
-    return kernel_for_depth(cp, 6)
+def kernel(cp, real=np.float64):
+    """``treeshap`` at depth 6 (the reference depth of the offline per-arch recipe) for tree data of dtype ``real``; the register-pressure registry compiles it through this."""
+    return kernel_for_depth(cp, 6, real)
 
 
-def _ensure_kernel(max_depth: int):
-    """Compile (once per depth, under a module-global lock with double-checked locking) and cache the ``cp.RawKernel``
+def _ensure_kernel(max_depth: int, real=np.float64):
+    """Compile (once per depth and type, under a module-global lock with double-checked locking) and cache the ``cp.RawKernel``
     for the TreeSHAP scan (the lookup and the compile share one lock block, so a hit costs one lock acquire). The per-thread scratch is sized by the ensemble's real depth, not the cap: at the cap's
     depth 24 the kernel reserves gigabytes of device local memory that stay allocated and starve later GPU paths."""
-    key = int(max_depth)
+    key = (int(max_depth), np.dtype(real).name)
     with _KERNEL_INIT_LOCK:
         kernel = _TREESHAP_KERNELS.get(key)
         if kernel is None:
             import cupy as cp
 
-            kernel = kernel_for_depth(cp, key)
+            kernel = kernel_for_depth(cp, int(max_depth), real)
             _TREESHAP_KERNELS[key] = kernel
     return kernel
 
@@ -227,44 +238,54 @@ def _kernel_source(max_depth: int) -> str:
     return f"#define MAXW {maxw}\n#define MAXSP {maxsp}\n" + _KERNEL_SRC
 
 
-def treeshap_phi_base_gpu(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.ndarray, float]:
+def _treeshap_real():
+    """Element type of the device TreeSHAP: float32 by default (about twice as fast on a 1/32-rate FP64 card, SHAP values within ~2e-5 of the double run and the same SHAP rank), ``MLFRAME_SHAP_TREESHAP_REAL=float64`` for the exact reference."""
+    import os
+
+    return np.float64 if os.environ.get("MLFRAME_SHAP_TREESHAP_REAL", "").strip().lower() == "float64" else np.float32
+
+
+def treeshap_phi_base_gpu(ensemble: TreeEnsemble, X: np.ndarray, use_table: bool = True) -> tuple[np.ndarray, float]:
     """cupy path-dependent TreeSHAP. Identical contract to ``treeshap_phi_base_numba``: ``(phi, base)``.
 
     Raises ``ValueError`` if the ensemble depth exceeds the local-memory scratch cap (caller falls back
-    to the numba kernel, which has no such cap)."""
+    to the numba kernel, which has no such cap). ``use_table=False`` runs the path kernel (the reference of the table form and its fallback)."""
     import cupy as cp
 
     if ensemble.max_depth > _MAX_SUPPORTED_DEPTH:
         raise ValueError(f"GPU TreeSHAP supports depth <= {_MAX_SUPPORTED_DEPTH}; ensemble depth is " f"{ensemble.max_depth}. Use the numba backend.")
 
-    Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
+    Xf = ensemble.as_float32(X)
     n, f = Xf.shape
     if f != ensemble.n_features:
         raise ValueError(f"X has {f} features but ensemble expects {ensemble.n_features}.")
 
-    kernel = _ensure_kernel(ensemble.max_depth)
+    # Table form first (``_shap_proxy_treeshap_table_gpu``: no per-leaf unwinding in the per-sample work); ``None`` when the ensemble does not fit the table or the rows do not repay its build.
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table_gpu import treeshap_phi_base_table_gpu
+
+    tabled = treeshap_phi_base_table_gpu(ensemble, Xf) if use_table else None
+    if tabled is not None:
+        return tabled
+
+    real = _treeshap_real()
+    kernel = _ensure_kernel(ensemble.max_depth, real)
     block = _block_size()
 
     X_d = cp.asarray(Xf)
-    cl_d = cp.asarray(ensemble.children_left)
-    cr_d = cp.asarray(ensemble.children_right)
-    cd_d = cp.asarray(ensemble.children_default)
-    feat_d = cp.asarray(ensemble.features)
-    thr_d = cp.asarray(ensemble.thresholds)
-    # Intentional float64: the main-effect CUDA kernel reads leaf values and cover as double*, so float32 host arrays would be misread.
-    val_d = cp.asarray(ensemble.values, dtype=np.float64)
-    # Intentional float64: the treeshap CUDA kernel reads node cover as double*
-    cover_d = cp.asarray(ensemble.node_sample_weight, dtype=np.float64)
     roots_d = cp.asarray(ensemble.tree_roots)
-    # Intentional float64: the treeshap CUDA kernel writes its phi output as double*, so this buffer must be f64.
-    phi_d = cp.zeros((n, f), dtype=np.float64)
+    phi_d = cp.zeros((n, f), dtype=real)
+    node_args = (
+        cp.asarray(ensemble.children_left), cp.asarray(ensemble.children_right), cp.asarray(ensemble.children_default),
+        cp.asarray(ensemble.features), cp.asarray(ensemble.thresholds),
+        cp.asarray(ensemble.values, dtype=real), cp.asarray(ensemble.node_sample_weight, dtype=real),
+    )
 
     grid = ((n + block - 1) // block,)
     kernel(grid, (block,), (
         X_d, np.int32(n), np.int32(f),
-        cl_d, cr_d, cd_d, feat_d, thr_d, val_d, cover_d,
+        *node_args,
         roots_d, np.int32(ensemble.tree_roots.shape[0]), np.int32(ensemble.max_depth),
         phi_d,
     ))
-    phi = cp.asnumpy(phi_d)
+    phi = cp.asnumpy(phi_d).astype(np.float64, copy=False)  # Intentional float64: the caller's phi contract is float64
     return phi, float(ensemble.base_offset)

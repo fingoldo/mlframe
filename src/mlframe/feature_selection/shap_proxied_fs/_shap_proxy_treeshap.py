@@ -66,6 +66,17 @@ class TreeEnsemble:
     max_depth: int  # max tree depth across the ensemble (sizes the per-thread scratch)
     base_offset: float  # ensemble intercept (base_score) added once to the margin
     n_features: int
+    zero_threshold: float = 0.0  # |x| <= this is read as exactly 0.0 (LightGBM's sparse-row convention: kZeroThreshold); 0.0 for XGBoost
+
+    def as_float32(self, X) -> np.ndarray:
+        """``X`` as the C-contiguous float32 matrix the kernels route on. For LightGBM a value with ``|x| <= zero_threshold`` becomes ``0.0`` first, exactly as LightGBM reads it (its row functions drop such values from the
+        sparse row, so the dense feature is zero); a NaN stays NaN."""
+        Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
+        if self.zero_threshold > 0.0:
+            small = np.abs(Xf) <= np.float32(self.zero_threshold)
+            if small.any():
+                Xf = np.where(small, np.float32(0.0), Xf)
+        return Xf
 
 
 _XGB_DEFAULT_FEATURE = re.compile(r"^f(\d+)$")
@@ -91,6 +102,18 @@ def _resolve_split_feature(split, fmap) -> int:
     raise ValueError(f"cannot resolve xgboost split feature {sp!r} to a column index (expected 'f<int>' default name)")
 
 
+def _xgboost_dart_tree_weights(booster, cfg: dict, n_trees: int):
+    """The per-tree ``weight_drop`` of a DART booster (its prediction is ``sum_i weight_drop[i] * leaf_i``), or ``None`` for a plain gbtree. The dump holds the unscaled leaves, so without these weights the SHAP
+    values of a DART model would not add up to its margin."""
+    raw = orjson.loads(bytes(booster.save_raw(raw_format="json")))  # the saved config reports name "gbtree" with dart_train_param for DART too; only the model JSON carries weight_drop
+    weights = raw.get("learner", {}).get("gradient_booster", {}).get("weight_drop")
+    if weights is None:
+        return None
+    if len(weights) != n_trees:
+        raise ValueError(f"DART booster with {n_trees} trees but {len(weights)} weight_drop entries: refusing to guess the tree weights")
+    return [float(w) for w in weights]
+
+
 def _extract_xgboost_ensemble(booster, n_features: int) -> TreeEnsemble:
     """Parse an xgboost booster's JSON dump into flat per-node tensors (done once per fit)."""
     cfg = orjson.loads(booster.save_config())
@@ -111,6 +134,7 @@ def _extract_xgboost_ensemble(booster, n_features: int) -> TreeEnsemble:
 
     fmap = {name: i for i, name in enumerate(booster.feature_names)} if booster.feature_names else None
     dumps = booster.get_dump(dump_format="json", with_stats=True)
+    tree_weights = _xgboost_dart_tree_weights(booster, cfg, len(dumps))
 
     cl: list[int] = []
     cr: list[int] = []
@@ -122,9 +146,10 @@ def _extract_xgboost_ensemble(booster, n_features: int) -> TreeEnsemble:
     tree_roots = []
     max_depth = 0
 
-    for raw in dumps:
+    for tree_index, raw in enumerate(dumps):
         root = orjson.loads(raw)
         base = len(cl)
+        tree_scale = 1.0 if tree_weights is None else tree_weights[tree_index]
         tree_roots.append(base)
         # Flatten this tree depth-first; map local nodeid -> global id via a per-tree dict.
         # First pass: collect nodes by nodeid so children can be resolved to global ids.
@@ -149,7 +174,7 @@ def _extract_xgboost_ensemble(booster, n_features: int) -> TreeEnsemble:
                 cd.append(_NO_CHILD)
                 feat.append(-1)
                 thr.append(0.0)
-                val.append(float(node["leaf"]))
+                val.append(float(node["leaf"]) * tree_scale)
                 cover.append(float(node.get("cover", 1.0)))
             else:
                 cl.append(local_to_global[node["yes"]])
@@ -436,8 +461,21 @@ def _treeshap_batch(
 def treeshap_phi_base_numba(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.ndarray, float]:
     """Run the numba path-dependent TreeSHAP. Returns ``(phi (n,f) double precision, base float)``.
 
-    ``X`` is cast to float32 for routing (xgboost's internal comparison dtype). ``phi`` is in margin /
-    log-odds space; ``base`` is the ensemble intercept so ``base + phi.sum(1)`` is the model margin.
+    ``X`` is cast to float32 for routing (xgboost's internal comparison dtype). ``phi`` is in margin / log-odds space; ``base`` is the ensemble intercept so ``base + phi.sum(1)`` is the model margin.
+
+    The table form (``_shap_proxy_treeshap_table``: the per-leaf weight work is paid once per ensemble, a sample only walks the nodes with a bit mask) answers when the ensemble fits it and the rows repay the
+    build; otherwise, and always as the reference, the path kernel ``treeshap_phi_base_path`` runs. The two agree to ~1e-15."""
+    from ._shap_proxy_treeshap_table import treeshap_phi_base_table
+
+    Xf = ensemble.as_float32(X)
+    tabled = treeshap_phi_base_table(ensemble, Xf)
+    if tabled is not None:
+        return tabled
+    return treeshap_phi_base_path(ensemble, Xf)
+
+
+def treeshap_phi_base_path(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.ndarray, float]:
+    """The path kernel: every sample walks every leaf and unwinds its path (``O(depth^2)`` per leaf). The reference of the table form and its fallback. Returns ``(phi (n,f) double precision, base float)``.
 
     ``_treeshap_batch`` is a numba ``parallel=True`` kernel reached via joblib-threaded fan-outs
     (``_shap_proxy_explain.py``'s per-fold ``Parallel``) as well as ``ThreadPoolExecutor`` ones -- numba's
@@ -448,7 +486,7 @@ def treeshap_phi_base_numba(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.n
     """
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
-    Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
+    Xf = ensemble.as_float32(X)
     n = Xf.shape[0]
     phi = np.zeros((n, ensemble.n_features), dtype=np.float64)  # Intentional float64: tree values and covers are double, as in the reference TreeSHAP
     with parallel_kernel_entry():
@@ -459,6 +497,19 @@ def treeshap_phi_base_numba(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.n
             ensemble.tree_roots, ensemble.max_depth,
         )
     return phi, float(ensemble.base_offset)
+
+
+def _lightgbm_threshold_to_lt_float32(threshold: float) -> float:
+    """The float32 ``t'`` with ``x < t'`` iff ``x <= threshold`` for every float32 ``x``, for LightGBM's double ``threshold`` (it routes ``x <= threshold`` to the left child, the kernel ``x < t'``).
+
+    ``x <= threshold`` holds iff ``x <= floor32(threshold)`` with ``floor32`` the largest float32 not above ``threshold``, and for float32 ``x`` that is ``x < nextafter(floor32, +inf)``. Rounding to the NEAREST
+    float32 instead, as this function's predecessor did, misroutes the sample whose value is exactly the float32 above the threshold when two adjacent distinct training values sit on neighbouring float32
+    numbers (measured: additivity error 6.6e-2 at 100000 rows of a LightGBM model, none at 20000)."""
+    with np.errstate(over="ignore"):  # a threshold beyond the float32 range (LightGBM uses 1e300 style sentinels) saturates to inf, which routes everything left as it should
+        t = np.float32(threshold)
+    if float(t) > threshold:
+        t = np.nextafter(t, np.float32(-np.inf))
+    return float(np.nextafter(t, np.float32(np.inf)))
 
 
 def _extract_lightgbm_ensemble(booster, n_features: int) -> TreeEnsemble:
@@ -519,9 +570,7 @@ def _extract_lightgbm_ensemble(booster, n_features: int) -> TreeEnsemble:
                 cl.append(lc)
                 cr.append(rc)
                 feat.append(int(node["split_feature"]))
-                # Convert ``x <= t`` to the kernel's ``x < t'`` via nextafter (float32 routing dtype).
-                t = np.float32(float(node["threshold"]))
-                thr_le = float(np.nextafter(t, np.float32(np.inf)))
+                thr_le = _lightgbm_threshold_to_lt_float32(float(node["threshold"]))
                 thr.append(thr_le)
                 # NaN routing depends on lightgbm's ``missing_type``: only "NaN" honours ``default_left``;
                 # "None"/"Zero" treat a missing value AS 0.0 (and route it by the threshold) - so we bake
@@ -554,6 +603,7 @@ def _extract_lightgbm_ensemble(booster, n_features: int) -> TreeEnsemble:
         max_depth=int(max_depth),
         base_offset=float(base_offset),
         n_features=int(n_features),
+        zero_threshold=_LIGHTGBM_ZERO_THRESHOLD,
     )
 
 
@@ -580,14 +630,20 @@ def is_supported_xgboost(estimator: Any) -> bool:
     return True
 
 
+# LightGBM's kZeroThreshold is the FLOAT literal 1e-35f; as a double it is 1.0000000180025095e-35. A feature value with |x| <= it is read as exactly 0.0.
+_LIGHTGBM_ZERO_THRESHOLD = float(np.float32(1e-35))
+
+
 def _lightgbm_has_unmodelled_splits(model_dump: dict) -> bool:
-    """True when any split is one the flat-tensor kernels do not reproduce: a categorical ``==`` split (its threshold is a category list, not a number)
+    """True when any split or leaf is one the flat-tensor kernels do not reproduce: a linear leaf (``linear_tree``), a categorical ``==`` split (its threshold is a category list, not a number)
     or ``missing_type == "Zero"`` (lightgbm sends both NaN and exact 0.0 down ``default_left``). Such models fall back to the ``shap`` library."""
     for tree in model_dump.get("tree_info", []):
         stack = [tree["tree_structure"]]
         while stack:
             node = stack.pop()
             if "leaf_value" in node:
+                if node.get("leaf_coeff"):  # a linear_tree leaf predicts const + coef . x, not the constant leaf_value the kernels add
+                    return True
                 continue
             if str(node.get("decision_type", "<=")) != "<=" or str(node.get("missing_type", "None")) == "Zero":
                 return True

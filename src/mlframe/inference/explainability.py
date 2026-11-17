@@ -213,9 +213,10 @@ def compute_shap_on_cv(
             model_stub = model_instance
 
         if not catboost_native_feature_importance:
-            explainer = shap.Explainer(
-                model_stub, links=shap.links.logit
-            )  # shap.TreeExplainer(model=model_stub, data=X, model_output="probability", feature_perturbation="interventional")  #
+            # tree models: mlframe's own TreeSHAP (margin / log-odds values, the same ones shap.Explainer returns for them); anything else keeps the public shap.Explainer
+            from mlframe.inference.tree_shap import TreeExplainer as _TreeExplainer, is_supported as _tree_supported
+
+            explainer = _TreeExplainer(model_stub) if _tree_supported(model_stub) else shap.Explainer(model_stub, links=shap.links.logit)
             expected_values.append(explainer.expected_value)
             logger.info("Getting shap values...")
             if shap_oof:

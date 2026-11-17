@@ -152,7 +152,18 @@ _RECIPES: dict = {
     "hermite_fe/_als_kernels_gpu.py::_SRC": lambda s: [
         (f"{r} D={d}", _fill(s, **{"{REAL}": r, "{ACC}": "double"}), (f"-DD={d}", f"-DNACC={d * (d + 1) // 2 + d}")) for r in _REAL_TYPES for d in (3, 8)
     ],
-    "../shap_proxied_fs/_shap_proxy_treeshap_gpu.py::_KERNEL_SRC": lambda s: [("depth 6", _define(MAXW=8, MAXSP=28) + s, ())],
+    "../shap_proxied_fs/_shap_proxy_treeshap_gpu.py::_KERNEL_SRC": lambda s: [
+        (f"{r} depth 6", _fill(_define(MAXW=8, MAXSP=28) + s, **{"{REAL}": r, "{ACC}": r}), ()) for r in _REAL_TYPES
+    ],
+    "../shap_proxied_fs/_shap_proxy_treeshap_table_gpu.py::_KERNEL_SRC": lambda s: [
+        (r, _fill(_define(MAXSP=24) + s, **{"{REAL}": r, "{ACC}": r}), ()) for r in _REAL_TYPES
+    ],
+    "../shap_proxied_fs/_shap_proxy_treeshap_table_gpu.py::_PREORDER_SRC": lambda s: [
+        (r, _fill(_define(MAXD=8) + s, **{"{REAL}": r, "{ACC}": r}), ()) for r in _REAL_TYPES
+    ],
+    "../shap_proxied_fs/_shap_proxy_treeshap_interactions_table_gpu.py::_KERNEL_SRC": lambda s: [
+        (r, _fill(_define(MAXSP=24, STACK_SHARED=0) + s, **{"{REAL}": r, "{ACC}": r}), ()) for r in _REAL_TYPES
+    ],
     "../shap_proxied_fs/_shap_proxy_treeshap_interactions_gpu.py::_KERNEL_SRC": lambda s: [
         (
             "depth 6",

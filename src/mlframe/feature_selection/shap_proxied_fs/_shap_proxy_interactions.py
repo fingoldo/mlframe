@@ -23,7 +23,7 @@ from __future__ import annotations
 import itertools
 import logging
 from collections.abc import Callable, Sequence
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -39,44 +39,29 @@ logger = logging.getLogger(__name__)
 # Measured (xgboost regr, 1000 rows, 200 trees): numba beats shap's ``shap_interaction_values`` at
 # every width from P=10 (~1.5x) upward, so the interaction crossover is far LOWER than the main-effect
 # one (the shap interaction call is much heavier than its main-effect call). We keep a small floor so
-# the numba JIT warmup is not paid on trivial widths. Tunable per-HW via kernel_tuning_cache.
+# the numba JIT warmup is not paid on trivial widths.
+# TODO(per-host thresholds): measure this threshold per machine like ``_shap_proxy_score_margin_ktc`` does for the score dispatch. A sweep would train small XGBoost/LightGBM
+# models of growing width (and rows), time the ``shap`` library against the interaction numba kernel and the GPU kernel on each, register the result as a ``kernel_tuner`` entry and read it here with
+# the constant as the fallback. Deferred: the selector is off the MRMR fit path and the hand-calibrated constants work.
 _INTERACTION_NUMBA_MIN_FEATURES = 8
 
 # Min problem size (rows * P^2 interaction-tensor cells) at which the cupy/CUDA interaction kernel is
 # preferred over numba on a CUDA box. The GPU kernel carries large per-thread local-memory scratch (it
 # spills on small GPUs) so it only pays off once the per-sample tree*cond_feat work amortises the
-# upload + spill; below this we stay on numba (no JIT/launch overhead win). Tunable via
-# kernel_tuning_cache key ``interaction_gpu_min_cells``.
+# upload + spill; below this we stay on numba (no JIT/launch overhead win). A fixed, hand-calibrated floor.
+# TODO(per-host thresholds): measure this threshold per machine like ``_shap_proxy_score_margin_ktc`` does for the score dispatch. A sweep would train small XGBoost/LightGBM
+# models of growing width (and rows), time the ``shap`` library against the interaction numba kernel and the GPU kernel on each, register the result as a ``kernel_tuner`` entry and read it here with
+# the constant as the fallback. Deferred: the selector is off the MRMR fit path and the hand-calibrated constants work.
 _INTERACTION_GPU_MIN_CELLS = 3_000 * 40 * 40  # ~4.8M cells (e.g. 3000 rows x P=40)
 
 
 def _interaction_numba_min_features() -> int:
-    """Crossover width for routing interactions to the numba kernel, from kernel_tuning_cache if set."""
-    try:
-        from mlframe.feature_selection.filters import get_kernel_tuning_cache
-
-        ktc = get_kernel_tuning_cache()
-        if ktc is not None:
-            entry = cast(Any, ktc).lookup("shap_proxy_treeshap")
-            if isinstance(entry, dict) and entry.get("interaction_numba_min_features"):
-                return int(entry["interaction_numba_min_features"])
-    except Exception as e:  # nosec B110 - best-effort path
-        logger.debug("kernel_tuning_cache lookup for interaction_numba_min_features failed: %s", e)
+    """Feature count from which interactions route to the numba kernel (a hand-calibrated crossover; no per-host cache entry exists or is read)."""
     return _INTERACTION_NUMBA_MIN_FEATURES
 
 
 def _interaction_gpu_min_cells() -> int:
-    """Min ``n * P^2`` to route the interaction tensor to the GPU kernel, from kernel_tuning_cache if set."""
-    try:
-        from mlframe.feature_selection.filters import get_kernel_tuning_cache
-
-        ktc = get_kernel_tuning_cache()
-        if ktc is not None:
-            entry = cast(Any, ktc).lookup("shap_proxy_treeshap")
-            if isinstance(entry, dict) and entry.get("interaction_gpu_min_cells"):
-                return int(entry["interaction_gpu_min_cells"])
-    except Exception as e:  # nosec B110 - best-effort path
-        logger.debug("kernel_tuning_cache lookup for interaction_gpu_min_cells failed: %s", e)
+    """Minimum ``n * P^2`` that routes the interaction tensor to the GPU kernel (a hand-calibrated floor; no per-host cache entry exists or is read)."""
     return _INTERACTION_GPU_MIN_CELLS
 
 
