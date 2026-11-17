@@ -246,6 +246,11 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
         logger.debug("_select_wavelet_legs_batched_device: device batched-MI path failed, caller falls back to the host leg selection: %s", e)
         return None
 
+    return _admitted_legs(metas, mi_tr, mi_va, max_legs, scale_sigma, _WAVELET_MIN_HELDOUT_MI)
+
+
+def _admitted_legs(metas: list, mi_tr: np.ndarray, mi_va: np.ndarray, max_legs: int, scale_sigma: float, min_heldout_mi: float) -> list:
+    """The ``(j, k)`` legs of one column whose held-out MI clears the noise floor (median + ``scale_sigma`` x 1.4826 x MAD of the column's legs, at least ``min_heldout_mi``), the top ``max_legs`` by train MI."""
     heldout = np.asarray(mi_va, dtype=np.float64)  # Intentional float64: held-out MI statistic output
     if heldout.size >= 4:
         med = float(np.median(heldout))
@@ -253,13 +258,96 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
         floor = med + scale_sigma * 1.4826 * mad
     else:
         floor = 0.0
-    floor = max(floor, _WAVELET_MIN_HELDOUT_MI)
+    floor = max(floor, min_heldout_mi)
     cand = [(float(mi_tr[i]), float(mi_va[i]), metas[i][0], metas[i][1]) for i in range(len(metas))]
     admitted = [c for c in cand if c[1] >= floor]
     if not admitted:
         return []
     admitted.sort(key=lambda c: c[0], reverse=True)
     return [(int(c[2]), int(c[3])) for c in admitted[: int(max_legs)]]
+
+
+def select_wavelet_legs_columns_device(xs: list, y: np.ndarray, los: list, spans: list, *, max_scale: int, max_legs: int, scale_sigma: float) -> "list | None":
+    """:func:`_select_wavelet_legs_batched_device` for many columns of one frame: the admitted ``(j, k)`` legs of each column, or ``None`` when the batch does not apply (the device-born
+    route is off, the fused leg builder is off or declines a column, or the device fails); the caller then selects column by column.
+
+    Each column's leg codes are built on the device as in the per-column route; the codes of a block of columns are laid side by side and scored by ONE train and ONE held-out MI call
+    for the block instead of two calls per column (200 MI calls for 100 columns), and the target is split and binned once. A leg's MI depends on its own code column only, so the
+    values, and the admitted legs, are the per-column ones. A block holds at most ``_DEVICE_LEG_BLOCK_BYTES`` of int64 codes."""
+    try:
+        import cupy as cp
+
+        from ._gpu_strict_fe import fe_gpu_device_born_wavelet_enabled
+
+        if not fe_gpu_device_born_wavelet_enabled() or not fused_switch_enabled(_FUSED_ENV):
+            return None
+    except Exception as e:
+        logger.debug("batched wavelet-leg selection unavailable: %s", e)
+        return None
+    from ._wavelet_basis_fe import _WAVELET_MIN_HALF_ROWS, _WAVELET_MIN_HELDOUT_MI, _WAVELET_MIN_ROWS, _bin_y_codes
+
+    y = np.asarray(y).ravel()
+    n = int(y.size)
+    out: list = [[] for _ in xs]
+    idx = np.arange(n)
+    va_mask = (idx % 3) == 0
+    tr_mask = ~va_mask
+    if n < _WAVELET_MIN_ROWS or int(tr_mask.sum()) < 64 or int(va_mask.sum()) < 32:
+        return out
+    n_legs_max = 2 ** (int(max_scale) + 1) - 1
+    if n_legs_max * 8 * n > _DEVICE_LEG_BLOCK_BYTES:
+        return None  # one column's legs do not fit a block: the per-column route builds them leg by leg
+    try:
+        from ._fe_batched_mi import binned_mi_from_codes_gpu
+        from ._fe_resident_operands import resident_operand
+
+        yb_tr = np.asarray(_bin_y_codes(y[tr_mask]))
+        yb_va = np.asarray(_bin_y_codes(y[va_mask]))
+        ky_tr, ky_va = int(yb_tr.max()) + 1, int(yb_va.max()) + 1
+        # a block is held twice while it is scored (the per-column code matrices and their side-by-side copy), inside the smaller of the block budget and a third of the room
+        # this stage's device pool has left (the stage slots cap the pool: 456 MB in a three-lane fit of 100000 x 100)
+        from ._device_sort_safe import device_room
+
+        block_cols = max(1, min(_DEVICE_LEG_BLOCK_BYTES, device_room(cp) // 3) // (2 * n_legs_max * 8 * n))
+        pending: list = []  # (column position, metas, train codes, held-out codes) of the block being filled
+
+        def flush() -> None:
+            """Score the pending block with one MI call per split and admit each column's legs."""
+            if not pending:
+                return
+            widths = [len(p[1]) for p in pending]
+            tr_all = pending[0][2] if len(pending) == 1 else cp.ascontiguousarray(cp.concatenate([p[2] for p in pending], axis=1))
+            va_all = pending[0][3] if len(pending) == 1 else cp.ascontiguousarray(cp.concatenate([p[3] for p in pending], axis=1))
+            kx = [3] * int(sum(widths))
+            # codes in range by construction (leg + 1 in {0, 1, 2}; labels from ``_bin_y_codes``), as in the per-column route
+            mi_tr = np.asarray(binned_mi_from_codes_gpu(tr_all, yb_tr, kx_per_col=kx, ky=ky_tr, codes_trusted=True), dtype=np.float64)  # Intentional float64: MI statistic output
+            mi_va = np.asarray(binned_mi_from_codes_gpu(va_all, yb_va, kx_per_col=kx, ky=ky_va, codes_trusted=True), dtype=np.float64)  # Intentional float64: MI statistic output
+            off = 0
+            for (pos, metas, _tr, _va), w in zip(pending, widths):
+                out[pos] = _admitted_legs(metas, mi_tr[off : off + w], mi_va[off : off + w], max_legs, scale_sigma, _WAVELET_MIN_HELDOUT_MI)
+                off += w
+            pending.clear()
+
+        for pos, (x, lo, span) in enumerate(zip(xs, los, spans)):
+            x = np.asarray(x, dtype=_crit_np_dtype()).ravel()
+            if x.size != n or span <= 1e-12 or fe_std_below(x):
+                continue
+            z_g = resident_operand(np.ascontiguousarray(x), "wavelet_x", dtype=cp.float64)  # Intentional float64: GPU operand upload; kernel contract is float64
+            z_g = cp.clip((z_g - float(lo)) / float(span), 0.0, 1.0)
+            fused = _fused_leg_matrices(cp, z_g, int(max_scale), _WAVELET_MIN_HALF_ROWS)
+            if fused is None:
+                return None
+            metas, tr_mat, va_mat = fused
+            if not metas:
+                continue
+            pending.append((pos, metas, tr_mat, va_mat))
+            if len(pending) >= block_cols:
+                flush()
+        flush()
+    except Exception as e:
+        logger.debug("batched wavelet-leg selection failed, the columns are selected one by one: %s", e)
+        return None
+    return out
 
 
 _LEG_BLOCK_BYTES = 256 << 20  # bytes of int64 leg codes stacked at once per split (the stacked legs were unbounded before)
