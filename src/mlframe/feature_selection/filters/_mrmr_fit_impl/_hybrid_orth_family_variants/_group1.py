@@ -42,7 +42,7 @@ def _hybrid_orth_family_variants_group1(
 
 
 def _hybrid_orth_family_variants_group1_tail(
-    self, *, X, y, verbose, _y_np, _hybrid_orth_pre_recipes, _gbm_seeded_triplet_names, _fe_family_on,
+    self, *, X, y, verbose, _y_np, _hybrid_orth_pre_recipes, _gbm_seeded_triplet_names, _fe_family_on, routing=True,
 ):
     """The last three families of group 1 (adaptive_arity, adaptive_degree, conditional_routing), in their sequential order. Their sources are the numeric columns that are not hybrid_orth
     outputs, so they read the same sources on the frame the group started from; ``run_groups_concurrently`` runs them beside group 3 while the triplet and quadruplet stage of the head is still going."""
@@ -125,7 +125,8 @@ def _hybrid_orth_family_variants_group1_tail(
     # column and keep the MI-uplift winner; global top-K appended. Recipe
     # kind reuses ``orth_univariate`` (extra carries ``pre_transform``);
     # replay reads X only, no y.
-    X = _stage_conditional_routing(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
+    if routing:  # ``run_groups_concurrently`` runs the routing stage in another lane and folds it right after this tail
+        X = _stage_conditional_routing(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
     return X
 
 
