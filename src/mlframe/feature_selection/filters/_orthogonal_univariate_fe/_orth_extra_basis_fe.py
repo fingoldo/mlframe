@@ -22,6 +22,7 @@ import numba
 import numpy as np
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+from mlframe.feature_selection.filters._fe_frame_ops import fe_std_below
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from numba import prange
 
@@ -717,7 +718,7 @@ def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
     original (verified: same split mask, same y-side sums, same formula, just hoisted out of the loop)."""
     va, tr, y_tr, yv, sst = prep
     x = np.asarray(x, dtype=_crit_np_dtype()).ravel()
-    if x.size != va.size or not np.all(np.isfinite(x)) or float(np.std(x)) < 1e-12:
+    if x.size != va.size or not np.all(np.isfinite(x)) or fe_std_below(x):
         return 0.0
     # average ranks (0-based): tied feature values share one rank instead of being ordered by row position
     # (the compiled radix-order ranks: the average rank of a tie run is the same number whichever sort finds the run; scipy's ``rankdata`` took 12 ms per column at 30000 rows)

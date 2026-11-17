@@ -53,3 +53,18 @@ def test_duplicated_name_takes_the_series_route(frame: pd.DataFrame) -> None:
     dup = pd.concat([frame[["f0"]], frame[["f0"]]], axis=1)
     assert not fe_is_numeric_col(dup, "f0")  # ambiguous: two columns answer to the name
     assert fe_column_values(dup, "f0").shape == (50, 2)
+
+
+def test_std_below_equals_np_std_rule() -> None:
+    """Constant, near-constant, tiny-range, ordinary, offset and NaN-bearing columns of both float widths: ``fe_std_below`` answers what ``np.std(a) < 1e-12`` answers."""
+    from mlframe.feature_selection.filters._fe_frame_ops import fe_std_below
+
+    rng = np.random.default_rng(2)
+    cases = [np.zeros(1000), np.full(1000, 3.5), np.full(1000, 3.5) + 1e-14 * rng.standard_normal(1000), 1e-9 * rng.standard_normal(1000), 1e-4 * rng.standard_normal(1000)]
+    cases += [rng.standard_normal(1000), np.r_[np.zeros(999), 1.0], np.r_[np.zeros(99999), 2e-6], 1e8 + rng.standard_normal(1000), np.r_[rng.standard_normal(10), np.nan], np.empty(0)]
+    for base in cases:
+        for dtype in (np.float32, np.float64):
+            arr = base.astype(dtype)
+            with np.errstate(all="ignore"):
+                want = bool(float(np.std(arr)) < 1e-12) if arr.size else bool(float("nan") < 1e-12)
+            assert fe_std_below(arr) == want, (dtype, arr[:3])

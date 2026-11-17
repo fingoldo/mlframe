@@ -42,6 +42,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 from mlframe._numerical_floors import VARIANCE_FLOOR
 from .._fe_env_switch import fused_switch_enabled
+from .._fe_frame_ops import fe_std_below
 from ._fourier_core_cycles import core_span, freq_is_tail_aliased
 
 logger = logging.getLogger(__name__)
@@ -274,7 +275,7 @@ def _host_split_for_detect(z01: np.ndarray, y: np.ndarray, f_grid: Sequence[floa
     n = z01.size
     if n != int(np.size(y)) or n < int(min_rows):
         return None
-    if not np.all(np.isfinite(z01)) or float(np.std(z01)) < 1e-12:
+    if not np.all(np.isfinite(z01)) or fe_std_below(z01):
         return None
     _fdet_cap = int(fourier_detect_max_n)
     target = _target_side_of_split(y, n, _fdet_cap)

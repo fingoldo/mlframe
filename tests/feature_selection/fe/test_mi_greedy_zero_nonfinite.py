@@ -35,3 +35,14 @@ def test_every_registered_transform_materialises_the_same_column():
         with np.errstate(all="ignore"):
             want = np.nan_to_num(np.asarray(fn(cache["a"], cache["b"]), dtype=got.dtype), nan=0.0, posinf=0.0, neginf=0.0)
         assert np.array_equal(got, want), name
+
+
+def test_no_spread_decision_equals_the_std_rule():
+    """Constant, near-constant, tiny-range and ordinary columns of both float widths: the range shortcut and the standard-deviation rule give the same verdict."""
+    rng = np.random.default_rng(2)
+    cases = [np.zeros(1000), np.full(1000, 3.5), np.full(1000, 3.5) + 1e-14 * rng.standard_normal(1000), 1e-9 * rng.standard_normal(1000), 1e-4 * rng.standard_normal(1000)]
+    cases += [rng.standard_normal(1000), np.r_[np.zeros(999), 1.0], np.r_[np.zeros(99999), 2e-6], 1e8 + rng.standard_normal(1000)]
+    for base in cases:
+        for dtype in (np.float32, np.float64):
+            arr = base.astype(dtype)
+            assert greedy._has_no_spread(arr) == bool(float(arr.std()) <= 1e-12), (dtype, float(arr.std()))

@@ -28,6 +28,7 @@ import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from ._fe_env_switch import fused_switch_enabled
+from ._fe_frame_ops import fe_std_below
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +182,7 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
     n = x.size
     if n != y.size or n < _WAVELET_MIN_ROWS:
         return []
-    if span <= 1e-12 or float(np.std(x)) < 1e-12:
+    if span <= 1e-12 or fe_std_below(x):
         return []
     idx = np.arange(n)
     va_mask = (idx % 3) == 0

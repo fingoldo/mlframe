@@ -966,3 +966,8 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 
 ### MR11-30 grouped-quantile percentile ranks: `nan_to_num` only when something is non-finite (2026-11-17)
 - `nan_to_num` in the all-thread profile: 4670 calls, 3.6 s of thread time; after MR11-24 and MR11-29 the largest remaining caller was the per-column body of the grouped-quantile family (129 calls, 5.6 ms each). `_pct_rank_scrubbed` returns an all-finite column after one `isfinite` pass and calls `nan_to_num` (NaN -> 0.5, +inf -> 1, -inf -> 0) only otherwise; fit and replay share it. 38 grouped-quantile tests pass; wall 46.8 s, the same seven features.
+
+### MR11-31 constant-column tests without the standard deviation (2026-11-17)
+- All-thread profile after MR11-30: `np.std` 7115 calls, 5.2 s of thread time, the largest caller the spread test of the greedy-MI candidates (932 calls, 1.9 s). A range above 1e6 x tol rules out a standard deviation below tol (std >= range / sqrt(2 n)), so `_mi_greedy_fe._has_no_spread` and the shared `_fe_frame_ops.fe_std_below` take two reductions (27 us against 139 us at 100000 float32 rows) and fall back to `np.std` only for a near-constant column. Used in the greedy-MI build, the Fourier detector's column guard, the wavelet leg selection and the held-out smooth R2. Same verdicts on constant, near-constant, tiny-range, offset and NaN cases of both float widths (tests).
+- Correction to MR11-23: in the fit the composite keys are already object arrays, so the skipped conversion saves nothing there (the 74 us figure holds for a string-dtype key array); `_broadcast_lookup`'s own time is the full-length gather and cast, which is its work.
+- Wall 47.4 / 47.2 s, the same seven features.
