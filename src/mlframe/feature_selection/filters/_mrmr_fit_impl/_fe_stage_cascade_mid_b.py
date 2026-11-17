@@ -114,15 +114,18 @@ def _fe_stage_cascade_mid_b(
     _row_stat_pre_recipes,
     _wavelet_pre_recipes,
     _rankgauss_pre_recipes,
+    _group_distance_elsewhere: bool = False,
 ):
     """Run the Layer 95B/104 FE family stage(s) and return the (possibly column-augmented)
     ``X``. See the module docstring for the full section this carves out.
+
+    ``_group_distance_elsewhere``: the caller runs the group-distance family itself (in another cascade's slot, see ``_fe_stage_cascade_run``), so it is left out here.
     """
     X_acc = _fe_stage_cascade_mid_b_part1(
         X, self, _fe_family_on, _y_np, _group_distance_pre_recipes, verbose, _raw_input_cols_pre_fe, _rare_category_pre_recipes,
         _conditional_residual_pre_recipes, _conditional_dispersion_pre_recipes, _conditional_quantile_rank_pre_recipes, _ordinal_pattern_pre_recipes,
         _random_fourier_pre_recipes, _sir_direction_pre_recipes, _lof_pre_recipes, _mahalanobis_density_pre_recipes, _offset_product_pre_recipes,
-        _oof_warp_pre_recipes, _row_stat_pre_recipes, _fe_budget_ok, _wavelet_pre_recipes,
+        _oof_warp_pre_recipes, _row_stat_pre_recipes, _fe_budget_ok, _wavelet_pre_recipes, _group_distance_elsewhere=_group_distance_elsewhere,
     )
 
     # FAMILY C - RankGauss (rank-Gaussianisation). NOT MI-gated: monotone ->
@@ -137,7 +140,7 @@ def _fe_stage_cascade_mid_b_part1(
     _rare_category_pre_recipes: Any, _conditional_residual_pre_recipes: Any, _conditional_dispersion_pre_recipes: Any,
     _conditional_quantile_rank_pre_recipes: Any, _ordinal_pattern_pre_recipes: Any, _random_fourier_pre_recipes: Any, _sir_direction_pre_recipes: Any,
     _lof_pre_recipes: Any, _mahalanobis_density_pre_recipes: Any, _offset_product_pre_recipes: Any, _oof_warp_pre_recipes: Any, _row_stat_pre_recipes: Any,
-    _fe_budget_ok: Any, _wavelet_pre_recipes: Any,
+    _fe_budget_ok: Any, _wavelet_pre_recipes: Any, _group_distance_elsewhere: bool = False,
 ) -> Any:
     """Extracted block of ``_fe_stage_cascade_mid_b`` (part 1); returns the names the caller still uses."""
     # Layer 95 PART B: per-group distribution-distance. For each
@@ -145,7 +148,8 @@ def _fe_stage_cascade_mid_b_part1(
     # global distribution, broadcast to rows; each survivor MI-gated against the
     # source num_col marginal MI. Routing piggybacks on hybrid_orth_features_.
     X_acc = X  # step-input contract: X is never rebound here; stages read it and their new columns are merged into X_acc
-    X_acc = _fe_merge_new_columns(X_acc, _stage_group_distance(self, _fe_family_on, X, _y_np, _group_distance_pre_recipes, verbose), X)
+    if not _group_distance_elsewhere:
+        X_acc = _fe_merge_new_columns(X_acc, _stage_group_distance(self, _fe_family_on, X, _y_np, _group_distance_pre_recipes, verbose), X)
 
     # Layer 104: THREE new recipe-based FE families.
     # Family D: conditional dispersion / 2nd-moment.

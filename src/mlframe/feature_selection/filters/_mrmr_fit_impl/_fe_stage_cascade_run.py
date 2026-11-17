@@ -18,7 +18,7 @@ import os
 from ._fe_stage_cascade_early_a import _fe_stage_cascade_early_a
 from ._fe_stage_cascade_early_b import _fe_stage_cascade_early_b
 from ._fe_stage_cascade_mid_a import _fe_stage_cascade_mid_a
-from ._fe_stage_cascade_mid_b import _fe_stage_cascade_mid_b
+from ._fe_stage_cascade_mid_b import _fe_stage_cascade_mid_b, _stage_group_distance
 from ._fe_stage_cascade_mid_a import _stage_grouped_quantile
 from ._fe_stage_merge import _fe_merge_new_columns
 from ._fe_stage_concurrency import STAGE_WEIGHTS_WITH_EARLY_A, concurrency_enabled, run_stages_concurrently
@@ -99,9 +99,11 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
             _grouped_delta_pre_recipes=recipes.grouped_delta, _lagged_diff_pre_recipes=recipes.lagged_diff,
         )
         # the grouped-quantile family (formerly the third family of mid_a) shares early_b's slot: mid_a is the longest concurrent cascade and early_b ends 13 s before it
-        return _fe_merge_new_columns(
+        out_b = _fe_merge_new_columns(
             out_b, _stage_grouped_quantile(stage_self, _fe_family_on, _X_step_input, _y_np, _raw_input_cols_pre_fe, recipes.grouped_quantile, verbose), _X_step_input
         )
+        # so does the group-distance family (formerly the first family of mid_b): at 100000 x 100 the cascades ended at 9.4 / 11.4 / 13.3 s, mid_b last
+        return _fe_merge_new_columns(out_b, _stage_group_distance(stage_self, _fe_family_on, _X_step_input, _y_np, recipes.group_distance, verbose), _X_step_input)
 
     def _stage_mid_a(stage_self):
         """Run the mid_a cascade on the given estimator (the real one, or a private copy when the cascades run together)."""
@@ -140,6 +142,7 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
             _row_stat_pre_recipes=recipes.row_stat,
             _wavelet_pre_recipes=recipes.wavelet,
             _rankgauss_pre_recipes=recipes.rankgauss,
+            _group_distance_elsewhere=True,  # run in early_b's slot (``_stage_early_b``)
         )
 
     if concurrency_enabled() and os.environ.get("MLFRAME_FE_STAGE_CONCURRENCY_EARLY_A", "0").strip() == "1":
