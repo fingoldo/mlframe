@@ -6,7 +6,6 @@
     "fe_rung_keep_frac",
     "mrmr_default_screen_n",
     "mrmr_fast_search_screen_n",
-      "shap_proxy_prefilter",
-    "shap_proxy_prefilter_univariate_batch"
+    "shap_proxy_prefilter"
   ]
 }
