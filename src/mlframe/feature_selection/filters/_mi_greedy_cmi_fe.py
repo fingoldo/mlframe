@@ -417,7 +417,7 @@ def _qbin_block_on_device(v: np.ndarray, nbins: int, codes: np.ndarray) -> bool:
         run_column_blocks(cp, int(v.shape[0]), first_block(cp, int(v.shape[1]), int(v.shape[0]), int(v.dtype.itemsize), 8), _block)
         return True
     except Exception as exc:
-        logger.debug("device quantile binning failed (%s: %s); host binner", type(exc).__name__, exc)
+        log_throttle(logger, "mi_greedy_cmi_fe_device_quantile_binning_failed", logging.WARNING, "device quantile binning failed (%s: %s); host binner", type(exc).__name__, exc)
         return False
 
 

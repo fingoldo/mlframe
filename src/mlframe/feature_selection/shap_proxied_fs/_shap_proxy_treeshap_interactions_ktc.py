@@ -12,6 +12,8 @@ from typing import Any
 
 import numpy as np
 
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_ktc import numba_gpu_sweep
+
 logger = logging.getLogger(__name__)
 
 _FEATURES = 30
@@ -64,13 +66,7 @@ def _gpu(ens, X) -> np.ndarray:
     return np.asarray(out[0])
 
 
-def _sweep() -> list:
-    """Time the two kernels per (cells, trees); the device kernel is float32 and the sweep model is scaled so that its error sits under the shared tolerance cap."""
-    from pyutilz.dev.benchmarking import sweep_backend_grid
-
-    return list(
-        sweep_backend_grid({"numba": _numba, "gpu": _gpu}, {"cells": _SWEEP_CELLS, "trees": _SWEEP_TREES}, _sweep_inputs, reference="numba", repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6)
-    )
+_sweep = numba_gpu_sweep(_numba, _gpu, {"cells": _SWEEP_CELLS, "trees": _SWEEP_TREES}, _sweep_inputs)  # per (cells, trees)
 
 
 def _fallback(cells: int, trees: int) -> str:

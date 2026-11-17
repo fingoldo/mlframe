@@ -21,6 +21,8 @@ from typing import Any, Optional
 import numpy as np
 from numba import njit, prange
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -268,7 +270,7 @@ def gate_divergence_device(cp: Any, mat: Any, y: Any, probe_idx: "list[int]", nb
             parts.append(res[len(probe_idx) :])
         return np.asarray(cp.asnumpy(cp.concatenate(parts)), dtype=np.float64)  # Intentional float64: statistic vector
     except Exception as exc:
-        logger.debug("device gate divergence unavailable (%s: %s)", type(exc).__name__, exc)
+        log_throttle(logger, "gate_rank_divergence_device_gate_divergence_unavailable", logging.WARNING, "device gate divergence unavailable (%s: %s)", type(exc).__name__, exc)
         return None
 
 

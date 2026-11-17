@@ -27,7 +27,10 @@ from mlframe._numerical_floors import VARIANCE_FLOOR
 
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
+from ._device_blocks import float64_block_width_of
 from ._raw_module_cache import RawModuleCache
+
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +219,7 @@ def _drops_device(xs: np.ndarray, y: np.ndarray, qs: Sequence[float], min_seg: i
         )
         return np.asarray(cp.asnumpy(out), dtype=np.float64)
     except Exception as exc:
-        logger.debug("hinge precheck: the device form is unavailable (%s: %s)", type(exc).__name__, exc)
+        log_throttle(logger, "hinge_precheck_gpu_hinge_precheck_the_device_form_is_unavailable", logging.WARNING, "hinge precheck: the device form is unavailable (%s: %s)", type(exc).__name__, exc)
         return None
 
 
@@ -295,9 +298,7 @@ def hinge_precheck_on_device(n_rows: int) -> bool:
 _BLOCK_BYTES = 256 * 1024 * 1024
 
 
-def column_block_width(n_rows: int) -> int:
-    """Columns per column block: as many as ``_BLOCK_BYTES`` holds at ``n_rows`` rows of float64 (at least one)."""
-    return max(1, _BLOCK_BYTES // max(1, 8 * int(n_rows)))
+column_block_width = float64_block_width_of(__name__)  # columns per column block: as many as ``_BLOCK_BYTES`` holds at the row count
 
 
 def hinge_precheck_drops(xs: np.ndarray, y: np.ndarray, qs: Sequence[float], min_seg: int, floor_var: float = VARIANCE_FLOOR) -> np.ndarray:

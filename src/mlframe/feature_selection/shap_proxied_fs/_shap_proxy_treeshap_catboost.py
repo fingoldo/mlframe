@@ -34,7 +34,7 @@ def is_nonsymmetric_catboost(est: Any) -> bool:
     """True for a fitted CatBoost model whose trees are not oblivious (the case the native SHAP gets wrong)."""
     try:
         return str(est.get_params().get("grow_policy", "SymmetricTree")) in ("Depthwise", "Lossguide")
-    except Exception:
+    except (AttributeError, TypeError):  # not an estimator with CatBoost's parameter dict
         return False
 
 

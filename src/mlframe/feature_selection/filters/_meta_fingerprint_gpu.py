@@ -22,7 +22,10 @@ from numba import njit, prange
 
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
+from ._device_blocks import float64_block_width_of
 from ._raw_module_cache import RawModuleCache
+
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +134,7 @@ def _moments_device(xs: np.ndarray, yc: Optional[np.ndarray]) -> Optional[np.nda
         ker((k,), (block_size_for(ker, work_items=n),), (cp.asarray(np.ascontiguousarray(xs, dtype=real)), cp.asarray(y), np.int64(n), np.int32(yc is not None), out))
         return np.asarray(cp.asnumpy(out), dtype=np.float64)
     except Exception as exc:
-        logger.debug("meta fingerprint: the device form is unavailable (%s: %s)", type(exc).__name__, exc)
+        log_throttle(logger, "meta_fingerprint_gpu_meta_fingerprint_the_device_form_is_unavailable", logging.WARNING, "meta fingerprint: the device form is unavailable (%s: %s)", type(exc).__name__, exc)
         return None
 
 
@@ -199,9 +202,7 @@ def fingerprint_moments_on_device(n_rows: int) -> bool:
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 
-def column_block_width(n_rows: int) -> int:
-    """Columns per column block: as many as ``_BLOCK_BYTES`` holds at ``n_rows`` rows of float64 (at least one)."""
-    return max(1, _BLOCK_BYTES // max(1, 8 * int(n_rows)))
+column_block_width = float64_block_width_of(__name__)  # columns per column block: as many as ``_BLOCK_BYTES`` holds at the row count
 
 
 def column_moments(xs: np.ndarray, yc: Optional[np.ndarray] = None) -> np.ndarray:

@@ -33,6 +33,8 @@ from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._numba_utils import _fleuret_shuffle_col_lcg
 from ._raw_module_cache import RawModuleCache
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 MAX_SHARED_CELLS = 9_000  # int32 cells of the joint table of one block (36 KB; the 10 KB of reduction scratch and the launch share the 48 KB a block may hold)
@@ -313,7 +315,7 @@ def fleuret_confirm_batch(
             segments = [(int(o), int(w)) for o, w in zip(offs, worker_loads)]
         return _counts_from_gains(gains, n_cand, n_perm, gains_arr, int(max_failed), segments)
     except Exception as exc:
-        logger.debug("device Fleuret confirmation failed (%s: %s); host kernel", type(exc).__name__, exc)
+        log_throttle(logger, "fleuret_confirm_gpu_device_Fleuret_confirmation_failed", logging.WARNING, "device Fleuret confirmation failed (%s: %s); host kernel", type(exc).__name__, exc)
         return None
 
 

@@ -24,6 +24,8 @@ from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._raw_module_cache import RawModuleCache
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # One block row per column (blockIdx.y); the column's edges sit in shared memory, a thread walks the rows with a grid stride and binary-searches them. The column is read coalesced
@@ -160,7 +162,7 @@ def quantile_codes_columns_device(cols: Sequence[np.ndarray], bins: Any) -> Opti
                 o[sel] = got
         return outs
     except Exception as exc:
-        logger.debug("device quantile codes failed (%s: %s); host form", type(exc).__name__, exc)
+        log_throttle(logger, "gain_stats_codes_gpu_device_quantile_codes_failed", logging.WARNING, "device quantile codes failed (%s: %s); host form", type(exc).__name__, exc)
         return None
 
 
@@ -207,7 +209,7 @@ def main_effect_z_device(cols: Sequence[np.ndarray], bins: int, t: np.ndarray, e
             out[c0 : c0 + width] = cp.asnumpy(_main_effect_z(cp, codes, t_dev, ev, od, int(bins), float(base)))
         return out
     except Exception as exc:
-        logger.debug("device main-effect statistics failed (%s: %s); host form", type(exc).__name__, exc)
+        log_throttle(logger, "gain_stats_codes_gpu_device_main_effect_statistics_failed", logging.WARNING, "device main-effect statistics failed (%s: %s); host form", type(exc).__name__, exc)
         return None
 
 

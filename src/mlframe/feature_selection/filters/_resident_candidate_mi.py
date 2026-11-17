@@ -39,6 +39,8 @@ from pyutilz.performance.gpu_hw_launch import block_size_for
 
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import assert_kernel_buffers, crit_float_dtype
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -351,7 +353,7 @@ def best_existing_op_mi_resident_many(
             out.extend(float(np.max(mis[lo:hi])) for lo, hi in spans)
         return out
     except Exception as exc:
-        logger.debug("best_existing_op_mi_resident_many: device route failed (%s); the sets are scored one by one", exc)
+        log_throttle(logger, "resident_candidate_mi_best_existing_op_mi_resident_many_device_route", logging.WARNING, "best_existing_op_mi_resident_many: device route failed (%s); the sets are scored one by one", exc)
         return None
 
 

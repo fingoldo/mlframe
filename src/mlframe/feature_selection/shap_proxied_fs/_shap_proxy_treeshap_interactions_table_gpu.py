@@ -62,7 +62,7 @@ void treeshap_interactions_table(const {REAL}* X, const int n, const int f, cons
                 const int ud = leaf_ud[leaf];
                 if (ud > 0){
                     const int fo = leaf_feat_off[leaf];
-                    const int base = leaf_table_off[leaf] + (mask & ((1 << ud) - 1)) * ud;
+                    const int base = leaf_table_off[leaf] + (mask & ((1 << ud) - 1)) * ud;  // width-ok: a row of the leaf table, below 2^ud * ud for a path of ud <= max_depth features; the offsets are int32 by construction
                     for (int j = 0; j < ud; j++) phi[(long long)leaf_feat[fo + j] * n + i] += table[base + j];
                     if (ud > 1){
                         const long long pbase = leaf_pair_off[leaf];

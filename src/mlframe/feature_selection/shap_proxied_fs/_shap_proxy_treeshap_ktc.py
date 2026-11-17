@@ -60,13 +60,20 @@ def _gpu(ens, X) -> np.ndarray:
     return treeshap_phi_base_gpu(ens, X)[0]
 
 
-def _sweep() -> list:
-    """Time the two kernels per (rows, trees); the device kernel is float32 and the sweep model is scaled so that float32 error sits under the shared tolerance cap."""
-    from pyutilz.dev.benchmarking import sweep_backend_grid
+def numba_gpu_sweep(numba: Any, gpu: Any, axes: dict, inputs: Any) -> Any:
+    """The tuner of a numba-versus-device TreeSHAP kernel pair: times both over ``axes`` on ``inputs(dims)`` and requires the device result to agree with the numba one to 1e-6 (the device
+    kernels are float32 and the sweep models are scaled so that their error sits under that cap)."""
 
-    return list(
-        sweep_backend_grid({"numba": _numba, "gpu": _gpu}, {"n_rows": _SWEEP_ROWS, "trees": _SWEEP_TREES}, _sweep_inputs, reference="numba", repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6)
-    )
+    def _sweep() -> list:
+        """Time the two kernels per point of the axes."""
+        from pyutilz.dev.benchmarking import sweep_backend_grid
+
+        return list(sweep_backend_grid({"numba": numba, "gpu": gpu}, axes, inputs, reference="numba", repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6))
+
+    return _sweep
+
+
+_sweep = numba_gpu_sweep(_numba, _gpu, {"n_rows": _SWEEP_ROWS, "trees": _SWEEP_TREES}, _sweep_inputs)  # per (rows, trees)
 
 
 def _fallback(n_rows: int, trees: int) -> str:

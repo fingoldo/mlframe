@@ -17,6 +17,7 @@ import numpy as np
 
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
+from ._raw_module_cache import code_width_kernel
 
 logger = logging.getLogger(__name__)
 
@@ -105,9 +106,7 @@ def _kernel(cp: Any, narrow: bool) -> Any:
     return _KERNELS[narrow]
 
 
-def kernel(cp: Any, real: Any) -> Any:
-    """``synergy_combo`` for codes of dtype ``real`` (uint8: byte codes, else 32-bit integers); the register-pressure registry compiles it through this."""
-    return _kernel(cp, np.dtype(real) == np.uint8)
+kernel = code_width_kernel(_kernel)  # ``synergy_combo`` for byte or 32-bit codes; the register-pressure registry compiles it through this
 
 
 def combo_mm_mi_gpu(code_cols: Sequence[np.ndarray], combos: Sequence[Sequence[int]], cards: Sequence[int], target: np.ndarray, kt: int) -> np.ndarray:

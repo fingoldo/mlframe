@@ -109,7 +109,9 @@ def _fusion_auto_device(n_rows: int) -> bool:
         from ._fe_gpu_strict import fe_gpu_strict_enabled, fe_gpu_strict_forced
         from ._fe_additive_fusion_ktc import fusion_use_device
 
-        return bool(fe_gpu_strict_enabled()) and (fe_gpu_strict_forced() or fusion_use_device(n_rows))
+        if not fe_gpu_strict_enabled():
+            return False
+        return True if fe_gpu_strict_forced() else bool(fusion_use_device(n_rows))
     except Exception as e:  # nosec B110 - optional dependency import guard
         logger.debug("additive-fusion auto device probe failed: %s", e)
         return False

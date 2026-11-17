@@ -275,3 +275,23 @@ def radix_order_f64(col: np.ndarray) -> np.ndarray:
         va, vb = vb, va
         ra, rb = rb, ra
     return ra
+
+
+@njit(cache=True, nogil=True)
+def _member_pct_ranks_njit(order: np.ndarray, sv: np.ndarray, ranks: np.ndarray) -> None:
+    """Fill ``ranks[order[k]]`` with the average rank of the run of equal values around sorted position ``k``, as the numpy twin below does.
+
+    One pass instead of its eight (concatenate, compare, flatnonzero, diff, two repeats, a fancy assignment), and it releases the GIL so a lane thread does not hold it for every group of
+    every numeric column. The arithmetic is the twin's: the run bounds are integers and ``(lo + hi) / (2.0 * m)`` is one float64 division, so the values are bit-identical.
+    """
+    m = sv.shape[0]
+    denom = 2.0 * m
+    i = 0
+    while i < m:
+        j = i + 1
+        while j < m and sv[j] == sv[i]:
+            j += 1
+        r = (i + j) / denom
+        for k in range(i, j):
+            ranks[order[k]] = r
+        i = j

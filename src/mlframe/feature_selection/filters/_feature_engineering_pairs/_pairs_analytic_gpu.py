@@ -106,7 +106,6 @@ extern "C" __global__
 void analytic_mi_from_hist(const int* __restrict__ hist, const int K, const int Kx, const int Ky, const {ACC} inv_n, {ACC}* __restrict__ mi_out, int* __restrict__ bins_out) {
     const int col = blockIdx.x * blockDim.x + threadIdx.x;
     if (col >= K) return;
-    const int M = Kx * Ky;
     const int* h = hist + col;  // cell-major table: cell s of this column is h[s * K]
     {ACC} mi = 0.0;
     int occupied = 0;

@@ -55,7 +55,7 @@ void treeshap_table(const {REAL}* X, const int n, const int f,
                 const int leaf = leaf_of_node[node];
                 const int ud = leaf_ud[leaf];
                 if (ud > 0){
-                    const int base = leaf_table_off[leaf] + (mask & ((1 << ud) - 1)) * ud;
+                    const int base = leaf_table_off[leaf] + (mask & ((1 << ud) - 1)) * ud;  // width-ok: a row of the leaf table, below 2^ud * ud for a path of ud <= max_depth features; the offsets are int32 by construction
                     const int fo = leaf_feat_off[leaf];
                     // phi is stored (feature, sample): the lanes of a warp stand on the same leaf, so they add to the same feature and consecutive samples, one coalesced transaction
                     for (int j = 0; j < ud; j++) phi[(long long)leaf_feat[fo + j] * n + i] += table[base + j];
@@ -95,7 +95,7 @@ void treeshap_table_preorder(const {REAL}* __restrict__ X, const int n, const in
         if ((r.x >> 9) & 1){   // leaf: add the table entries of the satisfied-feature mask
             const int ud = r.y;
             if (ud > 0){
-                const int base = r.w + (mask & ((1 << ud) - 1)) * ud;
+                const int base = r.w + (mask & ((1 << ud) - 1)) * ud;  // width-ok: a row of the leaf table, below 2^ud * ud for a path of ud <= max_depth features; the offsets are int32 by construction
                 // phi is stored (feature, sample): the lanes of a warp stand on the same leaf, so they add to the same feature and consecutive samples, one coalesced transaction
                 for (int j = 0; j < ud; j++) phi[(long long)leaf_feat[r.z + j] * n + i] += table[base + j];
             }

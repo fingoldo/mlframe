@@ -16,6 +16,7 @@ import numpy as np
 
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
+from ._raw_module_cache import code_width_kernel
 
 logger = logging.getLogger(__name__)
 
@@ -126,9 +127,7 @@ def _kernel(cp: Any, narrow: bool) -> Any:
     return _KERNELS[narrow]
 
 
-def kernel(cp: Any, real: Any) -> Any:
-    """``relaxmrmr_pair`` for codes of dtype ``real`` (uint8: byte codes, else 32-bit integers); the register-pressure registry compiles it through this."""
-    return _kernel(cp, np.dtype(real) == np.uint8)
+kernel = code_width_kernel(_kernel)  # ``relaxmrmr_pair`` for byte or 32-bit codes; the register-pressure registry compiles it through this
 
 
 def _cells(k_x: int, k_y: int, k_sel: np.ndarray, pi: np.ndarray, pj: np.ndarray) -> np.ndarray:

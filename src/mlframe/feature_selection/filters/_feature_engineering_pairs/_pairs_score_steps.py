@@ -184,7 +184,7 @@ def _batched_abs_corr(chunk_state, transformed_vars, buf_cols, y, y_finite):
             out.extend(abs_corr_finite_batch_gpu(cm if cm is not None else cp.ascontiguousarray(rm.T), y, y_finite))
         return out
     except Exception as e:
-        logger.debug("batched device |corr| failed, caller runs it per column: %s", e)
+        log_throttle(logger, "pairs_score_steps_batched_device_corr_failed", logging.WARNING, "batched device |corr| failed, caller runs it per column: %s", e)
         return None
 
 

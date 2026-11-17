@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import threading
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
+
+import numpy as np
 
 
 class RawModuleCache:
@@ -36,3 +38,14 @@ class RawModuleCache:
                 mod = cp.RawModule(code=self._src, options=options)
                 self._modules[d] = mod
             return mod
+
+
+def code_width_kernel(narrow_kernel: "Callable[[Any, bool], Any]") -> "Callable[[Any, Any], Any]":
+    """The ``kernel(cp, real)`` factory the register-pressure registry compiles, for a module whose kernel exists in a byte-code and a 32-bit-code form: ``narrow_kernel(cp, narrow)``
+    returns the compiled kernel, ``narrow`` being whether the codes are bytes."""
+
+    def kernel(cp: Any, real: Any) -> Any:
+        """The module's kernel for codes of dtype ``real`` (uint8: byte codes, else 32-bit integers)."""
+        return narrow_kernel(cp, np.dtype(real) == np.uint8)
+
+    return kernel

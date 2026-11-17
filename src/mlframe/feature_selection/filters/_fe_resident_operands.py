@@ -336,7 +336,8 @@ def assemble_resident_matrix(host: "_np.ndarray | None", names: Sequence[str] | 
     if host is None:
         from ._fe_frame_ops import fe_stack_columns
 
-        host = fe_stack_columns(list(columns or []), dtype if dtype is not None else np.result_type(*(columns or [np.zeros(0)])))
+        given = [] if columns is None else list(columns)
+        host = fe_stack_columns(given, dtype if dtype is not None else np.result_type(*(given if given else [np.zeros(0)])))
     host = np.asarray(host)
     if dtype is not None:
         host = host.astype(dtype, copy=False)

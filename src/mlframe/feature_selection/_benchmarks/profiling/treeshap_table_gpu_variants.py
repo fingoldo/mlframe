@@ -35,7 +35,7 @@ void treeshap_table(const float* X, const int n, const int f, const int4* nodes,
             if (a.x < 0){
                 const int ud = b.x;
                 if (ud > 0){
-                    const int base = b.z + (mask & ((1 << ud) - 1)) * ud;
+                    const int base = b.z + (mask & ((1 << ud) - 1)) * ud;  // width-ok: a row of the leaf table, below 2^ud * ud for a path of ud <= max_depth features; the offsets are int32 by construction
                     for (int j = 0; j < ud; j++) phi[(long long)leaf_feat[b.y + j] * n + i] += table[base + j];
                 }
                 continue;
@@ -86,7 +86,7 @@ void treeshap_table(const float* X, const int n, const int f, const int4* rec, c
         if ((r.x >> 9) & 1){
             const int ud = r.y;
             if (ud > 0){
-                const int base = r.w + (mask & ((1 << ud) - 1)) * ud;
+                const int base = r.w + (mask & ((1 << ud) - 1)) * ud;  // width-ok: a row of the leaf table, below 2^ud * ud for a path of ud <= max_depth features; the offsets are int32 by construction
                 for (int j = 0; j < ud; j++) phi[(long long)leaf_feat[r.z + j] * n + i] += table[base + j];
             }
             continue;

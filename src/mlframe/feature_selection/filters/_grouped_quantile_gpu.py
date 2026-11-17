@@ -22,11 +22,14 @@ from typing import Any, Optional
 
 import numpy as np
 
-from ._grouped_quantile_ranks import _member_pct_ranks_njit, _sorted_linear_quantiles
+from ._grouped_quantile_ranks import _sorted_linear_quantiles
+from ._numba_utils_shared import _member_pct_ranks_njit
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._numba_utils_shared import radix_order_f64
 from ._raw_module_cache import RawModuleCache
+
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -173,7 +176,7 @@ def _stats_device(xs: np.ndarray, codes: np.ndarray, n_groups: int) -> Optional[
             del xd, bits, mono, order, sv, out, iq, pp
         return {"pct": pct, "sorted": srt, "seg": seg, "iqr": iqr, "p90p10": p90p10}
     except Exception as exc:
-        logger.debug("grouped quantile: the device form is unavailable (%s: %s)", type(exc).__name__, exc)
+        log_throttle(logger, "grouped_quantile_gpu_grouped_quantile_the_device_form_is_unavailable", logging.WARNING, "grouped quantile: the device form is unavailable (%s: %s)", type(exc).__name__, exc)
         return None
 
 
