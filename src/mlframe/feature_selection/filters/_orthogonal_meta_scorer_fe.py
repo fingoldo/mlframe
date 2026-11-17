@@ -177,13 +177,22 @@ def _distinct_counts_f32(cols_rows: np.ndarray, out: np.ndarray) -> None:
 
 def _mean_distinct(X_num: pd.DataFrame, num_cols: list, n: int) -> float:
     """Mean over the columns of ``min(nunique(dropna=True), n)``; all-finite float32 frames count on a parallel radix pass, everything else through pandas."""
-    if _VECTORISED and num_cols and all(X_num[c].dtype == np.float32 for c in num_cols):
-        rows = np.ascontiguousarray(X_num[num_cols].to_numpy().T)
-        if np.isfinite(rows).all():
+    if _VECTORISED and num_cols:
+        # per column: an all-finite float32 column is counted by the radix kernel, any other one by pandas (one float64 or NaN column used to send every column to pandas)
+        fast = [c for c in num_cols if X_num[c].dtype == np.float32]
+        if fast:
+            rows = np.ascontiguousarray(X_num[fast].to_numpy().T)
+            finite = np.isfinite(rows).all(axis=1)
+            if not finite.all():
+                fast = [c for c, ok in zip(fast, finite) if ok]
+                rows = np.ascontiguousarray(rows[finite])
+        if fast:
             counts = np.empty(rows.shape[0], dtype=np.int64)
             with parallel_kernel_entry():
                 _distinct_counts_f32(rows, counts)
-            return float(np.mean(np.minimum(counts, n)))
+            taken = set(fast)
+            slow = [min(int(X_num[c].nunique(dropna=True)), n) for c in num_cols if c not in taken]
+            return float(np.mean(np.concatenate([np.minimum(counts, n), np.asarray(slow, dtype=np.int64)])))
     return float(np.mean([min(int(X_num[c].nunique(dropna=True)), n) for c in num_cols]))
 
 
@@ -208,16 +217,20 @@ def _pearson_columns(A: np.ndarray, b: np.ndarray) -> np.ndarray:
     return np.where(den > 0.0, r, np.nan)
 
 
-def _dcor_proxy_vectorised(X_sub: pd.DataFrame, y_sub: np.ndarray, num_cols: list) -> float:
-    """:func:`_dcor_proxy`'s statistic for an all-finite subsample: Spearman is the Pearson r of the average ranks, the symmetric proxy is the Pearson r of ``|x - mean(x)|``."""
+def _dcor_proxy_columns(A: np.ndarray, y_sub: np.ndarray) -> np.ndarray:
+    """Per column of the all-finite ``A``: ``max(|Spearman|, |Pearson(|x - mean(x)|, y)|)`` (the finite ones only). Spearman is the Pearson r of the average ranks."""
     from scipy.stats import rankdata
 
-    # Intentional float64: correlation sums run in double precision
-    A = np.asarray(X_sub[num_cols].to_numpy(dtype=np.float64))
     r_sp = _pearson_columns(rankdata(A, axis=0), rankdata(y_sub))
     r_sym = _pearson_columns(np.abs(A - A.mean(axis=0)), y_sub)
     best = np.fmax(np.where(np.isfinite(r_sp), np.abs(r_sp), np.nan), np.where(np.isfinite(r_sym), np.abs(r_sym), np.nan))
-    best = best[np.isfinite(best)]
+    return np.asarray(best[np.isfinite(best)])
+
+
+def _dcor_proxy_vectorised(X_sub: pd.DataFrame, y_sub: np.ndarray, num_cols: list) -> float:
+    """:func:`_dcor_proxy`'s statistic for an all-finite subsample."""
+    # Intentional float64: correlation sums run in double precision
+    best = _dcor_proxy_columns(np.asarray(X_sub[num_cols].to_numpy(dtype=np.float64)), y_sub)
     return float(np.mean(best)) if best.size else 0.0
 
 
@@ -247,13 +260,19 @@ def _dcor_proxy(X_num: pd.DataFrame, num_cols: list, y_arr: np.ndarray, n: int, 
                 idx = np.arange(n)
             X_sub = X_num.iloc[idx]
             y_sub = pd.Series(y_arr[idx], index=X_sub.index)
+            sps = []
+            loop_cols = num_cols
             if _VECTORISED and num_cols:
                 # Intentional float64: correlation sums run in double precision
                 y_vals = np.asarray(y_sub.to_numpy(dtype=np.float64))
-                if np.isfinite(y_vals).all() and np.isfinite(X_sub[num_cols].to_numpy(dtype=np.float64)).all():
-                    return _dcor_proxy_vectorised(X_sub, y_vals, num_cols)
-            sps = []
-            for c in num_cols:
+                if np.isfinite(y_vals).all():
+                    # the all-finite columns in one matrix pass, a column with a missing value in the per-column loop below (one such column used to send all of them there)
+                    A = np.asarray(X_sub[num_cols].to_numpy(dtype=np.float64))  # Intentional float64: correlation sums run in double precision
+                    finite = np.isfinite(A).all(axis=0)
+                    if finite.any():
+                        sps.extend(_dcor_proxy_columns(A if finite.all() else np.ascontiguousarray(A[:, finite]), y_vals).tolist())
+                        loop_cols = [c for c, ok in zip(num_cols, finite) if not ok]
+            for c in loop_cols:
                 col_vals = X_sub[c]
                 try:
                     r_sp = float(col_vals.corr(y_sub, method="spearman"))
@@ -321,18 +340,27 @@ def _mean_abs_skew_and_kurtosis(X_num: pd.DataFrame) -> tuple[float, float]:
     if _VECTORISED and X_num.shape[1] > 0 and X_num.shape[0] > 3:
         # Intentional float64: moment sums run in double precision
         A = np.asarray(X_num.to_numpy(dtype=np.float64)) if all(pd.api.types.is_numeric_dtype(t) for t in X_num.dtypes) else None
-        if A is not None and np.isfinite(A).all():
+        finite = np.isfinite(A).all(axis=0) if A is not None else None
+        if finite is not None and finite.any():
             n = A.shape[0]
-            # the central moments of every column from one two-pass kernel (numba or CUDA per the kernel-tuning cache) instead of four (n, K) temporaries
-            mom = column_moments(np.ascontiguousarray(A.T))
+            # the central moments of every all-finite column from one two-pass kernel (numba or CUDA per the kernel-tuning cache) instead of four (n, K) temporaries;
+            # a column with a missing value or a near-constant one is left to pandas (one such column used to send every column there)
+            mom = column_moments(np.ascontiguousarray((A if finite.all() else A[:, finite]).T))
             col_mean, m2, m3, m4 = mom[:, 0], mom[:, 1], mom[:, 2], mom[:, 3]
             flat = m2 == 0.0
-            if not np.any((m2 > 0.0) & (m2 < 1e-12 * (1.0 + col_mean**2))):  # a near-constant column is left to pandas' own guard
-                with np.errstate(all="ignore"):
-                    sk = np.where(flat, 0.0, m3 / m2**1.5 * np.sqrt(n * (n - 1.0)) / (n - 2.0))  # the bias-corrected G1 / G2 of pandas; a constant column is 0.0 there
-                    ku = np.where(flat, 0.0, (n - 1.0) / ((n - 2.0) * (n - 3.0)) * ((n + 1.0) * m4 / m2**2 - 3.0 * (n - 1.0)))
-                sk, ku = sk[np.isfinite(sk)], ku[np.isfinite(ku)]
-                return (float(np.abs(sk).mean()) if sk.size else 0.0), (float(ku.mean()) if ku.size else 0.0)
+            near = (m2 > 0.0) & (m2 < 1e-12 * (1.0 + col_mean**2))  # a near-constant column is left to pandas' own guard
+            with np.errstate(all="ignore"):
+                sk = np.where(flat, 0.0, m3 / m2**1.5 * np.sqrt(n * (n - 1.0)) / (n - 2.0))  # the bias-corrected G1 / G2 of pandas; a constant column is 0.0 there
+                ku = np.where(flat, 0.0, (n - 1.0) / ((n - 2.0) * (n - 3.0)) * ((n + 1.0) * m4 / m2**2 - 3.0 * (n - 1.0)))
+            sk, ku = sk[~near], ku[~near]
+            by_pandas = np.ones(A.shape[1], dtype=np.bool_)
+            by_pandas[np.flatnonzero(finite)[~near]] = False
+            if by_pandas.any():
+                rest = X_num.iloc[:, np.flatnonzero(by_pandas)]
+                sk = np.concatenate([sk, np.asarray(rest.skew(axis=0, numeric_only=True), dtype=np.float64)])  # Intentional float64: moment statistics
+                ku = np.concatenate([ku, np.asarray(rest.kurt(axis=0, numeric_only=True), dtype=np.float64)])  # Intentional float64: moment statistics
+            sk, ku = sk[np.isfinite(sk)], ku[np.isfinite(ku)]
+            return (float(np.abs(sk).mean()) if sk.size else 0.0), (float(ku.mean()) if ku.size else 0.0)
     try:
         skews = X_num.skew(axis=0, numeric_only=True)
         mean_abs_skew = float(skews.abs().replace([np.inf, -np.inf], np.nan).dropna().mean()) if len(skews) else 0.0
@@ -355,16 +383,20 @@ def _mean_abs_pearson(X_num: pd.DataFrame, num_cols: list, y_arr: np.ndarray) ->
     try:
         y_series = pd.Series(y_arr, index=X_num.index)
         pears = []
+        loop_cols = num_cols
         if y_series.nunique(dropna=True) >= 2:
             if _VECTORISED and num_cols:
                 # Intentional float64: correlation sums run in double precision
                 y_vals = np.asarray(y_series.to_numpy(dtype=np.float64))
                 A = np.asarray(X_num[num_cols].to_numpy(dtype=np.float64))
-                if np.isfinite(y_vals).all() and np.isfinite(A).all():
-                    r_all = _pearson_from_moments(A, y_vals)
-                    r_all = r_all[np.isfinite(r_all)]
-                    return float(np.mean(np.abs(r_all))) if r_all.size else 0.0
-            for c in num_cols:
+                if np.isfinite(y_vals).all():
+                    # the all-finite columns from the moment kernel, a column with a missing value through pandas below
+                    finite = np.isfinite(A).all(axis=0)
+                    if finite.any():
+                        r_all = _pearson_from_moments(A if finite.all() else np.ascontiguousarray(A[:, finite]), y_vals)
+                        pears.extend(np.abs(r_all[np.isfinite(r_all)]).tolist())
+                        loop_cols = [c for c, ok in zip(num_cols, finite) if not ok]
+            for c in loop_cols:
                 try:
                     r = float(X_num[c].corr(y_series, method="pearson"))
                 except _NUMERIC_ERRORS as exc:

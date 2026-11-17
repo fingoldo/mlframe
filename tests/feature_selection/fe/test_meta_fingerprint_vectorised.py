@@ -33,3 +33,22 @@ def test_fingerprint_equals_the_loop(n, nan, monkeypatch):
     assert set(got) == set(want)
     for k, v in want.items():
         assert got[k] == pytest.approx(v, rel=1e-6, abs=1e-8), k  # pandas accumulates float32 columns in float32; the vectorised pass is the more accurate in double
+
+
+def test_only_the_column_with_a_missing_value_takes_the_pandas_loops(monkeypatch):
+    """One NaN among eight columns: the per-column pandas correlations run for that column alone (at most 3 calls: Spearman, symmetric Pearson, Pearson), the other columns go through the matrix pass."""
+    X, y = _frame(5000, 0, nan=True)
+    X = X.astype({c: np.float32 for c in X.columns if c != "x1"})
+    calls = []
+    real = pd.Series.corr
+
+    def spy(self, other, method="pearson", min_periods=None):
+        """Record which correlations pandas is asked for."""
+        calls.append(method)
+        return real(self, other, method=method, min_periods=min_periods)
+
+    monkeypatch.setattr(pd.Series, "corr", spy)
+    monkeypatch.setattr(meta, "_VECTORISED", True)
+    meta.fingerprint_signal(X, y)
+    # the NaN row may fall outside the dependence proxy's row subsample, in which case that statistic needs no pandas call at all
+    assert "pearson" in calls and len(calls) <= 3, calls
