@@ -30,13 +30,13 @@ _PHI_CHUNK_BYTES = 256 * 1024 * 1024  # bytes of the (P*P, rows) device accumula
 
 _KERNEL_SRC = r"""
 extern "C" __global__
-void treeshap_interactions_table(const float* X, const int n, const int f, const int P,
-                    const int* cl, const int* cr, const int* cd, const int* feat, const float* thr,
+void treeshap_interactions_table(const {REAL}* X, const int n, const int f, const int P,
+                    const int* cl, const int* cr, const int* cd, const int* feat, const {REAL}* thr,
                     const int* node_slot, const int* leaf_of_node,
                     const int* leaf_ud, const int* leaf_feat_off, const int* leaf_feat, const int* leaf_table_off,
                     const {REAL}* table, const {REAL}* leaf_zero, const long long* leaf_pair_off, const {REAL}* pair_table,
                     const int* roots, const int n_trees, {REAL}* phi, {REAL}* pairs){
-    // X is feature-major (f, n): the lanes of a warp (consecutive samples) read consecutive floats of one feature row, one coalesced transaction per node
+    // X is feature-major (f, n): the lanes of a warp (consecutive samples) read consecutive values of one feature row, one coalesced transaction per node
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i >= n) return;
 #if STACK_SHARED
@@ -80,7 +80,7 @@ void treeshap_interactions_table(const float* X, const int n, const int f, const
                 }
                 continue;
             }
-            const float xv = X[(long long)feat[node] * n + i];
+            const {REAL} xv = X[(long long)feat[node] * n + i];
             int hot;
             if (isnan(xv)) hot = cd[node];
             else if (xv < thr[node]) hot = left;
@@ -168,7 +168,7 @@ def interaction_tensor_table_gpu(ensemble: "TreeEnsemble", X: np.ndarray) -> Opt
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table import build_tables
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table_gpu import _block_size, _maxsp, _real, _stack_shared
 
-    Xf = np.ascontiguousarray(np.asarray(X, dtype=np.float32))
+    Xf = ensemble.as_float32(X)  # the LightGBM zero-threshold convention, as in every other kernel
     n, f = Xf.shape
     P = int(ensemble.n_features)
     if f != P:
@@ -184,7 +184,7 @@ def interaction_tensor_table_gpu(ensemble: "TreeEnsemble", X: np.ndarray) -> Opt
     kern = _ensure_kernel(ensemble.max_depth, real, shared)
     i32 = np.int32
     consts: tuple[Any, ...] = (
-        cp.asarray(ensemble.children_left), cp.asarray(ensemble.children_right), cp.asarray(ensemble.children_default), cp.asarray(ensemble.features), cp.asarray(ensemble.thresholds),
+        cp.asarray(ensemble.children_left), cp.asarray(ensemble.children_right), cp.asarray(ensemble.children_default), cp.asarray(ensemble.features), cp.asarray(ensemble.thresholds.astype(real, copy=False)),
         cp.asarray(tab["node_slot"].astype(i32)), cp.asarray(tab["leaf_of_node"].astype(i32)),
         cp.asarray(tab["leaf_ud"].astype(i32)), cp.asarray(tab["leaf_feat_off"].astype(i32)), cp.asarray(tab["leaf_feat"].astype(i32)), cp.asarray(tab["leaf_table_off"].astype(i32)),
         cp.asarray(tab["table"].astype(real)), cp.asarray(tab["leaf_zero"].astype(real)), cp.asarray(tab["leaf_pair_off"]), cp.asarray(tab["pair_table"].astype(real)),
@@ -192,14 +192,14 @@ def interaction_tensor_table_gpu(ensemble: "TreeEnsemble", X: np.ndarray) -> Opt
     )
     block = _block_size(ensemble.max_depth) if shared else min(_block_size(), 1024)
     item = np.dtype(real).itemsize
-    chunk = max(block, min(n, _PHI_CHUNK_BYTES // max(P * P * item, 1)))
+    chunk = max(block, min(n, _PHI_CHUNK_BYTES // max(P * P * item, 1)))  # rows per row block: the (P, P, rows) pair tensor of a block stays within _PHI_CHUNK_BYTES
     Phi = np.empty((n, P, P), dtype=np.float64)  # Intentional float64: the caller's tensor contract
     phi_out = np.empty((n, P), dtype=np.float64)  # Intentional float64: the caller's phi contract
     idx = cp.arange(P)
     for s in range(0, n, chunk):
         e = min(n, s + chunk)
         m = e - s
-        X_d = cp.ascontiguousarray(cp.asarray(Xf[s:e]).T)  # feature-major (f, m): the node reads of a warp coalesce
+        X_d = cp.ascontiguousarray(cp.asarray(Xf[s:e].astype(real, copy=False)).T)  # row block of feature-major X (f, m): the node reads of a warp coalesce
         phi_d = cp.zeros((P, m), dtype=real)  # (feature, sample): coalesced adds
         pairs_d = cp.zeros((P, P, m), dtype=real)  # (row feature, conditioned feature, sample)
         kern(((m + block - 1) // block,), (block,), (X_d, i32(m), i32(f), i32(P), *consts, phi_d, pairs_d), shared_mem=8 * _maxsp(ensemble.max_depth) * block if shared else 0)

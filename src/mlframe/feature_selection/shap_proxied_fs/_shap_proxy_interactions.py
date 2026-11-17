@@ -40,18 +40,10 @@ logger = logging.getLogger(__name__)
 # every width from P=10 (~1.5x) upward, so the interaction crossover is far LOWER than the main-effect
 # one (the shap interaction call is much heavier than its main-effect call). We keep a small floor so
 # the numba JIT warmup is not paid on trivial widths.
-# TODO(per-host thresholds): measure this threshold per machine like ``_shap_proxy_score_margin_ktc`` does for the score dispatch. A sweep would train small XGBoost/LightGBM
-# models of growing width (and rows), time the ``shap`` library against the interaction numba kernel and the GPU kernel on each, register the result as a ``kernel_tuner`` entry and read it here with
-# the constant as the fallback. Deferred: the selector is off the MRMR fit path and the hand-calibrated constants work.
 _INTERACTION_NUMBA_MIN_FEATURES = 8
 
-# Min problem size (rows * P^2 interaction-tensor cells) at which the cupy/CUDA interaction kernel is
-# preferred over numba on a CUDA box. The GPU kernel carries large per-thread local-memory scratch (it
-# spills on small GPUs) so it only pays off once the per-sample tree*cond_feat work amortises the
-# upload + spill; below this we stay on numba (no JIT/launch overhead win). A fixed, hand-calibrated floor.
-# TODO(per-host thresholds): measure this threshold per machine like ``_shap_proxy_score_margin_ktc`` does for the score dispatch. A sweep would train small XGBoost/LightGBM
-# models of growing width (and rows), time the ``shap`` library against the interaction numba kernel and the GPU kernel on each, register the result as a ``kernel_tuner`` entry and read it here with
-# the constant as the fallback. Deferred: the selector is off the MRMR fit path and the hand-calibrated constants work.
+# The device-or-host choice of the interaction tensor is the kernel_tuner entry ``shap_proxy_treeshap_interactions_backend`` (``_shap_proxy_treeshap_interactions_ktc``); this constant is the
+# hand-calibrated floor the dispatcher used before it, kept for the routing tests and as documentation of the old rule.
 _INTERACTION_GPU_MIN_CELLS = 3_000 * 40 * 40  # ~4.8M cells (e.g. 3000 rows x P=40)
 
 
@@ -61,8 +53,15 @@ def _interaction_numba_min_features() -> int:
 
 
 def _interaction_gpu_min_cells() -> int:
-    """Minimum ``n * P^2`` that routes the interaction tensor to the GPU kernel (a hand-calibrated floor; no per-host cache entry exists or is read)."""
+    """The old hand-calibrated floor of ``n * P^2`` for the GPU kernel; the live choice is :func:`_interaction_gpu_pays`."""
     return _INTERACTION_GPU_MIN_CELLS
+
+
+def _interaction_gpu_pays(n_rows: int, n_features: int, trees: int) -> bool:
+    """Whether the device pair-table kernel beats the host one for this tensor: the per-host kernel-tuning entry, else its measured floor."""
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_ktc import use_gpu
+
+    return use_gpu(int(n_rows) * int(n_features) * int(n_features), trees)
 
 
 def _broadcast_base(base, n: int) -> np.ndarray:
@@ -147,6 +146,7 @@ def compute_interaction_tensor(
     elif backend == "treeshap_numba":
         use_numba = True
     elif backend == "auto":
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _n_trees
         from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import is_supported_lightgbm, is_supported_xgboost
 
         base_est = _unwrap_estimator(est)
@@ -166,7 +166,7 @@ def compute_interaction_tensor(
             try:
                 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_gpu import gpu_interactions_available
 
-                if gpu_interactions_available() and X.shape[0] * P * P >= _interaction_gpu_min_cells():
+                if gpu_interactions_available() and _interaction_gpu_pays(X.shape[0], P, _n_trees(base_est)):
                     use_gpu = True
             except Exception as e:  # nosec B110 - optional dependency import guard
                 logger.debug("gpu_interactions_available() check failed, defaulting to non-GPU: %s", e)

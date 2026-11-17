@@ -151,7 +151,7 @@ def test_compute_interaction_tensor_routes_to_gpu_on_large_problem():
     y = ((X["f0"] > 0) ^ (X["f1"] > 0)).astype(int).to_numpy()
     tmpl = make_default_estimator(classification=True, n_estimators=30)
 
-    # Force the routing threshold low enough that this problem selects the GPU path, and confirm the
+    # Force the tuner's answer to the device so this problem selects the GPU path, and confirm the
     # GPU helper is the one invoked (not numba / shap).
     called = {"gpu": 0}
     orig_gpu = mod._interaction_tensor_gpu
@@ -162,7 +162,7 @@ def test_compute_interaction_tensor_routes_to_gpu_on_large_problem():
         return orig_gpu(*a, **k)
 
     mono = pytest.MonkeyPatch()
-    mono.setattr(mod, "_interaction_gpu_min_cells", lambda: 0)
+    mono.setattr(mod, "_interaction_gpu_pays", lambda n, p, t: True)
     mono.setattr(mod, "_interaction_tensor_gpu", _spy)
     try:
         Phi, _base = compute_interaction_tensor(tmpl, X, y, classification=True, rng=np.random.default_rng(0), backend="auto")
@@ -282,3 +282,16 @@ def test_gpu_interaction_falls_back_to_path_kernel_when_pair_table_too_big(monke
     Phi, phi, _ = interaction_tensor_gpu(ens, X)
     np.testing.assert_allclose(Phi, ref[0], rtol=0, atol=1e-4)
     np.testing.assert_allclose(phi, ref[1], rtol=0, atol=1e-4)
+
+
+def test_interaction_backend_choice_follows_the_tuner_entry(monkeypatch):
+    """The device-or-host choice asks the ``shap_proxy_treeshap_interactions_backend`` entry with cells = rows x features^2 and the tree count; its fallback floor sits between the measured crossover points."""
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_interactions as mod
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_treeshap_interactions_ktc as ktc
+
+    assert ktc._SPEC is not None and set(ktc._SPEC.axes) == {"cells", "trees"}
+    assert ktc._fallback(900_000, 100) == "numba" and ktc._fallback(3_600_000, 100) == "gpu"
+    seen = []
+    monkeypatch.setattr(ktc, "use_gpu", lambda cells, trees: (seen.append((cells, trees)), True)[1])
+    assert mod._interaction_gpu_pays(800, 20, 30) is True
+    assert seen == [(800 * 20 * 20, 30)]
