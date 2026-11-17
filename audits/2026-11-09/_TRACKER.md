@@ -874,3 +874,8 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 - Timeline at 48.3 s: early_a 14.7, section 2 13.4, accuracy gate 0.4, cross-stage dedup 1.1, discretise 1.6, FDR floor 2.6, screen subsets 0.8, pair step 6.1, second screen 1.1, cluster hierarchy 0.6, assign_support 2.2.
 - Tried: `start_discretization_warmup` a second time after the cascades, so the engineered columns' edge search overlaps the gate and the dedup. Discretise 1.6 -> 1.1 s, but the dedup scan 1.1 -> 2.1 s (same cores and edge pool); wall 48.4 / 49.2 s. Reverted.
 - Honest-null warm-up on the raw columns during the cascades (MR11-08 candidate): the screen's evaluation rows are drawn from the binned target codes and cached per fit by whichever consumer asks first, and the fixed columns read the final code matrix; a warm-up would have to reproduce both before the discretisation exists. Left open, not attempted.
+
+### MR11-12 occupancy check after MR11-05..10 (2026-11-17)
+- `utilization 100000 100` (STRICT set, wait-cool 70 C): wall 49.8 s, CPU busy 58.4 % of all cores, GPU busy 18.8 %, card under 10 % in 43 % of the samples, never both idle. GPU 70 C before, mean 75 C, max 84 C, SM clock 1704/1911 MHz, no throttle; CPU 2808 MHz.
+- Background during the run: two VS Code processes at about 20 % of all cores together and an open Task Manager; the same harness without the sampler gave 47.6-48.4 s in this session.
+- Against the morning baseline (54.1 s, CPU 41.7 %, GPU 17.2 %): wall -4.3 s; GPU occupancy unchanged, which is the open problem (the cascades hold the interpreter lock, the card waits).
