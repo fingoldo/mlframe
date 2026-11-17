@@ -869,3 +869,8 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 - Three recurring sites now pass every argument: `evaluate_gain` in `_conditional_gain_step` (929 calls), `merge_vars` + `entropy` in `_warm_marginal_entropies` (376 each), `merge_vars` in `_conditioning_rows_per_cell` (113). Slow dispatches 1829 -> 35 (the rest are first-call cache loads), 0.77 -> 0.37 s.
 - Wall 47.6 / 47.8 s, the same seven features. Day total: 50.8-51.1 -> 47.6-47.8 s.
 - Upstream: worth a numba issue with the two-function reproducer (not filed; needs the owner's go-ahead).
+
+### MR11-11 dropped lead: second discretisation warm-up beside the gate and the cross-stage dedup (2026-11-17)
+- Timeline at 48.3 s: early_a 14.7, section 2 13.4, accuracy gate 0.4, cross-stage dedup 1.1, discretise 1.6, FDR floor 2.6, screen subsets 0.8, pair step 6.1, second screen 1.1, cluster hierarchy 0.6, assign_support 2.2.
+- Tried: `start_discretization_warmup` a second time after the cascades, so the engineered columns' edge search overlaps the gate and the dedup. Discretise 1.6 -> 1.1 s, but the dedup scan 1.1 -> 2.1 s (same cores and edge pool); wall 48.4 / 49.2 s. Reverted.
+- Honest-null warm-up on the raw columns during the cascades (MR11-08 candidate): the screen's evaluation rows are drawn from the binned target codes and cached per fit by whichever consumer asks first, and the fixed columns read the final code matrix; a warm-up would have to reproduce both before the discretisation exists. Left open, not attempted.
