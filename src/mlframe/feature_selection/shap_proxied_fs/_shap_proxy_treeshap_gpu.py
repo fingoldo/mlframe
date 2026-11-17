@@ -44,7 +44,7 @@ def _cuda_demote_errors():
     return excs
 
 
-_TREESHAP_KERNELS: dict[int, Any] = {}
+_TREESHAP_KERNELS: dict[tuple[int, str], Any] = {}
 _KERNEL_INIT_LOCK = multiprocessing.Lock()
 
 # Max tree depth the local-memory scratch supports without spilling to slow global memory.

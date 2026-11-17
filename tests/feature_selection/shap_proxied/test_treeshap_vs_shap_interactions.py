@@ -126,10 +126,11 @@ def test_unsupported_models_have_no_ensemble():
 
 @pytest.mark.skipif(not gpu_available(), reason="no CUDA device / cupy unavailable")
 @pytest.mark.parametrize("name,kind", CASES)
-def test_gpu_interactions_equal_cpu_and_shap(name, kind):
-    """The device interaction tensor equals the numba one and shap, with symmetry and row sums."""
+def test_gpu_interactions_equal_cpu_and_shap(name, kind, monkeypatch):
+    """The device interaction tensor in its exact double mode equals the numba one and shap, with symmetry and row sums."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_gpu import interaction_tensor_gpu
 
+    monkeypatch.setenv("MLFRAME_SHAP_TREESHAP_REAL", "float64")
     m, X = _case(name, kind)
     ens = ts.extract_ensemble(m)
     Phi, phi, _ = interaction_tensor_gpu(ens, X)
@@ -141,11 +142,28 @@ def test_gpu_interactions_equal_cpu_and_shap(name, kind):
 
 
 @pytest.mark.skipif(not gpu_available(), reason="no CUDA device / cupy unavailable")
-def test_gpu_interactions_with_nan_rows():
-    """NaN rows on the device."""
+def test_gpu_interactions_with_nan_rows(monkeypatch):
+    """NaN rows on the device, exact double mode."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_gpu import interaction_tensor_gpu
 
+    monkeypatch.setenv("MLFRAME_SHAP_TREESHAP_REAL", "float64")
     m, X = _nan_trained_case("lgb")
     X[::3, 1] = np.nan
     ens = ts.extract_ensemble(m)
     np.testing.assert_allclose(interaction_tensor_gpu(ens, X)[0], shap_interactions_ref(m, X), rtol=0, atol=1e-9)
+
+
+@pytest.mark.skipif(not gpu_available(), reason="no CUDA device / cupy unavailable")
+@pytest.mark.parametrize("name,kind", CASES)
+def test_gpu_interactions_default_float32_stays_within_float32_error(name, kind, monkeypatch):
+    """The default device mode works in float32: within 1e-4 of shap, still exactly symmetric, and the same strongest pair per row block."""
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_gpu import interaction_tensor_gpu
+
+    monkeypatch.delenv("MLFRAME_SHAP_TREESHAP_REAL", raising=False)
+    m, X = _case(name, kind)
+    Phi, _phi, _ = interaction_tensor_gpu(ts.extract_ensemble(m), X)
+    ref = _ref(m, X, name)
+    np.testing.assert_allclose(Phi, ref, rtol=0, atol=1e-4)
+    assert np.array_equal(Phi, Phi.transpose(0, 2, 1))
+    off = np.triu(np.ones(Phi.shape[1:], dtype=bool), 1)  # one of the two equal mirror cells, so float32 cannot break a tie between them
+    assert np.argmax(np.abs(Phi.mean(0))[off]) == np.argmax(np.abs(ref.mean(0))[off])

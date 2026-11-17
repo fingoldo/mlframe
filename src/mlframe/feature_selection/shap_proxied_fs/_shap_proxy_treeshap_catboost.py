@@ -11,7 +11,7 @@ import logging
 import tempfile
 import weakref
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import numpy as np
 import orjson
@@ -26,7 +26,8 @@ def _model_json(est: Any) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "model.json"
         est.save_model(str(path), format="json")
-        return orjson.loads(path.read_bytes())
+        out: dict = orjson.loads(path.read_bytes())
+        return out
 
 
 def is_nonsymmetric_catboost(est: Any) -> bool:
@@ -78,7 +79,7 @@ def extract_catboost_nonsymmetric(est: Any) -> Optional[TreeEnsemble]:
                 node["_w"] = _collect(node["left"], depth + 1) + _collect(node["right"], depth + 1)
             else:
                 node["_w"] = float(node["weight"])
-            return node["_w"]
+            return float(node["_w"])
 
         _collect(tree, 0)
         for node in flat:
@@ -133,7 +134,7 @@ def cached_nonsymmetric_ensemble(est: Any) -> Optional[TreeEnsemble]:
     """``extract_catboost_nonsymmetric`` memoised per model object (the JSON export is the expensive part)."""
     try:
         if est in _CACHE:
-            return _CACHE[est]
+            return cast(Optional[TreeEnsemble], _CACHE[est])
     except TypeError:
         return extract_catboost_nonsymmetric(est)
     ens = extract_catboost_nonsymmetric(est)

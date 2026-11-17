@@ -41,6 +41,7 @@ def main(argv: "list[str] | None" = None) -> int:
         model = xgb.XGBRegressor(n_estimators=trees, max_depth=depth, tree_method="hist", verbosity=0, n_jobs=4).fit(X, y)
         margin = model.predict(X, output_margin=True)
     ens = extract_ensemble(model)
+    assert ens is not None
 
 
     def best(fn, repeats):

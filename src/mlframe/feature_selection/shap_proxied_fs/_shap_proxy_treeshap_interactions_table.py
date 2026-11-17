@@ -59,7 +59,6 @@ def _interaction_table_batch(
 ):
     """Fill ``Phi`` (n, P, P) and ``phi_main`` (n, P), parallel over rows: one node walk per tree with the bit mask, at each leaf ``ud`` main-table adds and ``ud (ud-1)`` interaction adds."""
     n = X.shape[0]
-    P = phi_main.shape[1]
     stack_size = 2 * (max_depth + 2)
     for i in prange(n):
         st_node = np.empty(stack_size, dtype=np.int64)
@@ -80,23 +79,7 @@ def _interaction_table_batch(
                     leaf = leaf_of_node[node]
                     ud = leaf_ud[leaf]
                     if ud > 0:
-                        mask = mask & ((1 << ud) - 1)
-                        foff = leaf_feat_off[leaf]
-                        base = leaf_table_off[leaf] + mask * ud
-                        for j in range(ud):
-                            phi_i[leaf_feat[foff + j]] += table[base + j]
-                        if ud > 1:
-                            nd = ud - 1
-                            half = 1 << nd
-                            ibase = leaf_itab_off[leaf]
-                            for k in range(ud):
-                                factor = 0.5 * (((mask >> k) & 1) - leaf_zero[foff + k])
-                                mc = (mask & ((1 << k) - 1)) | ((mask >> (k + 1)) << k)
-                                row = Phi_i[leaf_feat[foff + k]]
-                                b = ibase + (k * half + mc) * nd
-                                for q in range(nd):
-                                    e = q if q < k else q + 1
-                                    row[leaf_feat[foff + e]] += factor * itable[b + q]
+                        _leaf_adds1(phi_i, Phi_i, mask & ((1 << ud) - 1), ud, leaf_feat_off[leaf], leaf_table_off[leaf], leaf_itab_off[leaf], leaf_feat, leaf_zero, table, itable)
                     continue
                 xv = xi[features[node]]
                 if np.isnan(xv):
@@ -112,17 +95,7 @@ def _interaction_table_batch(
                 st_node[sp] = hot
                 st_mask[sp] = mask
                 sp += 1
-        for a in range(P):
-            for b in range(a + 1, P):
-                avg = 0.5 * (Phi_i[a, b] + Phi_i[b, a])
-                Phi_i[a, b] = avg
-                Phi_i[b, a] = avg
-        for j in range(P):
-            row_sum = 0.0
-            for p in range(P):
-                if p != j:
-                    row_sum += Phi_i[j, p]
-            Phi_i[j, j] = phi_i[j] - row_sum
+        _symmetrise_and_diagonal(Phi_i, phi_i)
 
 
 @njit(cache=True)

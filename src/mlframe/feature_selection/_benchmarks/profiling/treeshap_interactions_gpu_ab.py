@@ -43,6 +43,7 @@ def main() -> None:
     X = rng.normal(size=(a.rows, a.features)).astype(np.float32)
     y = np.nan_to_num(X[:, 0] * X[:, 1] + X[:, 2] + X[:, 3])
     ens = extract_ensemble(XGBRegressor(n_estimators=a.trees, max_depth=a.depth, tree_method="hist").fit(X, y))
+    assert ens is not None
 
     def variant(stack):
         def run():
@@ -57,7 +58,7 @@ def main() -> None:
     for fn in variants.values():
         fn()
     print("before:", hardware_state.line(hardware_state.snapshot()))
-    times = {k: [] for k in variants}
+    times: dict[str, list[float]] = {k: [] for k in variants}
     for _ in range(a.rounds):
         for k, fn in variants.items():
             times[k].append(_timed(cp, fn))

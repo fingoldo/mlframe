@@ -7,6 +7,7 @@ is timed with CUDA events around the launch only, round-robin over the rounds in
 from __future__ import annotations
 
 import argparse
+from typing import Any
 
 import numpy as np
 
@@ -122,7 +123,7 @@ def _pack_preorder(ens, tab):
 
 def _variants(base_src: str) -> dict:
     """``name -> (source, compile options, block, feature_major_x)``: the production kernel (feature-major X) with block / register-cap variants, and the row-major X form it replaced."""
-    v = {"base_b128": (base_src, (), 128, True)}
+    v: dict[str, tuple] = {"base_b128": (base_src, (), 128, True)}
     for b in (64, 256, 512):
         v[f"base_b{b}"] = (base_src, (), b, True)
     for r in (24, 40, 48, 64):
@@ -162,6 +163,7 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     ens, X = build_ensemble(a.rows, a.features, a.trees, a.depth)
     tab = build_tables(ens, a.rows)
+    assert tab is not None
     real = _real()
     n, f = X.shape
     i32 = np.int32
@@ -215,6 +217,7 @@ def main(argv=None) -> int:
 
     def launch(name):
         _src, _opts, block, fmajor = variants[name]
+        args: tuple[Any, ...]
         phi = cp.zeros((f, n), dtype=real)
         e0, e1 = cp.cuda.Event(), cp.cuda.Event()
         e0.record()
@@ -233,7 +236,7 @@ def main(argv=None) -> int:
 
     ref = launch("base_b128")[1]
     print("hardware before:", line(snapshot()))
-    times = {k: [] for k in variants}
+    times: dict[str, list[float]] = {k: [] for k in variants}
     diffs = {}
     for _ in range(a.rounds):
         for k in variants:
