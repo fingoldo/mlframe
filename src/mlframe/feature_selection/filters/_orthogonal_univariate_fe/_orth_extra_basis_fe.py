@@ -720,10 +720,13 @@ def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
     if x.size != va.size or not np.all(np.isfinite(x)) or float(np.std(x)) < 1e-12:
         return 0.0
     # average ranks (0-based): tied feature values share one rank instead of being ordered by row position
-    from scipy.stats import rankdata
+    # (the compiled radix-order ranks: the average rank of a tie run is the same number whichever sort finds the run; scipy's ``rankdata`` took 12 ms per column at 30000 rows)
+    from .._mrmr_fit_impl._eng_dedup_batch_corr import _avg_ranks_inplace
 
-    ranks = (rankdata(x, method="average") - 1.0).astype(_crit_np_dtype(), copy=False)
     n = x.size
+    ranks64 = np.empty(n, dtype=np.float64)  # Intentional float64: average ranks are halves of integers, exact in double as scipy returns them
+    _avg_ranks_inplace(np.ascontiguousarray(x), n, np.empty(n, dtype=np.int64), ranks64)
+    ranks = (ranks64 - 1.0).astype(_crit_np_dtype(), copy=False)
     zx = (ranks / max(n - 1, 1)) * 2.0 - 1.0
     try:
         _Vtr = np.vander(zx[tr], 4)

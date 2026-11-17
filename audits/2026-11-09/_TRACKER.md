@@ -942,3 +942,7 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 ### MR11-24 greedy-MI candidates: non-finite scrub without `nan_to_num` (2026-11-17)
 - `_mi_greedy_fe._materialise_candidate` (932 candidates a fit, on the column pool) and the replay `apply_mi_greedy_transform` ended in `np.nan_to_num(nan=0, posinf=0, neginf=0)`, 2.4 ms per column in the all-thread profile. `_zero_nonfinite`: one `isfinite` pass, a `where` only when something is non-finite; same values and dtype for every registered transform (test).
 - Wall 50.1 / 49.9 s in this pair of runs (the machine was busier than in the 48.2-49.1 s runs an hour earlier; no stage-level regression seen), the same seven features.
+
+### MR11-25 held-out smooth R2 of the extra-basis gate: compiled average ranks (2026-11-17)
+- `_heldout_smooth_r2_fast` (one call per column in the adaptive extra-basis gate, 105 a fit) ranked the column with scipy `rankdata` (12 ms at 30000 rows, about half of the call). It now uses the compiled radix-order average ranks of the dedup module (`_avg_ranks_inplace`): the same ranks exactly (40 random cases with ties and signed zeros), 3.4 ms per call.
+- Wall 48.7 / 49.6 s, the same seven features. CI of the previous push still pending with no jobs started (7 h); 28 local commits wait for it.
