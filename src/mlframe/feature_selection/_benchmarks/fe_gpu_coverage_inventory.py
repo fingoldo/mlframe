@@ -14,10 +14,18 @@ from pathlib import Path
 
 FILTERS = Path(__file__).resolve().parents[1] / "filters"
 MRMR_LAYER = ("_mrmr_fit_impl", "mrmr", "_mrmr_fe_step")
-# A second inventory root: kernel modules outside ``filters/`` that the owner directive of tracker OP11-21 puts under the same contract (every GPU kernel of the project, not only the FE ones). The MRMR-layer
-# import closure cannot reach them, so they are named here, each one a module that is taken on and has to meet the contract; a module is listed in this table only together with its evidence.
+# A second inventory root: kernel modules that the owner directive of tracker OP11-21 puts under the same contract (every GPU kernel of the project, not only the FE ones) and that the FE name regex or the MRMR-layer
+# import closure does not reach (the ``shap_proxied_fs`` kernels, and kernel modules of ``filters/`` whose names carry no FE marker). They are named here, each one a module that is taken on and has to meet the contract; a module is listed in this table only together with its evidence.
 EXTRA_ROOT = Path(__file__).resolve().parents[1] / "shap_proxied_fs"
-EXTRA_CONTRACT_MODULES: tuple[str, ...] = ("_shap_proxy_treeshap_gpu", "_shap_proxy_treeshap_interactions_gpu", "_shap_proxy_treeshap_interactions_table_gpu", "_shap_proxy_treeshap_table_gpu")
+EXTRA_CONTRACT_MODULES: tuple[str, ...] = (
+    "_family_maxt_cuda_bits",
+    "_order_stats_gpu",
+    "_rolling_window_gpu",
+    "_shap_proxy_treeshap_gpu",
+    "_shap_proxy_treeshap_interactions_gpu",
+    "_shap_proxy_treeshap_interactions_table_gpu",
+    "_shap_proxy_treeshap_table_gpu",
+)
 # Modules of the second root that are only the host twins named by a contract table (resolved for their text, not classified themselves).
 EXTRA_TWIN_FILES: tuple[str, ...] = ("_shap_proxy_treeshap_table", "_shap_proxy_treeshap_ktc", "_shap_proxy_treeshap_interactions_table", "_shap_proxy_treeshap_interactions_ktc", "_shap_proxy_treeshap", "_shap_proxy_treeshap_interactions")
 GPU_MARKERS = re.compile(r"\bcupy\b|\bcp\.|numba\.cuda|cuda\.jit|RawKernel|ElementwiseKernel|_cuda\b|_gpu\b|gpu_[a-z]|CUDA_AVAIL|_CUPY_AVAIL")
