@@ -366,6 +366,7 @@ class TestPluginMIClassifBizValue:
     """
 
     def test_cuda_faster_than_njit_at_production_scale(self) -> None:
+        # parity-ok: a timing assertion at production scale; it compares no values, so a second seed does not apply
         """Cuda faster than njit at production scale."""
         import time
 

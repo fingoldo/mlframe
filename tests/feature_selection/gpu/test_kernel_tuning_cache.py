@@ -78,6 +78,7 @@ def test_measure_single_region_returns_well_formed_dict():
 
 
 def test_streamed_uses_multiple_streams_and_disjoint_host_permutation_slices():
+    # parity-ok: checks the stream count and the disjointness of host permutation slices; no value comparison with the host
     """The streamed variant creates >=2 streams and draws each batch from a disjoint slice of the shared host permutation stream."""
     from mlframe.feature_selection.filters import _gpu_batched
     from mlframe.feature_selection.filters.gpu import mi_direct_gpu_batched_streamed
