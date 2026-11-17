@@ -10,6 +10,11 @@ from __future__ import annotations
 from typing import Any, Callable, List
 
 
+def host_block_width(n_rows: int, block_bytes: int) -> int:
+    """Columns of float64 at ``n_rows`` rows that fit in ``block_bytes`` host bytes (at least one)."""
+    return max(1, int(block_bytes) // max(1, 8 * int(n_rows)))
+
+
 def first_block(cp: Any, n_rows: int, n_cols: int, itemsize: int, multiple: int) -> int:
     """Columns of the first block: ``multiple`` copies of a ``(rows, block)`` array in ``itemsize`` bytes fill at most a fifth of the room under the calling thread's pool."""
     from ._device_sort_safe import device_room

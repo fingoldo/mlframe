@@ -175,19 +175,20 @@ def _fused_column(cp: Any, out_row: Any, xi_g: Any, codes_g: Any, mean_g: Any, s
 _CODES_SRC = render(
     r"""
 extern "C" __global__
-void disp_bin_codes(const {REAL}* __restrict__ xj_all, const double* __restrict__ edges, const int* __restrict__ n_interior, const int emax, const long long n, const long long J,
+void disp_bin_codes(const {REAL}* __restrict__ xj_all, const {REAL}* __restrict__ edges, const int* __restrict__ n_interior, const int emax, const long long n, const long long J,
                     long long* __restrict__ out) {
     // The bin codes of every distinct x_j in ONE launch over the (J, n) output (rows fastest): the number of interior edges (edges[1:-1] of the stored quantile edges) that are <= x, i.e.
-    // np.searchsorted(side="right"), clipped to the top bin, with a non-finite x in bin 0 (the host's _digitize_with_edges). The values are compared with the float64 edges the host digitiser uses (x is rounded to the criterion dtype first, as there).
+    // np.searchsorted(side="right"), clipped to the top bin, with a non-finite x in bin 0 (the host's _digitize_with_edges). Edges and values are compared at the criterion dtype, as the host
+    // digitiser rounds x before it compares.
     for (long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x; t < J * n; t += (long long)gridDim.x * blockDim.x) {
         const long long j = t / n;
         const {REAL} x = xj_all[t];
         const int m = n_interior[j];
-        const double* e = edges + j * emax;
+        const {REAL}* e = edges + j * emax;
         int lo = 0, hi = m;
         while (lo < hi) {
             const int mid = (lo + hi) >> 1;
-            if (e[mid] <= (double)x) lo = mid + 1; else hi = mid;
+            if (e[mid] <= x) lo = mid + 1; else hi = mid;
         }
         out[t] = isfinite(x) ? (long long)lo : 0LL;
     }
@@ -212,9 +213,9 @@ def _bin_codes_block(cp: Any, xj_list: list, edge_rows: list) -> Any:
 
     dt = crit_float_dtype()
     xj_all = cp.stack([cp.asarray(c, dtype=dt) for c in xj_list])
-    inner = [np.asarray(e, dtype=np.float64)[1:-1] for e in edge_rows]  # Intentional float64: the host digitiser compares against float64 edges
+    inner = [np.asarray(e, dtype=_crit_np_dtype())[1:-1] for e in edge_rows]
     emax = max(1, max(int(e.shape[0]) for e in inner))
-    tab = np.zeros((len(inner), emax), dtype=np.float64)  # Intentional float64: edge table
+    tab = np.zeros((len(inner), emax), dtype=_crit_np_dtype())
     for k, e in enumerate(inner):
         tab[k, : e.shape[0]] = e
     J, n = int(xj_all.shape[0]), int(xj_all.shape[1])
@@ -223,7 +224,7 @@ def _bin_codes_block(cp: Any, xj_list: list, edge_rows: list) -> Any:
     threads = block_size_for(kern, work_items=J * n)
     sms = int(cp.cuda.Device().attributes["MultiProcessorCount"])
     grid = int(max(1, min((J * n + threads - 1) // threads, sms * 32)))
-    kern((grid,), (threads,), (xj_all, cp.asarray(tab, dtype=cp.float64), cp.asarray(np.array([e.shape[0] for e in inner], dtype=np.int32)), np.int32(emax), np.int64(n), np.int64(J), out))
+    kern((grid,), (threads,), (xj_all, cp.asarray(tab, dtype=dt), cp.asarray(np.array([e.shape[0] for e in inner], dtype=np.int32)), np.int32(emax), np.int64(n), np.int64(J), out))
     return out
 
 
@@ -260,7 +261,7 @@ def _stage_columns(cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], table_ke
             xj = np.asarray(X[x_j].to_numpy(), dtype=_crit_np_dtype())
             xj_names[x_j] = len(xj_cols)
             xj_cols.append(resident_operand(np.ascontiguousarray(xj), ("disp_xj", x_j), dtype=crit_float_dtype()))
-            edge_rows.append(np.asarray(spec["edges"], dtype=np.float64))  # Intentional float64: host fit-time edges
+            edge_rows.append(np.asarray(spec["edges"], dtype=_crit_np_dtype()))
         if x_i not in xi_names:
             xi = np.asarray(X[x_i].to_numpy(), dtype=_crit_np_dtype())
             xi_names[x_i] = len(xi_cols)

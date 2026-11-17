@@ -672,6 +672,30 @@ def cmi_device_argmax(mi_d: Any) -> tuple[int, float]:
     return best_idx, best_val
 
 
+def _device_code_matrix(cp: Any, x_cols: Any) -> Any:
+    """The ``(n, K)`` C-contiguous device matrix of the candidate codes: a byte matrix stays bytes (the histogram kernels read it with an eighth of the traffic), anything else is int64."""
+    if isinstance(x_cols, cp.ndarray):
+        X = x_cols if x_cols.dtype == cp.uint8 else x_cols.astype(cp.int64, copy=False)
+    else:
+        X = cp.asarray(np.ascontiguousarray(x_cols).astype(np.int64))
+    if X.ndim == 1:
+        X = X[:, None]
+    return cp.ascontiguousarray(X)  # the batched joint-hist kernels read X[row*K+col]; a no-op when already C-ordered
+
+
+def _device_label_codes(cp: Any, y: Any, n: int) -> Any:
+    """The fit-constant label codes on the device: a host ``y`` goes through the resident-operand cache (one upload per fit), a resident one is used as is; ``n`` rows are required."""
+    if isinstance(y, cp.ndarray):
+        dy = y.astype(cp.int64, copy=False).ravel()
+    else:
+        from ._fe_resident_operands import resident_code_operand
+
+        dy = resident_code_operand(np.asarray(y).ravel(), "cmi_y")
+    if int(dy.size) != n:
+        raise ValueError("batched_cmi_gpu: y has %d rows but x_cols has %d" % (int(dy.size), n))
+    return dy
+
+
 def _batched_cmi_gpu_once(x_cols: Any, y: np.ndarray, z: Any = None, return_cards: bool = False, codes_trusted: bool = False,
                     return_device: bool = False, precomp_yz: Any = None, kx: int = 0, ky: int = 0, precomp_xz: Any = None) -> Any:
     """Miller-Madow plug-in CMI(x_k; y | z) in nats for EVERY column of ``x_cols``, in ONE device workload.
@@ -698,24 +722,12 @@ def _batched_cmi_gpu_once(x_cols: Any, y: np.ndarray, z: Any = None, return_card
     import cupy as cp
     from ._fe_resident_operands import resident_operand
 
-    if isinstance(x_cols, cp.ndarray):
-        X = x_cols if x_cols.dtype == cp.uint8 else x_cols.astype(cp.int64, copy=False)  # a byte matrix stays bytes: the histogram kernels read it with an eighth of the traffic
-    else:
-        X = cp.asarray(np.ascontiguousarray(x_cols).astype(np.int64))
-    if X.ndim == 1:
-        X = X[:, None]
-    X = cp.ascontiguousarray(X)  # batched joint-hist kernels read X[row*K+col] (C-order (n,K)); no-op if already
+    X = _device_code_matrix(cp, x_cols)
     n = int(X.shape[0])
     # y is FIT-CONSTANT: when host, route through the resident-operand cache so it uploads ONCE per fit (keyed
     # on role + shape + content fingerprint) instead of one H2D per candidate batch; when already resident
     # (caller kept a born-on-device y), use as-is (no copy).
-    if isinstance(y, cp.ndarray):
-        dy = y.astype(cp.int64, copy=False).ravel()
-    else:
-        from ._fe_resident_operands import resident_code_operand
-        dy = resident_code_operand(np.asarray(y).ravel(), "cmi_y")
-    if int(dy.size) != n:
-        raise ValueError("batched_cmi_gpu: y has %d rows but x_cols has %d" % (int(dy.size), n))
+    dy = _device_label_codes(cp, y, n)
     nf = float(max(1, n))
     inv_n = 1.0 / nf
     # ``kx`` / ``ky`` (scalar-sync kill): the histogram WIDTH upper bound. The codes are 0-based

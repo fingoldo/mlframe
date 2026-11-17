@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 _FALLBACK_LOGGED: set = set()
@@ -107,7 +108,8 @@ class TreeExplainer:
         try:
             classes = getattr(est, "classes_", None)
             return classes is None or len(classes) <= 2
-        except Exception:
+        except Exception as exc:
+            log_throttle(logger, "tree_shap.catboost_classes_unreadable", logging.WARNING, "CatBoost classes_ unreadable (%s: %s); the model is treated as multi-output and not explained here", type(exc).__name__, exc)
             return False
 
     def _catboost_backend(self) -> str:

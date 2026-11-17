@@ -337,6 +337,11 @@ def row_attention_stage4_cupy(
     if not is_gpu_available():
         raise RuntimeError("row_attention_stage4_cupy called but GPU is not available; caller must dispatch via is_gpu_available().")
     _ensure_kernels_inited()
+    # Checked before cupy is imported: the guard is a pure input check and must not need a device.
+    # The kernel reads these buffers as float*: a resident array of another dtype would be reinterpreted, not converted.
+    for _name, _dev in (("k_proj_device", k_proj_device), ("y_train_device", y_train_device)):
+        if _dev is not None and np.dtype(_dev.dtype) != np.float32:
+            raise TypeError(f"row_attention_stage4_cupy: {_name} must be float32 (the kernel reads float*), got {_dev.dtype}")
     import cupy as cp
 
     n_queries, head_dim = q_proj.shape
@@ -352,10 +357,6 @@ def row_attention_stage4_cupy(
         )
 
     q_dev = cp.asarray(q_proj, dtype=cp.float32)
-    # The kernel reads these buffers as float*: a resident array of another dtype would be reinterpreted, not converted.
-    for _name, _dev in (("k_proj_device", k_proj_device), ("y_train_device", y_train_device)):
-        if _dev is not None and np.dtype(_dev.dtype) != np.float32:
-            raise TypeError(f"row_attention_stage4_cupy: {_name} must be float32 (the kernel reads float*), got {_dev.dtype}")
     k_dev = k_proj_device if k_proj_device is not None else cp.asarray(k_proj, dtype=cp.float32)
     y_dev = y_train_device if y_train_device is not None else cp.asarray(y_train, dtype=cp.float32)
     topk_dev = cp.asarray(topk_ids, dtype=cp.int32)

@@ -210,8 +210,8 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
                         # full-array nan scan (~12% of the GPU MI wall) that would otherwise be a pure no-op cost here.
                         # f32 opt-in (MLFRAME_FE_VRAM_F32): ~2.2x faster, selection-equivalent (Spearman rank 1.0).
                         # Intentional float64: GPU f64 MI path: cupy/numpy buffers feeding the f64 MI kernels, dtype contract kept (kernel refactor deferred).
-                        _dt = np.float32 if (fe_gpu_f32_enabled() or X_dense.dtype == np.float32) else np.float64  # a float32 matrix is scored as such: no host up-cast to double and half the upload
-                        mis[dense_cols] = multi_gpu_fe_batch_mi(X_dense, y_i64, nbins, scrub=False, dtype=_dt)
+                        _gpu_dt = np.float32 if (fe_gpu_f32_enabled() or X_dense.dtype == np.float32) else np.float64  # a float32 matrix is scored as such: no host up-cast to double and half the upload
+                        mis[dense_cols] = multi_gpu_fe_batch_mi(X_dense, y_i64, nbins, scrub=False, dtype=_gpu_dt)
                     elif _fe_edge_binning_enabled():
                         from .._fe_edge_mi import plugin_mi_classif_batch_edge_njit
                         mis[dense_cols] = plugin_mi_classif_batch_edge_njit(X_dense, y_i64, nbins)

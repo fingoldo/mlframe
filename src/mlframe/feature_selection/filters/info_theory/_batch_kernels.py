@@ -820,6 +820,32 @@ def _gate_verdicts(original_mi, nfailed, max_failed):
     return fe_mi
 
 
+@njit(nogil=True, cache=True)
+def _observed_column_mi(k, col, nb_k, n, classes_dense, freqs_dense, kx, classes_y, freqs_y, use_su, dtype):
+    """``(ok, mi)`` of column ``k``: ``ok`` is False when a code lies outside ``[0, nb_k)``; otherwise the dense codes are written into ``classes_dense[:, k]``, the dense marginal into ``freqs_dense[k]`` and the occupied level count into ``kx[k]``, and ``mi`` is the observed MI with ``classes_y`` from the fused pass."""
+    counts = np.zeros(nb_k, dtype=np.int64)
+    for r in range(n):
+        v = col[r]
+        if v < 0 or v >= nb_k:
+            return False, 0.0
+        counts[v] += 1
+    lookup = np.empty(nb_k, dtype=np.int64)
+    nzeros = 0
+    for c in range(nb_k):
+        if counts[c] == 0:
+            nzeros += 1
+        lookup[c] = c - nzeros
+    n_dense = nb_k - nzeros
+    kx[k] = n_dense
+    wpos = 0
+    for c in range(nb_k):
+        if counts[c] != 0:
+            freqs_dense[k, wpos] = counts[c] / n
+            wpos += 1
+    # FUSED: write classes_dense[:, k] AND accumulate the observed-MI joint in ONE pass.
+    return True, _densify_and_relevance_fused(use_su, col, lookup, classes_dense, k, freqs_dense, n_dense, classes_y, freqs_y, dtype)
+
+
 @njit(parallel=True, nogil=True, cache=True)
 def batch_mi_with_noise_gate_v2(
     disc_2d: np.ndarray,
@@ -862,36 +888,11 @@ def batch_mi_with_noise_gate_v2(
 
     bad_cols = np.zeros(K, dtype=np.bool_)
     for k in prange(K):
-        nb_k = int(factors_nbins[k])
-        counts = np.zeros(nb_k, dtype=np.int64)
-        col = disc_2d[:, k]
-        ok = True
-        for r in range(n):
-            v = col[r]
-            if v < 0 or v >= nb_k:
-                ok = False
-                break
-            counts[v] += 1
+        ok, mi_k = _observed_column_mi(k, disc_2d[:, k], int(factors_nbins[k]), n, classes_dense, freqs_dense, kx, classes_y, freqs_y, use_su, dtype)
         if not ok:
             bad_cols[k] = True
             continue
-        lookup = np.empty(nb_k, dtype=np.int64)
-        nzeros = 0
-        for c in range(nb_k):
-            if counts[c] == 0:
-                nzeros += 1
-            lookup[c] = c - nzeros
-        n_dense = nb_k - nzeros
-        kx[k] = n_dense
-        wpos = 0
-        for c in range(nb_k):
-            if counts[c] != 0:
-                freqs_dense[k, wpos] = counts[c] / n
-                wpos += 1
-        # FUSED: write classes_dense[:, k] AND accumulate the observed-MI joint in ONE pass.
-        original_mi[k] = _densify_and_relevance_fused(
-            use_su, col, lookup, classes_dense, k, freqs_dense, n_dense, classes_y, freqs_y, dtype,
-        )
+        original_mi[k] = mi_k
     if np.any(bad_cols):
         raise ValueError(_CODES_RANGE_MSG)
 

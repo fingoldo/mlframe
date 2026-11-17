@@ -116,6 +116,21 @@ def _paired_significance(best_fold_scores: np.ndarray, current_fold_scores: np.n
     return p_value, bool(p_value <= significance_level / n_remaining)
 
 
+def _initial_state(
+    subset: Callable[[List[Any]], Any], estimator_factory: Callable[[], Any], y: np.ndarray, cv: int, scoring: Optional[str],
+    initial_selected: Optional[Sequence[Any]], all_candidates: List[Any], diagnostics_needed: bool,
+) -> Tuple[List[Any], List[Any], float, Optional[np.ndarray]]:
+    """``(selected, remaining, best_score, fold_scores)`` before the first round: the fixed core and its CV score (``-inf`` and no fold scores for an empty start)."""
+    from sklearn.model_selection import cross_val_score
+
+    selected: List[Any] = list(initial_selected) if initial_selected is not None else []
+    remaining = [c for c in all_candidates if c not in selected]
+    if not selected:
+        return selected, remaining, -np.inf, None
+    baseline_fold_scores = cross_val_score(estimator_factory(), subset(selected), y, cv=cv, scoring=scoring)
+    return selected, remaining, float(np.mean(baseline_fold_scores)), (baseline_fold_scores if diagnostics_needed else None)
+
+
 @logs_selection("forward_select", summ_selected_of_x)
 def forward_select(
     X: Any,
@@ -192,8 +207,6 @@ def forward_select(
         Selected column names/indices, in the order they were added (``initial_selected`` columns first, in
         the order given, followed by greedily-added candidates).
     """
-    from sklearn.model_selection import cross_val_score
-
     is_frame = hasattr(X, "columns")
     all_candidates = list(candidate_features) if candidate_features is not None else (list(X.columns) if is_frame else list(range(shape_of(X)[1])))
 
@@ -203,17 +216,7 @@ def forward_select(
 
     diagnostics_needed = patience is not None or return_report
 
-    selected: List[Any] = list(initial_selected) if initial_selected is not None else []
-    remaining = [c for c in all_candidates if c not in selected]
-    current_fold_scores: Optional[np.ndarray] = None
-    if selected:
-        baseline_model = estimator_factory()
-        baseline_fold_scores = cross_val_score(baseline_model, _subset(selected), y, cv=cv, scoring=scoring)
-        best_score = float(np.mean(baseline_fold_scores))
-        if diagnostics_needed:
-            current_fold_scores = baseline_fold_scores
-    else:
-        best_score = -np.inf
+    selected, remaining, best_score, current_fold_scores = _initial_state(_subset, estimator_factory, y, cv, scoring, initial_selected, all_candidates, diagnostics_needed)
     # `max_features` is the size of the RETURNED subset, which is what its docstring says ("stop once the
     # selected subset reaches this size") and what the Returns section describes -- the initial columns are part
     # of that subset, not extra allowance on top of it. Adding `len(selected)` meant

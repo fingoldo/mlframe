@@ -79,7 +79,10 @@ def fe_batch_mi(
     to the (selection-identical) CPU path so a transient device error is never a correctness regression.
     Returns a host (K,) MI array."""
     X = np.asarray(X_cands)
-    y_rows = (getattr(y_codes, "shape", None) or np.shape(y_codes) or (0,))[0]
+    y_shape = getattr(y_codes, "shape", None)
+    if y_shape is None:
+        y_shape = np.shape(y_codes)
+    y_rows = y_shape[0] if len(y_shape) else 0
     if X.ndim >= 1 and int(y_rows) != int(X.shape[0]):
         raise ValueError("fe_batch_mi: y_codes has %d rows but X_cands has %d" % (int(y_rows), int(X.shape[0])))
     n = X.shape[0] if X.ndim >= 1 else 0

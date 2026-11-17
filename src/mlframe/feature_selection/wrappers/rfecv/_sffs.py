@@ -20,6 +20,21 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
+def _mean_importance(feature_importances: dict) -> dict:
+    """Mean of the non-NaN importances of every feature across all runs (a value that is not a number is skipped)."""
+    from collections import defaultdict
+
+    fi_acc = defaultdict(list)
+    for _fi in feature_importances.values():
+        for feat, val in _fi.items():
+            try:
+                if val is not None and not (isinstance(val, float) and np.isnan(val)):
+                    fi_acc[feat].append(float(val))
+            except (TypeError, ValueError):  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                continue
+    return {f: float(np.mean(v)) for f, v in fi_acc.items() if v}
+
+
 def _sffs_swap_pass(
     self, X, y, estimator, cv, scoring,
     best_nfeatures: int, best_score_ref: float,
@@ -39,17 +54,7 @@ def _sffs_swap_pass(
     if len(best_set) < 1:
         return
 
-    # Aggregate FI across all runs (mean of non-NaN values per feature).
-    from collections import defaultdict
-    fi_acc = defaultdict(list)
-    for _fi in feature_importances.values():
-        for feat, val in _fi.items():
-            try:
-                if val is not None and not (isinstance(val, float) and np.isnan(val)):
-                    fi_acc[feat].append(float(val))
-            except (TypeError, ValueError):  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-                continue
-    fi_mean = {f: float(np.mean(v)) for f, v in fi_acc.items() if v}
+    fi_mean = _mean_importance(feature_importances)
 
     # Worst K kept (features with no FI history get 0).
     # Add feature name as deterministic tiebreaker -

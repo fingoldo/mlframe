@@ -16,6 +16,7 @@ Two backends of one function: ``_drops_njit`` (``prange`` over columns, ``np.qua
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 from typing import Any, Optional, Sequence
@@ -26,6 +27,7 @@ from numba import njit, prange
 from mlframe._numerical_floors import VARIANCE_FLOOR
 from mlframe.utils.log_throttle import log_throttle
 
+from ._device_blocks import host_block_width
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._raw_module_cache import RawModuleCache
@@ -289,7 +291,7 @@ def hinge_precheck_on_device(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("hinge_precheck_backend: KTC choose() failed, using the row-count fallback: %s", exc)
+        log_throttle(logger, "hinge_precheck_backend.ktc_choose", logging.WARNING, "hinge_precheck_backend: KTC choose() failed (%s: %s); using the row-count fallback", type(exc).__name__, exc)
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 
@@ -297,9 +299,7 @@ def hinge_precheck_on_device(n_rows: int) -> bool:
 _BLOCK_BYTES = 256 * 1024 * 1024
 
 
-def column_block_width(n_rows: int) -> int:
-    """Columns per column block: as many as ``_BLOCK_BYTES`` holds at ``n_rows`` rows of float64 (at least one)."""
-    return max(1, _BLOCK_BYTES // max(1, 8 * int(n_rows)))
+column_block_width = functools.partial(host_block_width, block_bytes=_BLOCK_BYTES)  # columns of float64 that fit one host block
 
 
 def hinge_precheck_drops(xs: np.ndarray, y: np.ndarray, qs: Sequence[float], min_seg: int, floor_var: float = VARIANCE_FLOOR) -> np.ndarray:

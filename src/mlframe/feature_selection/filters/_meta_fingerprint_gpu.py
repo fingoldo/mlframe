@@ -13,6 +13,7 @@ The columns go through in column blocks of ``_BLOCK_BYTES``.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 from typing import Any, Optional
@@ -20,6 +21,7 @@ from typing import Any, Optional
 import numpy as np
 from numba import njit, prange
 
+from ._device_blocks import host_block_width
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._raw_module_cache import RawModuleCache
@@ -200,9 +202,7 @@ def fingerprint_moments_on_device(n_rows: int) -> bool:
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 
-def column_block_width(n_rows: int) -> int:
-    """Columns per column block: as many as ``_BLOCK_BYTES`` holds at ``n_rows`` rows of float64 (at least one)."""
-    return max(1, _BLOCK_BYTES // max(1, 8 * int(n_rows)))
+column_block_width = functools.partial(host_block_width, block_bytes=_BLOCK_BYTES)  # columns of float64 that fit one host block
 
 
 def column_moments(xs: np.ndarray, yc: Optional[np.ndarray] = None) -> np.ndarray:

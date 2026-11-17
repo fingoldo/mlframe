@@ -108,6 +108,30 @@ BI: dict[str, Any] = {"mul": np.multiply, "add": np.add, "sub": np.subtract, "di
 
 
 @nb.njit(cache=True)
+def _binary_clipped(b, a, c):
+    """The ``b``-th binary op (mul, add, sub, safe div, max, min) of ``a`` and ``c``, clipped to +-1e12 with NaN mapped to 0."""
+    if b == 0:
+        v = a * c
+    elif b == 1:
+        v = a + c
+    elif b == 2:
+        v = a - c
+    elif b == 3:
+        v = a / (c if c != 0 else 1e-9)
+    elif b == 4:
+        v = max(a, c)
+    else:
+        v = min(a, c)
+    if v > 1e12:
+        return 1e12
+    if v < -1e12:
+        return -1e12
+    if v != v:
+        return 0.0
+    return v
+
+
+@nb.njit(cache=True)
 def _best(UA, UB, y, ny):
     """Best train-MI combo over all unary x unary x binary pairs (njit); returns (MI, i, j, binary index)."""
     nu, n = UA.shape
@@ -120,27 +144,7 @@ def _best(UA, UB, y, ny):
         for j in range(nu):
             for b in range(6):
                 for k in range(n):
-                    a = UA[i, k]
-                    c = UB[j, k]
-                    if b == 0:
-                        v = a * c
-                    elif b == 1:
-                        v = a + c
-                    elif b == 2:
-                        v = a - c
-                    elif b == 3:
-                        v = a / (c if c != 0 else 1e-9)
-                    elif b == 4:
-                        v = max(a, c)
-                    else:
-                        v = min(a, c)
-                    if v > 1e12:
-                        v = 1e12
-                    elif v < -1e12:
-                        v = -1e12
-                    elif v != v:
-                        v = 0.0
-                    f[k] = v
+                    f[k] = _binary_clipped(b, UA[i, k], UB[j, k])
                 for k in range(len(sub)):
                     sub[k] = f[k * step]
                 s = np.sort(sub)

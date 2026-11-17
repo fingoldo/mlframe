@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
@@ -30,7 +31,8 @@ def _current_device_id(cp: Any) -> int:
     """Id of the CUDA device the calling thread currently targets (0 when it cannot be read): a cached device array is only valid on the device that holds it."""
     try:
         return int(cp.cuda.runtime.getDevice())
-    except Exception:
+    except Exception as exc:
+        log_throttle(logger, "cmi_resident_cache.device_unreadable", logging.WARNING, "CUDA device id unreadable (%s: %s); device 0 keys the resident cache", type(exc).__name__, exc)
         return 0
 
 

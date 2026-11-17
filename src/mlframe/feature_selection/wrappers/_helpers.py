@@ -73,6 +73,15 @@ def _iloc_rows_cols(X: pd.DataFrame, rows: np.ndarray, cols: np.ndarray) -> pd.D
     return X.iloc[:, cols].iloc[rows]
 
 
+def _take_rows(y: Any, index: np.ndarray) -> Any:
+    """The rows ``index`` (positional, as KFold yields them) of a target: ``.iloc`` for a pandas Series or DataFrame (a label lookup would raise on a non-range index), plain indexing for an array."""
+    if isinstance(y, pd.DataFrame):
+        return y.iloc[index, :]
+    if isinstance(y, pd.Series):
+        return y.iloc[index]
+    return y[index]
+
+
 def split_into_train_test(
     X: pd.DataFrame | np.ndarray, y: pd.DataFrame | np.ndarray, train_index: np.ndarray, test_index: np.ndarray, features_indices: Union[np.ndarray, None] = None,
     X_estimator: np.ndarray | None = None, col_pos: dict | None = None,
@@ -112,8 +121,7 @@ def split_into_train_test(
             fi_arr = np.asarray(features_indices, dtype=np.intp)
             X_train = X_estimator[np.ix_(tr_arr, fi_arr)]
             X_test = X_estimator[np.ix_(te_arr, fi_arr)]
-        y_train = y.iloc[train_index, :] if isinstance(y, pd.DataFrame) else (y.iloc[train_index] if isinstance(y, pd.Series) else y[train_index])
-        y_test = y.iloc[test_index, :] if isinstance(y, pd.DataFrame) else (y.iloc[test_index] if isinstance(y, pd.Series) else y[test_index])
+        y_train, y_test = _take_rows(y, train_index), _take_rows(y, test_index)
         return X_train, y_train, X_test, y_test
 
     if isinstance(X, pd.DataFrame):
@@ -140,8 +148,7 @@ def split_into_train_test(
             else:
                 X_train = X.iloc[tr_arr].loc[:, list(features_indices)]
                 X_test = X.iloc[te_arr].loc[:, list(features_indices)]
-        y_train = y.iloc[train_index, :] if isinstance(y, pd.DataFrame) else (y.iloc[train_index] if isinstance(y, pd.Series) else y[train_index])
-        y_test = y.iloc[test_index, :] if isinstance(y, pd.DataFrame) else (y.iloc[test_index] if isinstance(y, pd.Series) else y[test_index])
+        y_train, y_test = _take_rows(y, train_index), _take_rows(y, test_index)
     elif isinstance(X, pl.DataFrame):
         # Polars rejects ``X[np.ix_(rows, cols)]``; select rows and cols in two steps.
         tr_idx = list(np.asarray(train_index))
@@ -178,13 +185,7 @@ def split_into_train_test(
         # train_index/test_index are POSITIONAL (KFold.split output). A pandas y reaching this
         # ndarray-X branch (mixed ndarray X + pandas y) must be sliced positionally via .iloc;
         # raw ``y[idx]`` on a Series with a non-RangeIndex resolves as a label lookup -> KeyError.
-        if isinstance(y, pd.Series):
-            y_train, y_test = y.iloc[train_index], y.iloc[test_index]
-        elif isinstance(y, pd.DataFrame):
-            y_train, y_test = y.iloc[train_index, :], y.iloc[test_index, :]
-        else:
-            y_train = y[train_index, :] if len(y.shape) > 1 else y[train_index]
-            y_test = y[test_index, :] if len(y.shape) > 1 else y[test_index]
+        y_train, y_test = _take_rows(y, train_index), _take_rows(y, test_index)
 
     return X_train, y_train, X_test, y_test
 

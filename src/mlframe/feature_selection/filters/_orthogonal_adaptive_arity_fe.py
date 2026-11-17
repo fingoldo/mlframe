@@ -57,7 +57,7 @@ replay path.
 from __future__ import annotations
 
 from typing import cast
-from ._orthogonal_shared import mean_fill_nonfinite, parse_code_deg_with_basis
+from ._orthogonal_shared import fit_axis_column as _fit_axis_column, parse_code_deg_with_basis
 
 import logging
 from itertools import combinations
@@ -366,12 +366,6 @@ def _prepare_source_columns(src, X, _dt, basis, basis_per_col, max_d, leg_cache)
         basis_per_col[col] = chosen
         for d in range(1, max_d + 1):
             leg_cache[(col, d)] = _evaluate_basis_column(x, chosen, d)
-
-def _fit_axis_column(X: pd.DataFrame, col: str) -> np.ndarray:
-    """The source column as the float64, mean-filled array whose basis preprocess params a recipe freezes (the replay axis); a copy, ``X`` is not touched."""
-    arr = np.array(X[col].to_numpy(), dtype=np.float64)  # Intentional float64: fit/replay bit-identity contract (basis axis)
-    mean_fill_nonfinite(arr)
-    return arr
 
 
 def _winner_product_f64(X: pd.DataFrame, tup: tuple, degs: tuple, basis_per_col: dict) -> np.ndarray:

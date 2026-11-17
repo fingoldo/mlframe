@@ -42,7 +42,7 @@ import numpy as np
 import pandas as pd
 
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
-from ._orthogonal_shared import coerce_y_classif, mean_fill_nonfinite
+from ._orthogonal_shared import coerce_y_classif, fit_axis_column as _fit_axis_column
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch,
@@ -122,13 +122,6 @@ def _gate_best_degree_per_source(cand_to_source: list, cand_cols: list, cand_val
             "baseline_mi": baseline,
         }
     return out_cols, meta
-
-
-def _fit_axis_column(X: pd.DataFrame, col: str) -> np.ndarray:
-    """The source column as the float64, mean-filled array whose basis preprocess params a recipe freezes (the replay axis); a copy, ``X`` is not touched."""
-    arr = np.array(X[col].to_numpy(), dtype=np.float64)  # Intentional float64: fit/replay bit-identity contract (basis axis)
-    mean_fill_nonfinite(arr)
-    return arr
 
 
 def _build_degree_candidates(X: pd.DataFrame, cols: list, y_arr: np.ndarray, degree_range: tuple, basis: str, _dt: type) -> tuple[list, list, list]:

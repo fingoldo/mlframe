@@ -18,6 +18,7 @@ import orjson
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import _NO_CHILD, TreeEnsemble, _ensemble_expected_value
 
+from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
@@ -34,7 +35,8 @@ def is_nonsymmetric_catboost(est: Any) -> bool:
     """True for a fitted CatBoost model whose trees are not oblivious (the case the native SHAP gets wrong)."""
     try:
         return str(est.get_params().get("grow_policy", "SymmetricTree")) in ("Depthwise", "Lossguide")
-    except Exception:
+    except Exception as exc:
+        log_throttle(logger, "treeshap_catboost.params_unreadable", logging.WARNING, "CatBoost grow_policy unreadable (%s: %s); the model is treated as symmetric", type(exc).__name__, exc)
         return False
 
 
