@@ -56,7 +56,10 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     """We run N selections on data subsets, and pick only features that appear in all selections"""
     from .._orthogonal_univariate_fe._orth_dedup import dedup_collinear_memo_scope
 
-    with dedup_collinear_memo_scope():  # the source-column dedup of the FE families is shared by the whole fit, worker threads of the stage cascades included
+    from mlframe.feature_selection.filters.hermite_fe.shared import heavy_tail_memo_scope
+
+    # the source-column dedup and the per-column spike-contamination verdicts of the FE families are shared by the whole fit, worker threads of the stage cascades included
+    with dedup_collinear_memo_scope(), heavy_tail_memo_scope():
         return _fit_impl_scoped(self, X, y, groups, **fit_params)
 
 
