@@ -30,7 +30,7 @@ broadcast would carry no generalisable signal. Refused keys emit nothing.
 """
 from __future__ import annotations
 
-from mlframe.feature_selection.filters._fe_frame_ops import fe_column_values
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_values, fe_stack_rows
 import logging
 import threading
 from itertools import combinations
@@ -340,6 +340,38 @@ def _key_labels(key_uniq: Any) -> "tuple[list, bool]":
     return labels, len(set(labels)) == len(labels)
 
 
+_COLUMN_CACHE_MAX_BYTES = 256 * 1024 * 1024
+
+
+class _ColumnCache:
+    """Contiguous copies (in the crit dtype) and content hashes of the numeric columns of one generator call, shared by its (key set, column) tasks.
+
+    The copies are made once, in tiles (the columns of a frame built from an ``(n, k)`` array are strided), when together they fit ``_COLUMN_CACHE_MAX_BYTES``; a wider column set is left to
+    the tasks. The hash of a column is taken on first use; two pool threads asking at once only compute the same value twice."""
+
+    def __init__(self, X: pd.DataFrame, num_cols: Sequence[str]) -> None:
+        dtype = np.dtype(_crit_np_dtype())
+        cols = list(dict.fromkeys(num_cols))
+        self._rows: dict = {}
+        self._digests: dict = {}
+        if cols and len(cols) * len(X) * dtype.itemsize <= _COLUMN_CACHE_MAX_BYTES:
+            mat = fe_stack_rows([fe_column_values(X, c) for c in cols], dtype)
+            self._rows = {c: mat[j] for j, c in enumerate(cols)}
+
+    def values(self, col: str) -> "np.ndarray | None":
+        """The contiguous copy of ``col``, or ``None`` when the cache does not hold it."""
+        return self._rows.get(col)
+
+    def digest(self, col: str, x: np.ndarray) -> str:
+        """The content hash of column ``col`` (whose values are ``x``)."""
+        hit = self._digests.get(col)
+        if hit is None:
+            from mlframe.utils.disk_cache import hash_array_content
+
+            hit = self._digests[col] = hash_array_content(np.ascontiguousarray(x))
+        return str(hit)
+
+
 def _emit_num_col_features(
     X: pd.DataFrame,
     num_col: str,
@@ -351,10 +383,15 @@ def _emit_num_col_features(
     encoded: dict,
     raw_recipes: dict,
     key_labels_info: "tuple[list, bool] | None" = None,
+    column_cache: "_ColumnCache | None" = None,
 ) -> None:
-    """Compute one numeric column's per-composite-group broadcasts plus its z-within-group and ratio residuals into ``encoded`` / ``raw_recipes``."""
+    """Compute one numeric column's per-composite-group broadcasts plus its z-within-group and ratio residuals into ``encoded`` / ``raw_recipes``.
+
+    ``column_cache`` holds the contiguous copy and the content hash of the numeric columns of one generator call: a column meets every key set, and each task copied and hashed it again."""
     # one contiguous copy of the column (a column of a row-major frame block is strided): the kernels, the content hashes and the residuals below each asked for their own copy of it, six per column
-    x = np.ascontiguousarray(fe_column_values(X, num_col), dtype=_crit_np_dtype())
+    x = column_cache.values(num_col) if column_cache is not None else None
+    if x is None:
+        x = np.ascontiguousarray(fe_column_values(X, num_col), dtype=_crit_np_dtype())
     # Group on the integer codes of the key when the caller has them (the key strings are then hashed once per column set, not once per numeric column and statistic);
     # the recipe lookups stay keyed by the key string, taken from the unique keys.
     label: Callable[[Any], str]
@@ -384,7 +421,7 @@ def _emit_num_col_features(
         lookup_std = _group_lookup(std_series, label, zero_nonfinite=True)
     from mlframe.utils.disk_cache import hash_array_content
 
-    x_digest = hash_array_content(np.ascontiguousarray(x))
+    x_digest = column_cache.digest(num_col, x) if column_cache is not None else hash_array_content(np.ascontiguousarray(x))
     global_mean = _global_value_for_stat(x, "mean", x_digest)
     global_std = _global_value_for_stat(x, "std", x_digest)
 
@@ -594,6 +631,7 @@ def generate_composite_group_agg_features(
     from ._fe_deadline import _state as _deadline_state, fe_deadline_scope
 
     deadline = getattr(_deadline_state, "deadline", None)
+    column_cache = _ColumnCache(X, [t[0] for t in tasks])
 
     def _run(task):
         """One task into private dicts, with the fit's wall-clock budget published to the worker thread."""
@@ -601,7 +639,7 @@ def generate_composite_group_agg_features(
         enc: dict[str, np.ndarray] = {}
         rec: dict[str, dict] = {}
         with fe_deadline_scope(deadline):
-            _emit_num_col_features(X, num_col, keys, key_uniq, key_inverse, group_cols, stats, enc, rec, labels_info)
+            _emit_num_col_features(X, num_col, keys, key_uniq, key_inverse, group_cols, stats, enc, rec, labels_info, column_cache)
         return enc, rec
 
     jobs = _resolve_edge_jobs(None, len(tasks))
