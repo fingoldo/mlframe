@@ -422,8 +422,11 @@ LightGBM's own multithreaded `pred_contrib`, and our *unoptimised* path kernel r
 speed as it at equal thread counts (3 092 ms vs 3 134 ms on one thread, 720 ms vs 717 ms on
 eight, 6 000 rows); the speed-up comes from the table algorithm and the GPU, not from
 threading. Not covered by our implementation and answered by `shap` with a logged warning:
-multiclass models and sklearn tree ensembles; XGBoost interaction values use XGBoost's own
-native `pred_interactions`. Reproduce:
+multiclass models and sklearn tree ensembles; CatBoost values use CatBoost's own kernel (its
+non-symmetric trees are explained by our kernel, because the native values of those do not add up
+to the prediction). Interaction values of XGBoost and LightGBM come from our pair-table kernels:
+for 1 500 rows x 50 features x 200 depth-4 trees they take 55 ms on numba and 47 ms on CUDA, where
+XGBoost's native `pred_interactions` takes 20 s (the same values to 2e-6). Reproduce:
 `python -m mlframe.feature_selection._benchmarks.profiling.treeshap_vs_shap 20000 lightgbm`.
 
 **Friend-graph post-analysis.** After screening, the `MRMR` estimator can build a
