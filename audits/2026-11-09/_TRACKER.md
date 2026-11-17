@@ -858,3 +858,8 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 - Open candidate (not done): compute the honest null of the raw columns on a worker during the cascades and transplant it into the real spec's `_null_columns` (about 1.4 s of the tail). Needs the screen's evaluation rows, seed and target codes before the screen exists.
 - Gradient seeder `_rff_analytic_mixed_partial_energy_gram`: 13 calls x 40 ms, already about 20 GFlop/s on the host BLAS; a device version would save about 0.3 s. Not done.
 - Row sweep reminder: 25000 rows 39.7 s against 100000 rows 50 s, so about 40 s of the fit does not depend on the row count (per-family orchestration and launches).
+
+### MR11-09 usability diversity gate `_abscorr` compiled (2026-11-17)
+- `_usability_greedy_steps._abscorr`: 1824 calls on the serial tail (pure-form retention pool), each two `np.std` plus `np.corrcoef` on 100000-row columns (0.32 ms in the fit, 0.58 s).
+- One compiled two-pass mean-centred loop with the same guards (standard deviation below 1e-12, non-finite ratio, empty input): 57 us a call, difference from the numpy form at most 8e-16 on 300 random pairs.
+- Wall 48.4 / 48.9 s (50.8-51.1 s at the start of the day), the same seven features; 83 related usability / pair tests pass.
