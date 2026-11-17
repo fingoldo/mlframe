@@ -230,6 +230,25 @@ def _key_pack_kernel(cp: Any) -> Any:
     return _KEY_PACK_KERNEL
 
 
+class _DeviceRng:
+    """The device random source of one permutation-null call: a counter-based Philox generator seeded with the call's seed, exposing the two draws the null uses (``randint`` and ``random_sample``).
+
+    ``cupy.random.RandomState`` initialises its XORWOW states with a ``generate_seed_pseudo`` kernel on the first draw (about 0.5 ms per call, 310 launches and 3.1 percent of the GPU time of a STRICT FE fit at
+    20000 x 40, nvprof) and draws 4x slower; the Philox generator needs no state initialisation (init plus one (20000, 25) int32 draw: 0.18 ms against 1.11 ms). The stream differs from the XORWOW one, the same
+    selection-equivalence bar as the difference to numpy's SeedSequence that the seed mixing already accepts."""
+
+    def __init__(self, cp: Any, seed: int) -> None:
+        self._gen = cp.random.Generator(cp.random.Philox4x3210(int(seed)))
+
+    def randint(self, low: int, high: int, size: Any, dtype: Any) -> Any:
+        """Uniform integers in ``[low, high)`` of ``size`` and ``dtype`` (the ``RandomState.randint`` signature the null uses)."""
+        return self._gen.integers(low, high, size=size, dtype=dtype)
+
+    def random_sample(self, size: Any) -> Any:
+        """Uniform floats in ``[0, 1)`` of ``size`` (the ``RandomState.random_sample`` signature the null uses)."""
+        return self._gen.random(size)
+
+
 def _flat_within_stratum_shuffle(cp: Any, rs: Any, x_sorted_d: Any, z_rank_d: Any, nperm: int, kx: int, nrank: int) -> Optional[Any]:
     """``(nperm, n)`` int64 within-stratum shuffles of ``x_sorted_d`` (z-sorted order) from ONE flat 1-D radix sort, or ``None`` when the packed key does not fit.
 
@@ -328,7 +347,7 @@ def conditional_perm_null_gpu(
     # XOR-fold keeps the two 32-bit components distinct as a single 64-bit seed (cupy RandomState takes one seed);
     # the exact stream differs from numpy's SeedSequence (acceptable: selection-equivalence, not byte-identity).
     dev_seed = (int(seed) & 0xFFFFFFFF) ^ ((int(salt) & 0xFFFFFFFF) << 1)
-    rs = cp.random.RandomState(dev_seed & 0x7FFFFFFFFFFFFFFF)
+    rs = _DeviceRng(cp, dev_seed & 0x7FFFFFFFFFFFFFFF)
 
     # x is held resident on device; y/z stay host (``batched_cmi_gpu`` consumes the (n,nperm) candidate matrix
     # on device but reads y/z as host ndarrays - it does its own H2D for them, once per call, not per perm).
