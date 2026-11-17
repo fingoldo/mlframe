@@ -205,7 +205,7 @@ def use_device(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("fe_ksg_cd_device: KTC choose() failed, using the fallback: %s", exc)
+        log_throttle(logger, "ksg_cd_gpu.ktc_choose", logging.WARNING, "fe_ksg_cd_device: KTC choose() failed (%s: %s); using the row-count fallback", type(exc).__name__, exc)
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 

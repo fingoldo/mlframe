@@ -167,6 +167,9 @@ def tail_dependence_columns_device(cols_rows: Any, v: np.ndarray, q: float) -> O
     k, n = cols_rows.shape
     if cols_rows.dtype not in (np.dtype(np.float32), np.dtype(np.float64)) or k == 0 or n < 2:
         return None
+    if int(np.shape(v)[0]) != int(n):
+        log_throttle(logger, "tail_dependence_gpu.target_length", logging.WARNING, "device tail dependence skipped: the target has %d rows, the columns %d; the host kernel scores the columns", int(np.shape(v)[0]), int(n))
+        return None
     try:
         import cupy as cp
 
@@ -263,7 +266,7 @@ def use_device(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("fe_tail_dep_device: KTC choose() failed, using the fallback: %s", exc)
+        log_throttle(logger, "tail_dependence_gpu.ktc_choose_failed", logging.WARNING, "fe_tail_dep_device: KTC choose() failed (%s: %s); the rows floor decides", type(exc).__name__, exc)
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 

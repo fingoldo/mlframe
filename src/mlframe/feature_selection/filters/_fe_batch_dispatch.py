@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 
 def _cuda_available() -> bool:
     """Return whether a usable CUDA device is present, delegating to the GPU-strict usability check."""
@@ -43,8 +45,7 @@ def _ktc_backend_choice(n_rows: int, n_cands: int) -> str | None:
 
         return "gpu" if fe_batch_use_device(n_rows, n_cands) else "cpu"
     except Exception as e:
-        # fallback: the kernel-tuning choice is an optional hint, so a failed lookup is not fatal.
-        logger.debug("_ktc_backend_choice: tuned choice failed, falling back to conservative CPU default: %s", e)
+        log_throttle(logger, "_fe_batch_dispatch.ktc_choice_failed", logging.WARNING, "_ktc_backend_choice: tuned choice failed (%s: %s), using the conservative CPU default", type(e).__name__, e)
         return None
 
 
@@ -60,6 +61,7 @@ def choose_fe_batch_backend(n_rows: int, n_cands: int) -> str:
         _ktc_choice = _ktc_backend_choice(n_rows, n_cands)
         choice = _ktc_choice if _ktc_choice else "cpu"
     if choice == "gpu" and not _cuda_available():
+        log_throttle(logger, "_fe_batch_dispatch.gpu_without_cuda", logging.WARNING, "choose_fe_batch_backend: the GPU backend was chosen (%dx%d work) but no usable CUDA device exists; using the CPU path", n_rows, n_cands)
         return "cpu"
     return choice
 
@@ -77,6 +79,9 @@ def fe_batch_mi(
     to the (selection-identical) CPU path so a transient device error is never a correctness regression.
     Returns a host (K,) MI array."""
     X = np.asarray(X_cands)
+    y_rows = (getattr(y_codes, "shape", None) or np.shape(y_codes) or (0,))[0]
+    if X.ndim >= 1 and int(y_rows) != int(X.shape[0]):
+        raise ValueError("fe_batch_mi: y_codes has %d rows but X_cands has %d" % (int(y_rows), int(X.shape[0])))
     n = X.shape[0] if X.ndim >= 1 else 0
     k = X.shape[1] if X.ndim == 2 else 1
     chosen = (backend if backend else choose_fe_batch_backend(n, k)).lower()

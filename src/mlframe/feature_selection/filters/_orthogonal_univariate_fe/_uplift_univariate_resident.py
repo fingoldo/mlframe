@@ -35,6 +35,8 @@ from .._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
 import logging
 from typing import Any, Optional
 
+from mlframe.utils.log_throttle import log_throttle
+
 import numpy as np
 import pandas as pd
 
@@ -123,5 +125,5 @@ def uplift_univariate_eng_mi_resident(
             return None  # the kernel-tuning entry says the host scorer is faster at this row count
         return _product_mi_blocked(cp, raw_X, specs, y, int(nbins), basis)
     except Exception as _exc:
-        logger.debug("uplift_univariate_eng_mi_resident: GPU path failed (%s); host fallback", _exc)
+        log_throttle(logger, "uplift_univariate_resident_failed", logging.WARNING, "uplift_univariate_eng_mi_resident: GPU path failed (%s: %s); the host scorer runs", type(_exc).__name__, _exc)
         return None

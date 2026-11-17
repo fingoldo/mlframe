@@ -203,11 +203,10 @@ def residency_audit() -> Iterator[ResidencyReport]:
         yield rep
         return
 
-    _orig_asarray = cp.asarray
-    _orig_asnumpy = cp.asnumpy
-    _orig_get = cp.ndarray.get
-
     with _AUDIT_LOCK:
+        _orig_asarray = cp.asarray
+        _orig_asnumpy = cp.asnumpy
+        _orig_get = cp.ndarray.get
         cp.asarray = _asarray_wrapper(rep, _orig_asarray, np)
         cp.asnumpy = _asnumpy_wrapper(rep, _orig_asnumpy)
         orig_sync = _patch_sync_methods(rep, cp)

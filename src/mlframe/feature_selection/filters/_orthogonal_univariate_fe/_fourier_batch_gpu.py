@@ -21,6 +21,7 @@ from typing import Any, Callable, Optional, Sequence
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
 import numpy as np
+from .._cupy_solve_checked import cupy_solve_checked
 
 from mlframe._numerical_floors import VARIANCE_FLOOR
 from mlframe.utils.env_flags import env_int
@@ -306,7 +307,7 @@ def _run_group(
     Vt, Vv = vander(zt), vander(zv)
     try:
         VtT = Vt.transpose(0, 2, 1)
-        coef = cp.linalg.solve(VtT @ Vt, VtT @ yt[:, :, None])
+        coef = cupy_solve_checked(cp, VtT @ Vt, VtT @ yt[:, :, None])
     except np.linalg.LinAlgError as _exc:
         logger.warning("_run_group fell back to its default after %s", type(_exc).__name__)
         return [single(k) for k in range(C)]

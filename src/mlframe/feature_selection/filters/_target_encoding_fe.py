@@ -276,7 +276,7 @@ _column_codes_cache_bytes = 0
 def _column_content_key(arr: np.ndarray) -> tuple:
     """Content key of a column: dtype, length and a hash of its values (the object path hashes the elements)."""
     if arr.dtype.kind == "O":
-        return ("O", arr.shape[0], int(pd.util.hash_array(arr, categorize=False).sum() & 0xFFFFFFFFFFFFFFFF))
+        return ("O", arr.shape[0], hash(pd.util.hash_array(arr, categorize=False).tobytes()))
     return (arr.dtype.str, arr.shape[0], hash(np.ascontiguousarray(arr).tobytes()))
 
 

@@ -105,7 +105,8 @@ def composite_group_agg_top_blockwise(
                 continue
             enc_df = pd.DataFrame(encoded, index=X.index)
             del encoded
-            scored = score_grouped_agg_by_cmi_uplift(X, enc_df, y, list(base_cols), n_bins=n_bins, eng_to_source=eng_to_source, support_cache=support_cache)
+            block_sources = {name: recipes[name]["num_col"] for name in enc_df.columns}
+            scored = score_grouped_agg_by_cmi_uplift(X, enc_df, y, list(base_cols), n_bins=n_bins, eng_to_source={**block_sources, **eng_to_source}, support_cache=support_cache)
             scores_frames.append(scored)
             keep = scored[(scored["cmi"] >= float(min_cmi)) & (scored["uplift"] >= float(min_uplift))]
             winners = list(keep["engineered_col"].head(int(top_k)))

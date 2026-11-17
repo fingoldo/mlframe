@@ -24,6 +24,7 @@ import numpy as np
 from numba import njit, prange
 
 from mlframe._numerical_floors import VARIANCE_FLOOR
+from mlframe.utils.log_throttle import log_throttle
 
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
@@ -203,6 +204,7 @@ def _drops_device(xs: np.ndarray, y: np.ndarray, qs: Sequence[float], min_seg: i
         # the three cuts are order statistics: the sort-free radix select gives them (bit-identical to cp.percentile) without sorting the columns (the sort was 43 % of the device call)
         got_q = _radix_quantiles(cp.ascontiguousarray(xd.T), np.asarray(qs, dtype=np.float64))
         if got_q is None:
+            log_throttle(logger, "hinge_precheck_radix_declined", logging.WARNING, "hinge precheck: the device radix select declined (%d columns x %d rows); the host kernel runs", k, n)
             return None
         cuts = got_q.T
         yc = np.empty(n + 1, dtype=np.float64)
@@ -216,7 +218,7 @@ def _drops_device(xs: np.ndarray, y: np.ndarray, qs: Sequence[float], min_seg: i
         )
         return np.asarray(cp.asnumpy(out), dtype=np.float64)
     except Exception as exc:
-        logger.debug("hinge precheck: the device form is unavailable (%s: %s)", type(exc).__name__, exc)
+        log_throttle(logger, "hinge_precheck_device_unavailable", logging.WARNING, "hinge precheck: the device form is unavailable (%s: %s); the host kernel runs", type(exc).__name__, exc)
         return None
 
 

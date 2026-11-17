@@ -62,7 +62,7 @@ def pool_table_use_resident(n_rows: int, npairs: int, n_combos: int) -> bool:
         if fe_gpu_strict_enabled(n=int(n_rows), p=int(npairs)):
             return True
     except Exception as e:  # nosec B110 - optional dependency import guard
-        logger.debug("fe_gpu_strict_enabled() check failed, continuing to the crossover-based decision: %s", e)
+        log_throttle(logger, "_usability_pool_resident_ktc.strict_check", logging.WARNING, "fe_gpu_strict_enabled() check failed, continuing to the crossover-based decision: %s", e)
     if _POOLRES_SPEC is None:
         return False
     pb = min(_POOLRES_SWEEP_NPAIRS, key=lambda b: abs(b - int(npairs)))

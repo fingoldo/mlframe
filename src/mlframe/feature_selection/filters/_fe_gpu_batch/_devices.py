@@ -15,6 +15,7 @@ import logging
 import os
 from dataclasses import dataclass
 from mlframe.utils.env_flags import env_float, env_int
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +123,7 @@ def _visible_device_ids() -> list[int]:
             want = {int(t) for t in subset.split(",") if t.strip() != ""}
             ids = [i for i in ids if i in want]
         except Exception as e:  # nosec B110 - best-effort path
-            logger.debug("parsing device subset %r failed, using all visible devices: %s", subset, e)
+            log_throttle(logger, "fe_devices.subset_parse", logging.WARNING, "MLFRAME_FE_VRAM_DEVICES=%r is not a comma-separated list of device ids (%s); using all visible devices", subset, e)
     return ids
 
 
@@ -165,7 +166,7 @@ def enumerate_device_profiles() -> list[DeviceProfile]:
         try:
             out.append(_profile_device(i))
         except Exception as e:  # nosec B112 - best-effort path  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-            logger.debug("_profile_device(%d) failed, skipping: %s", i, e)
+            log_throttle(logger, "fe_devices.profile", logging.WARNING, "FE batcher: profiling CUDA device %d failed (%s: %s); the device is skipped", i, type(e).__name__, e)
             continue
     return out
 

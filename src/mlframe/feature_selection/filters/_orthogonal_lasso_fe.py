@@ -82,7 +82,6 @@ import warnings
 from typing import Optional, Sequence
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
@@ -131,14 +130,14 @@ def _fit_lasso_abs_coefs(
     ordinality, unlike regressing on the raw ordinal class integers (which
     would let a meaningless label ordering drive selection).
     """
-    X_arr = np.asarray(X_stack, dtype=_crit_np_dtype())
+    X_arr = np.asarray(X_stack, dtype=np.float64)  # Intentional float64: standardising a float32 cast loses columns with a large offset
     y_raw = np.asarray(y).ravel()
-    y_arr = y_raw.astype(_crit_np_dtype())
+    y_arr = y_raw.astype(np.float64)
     if X_arr.ndim == 1:
         X_arr = X_arr.reshape(-1, 1)
     n_rows, n_cols = X_arr.shape
     if n_rows == 0 or n_cols == 0:
-        return np.zeros(n_cols, dtype=_crit_np_dtype())
+        return np.zeros(n_cols, dtype=np.float64)
 
     # Multiclass detection: a small set of discrete (integer-valued) labels with >2 classes is a classification target whose label INTEGERS carry no
     # ordinal meaning. Regressing Lasso on those integers yields coefficients driven by the arbitrary class numbering. One-hot each class and take the
@@ -167,9 +166,9 @@ def _fit_lasso_abs_coefs(
         X_scaled = X_clean
     if is_discrete and uniq.size > 2:
         classes = np.unique(y_raw)
-        best = np.zeros(n_cols, dtype=_crit_np_dtype())
+        best = np.zeros(n_cols, dtype=np.float64)
         for cls in classes:
-            indicator = (y_raw == cls).astype(_crit_np_dtype())
+            indicator = (y_raw == cls).astype(np.float64)
             coefs = _fit_lasso_abs_coefs_scaled(X_scaled, indicator, alpha=alpha, random_state=random_state)
             best = np.maximum(best, coefs)
         return best
@@ -189,10 +188,10 @@ def _fit_lasso_abs_coefs_scaled(
     ``X_scaled`` across class fits is safe (no cross-class mutation)."""
     from sklearn.linear_model import Lasso
 
-    with warnings.catch_warnings():
-        # ConvergenceWarning at small n with many candidates is expected
-        # and not actionable from the caller's side - silence at fit-time.
-        warnings.simplefilter("ignore")
+    from sklearn.exceptions import ConvergenceWarning
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", category=ConvergenceWarning)
         model = Lasso(
             alpha=float(alpha),
             fit_intercept=True,
@@ -200,7 +199,12 @@ def _fit_lasso_abs_coefs_scaled(
             random_state=int(random_state),
         )
         model.fit(X_scaled, y_arr)
-    return np.abs(np.asarray(model.coef_, dtype=_crit_np_dtype())).ravel()
+    if any(issubclass(w.category, ConvergenceWarning) for w in caught):
+        log_throttle(
+            logger, "orth_lasso_fe_not_converged", logging.WARNING,
+            "Lasso did not converge in max_iter=5000 (alpha=%s); |coef| feature scores may be unreliable.", alpha,
+        )
+    return np.abs(np.asarray(model.coef_, dtype=np.float64)).ravel()
 
 def score_features_by_lasso_coef(
     raw_X: pd.DataFrame,
@@ -263,8 +267,8 @@ def score_features_by_lasso_coef(
     # double-count the shared linear signal and bias the uplift ratio.)
     # f64 kept: covariance/coordinate-descent stability (f32 sums lose precision here) - NOT routed through _crit_np_dtype.
     stack_arr = np.column_stack([
-        raw_X.to_numpy(dtype=_crit_np_dtype()),
-        engineered_X.to_numpy(dtype=_crit_np_dtype()),
+        raw_X.to_numpy(dtype=np.float64),
+        engineered_X.to_numpy(dtype=np.float64),
     ])
     abs_coefs = _fit_lasso_abs_coefs(
         stack_arr, np.asarray(y).ravel(),

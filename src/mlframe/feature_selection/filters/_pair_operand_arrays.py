@@ -31,6 +31,8 @@ def pair_operand_arrays(k_vars: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 def fill_pair_bias(target: dict, pair_a: np.ndarray, pair_b: np.ndarray, bias: np.ndarray) -> None:
     """Set ``target[(min, max)] = float(bias[p])`` for every pair ``p``, converting at most ``_DICT_FILL_CHUNK`` pairs to Python at once."""
     n = int(pair_a.shape[0])
+    if int(pair_b.shape[0]) != n or int(bias.shape[0]) != n:
+        raise ValueError(f"pair_a, pair_b and bias must have equal lengths, got {n}, {int(pair_b.shape[0])}, {int(bias.shape[0])}")
     for start in range(0, n, _DICT_FILL_CHUNK):
         stop = min(n, start + _DICT_FILL_CHUNK)
         for a, b, v in zip(pair_a[start:stop].tolist(), pair_b[start:stop].tolist(), bias[start:stop].tolist()):

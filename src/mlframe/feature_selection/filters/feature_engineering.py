@@ -134,8 +134,9 @@ def _rebuild_full_survivor_col(
         param_a = _apply_unary(unary_a_name, var_a_idx, vals_a)
         param_b = _apply_unary(unary_b_name, var_b_idx, vals_b)
         col = binary_transformations[bin_func_name](param_a, param_b)
-    col = np.nan_to_num(col, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
-    return np.asarray(col.astype(np.float32, copy=False))
+    with np.errstate(over="ignore", invalid="ignore"):
+        col32 = np.asarray(col).astype(np.float32, copy=False)
+    return np.asarray(np.nan_to_num(col32, copy=False, nan=0.0, posinf=0.0, neginf=0.0))
 
 
 # Domain-validity tags for unary transforms produced by ``create_unary_transformations(preset="maximal")``. Consumers that need to clip / reject inputs before
@@ -308,12 +309,10 @@ def gpu_compatible_binary_names() -> set:
 
 
 def _gpu_smart_log(cp, x):
-    """Natural log that shifts a column containing non-positive values up to just above zero first (the CPU ``log`` rule), else a plain log."""
-    # Smart log: avoid log of non-positive.
-    x_min = cp.nanmin(x)
-    if x_min > 0:
-        return cp.log(x)
-    return cp.log(x + (1e-5 - x_min))
+    """Natural log that shifts each column containing non-positive values up to just above zero first (the CPU ``log`` rule, per column), else a plain log."""
+    x_min = cp.nanmin(x, axis=0)
+    shift = cp.where(x_min > 0, 0.0, 1e-5 - x_min).astype(x.dtype)
+    return cp.log(x + shift)
 
 
 # unary name -> ``op(cp, x)`` on a float32 CuPy array; the keys cover ``gpu_compatible_unary_names()``.

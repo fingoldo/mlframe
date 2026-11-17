@@ -163,7 +163,7 @@ def _score_one_pair_prefetch_next_chunk_into(_ex, _bufs, _my_chunk, _fe_chunks, 
         try:
             chunk_state.setdefault("pipeline_futures", {})[_my_chunk + 1] = _ex.submit(_produce, _my_chunk + 1, _bufs[(_my_chunk + 1) % 2])
         except Exception:
-            logger.debug("chunk prefetch submit failed; falling back to lazy compute", exc_info=True)
+            log_throttle(logger, "pairs_score.prefetch_submit", logging.WARNING, "chunk prefetch submit failed; falling back to lazy compute", exc_info=True)
 
 
 def _score_one_pair_transformations_pair_combs(combs, vars_transformations, _PREWARP_UNARY, _name_list, _a_cols, _b_cols, _ops, _op_code_arr, _gpu_cands, i):
@@ -398,7 +398,7 @@ def _score_one_pair_flips(var_pairs_perf, _resolve_col, _safe_abs_corr, _use_map
         try:
             got = many([c[2] for c in cfgs], target[0], target[1])
         except Exception as e:  # nosec B110 - best-effort, the per-config loop is the reference path
-            logger.debug("batched |corr| of the pair failed: %s", e)
+            log_throttle(logger, "pairs_score.batched_corr", logging.WARNING, "batched |corr| of the pair failed, scoring per config: %s", e)
             got = None
         if got is not None and len(got) == len(cfgs):
             _use_map.update(zip(cfgs, got))
@@ -414,8 +414,8 @@ def _score_one_pair_flips(var_pairs_perf, _resolve_col, _safe_abs_corr, _use_map
             _cv = _resolve_col(_cfg[2])
             if _cv is not None:
                 _use_map[_cfg] = _safe_abs_corr(_cv)
-        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
+        except Exception as e:  # nosec B112 - the config is left out of the |corr| map, logged
+            log_throttle(logger, "pairs_score.config_corr", logging.WARNING, "|corr| of a pair config failed (%s: %s); the config has no |corr|", type(e).__name__, e)
             continue
 
 

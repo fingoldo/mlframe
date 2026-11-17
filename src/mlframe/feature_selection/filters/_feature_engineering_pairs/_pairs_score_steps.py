@@ -184,7 +184,7 @@ def _batched_abs_corr(chunk_state, transformed_vars, buf_cols, y, y_finite):
             out.extend(abs_corr_finite_batch_gpu(cm if cm is not None else cp.ascontiguousarray(rm.T), y, y_finite))
         return out
     except Exception as e:
-        logger.debug("batched device |corr| failed, caller runs it per column: %s", e)
+        log_throttle(logger, "pairs_score_batched_abs_corr", logging.WARNING, "batched device |corr| failed, caller runs it per column: %s", e)
         return None
 
 
@@ -841,4 +841,4 @@ def _score_one_pair_step6_wide_fraction_margin(
         except Exception:
             # Load-bearing selection logic (the noise-wrap corr-collapse veto): log rather than swallow
             # silently, so a failure that lets a noise-wrapped pair through is visible at debug level.
-            logger.debug("noise-wrap corr-collapse veto failed; pair not vetoed", exc_info=True)
+            log_throttle(logger, "pairs_score_noise_wrap_veto", logging.WARNING, "noise-wrap corr-collapse veto failed; pair not vetoed", exc_info=True)

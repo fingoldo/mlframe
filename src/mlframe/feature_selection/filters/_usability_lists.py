@@ -120,6 +120,14 @@ def build_usability_lists(mrmr: Any, X: Any, y_cont: "np.ndarray | None") -> Non
     df = _raw_numeric_frame(X, feature_names)
     if df.shape[0] != y_cont.size:
         return  # row mismatch (e.g. target-row dropping); skip rather than misalign
+    finite_y = np.isfinite(y_cont)
+    if not finite_y.all():
+        # the downstream scrub would turn a missing target into a fabricated 0.0 and fit the selection on it
+        log_throttle(logger, "usability_lists_nonfinite_target", logging.WARNING, "usability: dropping %d/%d row(s) with a non-finite target before the usability selection.", int((~finite_y).sum()), finite_y.size)
+        df = df.loc[finite_y].reset_index(drop=True)
+        y_cont = y_cont[finite_y]
+        if float(np.std(y_cont)) < 1e-12:
+            return
 
     from ._usability_aware_selection import build_usability_candidate_pool, usability_greedy
 

@@ -15,6 +15,7 @@ import logging
 import math
 
 import numpy as np
+from mlframe.feature_selection.filters.info_theory._reject_count import reject_count
 from numba import njit, prange
 
 logger = logging.getLogger(__name__)
@@ -439,7 +440,7 @@ def _gate_from_mi(
     if npermutations <= 0:
         unchanged: np.ndarray = original_mi.copy()
         return unchanged
-    max_failed = int(npermutations * (1.0 - min_nonzero_confidence))
+    max_failed = reject_count(npermutations, min_nonzero_confidence)
     if max_failed <= 1:
         max_failed = 1
     perm_mat = (

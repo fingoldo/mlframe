@@ -21,6 +21,8 @@ from typing import Any, Optional, Sequence
 import numpy as np
 from numba import njit, prange
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._raw_module_cache import RawModuleCache
@@ -234,7 +236,7 @@ def _scores_device(x: np.ndarray, y: np.ndarray, zs: Sequence[np.ndarray], allow
         )
         return np.asarray(cp.asnumpy(out), dtype=np.float64)
     except Exception as exc:
-        logger.debug("cmim min: the device form is unavailable (%s: %s)", type(exc).__name__, exc)
+        log_throttle(logger, "cmim_min.device_failed", logging.WARNING, "cmim min: the device form failed (%s: %s); the host form scores this block", type(exc).__name__, exc)
         return None
 
 

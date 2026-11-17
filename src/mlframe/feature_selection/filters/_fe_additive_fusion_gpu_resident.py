@@ -82,6 +82,15 @@ def _pair_multiple_r_gpu(cp, ca, cb, fused, yv_dev, y_std: float) -> tuple:
     return multiple_r_from_gram(cp.asnumpy(cp.matmul(m.T, m)))
 
 
+def _raw_half_scales(cp: Any, vals_cols: list) -> np.ndarray:
+    """Per-half scale for the weighted sum, from the halves' values BEFORE non-finite entries are zeroed: ``nanstd`` ignores a NaN row and falls back to 1.0 for a non-finite or zero spread, as the host ``_half_scale`` does."""
+    out = np.ones(len(vals_cols), dtype=np.float64)  # Intentional float64: scale statistics
+    for j, c in enumerate(vals_cols):
+        sd = float(cp.nanstd(c.dev.astype(cp.float64, copy=False).ravel())) if hasattr(c, "dev") else float(np.nanstd(np.asarray(c, dtype=np.float64)))
+        out[j] = sd if np.isfinite(sd) and sd > 0.0 else 1.0
+    return out
+
+
 def _collect_gpu_candidate_halves(newly_engineered_names: list, engineered_recipes: dict, engineered_continuous: dict, n_rows: int, raw_name_set: set) -> tuple:
     """Host filters for the candidate halves (recipe + continuous values of the right length + a raw token); returns ``(names, recipes, tokens, values)``."""
     from ._fe_additive_fusion import _bare_tokens
@@ -218,6 +227,7 @@ def _gpu_evaluate_pair_weighted(
 ) -> Optional[tuple]:
     """Pick the ``add`` / ``sub`` alignment of two halves on the device and test additive separability; ``(binary, binned_codes, mi)`` or ``None``.
     ``weights`` divides each half before the sum: ``(1.0, 1.0)`` is the plain sum."""
+    from ._fe_mi_contract import quantize_mi_tiebreak
     from ._mi_greedy_cmi_fe import _cmi_from_binned
     from ._usability_njit_pool import _gpu_quantile_bin_codes
 
@@ -241,17 +251,14 @@ def _gpu_evaluate_pair_weighted(
     _t_sub = ca - cb
     _fsub = cp.where(cp.isfinite(_t_sub), _t_sub, cp.asarray(0.0, dtype=_t_sub.dtype))
     _bcodes, _kxf = _gpu_quantile_bin_codes(cp.stack([_fadd, _fsub], axis=0), qs)  # (2, n) resident codes
-    _mi_add = float(_cmi_from_binned(_bcodes[0], y_dense_sc, None))  # resident codes -> no re-upload
-    _mi_sub = float(_cmi_from_binned(_bcodes[1], y_dense_sc, None))
+    # Snapped to the shared MI grid exactly as the host proposal does, so a comparison inside the CPU/GPU last-bit noise decides the same way on both backends.
+    _mi_add = quantize_mi_tiebreak(float(_cmi_from_binned(_bcodes[0], y_dense_sc, None)))  # resident codes -> no re-upload
+    _mi_sub = quantize_mi_tiebreak(float(_cmi_from_binned(_bcodes[1], y_dense_sc, None)))
     if _mi_sub > _mi_add + _floor_margin * _strong["floor"]:
         _binary, fused_dev, fvb_dev, fused_mi = "sub", _fsub, _bcodes[1], _mi_sub
     else:
         _binary, fused_dev, fvb_dev, fused_mi = "add", _fadd, _bcodes[0], _mi_add
-    # Fusion admission razor (not grid-snapped): fused_mi vs strong-half mi + margin*floor. The cupy-vs-
-    # numpy reduction-order delta (~1e-12) is far below the floor-margin band, so it cannot flip this gate
-    # in practice; the direct fusion-parity check (resident vs CPU proposed fusions) + F2 confirm the same
-    # admissions. Accept-and-documented.
-    _binned_mi_passes = fused_mi > _strong["mi"] + _floor_margin * _strong["floor"]
+    _binned_mi_passes = quantize_mi_tiebreak(fused_mi) > quantize_mi_tiebreak(_strong["mi"] + _floor_margin * _strong["floor"])
     # OLS multiple-R separability, fully resident (the n-scaled lstsq runs on the device columns).
     _r_a, _r_b, _r_fused, _r_fused_single = _pair_multiple_r_gpu(cp, ca, cb, fused_dev, yc_dev, y_std)
     _r_best_single = max(_r_a, _r_b)
@@ -267,6 +274,14 @@ def _gpu_evaluate_pair_weighted(
     # When the second half adds real linear signal to the pair, the compound must show that gain itself: it has to beat the stronger half alone by the same chance margin.
     _keeps_both_halves = not (_r_fused > _r_best_single + _r_margin) or _r_fused_single > _r_best_single + _r_margin
     if not ((_binned_mi_passes or _ols_passes) and _keeps_both_halves):
+        from ._fe_rejection_ledger import record_fe_rejection
+
+        record_fe_rejection(
+            self, gate="additive_fusion", candidate=f"{ha['name']}+{hb['name']}", operands=(ha["name"], hb["name"]), operator=_binary,
+            observed=float(fused_mi), threshold=float(_strong["mi"] + _floor_margin * _strong["floor"]),
+            reason=("binned MI and OLS multiple-R separability both below their bars" if not (_binned_mi_passes or _ols_passes)
+                    else "the unweighted sum loses one half's linear signal (scale imbalance between the halves)"),
+        )
         return None
     return _binary, fvb_dev, fused_mi
 
@@ -373,10 +388,9 @@ def propose_additive_fusions_gpu(
         return [], set(), set()
 
     # Each half is divided by its own full-n standard deviation in the compound (the CPU path's _half_scale), one host read for all halves.
-    _scales = np.asarray(cp.asnumpy(cp.nanstd(vals_dev.astype(cp.float64, copy=False), axis=0)), dtype=np.float64)  # Intentional float64: scale statistics
+    _scales = _raw_half_scales(cp, _vals_cols)
     for _h in halves:
-        _sd = float(_scales[_h["col"]])
-        _h["scale"] = _sd if np.isfinite(_sd) and _sd > 0.0 else 1.0
+        _h["scale"] = float(_scales[_h["col"]])
 
     # Strongest half first so the most-informative disjoint pair is fused before the cap.
     halves.sort(key=lambda h: h["mi"], reverse=True)
@@ -421,7 +435,7 @@ def propose_additive_fusions_gpu(
             # NOT per-candidate) and binned RESIDENT via the same distinct-edge-dedup binner, keeping ALL binning
             # on the device. The keep-probe (``raw_retains_signal_given_genuine_children``) takes the raw and the fused
             # (genuine child) codes as resident arrays and only fetches host copies on its rare host fallbacks.
-            _subsumed_raw_operand_check_gpu(ha, hb, subsumed_raws, X, n_rows, _raw_bin_cache, _stride, qs, y_dense_sc, seed, fvb_dev)
+            _subsumed_raw_operand_check_gpu(ha, hb, subsumed_raws, X, n_rows, _raw_bin_cache, _stride, qs, y_dense_sc, seed, fvb_dev, self, fused_vals)
             if verbose:
                 logger.info(
                     "MRMR FE additive-fusion [GPU-resident]: fused %r (mi=%.4f) + %r (mi=%.4f) -> %r "
@@ -433,10 +447,14 @@ def propose_additive_fusions_gpu(
     return admitted, subsumed, subsumed_raws
 
 
-def _subsumed_raw_operand_check_gpu(ha, hb, subsumed_raws, X, n_rows, _raw_bin_cache, _stride, qs, y_dense_sc, seed, fvb_dev):
-    """Check each candidate fusion operand against the raw columns the selection already subsumes."""
+def _subsumed_raw_operand_check_gpu(ha, hb, subsumed_raws, X, n_rows, _raw_bin_cache, _stride, qs, y_dense_sc, seed, fvb_dev, fit=None, fused_vals=None):
+    """Check each candidate fusion operand against the raw columns the selection already subsumes; ``fit`` and ``fused_vals`` feed the host's tail-concentration override."""
     from mlframe.feature_selection.filters._usability_njit_pool import _gpu_quantile_bin_codes
     from mlframe.feature_selection.filters._fe_raw_redundancy_drop import raw_retains_signal_given_genuine_children
+    from mlframe.feature_selection.filters._fe_raw_redundancy_helpers import raw_is_tail_concentrated_subsumed
+
+    _y_cont_for_tail = getattr(fit, "_fe_prewarp_y_continuous_", None)
+    _fused_host = None
 
     for _rn in ha["tokens"] | hb["tokens"]:
         if _rn in subsumed_raws:
@@ -473,5 +491,17 @@ def _subsumed_raw_operand_check_gpu(ha, hb, subsumed_raws, X, n_rows, _raw_bin_c
             raw_bin=None, y_bin=y_dense_sc, genuine_child_bins=None, seed=seed,
             raw_bin_dev=_rvb_dev, genuine_child_bins_dev=[fvb_dev],
         )
+        # TAIL-CONCENTRATION OVERRIDE, the host proposal's second verdict: the binned keep-probe sees phantom private residual in a heavy-tailed raw that the fused compound subsumes continuously.
+        if _retains and _y_cont_for_tail is not None and fused_vals is not None:
+            if _fused_host is None:
+                _fused_host = np.asarray(fused_vals, dtype=np.float64)  # Intentional float64: one bounded read of the admitted fused values
+            if raw_is_tail_concentrated_subsumed(
+                _rv,
+                _y_cont_for_tail,
+                [_fused_host],
+                min_corr=float(getattr(fit, "fe_raw_tail_subsume_min_corr", 0.85)),
+                rank_frac=float(getattr(fit, "fe_pair_usability_admission_rank_frac", 0.7)),
+            ):
+                _retains = False
         if not _retains:
             subsumed_raws.add(_rn)

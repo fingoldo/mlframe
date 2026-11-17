@@ -177,7 +177,7 @@ def _hinge_max_rows() -> int:
         return 250000
 
 
-def _hinge_full_scan(cp, xg, yg, ones, n, proj, r_y, sse_lin, cand_q_lo, cand_q_hi, n_candidates, min_seg_rows, max_breakpoints, min_heldout_r2_uplift, min_rows) -> list:
+def _hinge_full_scan(cp, xg, yg, ones, n, proj, r_y, sse_lin, cand_q_lo, cand_q_hi, n_candidates, min_seg_rows, max_breakpoints, min_heldout_r2_uplift, min_rows, scan_on_train_rows: bool = True) -> list:
     """Scan the inner-quantile candidate cuts for hinge breakpoints: each round scores every cut against the growing design, then held-out-validates the argmin."""
     # FULL SCAN: inner-quantile candidate cuts; per round QR the growing block once and score every
     # cut in one batched FWL evaluation; held-out-validate the argmin tau; add its relu leg and repeat.
@@ -185,11 +185,21 @@ def _hinge_full_scan(cp, xg, yg, ones, n, proj, r_y, sse_lin, cand_q_lo, cand_q_
     cand = np.unique(cp.asnumpy(device_quantile(xg, cp.asarray(qs))))
     if cand.size == 0:
         return []
+    # The tau argmin must not see the held-out rows (idx % 3 == 0) the uplift gate validates on: scan on the train-row slice only.
+    xs, ys = xg, yg
+    if scan_on_train_rows:
+        _tr_idx = cp.asarray(np.where((np.arange(n) % 3) != 0)[0])
+        xs, ys = xg[_tr_idx], yg[_tr_idx]
+        ones = cp.ones_like(xs)
+        proj = _gram_projector(cp, cp.stack([ones, xs], axis=1))
+        r_y = ys - proj(ys)
+        sse_lin = float(r_y @ r_y)
+        n = int(xs.size)
     found: list = []
     extra_legs: list = []
     # The candidate relu-leg block and row-guard mask depend only on (xg, cand); hoist them ONCE
     # out of the round loop (they are re-scored against each round's growing design via proj/r_yk).
-    R_cand, ok_cand = _fwl_relu_legs(cp, xg, cand, n, min_seg_rows)
+    R_cand, ok_cand = _fwl_relu_legs(cp, xs, cand, n, min_seg_rows)
     for _round_idx in range(max(1, int(max_breakpoints))):
         if _round_idx == 0:
             # Round 0's fixed design IS B=[1, xg] (extra_legs still empty) - the SAME block + Gram
@@ -199,9 +209,9 @@ def _hinge_full_scan(cp, xg, yg, ones, n, proj, r_y, sse_lin, cand_q_lo, cand_q_
             r_yk = r_y
             sse_B = sse_lin
         else:
-            Bk = cp.stack([ones, xg, *extra_legs], axis=1)
+            Bk = cp.stack([ones, xs, *extra_legs], axis=1)
             projk = _gram_projector(cp, Bk)
-            r_yk = yg - projk(yg)
+            r_yk = ys - projk(ys)
             sse_B = float(r_yk @ r_yk)
         sse_all = _batched_fwl_sse(cp, R_cand, ok_cand, r_yk, projk, sse_B, cand, found)
         _bi = int(np.argmin(sse_all))
@@ -212,7 +222,7 @@ def _hinge_full_scan(cp, xg, yg, ones, n, proj, r_y, sse_lin, cand_q_lo, cand_q_
         if uplift < float(min_heldout_r2_uplift):
             break
         found.append(best_tau)
-        extra_legs.append(cp.maximum(xg - best_tau, 0.0))
+        extra_legs.append(cp.maximum(xs - best_tau, 0.0))
     return found
 
 
@@ -229,6 +239,7 @@ def detect_hinge_breakpoints_gpu(
     n_candidates: int,
     min_rows: int,
     min_seg_rows: int,
+    scan_on_train_rows: bool = True,
 ) -> Optional[list]:
     """Device-resident hinge breakpoint detection. Returns the found tau list, or ``None`` on any cupy
     fault so the caller runs the exact host detector. The finite-row filtering / std guards mirror the
@@ -304,7 +315,10 @@ def detect_hinge_breakpoints_gpu(
         if best_drop < float(precheck_min_sse_drop):
             return []
 
-        return _hinge_full_scan(cp, xg, yg, ones, n, proj, r_y, sse_lin, cand_q_lo, cand_q_hi, n_candidates, min_seg_rows, max_breakpoints, min_heldout_r2_uplift, min_rows)
+        return _hinge_full_scan(cp, xg, yg, ones, n, proj, r_y, sse_lin, cand_q_lo, cand_q_hi, n_candidates, min_seg_rows, max_breakpoints, min_heldout_r2_uplift, min_rows, scan_on_train_rows)
     except Exception as _exc:
-        logger.debug("detect_hinge_breakpoints_gpu failed (%s); host detector fallback", _exc)
+        log_throttle(
+            logger, "hinge_gpu_detector_fault", logging.WARNING,
+            "detect_hinge_breakpoints_gpu failed (%s: %s); the host detector runs", type(_exc).__name__, _exc,
+        )
         return None

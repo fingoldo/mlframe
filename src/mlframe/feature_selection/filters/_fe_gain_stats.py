@@ -84,9 +84,13 @@ def plugin_mi_of_codes(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky:
 
 
 def held_out_codes(feature: np.ndarray, fit_rows: np.ndarray, score_rows: np.ndarray, n_bins: int = N_BINS) -> np.ndarray:
-    """Bin codes of ``feature[score_rows]`` using equal-frequency edges taken from ``feature[fit_rows]`` only."""
-    edges = np.quantile(feature[fit_rows], np.linspace(0.0, 1.0, n_bins + 1)[1:-1])
-    return np.asarray(np.searchsorted(edges, feature[score_rows], side="right"), dtype=np.int64)
+    """Bin codes of ``feature[score_rows]`` using equal-frequency edges taken from the finite values of ``feature[fit_rows]`` only; non-finite values go to the lowest bin, as in :func:`quantile_codes`."""
+    fit = feature[fit_rows]
+    fit = fit[np.isfinite(fit)]
+    edges = np.quantile(fit, np.linspace(0.0, 1.0, n_bins + 1)[1:-1]) if fit.size else np.zeros(n_bins - 1)
+    scored = feature[score_rows]
+    scored = np.where(np.isfinite(scored), scored, -np.inf)
+    return np.asarray(np.searchsorted(edges, scored, side="right"), dtype=np.int64)
 
 
 def paired_gain_se(cand_codes: np.ndarray, base_codes: np.ndarray, y_codes: np.ndarray, ky: int, n_codes: int = N_BINS) -> float:

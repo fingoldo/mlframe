@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Sequence
 
 import numpy as np
 from mlframe.utils.env_flags import env_int
+from mlframe.utils.log_throttle import log_throttle
 
 if TYPE_CHECKING:
     from mlframe.utils import ParamOracle
@@ -49,7 +50,10 @@ def _lookup_polyeval_thresholds(basis: str, n: int) -> tuple[int, int]:
         _cuda = int(_entry["cuda_threshold"]) if _entry and "cuda_threshold" in _entry else _CUDA_THRESHOLD
         return _par, _cuda
     except Exception as e:
-        logger.debug("_lookup_polyeval_thresholds: kernel_tuning_cache lookup failed, using the source-code default thresholds: %s", e)
+        log_throttle(
+            logger, "polyeval_thresholds_lookup_failed", logging.WARNING,
+            "_lookup_polyeval_thresholds: kernel_tuning_cache lookup failed (%s: %s), using the source-code default thresholds (%d, %d)", type(e).__name__, e, _PAR_THRESHOLD, _CUDA_THRESHOLD,
+        )
         return _PAR_THRESHOLD, _CUDA_THRESHOLD
 
 

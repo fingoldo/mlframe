@@ -50,6 +50,8 @@ from mlframe.feature_selection.filters._fe_gpu_batch._devices import assert_kern
 
 from numba import njit, prange
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._entropy_kernels import conditional_mi, entropy, _entropy_xz_fused, _entropy_x_onto_classes
 from ._class_encoding import merge_vars
 
@@ -476,7 +478,7 @@ def conditional_mi_batched_cuda(
         )
         return np.asarray(cp.asnumpy(cmi_g))
     except Exception as _exc:
-        logger.warning("cmi_from_joint kernel failed (%s); four-call entropy fallback", _exc)
+        log_throttle(logger, "cmi_cuda.cmi_from_joint_failed", logging.WARNING, "cmi_from_joint kernel failed (%s); four-call entropy fallback", _exc)
         counts = joint.reshape(p, nbins_y, nbins_x, nbins_z)
         h_z = _entropy_from_counts_axis(counts, (1, 2), n)
         h_xz = _entropy_from_counts_axis(counts, (1,), n)
@@ -664,9 +666,14 @@ def _vram_guard_passes(n: int, p: int, joint_size: int) -> bool:
         cap = min(cap, int(free_b * 0.5))
     except Exception as e:
         # Unknown free VRAM: falling through would ALLOW CUDA, and one launch fault latches _CMI_GPU_FAILED for the whole process.
-        logger.warning("_should_use_cuda: VRAM probe failed (%s: %s); keeping CMI on the CPU for %.2fGB of device buffers", type(e).__name__, e, bytes_needed / 1024**3)
+        log_throttle(logger, "cmi_cuda.vram_probe_failed", logging.WARNING, "_should_use_cuda: VRAM probe failed (%s: %s); keeping CMI on the CPU for %.2fGB of device buffers", type(e).__name__, e, bytes_needed / 1024**3)
         return False
     if bytes_needed > cap:
+        log_throttle(
+            logger, "cmi_cuda.vram_cap_exceeded", logging.WARNING,
+            "_should_use_cuda: batched CMI needs %.2fGB of device buffers, over the %.2fGB free-VRAM cap; keeping CMI on the CPU (n=%d, p=%d)",
+            bytes_needed / 1024**3, cap / 1024**3, n, p,
+        )
         return False
     # ABSOLUTE cushion guard: the relative cap above is computed only AFTER the cupy pool may
     # have already eaten the card; on a near-full / SHARED 4 GB card that lets the next launch fault. Require
@@ -681,9 +688,14 @@ def _vram_guard_passes(n: int, p: int, joint_size: int) -> bool:
         else:
             cushion_ok = fe_gpu_has_vram_cushion(bytes_needed)
         if not cushion_ok:
+            log_throttle(
+                logger, "cmi_cuda.vram_cushion_declined", logging.WARNING,
+                "_should_use_cuda: %.2fGB of device buffers would breach the absolute free-VRAM cushion; keeping CMI on the CPU (n=%d, p=%d)",
+                bytes_needed / 1024**3, n, p,
+            )
             return False
     except Exception as e:
-        logger.warning("_should_use_cuda: VRAM cushion check failed (%s: %s); keeping CMI on the CPU", type(e).__name__, e)
+        log_throttle(logger, "cmi_cuda.vram_cushion_failed", logging.WARNING, "_should_use_cuda: VRAM cushion check failed (%s: %s); keeping CMI on the CPU", type(e).__name__, e)
         return False
     return True
 

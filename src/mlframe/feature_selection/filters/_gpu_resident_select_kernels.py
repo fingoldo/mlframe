@@ -303,6 +303,11 @@ def _select_factories():
     return _gpu_resident_select_factories
 
 
+def _warn_slow_fallback(key: str, msg: str) -> None:
+    """Log a gate fallback to a slower path at WARNING, throttled per ``key``, with the active exception's traceback."""
+    log_throttle(logging.getLogger(__name__), key, logging.WARNING, msg, exc_info=True)
+
+
 def _resolve_radix_threads(n: int) -> int:
     """Threads/block for the radix-select launch: the sweep override when one is active (during the KTC
     timing probe), else the per-host tuned count from the kernel_tuning_cache (falls back to 512)."""
@@ -312,7 +317,7 @@ def _resolve_radix_threads(n: int) -> int:
         from ._gpu_resident_radix_ktc import radix_select_threads
         return int(radix_select_threads(int(n)))
     except Exception:
-        logging.getLogger(__name__).debug("radix-select threads KTC lookup failed; using fixed default", exc_info=True)
+        _warn_slow_fallback("gpu_select.threads_ktc", "radix-select threads KTC lookup failed; using fixed default %d threads/block" % _RADIX_SELECT_THREADS)
         return _RADIX_SELECT_THREADS
 
 
@@ -437,8 +442,7 @@ def _transpose_to_cm(cand_gpu):
         _ker((tiled_transpose_blocks(n, K),), (32, 8), (cand_gpu, out, np.int64(n), np.int32(K)))  # launch-ok: a 32x8 block over a 32x32 shared-memory transpose tile: the tile is the algorithm (32x33 padded shared array, one warp per tile row)
         return out
     except Exception:
-        import logging
-        logging.getLogger(__name__).debug("tiled transpose kernel failed; cp.ascontiguousarray(.T) fallback", exc_info=True)
+        _warn_slow_fallback("gpu_select.transpose", "tiled transpose kernel failed for %dx%d %s; cp.ascontiguousarray(.T) fallback" % (n, K, cand_gpu.dtype))
         return cp.ascontiguousarray(cand_gpu.T)
 
 
@@ -460,8 +464,7 @@ def _transpose_cm_to_rm(cm_gpu):
         _get_transpose_f32_kernel()((tiled_transpose_blocks(Kr, nc),), (32, 8), (cm_gpu, out, np.int64(Kr), np.int32(nc)))  # launch-ok: a 32x8 block over a 32x32 shared-memory transpose tile: the tile is the algorithm (32x33 padded shared array, one warp per tile row)
         return out
     except Exception:
-        import logging
-        logging.getLogger(__name__).debug("tiled cm->rm transpose kernel failed; cp.ascontiguousarray(.T) fallback", exc_info=True)
+        _warn_slow_fallback("gpu_select.transpose_cm_rm", "tiled cm->rm transpose kernel failed for %dx%d; cp.ascontiguousarray(.T) fallback" % (Kr, nc))
         return cp.ascontiguousarray(cm_gpu.T)
 
 
@@ -535,8 +538,7 @@ def transpose_codes_to_cm(disc_gpu: Any) -> Any:
         _get_transpose_int_kernel(itemsize)((tiled_transpose_blocks(n, K),), (32, 8), (disc_gpu, out, np.int64(n), np.int32(K)))  # launch-ok: a 32x8 block over a 32x32 shared-memory transpose tile: the tile is the algorithm (32x33 padded shared array, one warp per tile row)
         return out
     except Exception:
-        import logging
-        logging.getLogger(__name__).debug("tiled int-codes transpose kernel failed; cp.ascontiguousarray(.T) fallback", exc_info=True)
+        _warn_slow_fallback("gpu_select.transpose_codes", "tiled int-codes transpose kernel failed for %dx%d; cp.ascontiguousarray(.T) fallback" % (n, K))
         return cp.ascontiguousarray(disc_gpu.T)
 
 
@@ -886,8 +888,7 @@ def _get_radix_select_f32_dispatch(n: int):
         try:
             return _get_radix_select_f32_bsearch_kernel()
         except Exception:
-            import logging
-            logging.getLogger(__name__).debug("bsearch radix kernel compile failed; linear fallback", exc_info=True)
+            _warn_slow_fallback("gpu_select.f32_bsearch_compile", "bsearch radix kernel compile failed; linear fallback")
     return _get_radix_select_kernel(True)
 
 

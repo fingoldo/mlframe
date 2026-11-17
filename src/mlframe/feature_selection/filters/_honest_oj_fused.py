@@ -356,12 +356,12 @@ def _score_block(dev, dev_pool, perms, y_int, yc, rows, xb, kx, nv, val_idx, px,
         try:
             picks = dev.picks(perms)
         except Exception as exc:
-            logger.debug("device winners failed (%s: %s); CPU kernel", type(exc).__name__, exc)
+            log_throttle(logger, "_honest_oj_fused.device_winners_failed", logging.WARNING, "device winners failed (%s: %s); CPU kernel", type(exc).__name__, exc)
     if picks is not None and dev_pool is not None:
         try:
             return dev_pool.maxima(perms, picks, pool_args[-1]), dev_pool.last_mi
         except Exception as exc:
-            logger.debug("device pool failed (%s: %s); CPU pool", type(exc).__name__, exc)
+            log_throttle(logger, "_honest_oj_fused.device_pool_failed", logging.WARNING, "device pool failed (%s: %s); CPU pool", type(exc).__name__, exc)
     if picks is not None:
         from ._honest_oj_fused_gpu import _pool_block
 

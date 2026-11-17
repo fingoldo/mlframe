@@ -217,7 +217,7 @@ def test_detect_hinge_fwl_rank1_taus_bit_identical_to_lstsq_per_cut():
         else:
             y = np.where(x < -1, 1.0 * x, np.where(x < 1, 0.2 * x, 1.5 * x)) + 0.2 * rng.standard_normal(n)
         ref = legacy(x, y)
-        got = _detect_hinge_breakpoints(x, y)
+        got = _detect_hinge_breakpoints(x, y, scan_on_train_rows=False)
         assert len(ref) == len(got), f"seed={seed} kind={kind}: tau count {got} != legacy {ref}"
         pairs = list(zip(ref, got))
         n_pairs_compared += len(pairs)
@@ -548,3 +548,20 @@ def test_default_path_keeps_the_nonlinear_signal_of_a_smooth_quadratic(seed_offs
     r2_raw = _heldout_r2([x, b], y)
     assert r2_out >= 0.95, (r2_out, list(m.get_feature_names_out()))
     assert r2_out > r2_raw + 0.15, (r2_out, r2_raw)
+
+
+def test_tau_scan_excludes_heldout_rows_cuts_false_hinges():
+    """The tau scan runs on the train rows only: on linear+noise data (no kink) the chance-hinge rate under the held-out gate drops versus the legacy all-row scan (measured 19 vs 33 of 300 seeds at n=400, floor 0.01)."""
+    from mlframe.feature_selection.filters._hinge_basis_fe import (
+        _detect_hinge_breakpoints,
+    )
+
+    legacy = corrected = 0
+    for seed in range(300):
+        rng = np.random.default_rng(seed)
+        x = rng.standard_normal(400)
+        y = 0.3 * x + rng.standard_normal(400)
+        legacy += bool(_detect_hinge_breakpoints(x, y, max_breakpoints=1, min_heldout_r2_uplift=0.01, scan_on_train_rows=False))
+        corrected += bool(_detect_hinge_breakpoints(x, y, max_breakpoints=1, min_heldout_r2_uplift=0.01))
+    assert corrected <= 25, f"corrected scan false-hinge count {corrected}/300 (measured 19)"
+    assert corrected < 0.85 * legacy, f"corrected {corrected} not below legacy {legacy}"

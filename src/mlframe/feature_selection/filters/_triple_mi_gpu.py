@@ -17,6 +17,8 @@ import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._raw_module_cache import RawModuleCache
 from ._kernel_types import render
 
@@ -116,8 +118,17 @@ def triple_mi_gpu(codes: np.ndarray, y: np.ndarray, base: int, n_y: int) -> "tup
     try:
         import cupy as cp
     except Exception as exc:
-        logger.debug("device triple MI unavailable (%s)", exc)
+        log_throttle(logger, "triple_mi_gpu.cupy_unavailable", logging.WARNING, "device triple MI unavailable (%s); the host triple kernel runs", exc)
         return None
+    try:
+        return _triple_mi_device(cp, codes, y, base, n_y, p, n, n_cells)
+    except Exception as exc:
+        log_throttle(logger, "triple_mi_gpu.launch_failed", logging.WARNING, "device triple MI failed (%s: %s); the host triple kernel runs", type(exc).__name__, exc)
+        return None
+
+
+def _triple_mi_device(cp: Any, codes: np.ndarray, y: np.ndarray, base: int, n_y: int, p: int, n: int, n_cells: int) -> "tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]":
+    """The launch loop of ``triple_mi_gpu``: ``(out_i, out_j, out_k, out_mi)`` for every triple, one block per triple."""
     ti, tj, tk = _triples(p)
     m = int(ti.size)
     kernel = _MODULE.get(cp).get_function("triple_mi")
@@ -163,7 +174,7 @@ def use_device_triples(n_rows: int, n_triples: int) -> bool:
         try:
             return str(_SPEC.choose(n_samples=work)) == "device"
         except Exception as exc:
-            logger.debug("triple_mi_backend: KTC choose() failed, using the floor: %s", exc)
+            log_throttle(logger, "triple_mi_gpu.choose_failed", logging.WARNING, "triple_mi_backend: KTC choose() failed, using the floor: %s", exc)
     return work >= DEVICE_MIN_WORK
 
 

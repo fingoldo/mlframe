@@ -17,6 +17,7 @@ are bad" knowledge lives in ONE place, not scattered across the 3000-line constr
 from __future__ import annotations
 
 import logging
+from numbers import Integral
 from typing import Any, Callable, NamedTuple
 
 import warnings
@@ -91,7 +92,7 @@ ACCURACY_SUBOPTIMAL: list[_Caveat] = [
     ),
     _Caveat(
         "quantization_nbins",
-        lambda v: isinstance(v, int) and v < 5,
+        lambda v: isinstance(v, Integral) and not isinstance(v, bool) and v < 5,
         "very coarse discretisation -- the plug-in MI estimator loses resolution and both relevance and " "redundancy are estimated poorly",
         "use >= 8 (default 10) unless n is tiny",
     ),

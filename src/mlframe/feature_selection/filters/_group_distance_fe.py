@@ -294,6 +294,11 @@ def _group_stats_on_device(group_col: str, per_group: dict, pairs: list, global_
         return None
     cols = list(dict.fromkeys(c for g, c in pairs if g == group_col and global_stats[c][6] is not None and global_stats[c][5].size and global_stats[c][0].dtype == np.float32))
     if not cols:
+        log_throttle(
+            logger, "group_distance.device_no_float32_cols", logging.WARNING,
+            "group %r: the tuner chose the device for %d rows but no paired numeric column is a float32 column with a global sample; the host loop computes the statistics",
+            group_col, n,
+        )
         return None
     _g_keys, rows_by_group = per_group[group_col]
     gid = np.empty(n, dtype=np.int32)

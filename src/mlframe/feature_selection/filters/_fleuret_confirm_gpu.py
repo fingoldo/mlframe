@@ -27,6 +27,7 @@ from typing import Any, Optional, Sequence
 import numpy as np
 from numba import njit, prange
 
+from mlframe.utils.log_throttle import log_throttle
 from ._internals import LARGE_CONST, MAX_CONFIRMATION_CAND_NBINS, NMAX_NONPARALLEL_ITERS
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
@@ -313,7 +314,7 @@ def fleuret_confirm_batch(
             segments = [(int(o), int(w)) for o, w in zip(offs, worker_loads)]
         return _counts_from_gains(gains, n_cand, n_perm, gains_arr, int(max_failed), segments)
     except Exception as exc:
-        logger.debug("device Fleuret confirmation failed (%s: %s); host kernel", type(exc).__name__, exc)
+        log_throttle(logger, "fleuret_confirm_gpu.device", logging.WARNING, "device Fleuret confirmation failed (%s: %s); the host kernel runs", type(exc).__name__, exc)
         return None
 
 

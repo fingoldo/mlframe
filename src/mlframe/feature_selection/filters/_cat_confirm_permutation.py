@@ -369,7 +369,7 @@ def _perm_kernel_dispatch_use_gpu(
             import cupy as _cp
             return True
         except ImportError as _exc:
-            logger.debug("_perm_kernel_dispatch_use_gpu fell back to its default after %s", type(_exc).__name__)
+            log_throttle(logger, "cat_confirm_perm_gpu_forced_no_cupy", logging.WARNING, "cat-FE: backend='gpu' requested but cupy is not importable (%s); using the CPU permutation kernel", _exc)
             return False
     if backend == "auto":
         if _perm_kernel_backend_choice(n_samples, n_perms) == "cupy":
@@ -377,7 +377,7 @@ def _perm_kernel_dispatch_use_gpu(
                 import cupy as _cp  # noqa: F401
                 return True
             except ImportError as _exc:
-                logger.debug("_perm_kernel_dispatch_use_gpu fell back to its default after %s", type(_exc).__name__)
+                log_throttle(logger, "cat_confirm_perm_gpu_chosen_no_cupy", logging.INFO, "cat-FE: tuner chose cupy for the permutation kernel but cupy is not importable (%s); using the CPU kernel", _exc)
                 return False
     return False
 
@@ -895,11 +895,12 @@ def _confirm_pairs_via_permutation(
     use_conditional = cfg.permutation_null == "conditional"
     n_y_classes = int(classes_y.max()) + 1
     use_weights_conf = weights is not None
-    if use_weights_conf and use_conditional and verbose:
-        logger.warning(
-            "cat-FE: sample weights ignored on the conditional permutation null "
-            ": weighting the IPF/within-strata shuffler "
-            "is a separate follow-up); falling back to unweighted."
+    if use_weights_conf and use_conditional:
+        log_throttle(
+            logger,
+            "cat_confirm_conditional_weights_ignored",
+            logging.WARNING,
+            "cat-FE: sample weights ignored on the conditional permutation null (weighting the IPF/within-strata shuffler is a separate follow-up); falling back to unweighted.",
         )
 
     from ._fe_deadline import fe_deadline_passed

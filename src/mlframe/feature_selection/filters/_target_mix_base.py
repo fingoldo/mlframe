@@ -29,7 +29,7 @@ def with_mix_base_column(X: Any, provenance: list, *, name: str = MIX_BASE_COLUM
         return X
     if not hasattr(X, "assign"):
         raise TypeError("with_mix_base_column expects a pandas DataFrame; convert the polars frame first.")
-    base = _replay_base(entries[0]["recipe"], X)
+    base = _replay_base(entries[0]["recipe"], X, fill_nonfinite=False)
     if not np.all(np.isfinite(base)):
         raise ValueError("the mix base replays to non-finite values on this frame; refusing to fill them silently.")
     return X.assign(**{name: base})

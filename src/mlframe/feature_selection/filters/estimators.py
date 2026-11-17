@@ -209,8 +209,11 @@ def nsb_mi(
     if nbins_y is None:
         nbins_y = int(classes_y.max()) + 1
 
-    # Joint histogram.
-    joint = np.zeros((nbins_x, nbins_y), dtype=np.int64)
-    for cx, cy in zip(classes_x, classes_y):
-        joint[cx, cy] += 1
+    cx_arr = np.asarray(classes_x, dtype=np.int64)
+    cy_arr = np.asarray(classes_y, dtype=np.int64)
+    if cx_arr.shape != cy_arr.shape:
+        raise ValueError(f"nsb_mi: classes_x and classes_y must have the same shape; got {cx_arr.shape} and {cy_arr.shape}.")
+    if cx_arr.size and (cx_arr.min() < 0 or cy_arr.min() < 0 or cx_arr.max() >= nbins_x or cy_arr.max() >= nbins_y):
+        raise ValueError(f"nsb_mi: class codes must lie in [0, nbins_x={nbins_x}) and [0, nbins_y={nbins_y}).")
+    joint = np.bincount(cx_arr * nbins_y + cy_arr, minlength=nbins_x * nbins_y).reshape(nbins_x, nbins_y).astype(np.int64)
     return float(ndd.mutual_information(joint))

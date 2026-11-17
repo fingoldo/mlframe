@@ -9,6 +9,8 @@ from typing import Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from .info_theory import (
     merge_vars, compute_relevance_score, use_su_normalization, use_mi_miller_madow, use_mi_chao_shen,
 )
@@ -54,7 +56,7 @@ def _mi_direct_analytic_null(
             and not use_mi_chao_shen()
         )
     except Exception as e:
-        logger.warning("analytic-null availability check failed, defaulting to False: %s", e)
+        log_throttle(logger, "mi_direct.analytic_null_probe", logging.WARNING, "analytic-null availability check failed, defaulting to False: %s", e)
         _analytic_ok = False
     if _analytic_ok:
         if classes_y is None:

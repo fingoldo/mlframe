@@ -16,6 +16,7 @@ import numpy as np
 
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +180,7 @@ def order_device_chosen(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("order_stats_backend: KTC choose() failed, using the floor: %s", exc)
+        log_throttle(logger, "order_stats.choose_failed", logging.WARNING, "order_stats_backend: KTC choose() failed (%s: %s); the %d-row floor decides", type(exc).__name__, exc, DEVICE_FALLBACK_ROWS)
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 

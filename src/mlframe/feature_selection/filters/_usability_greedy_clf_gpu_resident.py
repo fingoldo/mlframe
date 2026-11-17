@@ -46,6 +46,7 @@ import math
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 from ._fe_gpu_batch._devices import crit_float_dtype
 from ._fe_usability_signal import _crit_np_dtype
 
@@ -287,7 +288,7 @@ def usability_greedy_clf_gpu_resident(
         _usability_greedy_c_range_min(K, P, _shortlist, selected, cur, folds_cur, _cv_candidate, min_improving_folds, mae_improve_rel, _cv_candidates)
         return [pool[i] for i in selected]
     except _ResidentClfFallbackError as e:
-        logger.debug("usability_greedy_clf_gpu_resident: non-convergent/singular/degenerate device fit, falling back to the exact CPU greedy: %s", e)
+        log_throttle(logger, "usability_greedy_clf_gpu_resident.fallback", logging.WARNING, "usability_greedy_clf_gpu_resident: non-convergent/singular/degenerate device fit, falling back to the exact CPU greedy: %s", e)
         return None
     except Exception as e:
         logger.warning("usability_greedy_clf_gpu_resident: cupy/device error, falling back to the exact CPU greedy: %s", e)

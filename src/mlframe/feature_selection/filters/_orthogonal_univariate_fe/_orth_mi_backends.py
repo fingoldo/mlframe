@@ -108,8 +108,8 @@ def _retry_mi_column_blocks(X_dense, y_i64, nbins, dense_cols, mis, _n, _dt, e) 
             try:
                 mis[_sel] = _gpu_mi(_Xb, y_i64, nbins)
                 continue
-            except Exception:
-                logger.debug("GPU block MI failed for a column block; using the CPU dispatch for it.", exc_info=True)
+            except Exception as _gpu_exc:
+                log_throttle(logger, "orth_mi.gpu_block_failed", logging.WARNING, "GPU block MI failed for a column block (%s: %s); using the CPU dispatch for it.", type(_gpu_exc).__name__, _gpu_exc)
         try:
             mis[_sel] = plugin_mi_classif_batch_dispatch(_Xb, y_i64, nbins)
         except Exception as _exc:
@@ -210,8 +210,8 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
                         # full-array nan scan (~12% of the GPU MI wall) that would otherwise be a pure no-op cost here.
                         # f32 opt-in (MLFRAME_FE_VRAM_F32): ~2.2x faster, selection-equivalent (Spearman rank 1.0).
                         # Intentional float64: GPU f64 MI path: cupy/numpy buffers feeding the f64 MI kernels, dtype contract kept (kernel refactor deferred).
-                        _dt = np.float32 if fe_gpu_f32_enabled() else np.float64
-                        mis[dense_cols] = multi_gpu_fe_batch_mi(X_dense, y_i64, nbins, scrub=False, dtype=_dt)
+                        _gpu_dt = np.float32 if fe_gpu_f32_enabled() else np.float64
+                        mis[dense_cols] = multi_gpu_fe_batch_mi(X_dense, y_i64, nbins, scrub=False, dtype=_gpu_dt)
                     elif _fe_edge_binning_enabled():
                         from .._fe_edge_mi import plugin_mi_classif_batch_edge_njit
                         mis[dense_cols] = plugin_mi_classif_batch_edge_njit(X_dense, y_i64, nbins)
@@ -421,6 +421,7 @@ def _strict_resident_mi(X: Any, y: Any, nbins: int, rank_binning: bool) -> Optio
     # added in 6c127567. Catch only genuine cupy/device faults below so a true device error still
     # falls back to CPU, while a ValueError/IndexError (real OOB / logic bug) propagates to surface.
     _DEV_ERRS = _device_error_classes()
+    _strict_on = False
     try:
         from .._fe_gpu_strict import fe_gpu_strict_enabled
 
@@ -429,7 +430,7 @@ def _strict_resident_mi(X: Any, y: Any, nbins: int, rank_binning: bool) -> Optio
         # A candidate matrix that is ALREADY on the device skips the per-call work floor: that floor guards the H2D + launch cost of a small host
         # matrix, but here the only cost of declining is copying the whole matrix back to run the CPU kernel.
         if fe_gpu_strict_enabled() if isinstance(X, cp.ndarray) else fe_gpu_strict_enabled(n=int(X.shape[0]), p=int(X.shape[1]) if X.ndim > 1 else 1):
-
+            _strict_on = True
             from mlframe.feature_selection.filters.hermite_fe.shared import plugin_mi_classif_batch_cuda_resident as _plugin_mi_classif_batch_cuda_resident
 
             # RESIDENT-INPUT fast path: a device-born caller may hand an ALREADY-RESIDENT cupy candidate matrix
@@ -473,8 +474,12 @@ def _strict_resident_mi(X: Any, y: Any, nbins: int, rank_binning: bool) -> Optio
                         return np.asarray(_rank_mi, dtype=np.float64)
             # Intentional float64: GPU f64 MI path: cupy/numpy buffers feeding the f64 MI kernels, dtype contract kept (kernel refactor deferred).
             return np.asarray(_plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=_ymin, n_classes=_ncls), dtype=np.float64)
-    except (ImportError, *_DEV_ERRS):  # _DEV_ERRS is runtime-filtered to actual BaseException subclasses just above
-        pass  # cupy/strict-module absent OR a genuine device fault -> exact CPU njit below.
+    except (ImportError, *_DEV_ERRS) as _strict_exc:  # _DEV_ERRS is runtime-filtered to actual BaseException subclasses just above
+        if _strict_on:
+            log_throttle(
+                logger, "orth_mi.strict_resident_failed", logging.WARNING,
+                "STRICT resident MI failed (%s: %s); the CPU njit batch scores this call", type(_strict_exc).__name__, _strict_exc,
+            )  # cupy/strict-module absent OR a genuine device fault -> exact CPU njit below.
         # NOTE (FIX1): ValueError / IndexError are intentionally NOT caught here - a -1 / out-of-range
         # code raised by _assert_codes_in_range (illegal-address guard) must surface, not degrade to CPU.
     return None
@@ -691,7 +696,7 @@ def _mi_classif_batch_balanced(X: np.ndarray, y: np.ndarray, class_w, *, nbins: 
         try:
             from ._imbalance_mi import _class_balanced_mi_batch_njit
         except ImportError as e:
-            logger.debug("_imbalance_mi import failed: %s", e)
+            log_throttle(logger, "orth_mi.balanced_import_failed", logging.WARNING, "_imbalance_mi import failed (%s); plain MI replaces the class-balanced MI", e)
             return None
         _n, p = X.shape
         y_i64 = np.ascontiguousarray(y, dtype=np.int64)
@@ -719,6 +724,6 @@ def _mi_classif_batch_balanced(X: np.ndarray, y: np.ndarray, class_w, *, nbins: 
                 y_f = np.ascontiguousarray(y_i64[finite])
                 mis[j] = float(_class_balanced_mi_batch_njit(col_f, y_f, class_w, nbins)[0])
         except Exception as e:
-            logger.debug("Class-balanced batch MI failed (%s: %s) -- caller falls back to plain MI", type(e).__name__, e)
+            log_throttle(logger, "orth_mi.balanced_failed", logging.WARNING, "Class-balanced batch MI failed (%s: %s) -- caller falls back to plain MI", type(e).__name__, e)
             return None
         return mis

@@ -99,7 +99,12 @@ def _pool_columns(X: "pd.DataFrame", cols: Sequence[str], rows: np.ndarray, code
     # the codes of every kept column and of its distance from the median, each set in one device launch (or the host form per column)
     q_value = quantile_codes_columns(xs, N_MI_BINS)[0]
     q_spread = quantile_codes_columns([np.abs(x - np.median(x)) for x in xs], N_MI_BINS)[0]
-    scored = [(max(plugin_mi_of_codes(q_value[i], N_MI_BINS, codes, ky), plugin_mi_of_codes(q_spread[i], N_MI_BINS, codes, ky)), kept[i]) for i in range(len(kept))]
+    # the pool is ranked on the even rows only: the odd rows are the held-out evidence of the finalists and must not steer which columns reach the search
+    even = np.arange(len(rows)) % 2 == 0
+    codes_even = codes[even]
+    scored = [
+        (max(plugin_mi_of_codes(q_value[i][even], N_MI_BINS, codes_even, ky), plugin_mi_of_codes(q_spread[i][even], N_MI_BINS, codes_even, ky)), kept[i]) for i in range(len(kept))
+    ]
     scored.sort(key=lambda t: -t[0])
     return [c for _, c in scored[:MAX_POOL]]
 
@@ -172,8 +177,9 @@ def row_stat_candidates(X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *
     if len(pool) < 2:
         return []
     A = np.column_stack([np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows] for c in pool])  # the scan rows only: the full columns are touched for the accepted statistics alone
-    mu = np.nanmean(A, axis=0)
-    sd = np.nanstd(A, axis=0)
+    A_finite = np.where(np.isfinite(A), A, A.dtype.type(np.nan))  # an infinite value would make the column mean infinite and the whole standardised column 0
+    mu = np.nanmean(A_finite, axis=0)
+    sd = np.nanstd(A_finite, axis=0)
     sd = np.where(sd > 0, sd, 1.0)
     Zt = _standardised_block(A, mu, sd)
     even = np.arange(len(rows)) % 2 == 0

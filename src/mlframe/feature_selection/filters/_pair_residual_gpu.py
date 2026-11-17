@@ -215,7 +215,9 @@ def pair_device_chosen(n: int, n_pairs: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=work)) == "device"
     except Exception as exc:
-        logger.debug("pair_residual_backend: KTC choose() failed, using the floor: %s", exc)
+        from mlframe.utils.log_throttle import log_throttle
+
+        log_throttle(logger, "pair_residual.ktc_choose_failed", logging.WARNING, "pair_residual_backend: KTC choose() failed (%s: %s), using the floor", type(exc).__name__, exc)
         return work >= DEVICE_FALLBACK_ROWS
 
 

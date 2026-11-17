@@ -146,6 +146,8 @@ def joint_freqs_2var(factors_data: np.ndarray, ia: int, ib: int, nb_a: int, nb_b
     for r in range(n):
         ca = factors_data[r, ia]
         cb = factors_data[r, ib]
+        if ca < 0 or ca >= nb_a or cb < 0 or cb >= nb_b:
+            raise ValueError("2-var joint kernel: class id out of range for the declared number of bins")
         cls = ca + cb * nb_a
         freqs[cls] += 1
     nz = freqs[freqs > 0]
@@ -190,6 +192,8 @@ def joint_entropy_2var(factors_data: np.ndarray, ia: int, ib: int, nb_a: int, nb
     for r in range(n):
         ca = factors_data[r, ia]
         cb = factors_data[r, ib]
+        if ca < 0 or ca >= nb_a or cb < 0 or cb >= nb_b:
+            raise ValueError("2-var joint kernel: class id out of range for the declared number of bins")
         cls = ca + cb * nb_a
         freqs[cls] += 1
     # Reduce the histogram straight to entropy in ascending class-id order (== entropy's post-prune

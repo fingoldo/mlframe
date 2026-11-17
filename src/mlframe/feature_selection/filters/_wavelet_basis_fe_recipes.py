@@ -246,7 +246,7 @@ def _apply_orth_wavelet(recipe, X) -> np.ndarray:
     if not finite.all():
         fill = float(np.nanmean(vals[finite])) if finite.any() else 0.0
         vals = np.where(finite, vals, fill)
-    z = np.clip((vals - lo) / span, 0.0, 1.0)
+    z = np.clip((vals.astype(np.float64, copy=False) - lo) / span, 0.0, 1.0)
     leg = _dyadic_haar_leg(z, j, k)
     return np.abs(leg) if recipe.extra.get("box") else leg
 

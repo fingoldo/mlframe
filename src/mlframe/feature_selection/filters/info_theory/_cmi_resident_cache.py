@@ -26,6 +26,14 @@ _CMI_RESIDENT_CACHE_MAX_ENTRIES = 16
 _CMI_RESIDENT_CACHE_LOCK = threading.Lock()
 
 
+def _current_device_id(cp: Any) -> int:
+    """Id of the CUDA device the calling thread currently targets (0 when it cannot be read): a cached device array is only valid on the device that holds it."""
+    try:
+        return int(cp.cuda.runtime.getDevice())
+    except Exception:
+        return 0
+
+
 def _resident_upload(arr, key):
     """Return a device int32 copy of host ``arr``, reusing a cached upload keyed on the caller's ``key``.
 
@@ -53,6 +61,7 @@ def _resident_upload(arr, key):
 
     # A 128-bit content digest, not the 64-bit builtin hash: a collision here returns a stale device copy silently.
     sig = (arr.shape, arr.dtype.str, hash_array_content(arr))
+    key = (_current_device_id(cp), key)
     with _CMI_RESIDENT_CACHE_LOCK:
         cached = _CMI_RESIDENT_CACHE.get(key)
         if cached is not None:
@@ -171,7 +180,7 @@ def _resident_factors_device(factors_data: np.ndarray, factors_nbins: np.ndarray
     # Cache-hit fast path never touches the host array at all (no ascontiguousarray/dtype check on the
     # hot loop) - the identity key alone decides the hit, matching the "gather on-device, never re-touch
     # the host" goal this cache exists for.
-    key = id(factors_data)
+    key = (id(factors_data), _current_device_id(cp))
     with _FACTORS_DEVICE_LOCK:
         ent = _FACTORS_DEVICE_CACHE.get(key)
         if ent is not None and ent[0]() is factors_data:

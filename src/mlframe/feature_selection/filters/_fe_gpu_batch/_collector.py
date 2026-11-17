@@ -30,10 +30,10 @@ def collect_and_score(matrices: Sequence[Any], y_codes: np.ndarray, nbins: int =
     sizes = []
     valid = []
     for m in matrices:
-        if m is None or getattr(m, "size", 0) == 0:
+        a = None if m is None else np.asarray(m, dtype=np.float64)  # Intentional float64: MI statistic output arrays of the batch collector
+        if a is None or a.size == 0:
             sizes.append(0)
             continue
-        a = np.asarray(m, dtype=np.float64)  # Intentional float64: MI statistic output arrays of the batch collector
         if a.ndim == 1:
             a = a.reshape(-1, 1)
         sizes.append(int(a.shape[1]))

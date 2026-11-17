@@ -70,6 +70,7 @@ from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
+from ._orthogonal_shared import coerce_y_classif
 from ._orth_auto_scorer_fe import (
     SCORER_NAMES,
     _dispatch_scorer,  # noqa: F401 -- re-exported: tests and callers import it from this module
@@ -144,13 +145,8 @@ def _batch_one_scorer(s, Xmat, y_arr, *, nbins, random_state, n_neighbors, copul
         from ._orthogonal_univariate_fe import _mi_classif_batch
         y_mi = y_arr
         if not np.issubdtype(y_mi.dtype, np.integer):
-            uniq = np.unique(y_mi[np.isfinite(y_mi)] if y_mi.dtype.kind in "fc" else y_mi)
-            if uniq.size <= 32:
-                # densify via np.unique(return_inverse=...) rather
-                # than truncating .astype(int64) - non-integer labels (e.g. 0.1/0.2/...) would
-                # otherwise all collapse to class 0.
-                _, y_mi = np.unique(y_mi, return_inverse=True)
-                y_mi = y_mi.astype(np.int64, copy=False)
+            # densify few-valued labels and quantile-bin a continuous target: the MI kernel truncates a float y to int64, which collapses every value in [0, 1) to class 0
+            y_mi = coerce_y_classif(y_mi)
         # Intentional float64: MI batch scores kept as an f64 accumulator vector (ranking ties)
         return np.asarray(_mi_classif_batch(Xmat, y_mi, nbins=int(nbins)), dtype=np.float64)
     elif s == "copula":

@@ -22,33 +22,40 @@ import numba
 import numpy as np
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
+from ._batch_pair_mi_cuda_shared_fused import check_codes_on_device, column_code_bounds, validate_pair_codes
+
 logger = logging.getLogger(__name__)
 
 from numba import cuda as _nb_cuda
 
-try:
-    from pyutilz.core.pythonlib import is_cuda_available as _pyutilz_is_cuda_available
-    _CUDA_AVAIL = _pyutilz_is_cuda_available()
-except ImportError as e:
-    # pyutilz genuinely absent: expected on a lean install, permanent, quiet.
-    logger.debug("pyutilz.core.pythonlib unavailable (%s); falling back to numba.cuda.is_available().", e)
-except Exception as e:
-    # This is the `_select_mi_backend` mechanism exactly, and it is worth a WARNING rather than a debug line:
-    # the probe module imports code that touches CUDA at import time, so a TRANSIENT device fault raised here
-    # is indistinguishable from "no CUDA" -- and because `_CUDA_AVAIL` is resolved once at MODULE IMPORT, that
-    # one hiccup disables this module's CUDA kernels for the entire process, invisibly.
-    logger.warning(
-        "is_cuda_available() probe raised %s (%s) during module import, which is NOT 'pyutilz absent'. "
-        "_CUDA_AVAIL is resolved ONCE at import, so if this was a transient device fault this module's CUDA "
-        "kernels are disabled for the whole process. Falling back to numba.cuda.is_available().",
-        type(e).__name__,
-        e,
-    )
+def _resolve_cuda_available() -> bool:
+    """Whether CUDA is usable: the pyutilz probe, else ``numba.cuda.is_available()`` when that probe is missing or raises."""
     try:
-        _CUDA_AVAIL = bool(getattr(_nb_cuda, "is_available", lambda: False)()) if _nb_cuda is not None else False
+        from pyutilz.core.pythonlib import is_cuda_available as _pyutilz_is_cuda_available
+
+        return bool(_pyutilz_is_cuda_available())
+    except ImportError as e:
+        logger.debug("pyutilz.core.pythonlib.is_cuda_available unavailable (%s); falling back to numba.cuda.is_available().", e)
+    except Exception as e:
+        # This is the `_select_mi_backend` mechanism exactly, and it is worth a WARNING rather than a debug line:
+        # the probe module imports code that touches CUDA at import time, so a TRANSIENT device fault raised here
+        # is indistinguishable from "no CUDA" -- and because `_CUDA_AVAIL` is resolved once at MODULE IMPORT, that
+        # one hiccup disables this module's CUDA kernels for the entire process, invisibly.
+        logger.warning(
+            "is_cuda_available() probe raised %s (%s) during module import, which is NOT 'pyutilz absent'. "
+            "_CUDA_AVAIL is resolved ONCE at import, so if this was a transient device fault this module's CUDA "
+            "kernels are disabled for the whole process. Falling back to numba.cuda.is_available().",
+            type(e).__name__,
+            e,
+        )
+    try:
+        return bool(getattr(_nb_cuda, "is_available", lambda: False)()) if _nb_cuda is not None else False
     except Exception as e2:
         logger.warning("numba.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e2)
-        _CUDA_AVAIL = False
+        return False
+
+
+_CUDA_AVAIL = _resolve_cuda_available()
 
 # Require numba.cuda to actually compile+launch a kernel (not just device presence) so a
 # cudatoolkit/NVVM mismatch routes to cupy/CPU instead of raising NvvmSupportError mid-dispatch.
@@ -559,10 +566,12 @@ def _validate_row_chunked_inputs(
         cy_min = int(classes_y.min())
         if cy_max >= n_classes_y or cy_min < 0:
             raise ValueError(f"classes_y values must be in [0, n_classes_y={n_classes_y}); got [min={cy_min}, max={cy_max}]")
-    if factors_data.size > 0:
-        fd_min = int(factors_data.min())
+    bounds = column_code_bounds(factors_data) if factors_data.size > 0 else None
+    if bounds is not None:
+        fd_min = int(bounds[0].min())
         if fd_min < 0:
             raise ValueError(f"factors_data must be non-negative; got min={fd_min} (merge_vars output should be >= 0 by contract)")
+    validate_pair_codes(factors_data, pair_a, pair_b, nbins, classes_y, n_classes_y, bounds=bounds)
     return joint_cards, max_joint
 
 
@@ -822,23 +831,6 @@ def batch_pair_mi_cuda(
             f"use the CPU kernel instead",
         )
 
-    # Critic-flagged P0: out-of-range classes_y or negative factors_data writes
-    # past shared memory. Validate on host (cheap: one min/max sweep) so the
-    # device kernel can stay branch-free in the hot loop.
-    if classes_y.size > 0:
-        cy_max = int(classes_y.max())
-        cy_min = int(classes_y.min())
-        if cy_max >= n_classes_y or cy_min < 0:
-            raise ValueError(
-                f"classes_y values must be in [0, n_classes_y={n_classes_y}); " f"got [min={cy_min}, max={cy_max}]",
-            )
-    if factors_data.size > 0:
-        fd_min = int(factors_data.min())
-        if fd_min < 0:
-            raise ValueError(
-                f"factors_data must be non-negative; got min={fd_min} " f"(merge_vars output should be >= 0 by contract)",
-            )
-
     n_samples = int(factors_data.shape[0])
 
     # RESIDENT UPLOAD: ``factors_data``/``nbins``/``classes_y``/``freqs_y`` are all
@@ -858,6 +850,7 @@ def batch_pair_mi_cuda(
     d_cy = resident_operand(classes_y, "bpmi_classes_y", dtype=np.int32)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     d_fy = resident_operand(freqs_y, "bpmi_freqs_y", dtype=np.float64)
+    check_codes_on_device(d_data, d_cy, factors_data, classes_y, pair_a, pair_b, nbins, n_classes_y)
     d_pa = _nb_cuda.to_device(np.ascontiguousarray(pair_a, dtype=np.int64))
     d_pb = _nb_cuda.to_device(np.ascontiguousarray(pair_b, dtype=np.int64))
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.

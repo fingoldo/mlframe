@@ -78,6 +78,7 @@ logger = logging.getLogger(__name__)
 # is their only caller and `_conditional_gate_fe._gate_select_grid_njit` is the name benchmarks reference.
 from ._conditional_gate_kernels import _gate_mask_grid_njit, _gate_select_grid_njit
 from mlframe.utils.env_flags import env_int
+from mlframe.utils.log_throttle import log_throttle
 
 __all__ = [
     "ArgmaxHit",
@@ -225,9 +226,8 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
             _r = best_existing_op_mi_resident(arrs, names, yi, nbins, y_min=_ym, n_classes=_nc, rank_binning=_gate_rank)
             if _r is not None:
                 return _r
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
+    except Exception as e:
+        log_throttle(logger, "gate_baseline_resident_fallback", logging.WARNING, "gate baseline: resident MI route failed (%s: %s); host njit batch MI runs instead", type(e).__name__, e)
     cols_arr = [np.asarray(arrs[c], dtype=_crit_np_dtype()) for c in names]
     memo_hit_best = -np.inf
     if raw_mi_memo is None:
@@ -244,7 +244,7 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
             u, v = cols_arr[i], cols_arr[j]
             cands.append(u * v)
             cands.append(u - v)
-            cands.append(u / np.maximum(np.abs(v), 1e-6))
+            cands.append(u / _signed_safe_denominator(v))
             cands.append(u + v)  # pairwise additive baseline a+b / a+c / b+c - a linear selector captures it for free
     stk = np.stack(cols_arr, axis=1)
     cands.append(stk.max(axis=1))
@@ -259,6 +259,12 @@ def best_existing_op_mi(arrs: dict, names: Sequence[str], yi: np.ndarray, nbins:
         return float(max(float(np.max(mis)), memo_hit_best))
     return float(np.max(mis))
 
+def _signed_safe_denominator(v: np.ndarray) -> np.ndarray:
+    """``v`` with entries of magnitude below 1e-6 pushed to +-1e-6 of the SAME sign: the ratio candidate keeps its sign, so the baseline floor sees the true ``u / v`` and not ``u / |v|``."""
+    v = np.asarray(v)
+    return np.where(np.abs(v) < 1e-6, np.copysign(1e-6, v), v)
+
+
 _BASELINE_BATCH_COLS = 1024  # candidate columns of one batched baseline call (the matrix is n x this many)
 
 
@@ -270,7 +276,7 @@ def _operand_set_candidates(cols_arr: list) -> list:
             u, v = cols_arr[i], cols_arr[j]
             cands.append(u * v)
             cands.append(u - v)
-            cands.append(u / np.maximum(np.abs(v), 1e-6))
+            cands.append(u / _signed_safe_denominator(v))
             cands.append(u + v)
     stk = np.stack(cols_arr, axis=1)
     cands.append(stk.max(axis=1))
@@ -304,7 +310,7 @@ def best_existing_op_mi_many(arrs: dict, key_list: Sequence[Sequence[str]], yi: 
             got = best_existing_op_mi_resident_many(arrs, keys, yi, nbins, y_min=_ym, n_classes=(int(_yi.max()) - _ym + 1) if _yi.size else 1, rank_binning=_gate_rank_binning())
             return got if got is not None else [best_existing_op_mi(arrs, k, yi, nbins, raw_mi_memo) for k in keys]
     except Exception as exc:  # nosec B110 - the tuner probe is optional; the batched host route below is exact either way
-        logger.debug("baseline batch: resident probe unavailable (%s)", exc)
+        log_throttle(logger, "gate_baseline_many_resident_fallback", logging.WARNING, "gate baseline batch: resident route failed (%s: %s); batched host MI runs instead", type(exc).__name__, exc)
     dt = _crit_np_dtype()
     y64 = yi.astype(np.int64)
     rank = _gate_rank_binning()
@@ -548,6 +554,8 @@ def cheap_row_argmax_scan(
     raw single-operand MI) is what keeps argmax clean on the ordinary-multiplicative control at scale. Pairs are skipped (a 2-col
     argmax == sign of the diff, already on the diff list). Budgeted by ``max_triples``. The null is early-rejected (computed only
     for triples already clearing the operand margin).
+
+    ``nested_tau_null`` (default True): the permutation null repeats the tau search per shuffle (corrects the in-sample tau optimism); False restores the fixed-best-column null.
 
     ``_cols_prefiltered`` is internal-only: set by callers that already built ``cols`` via ``_is_argmax_eligible`` themselves
     (e.g. ``hybrid_row_argmax_fe_with_recipes``), to skip the redundant re-check below. External callers must leave it False."""
@@ -844,11 +852,22 @@ def _gate_device_born_all_mi(_pending, yi, nbins):
         # the host's by up to 0.49 on the F2 two-pair frame at n=1000, which moved the chosen tau and lost a planted pair. The rank binner matches the host to 1e-15.
         return gate_grid_mi_resident(specs, yi, nbins, rank_binning=(True if _gate_rank_binning() else (not strict and not edge_auto)), y_min=_ym, n_classes=_nc)
     except Exception as _resident_exc:
-        logger.debug("gate_grid_mi_resident batch failed (%s); caller falls back to per-spec host scoring.", _resident_exc)
+        log_throttle(logger, "gate_grid_resident_fallback", logging.WARNING, "gate tau-grid: device scoring failed (%s: %s); host grid scoring runs instead", type(_resident_exc).__name__, _resident_exc)
         return None
 
 
-def _gate_flush_pending(_pending: list, yi: np.ndarray, nbins: int, seed: int, _baseline: Any, hits: list, _prefill: Any = None) -> None:
+def _nested_tau_null_hi(mode, operands, taus, yi: np.ndarray, nbins: int, seed: int, n_perm: int = 12, z: float = 3.0) -> float:
+    """Upper band (mean + z*std) of the BEST-over-tau MI under y permutation: each shuffle repeats the whole tau search, so the band carries the selection optimism of picking the argmax tau in-sample."""
+    rng = np.random.default_rng(seed)
+    block = _gate_build_feats(mode, operands, np.asarray(taus, dtype=_crit_np_dtype()))
+    n = int(yi.size)
+    best = np.empty(n_perm, dtype=_crit_np_dtype())
+    for i in range(n_perm):
+        best[i] = float(np.max(_gate_grid_mi(block, yi[rng.permutation(n)], nbins)))
+    return float(best.mean() + z * (best.std(ddof=1) if n_perm > 1 else 0.0))
+
+
+def _gate_flush_pending(_pending: list, yi: np.ndarray, nbins: int, seed: int, _baseline: Any, hits: list, _prefill: Any = None, nested_tau_null: bool = True) -> None:
     """Score every pending spec's tau grid in one batched call (device-born if available, else host), gate each on its margin over the baseline and append the ``GateHit``(s) to ``hits``."""
     if _prefill is not None:
         _prefill([bkey for (_m, _c, _o, _t, bkey) in _pending])  # the floors of every operand set of the batch in a few batched calls, before the loop reads them one by one
@@ -860,12 +879,8 @@ def _gate_flush_pending(_pending: list, yi: np.ndarray, nbins: int, seed: int, _
     for mode, ctup, operands, taus, bkey in _pending:
         k = len(taus)
         grid = all_mi[off:off + k]; off += k
-        # SELECTION OPTIMISM (mrmr_critique EX-3, DOC): tau is chosen to MAXIMISE in-sample MI over the grid, and
-        # the permutation null downstream is then computed on this already-argmax-selected best-tau column, so the
-        # null understates the selection-inflated MI - a borderline candidate on data with no genuine regime
-        # structure can clear the margin/null band by chance. This is in-sample OPTIMISM (inflates apparent value),
-        # NOT a serving skew: tau is frozen and replays deterministically. Consistent with the framework's other
-        # in-sample-MI FE gates; a nested/held-out tau selection would be strictly more honest (FUTURE).
+        # tau maximises in-sample MI over the grid, so a null computed on the fixed best-tau column understates the selection-inflated MI;
+        # ``nested_tau_null`` (default) repeats the tau search inside every permutation (see ``_nested_tau_null_hi``).
         best_j = int(np.argmax(grid))
         best_mi, best_tau = float(grid[best_j]), float(taus[best_j])
         baseline = _baseline(bkey)
@@ -880,7 +895,7 @@ def _gate_flush_pending(_pending: list, yi: np.ndarray, nbins: int, seed: int, _
             # resident handle so it never re-crosses H2D at the :318 MI upload site (host array unchanged when
             # residency is off / non-finite / cupy fault).
             best_col_r = _resident_cand(best_col, ("gate_cand_best", mode, ctup, best_tau))
-            null_hi = _perm_null_hi(best_col_r, yi, nbins, seed=seed)
+            null_hi = _nested_tau_null_hi(mode, operands, taus, yi, nbins, seed) if nested_tau_null else _perm_null_hi(best_col_r, yi, nbins, seed=seed)
         else:
             null_hi = float("inf")
         hits.append(GateHit(mode, ctup, best_tau, best_mi, baseline, null_hi))
@@ -896,6 +911,7 @@ def cheap_conditional_gate_scan(
     k_gate: int = 8,
     k_operand: int = 10,
     subsample_n: int = 0,
+    nested_tau_null: bool = True,
     _cols_prefiltered: bool = False,
 ) -> list[GateHit]:
     """Cheap first-pass scan for conditional-gate structure (regime-switch + masked-interaction) over X.
@@ -945,7 +961,7 @@ def cheap_conditional_gate_scan(
     # column is full-n regardless. When subsample_n is in (0, n) we draw a seeded subset ONCE for the
     # whole scan -> the O(n) MI kernels run on the smaller set. subsample_n <= 0 / >= n keeps full-n.
     _n_rows = len(yi)
-    if isinstance(subsample_n, int) and 0 < subsample_n < _n_rows:
+    if isinstance(subsample_n, (int, np.integer)) and 0 < subsample_n < _n_rows:
         _sub_rng = np.random.default_rng(int(seed))
         _sub_idx = np.sort(_sub_rng.choice(_n_rows, size=int(subsample_n), replace=False))
         yi = yi[_sub_idx]
@@ -995,7 +1011,7 @@ def cheap_conditional_gate_scan(
         nonlocal _pending, _pending_cols
         if not _pending:
             return
-        _gate_flush_pending(_pending, yi, nbins, seed, _baseline, hits, _prefill_baselines)
+        _gate_flush_pending(_pending, yi, nbins, seed, _baseline, hits, _prefill_baselines, nested_tau_null)
         _pending = []; _pending_cols = 0
 
     def _add(mode, ctup, operands, taus, bkey):

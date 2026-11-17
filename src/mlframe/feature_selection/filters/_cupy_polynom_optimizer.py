@@ -180,7 +180,7 @@ def _bf_apply_checked(cp, bf_idx: int, A, Bm):
     return C, bad == 0
 
 
-def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int, l2_penalty: float, direction_only: bool, bf_names: Sequence[str]):
+def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int, l2_penalty: float, direction_only: bool, bf_names: Sequence[str], l2_saturation: float = 1.0):
     """Score P candidates across all binary funcs; returns host (score, raw_mi, bf_idx) arrays of len P.
 
     GPU-RESIDENCY NOTE: everything inside this function - the finite masks, the per-bf MI,
@@ -201,7 +201,7 @@ def _score_generation_gpu(cp, Ba, Bb, Ca, Cb, y_codes_dev, ky: int, n_bins: int,
         penalty = cp.zeros(P, dtype=cp.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     elif l2_penalty > 0.0:
         s_norm = (Ca * Ca).sum(axis=1) + (Cb * Cb).sum(axis=1)
-        penalty = l2_penalty * s_norm / (s_norm + 1.0)  # saturating parity with _l2_penalty_value
+        penalty = l2_penalty * s_norm / (s_norm + l2_saturation) if l2_saturation > 0.0 else l2_penalty * s_norm
     else:
         penalty = cp.zeros(P, dtype=cp.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
 
@@ -273,6 +273,8 @@ def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_t
     ky = int(y_codes.max()) + 1 if y.size else 1
     n_bins = int(eval_kwargs["plugin_n_bins"])
     l2_penalty = float(eval_kwargs["l2_penalty"]) if not direction_only else 0.0
+    _sat = eval_kwargs.get("l2_penalty_saturation")
+    l2_saturation = 1.0 if _sat is None else float(_sat)
 
     xa_d = cp.asarray(z_a)
     xb_d = cp.asarray(z_b)
@@ -301,7 +303,7 @@ def run_cupy_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_t
         Ca = cp.asarray(np.ascontiguousarray(pop[:, :ca_size], dtype=np.float32))
         Cb = cp.asarray(np.ascontiguousarray(pop[:, ca_size:], dtype=np.float32))
         scores, raws, bfs = _score_generation_gpu(
-            cp, Ba, Bb, Ca, Cb, y_d, ky, n_bins, l2_penalty, direction_only, bf_names,
+            cp, Ba, Bb, Ca, Cb, y_d, ky, n_bins, l2_penalty, direction_only, bf_names, l2_saturation,
         )
         gi = int(np.argmax(scores))
         if scores[gi] > best_score:

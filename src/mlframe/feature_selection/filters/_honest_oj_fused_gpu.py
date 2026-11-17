@@ -422,7 +422,7 @@ def device_winners(xb: np.ndarray, kx: np.ndarray, nv: np.ndarray, val_idx: np.n
         need = int(xb.size) + 8 * int(val_idx.size) + 4 * int(n_rows) + int(np.asarray(kx).sum()) * ((int(xb.shape[-1]) + 31) // 32) * 4
         free, _total = cp.cuda.runtime.memGetInfo()
         if need > 0.5 * free:
-            logger.debug("honest optimal_joint winners stay on the CPU: %d bytes needed, %d free", need, free)
+            log_throttle(logger, "_honest_oj_fused_gpu.winners_vram", logging.WARNING, "honest optimal_joint winners stay on the CPU: %d bytes needed, %d free", need, free)
             return None
         return DeviceWinners(cp, xb, kx, nv, val_idx, y_raw, px)
     except Exception as exc:
@@ -513,6 +513,7 @@ def device_pool(dev: Optional[DeviceWinners], pool_dep: np.ndarray, pool_rc: np.
         need = int(pool_rc.size) + int(np.sum(pool_nb)) * ((int(pool_rc.shape[-1]) + 31) // 32) * 4
         free, _total = cp.cuda.runtime.memGetInfo()
         if need > 0.5 * free:
+            log_throttle(logger, "_honest_oj_fused_gpu.pool_vram", logging.WARNING, "honest optimal_joint pool stays on the CPU: %d bytes needed, %d free", need, free)
             return None
         return DevicePool(cp, pool_dep, pool_rc, pool_nb, pool_kxe, yc, rows)
     except Exception as exc:

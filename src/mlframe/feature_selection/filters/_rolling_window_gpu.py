@@ -16,6 +16,8 @@ import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 
@@ -176,7 +178,7 @@ def rolling_device_chosen(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("rolling_window_backend: KTC choose() failed, using the floor: %s", exc)
+        log_throttle(logger, "rolling_window.choose_failed", logging.WARNING, "rolling_window_backend: KTC choose() failed, using the floor: %s", exc)
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 

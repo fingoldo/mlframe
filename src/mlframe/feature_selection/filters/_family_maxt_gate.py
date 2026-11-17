@@ -9,6 +9,8 @@ the number of permutations. Under the null the pass probability is at most alpha
 from __future__ import annotations
 
 from mlframe.utils.env_flags import env_int
+from mlframe.utils.log_throttle import log_throttle
+import logging
 import os
 import threading
 from collections import OrderedDict
@@ -72,9 +74,15 @@ def _family_null_backend(n_rows: int, n_cols: int, work: int) -> str:
         if res:
             return str(res.get("kernel_choice", fallback))
     except Exception as exc:
-        import logging
-
-        logging.getLogger("mlframe.feature_selection.filters.mrmr").debug("family null backend selection failed: %r", exc)
+        log_throttle(
+            logging.getLogger("mlframe.feature_selection.filters.mrmr"),
+            "_family_maxt_gate.null_backend_selection",
+            logging.WARNING,
+            "family null backend selection failed (%s: %s); the work crossover decides (%s)",
+            type(exc).__name__,
+            exc,
+            fallback,
+        )
     return fallback
 
 
@@ -378,6 +386,8 @@ def _family_null_max_device_bits(
     from ._family_maxt_cuda_bits import null_max_bits_device
 
     starts = list(range(0, n_perm, block))
+    if not starts:
+        return None if acc is not None else out
 
     def draw(start: int):
         """The class bit sets of the permutation block that begins at ``start``."""
@@ -526,9 +536,20 @@ def family_null_max(
                 perms = y[perm_idx]
                 try:
                     out[start : start + m] = family_null_max_device(cols, n_x, perms, int(n_y))
-                except _device_null_oom_errors():
+                except _device_null_oom_errors() as exc:
                     # The device pool's limit (or a busy card) refused this block: the same maxima come from the host kernel,
                     # since the permutations were drawn on the host in the same order either way.
+                    log_throttle(
+                        logging.getLogger("mlframe.feature_selection.filters.mrmr"),
+                        "_family_maxt_gate.device_null_oom",
+                        logging.WARNING,
+                        "family null: the device refused a block of %d permutations x %d columns x %d rows (%s: %s); the host kernel scores it",
+                        m,
+                        int(cols.shape[0]),
+                        int(y.shape[0]),
+                        type(exc).__name__,
+                        exc,
+                    )
                     out[start : start + m] = family_null_max_njit(cols, n_x, perms, int(n_y))
             else:
                 out[start : start + m] = family_null_max_njit(cols, n_x, y[perm_idx], int(n_y))
@@ -550,9 +571,14 @@ def _device_bitsets(prep, n_x: np.ndarray, n: int):
 
         return DeviceBitsets(cp, prep, n_x, n)
     except Exception as exc:  # no cupy / no device / out of memory: the host kernel gives the same maxima
-        import logging
-
-        logging.getLogger("mlframe.feature_selection.filters.mrmr").debug("device bit sets unavailable (%r); counting on the host", exc)
+        log_throttle(
+            logging.getLogger("mlframe.feature_selection.filters.mrmr"),
+            "_family_maxt_gate.device_bitsets_unavailable",
+            logging.WARNING,
+            "family null: device bit sets unavailable (%s: %s); the host bit sets count",
+            type(exc).__name__,
+            exc,
+        )
         return None
 
 
@@ -560,6 +586,12 @@ def _label_const(table: np.ndarray, y: np.ndarray, n_y: int) -> float:
     """``n log n - sum_b xlogx(py_b)`` of a label vector (the same for every permutation of it)."""
     py = np.bincount(np.asarray(y, dtype=np.int64), minlength=n_y)
     return float(table[y.shape[0]] - sum(float(table[c]) for c in py))
+
+
+def check_label_rows(n_rows: int, y: "np.ndarray") -> None:
+    """Raise ``ValueError`` when the label vector ``y`` does not have one entry per code row (the compiled kernels read both by the same index)."""
+    if int(np.asarray(y).shape[0]) != int(n_rows):
+        raise ValueError(f"labels have {int(np.asarray(y).shape[0])} rows but the candidate codes have {int(n_rows)}")
 
 
 def exact_pvalue_pass(observed: np.ndarray, null_max: np.ndarray, alpha: float) -> np.ndarray:
@@ -681,6 +713,7 @@ def family_maxt_pass_codes(
     _, y_codes = np.unique(yv, return_inverse=True)
     y_codes = np.ascontiguousarray(y_codes.astype(np.int64).ravel())
     n_y = int(y_codes.max()) + 1
+    check_label_rows(cols.shape[1], y_codes)
     with parallel_kernel_entry():
         observed = mi_all_columns_njit(cols, nx, y_codes, n_y)
     return np.asarray(_family_flags(cols, nx, y_codes, n_y, observed, np.arange(observed.shape[0] + 1), alpha, n_perm, seed), dtype=np.bool_)
@@ -898,6 +931,7 @@ def family_pass_batches(
 
     mats = [np.asarray(c) for c in resolve_code_columns(batches)]  # lazy pair-chunk columns come back in one transfer per chunk
     widths = [m.shape[1] for m in mats]
+    check_label_rows(int(mats[0].shape[0]), y)
     # A family whose stacked code matrix does not fit the free host memory is scored one group of columns at a time (same decisions, see _family_maxt_stream).
     from ._family_maxt_stream import family_pass_streamed, plan_stream_groups
 
@@ -914,6 +948,7 @@ def family_pass_batches(
 __all__ = [
     "FAMILY_EARLY_BLOCK",
     "FAMILY_MAXT_PERMUTATIONS",
+    "check_label_rows",
     "exact_pvalue_pass",
     "family_maxt_pass",
     "family_null_max",

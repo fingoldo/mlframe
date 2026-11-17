@@ -376,11 +376,12 @@ def _detect_hinge_breakpoints(
     *,
     max_breakpoints: int = 2,
     min_heldout_r2_uplift: float = _HINGE_MIN_HELDOUT_R2_UPLIFT,
+    scan_on_train_rows: bool = True,
 ) -> list[float]:
     """Detect up to ``max_breakpoints`` slope-change locations ``tau`` in ``x``.
 
     Greedy: each round scans the inner-quantile candidate cuts for the one whose
-    continuous 2-segment fit minimises (train-side, all rows) residual SSE,
+    continuous 2-segment fit minimises residual SSE on the train rows (``idx % 3 != 0``, the rows the held-out gate fits on; ``scan_on_train_rows=False`` restores the legacy all-row scan whose tau is optimistic against the held-out gate),
     HELD-OUT-validates it (the 2-segment fit must beat plain linear by
     ``min_heldout_r2_uplift`` OOS on the ``%3`` slice), and if it passes ADDS the
     relu leg of that ``tau`` to the running design so the next round detects a
@@ -417,13 +418,15 @@ def _detect_hinge_breakpoints(
                 x, y, max_breakpoints=max_breakpoints, min_heldout_r2_uplift=min_heldout_r2_uplift,
                 precheck_qs=_HINGE_PRECHECK_QS, precheck_min_sse_drop=_HINGE_PRECHECK_MIN_SSE_DROP,
                 cand_q_lo=_HINGE_CAND_Q_LO, cand_q_hi=_HINGE_CAND_Q_HI, n_candidates=_HINGE_N_CANDIDATES,
-                min_rows=_HINGE_MIN_ROWS, min_seg_rows=_HINGE_MIN_SEG_ROWS,
+                min_rows=_HINGE_MIN_ROWS, min_seg_rows=_HINGE_MIN_SEG_ROWS, scan_on_train_rows=scan_on_train_rows,
             )
             if _dev is not None:
                 return _dev
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
+    except Exception as e:
+        log_throttle(
+            logger, "hinge_gpu_detector_failed", logging.WARNING,
+            "hinge: the device breakpoint detector failed (%s: %s); the host detector runs for this column", type(e).__name__, e,
+        )
     finite = np.isfinite(x) & np.isfinite(y)
     if not finite.all():
         x = x[finite]
@@ -448,12 +451,19 @@ def _detect_hinge_breakpoints(
     cand = np.unique(np.quantile(x, qs))
     if cand.size == 0:
         return []
+    # The tau scan must not see the held-out rows (idx % 3 == 0) that _heldout_hinge_r2_uplift validates on, otherwise the argmin tau is fit to them.
+    if scan_on_train_rows:
+        _tr = (np.arange(n) % 3) != 0
+        x_s, y_s = x[_tr], y[_tr]
+        _qr0.clear()
+    else:
+        x_s, y_s = x, y
     found: list[float] = []
     # Extra relu legs accumulated from already-found breakpoints, appended to
     # the design so the next round measures the INCREMENTAL SSE drop of a new,
     # distinct kink (not a re-detection of the first one).
     extra_legs: list[np.ndarray] = []
-    ones = np.ones_like(x)  # intercept column is invariant across every candidate cut and round; build once, not per-cut.
+    ones = np.ones_like(x_s)  # intercept column is invariant across every candidate cut and round; build once, not per-cut.
     for _round_idx in range(max(1, int(max_breakpoints))):
         # The fixed design block ``B = [1, x, *extra_legs]`` is identical across every candidate cut in this round; only the ``relu`` column varies. So we
         # QR-factor B ONCE and score each cut by the partitioned-regression (Frisch-Waugh-Lovell) identity: the SSE of regressing y on ``[B | relu]`` equals
@@ -467,9 +477,9 @@ def _detect_hinge_breakpoints(
             r_y = _qr0["r_y"]
             sse_B = _qr0["sse_B"]
         else:
-            B = np.column_stack([ones, x, *extra_legs])
+            B = np.column_stack([ones, x_s, *extra_legs])
             Q, _ = np.linalg.qr(B)
-            r_y = y - Q @ (Q.T @ y)
+            r_y = y_s - Q @ (Q.T @ y_s)
             sse_B = float(r_y @ r_y)
         # Fused prange-parallel scan over every candidate cut (see _hinge_cut_scan_njit's docstring for the
         # rationale and A/B): replaces the per-cut Python loop (count_nonzero + two matrix-vector products +
@@ -480,7 +490,7 @@ def _detect_hinge_breakpoints(
             # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
             np.ascontiguousarray(Q, dtype=np.float64), np.ascontiguousarray(r_y, dtype=np.float64), float(sse_B),
             # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
-            np.ascontiguousarray(x, dtype=np.float64), np.ascontiguousarray(cand, dtype=np.float64),
+            np.ascontiguousarray(x_s, dtype=np.float64), np.ascontiguousarray(cand, dtype=np.float64),
             int(_HINGE_MIN_SEG_ROWS), found_arr,
         )
         best_tau = None if np.isnan(raw_tau) else float(raw_tau)
@@ -492,7 +502,7 @@ def _detect_hinge_breakpoints(
         if uplift < float(min_heldout_r2_uplift):
             break
         found.append(best_tau)
-        extra_legs.append(np.maximum(x - best_tau, 0.0))
+        extra_legs.append(np.maximum(x_s - best_tau, 0.0))
     return found
 
 
@@ -522,11 +532,17 @@ def _precheck_survivors(cols_x: list, y_arr: np.ndarray) -> list:
     if len(cols_x) < 2 or int(np.asarray(y_arr).size) < _HINGE_MIN_ROWS:
         return cols_x
     try:
-        from ._hinge_precheck_gpu import hinge_precheck_drops
+        from ._hinge_precheck_gpu import column_block_width, hinge_precheck_drops
 
-        xs = np.stack([np.asarray(x, dtype=np.float64).ravel() for _c, x in cols_x])
-        drops = hinge_precheck_drops(xs, np.asarray(y_arr, dtype=np.float64).ravel(), _HINGE_PRECHECK_QS, _HINGE_MIN_SEG_ROWS)
-        return [item for item, d in zip(cols_x, drops) if d >= _HINGE_PRECHECK_MIN_SSE_DROP]
+        y64 = np.asarray(y_arr, dtype=np.float64).ravel()
+        width = column_block_width(int(y64.size))
+        survivors: list = []
+        for a in range(0, len(cols_x), width):
+            block = cols_x[a : a + width]
+            xs = np.stack([np.asarray(x, dtype=np.float64).ravel() for _c, x in block])
+            drops = hinge_precheck_drops(xs, y64, _HINGE_PRECHECK_QS, _HINGE_MIN_SEG_ROWS)
+            survivors.extend(item for item, d in zip(block, drops) if d >= _HINGE_PRECHECK_MIN_SSE_DROP)
+        return survivors
     except Exception as exc:
         log_throttle(logger, "hinge_precheck_batch_failed", logging.WARNING, "hinge: the batched precheck failed (%s: %s); every column goes to the per-column detector", type(exc).__name__, exc)
         return cols_x
@@ -561,8 +577,11 @@ def _detect_hinge_breakpoints_for_columns(
                         if taus:
                             out[col] = taus
                     remaining = []
-        except Exception as exc:  # nosec B110 - falls through to the per-column path below, non-fatal
-            logger.debug("generate_hinge_features: batched detector unavailable (%s); per-column fallback", exc)
+        except Exception as exc:
+            log_throttle(
+                logger, "hinge_gpu_batch_detector_failed", logging.WARNING,
+                "hinge: the batched device detector failed (%s: %s); the per-column detector runs for every column", type(exc).__name__, exc,
+            )
     from ._fe_deadline import fe_deadline_passed
 
     remaining = _precheck_survivors(remaining, y_arr)
@@ -676,23 +695,23 @@ def generate_hinge_features(
             if float(np.std(relu_gt)) > 1e-12:
                 name_gt = f"{col}__relu_gt{tau:g}"
                 out_cols[name_gt] = relu_gt
-                meta[name_gt] = {"src": col, "tau": float(tau), "side": "gt"}
+                meta[name_gt] = {"src": col, "tau": float(tau), "side": "gt", "fill": float(np.mean(x))}
             if float(np.std(relu_lt)) > 1e-12:
                 name_lt = f"{col}__relu_lt{tau:g}"
                 out_cols[name_lt] = relu_lt
-                meta[name_lt] = {"src": col, "tau": float(tau), "side": "lt"}
+                meta[name_lt] = {"src": col, "tau": float(tau), "side": "lt", "fill": float(np.mean(x))}
             if emit_indicator:
                 # Intentional float64: hinge FWL/recipe replay is pinned bit-exact by test_detect_hinge_fwl_rank1_taus_bit_identical_*.
                 ind = (x > tau).astype(np.float64)
                 if float(np.std(ind)) > 1e-12:
                     name_ind = f"{col}__ind_gt{tau:g}"
                     out_cols[name_ind] = ind
-                    meta[name_ind] = {"src": col, "tau": float(tau), "side": "ind"}
+                    meta[name_ind] = {"src": col, "tau": float(tau), "side": "ind", "fill": float(np.mean(x))}
     return pd.DataFrame(out_cols, index=X.index), meta
 
 
 def build_hinge_basis_recipe(
-    *, name: str, src_name: str, tau: float, side: str,
+    *, name: str, src_name: str, tau: float, side: str, fill: Optional[float] = None,
 ) -> "EngineeredRecipe":
     """Frozen recipe for one hinge basis column.
 
@@ -701,8 +720,9 @@ def build_hinge_basis_recipe(
     * ``side="ind"`` -> ``1[X[src_name] > tau]`` (step indicator).
 
     Replay is closed-form in the source column alone - no y reference captured,
-    so ``transform`` is leakage-free by construction. Mirrors
-    ``build_orth_spline_recipe``."""
+    so ``transform`` is leakage-free by construction. ``fill`` is the source column's fit-time mean, used at
+    replay for a non-finite value (the column was all-finite at fit; None keeps the legacy batch-mean fill).
+    Mirrors ``build_orth_spline_recipe``."""
     from .engineered_recipes import EngineeredRecipe
     if side not in ("gt", "lt", "ind"):
         raise ValueError(f"build_hinge_basis_recipe: side must be 'gt'|'lt'|'ind'; got {side!r}")
@@ -710,7 +730,7 @@ def build_hinge_basis_recipe(
         name=name,
         kind="hinge_basis",
         src_names=(str(src_name),),
-        extra={"tau": float(tau), "side": str(side)},
+        extra={"tau": float(tau), "side": str(side), **({} if fill is None else {"fill": float(fill)})},
     )
 
 
@@ -730,7 +750,10 @@ def _apply_hinge_basis(recipe, X) -> np.ndarray:
     vals = np.asarray(_extract_column(X, name), dtype=np.float64)
     finite = np.isfinite(vals)
     if not finite.all():
-        fill = float(np.nanmean(vals[finite])) if finite.any() else 0.0
+        if recipe.extra.get("fill") is not None:
+            fill = float(recipe.extra["fill"])
+        else:
+            fill = float(np.nanmean(vals[finite])) if finite.any() else 0.0
         vals = np.where(finite, vals, fill)
     if side == "gt":
         return np.maximum(vals - tau, 0.0)
@@ -941,6 +964,6 @@ def hybrid_hinge_fe_with_recipes(
         m = meta[name]
         recipes.append(build_hinge_basis_recipe(
             name=name, src_name=str(m["src"]),
-            tau=float(m["tau"]), side=str(m["side"]),
+            tau=float(m["tau"]), side=str(m["side"]), fill=m.get("fill"),
         ))
     return X_aug, scores, recipes

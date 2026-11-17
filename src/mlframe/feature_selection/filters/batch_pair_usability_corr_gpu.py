@@ -485,7 +485,7 @@ def _cuda_kernel_warp_factory(ft=np.float64):  # Intentional float64: the usabil
 def _float32_unsafe(y: np.ndarray, operand_matrix: np.ndarray) -> bool:
     """True when some column's offset is more than 1000 times its spread, or a value is not finite: the inputs float32 cannot represent."""
     cols = np.concatenate(
-        [np.asarray(y, dtype=np.float64).reshape(-1, 1), np.asarray(operand_matrix, dtype=np.float64).reshape(len(y), -1)], axis=1
+        [np.asarray(y, dtype=np.float64).reshape(-1, 1), np.asarray(operand_matrix, dtype=np.float64).reshape(-1, len(y)).T], axis=1
     )  # Intentional float64: the usability kernel computes in double unless MLFRAME_USABILITY_CORR_F32 selects float32
     if not np.all(np.isfinite(cols)):
         return True
@@ -656,9 +656,15 @@ def _try_blocked_backend(
         try:
             return batch_pair_usability_corr_cuda_warp_blocked(y, operand_matrix, pair_a, pair_b, form_ids, limit), "cuda_warp_blocked"
         except Exception as exc:
-            logger.warning("batch_pair_usability_corr: blocked CUDA backend failed (%s: %s) -- falling back to CPU.", type(exc).__name__, exc)
+            log_throttle(
+                logger, "batch_pair_usability_corr_blocked_failed", logging.WARNING,
+                "batch_pair_usability_corr: blocked CUDA backend failed (%s: %s) -- falling back to CPU.", type(exc).__name__, exc,
+            )
             return None
-    logger.warning("batch_pair_usability_corr: insufficient VRAM cushion for n_pairs=%d n_forms=%d -- falling back to CPU.", n_pairs, n_forms)
+    log_throttle(
+        logger, "batch_pair_usability_corr_vram_cushion", logging.WARNING,
+        "batch_pair_usability_corr: insufficient VRAM cushion for n_pairs=%d n_forms=%d -- falling back to CPU.", n_pairs, n_forms,
+    )
     return None
 
 
@@ -760,7 +766,8 @@ def _dispatch_batch_pair_usability_corr_uncached(
             result = batch_pair_usability_corr_cuda(y, operand_matrix, pair_a, pair_b, form_ids)
             return result, "cuda"
         except Exception as exc:
-            logger.warning(
+            log_throttle(
+                logger, "batch_pair_usability_corr_cuda_failed", logging.WARNING,
                 "batch_pair_usability_corr: CUDA backend failed (%s: %s) -- falling back to CPU.",
                 type(exc).__name__,
                 exc,

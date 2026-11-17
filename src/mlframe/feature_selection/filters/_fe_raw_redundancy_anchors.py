@@ -21,6 +21,7 @@ from typing import Any, Optional, Sequence
 import numpy as np
 from ._fe_usability_signal import _crit_np_dtype
 
+from mlframe.utils.log_throttle import log_throttle
 from ._fast_host_ops import count_distinct_int
 from ._lazy_host_codes import LazyHostCodes, host_as, length_of
 from ._fe_raw_redundancy_helpers import _excess_and_floor, _recipe_subexprs, _subexpr_continuous
@@ -79,7 +80,7 @@ def build_raw_redundancy_anchors(
             return resident_code_operand(np.asarray(_codes).ravel(), "cmi_cand_x")
         except Exception as exc:  # fallback: hot per-candidate path, debug-only; the caller re-uploads host codes
             # Hot per-candidate path: debug-only. Caller re-uploads host codes as before.
-            logger.debug("resident code-operand upload failed, falling back to host codes: %s", exc)
+            log_throttle(logger, "raw_redundancy.resident_code_upload", logging.WARNING, "resident code-operand upload failed, falling back to host codes: %s", exc)
             return None
 
     st.sel_names = [cols[i] for i in sel]
@@ -184,7 +185,7 @@ def _build_raw_redundancy_step1_def_dev_cont(_gate_resident):
             return _quantile_bin_gpu_resident(_v, int(_eng_card_local))
         except Exception as exc:
             # Hot per-candidate path: debug-only. Caller falls back to host _quantile_bin codes.
-            logger.debug("GPU-resident quantile-bin failed, falling back to host binning: %s", exc)
+            log_throttle(logger, "raw_redundancy.resident_quantile_bin", logging.WARNING, "GPU-resident quantile-bin failed, falling back to host binning: %s", exc)
             return None
 
     def _from_recipe(_sub, _raw_X, _eng_card_local: int) -> Any:
@@ -237,8 +238,6 @@ def _build_raw_redundancy_step2_def_raw_codes(_raw_codes_cache, data, raw_X, _en
                         _out = np.ascontiguousarray(_quantile_bin(_clean, nbins=_eng_card)).astype(np.int64)
             except Exception as exc:
                 # Hot per-candidate path: one warning per distinct cause, not one per candidate. Falls back to the coarser fit codes.
-                from mlframe.utils.log_throttle import log_throttle
-
                 log_throttle(logger, "raw_redundancy_upresolve_failed", logging.WARNING,
                              "raw-operand up-resolve failed (%s: %s); keeping fit-resolution codes for the redundancy anchor", type(exc).__name__, exc)
                 _out = _fit
@@ -305,7 +304,7 @@ def _build_raw_redundancy_step4_def_join_dev():
             return _renumber_joint_gpu(*dev_codes)[0]
         except Exception as exc:
             # Hot per-candidate path: debug-only. Caller falls back to host-side join.
-            logger.debug("device-resident conditioning-support join failed, falling back to host join: %s", exc)
+            log_throttle(logger, "raw_redundancy.device_join", logging.WARNING, "device-resident conditioning-support join failed, falling back to host join: %s", exc)
             return None
     return _join_dev
 

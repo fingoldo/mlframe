@@ -57,6 +57,7 @@ _STAT_DTYPE = np.float64
 import pandas as pd
 
 from mlframe._welford_njit import welford_push, welford_std
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -806,10 +807,9 @@ def hybrid_temporal_agg_fe(
         # Continuous y must be quantile-binned, never int-truncated: astype(int64) collapses 0.7->0 and destroys the MI gate for regression targets.
         if y_arr.dtype.kind in "fc" and int(np.unique(y_arr).size) > 32:
             try:
-                y_arr = pd.qcut(y_arr, q=10, labels=False, duplicates="drop").to_numpy()
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
+                y_arr = np.asarray(pd.qcut(y_arr, q=10, labels=False, duplicates="drop"))
+            except Exception as e:
+                log_throttle(logger, "temporal_agg_target_qcut_failed", logging.WARNING, "temporal_agg: decile-binning the continuous target failed (%s: %s); one class per distinct value", type(e).__name__, e)
         _, y_arr = np.unique(y_arr, return_inverse=True)
     y_bin = y_arr.astype(np.int64)
 

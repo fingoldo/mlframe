@@ -43,3 +43,10 @@ def test_missing_or_non_finite_base_is_refused():
         m.fit(pd.DataFrame({"f": [1.0, 2.0]}), np.array([1.0, 2.0]))
     with pytest.raises(ValueError):
         m.fit(pd.DataFrame({"f": [1.0, 2.0], MIX_BASE_COLUMN: [1.0, np.nan]}), np.array([1.0, 2.0]))
+
+
+def test_with_mix_base_column_refuses_a_non_finite_base():
+    """A raw base with NaN raises instead of being zero-filled by the replay."""
+    X = pd.DataFrame({"a": [1.0, np.nan, 3.0]})
+    with pytest.raises(ValueError):
+        with_mix_base_column(X, [{"base": "a", "beta": 2.0, "recipe": {"raw": "a"}}])

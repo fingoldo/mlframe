@@ -285,7 +285,7 @@ def load_budgets(*, cache_key: str = "mlframe.fe_family_budget", fingerprint: Op
         if not isinstance(raw, dict):
             return None
         return {str(k): float(v) for k, v in raw.items()}
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, TypeError) as exc:
         logger.warning("load_budgets: failed to read/parse %s (%s); starting from equal-split budgets.", path, exc)
         return None
 

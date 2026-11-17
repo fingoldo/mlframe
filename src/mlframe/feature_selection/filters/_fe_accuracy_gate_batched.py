@@ -108,7 +108,7 @@ def _use_device(n_designs: int) -> bool:
     try:
         return str(_GATE_BATCH_SPEC.choose(n_designs=int(n_designs))) == "device"
     except Exception as exc:
-        logger.debug("fe_accuracy_gate_batch: KTC choose() failed, using the fallback: %s", exc)
+        log_throttle(logger, "_fe_accuracy_gate_batched.use_device", logging.WARNING, "fe_accuracy_gate_batch: KTC choose() failed (%s: %s); the measured crossover decides", type(exc).__name__, exc)
         return _gate_batch_fallback_choice(n_designs) == "device"
 
 

@@ -6,6 +6,7 @@ import math
 import os
 
 import numpy as np
+from ._reject_count import reject_count
 from numba import njit, prange
 
 from ._dense_relevance import _relevance_from_dense
@@ -495,6 +496,24 @@ def batch_triple_mi_perm_batched(
 
 
 @njit(nogil=True, cache=True)
+def _y_codes_in_range(classes_y: np.ndarray, k_y: int, n: int) -> bool:
+    """True when ``classes_y`` has ``n`` entries all in ``[0, k_y)`` (a code outside that range would index outside the joint histogram)."""
+    if classes_y.shape[0] != n:
+        return False
+    for r in range(n):
+        v = classes_y[r]
+        if v < 0 or v >= k_y:
+            return False
+    return True
+
+
+_CODES_RANGE_MSG = (
+    "batch_mi_with_noise_gate: disc_2d codes must lie in [0, factors_nbins[k]) and classes_y / classes_y_safe in [0, len(freqs_y)) with one entry per row; "
+    "a -1 sentinel or an over-range code would index outside its histogram."
+)
+
+
+@njit(nogil=True, cache=True)
 def _plogp_sum(p: np.ndarray, m: int) -> float:
     """Shannon entropy in nats of the first ``m`` probabilities; zero entries contribute nothing."""
     h = 0.0
@@ -599,12 +618,21 @@ def _dense_encode_and_relevance(
     kx = np.zeros(K, dtype=np.int64)
     original_mi = np.zeros(K, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
 
+    bad_cols = np.zeros(K, dtype=np.bool_)
     for k in prange(K):
         nb_k = int(factors_nbins[k])
         counts = np.zeros(nb_k, dtype=np.int64)
         col = disc_2d[:, k]
+        ok = True
         for r in range(n):
-            counts[col[r]] += 1
+            v = col[r]
+            if v < 0 or v >= nb_k:
+                ok = False
+                break
+            counts[v] += 1
+        if not ok:
+            bad_cols[k] = True
+            continue
         # Dense remap: lookup_table[c] = c - (#empty bins below c).
         lookup = np.empty(nb_k, dtype=np.int64)
         nzeros = 0
@@ -628,6 +656,8 @@ def _dense_encode_and_relevance(
         original_mi[k] = _relevance_from_dense(
             use_su, classes_dense, k, freqs_dense, n_dense, classes_y, freqs_y, dtype,
         )
+    if np.any(bad_cols):
+        raise ValueError(_CODES_RANGE_MSG)
     return classes_dense, freqs_dense, kx, original_mi
 
 
@@ -679,7 +709,7 @@ def batch_mi_with_noise_gate(
     ``y`` - amortising both the shuffle and the per-permutation MI across the batch.
 
     Rejection contract (matches ``mi_direct`` non-null path exactly):
-      * ``max_failed = max(int(npermutations * (1 - min_nonzero_confidence)), 1)`` when
+      * ``max_failed = max(reject_count(npermutations, min_nonzero_confidence), 1)`` when
         ``npermutations > 0``.
       * ``fe_mi[k] = 0.0`` iff ``original_mi[k] > 0`` AND ``npermutations > 0`` AND
         ``nfailed[k] >= max_failed`` (where ``nfailed[k]`` counts permutations whose
@@ -714,6 +744,9 @@ def batch_mi_with_noise_gate(
     if max_nbins > 1 and classes_dtype(max_nbins - 1) != max_nbins - 1:
         raise ValueError("batch_mi_with_noise_gate: factors_nbins exceeds classes_dtype capacity; widen classes_dtype (int32).")
 
+    if not (_y_codes_in_range(classes_y, freqs_y.shape[0], n) and _y_codes_in_range(classes_y_safe, freqs_y.shape[0], n)):
+        raise ValueError(_CODES_RANGE_MSG)
+
     classes_dense, freqs_dense, kx, original_mi = _dense_encode_and_relevance(
         disc_2d, factors_nbins, classes_y, freqs_y, use_su, dtype, classes_dtype, max_nbins,
     )
@@ -723,7 +756,7 @@ def batch_mi_with_noise_gate(
             fe_mi[k] = original_mi[k]
         return fe_mi
 
-    max_failed = int(npermutations * (1.0 - min_nonzero_confidence))
+    max_failed = reject_count(npermutations, min_nonzero_confidence)
     if max_failed <= 1:
         max_failed = 1
 
@@ -819,18 +852,29 @@ def batch_mi_with_noise_gate_v2(
         return fe_mi
 
     max_nbins = _max_nbins_checked(factors_nbins, K, classes_dtype)
+    if not (_y_codes_in_range(classes_y, freqs_y.shape[0], n) and _y_codes_in_range(classes_y_safe, freqs_y.shape[0], n)):
+        raise ValueError(_CODES_RANGE_MSG)
 
     classes_dense: np.ndarray = np.zeros((n, K), dtype=classes_dtype)
     freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     kx = np.zeros(K, dtype=np.int64)
     original_mi = np.zeros(K, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
 
+    bad_cols = np.zeros(K, dtype=np.bool_)
     for k in prange(K):
         nb_k = int(factors_nbins[k])
         counts = np.zeros(nb_k, dtype=np.int64)
         col = disc_2d[:, k]
+        ok = True
         for r in range(n):
-            counts[col[r]] += 1
+            v = col[r]
+            if v < 0 or v >= nb_k:
+                ok = False
+                break
+            counts[v] += 1
+        if not ok:
+            bad_cols[k] = True
+            continue
         lookup = np.empty(nb_k, dtype=np.int64)
         nzeros = 0
         for c in range(nb_k):
@@ -848,13 +892,15 @@ def batch_mi_with_noise_gate_v2(
         original_mi[k] = _densify_and_relevance_fused(
             use_su, col, lookup, classes_dense, k, freqs_dense, n_dense, classes_y, freqs_y, dtype,
         )
+    if np.any(bad_cols):
+        raise ValueError(_CODES_RANGE_MSG)
 
     if npermutations <= 0:
         for k in range(K):
             fe_mi[k] = original_mi[k]
         return fe_mi
 
-    max_failed = int(npermutations * (1.0 - min_nonzero_confidence))
+    max_failed = reject_count(npermutations, min_nonzero_confidence)
     if max_failed <= 1:
         max_failed = 1
 

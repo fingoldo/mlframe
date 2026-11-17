@@ -14,7 +14,19 @@ from ._gpu_resident_select_f32_compact import _RADIX_SELECT_F32_V5_SRC
 # candidate compaction to happen already in the SECOND scan, where v4/v5 compact in the third (after a 16-bit prefix). The kernel makes two full scans of the column
 # instead of three; the remaining passes read the compacted candidates. The histograms are sums over the same element sets, so the order statistics are bit-identical to
 # v5; a column whose candidates overflow ``cap`` keeps full scans (exact). REJECTED AS DEFAULT (kept, opt-in MLFRAME_RADIX_F32_V6=1): GTX 1050 Ti, n=30000/100000, K=100..400, 9/19 ranks, first digit 11, 12 and 13 bits, five column shapes (normal, lognormal, ties, binary, Cauchy): equal to v5 everywhere, but 0.5 to 1.1 times v5 speed (the 13-bit version 0.4 to 1.1; 11 bits 0.6 to 1.0; 12 bits 0.6 to 1.07). A wider first prefix lets more elements through the compaction (lognormal, ties) and the larger histogram costs shared memory and occupancy, which eats the saved scan. Needs 32 KB of dynamic shared memory (the 8192-bin first histogram).
-FIRST_DIGIT_BITS = int(os.environ.get("MLFRAME_RADIX_F32_V6_BITS", "13"))  # 11 to 13: the width of the first digit; the later digits are 8, 8 and the rest
+def _first_digit_bits(raw: str) -> int:
+    """The first-digit width from ``MLFRAME_RADIX_F32_V6_BITS`` (8 to 13; the 32 KB first histogram caps it); a malformed or out-of-range value warns and gives 13."""
+    try:
+        bits = int(raw)
+    except ValueError:
+        bits = -1
+    if not 8 <= bits <= 13:
+        log_throttle(logging.getLogger(__name__), "gpu_select.f32_v6_bits", logging.WARNING, "MLFRAME_RADIX_F32_V6_BITS=%r is not an integer in 8..13; using 13", raw)
+        return 13
+    return bits
+
+
+FIRST_DIGIT_BITS = _first_digit_bits(os.environ.get("MLFRAME_RADIX_F32_V6_BITS", "13"))  # 8 to 13: the width of the first digit; the later digits are 8, 8 and the rest
 _CH = (1 << FIRST_DIGIT_BITS) // 256  # bins per chunk sum of the first pass
 _NEW_SCAN = (
     "if(pass==0){   // one window: chunk sums of 32 bins in parallel, then each rank walks the 256 chunk sums and one chunk\n"

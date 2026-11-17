@@ -14,6 +14,7 @@ import numpy as np
 
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -160,5 +161,5 @@ def decompose_device_chosen(n: int, p: int, n_out: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=work)) == "device"
     except Exception as exc:
-        logger.debug("numeric_decompose_backend: KTC choose() failed, using the floor: %s", exc)
+        log_throttle(logger, "numeric_decompose.choose_failed", logging.WARNING, "numeric_decompose_backend: KTC choose() failed (%s: %s); the %d-column-row floor decides", type(exc).__name__, exc, DEVICE_FALLBACK_ROWS)
         return work >= DEVICE_FALLBACK_ROWS

@@ -53,7 +53,7 @@ def rescand_use_resident(n: int, k: int) -> bool:
         if fe_gpu_strict_enabled(n=int(n), p=int(k)):
             return True
     except Exception as e:  # nosec B110 - optional dependency import guard
-        logger.debug("fe_gpu_strict_enabled() check failed, continuing to the crossover-based decision: %s", e)
+        log_throttle(logger, "_resident_candidate_mi_ktc.strict_check", logging.WARNING, "fe_gpu_strict_enabled() check failed, continuing to the crossover-based decision: %s", e)
     if _RESCAND_SPEC is None:
         return False
     k_bucket = min(_RESCAND_SWEEP_K, key=lambda b: abs(b - int(k)))

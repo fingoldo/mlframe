@@ -59,10 +59,17 @@ import threading
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters._strata_shuffle_gpu import MIN_STRATA, strata_shuffle
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # thrust aborts the process on a short pool
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
+
+
+def _device_seed(seed: int, salt: int) -> int:
+    """63-bit device RNG seed of ``(seed, salt)`` from a ``SeedSequence`` over both words, so distinct pairs do not collide the way an XOR fold of the two words does (seed 2 / salt 0 against seed 0 / salt 1)."""
+    state = np.random.SeedSequence([int(seed) & 0xFFFFFFFF, int(salt) & 0xFFFFFFFF]).generate_state(2, dtype=np.uint32)
+    return (int(state[0]) << 31) | (int(state[1]) & 0x7FFFFFFF)
 
 
 def _floor_mean_from_nulls_dev(cp, nulls_dev, quantile: float) -> tuple[float, float]:
@@ -106,8 +113,7 @@ def perm_null_gpu_resident_enabled() -> bool:
 
         return bool(fe_gpu_strict_resident_enabled())
     except Exception as e:
-        # fallback: the GPU residency gate is an optional probe; any failure keeps the CPU permutation-null path.
-        logger.debug("perm-null GPU gate: fe_gpu_strict_resident_enabled() check failed, defaulting to CPU path: %s", e)
+        log_throttle(logger, "perm_null_gpu.gate_probe", logging.WARNING, "perm-null GPU gate: fe_gpu_strict_resident_enabled() check failed, defaulting to the CPU path: %s", e)
         return False
 
 
@@ -144,8 +150,8 @@ def _sparse_perm_null(
             h_yz, k_yz = _sparse_batched_entropy_k(cp, (zr * np.int64(Ky) + ys)[:, None], inv_n)
             cmi = cp.maximum((h_xz + float(h_yz[0]) - float(h_z[0]) - h_xyz) - (k_xyz + float(k_z[0]) - k_xz - float(k_yz[0])) * (0.5 * inv_n), 0.0)
             return _floor_mean_from_nulls_dev(cp, cmi, quantile)  # cmi stays resident
-    except Exception:
-        logger.debug("sparse perm-null CMI failed; dense chunked path", exc_info=True)
+    except Exception as exc:
+        log_throttle(logger, "perm_null_gpu.sparse", logging.WARNING, "sparse perm-null CMI failed (%s: %s); the dense chunked path runs", type(exc).__name__, exc)
     return None
 
 
@@ -327,8 +333,8 @@ def conditional_perm_null_gpu(
     # Device RNG seeded from the SAME (seed, salt) the CPU path mixes -> reproducible per-candidate stream. The
     # XOR-fold keeps the two 32-bit components distinct as a single 64-bit seed (cupy RandomState takes one seed);
     # the exact stream differs from numpy's SeedSequence (acceptable: selection-equivalence, not byte-identity).
-    dev_seed = (int(seed) & 0xFFFFFFFF) ^ ((int(salt) & 0xFFFFFFFF) << 1)
-    rs = cp.random.RandomState(dev_seed & 0x7FFFFFFFFFFFFFFF)
+    dev_seed = _device_seed(seed, salt)
+    rs = cp.random.RandomState(dev_seed)
 
     # x is held resident on device; y/z stay host (``batched_cmi_gpu`` consumes the (n,nperm) candidate matrix
     # on device but reads y/z as host ndarrays - it does its own H2D for them, once per call, not per perm).

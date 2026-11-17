@@ -14,6 +14,8 @@ from typing import Any, Callable, cast
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._ktc_fallback import host_device_sweep, rows_fallback, selection_view
 
 logger = logging.getLogger(__name__)
@@ -99,5 +101,5 @@ def polynom_device_chosen(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("polynom_generation_backend: KTC choose() failed, using the floor: %s", exc)
+        log_throttle(logger, "_polynom_search_backend.polynom_device_chosen", logging.WARNING, "polynom_generation_backend: KTC choose() failed, using the row floor of %d: %s", DEVICE_FALLBACK_ROWS, exc)
         return int(n_rows) >= DEVICE_FALLBACK_ROWS

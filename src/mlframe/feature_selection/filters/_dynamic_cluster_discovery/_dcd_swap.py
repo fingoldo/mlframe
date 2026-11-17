@@ -169,8 +169,8 @@ def _select_swap_method_auto(
                     np.array([1], dtype=np.int64), _nbins_arr,
                 ))
                 scores[method].append(_mi_val)
-            except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
+            except Exception as e:
+                log_throttle(logger, "dcd_swap.auto_method_fold_failed", logging.WARNING, "auto swap-method bake-off: %s failed on fold %d (%s: %s); the fold is skipped for it", method, f, type(e).__name__, e)
                 continue
 
     # Reduce per-method per-fold lists to mean OOF MI; tie-break by candidate
@@ -555,9 +555,8 @@ def _register_engineered_recipe(state: DCDState, decision: SwapDecision, enginee
                         )
                         _edges = np.nanpercentile(_cont, _q_arr)
                         _quant["edges"] = _edges.tolist()
-                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed: %s", e)
-                    pass
+                except Exception as e:
+                    log_throttle(logger, "dcd_swap.recipe_edges_failed", logging.WARNING, "cluster-aggregate %r: fit-time bin edges not stored (%s: %s); transform re-quantiles", decision.aggregate_name, type(e).__name__, e)
             engineered_recipe = build_cluster_aggregate_recipe(
                 name=str(decision.aggregate_name),
                 src_names=_src_names,

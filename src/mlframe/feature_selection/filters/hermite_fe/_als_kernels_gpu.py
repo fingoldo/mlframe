@@ -108,13 +108,14 @@ def weighted_gram(cp: Any, B: Any, w: Any, y: Any) -> "tuple[Any, Any]":
     return out[ata_idx], out[atb_idx]
 
 
-_UNPACK: dict = {}
+_UNPACK: dict = {}  # keyed by (device id, width): the gather indices are device arrays
 
 
 def _unpack_index(cp, d: int):
     """Device gather indices that rebuild the symmetric ``(d, d)`` Gram matrix and the ``(d,)`` right-hand side from the packed accumulator vector."""
+    key = (int(cp.cuda.Device().id), int(d))
     with _LOCK:
-        hit = _UNPACK.get(d)
+        hit = _UNPACK.get(key)
         if hit is None:
             import numpy as np
 
@@ -129,5 +130,5 @@ def _unpack_index(cp, d: int):
                 t += 1
             ata = np.array([[pos[(min(j, k), max(j, k))] for k in range(d)] for j in range(d)], dtype=np.int64)
             hit = (cp.asarray(ata), cp.asarray(atb))
-            _UNPACK[d] = hit
+            _UNPACK[key] = hit
         return hit

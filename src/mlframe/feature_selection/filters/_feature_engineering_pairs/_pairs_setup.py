@@ -400,7 +400,7 @@ def _build_operand_table(
                     _n_cpu,
                 )
         except Exception:
-            logger.debug("GPU-resident operand-table build failed; falling back to host H2D.", exc_info=True)
+            log_throttle(logger, "pairs_setup_resident_table", logging.WARNING, "GPU-resident operand-table build failed; falling back to host H2D.", exc_info=True)
     return vars_transformations
 
 

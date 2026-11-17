@@ -23,6 +23,8 @@ from numba import njit, prange
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 import logging
@@ -141,7 +143,7 @@ def row_argmax_on_device(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("row_argmax_backend: KTC choose() failed, using the row-count fallback: %s", exc)
+        log_throttle(logger, "row_argmax.choose_failed", logging.WARNING, "row_argmax_backend: KTC choose() failed, using the row-count fallback: %s", exc)
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 

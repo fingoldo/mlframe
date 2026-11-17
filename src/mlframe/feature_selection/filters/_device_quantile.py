@@ -14,6 +14,7 @@ import threading
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
@@ -99,5 +100,5 @@ def device_quantile(x: Any, qs: np.ndarray) -> Optional[np.ndarray]:
     try:
         return _device_quantile_raw(x if hasattr(x, "__cuda_array_interface__") else np.asarray(x), np.asarray(qs))
     except Exception as e:  # best-effort: the caller falls back to the bit-identical host np.quantile
-        logger.debug("device quantile failed, using the host: %s", e)
+        log_throttle(logger, "device_quantile.failed", logging.WARNING, "device quantile failed (%s: %s); using the host np.quantile", type(e).__name__, e)
         return None

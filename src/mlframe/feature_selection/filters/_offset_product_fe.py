@@ -29,6 +29,7 @@ from ._fe_scan_common import rank_scaled as _rank_scaled
 from ._numba_utils import N_BASELINES, ols2_shift, scan_offset_products, weighted_sum_heldout_mi
 from mlframe.feature_selection.filters._fe_output_clip import OUTPUT_CLIP_QUANTILES
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+from mlframe.utils.log_throttle import log_throttle
 if TYPE_CHECKING:
     import polars as pl
 
@@ -74,7 +75,8 @@ def _unary_column(fn: Callable, x: np.ndarray) -> np.ndarray:
 
 def _log_anchor(x: np.ndarray) -> float:
     """The shift ``smart_log`` applies to the fit column (``1e-5 - min`` for a column with non-positive values, else 0), frozen so replay on another batch cannot shift differently."""
-    lo = float(np.nanmin(x)) if np.isfinite(x).any() else 1.0
+    finite = x[np.isfinite(x)]
+    lo = float(finite.min()) if finite.size else 1.0
     return 0.0 if lo > 0 else 1e-5 - lo
 
 def _apply_unary(funcs: "dict[str, Callable]", name: str, x: np.ndarray, log_shift: float = 0.0) -> np.ndarray:
@@ -232,7 +234,7 @@ def _scan_all(
             if res is not None:
                 return res
     except Exception as e:  # device unavailable or kernel fault: the CPU scan below gives the same selection
-        logger.debug("offset-product GPU scan fell back to the CPU kernel: %r", e)
+        log_throttle(logger, "offset_product.gpu_scan_failed", logging.WARNING, "offset-product GPU scan failed (%s: %s) on %d rows x %d tasks; CPU kernel", type(e).__name__, e, len(rows), int(tasks.shape[0]))
     U, clips = _scan_inputs(xs, funcs, unaries, rows, anchors)
     out_shift = np.empty((len(tasks), 2))
     out_mi = np.empty((len(tasks), 2, 1 + N_BASELINES))

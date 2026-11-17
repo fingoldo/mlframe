@@ -184,6 +184,10 @@ def strata_null_cmi(cp: Any, shuffled_sorted: Any, y_sorted: Any, z_rank: Any, d
     ky = int(dy.max()) + 1 if dy.size else 1
     S = int(z_rank[-1]) + 1
     if kx * ky > MAX_CELLS or kx > 255 or ky > 255 or S < MIN_STRATA:
+        log_throttle(
+            logger, "cmi_null_strata_gpu_declined", logging.INFO,
+            "per-stratum null CMI declined (kx=%d, ky=%d, strata=%d; needs kx*ky<=%d, codes<=255, strata>=%d); the dense route runs for this call", kx, ky, S, MAX_CELLS, MIN_STRATA,
+        )
         return None
     try:
         srank = z_rank.astype(cp.int32)

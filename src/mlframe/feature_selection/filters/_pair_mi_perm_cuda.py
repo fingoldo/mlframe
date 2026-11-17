@@ -22,6 +22,7 @@ import numpy as np
 from pyutilz.performance.gpu_hw_launch import block_size_for
 from ._kernel_types import render
 from ._pair_operand_blocks import pair_chunks_by_operand_block
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +215,11 @@ def pair_mi_perm_matrix_cuda(
     ``None`` means "use the CPU kernel": no CUDA, codes that do not fit a byte, a histogram that does not fit shared memory, or a pool that does not fit free VRAM. Pairs the CPU kernel zeroes (joint
     cardinality above ``cap``) are zeroed here too; every other pair must have codes below its ``nbins``.
     """
+    n_indexable = min(int(factors_data.shape[1]), int(np.asarray(nbins).shape[0]))
+    if pair_a.shape != pair_b.shape:
+        raise ValueError("pair_a and pair_b must have the same length")
+    if pair_a.size and (int(min(pair_a.min(), pair_b.min())) < 0 or int(max(pair_a.max(), pair_b.max())) >= n_indexable):
+        raise ValueError(f"a pair index lies outside the {n_indexable} factor columns that have both data and a bin count")
     try:
         import cupy as cp
     except ImportError as e:
@@ -352,5 +358,5 @@ def floor_backend_choice(n_samples: int, n_pairs: int) -> str:
     try:
         return str(_FLOOR_SPEC.choose(n_samples=int(n_samples), n_pairs=int(n_pairs)))
     except Exception as exc:  # nosec B110 - a cache that cannot be read leaves the fallback in charge
-        logger.debug("pair_mi_perm_floor choose() failed (%s); using the fallback", exc)
+        log_throttle(logger, "pair_mi_perm.ktc_choose_failed", logging.WARNING, "pair_mi_perm_floor choose() failed (%s: %s); using the fallback", type(exc).__name__, exc)
         return _floor_fallback_choice(n_samples, n_pairs)

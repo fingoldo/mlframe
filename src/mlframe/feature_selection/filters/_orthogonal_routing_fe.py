@@ -75,7 +75,7 @@ from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
-from ._orthogonal_shared import coerce_y_classif
+from ._orthogonal_shared import coerce_y_classif, mean_fill_nonfinite
 from ._safe_scale import _REL_TOL
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
@@ -305,7 +305,7 @@ def _routing_cells_of_column(X: pd.DataFrame, col: str, transform_variants: tupl
     # Value-construction site (feeds the engineered column, not just an MI score): always
     # float64, matching _apply_orth_univariate's hardcoded replay dtype - a relaxed f32 cast
     # here reproduces the fit/replay drift bug fixed in _orthogonal_univariate_fe/__init__.py.
-    x_raw = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())
+    x_raw = np.asarray(X[col].to_numpy(), dtype=np.float64)  # Intentional float64: fit/replay bit-identity contract (basis axis)
     finite_mask = np.isfinite(x_raw)
     if not finite_mask.all():
         fill = float(np.nanmean(x_raw[finite_mask])) if finite_mask.any() else 0.0
@@ -663,8 +663,10 @@ def hybrid_orth_mi_conditional_routing_fe_with_recipes(
         _pre_transform = str(row["pre_transform"])
         _pp = None
         try:
-            _col_full = np.asarray(X[_src_name].to_numpy(), dtype=_crit_np_dtype())
-            _col_full = apply_pre_transform(_col_full, _pre_transform)
+            _col_full = np.array(X[_src_name].to_numpy(), dtype=np.float64)  # Intentional float64: fit/replay bit-identity contract (basis axis)
+            mean_fill_nonfinite(_col_full)
+            _col_full = np.array(apply_pre_transform(_col_full, _pre_transform), dtype=np.float64)
+            mean_fill_nonfinite(_col_full)
             _, _pp = _evaluate_basis_column(_col_full, _basis, _degree, return_params=True)
         except Exception as e:
             log_throttle(logger, "orthogonal_routing_fe.hot_loop_warning", logging.WARNING, "basis-params recompute failed for %s: %s", _src_name, e)

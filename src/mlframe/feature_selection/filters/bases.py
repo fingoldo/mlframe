@@ -32,8 +32,11 @@ except ImportError:
 
 def _fourier_fit(x: np.ndarray):
     """Min-max normalise x to [0, 1] - one period covers the full data range. Returns (z, params)."""
-    lo = float(np.min(x))
-    hi = float(np.max(x))
+    fin = np.isfinite(x)
+    if not fin.any():
+        return np.zeros_like(x, dtype=_crit_np_dtype()), dict(lo=0.0, span=0.0, degenerate=True)
+    lo = float(np.min(x[fin]))
+    hi = float(np.max(x[fin]))
     raw_span = hi - lo
     # Degenerate (constant / near-constant) column: when the span is negligible relative to the
     # column's own scale, a 1e-12 floor maps x to a z whose dynamic range is dominated by a single
@@ -192,7 +195,7 @@ def _sigmoid_fit(x: np.ndarray):
     x = np.where(np.isfinite(x), x, 0.0)
     quantiles = np.linspace(0.1, 0.9, 9)
     thresholds = np.quantile(x, quantiles).astype(_crit_np_dtype())
-    iqr = float(np.quantile(x, 0.9) - np.quantile(x, 0.1)) + 1e-12
+    iqr = max(float(np.quantile(x, 0.9) - np.quantile(x, 0.1)), 1e-12)
     slope = 4.0 / (iqr / 9.0)  # 4 -> ~95% of sigmoid in iqr/9 width
     return x.astype(_crit_np_dtype()), dict(thresholds=thresholds, slope=slope)
 
@@ -259,8 +262,11 @@ def _sigmoid_canonical_seeds(degree: int) -> list:
 
 def _pade_fit(x: np.ndarray):
     """Standardize input - Pade is sensitive to scale. Reference domain is roughly [-3, 3] post z-score."""
-    mean = float(np.mean(x))
-    raw_std = float(np.std(x))
+    fin = np.isfinite(x)
+    if not fin.any():
+        return np.zeros(np.shape(x), dtype=np.float64), dict(mean=0.0, std=0.0, degenerate=True)
+    mean = float(np.mean(x[fin]))
+    raw_std = float(np.std(x[fin]))
     # Degenerate (constant / near-constant) column: an additive 1e-12 std floor does NOT dominate a
     # tiny-but-nonzero std (e.g. std ~ 1e-10 from one outlier), so z = (x - mean) / std blows the
     # outlier to z ~ 8 while the bulk sits near 0 - the rational Horner eval then produces a garbage
@@ -268,15 +274,16 @@ def _pade_fit(x: np.ndarray):
     # own scale as constant and map it to z=0.
     scale = abs(mean) + 1.0
     if raw_std <= 1e-9 * scale:
-        return np.zeros_like(x, dtype=_crit_np_dtype()), dict(mean=mean, std=0.0, degenerate=True)
-    return (x - mean) / raw_std, dict(mean=mean, std=raw_std, degenerate=False)
+        return np.zeros(np.shape(x), dtype=np.float64), dict(mean=mean, std=0.0, degenerate=True)
+    # float64 axis: fit and replay must agree to the last bit, so neither side narrows to the float32 criterion dtype
+    return (np.asarray(x, dtype=np.float64) - mean) / raw_std, dict(mean=mean, std=raw_std, degenerate=False)
 
 
 def _pade_apply(x: np.ndarray, params: dict) -> np.ndarray:
     """Standardize eval-time x with the fitted ``mean``/``std`` (or return the degenerate all-zero z) - same z-score mapping as ``_pade_fit`` but reusing train-fold parameters instead of refitting."""
     if params.get("degenerate"):
-        return np.zeros_like(x, dtype=_crit_np_dtype())
-    return np.asarray(((x - params["mean"]) / params["std"]).astype(_crit_np_dtype()))
+        return np.zeros(np.shape(x), dtype=np.float64)
+    return np.asarray((np.asarray(x, dtype=np.float64) - params["mean"]) / params["std"], dtype=np.float64)
 
 
 @njit(fastmath=True, cache=True, nogil=True)

@@ -13,6 +13,8 @@ import threading
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._kernel_types import render
 
 from ._internals import GPU_MAX_BLOCK_SIZE
@@ -215,8 +217,8 @@ def mi_direct_gpu_batched_pairs(
             if _needed_shared_bytes > 49152 - 2048 and _budget_bytes > 0:
                 try:
                     _gpu_module.compute_joint_hist_multi_pair_shared_cuda.max_dynamic_shared_size_bytes = _needed_shared_bytes
-                except Exception:
-                    logger.debug("compute_joint_hist_multi_pair_shared_cuda: opt-in shared-mem set failed; launch may fail and fall back", exc_info=True)
+                except Exception as e:
+                    log_throttle(logger, "gpu_pairs.shared_mem_optin", logging.WARNING, "compute_joint_hist_multi_pair_shared_cuda: the shared-memory opt-in to %d bytes failed (%s), the launch may fail", _needed_shared_bytes, e)
             _gpu_module.compute_joint_hist_multi_pair_shared_cuda(
                 (max(1, -(-grid_x // _ROW_TILES_PER_BLOCK)), n_pairs),
                 (block_size,),
@@ -382,8 +384,7 @@ def _mi_direct_gpu_batched_pairs_part1(
             )
             if _entry is not None and "block_size" in _entry:
                 block_size = int(_entry["block_size"])
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
-            pass
+        except Exception as e:
+            log_throttle(logger, "gpu_pairs.ktc_lookup", logging.WARNING, "joint_hist_multi_pair tuning lookup failed (%s), block_size stays %d", e, block_size)
     grid_x = (n_rows + block_size - 1) // block_size
     return False, cp, _gpu_module, n_pairs, n_rows, nbins_y, pair_merged_sizes, pair_joint_sizes, joint_offsets, factors_data_T_gpu, classes_y_gpu, pairs_a_gpu, pairs_b_gpu, nbins_a_gpu, joint_offsets_gpu, joint_counts_flat, block_size, grid_x

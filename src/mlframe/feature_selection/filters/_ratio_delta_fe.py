@@ -473,7 +473,11 @@ def apply_lagged_diff(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     entity_cols = recipe.get("entity_cols") or None
     if time_col not in X_test.columns or value_col not in X_test.columns:
         raise KeyError(f"apply_lagged_diff: missing column(s) {time_col!r}/{value_col!r} " f"from X_test")
-    if entity_cols and all(c in X_test.columns for c in entity_cols):
+    if entity_cols:
+        missing_entity = [c for c in entity_cols if c not in X_test.columns]
+        if missing_entity:
+            raise KeyError(f"apply_lagged_diff: missing entity column(s) {missing_entity!r} from X_test; a global-order diff would cross entity boundaries")
+    if entity_cols:
         from ._temporal_agg_fe import _entity_key_series
 
         entity_key = _entity_key_series(X_test, entity_cols).to_numpy()

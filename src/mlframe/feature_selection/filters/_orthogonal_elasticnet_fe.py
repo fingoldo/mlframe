@@ -53,7 +53,6 @@ import warnings
 from typing import Optional, Sequence
 
 import numpy as np
-from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -94,13 +93,13 @@ def _fit_elasticnet_abs_coefs(
     from sklearn.exceptions import ConvergenceWarning
     from sklearn.linear_model import ElasticNet
 
-    X_arr = np.asarray(X_stack, dtype=_crit_np_dtype())
-    y_arr = np.asarray(y, dtype=_crit_np_dtype()).ravel()
+    X_arr = np.asarray(X_stack, dtype=np.float64)  # Intentional float64: standardising a float32 cast loses columns with a large offset
+    y_arr = np.asarray(y, dtype=np.float64).ravel()
     if X_arr.ndim == 1:
         X_arr = X_arr.reshape(-1, 1)
     n_rows, n_cols = X_arr.shape
     if n_rows == 0 or n_cols == 0:
-        return np.zeros(n_cols, dtype=_crit_np_dtype())
+        return np.zeros(n_cols, dtype=np.float64)
     X_clean = np.where(np.isfinite(X_arr), X_arr, 0.0)
     if standardize:
         col_mean = X_clean.mean(axis=0, keepdims=True)
@@ -131,7 +130,7 @@ def _fit_elasticnet_abs_coefs(
             "ElasticNet did not converge in max_iter=5000 (alpha=%s, l1_ratio=%s); "
             "|coef| feature scores may be unreliable.", alpha, l1_ratio,
         )
-    return np.abs(np.asarray(model.coef_, dtype=_crit_np_dtype())).ravel()
+    return np.abs(np.asarray(model.coef_, dtype=np.float64)).ravel()
 
 def score_features_by_elasticnet_coef(
     raw_X: pd.DataFrame,
@@ -197,8 +196,8 @@ def score_features_by_elasticnet_coef(
     # rationale: two separate fits would double-count shared signal).
     # f64 kept: covariance/coordinate-descent stability (f32 sums lose precision here) - NOT routed through _crit_np_dtype.
     stack_arr = np.column_stack([
-        raw_X.to_numpy(dtype=_crit_np_dtype()),
-        engineered_X.to_numpy(dtype=_crit_np_dtype()),
+        raw_X.to_numpy(dtype=np.float64),
+        engineered_X.to_numpy(dtype=np.float64),
     ])
     abs_coefs = _fit_elasticnet_abs_coefs(
         stack_arr, np.asarray(y).ravel(),

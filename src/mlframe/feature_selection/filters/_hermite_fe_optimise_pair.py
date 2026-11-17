@@ -241,7 +241,10 @@ def _optimise_hermite_pair_part2(
                     )
                     return True, (None)
         except Exception as _nf_err:
-            logger.debug("noise-floor permutation guard skipped: %s", _nf_err)
+            log_throttle(
+                logger, "hermite_pair_noise_floor_guard_skipped", logging.WARNING,
+                "noise-floor permutation guard failed (%s: %s); the engineered pair is admitted WITHOUT the null check", type(_nf_err).__name__, _nf_err,
+            )
 
     return True, (st.best)  # read from the untyped state namespace / cache the stage helpers share
 
@@ -392,7 +395,10 @@ def _optimise_hermite_pai_step3_saves_us_call(st, basis, precomputed_identity_ba
                     )
                     st.baseline = trivial_mi
         except Exception as e:
-            logger.debug("trivial baseline check failed: %s", e)
+            log_throttle(
+                logger, "hermite_pair_trivial_baseline_failed", logging.WARNING,
+                "trivial baseline check failed (%s: %s); the uplift gate runs against the identity baseline only", type(e).__name__, e,
+            )
     elif precomputed_trivial_baseline is not None:
         # Caller supplied the precomputed value - use it directly.
         if precomputed_trivial_baseline > st.baseline:
@@ -708,7 +714,7 @@ def _optimise_hermite_pai_step1_try(optimizer, ca_size, cb_size, coef_range, n_t
                 eval_kwargs=eval_kwargs,
             )
     except Exception as e:
-        log_throttle(logger, "hermite_fe_optimizer_failed_falling_back_optuna", logging.WARNING, "%s failed at degree %d (%s); " "falling back to Optuna", optimizer, degree, e)
+        log_throttle(logger, "hermite_fe_optimizer_failed_falling_back_optuna", logging.WARNING, "%s failed at degree %d (%s); " "this degree is skipped", optimizer, degree, e)
         cma_result = None
     return cma_result
 

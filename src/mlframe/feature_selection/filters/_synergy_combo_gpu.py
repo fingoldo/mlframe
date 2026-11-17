@@ -2,7 +2,7 @@
 
 The synergy screen scores up to a few thousand combos of two or three discrete columns, each by one pass of the host kernel over the rows. Here one block owns one combo: the rows fill a shared
 ``(joint cell, class)`` integer count table (integer atomics, so thread order does not change the counts), the threads sum ``pj * log(pj / (pxc * py))`` over the occupied cells and one warp-shuffle block
-reduction gives the plug-in MI; the Miller-Madow debit ``(occ_x - 1 + occ_y - 1 - (occ_cells - 1)) / (2 n)`` is formed from the occupied counts exactly as on the host. A combo whose table does not fit the
+reduction gives the plug-in MI; the Miller-Madow debit ``(occ_x - 1 + occ_y - 1 - (occ_joint - 1)) / (2 n)`` is formed from the occupied cell, class and (cell, class) counts exactly as on the host. A combo whose table does not fit the
 shared memory (``_MAX_CELLS`` entries) returns NaN and the caller scores it with the host kernel. The code matrix goes up once, as bytes when every cardinality is at most 127; combos go in blocks of a bounded
 count (``run_column_blocks``: a block of combos at a time, halved on an out-of-memory error). Host or device is chosen per call from the kernel-tuning entry ``synergy_combo_backend`` by rows x combos.
 """
@@ -34,6 +34,7 @@ void synergy_combo(const {CT}* __restrict__ codes, const int* __restrict__ c0, c
     extern __shared__ int tab[];                          // joint[cell * kt + class]
     __shared__ {ACC} red[32];
     __shared__ int red_c[32];
+    __shared__ int red_j[32];
     __shared__ int pys[16];                               // class totals of the table (kt <= 16)
     const int p = blockIdx.x;
     const int k1 = card1[p];
@@ -61,6 +62,7 @@ void synergy_combo(const {CT}* __restrict__ codes, const int* __restrict__ c0, c
     const {ACC} inv_n = 1.0 / ({ACC})n;
     {ACC} mi = 0.0;
     int occ = 0;
+    int occ_j = 0;
     for (int cell = threadIdx.x; cell < n_cells; cell += blockDim.x) {
         int px_i = 0;
         for (int t = 0; t < kt; ++t) px_i += tab[cell * kt + t];
@@ -70,6 +72,7 @@ void synergy_combo(const {CT}* __restrict__ codes, const int* __restrict__ c0, c
         for (int t = 0; t < kt; ++t) {
             const int cnt = tab[cell * kt + t];
             if (cnt > 0) {
+                occ_j += 1;
                 const int py_i = pys[t];
                 const {ACC} pj = ({ACC})cnt * inv_n;
                 mi += pj * log(pj / (pxc * (({ACC})py_i * inv_n)));
@@ -79,15 +82,17 @@ void synergy_combo(const {CT}* __restrict__ codes, const int* __restrict__ c0, c
     for (int o = 16; o > 0; o >>= 1) {
         mi += __shfl_down_sync(0xffffffffu, mi, o);
         occ += __shfl_down_sync(0xffffffffu, occ, o);
+        occ_j += __shfl_down_sync(0xffffffffu, occ_j, o);
     }
     const int lane = threadIdx.x & 31, warp = threadIdx.x >> 5;
-    if (lane == 0) { red[warp] = mi; red_c[warp] = occ; }
+    if (lane == 0) { red[warp] = mi; red_c[warp] = occ; red_j[warp] = occ_j; }
     __syncthreads();
     if (threadIdx.x == 0) {
         {ACC} tot = 0.0;
         int tc = 0;
-        for (int w = 0; w < (blockDim.x >> 5); ++w) { tot += red[w]; tc += red_c[w]; }
-        const {ACC} mm = (({ACC})(tc - 1 + occ_y - 1 - (tc - 1))) / (2.0 * ({ACC})n);
+        int tj = 0;
+        for (int w = 0; w < (blockDim.x >> 5); ++w) { tot += red[w]; tc += red_c[w]; tj += red_j[w]; }
+        const {ACC} mm = (({ACC})(tc - 1 + occ_y - 1 - (tj - 1))) / (2.0 * ({ACC})n);
         const {ACC} val = tot + mm;
         out[p] = val > 0.0 ? val : 0.0;
     }
@@ -127,6 +132,13 @@ def combo_mm_mi_gpu(code_cols: Sequence[np.ndarray], combos: Sequence[Sequence[i
     fits = np.nonzero(cells <= _MAX_CELLS)[0] if int(kt) <= 16 else np.zeros(0, dtype=np.int64)
     if fits.size == 0:
         return out
+    for j, col in enumerate(code_cols):
+        col_a = np.asarray(col)
+        if col_a.shape[0] != n or int(col_a.min()) < 0 or int(col_a.max()) >= int(cards_a[j]):
+            raise ValueError(f"combo_mm_mi_gpu: code column {j} must have {n} rows with codes in [0, {int(cards_a[j])})")
+    tgt_a = np.asarray(target)
+    if int(tgt_a.min()) < 0 or int(tgt_a.max()) >= int(kt):
+        raise ValueError(f"combo_mm_mi_gpu: target codes must lie in [0, {int(kt)})")
     narrow = bool(cards_a.max() <= 127)
     mat = np.empty((len(code_cols), n), dtype=np.int8 if narrow else np.int32)
     for j, col in enumerate(code_cols):
@@ -230,7 +242,9 @@ def synergy_device_chosen(n: int, n_combos: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=work)) == "device"
     except Exception as exc:
-        logger.debug("synergy_combo_backend: KTC choose() failed, using the floor: %s", exc)
+        from mlframe.utils.log_throttle import log_throttle
+
+        log_throttle(logger, "synergy_combo.ktc_choose_failed", logging.WARNING, "synergy_combo_backend: KTC choose() failed (%s: %s); the rows floor decides", type(exc).__name__, exc)
         return work >= DEVICE_FALLBACK_ROWS
 
 

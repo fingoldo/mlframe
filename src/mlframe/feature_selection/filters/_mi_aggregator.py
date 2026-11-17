@@ -165,6 +165,9 @@ def genie_mi_panel(x: np.ndarray, y: np.ndarray,
         except Exception as exc:
             log_throttle(logger, "mi_agg_genie_panel_failed", logging.WARNING, "genie_mi_panel: %r failed: %r", name, exc)
             continue
+        if not np.isfinite(mi):
+            log_throttle(logger, "mi_agg_genie_panel_nonfinite", logging.WARNING, "genie_mi_panel: %r returned a non-finite MI (%r); dropped from the ensemble", name, mi)
+            continue
         estimates.append(mi)
         bias.append((bias_rates or {}).get(name, _genie_default_bias_rate(name, n)))
         var.append((variances or {}).get(name, 1.0))

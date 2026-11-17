@@ -20,6 +20,7 @@ from numba import njit, prange
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -200,8 +201,12 @@ def _als_seed_gpu_resident(
                 if z_a is not None and z_b is not None and basis is not None:
                     return warm_start_als_seed_gpu_from_z(z_a, z_b, y, basis=str(basis), max_degree=(B_a.shape[1] - 1), iters=iters)
                 return warm_start_als_seed_gpu(B_a, B_b, y, iters=iters)
-            except tuple(_dev_errs):
-                pass  # genuine cupy/device/linalg fault -> CPU normal-eq path (byte-identical default); logic bugs propagate
+            except tuple(_dev_errs) as _dev_exc:
+                # genuine cupy/device/linalg fault -> CPU normal-eq path (byte-identical default); logic bugs propagate
+                log_throttle(
+                    logger, "warm_start_als_seed_gpu_fallback", logging.WARNING,
+                    "warm_start_als_seed: GPU-resident ALS sweep failed (%s: %s); running the slower CPU normal-equation path", type(_dev_exc).__name__, _dev_exc,
+                )
     return None
 
 

@@ -25,10 +25,10 @@ def _sorted_linear_quantiles(sv: np.ndarray, qs: Sequence[float]) -> np.ndarray:
         t = v - lo
         a = sv[lo]
         b = sv[hi]
-        diff = b - a
-        r = a + diff * t
+        diff = float(b - a)  # the difference in the value type, then the interpolation in double: a float32 scalar times a Python float would stay float32
+        r = float(a) + diff * t
         if t >= 0.5:
-            r = b - diff * (1 - t)
+            r = float(b) - diff * (1 - t)
         out[k] = r
     return out
 

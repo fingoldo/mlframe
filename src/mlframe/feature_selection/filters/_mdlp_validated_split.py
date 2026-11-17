@@ -832,11 +832,11 @@ def _mdlp_recurse_oos_validated(
     holdout_left = x_holdout <= best_split
     splits.append(float(best_split))
     _mdlp_recurse_oos_validated(
-        x_train[:left_mask_idx], y_train_left, x_holdout[holdout_left], y_holdout[holdout_left], splits,
+        x_train[:left_mask_idx], y_train_left, x_holdout[holdout_left], y_holdout_c[holdout_left], splits,
         depth + 1, min_split_size, max_depth, oos_tolerance, counts_left_dense, present, _val_min_split_size,
     )
     _mdlp_recurse_oos_validated(
-        x_train[left_mask_idx:], y_train_right, x_holdout[~holdout_left], y_holdout[~holdout_left], splits,
+        x_train[left_mask_idx:], y_train_right, x_holdout[~holdout_left], y_holdout_c[~holdout_left], splits,
         depth + 1, min_split_size, max_depth, oos_tolerance, counts_right_dense, present, _val_min_split_size,
     )
 

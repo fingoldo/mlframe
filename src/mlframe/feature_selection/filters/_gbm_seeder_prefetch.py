@@ -99,7 +99,7 @@ def prefetch_surrogate_seeds(self: Any, *, num_fs_steps: int, data: Any, cols: S
                 _EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gbm_seeder")
             _PENDING[id(self)] = (self, key, _EXECUTOR.submit(surrogate_gbm_interaction_seeds, data, y, cand, **kwargs))
     except Exception as exc:
-        logger.debug("surrogate seeder prefetch not started (%s); the seeder runs in place", exc)
+        log_throttle(logger, "gbm_seeder_prefetch.start", logging.WARNING, "surrogate seeder prefetch not started (%s); the seeder runs in place", exc)
 
 
 def prefetch_surrogate_seeds_early(self: Any, *, data: Any, cols: Sequence[str], X: Any, target_indices: Any, categorical_vars: Any, nbins: Any, dtype: Any) -> None:
@@ -113,7 +113,7 @@ def prefetch_surrogate_seeds_early(self: Any, *, data: Any, cols: Sequence[str],
         classes_y, _freqs, _ = merge_vars(factors_data=data, vars_indices=target_indices, var_is_nominal=None, factors_nbins=nbins, dtype=dtype)
         prefetch_surrogate_seeds(self, num_fs_steps=0, data=data, cols=cols, X=X, target_indices=target_indices, categorical_vars=categorical_vars, classes_y=classes_y)
     except Exception as exc:
-        logger.debug("early surrogate seeder prefetch not started (%s)", exc)
+        log_throttle(logger, "gbm_seeder_prefetch.early", logging.WARNING, "early surrogate seeder prefetch not started (%s); the seeder runs in place", exc)
 
 
 def take_prefetched(self: Any, data: Any, classes_y: Any, cand: Sequence[int], kwargs: dict) -> Any:

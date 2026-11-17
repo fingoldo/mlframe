@@ -107,7 +107,6 @@ import numpy as np
 from numba import njit, prange
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
-from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
@@ -301,7 +300,7 @@ def median_heuristic_sigma(z: np.ndarray) -> float:
     defined (``exp(0) = 1`` on every entry; the resulting HSIC is 0,
     which is the right "no signal" reading for a constant column).
     """
-    arr = np.asarray(z, dtype=_crit_np_dtype()).ravel()
+    arr = np.asarray(z, dtype=np.float64).ravel()  # Intentional float64: Gram sums and bandwidths in double, a float32 cast quantises columns with a large offset
     n = arr.shape[0]
     if n < 2:
         return 1.0
@@ -322,7 +321,7 @@ def _rbf_gram(z: np.ndarray, sigma: float) -> np.ndarray:
     and Gretton use); the variance scaling is ``2 * sigma^2`` in the
     exponent.
     """
-    arr = np.asarray(z, dtype=_crit_np_dtype()).ravel()
+    arr = np.asarray(z, dtype=np.float64).ravel()  # Intentional float64: Gram sums and bandwidths in double, a float32 cast quantises columns with a large offset
     diff = arr[:, None] - arr[None, :]
     sq = diff * diff
     s = float(sigma) if float(sigma) > 0.0 else 1.0
@@ -389,8 +388,8 @@ def hsic(
         )
     if estimator not in ("biased", "unbiased"):
         raise ValueError(f"hsic: estimator must be 'biased' or 'unbiased', got " f"{estimator!r}")
-    x_arr = np.asarray(x, dtype=_crit_np_dtype()).ravel()
-    y_arr = np.asarray(y, dtype=_crit_np_dtype()).ravel()
+    x_arr = np.asarray(x, dtype=np.float64).ravel()  # Intentional float64: Gram sums and bandwidths in double, a float32 cast quantises columns with a large offset
+    y_arr = np.asarray(y, dtype=np.float64).ravel()  # Intentional float64: Gram sums and bandwidths in double, a float32 cast quantises columns with a large offset
     if x_arr.shape[0] != y_arr.shape[0]:
         raise ValueError(f"hsic: x has {x_arr.shape[0]} rows, y has {y_arr.shape[0]}; " f"row alignment required.")
     n_total = x_arr.shape[0]
@@ -423,6 +422,8 @@ def hsic(
         # trace(Kc Lc) = sum_ij Kc_ij Lc_ji = sum_ij Kc_ij Lc_ij since
         # both are symmetric.
         val = float(np.sum(Kc * Lc)) / float((n - 1) * (n - 1))
+        if not np.isfinite(val):
+            return 0.0
         # Numerical floor: tiny negative roundoff on near-independent
         # pairs; the biased estimator is non-negative in exact arith.
         if val < 0.0 and val > -1e-12:
@@ -449,7 +450,7 @@ def hsic(
     nn = float(n)
     denom = nn * (nn - 3.0)
     val = (tr + sum_K * sum_L / ((nn - 1.0) * (nn - 2.0)) - (2.0 / (nn - 2.0)) * cross) / denom
-    return float(val)
+    return float(val) if np.isfinite(val) else 0.0
 
 def _hsic_y_side_prep(
     y: np.ndarray, n_total: int, *, n_sample: int, random_state: int, estimator: str,
@@ -461,7 +462,7 @@ def _hsic_y_side_prep(
     each call rebuilding the identical y-side Gram matrix. Returns ``None`` on the degenerate n<4 case
     (caller falls back to ``_hsic_batch``'s own zero-fill short-circuit).
     """
-    y_arr = np.asarray(y, dtype=_crit_np_dtype()).ravel()
+    y_arr = np.asarray(y, dtype=np.float64).ravel()  # Intentional float64: Gram sums and bandwidths in double, a float32 cast quantises columns with a large offset
     if n_total < 4:
         return None
     idx = _subsample_indices(n_total, int(n_sample), int(random_state))
@@ -482,6 +483,18 @@ def _hsic_y_side_prep(
     sum_L = float(L_t.sum())
     row_sum_L = L_t.sum(axis=1)
     return (idx, n, None, (L_t, sum_L, row_sum_L))
+
+def _zero_nonfinite_scores(scores: np.ndarray) -> np.ndarray:
+    """Replace NaN/inf HSIC scores (a non-finite input value poisons its Gram matrix) with 0.0 so one bad column cannot turn the ranking floors into NaN."""
+    bad = ~np.isfinite(scores)
+    if bad.any():
+        log_throttle(
+            logger, "orth_hsic_nonfinite_scores", logging.WARNING,
+            "HSIC: %d of %d column scores were non-finite (NaN/inf in the column or in y); scored 0.0.", int(bad.sum()), int(scores.shape[0]),
+        )
+        scores = np.where(bad, 0.0, scores)
+    return scores
+
 
 def _hsic_batch(
     X: np.ndarray, y: np.ndarray, *,
@@ -505,7 +518,7 @@ def _hsic_batch(
     skip rebuilding the y-side Gram matrix a second time. ``None`` (default) preserves the exact
     self-contained behavior - byte-identical to before this parameter existed.
     """
-    X_arr = np.asarray(X, dtype=_crit_np_dtype())
+    X_arr = np.asarray(X, dtype=np.float64)  # Intentional float64: Gram sums and bandwidths in double, a float32 cast quantises columns with a large offset
     if X_arr.ndim == 1:
         X_arr = X_arr.reshape(-1, 1)
     n_total = X_arr.shape[0]
@@ -530,10 +543,10 @@ def _hsic_batch(
                 sig = hsic_column_sigmas(xs_rows)
             dev = hsic_biased_columns_gpu(xs_rows, Lc, sig, denom)
             if dev is not None:
-                return dev
+                return _zero_nonfinite_scores(dev)
         with parallel_kernel_entry():
             _hsic_biased_columns_njit(xs_rows, np.ascontiguousarray(Lc, dtype=np.float64), denom, out)  # Intentional float64: Gram sums in double precision
-        return out
+        return _zero_nonfinite_scores(out)
     # Unbiased path - match the single-pair helper for parity.
     L_t, sum_L, row_sum_L = unbiased_terms
     nn = float(n)
@@ -550,7 +563,7 @@ def _hsic_batch(
         cross = float(np.dot(row_sum_K, row_sum_L))
         val = (tr + sum_K * sum_L / ((nn - 1.0) * (nn - 2.0)) - (2.0 / (nn - 2.0)) * cross) / denom
         out[j] = float(val)
-    return out
+    return _zero_nonfinite_scores(out)
 
 def score_features_by_hsic_uplift(
     raw_X: pd.DataFrame,
@@ -620,13 +633,13 @@ def score_features_by_hsic_uplift(
         y_arr, len(raw_X), n_sample=int(n_sample), random_state=int(random_state), estimator=estimator,
     )
     raw_mi = _hsic_batch(
-        raw_X.to_numpy(dtype=_crit_np_dtype()), y_arr,
+        raw_X.to_numpy(dtype=np.float64), y_arr,
         n_sample=int(n_sample), random_state=int(random_state),
         estimator=estimator, y_side=_y_side,
     )
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
     eng_mi = _hsic_batch(
-        engineered_X.to_numpy(dtype=_crit_np_dtype()), y_arr,
+        engineered_X.to_numpy(dtype=np.float64), y_arr,
         n_sample=int(n_sample), random_state=int(random_state),
         estimator=estimator, y_side=_y_side,
     )

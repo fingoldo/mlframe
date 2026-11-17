@@ -17,6 +17,8 @@ from typing import Any
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 
@@ -199,5 +201,5 @@ def ratio_pair_screen_on_device(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("ratio_pair_screen_backend: KTC choose() failed, using the row-count fallback: %s", exc)
+        log_throttle(logger, "_ratio_delta_screen_gpu.ratio_pair_screen_on_device", logging.WARNING, "ratio_pair_screen_backend: KTC choose() failed, using the row-count fallback of %d rows: %s", DEVICE_FALLBACK_ROWS, exc)
         return int(n_rows) >= DEVICE_FALLBACK_ROWS

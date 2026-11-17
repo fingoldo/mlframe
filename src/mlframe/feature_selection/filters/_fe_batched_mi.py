@@ -427,6 +427,10 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
     Ky = int(ky)
     if int(nbins) * Ky * 4 > _MI_FROM_CODES_MAX_SHARED:
         return None
+    if int(yv.size) != n:
+        raise ValueError("binned_mi_from_values_gpu: y_codes has %d rows but x_vals has %d" % (int(yv.size), n))
+    if E.ndim != 2 or int(E.shape[1]) != K or int(E.shape[0]) < int(nbins) - 1:
+        raise ValueError("binned_mi_from_values_gpu: interior_edges shape %r does not cover (nbins-1=%d, K=%d)" % (tuple(E.shape), int(nbins) - 1, K))
     _assert_codes_in_range(yv, Ky, "binned_mi_from_values_gpu y codes", codes_trusted)
     mi_out = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI output accumulator
     # COLUMN-MAJOR X for a COALESCED load (nvprof: the row-major X[i*K+c] scan was gld_efficiency
@@ -452,7 +456,7 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
         from .._benchmarks.kernel_tuning_cache.dispatch import lookup_fe_mi_split_backend
         _use_split = lookup_fe_mi_split_backend(n, K) == "split"
     except Exception as e:
-        logger.warning("kernel_tuning_cache lookup for fe_mi split backend failed, using the size-based fallback: %s", e)
+        log_throttle(logger, "mi_split_lookup_failed", logging.WARNING, "kernel_tuning_cache lookup for fe_mi split backend failed, using the size-based fallback: %s", e)
         _use_split = K < 48 and n >= 262144
     if _use_split:
         try:
@@ -464,9 +468,8 @@ def binned_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any, nb
             _hist((K, S), (hist_threads,), (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), np.int32(S), gcounts), shared_mem=M * 4)
             _mi((K,), (32,), (gcounts, np.int32(K), np.int32(int(nbins)), np.int32(Ky), _inv, mi_out))  # launch-ok: only thread 0 of each block works (a ~100-cell serial reduce), the block width has no effect
             return np.asarray(cp.asnumpy(mi_out))
-        except Exception:
-            import logging
-            logging.getLogger(__name__).debug("mi split-n path failed; single-launch mi_from_values", exc_info=True)
+        except Exception as exc:
+            log_throttle(logger, "mi_split_n_failed", logging.WARNING, "mi split-n launch failed (%s: %s); using the single-launch mi_from_values", type(exc).__name__, exc)
     _single = _get_mi_from_values_f32_kernel() if _is_f32 else _get_mi_from_values_kernel()
     single_threads = block_size_for(_single, dyn_smem=int(nbins) * Ky * 4, work_items=n)
     _single((K,), (single_threads,), (Xc, E, yv, np.int64(n), np.int32(K), np.int32(int(nbins)), np.int32(Ky), _inv, mi_out), shared_mem=int(nbins) * Ky * 4)
@@ -602,6 +605,8 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
     Ky = int(ky) if ky > 0 else (int(y.max()) + 1 if y.size else 1)
     Kx = int(np.max(np.asarray(kx_per_col))) if kx_per_col is not None else (int(C.max()) + 1 if C.size else 1)
     Kx = max(Kx, 1)
+    if int(y.size) != n:
+        raise ValueError("binned_mi_from_codes_gpu: y_codes has %d rows but code_cols has %d" % (int(y.size), n))
     _assert_codes_in_range(C, Kx, "binned_mi_from_codes_gpu X codes", codes_trusted)
     _assert_codes_in_range(y, Ky, "binned_mi_from_codes_gpu y codes", codes_trusted)
     G = _mi_from_codes_tile_width(Kx * Ky)
@@ -634,8 +639,8 @@ def binned_mi_from_codes_gpu(code_cols: Any, y_codes: Any, kx_per_col: Any = Non
             v2((K,), (threads,), (codes_cm, y16, np.int64(n), np.int32(K), np.int32(Kx), np.int32(Ky),
                                   np.float64(1.0 / float(max(1, n))), mi_out), shared_mem=Kx * Ky * 4)  # Intentional float64: GPU MI kernel scalar argument (float64 normalisation)
             return mi_out if as_device else np.asarray(cp.asnumpy(mi_out))
-        except Exception:
-            logger.debug("mi_from_codes v2 launch failed; one-kernel fallback", exc_info=True)
+        except Exception as exc:
+            log_throttle(logger, "mi_from_codes_v2_launch_failed", logging.WARNING, "mi_from_codes v2 launch failed (%s: %s); using the one-kernel path", type(exc).__name__, exc)
     self_kernel = _get_mi_from_codes_kernel()
     threads = block_size_for(self_kernel, dyn_smem=Kx * Ky * 4, work_items=n)
     self_kernel((K,), (threads,), (C.ravel(), y, np.int64(n), np.int32(K), np.int32(Kx), np.int32(Ky),
@@ -709,6 +714,8 @@ def _batched_cmi_gpu_once(x_cols: Any, y: np.ndarray, z: Any = None, return_card
     else:
         from ._fe_resident_operands import resident_code_operand
         dy = resident_code_operand(np.asarray(y).ravel(), "cmi_y")
+    if int(dy.size) != n:
+        raise ValueError("batched_cmi_gpu: y has %d rows but x_cols has %d" % (int(dy.size), n))
     nf = float(max(1, n))
     inv_n = 1.0 / nf
     # ``kx`` / ``ky`` (scalar-sync kill): the histogram WIDTH upper bound. The codes are 0-based
@@ -751,6 +758,8 @@ def _batched_cmi_gpu_once(x_cols: Any, y: np.ndarray, z: Any = None, return_card
             dz = z.astype(cp.int64, copy=False).ravel()
         else:
             dz = resident_operand(np.asarray(z).ravel(), "cmi_z", dtype=np.int64)
+        if int(dz.size) != n:
+            raise ValueError("batched_cmi_gpu: z has %d rows but x_cols has %d" % (int(dz.size), n))
         Kz = int(dz.max()) + 1 if dz.size else 1
         # Conditional path: y and z both index flat histograms (yz = dy*Kz+dz, then (x*Kyz+yz)); guard both.
         Ky_cond = int(dy.max()) + 1 if dy.size else 1

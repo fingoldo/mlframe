@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 
 def raws_linearly_explain_y(
     X: Any, y: Any, *, thresh: float = 0.92, clf_thresh: float = 0.92,
@@ -106,7 +108,7 @@ def raws_linearly_explain_y(
             return r2 >= thresh
     except Exception as e:
         # best-effort: the linear probe is an optimisation; on failure the nonlinear FE passes run instead, slower but correct.
-        logger.debug("raws_linearly_explain_y: CV linear-fit probe failed, running the nonlinear FE passes (correctness over speed): %s", e)
+        log_throttle(logger, "fe_linear_explain.probe_failed", logging.WARNING, "raws_linearly_explain_y: CV linear-fit probe failed, running the nonlinear FE passes (correctness over speed): %s", e)
         return False
 
 

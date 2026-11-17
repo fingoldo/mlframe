@@ -127,8 +127,8 @@ def _quantile_bin_gpu(a: np.ndarray, nbins: int):
         # codes). Distinct columns compute once (genuine data).
         # sync-free device dedup (was cp.unique + size check, two D2H syncs); only the bulk (n,) result copies.
         return resident_qbin_codes_host(a, nbins, _qbin_float_dtype(), _sync_free_qbin_codes)  # int16 over the bus, host-cached by content
-    except Exception:
-        logger.debug("GPU _quantile_bin failed; numpy fallback", exc_info=True)
+    except Exception as exc:
+        log_throttle(logger, "cmi_fe_binning.qbin_gpu_failed", logging.WARNING, "GPU _quantile_bin failed (%s: %s); binning this column on the host", type(exc).__name__, exc)
         return None
 
 
@@ -150,8 +150,8 @@ def _quantile_bin_gpu_resident(a: np.ndarray, nbins: int):
         # Fully sync-free: codes stay RESIDENT, no cp.unique / size D2H (the whole point of the resident path).
         # resident_qbin_codes content-caches the codes so a repeat bin skips the sort entirely (bit-identical).
         return resident_qbin_codes(a, nbins, _qbin_float_dtype(), _sync_free_qbin_codes)
-    except Exception:
-        logger.debug("GPU-resident _quantile_bin failed; host fallback", exc_info=True)
+    except Exception as exc:
+        log_throttle(logger, "cmi_fe_binning.qbin_gpu_resident_failed", logging.WARNING, "GPU-resident _quantile_bin failed (%s: %s); binning this column on the host", type(exc).__name__, exc)
         return None
 
 

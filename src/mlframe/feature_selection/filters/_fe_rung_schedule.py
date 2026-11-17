@@ -64,6 +64,7 @@ measurement-backed fallback is used until the cache is populated.
 from __future__ import annotations
 
 import logging
+import math
 import os
 
 logger = logging.getLogger(__name__)
@@ -145,10 +146,11 @@ def _dispatch_keep_frac(n_rows: int, n_pairs: int, *, run_auto_tune: bool = Fals
     if forced:
         try:
             v = float(forced)
-            if 0.0 < v <= 1.0:
-                return v
         except ValueError:
-            pass
+            v = float("nan")
+        if 0.0 < v <= 1.0:
+            return v
+        logger.warning("MLFRAME_FE_RUNG_KEEP_FRAC=%r is not a fraction in (0, 1]; ignoring it", forced)
     fallback = _fallback_keep_frac(n_pairs)
     try:
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
@@ -209,10 +211,11 @@ def apply_rung_schedule(
     def _pm(key):
         """Extract the pair MI (``key[1]``) used to rank/threshold pairs for the rung cut; returns 0.0 for a malformed key."""
         try:
-            return float(key[1])
+            val = float(key[1])
         except (TypeError, IndexError, ValueError) as _exc:
             logger.debug("_pm fell back to its default after %s", type(_exc).__name__)
             return 0.0
+        return val if math.isfinite(val) else 0.0
 
     keys = list(prospective_pairs.keys())
     pms = [_pm(k) for k in keys]

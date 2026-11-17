@@ -282,12 +282,10 @@ def _enumerate_diff_cells(X: pd.DataFrame, pairs_norm: list, degrees: tuple, bas
         finite_ab = np.isfinite(x_a) & np.isfinite(x_b)
         if not finite_ab.all():
             # Per-column mean-fill keeps the diff well-defined elementwise.
-            if finite_ab.any():
-                a_fill = float(np.nanmean(x_a[finite_ab])) if finite_ab.any() else 0.0
-                b_fill = float(np.nanmean(x_b[finite_ab])) if finite_ab.any() else 0.0
-            else:
-                a_fill = 0.0
-                b_fill = 0.0
+            fa = np.isfinite(x_a)
+            fb = np.isfinite(x_b)
+            a_fill = float(np.mean(x_a[fa])) if fa.any() else 0.0
+            b_fill = float(np.mean(x_b[fb])) if fb.any() else 0.0
             x_a = np.where(np.isfinite(x_a), x_a, a_fill)
             x_b = np.where(np.isfinite(x_b), x_b, b_fill)
         diff = x_a - x_b
@@ -623,8 +621,8 @@ def hybrid_orth_mi_diff_basis_fe_with_recipes(
                 # Value-construction (recovers the basis preprocess params for legacy recipes
                 # predating `return_params=True`): always float64, matching the fresh-path's own
                 # dtype and _apply_orth_diff_basis's hardcoded replay dtype.
-                _va = np.asarray(X[_ca], dtype=_crit_np_dtype())
-                _vb = np.asarray(X[_cb], dtype=_crit_np_dtype())
+                _va = np.asarray(X[_ca], dtype=np.float64)  # Intentional float64: the diff axis must match the float64 fit-time axis
+                _vb = np.asarray(X[_cb], dtype=np.float64)  # Intentional float64: the diff axis must match the float64 fit-time axis
                 _fa = np.isfinite(_va)
                 if not _fa.all():
                     _va = np.where(_fa, _va, float(np.nanmean(_va[_fa])) if _fa.any() else 0.0)
@@ -632,9 +630,11 @@ def hybrid_orth_mi_diff_basis_fe_with_recipes(
                 if not _fb.all():
                     _vb = np.where(_fb, _vb, float(np.nanmean(_vb[_fb])) if _fb.any() else 0.0)
                 _, _pp_d = _evaluate_basis_column(_va - _vb, _basis_d, _degree_d, return_params=True)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
+            except Exception as e:
+                log_throttle(
+                    logger, "diff_basis_freeze_params_failed", logging.WARNING,
+                    "hybrid_orth_mi_diff_basis_fe_with_recipes: could not freeze preprocess params for %r (%r); replay refits the axis.", name, e,
+                )
         recipes.append(build_orth_diff_basis_recipe(
             name=name,
             col_a=_ca,
@@ -663,8 +663,8 @@ def _apply_orth_diff_basis(recipe, X) -> np.ndarray:
     basis = str(recipe.extra["basis"])
     degree = int(recipe.extra["degree"])
     pre_transform = str(recipe.extra.get("pre_transform", "raw"))
-    vals_a = np.asarray(_extract_column(X, col_a), dtype=_crit_np_dtype())
-    vals_b = np.asarray(_extract_column(X, col_b), dtype=_crit_np_dtype())
+    vals_a = np.asarray(_extract_column(X, col_a), dtype=np.float64)  # Intentional float64: replay must match the float64 fit-time diff axis
+    vals_b = np.asarray(_extract_column(X, col_b), dtype=np.float64)  # Intentional float64: replay must match the float64 fit-time diff axis
     # NaN-safe mean-fill mirrors the fit-time pipeline so train/test parity
     # holds row-by-row even when the test frame has different NaN positions.
     finite_a = np.isfinite(vals_a)

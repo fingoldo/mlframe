@@ -111,7 +111,7 @@ def _fusion_auto_device(n_rows: int) -> bool:
 
         return bool(fe_gpu_strict_enabled()) and fusion_use_device(n_rows)
     except Exception as e:  # nosec B110 - optional dependency import guard
-        logger.debug("additive-fusion auto device probe failed: %s", e)
+        log_throttle(logger, "fe_additive_fusion.auto_device_probe", logging.WARNING, "additive-fusion auto device probe failed (%s: %s); the host proposal runs", type(e).__name__, e)
         return False
 
 
@@ -170,8 +170,10 @@ def _try_gpu_resident_fusions(
                     seed=seed,
                     verbose=verbose,
                 )
-            except tuple(_dev_errs):
-                pass  # genuine cupy/device/linalg fault -> CPU path (byte-identical default); logic bugs propagate
+            except tuple(_dev_errs) as exc:  # genuine cupy/device/linalg fault -> CPU path (byte-identical default); logic bugs propagate
+                log_throttle(
+                    logger, "fe_additive_fusion.gpu_resident_fault", logging.WARNING, "additive-fusion GPU-resident proposal failed (%s: %s); the host proposal runs", type(exc).__name__, exc
+                )
     return None
 
 

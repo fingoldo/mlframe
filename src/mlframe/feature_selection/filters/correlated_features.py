@@ -143,6 +143,7 @@ def _su_redundancy_matrix(X, nbins: int = 10) -> np.ndarray:
             # values sort last -> ``len(uniq)`` sentinel, identical to the prior dict ``.get(v, len(lookup))``.
             # Vectorised: replaces an O(n) per-column Python dict-lookup list comprehension (7x at 300k).
             c = np.searchsorted(uniq, col).astype(np.int64)
+            c[~finite] = uniq.shape[0]
             ncats[j] = uniq.shape[0] + (0 if finite.all() else 1)
         else:
             qs = np.quantile(col[finite], np.linspace(0, 1, nbins + 1)[1:-1])
@@ -178,6 +179,7 @@ def _redundancy_matrix(X, method: str) -> np.ndarray:
     # Factor-code non-numeric columns first: ``DataFrame.corr`` float-coerces every
     # column and would crash on a raw categorical / string level (e.g. ``"NA"``).
     corr = np.array(_numeric_codes_frame(X).corr(method=method).abs().to_numpy(), copy=True)
+    corr[np.isnan(corr)] = 0.0
     np.fill_diagonal(corr, 0.0)
     return corr
 

@@ -218,8 +218,12 @@ def boruta_select(
             X_shadowed = pd.concat([X[cols].reset_index(drop=True), shadow.reset_index(drop=True)], axis=1)
 
         importances = np.asarray(importance_fn(X_shadowed, y), dtype=np.float64)  # Intentional float64: importance statistic compared exactly against the shadow maximum (ties decide hits)
+        if importances.shape != (2 * n_features,):
+            raise ValueError(f"boruta_select: importance_fn must return {2 * n_features} importances (real then shadow columns); got shape {importances.shape}")
         real_importances = importances[:n_features]
-        max_shadow_importance = float(np.max(importances[n_features:]))
+        shadow_importances = importances[n_features:]
+        # A NaN shadow importance must not poison the max (np.max propagates NaN and no real feature could ever win again); all-NaN shadows leave no valid benchmark, so nothing wins.
+        max_shadow_importance = float(np.nanmax(shadow_importances)) if not np.isnan(shadow_importances).all() else np.inf
         hit_counts += (real_importances > max_shadow_importance).astype(np.int64)
 
         if resolve_tentative:

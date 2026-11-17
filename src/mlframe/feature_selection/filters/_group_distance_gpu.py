@@ -138,6 +138,11 @@ def group_stats_device(
     (double precision). ``count`` is ``(columns, groups)`` int64, ``sum`` float64, ``hist`` ``(columns, groups, bins)`` int64, ``w1`` float64."""
     k, n = xs.shape
     if k == 0 or n < 2 or xs.dtype != np.float32 or n_groups > MAX_GROUPS or n_groups * (n_bins + 3) * 4 > _SHARED_BYTES:
+        log_throttle(
+            logger, "group_distance_gpu.declined", logging.WARNING,
+            "device group statistics declined (columns=%d rows=%d dtype=%s groups=%d, max %d, shared %d of %d bytes); the host loop computes them",
+            k, n, xs.dtype, n_groups, MAX_GROUPS, n_groups * (n_bins + 3) * 4, _SHARED_BYTES,
+        )
         return None
     try:
         import cupy as cp
@@ -275,7 +280,11 @@ def use_device(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("fe_group_distance_stats_device: KTC choose() failed, using the fallback: %s", exc)
+        log_throttle(
+            logger, "group_distance_gpu.choose_failed", logging.WARNING,
+            "fe_group_distance_stats_device: KTC choose() failed for %d rows (%s: %s); using the row-count fallback (device from %d rows)",
+            int(n_rows), type(exc).__name__, exc, DEVICE_FALLBACK_ROWS,
+        )
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 

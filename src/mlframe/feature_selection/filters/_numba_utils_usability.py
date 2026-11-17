@@ -32,7 +32,7 @@ def _apply_unary_low(v, code, xmin):
     elif code == 3:  # sqr = np.power(x, 2)
         return v * v
     elif code == 4:  # reciproc = np.power(x, -1)
-        return 1.0 / v
+        return 1e9 if v == 0.0 else 1.0 / v  # the registry's _safe_pow ceiling at an exact zero, never inf
     elif code == 5:  # sqrt = np.sqrt(np.abs(x))
         return np.sqrt(abs(v))
     elif code == 6:  # log = smart_log
@@ -60,15 +60,15 @@ def _apply_unary_high(v, code):
     elif code == 10:  # qubed = np.power(x, 3)
         return v * v * v
     elif code == 11:  # invsquared = np.power(x, -2)
-        return 1.0 / (v * v)
+        return 1e9 if v == 0.0 else 1.0 / (v * v)
     elif code == 12:  # invqubed = np.power(x, -3)
-        return 1.0 / (v * v * v)
+        return 1e9 if v == 0.0 else 1.0 / (v * v * v)
     elif code == 13:  # cbrt
         return np.cbrt(v)
     elif code == 14:  # invcbrt = np.power(x, -1/3)
-        return v ** (-1.0 / 3.0)
+        return 1e9 if v == 0.0 else v ** (-1.0 / 3.0)
     elif code == 15:  # invsqrt = np.power(x, -1/2)
-        return v ** (-0.5)
+        return 1e9 if v == 0.0 else v ** (-0.5)
     else:  # code == 16: exp
         return np.exp(v)
 

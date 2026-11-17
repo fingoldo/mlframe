@@ -126,9 +126,10 @@ def streamed_null_max(mats: "list[np.ndarray]", groups: "list[list[tuple[int, in
 def family_pass_streamed(mats: "list[np.ndarray]", widths: "list[int]", y: np.ndarray, n_y: int, alpha: float, n_perm: int, seed: int, groups: "list[list[tuple[int, int, int]]]") -> list:
     """Pass flag per batch of one family, with the same decisions as the single pass, holding one group of columns at a time."""
     from ._analytic_mi_null import analytic_null_enabled
-    from ._family_maxt_gate import _analytic_triage_core, _occupied_bins, _permutation_pass_flags_with, mi_all_columns_njit
+    from ._family_maxt_gate import _analytic_triage_core, _occupied_bins, _permutation_pass_flags_with, check_label_rows, mi_all_columns_njit
 
     n_rows = int(mats[0].shape[0])
+    check_label_rows(n_rows, y)
     starts = np.cumsum([0, *widths])
     total = int(starts[-1])
     observed = np.empty(total, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties

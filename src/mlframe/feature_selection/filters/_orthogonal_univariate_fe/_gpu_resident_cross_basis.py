@@ -49,6 +49,8 @@ from typing import Any, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -445,7 +447,7 @@ def crossbasis_device_chosen(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("crossbasis_gate_backend: KTC choose() failed, using the floor: %s", exc)
+        log_throttle(logger, "_gpu_resident_cross_basis.crossbasis_device_chosen", logging.WARNING, "crossbasis_gate_backend: KTC choose() failed, using the floor: %s", exc)
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 
@@ -517,5 +519,5 @@ def raw_and_product_mi_resident(
         raw_mi_map = _raw_baseline_mi(cp, raw_np, raw_cols, y, nbins, _dt)
         return raw_mi_map, eng_mi
     except Exception as _exc:
-        logger.debug("raw_and_product_mi_resident: GPU path failed (%s); host fallback", _exc)
+        log_throttle(logger, "_gpu_resident_cross_basis.raw_and_product_mi_resident", logging.WARNING, "raw_and_product_mi_resident: GPU path failed (%s); host fallback", _exc)
         return None

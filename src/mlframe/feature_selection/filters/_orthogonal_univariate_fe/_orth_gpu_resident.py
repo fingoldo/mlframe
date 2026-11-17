@@ -273,7 +273,9 @@ def _gpu_build_and_score_univariate(X, cols, degrees, basis, y, nbins):
     _empty = pd.DataFrame(columns=["engineered_col", "source_col", "baseline_mi", "engineered_mi", "uplift"])
     ra = _robust_axis_enabled()
     _ya = np.asarray(y)
-    y_arr = np.asarray(_ya, dtype=np.int64) if np.issubdtype(_ya.dtype, np.integer) else _ya.astype(np.int64)
+    from .._orthogonal_shared import coerce_y_classif
+
+    y_arr = coerce_y_classif(_ya)
     # y is a FIT-CONSTANT re-uploaded on every orth-family call (univariate-decide / pair-cross / triplet /
     # quadruplet / meta-scorer / adaptive-arity each re-run this builder over the SAME X/y). Route through the
     # resident operand cache so it is uploaded ONCE per fit (selection-equivalent: same int64 labels).

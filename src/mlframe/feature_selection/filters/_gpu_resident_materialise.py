@@ -383,9 +383,15 @@ def _fe_materialise_block_gpu(tv_gpu, a_cols_block, b_cols_block, ops_block, ret
             # instead of transposing rm back to cm (the inverse of the transpose just done). Bit-identical.
             return (rm, cm_out) if return_cm else rm
         except Exception:
-            import logging
-
-            logging.getLogger(__name__).debug("column-major fe_materialise failed; row-major fallback", exc_info=True)
+            log_throttle(
+                logger,
+                "gpu_materialise.cm_kernel",
+                logging.WARNING,
+                "column-major fe_materialise failed (n=%d, K=%d); using the slower row-major kernel",
+                n,
+                K,
+                exc_info=True,
+            )
 
     out = cp.empty((n, K), dtype=cp.float32)
     materialise = _get_fe_materialise_kernel()
@@ -735,7 +741,13 @@ def gpu_materialise_discretize_codes_host(
                     out_cand[:, start:stop] = hv
                 # best-effort: cp.asnumpy returns the same values as the pinned staging path, only slower
                 except Exception:
-                    logger.debug("pinned D2H staging failed; cp.asnumpy fallback", exc_info=True)
+                    log_throttle(
+                        logger,
+                        "gpu_materialise.pinned_d2h",
+                        logging.WARNING,
+                        "pinned D2H staging failed; using the slower pageable cp.asnumpy copy",
+                        exc_info=True,
+                    )
                     out_cand[:, start:stop] = cp.asnumpy(cand)
         # Bin the candidate RESIDENT at its native float32 (the FE buffer dtype) - no f64 up-cast: the
         # cand already IS float32 (bit-equal to _materialise_chunk_njit), so binning in f32 removes a needless

@@ -589,6 +589,8 @@ def score_candidates_by_cmi(
     # already fixed in 7 sibling orth-scoring files via _coerce_y_int64, but never applied here). Densify
     # directly via np.unique on the RAW y instead - safe for an already-integer y too (same result).
     y_arr = np.asarray(y)
+    if y_arr.size != len(X_cand) or (X_support is not None and X_support.shape[1] > 0 and len(X_support) != len(X_cand)):
+        raise ValueError(f"score_candidates_by_cmi: y has {y_arr.size} rows, X_cand {len(X_cand)}, X_support {None if X_support is None else len(X_support)}")
     # Bin y by unique-value remap (renumbers to dense 0..K-1; the caller's y may already be class-typed,
     # in which case this is a no-op renumber, or a raw continuous target, in which case this is what
     # actually turns it into usable class codes without truncation).
@@ -830,6 +832,8 @@ def _greedy_cmi_fe_construct_part1(
     # class). Densify via np.unique ONCE, up front, and reuse the dense y_bin everywhere below - safe for
     # an already-integer/already-dense y too (pure renumber, no-op if already 0..K-1).
     st.y_arr = np.asarray(y)
+    if st.y_arr.size != len(X):
+        raise ValueError(f"greedy_cmi_fe_construct: y has {st.y_arr.size} rows, X has {len(X)}")
     _, y_bin = np.unique(st.y_arr, return_inverse=True)
     y_bin = y_bin.astype(np.int64)
 

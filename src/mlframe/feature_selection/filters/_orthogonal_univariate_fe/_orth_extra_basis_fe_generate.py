@@ -593,28 +593,9 @@ def hybrid_orth_extra_basis_fe_with_recipes(
     # Pass the per-column fit ``meta`` so the ENGINEERED extra-basis matrix is rebuilt DEVICE-BORN from the
     # resident raw operands (SF1c :311 collapse) instead of the host matrix uploading; None-safe host fallback.
     scores = score_features_by_mi_uplift(raw_X, engineered, _yd, nbins=nbins, meta=meta)
-    raw_baselines = scores["baseline_mi"].to_numpy()
-    max_raw_baseline = float(raw_baselines.max()) if raw_baselines.size else 0.0
-    legacy_floor = float(min_abs_mi_frac) * max_raw_baseline
-    n_cands = int(raw_baselines.size)
-    sigma_thresh = max(
-        5.0,
-        float(np.sqrt(2.0 * np.log(max(2.0, 2.0 * n_cands))) + 1.5),
-    )
-    if raw_baselines.size >= 4:
-        med = float(np.median(raw_baselines))
-        mad = float(np.median(np.abs(raw_baselines - med)))
-        noise_floor = med + sigma_thresh * 1.4826 * mad
-    else:
-        noise_floor = 0.0
-    eng_mis = scores["engineered_mi"].to_numpy()
-    if eng_mis.size >= 4:
-        med_e = float(np.median(eng_mis))
-        mad_e = float(np.median(np.abs(eng_mis - med_e)))
-        eng_noise_floor = med_e + sigma_thresh * 1.4826 * mad_e
-    else:
-        eng_noise_floor = 0.0
-    abs_floor = max(legacy_floor, noise_floor, eng_noise_floor)
+    from . import _target_entropy_nats, hybrid_abs_mi_floor
+
+    abs_floor = hybrid_abs_mi_floor(scores, min_abs_mi_frac, _target_entropy_nats(_yd))
     qualified = scores[(scores["uplift"] >= float(min_uplift)) & (scores["engineered_mi"] >= abs_floor)]
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])

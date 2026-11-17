@@ -98,7 +98,7 @@ def _resolve_grad_threshold(name: str, default):
         try:
             return type(default)(env)
         except (TypeError, ValueError):
-            pass
+            logger.warning("MLFRAME_GRAD_INTERACT_%s=%r is not a valid %s; using the default %r", name.upper(), env, type(default).__name__, default)
     try:  # best-effort per-host cache (populated by the tuner on this host)
         from pyutilz.performance.kernel_tuning.cache import KernelTuningCache  # noqa: F401
 
@@ -349,6 +349,8 @@ def rank_gradient_interaction_pairs(
     cand = list(candidate_indices)
     rng = np.random.default_rng(seed)
     n = X.shape[0]
+    if np.asarray(y).shape[0] != n:
+        raise ValueError(f"rank_gradient_interaction_pairs: X has {n} rows but y has {np.asarray(y).shape[0]}")
     if n > row_cap:
         rows = rng.choice(n, row_cap, replace=False)
         Xc, yc = X[rows], y[rows]
@@ -437,13 +439,8 @@ def _rank_gradient_pool(X_continuous, data, pool, t0, row_cap, kernel):
         else:
             X = np.asarray(X_continuous, dtype=_crit_np_dtype())[:, pool]
         y = np.asarray(data)[:, t0]  # discretised ordinal target
-    except Exception as exc:  # not array-coercible -> skip silently (proposer is best-effort)
-        # Was gated behind `if verbose`, so with the
-        # library's default verbose=0 ANY exception here was silently swallowed with zero log trace -
-        # inconsistent with the sibling GBM proposer (apply_surrogate_gbm_seeder), whose analogous
-        # try/except logs unconditionally. Log unconditionally now; the proposer stays best-effort
-        # (still returns gracefully rather than raising), only the diagnostic visibility changes.
-        logger.debug("MRMR FE gradient-interaction seeder: X not array-coercible (%s); skipping.", exc, exc_info=True)
+    except Exception as exc:  # not array-coercible -> the proposer is best-effort and proposes nothing
+        logger.warning("MRMR FE gradient-interaction seeder: X not array-coercible (%s: %s); skipping.", type(exc).__name__, exc, exc_info=True)
         return None
     try:
         proposed, _energies, diag = rank_gradient_interaction_pairs(

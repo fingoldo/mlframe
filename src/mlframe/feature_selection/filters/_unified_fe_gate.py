@@ -542,6 +542,7 @@ def unified_second_pass_gate(
     # marginal MI - the "raw signal" the engineered pool must add to.
     raw_num = [c for c in raw_cols if c in X_with_all_engineered.columns and pd.api.types.is_numeric_dtype(X_with_all_engineered[c])]
     z_joint: Optional[np.ndarray] = None
+    frag_cap = max(2, int(y_bin.size) // 5)
     if raw_num and int(seed_raw_cols_count) > 0:
         raw_arr = X_with_all_engineered[raw_num].to_numpy(dtype=_crit_np_dtype())
         # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
@@ -549,16 +550,20 @@ def unified_second_pass_gate(
         order = np.argsort(-raw_mi, kind="stable")  # plug-in MI is quantised, so ties are real: break them by position, reproducibly
         seed_cols = [raw_num[i] for i in order[: int(seed_raw_cols_count)]]
         seed_bins = [_quantile_bin(X_with_all_engineered[c].to_numpy(), nbins=nbins) for c in seed_cols]
-        if seed_bins:
-            z_joint, _ = _renumber_joint(*seed_bins)
+        for seed_bin in seed_bins:
+            # the seed obeys the same fragmentation cap as the seated winners: a joint of several raw columns that is near-unique per row would zero every later CMI
+            if z_joint is None:
+                z_joint, _ = _renumber_joint(seed_bin)
+                continue
+            candidate_joint, _ = _renumber_joint(z_joint, seed_bin)
+            if int(np.unique(candidate_joint).size) <= frag_cap:
+                z_joint = candidate_joint
 
     # Pre-bin every engineered candidate + fingerprint for monotone-equivalence
     # dedup against seated winners.
     cand_bins: dict[str, np.ndarray] = {c: _quantile_bin(X_with_all_engineered[c].to_numpy(), nbins=nbins) for c in eng}
     cand_fp: dict[str, bytes] = {c: cand_bins[c].tobytes() for c in eng}
 
-    n_samples = int(y_bin.size)
-    frag_cap = max(2, n_samples // 5)
     winners: list[str] = []
     winner_fps: set[bytes] = set()
     remaining = set(eng)

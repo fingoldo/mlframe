@@ -65,6 +65,7 @@ from ._batch_pair_mi_cuda_kernels import (
 from ._batch_pair_mi_cuda_shared_fused import (
     batch_pair_mi_cuda_shared_fused,
     shared_fused_kernel_fits_budget,
+    check_codes_on_device,
 )
 
 try:
@@ -114,6 +115,7 @@ def batch_pair_mi_cupy(
     from ._fe_resident_operands import resident_operand
     d_data = resident_operand(factors_data, "bpmi_cupy_factors_data", dtype=np.int32)
     d_classes_y = resident_operand(classes_y, "bpmi_cupy_classes_y", dtype=np.int32)
+    check_codes_on_device(d_data, d_classes_y, factors_data, classes_y, pair_a, pair_b, nbins, int(np.asarray(freqs_y).shape[0]))
     # Intentional float64: the float64 resident buffer is the one the CUDA twin binds to ``const double *`` (content-keyed, so both backends share one upload); the cast to the working dtype is a device-side copy of a
     # vector with one entry per class
     # Intentional float64: the CUDA kernel binds this buffer as const double *, so its signature fixes the element type.
@@ -405,7 +407,10 @@ class _PairMiDispatch:
 
             return batch_pair_mi_cuda_feature_major(*self.args), "cuda"  # same backend family as the row-major CUDA kernels; callers log the tag only
         except (ValueError, RuntimeError) as e:
-            logger.debug("batch_pair_mi: feature-major kernel declined this shape (%s); using the row-major kernels", e)
+            if type(e).__module__.split(".")[0] in ("cupy", "numba"):
+                log_throttle(logger, "batch_pair_mi_cuda_fm_failure", logging.WARNING, "batch_pair_mi feature-major kernel failed (%s: %s); using the row-major kernels", type(e).__name__, e)
+            else:
+                logger.debug("batch_pair_mi: feature-major kernel declined this shape (%s); using the row-major kernels", e)
         except Exception as e:  # a driver or kernel fault: the row-major kernels give the same answer
             log_throttle(logger, "batch_pair_mi_cuda_fm_failure", logging.WARNING, "batch_pair_mi feature-major kernel failed (%s: %s); using the row-major kernels", type(e).__name__, e)
         return None
@@ -438,7 +443,7 @@ class _PairMiDispatch:
             logger.info("batch_pair_mi: %s -- completed via row-chunked CUDA (GPU speed preserved, VRAM-safe)", reason)
             return mi, "cuda_row_chunked"
         except Exception as e:
-            logger.warning("batch_pair_mi: row-chunked CUDA also failed (%s: %s) -- falling back to CPU njit", type(e).__name__, e)
+            log_throttle(logger, "batch_pair_mi_row_chunked_failed", logging.WARNING, "batch_pair_mi: row-chunked CUDA also failed (%s: %s) -- falling back to CPU njit", type(e).__name__, e)
             return None
 
     def cuda_fallbacks(self, shared_reason: str, chunked_reason: str) -> tuple[np.ndarray, str] | None:
@@ -458,9 +463,10 @@ class _PairMiDispatch:
         elif force_backend == "cuda":
             # The forced-CUDA branch above is entered only when _CUDA_AVAIL; without it the request
             # disappeared just as quietly.
-            logger.warning("batch_pair_mi: forced cuda backend requested but numba.cuda is unavailable -- falling back to CPU njit")
+            log_throttle(logger, "batch_pair_mi_forced_cuda_unavailable", logging.WARNING, "batch_pair_mi: forced cuda backend requested but numba.cuda is unavailable -- falling back to CPU njit")
         else:
-            logger.warning(
+            log_throttle(
+                logger, "batch_pair_mi_unknown_force_backend", logging.WARNING,
                 "batch_pair_mi: force_backend=%r is not one of 'cuda'/'cupy' -- falling back to CPU njit",
                 force_backend,
             )
@@ -481,7 +487,7 @@ class _PairMiDispatch:
         try:
             return batch_pair_mi_cuda(*self.args), "cuda"
         except Exception as e:
-            logger.warning("batch_pair_mi: forced CUDA backend failed (%s: %s) -- trying single-launch shared-fused CUDA", type(e).__name__, e)
+            log_throttle(logger, "batch_pair_mi_forced_cuda_failed", logging.WARNING, "batch_pair_mi: forced CUDA backend failed (%s: %s) -- trying single-launch shared-fused CUDA", type(e).__name__, e)
             return self.cuda_fallbacks(
                 "forced CUDA backend failed on the full-upload path",
                 "forced CUDA backend and shared-fused CUDA both failed on the full-upload path",
@@ -500,9 +506,10 @@ class _PairMiDispatch:
             try:
                 return batch_pair_mi_cupy(*self.args), "cupy"
             except Exception as e:
-                logger.warning("batch_pair_mi: forced cupy backend failed (%s: %s) -- falling back to CPU njit", type(e).__name__, e)
+                log_throttle(logger, "batch_pair_mi_forced_cupy_failed", logging.WARNING, "batch_pair_mi: forced cupy backend failed (%s: %s) -- falling back to CPU njit", type(e).__name__, e)
             return None
-        logger.warning(
+        log_throttle(
+            logger, "batch_pair_mi_forced_cupy_not_honoured", logging.WARNING,
             "batch_pair_mi: forced cupy backend requested but not honoured (%s) -- falling back to CPU njit",
             "cupy is unavailable" if not _CUPY_AVAIL else "the estimate says the upload does not fit VRAM",
         )
@@ -517,7 +524,7 @@ class _PairMiDispatch:
             try:
                 return batch_pair_mi_cupy(*self.args), "cupy"
             except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
-                logger.warning("batch_pair_mi: cupy backend failed (%s: %s) -- falling through to CUDA/njit", type(e).__name__, e)
+                log_throttle(logger, "batch_pair_mi_cupy_failed", logging.WARNING, "batch_pair_mi: cupy backend failed (%s: %s) -- falling through to CUDA/njit", type(e).__name__, e)
         if choice == "cuda" and _CUDA_AVAIL:
             result = self._tuned_cuda()
             if result is not None:
@@ -641,7 +648,7 @@ def _dispatch_batch_pair__step1_def_try_cuda(nbins, n_pairs, pair_a, pair_b, fre
             logger.info("batch_pair_mi: %s -- completed via single-launch shared-fused CUDA (max_joint=%d)", reason, max_joint)
             return mi, "cuda_shared_fused"
         except Exception as e:
-            logger.warning("batch_pair_mi: shared-fused CUDA failed (%s: %s) -- trying row-chunked CUDA", type(e).__name__, e)
+            log_throttle(logger, "batch_pair_mi_shared_fused_failed", logging.WARNING, "batch_pair_mi: shared-fused CUDA failed (%s: %s) -- trying row-chunked CUDA", type(e).__name__, e)
             return None
     return _try_cuda_shared_fused
 

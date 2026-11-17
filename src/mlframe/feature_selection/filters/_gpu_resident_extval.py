@@ -160,7 +160,7 @@ def gpu_materialise_extval_codes_host(
             return out
         return np.asarray(cp.asnumpy(codes_dev))
     except Exception as e:
-        logger.debug("device-resident extval materialise+discretize failed, caller falls back to the host njit + upload path: %s", e)
+        log_throttle(logger, "extval_device_failed", logging.WARNING, "device-resident extval materialise+discretize failed, the host njit + upload path is used: %s", e)
         try:
             import cupy as _cp
 

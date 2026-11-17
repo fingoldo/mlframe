@@ -248,6 +248,7 @@ def cluster_stability_selection(
     """
     _is_df = hasattr(X, "iloc")
     n, p = X.shape
+    y = np.asarray(y)  # positional row selection below: a Series with a non-default index would be indexed by label
     rng = np.random.default_rng(int(rng_seed))
     _dtype = _stability_corr_dtype()
     Xn, _num_ok = _numeric_view(X, n, p, _is_df, _dtype)
@@ -343,6 +344,7 @@ def complementary_pairs_stability(
     # float64 coercion crashed on a raw categorical column. The selector is handed dtype-preserved rows (a classic sub-MRMR factorises categoricals).
     _is_df = hasattr(X, "iloc")
     n, p = X.shape
+    y = np.asarray(y)  # positional row selection below: a Series with a non-default index would be indexed by label
     rng = np.random.default_rng(int(rng_seed))
     half = n // 2
     # Intentional float64: pair/union frequency counters (integer tallies over resamples), exact in f64.

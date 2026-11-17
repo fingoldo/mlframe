@@ -27,6 +27,7 @@ from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._numba_utils_shared import radix_order_f64
 from ._raw_module_cache import RawModuleCache
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -73,8 +74,8 @@ extern "C" __global__ void group_quantiles(const {REAL}* __restrict__ sv, const 
         const {ACC} t = pos - ({ACC})lo;
         const {REAL} a = v[lo], b = v[hi];
         const {REAL} diff = b - a;
-        {ACC} r = ({ACC})a + ({ACC})diff * t;
-        if (t >= 0.5) r = ({ACC})b - ({ACC})diff * (1.0 - t);
+        {ACC} r = __dadd_rn(({ACC})a, __dmul_rn(({ACC})diff, t));
+        if (t >= 0.5) r = __dsub_rn(({ACC})b, __dmul_rn(({ACC})diff, 1.0 - t));
         q[k] = r;
     }
     iqr[col * n_groups + g] = q[1] - q[0];
@@ -173,7 +174,7 @@ def _stats_device(xs: np.ndarray, codes: np.ndarray, n_groups: int) -> Optional[
             del xd, bits, mono, order, sv, out, iq, pp
         return {"pct": pct, "sorted": srt, "seg": seg, "iqr": iqr, "p90p10": p90p10}
     except Exception as exc:
-        logger.debug("grouped quantile: the device form is unavailable (%s: %s)", type(exc).__name__, exc)
+        log_throttle(logger, "grouped_quantile_stats_device_unavailable", logging.WARNING, "grouped quantile: the device form is unavailable (%s: %s); the host form", type(exc).__name__, exc)
         return None
 
 
@@ -237,7 +238,7 @@ def grouped_stats_on_device(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("grouped_quantile_stats_backend: KTC choose() failed, using the row-count fallback: %s", exc)
+        log_throttle(logger, "grouped_quantile_stats_ktc_choose_failed", logging.WARNING, "grouped_quantile_stats_backend: KTC choose() failed (%s: %s), using the row-count fallback", type(exc).__name__, exc)
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 

@@ -31,6 +31,10 @@ logger = logging.getLogger(__name__)
 _SCRATCH_FREE_FRACTION = 0.5
 
 
+class _ScratchOverBudgetError(Exception):
+    """The compaction scratch would take more than its share of the free VRAM (already logged where it is raised)."""
+
+
 def _free_vram_bytes() -> int | None:
     """Free device memory in bytes, or None when it cannot be read."""
     try:
@@ -227,15 +231,20 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
                             "radix select: the compaction scratch (%.2f GiB for n=%d, K=%d) would take over %d%% of the free VRAM; using the v2 kernel.",
                             K * cap * 8 / (1 << 30), int(n), int(K), int(_SCRATCH_FREE_FRACTION * 100),
                         )
-                        raise MemoryError("scratch over budget")
+                        raise _ScratchOverBudgetError("scratch over budget")
                     cand = cp.empty((K, cap), dtype=cp.uint64)
                     kern3((K,), (threads,),
                         (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R),
                          bi, ai, cp.ascontiguousarray(w), np.int32(ne_rows),
                          cand, np.int64(cap), edges), shared_mem=shmem)
                     return edges          # (nbins-1, K) double
-                except MemoryError:
+                except _ScratchOverBudgetError:
                     pass  # over budget: already logged above, v2 follows
+                except MemoryError as exc:
+                    log_throttle(
+                        logger, "radix_v3_scratch_oom", logging.WARNING,
+                        "radix select: the v3 compaction scratch allocation ran out of memory (%s) for n=%d, K=%d; using the v2 kernel.", exc, int(n), int(K),
+                    )
                 except Exception as exc:
                     log_throttle(
                         logger, "radix_v3_launch_failed", logging.WARNING,
@@ -334,6 +343,9 @@ def _radix_quantiles(cand_gpu, q_fracs):
     if cand_gpu.dtype not in (cp.float32, cp.float64):  # Intentional float64: the radix kernels read double* on the f64 path, and the quantiles are float64 anyway
         cand_gpu = cand_gpu.astype(cp.float64)
     n, K = cand_gpu.shape
+    _fr = np.asarray(q_fracs, dtype=np.float64)  # Intentional float64: quantile fractions, as cp.percentile forms them
+    if n < 1 or not bool(np.all((_fr >= 0.0) & (_fr <= 1.0))):
+        raise ValueError(f"radix quantiles: need n >= 1 rows and fractions within [0, 1] (got n={n}, fractions in [{_fr.min() if _fr.size else 0}, {_fr.max() if _fr.size else 0}])")
     is_f32 = cand_gpu.dtype == cp.float32
     plan = _quantile_plan(cp, n, q_fracs)
     if plan is None:

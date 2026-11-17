@@ -743,7 +743,7 @@ def _apply_cmi_redundan_gate_resident_np_isfinite(_gate_resident, vals, nbins, _
 
             _dev = _quantile_bin_gpu_resident(vals, nbins)
         except Exception as e:  # best-effort: the host quantile binner is the reference path and yields the same codes as the device binner
-            logger.debug("_quantile_bin_gpu_resident failed, falling back to the host path: %s", e)
+            log_throttle(logger, "cmi_gate.gpu_resident_binning", logging.WARNING, "CMI gate: _quantile_bin_gpu_resident failed, using the host binner: %s", e)
             _dev = None
     return _dev
 
@@ -769,7 +769,7 @@ def _joint_with_winner(accepted_bins, accepted_bins_dev, new_bin, new_bin_dev):
             _, card = _renumber_joint_gpu(*devs)
             return None, card
         except Exception as e:
-            logger.debug("device join for the fragmentation check failed, using the host join: %s", e)
+            log_throttle(logger, "cmi_gate.device_join", logging.WARNING, "CMI gate: the device join for the fragmentation check failed, using the host join: %s", e)
     return _renumber_joint(*[*accepted_bins, new_bin])
 
 

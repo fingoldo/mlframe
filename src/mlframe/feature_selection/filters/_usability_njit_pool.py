@@ -41,6 +41,7 @@ import os
 import numpy as np
 
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
+from mlframe.utils.log_throttle import log_throttle
 from typing import Union, cast
 from collections.abc import Sequence
 
@@ -130,18 +131,18 @@ _GPU_UNARY_OPS = {
     1: lambda cp, x, xmin: -x,
     2: lambda cp, x, xmin: cp.abs(x),
     3: lambda cp, x, xmin: x * x,
-    4: lambda cp, x, xmin: 1.0 / x,
+    4: lambda cp, x, xmin: cp.where(x == 0.0, 1e9, 1.0 / cp.where(x == 0.0, 1.0, x)),
     5: lambda cp, x, xmin: cp.sqrt(cp.abs(x)),
     6: lambda cp, x, xmin: cp.log(x) if xmin > 0.0 else cp.log(x + (1e-5 - xmin)),
     7: lambda cp, x, xmin: cp.sin(x),
     8: lambda cp, x, xmin: cp.where(cp.isnan(x), x, cp.sign(x)),  # NaN stays NaN like np.sign, the njit twins and the stack kernel (cp.sign gave 0)
     9: lambda cp, x, xmin: cp.rint(x),
     10: lambda cp, x, xmin: x * x * x,
-    11: lambda cp, x, xmin: 1.0 / (x * x),
-    12: lambda cp, x, xmin: 1.0 / (x * x * x),
+    11: lambda cp, x, xmin: cp.where(x == 0.0, 1e9, 1.0 / cp.where(x == 0.0, 1.0, x * x)),
+    12: lambda cp, x, xmin: cp.where(x == 0.0, 1e9, 1.0 / cp.where(x == 0.0, 1.0, x * x * x)),
     13: lambda cp, x, xmin: cp.cbrt(x),
-    14: lambda cp, x, xmin: x ** (-1.0 / 3.0),
-    15: lambda cp, x, xmin: x ** (-0.5),
+    14: lambda cp, x, xmin: cp.where(x == 0.0, 1e9, cp.where(x == 0.0, 1.0, x) ** (-1.0 / 3.0)),
+    15: lambda cp, x, xmin: cp.where(x == 0.0, 1e9, cp.where(x == 0.0, 1.0, x) ** (-0.5)),
     16: lambda cp, x, xmin: cp.exp(x),
 }
 
@@ -473,7 +474,7 @@ def _usability_backend_choice(n_rows: int, n_combos: int) -> str:
     try:
         return str(_USABILITY_PARALLELISM_SPEC.choose(n_rows=int(n_rows), n_combos=int(n_combos)))
     except Exception as e:
-        logger.debug("kernel_tuning_cache choose() failed, using the size-based fallback: %s", e)
+        log_throttle(logger, "_usability_njit_pool.choose", logging.WARNING, "kernel_tuning_cache choose() failed, using the size-based fallback: %s", e)
         return _usability_fallback_choice(int(n_rows), int(n_combos))
 
 
@@ -545,7 +546,7 @@ def score_pair_combos(
             try:
                 return cast(np.ndarray, _pair_combo_mi_cupy(*args))
             except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
-                logger.debug("_pair_combo_mi_cupy failed, falling through to CPU: %s", e)
+                log_throttle(logger, "_usability_njit_pool.pair_combo_mi_cupy", logging.WARNING, "_pair_combo_mi_cupy failed (n_rows=%d, n_combos=%d), falling through to CPU: %s", n_rows, nc, e)
                 try:
                     import cupy as _cp
 

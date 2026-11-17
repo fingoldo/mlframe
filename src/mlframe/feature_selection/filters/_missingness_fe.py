@@ -51,6 +51,7 @@ import pandas as pd
 from numba import njit, prange
 from typing import TYPE_CHECKING
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
+from mlframe.utils.log_throttle import log_throttle
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -139,8 +140,8 @@ def auto_detect_missing_cols(
     for col in X.columns:
         try:
             nan_rate = float(X[col].isna().sum()) / float(n)
-        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
+        except Exception as e:
+            log_throttle(logger, "missingness_auto_detect_isna_failed", logging.WARNING, "auto_detect_missing_cols: isna() on column %r raised %s: %s; the column is skipped", col, type(e).__name__, e)
             continue
         if min_nan_rate <= nan_rate <= max_nan_rate:
             candidates.append(col)

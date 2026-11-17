@@ -85,7 +85,7 @@ ORACLE_FN_NAME = "orth_scorer_select"
 # relative to recommend-calls). Keying on mtime means a write invalidates the cache for free (no
 # explicit invalidation needed) while a read-only burst of calls between writes hits the cache. Small
 # LRU-ish cap so a long-lived process cycling through many distinct store paths does not grow unbounded.
-_ROWS_CACHE: "dict[tuple[str, float], list[dict]]" = {}
+_ROWS_CACHE: "dict[tuple[str, int, int], list[dict]]" = {}
 _ROWS_CACHE_MAX = 8
 # The get-check-evict-write sequence below used to run with
 # no lock - empirically reproduced 225 crashes/32-thread stress test (`dictionary changed size during
@@ -105,11 +105,11 @@ def _cached_read_rows(store: Any) -> "list[dict]":
     if path is None:
         return list(store.read_rows())
     try:
-        mtime = os.path.getmtime(path) if os.path.isfile(path) else -1.0
+        st = os.stat(path) if os.path.isfile(path) else None
     except OSError as _exc:
         logger.debug("_cached_read_rows fell back to its default after %s", type(_exc).__name__)
         return list(store.read_rows())
-    key = (path, mtime)
+    key = (path, st.st_mtime_ns, st.st_size) if st is not None else (path, -1, -1)
     # The lookup, the read on a miss and the store share one lock block, so a concurrent miss waits for the first read
     # instead of parsing the same file again.
     with _ROWS_CACHE_LOCK:

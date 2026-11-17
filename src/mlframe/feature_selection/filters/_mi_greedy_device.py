@@ -241,7 +241,7 @@ def use_device(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("fe_mi_greedy_candidates_device: KTC choose() failed, using the fallback: %s", exc)
+        log_throttle(logger, "mi_greedy_device.choose_failed", logging.WARNING, "fe_mi_greedy_candidates_device: KTC choose() failed (%s), using the row-count fallback", exc)
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 

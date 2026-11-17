@@ -16,6 +16,8 @@ from typing import Any
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._ktc_fallback import host_device_sweep, rows_fallback
 
 logger = logging.getLogger(__name__)
@@ -91,5 +93,5 @@ def wavelet_device_chosen(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("fe_wavelet_legs_backend: KTC choose() failed, using the row-count fallback: %s", exc)
+        log_throttle(logger, "_wavelet_legs_tuner.choose", logging.WARNING, "fe_wavelet_legs_backend: KTC choose() failed, using the row-count fallback: %s", exc)
         return int(n_rows) >= DEVICE_FALLBACK_ROWS

@@ -125,7 +125,10 @@ def _su_normalize_relevance(direct_gain: float, X, y, factors_data, factors_nbin
         # SU denominator unavailable (degenerate joint) -> keep the raw debiased relevance. Log at DEBUG so a
         # GENUINE merge_vars/entropy bug (not just a degenerate joint) is diagnosable instead of silently
         # masked - a swallowed bug here can quietly change which features/interactions get selected.
-        logger.debug("evaluation: SU normalization skipped; using raw debiased gain", exc_info=True)
+        log_throttle(
+            logger, "evaluation_su_normalization_failed", logging.WARNING,
+            "evaluation: SU normalization failed; using the raw debiased gain, which is on a different scale than SU-normalised candidates.", exc_info=True,
+        )
     return direct_gain
 
 
@@ -211,7 +214,7 @@ def _apply_bur_bonus(current_gain, direct_gain, selected_vars, factors_data, X, 
             # Real numerical / mi-kernel failures (degenerate joints,
             # all-NaN slices) stay best-effort: warn and continue rather
             # than aborting the whole screen.
-            logger.warning("BUR bonus computation failed silently: %r", _bur_exc)
+            log_throttle(logger, "evaluation_bur_bonus_failed", logging.WARNING, "BUR bonus computation failed silently: %r", _bur_exc)
     return current_gain
 
 
@@ -405,7 +408,7 @@ def _apply_pid_bonus(
                 partial_gains[cand_idx] = (float(_g) + bonus, _k)
             expected_gains[cand_idx] = current_gain
         except Exception as _pid_exc:
-            logger.warning("PID synergy bonus computation failed silently: %r", _pid_exc)
+            log_throttle(logger, "evaluation_pid_bonus_failed", logging.WARNING, "PID synergy bonus computation failed silently: %r", _pid_exc)
     return current_gain
 
 
@@ -598,7 +601,8 @@ def _evaluate_candidate_candidate_any_good_target(X, cached_confident_MIs, y, fa
                         base_seed=_baseline_seed,
                     )
                 except Exception as _gpu_exc:
-                    logger.warning(
+                    log_throttle(
+                        logger, "evaluation_gpu_relevance_mi_failed", logging.WARNING,
                         "evaluate_candidate: GPU relevance MI failed (%s: %s); falling back to CPU for this candidate.",
                         type(_gpu_exc).__name__, _gpu_exc,
                     )
@@ -708,12 +712,15 @@ def _evaluate_candidate_mi_distinguishable_its_conditional(_cpt_active, selected
                 z_comp = z_comp * int(_zk) + np.asarray(_zc, dtype=np.int64)
                 k_z = k_z * int(_zk)
                 if k_z > 1_000_000:
-                    # Same overflow guard as cmi_permutation_stop: coarsen via modulo rather than let
-                    # distinct conditioning states silently collide without any signal to the caller.
-                    log_throttle(logger, "evaluation_cpt_test_cardinality_truncated", logging.WARNING, "CPT test: conditioning cardinality K_z exceeded 1_000_000; truncating z_comp via modulo.")
-                    z_comp = z_comp % 1_000_000
-                    k_z = 1_000_000
-                    break
+                    # Re-code to the observed states so every selected variable keeps conditioning the test; only a state count
+                    # still above the cap falls back to the (lossy, logged) modulo.
+                    _states, _inv = np.unique(z_comp, return_inverse=True)
+                    z_comp = np.asarray(_inv, dtype=np.int64).reshape(-1)
+                    k_z = int(_states.shape[0])
+                    if k_z > 1_000_000:
+                        log_throttle(logger, "evaluation_cpt_test_cardinality_truncated", logging.WARNING, "CPT test: conditioning cardinality K_z exceeded 1_000_000; truncating z_comp via modulo.")
+                        z_comp = z_comp % 1_000_000
+                        k_z = 1_000_000
             _obs, _pval = conditional_permutation_test(
                 x_col, y_col, z_comp, nbins_x=int(k_x), nbins_y=int(k_y), nbins_z=int(k_z),
                 n_permutations=_cpt_nperm, seed=_cmi_cpt_seed,

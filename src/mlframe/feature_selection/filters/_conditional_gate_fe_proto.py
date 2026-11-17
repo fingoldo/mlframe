@@ -31,6 +31,7 @@ from __future__ import annotations
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
+from mlframe.feature_selection.filters._y_encoding import encode_y_for_classif_mi
 from ._pairwise_modular_fe import _mi
 from ._lattice_gate_proto_shared import perm_null_hi as _perm_null_hi
 from typing import TYPE_CHECKING
@@ -92,7 +93,7 @@ def scan_conditional_gate(
     ``cols`` are the candidate column names (continuous or integer). The gating column ``c`` ranges over all cols; (a, b) over the
     remaining ordered pairs for ``select`` and over the single masked column for ``mask``. Budgeted by ``max_triples``."""
     arrs = {cn: np.asarray(X[cn], dtype=_crit_np_dtype()) for cn in cols}
-    yi = np.asarray(y).astype(np.int64)
+    yi = encode_y_for_classif_mi(y)
     raw_mi = {cn: _mi(arrs[cn], yi, nbins=nbins) for cn in cols}
     rng = np.random.default_rng(rng_seed)
     hits: list[dict] = []
@@ -162,7 +163,7 @@ def scan_row_argmax(
     from itertools import combinations
 
     arrs = {cn: np.asarray(X[cn], dtype=_crit_np_dtype()) for cn in cols}
-    yi = np.asarray(y).astype(np.int64)
+    yi = encode_y_for_classif_mi(y)
     raw_mi = {cn: _mi(arrs[cn], yi, nbins=nbins) for cn in cols}
     rng = np.random.default_rng(rng_seed)
     hits: list[dict] = []

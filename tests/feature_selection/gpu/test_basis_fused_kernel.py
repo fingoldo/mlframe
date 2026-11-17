@@ -61,9 +61,7 @@ def test_ragged_row_counts_and_the_widest_design_match_the_loop(monkeypatch, n, 
     z = cp.asarray(np.random.default_rng(n + n_columns).normal(size=n).astype(dtype))
     monkeypatch.setenv("MLFRAME_FE_BASIS_FUSED", "0")
     loop = cp.asnumpy(pw._build_basis_matrix_gpu(cp, "legendre", z, n_columns - 1))
-    from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
-
-    got = cp.asnumpy(build_basis_fused(cp, "legendre", cp.ascontiguousarray(z, dtype=crit_float_dtype()), n_columns))  # the loop widens to the critical dtype first
+    got = cp.asnumpy(build_basis_fused(cp, "legendre", cp.ascontiguousarray(z, dtype=cp.float64), n_columns))  # the loop widens to float64 first
     assert got.shape == loop.shape == (n, n_columns)
     np.testing.assert_array_equal(got, loop)
 

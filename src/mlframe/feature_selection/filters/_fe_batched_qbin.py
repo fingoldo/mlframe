@@ -12,6 +12,8 @@ import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._device_sort_safe import device_percentile
 
 logger = logging.getLogger(__name__)
@@ -128,7 +130,7 @@ def _edges_of_block(cp: Any, Xd: Any, nbins: int, single: bool, radix: bool) -> 
 
             edges_all = _radix_select_interior_edges(Xd, int(nbins), with_extremes=True)
         except Exception as e:
-            logger.warning("_radix_select_interior_edges failed, falling back to the percentile edges: %s", e)
+            log_throttle(logger, "qbin.radix_edges", logging.WARNING, "_radix_select_interior_edges failed, falling back to the percentile edges: %s", e)
     if edges_all is None:
         qs = cp.linspace(0.0, 100.0, nbins + 1)
         # float32 input interpolates in double like the radix route
@@ -162,8 +164,8 @@ def _codes_of_block(cp: Any, Xd: Any, edges_all: Any, single: bool, byte_codes: 
         grid_x = int(max(1, min((n * slab + threads - 1) // threads, sms * _QBIN_BLOCKS_PER_SM)))
         kern((grid_x, (K + slab - 1) // slab), (threads,), (Xd, keys, np.int64(n), np.int64(K), np.int32(keys.shape[0]), np.int32(slab), codes), shared_mem=m * slab * keys.dtype.itemsize)
         return codes
-    except Exception:
-        logger.debug("qbin fused coder failed; broadcast-loop fallback", exc_info=True)
+    except Exception as exc:
+        log_throttle(logger, "qbin.fused_coder", logging.WARNING, "qbin fused coder failed (%s: %s); the slower broadcast-loop coder runs for this block of %d x %d", type(exc).__name__, exc, n, K)
     codes = cp.zeros((n, K), dtype=cp.int64)
     for j in range(1, int(edges_all.shape[0])):  # j=0 is never interior (== column min)
         codes += (interior[j, :][None, :] & (Xd >= edges_all[j, :][None, :])).astype(cp.int64)

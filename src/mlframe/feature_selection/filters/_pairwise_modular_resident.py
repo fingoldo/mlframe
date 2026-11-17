@@ -33,6 +33,8 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._y_encoding import encode_y_for_classif_mi
 
 logger = logging.getLogger(__name__)
@@ -63,7 +65,7 @@ def combiner_mi_resident(
         if not fe_gpu_device_born_modular_enabled():
             return None
     except Exception as e:
-        logger.debug("fe_gpu_device_born_modular_enabled() check failed, host fallback: %s", e)
+        log_throttle(logger, "modular_resident.enabled_probe", logging.WARNING, "fe_gpu_device_born_modular_enabled() check failed (%s), using the host path", e)
         return None
     if not rank_binning:
         return None  # only the rank path (the STRICT ``_mi`` binner) is reproduced bit-identically here.
@@ -86,7 +88,7 @@ def combiner_mi_resident(
             return None
         return float(np.asarray(mi, dtype=np.float64)[0])  # Intentional float64: MI statistic scalar output
     except Exception as _exc:
-        logger.debug("combiner_mi_resident: GPU path failed (%s); host fallback", _exc)
+        log_throttle(logger, "modular_resident.combiner", logging.WARNING, "combiner_mi_resident: GPU path failed (%s), using the host path", _exc)
         return None
 
 
@@ -115,7 +117,7 @@ def residue_grid_mis_resident(
         if not fe_gpu_device_born_modular_enabled():
             return None
     except Exception as e:
-        logger.debug("fe_gpu_device_born_modular_enabled() check failed, host fallback: %s", e)
+        log_throttle(logger, "modular_resident.enabled_probe", logging.WARNING, "fe_gpu_device_born_modular_enabled() check failed (%s), using the host path", e)
         return None
     mods = [int(k) for k in mods]
     if not mods:
@@ -148,7 +150,7 @@ def residue_grid_mis_resident(
                 out[idx] = float(mis[j])
         return out
     except Exception as _exc:
-        logger.debug("residue_grid_mis_resident: GPU path failed (%s); host fallback", _exc)
+        log_throttle(logger, "modular_resident.grid", logging.WARNING, "residue_grid_mis_resident: GPU path failed (%s), using the host path", _exc)
         return None
 
 
@@ -175,7 +177,7 @@ def perm_null_residue_mis_resident(
         if not fe_gpu_device_born_modular_enabled():
             return None
     except Exception as e:
-        logger.debug("fe_gpu_device_born_modular_enabled() check failed, host fallback: %s", e)
+        log_throttle(logger, "modular_resident.enabled_probe", logging.WARNING, "fe_gpu_device_born_modular_enabled() check failed (%s), using the host path", e)
         return None
     if not rank_binning:
         # Only the RANK code path is reproduced bit-identically here (the STRICT ``_mi`` binner). The EDGE
@@ -205,6 +207,7 @@ def perm_null_residue_mis_resident(
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
 
         if not fe_gpu_has_vram_cushion(n * n_perm * 8):
+            log_throttle(logger, "modular_resident.perm_null_vram", logging.WARNING, "perm_null_residue_mis_resident: no VRAM cushion for the %d-byte code matrix, using the host path", n * n_perm * 8)
             return None
         # Bin the residue ONCE on device (rank codes), exactly as the host STRICT ``_mi`` rank path does (same r,
         # same binner -> identical codes). The residue rides the resident-operand cache (keyed on its content
@@ -244,5 +247,5 @@ def perm_null_residue_mis_resident(
         mis = binned_mi_from_codes_gpu(code_mat, yd, kx_per_col=[nb] * n_perm, ky=int(_ncls), codes_trusted=True)
         return np.asarray(mis, dtype=np.float64)  # Intentional float64: MI statistic output contract
     except Exception as _exc:
-        logger.debug("perm_null_residue_mis_resident: GPU path failed (%s); host fallback", _exc)
+        log_throttle(logger, "modular_resident.perm_null", logging.WARNING, "perm_null_residue_mis_resident: GPU path failed (%s), using the host path", _exc)
         return None

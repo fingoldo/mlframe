@@ -19,6 +19,8 @@ import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._raw_module_cache import RawModuleCache
 
 logger = logging.getLogger(__name__)
@@ -82,7 +84,7 @@ _MODULE = RawModuleCache(_SRC.replace("{ACC}", "double"))
 
 
 def parity_mi_grids_gpu(columns: "list[np.ndarray]", y_codes: np.ndarray, n_classes: int, grids: "list[np.ndarray]") -> "list[np.ndarray] | None":
-    """MI of ``floor(v / p) mod 2`` against ``y_codes`` for every period ``p`` of each column's grid, one array per column (or ``None`` when the device path does not apply: more than ``NC`` classes, no cupy).
+    """MI of ``floor(v / p) mod 2`` against ``y_codes`` for every period ``p`` of each column's grid, one array per column (or ``None`` when the device path does not apply: more than ``NC`` classes, no cupy, a device fault).
 
     ``columns`` are all-finite double-precision vectors of one length; ``y_codes`` is the dense class code of every row (the same rows for every column); ``grids[j]`` is the period grid of column ``j``.
     """
@@ -95,18 +97,22 @@ def parity_mi_grids_gpu(columns: "list[np.ndarray]", y_codes: np.ndarray, n_clas
         return None
     n = int(columns[0].shape[0])
     G = int(grids[0].shape[0])
-    kernel = _MODULE.get(cp).get_function("parity_mi_grid")
-    y_dev = cp.asarray(np.ascontiguousarray(y_codes, dtype=np.uint8))
-    cls_tot = cp.asarray(np.bincount(np.asarray(y_codes, dtype=np.int64), minlength=NC).astype(np.int64))
-    results: "list[np.ndarray]" = []
-    for c0 in range(0, len(columns), COLUMN_BLOCK):
-        block = columns[c0 : c0 + COLUMN_BLOCK]
-        v_dev = cp.asarray(np.ascontiguousarray(np.stack([np.asarray(c, dtype=np.float64) for c in block])))  # Intentional float64: floor(v / period) needs double precision on large values
-        inv_dev = cp.asarray(np.ascontiguousarray(np.stack([1.0 / np.asarray(g, dtype=np.float64) for g in grids[c0 : c0 + COLUMN_BLOCK]])))  # Intentional float64: the host multiplies by the double reciprocal of the period
-        out = cp.zeros((len(block), G), dtype=cp.float64)  # Intentional float64: MI statistic vector compared with the host's
-        kernel((len(block), (G + PB - 1) // PB), (block_size_for(kernel, work_items=n),), (v_dev, y_dev, inv_dev, cls_tot, np.int64(n), np.int32(G), np.int32(n_classes), out))
-        results.extend(list(cp.asnumpy(out)))
-    return results
+    try:
+        kernel = _MODULE.get(cp).get_function("parity_mi_grid")
+        y_dev = cp.asarray(np.ascontiguousarray(y_codes, dtype=np.uint8))
+        cls_tot = cp.asarray(np.bincount(np.asarray(y_codes, dtype=np.int64), minlength=NC).astype(np.int64))
+        results: "list[np.ndarray]" = []
+        for c0 in range(0, len(columns), COLUMN_BLOCK):
+            block = columns[c0 : c0 + COLUMN_BLOCK]
+            v_dev = cp.asarray(np.ascontiguousarray(np.stack([np.asarray(c, dtype=np.float64) for c in block])))  # Intentional float64: floor(v / period) needs double precision on large values
+            inv_dev = cp.asarray(np.ascontiguousarray(np.stack([1.0 / np.asarray(g, dtype=np.float64) for g in grids[c0 : c0 + COLUMN_BLOCK]])))  # Intentional float64: the host multiplies by the double reciprocal of the period
+            out = cp.zeros((len(block), G), dtype=cp.float64)  # Intentional float64: MI statistic vector compared with the host's
+            kernel((len(block), (G + PB - 1) // PB), (block_size_for(kernel, work_items=n),), (v_dev, y_dev, inv_dev, cls_tot, np.int64(n), np.int32(G), np.int32(n_classes), out))
+            results.extend(list(cp.asnumpy(out)))
+        return results
+    except Exception as exc:
+        log_throttle(logger, "parity_gpu.scan_failed", logging.WARNING, "device parity scan failed (%r), using the host scan", exc)
+        return None
 
 
 def use_device_parity(n_rows: int) -> bool:

@@ -215,6 +215,20 @@ _LABEL_BITS_CACHE: dict = {}
 _LABEL_BITS_LOCK = threading.Lock()
 
 
+def _device_scoped_key(cp: Any, key: Any) -> Any:
+    """``key`` extended with the id of the current device, so packed labels cached on one GPU are never handed to a launch on another; ``None`` stays ``None``."""
+    if key is None:
+        return None
+    return (key, int(cp.cuda.Device().id))
+
+
+def _label_bits_if_shaped(bits: Any, block_len: int, words: int) -> Any:
+    """``bits`` when it is the ``(block_len, words)`` packed block asked for, else ``None`` (a cached block of another permutation count is a miss, never reused)."""
+    if bits is not None and tuple(bits.shape) != (int(block_len), int(words)):
+        return None
+    return bits
+
+
 def _cached_label_bits(key: Any, p0: int) -> Any:
     """The packed block starting at permutation ``p0`` stored for ``key``, or ``None``."""
     if key is None:
@@ -271,9 +285,11 @@ def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, per
         bits_kernel = kernel_bits(cp, x_cm.dtype)
         words = (n + 31) // 32
         edges_t = cp.ascontiguousarray(edges.T)  # (K, nbins - 1): a block's interior edges are one contiguous run, read coalesced by the bits kernel
+        labels_key = _device_scoped_key(cp, labels_key)
         for p0 in range(0, len(perms), 64):  # PMAX_LANE x 32 permutations per launch
             block_len = min(64, len(perms) - p0)
             ybits = _cached_label_bits(labels_key, p0)
+            ybits = _label_bits_if_shaped(ybits, block_len, words)
             if ybits is None:
                 padded = _permuted_labels(cp, y8, perms, p0, p0 + block_len, width=words * 32)  # (P, 32 words) permuted 0/1 labels, zero padded, built on the device
                 # (P, words): bit i of word w = label of row 32 w + i. A row is a whole number of bytes, so packing the flat matrix little-endian packs each row on its own;

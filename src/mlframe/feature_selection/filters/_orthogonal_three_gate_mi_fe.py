@@ -165,16 +165,18 @@ def _bin_with_train_edges(
             np.zeros(train.size, dtype=np.int64),
             np.zeros(test.size, dtype=np.int64),
         )
-    edges = np.quantile(train, qs)
-    # Dedup edges so an all-constant column doesn't blow up.
-    edges = np.unique(edges)
-    if edges.size == 0:
+    finite_train = train[np.isfinite(train)]
+    if finite_train.size == 0:
         return (
             np.zeros(train.size, dtype=np.int64),
             np.zeros(test.size, dtype=np.int64),
         )
+    # The edges come from the finite train values (a NaN in the sample would turn every edge into NaN and drop the column's whole signal); NaN rows get their own bin.
+    edges = np.unique(np.quantile(finite_train, qs))
     train_bins = np.searchsorted(edges, train, side="right").astype(np.int64)
     test_bins = np.searchsorted(edges, test, side="right").astype(np.int64)
+    train_bins[np.isnan(train)] = edges.size + 1
+    test_bins[np.isnan(test)] = edges.size + 1
     return train_bins, test_bins
 
 
@@ -218,8 +220,13 @@ def _bin_with_train_edges_batched(
     # One batched quantile partition for all columns -> (qs.size, p). This is the
     # whole point: amortise the partition-based selector across columns instead of
     # p separate np.quantile calls, while keeping the edges train-row-only.
-    edges_all = np.quantile(train, qs, axis=0)  # shape (qs.size, p)
+    with np.errstate(invalid="ignore"):
+        edges_all = np.quantile(train, qs, axis=0)  # shape (qs.size, p)
+    all_finite: np.ndarray = np.asarray(np.isfinite(train).all(axis=0))
     for j in range(p):
+        if not all_finite[j]:
+            train_bins[:, j], test_bins[:, j] = _bin_with_train_edges(train[:, j], test[:, j], nbins)
+            continue
         edges = np.unique(edges_all[:, j])  # per-column dedup, matches scalar path
         if edges.size == 0:
             continue
@@ -341,6 +348,8 @@ def _folds_on_device(raw_arr, eng_arr, y_arr, fold_test_idx, n, nbins):
 
     if not kfold_oof_mi_device_enabled(n, raw_arr.shape[1] + eng_arr.shape[1]):
         return None
+    if not (np.isfinite(raw_arr).all() and np.isfinite(eng_arr).all()):
+        return None  # the device twin bins by plain train quantiles; a column with a missing value takes the host NaN-aware binner
     out: "list[tuple[np.ndarray, np.ndarray] | None]" = []
     for test_idx in fold_test_idx:
         if test_idx.size == 0:

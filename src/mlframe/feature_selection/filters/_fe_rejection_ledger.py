@@ -155,6 +155,7 @@ def record_fe_admission(
             mrmr_self._fe_admission_records_ = records
         _cap_cfg = getattr(mrmr_self, "fe_rejection_ledger_cap", None)
         if len(records) >= int(FE_REJECTION_LEDGER_CAP if _cap_cfg is None else _cap_cfg):
+            log_throttle(logger, "_fe_rejection_ledger.admission_cap", logging.WARNING, "MRMR FE admission ledger hit its record cap; further admitted candidates are not recorded.", max_count=1)
             return
         records.append(
             {
@@ -163,7 +164,7 @@ def record_fe_admission(
             }
         )
     except Exception as exc:  # pragma: no cover - instrumentation must never break the fit
-        logger.debug("MRMR FE admission ledger record failed (%s); skipping.", exc)
+        log_throttle(logger, "_fe_rejection_ledger.admission_failed", logging.WARNING, "MRMR FE admission ledger record failed (%s); skipping.", exc)
 
 
 def drain_pair_records(mrmr_self: Any, records: Any, step: int) -> None:
@@ -283,7 +284,7 @@ def record_fe_rejection(
             }
         )
     except Exception as exc:  # pragma: no cover - instrumentation must never break the fit
-        logger.debug("MRMR FE rejection ledger record failed (%s); skipping.", exc)
+        log_throttle(logger, "_fe_rejection_ledger.rejection_failed", logging.WARNING, "MRMR FE rejection ledger record failed (%s); skipping.", exc)
 
 
 def compute_fe_rejection_ledger(mrmr_self: Any) -> pd.DataFrame:

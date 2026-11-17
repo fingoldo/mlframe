@@ -42,13 +42,14 @@ extern "C" __global__ void nonpoly_cells(const {REAL}* __restrict__ x, const {AC
         }
         __syncthreads();
     }
-    // 32-bit cell index: the output has n * C entries, far below 2^32 for every fit this kernel runs on.
-    const unsigned int UC = (unsigned int)C;
-    for (unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x; idx < (unsigned int)n * UC; idx += gridDim.x * blockDim.x) {
-        const unsigned int i = idx / UC;
+    // 64-bit cell index: the output has n * C entries, which passes 2^32 for a wide block of a large frame.
+    const unsigned long long UC = (unsigned long long)C;
+    const unsigned long long total = (unsigned long long)n * UC;
+    for (unsigned long long idx = (unsigned long long)blockIdx.x * blockDim.x + threadIdx.x; idx < total; idx += (unsigned long long)gridDim.x * blockDim.x) {
+        const unsigned long long i = idx / UC;
         const int c = (int)(idx - i * UC);
         const int col = staged ? s_col[c] : cell_col[c];
-        const {ACC} v = ({ACC})x[(long long)i * K + col];
+        const {ACC} v = ({ACC})x[i * K + col];
         const {ACC} p0 = staged ? s_p0[c] : par[4 * c];
         const {ACC} p1 = staged ? s_p1[c] : par[4 * c + 1];
         const int d = staged ? s_deg[c] : cell_deg[c];
@@ -175,7 +176,7 @@ def nonpoly_block_gpu(cp: Any, M: Any, basis: str, degrees: "list[int]") -> "tup
             bandwidth = cp.where(std > _REL_TOL * mag, 1.06 * std * (max(n, 1) ** (-0.2)), cp.maximum(mag, 1.0))
             second = 1.0 / (bandwidth * bandwidth)
         else:
-            iqr = quant[8] - quant[0] + 1e-12
+            iqr = cp.maximum(quant[8] - quant[0], 1e-12)
             second = 4.0 / (iqr / 9.0)
         par_blocks.extend(cp.stack([quant[d - 1], second, cp.zeros(K, f64), cp.zeros(K, f64)], axis=1) for d in degs)
     cols_of_cell.extend(np.arange(K, dtype=np.int32) for _d in degs)

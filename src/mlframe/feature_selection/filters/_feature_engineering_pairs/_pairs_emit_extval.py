@@ -69,6 +69,11 @@ def _extval_host_buffer(param_a, _ev_param_bs, _ev_op_codes, _ev_bin_funcs, _ev_
     returns ``(buffer, n_columns)``."""
     _ev_buf = np.empty((n_rows, _ev_K), dtype=np.float64)  # Intentional float64: ext-val buffer keeps numpy bin_func native float64 precision (see note at line 294)
     if _ev_op_codes is not None:
+        if int(np.asarray(param_a).shape[0]) != int(n_rows) or len(_ev_param_bs) * len(_ev_op_codes) != int(_ev_K):
+            raise ValueError(
+                f"external-validation kernel inputs disagree: param_a rows={np.asarray(param_a).shape[0]} vs n_rows={n_rows}, "
+                f"{len(_ev_param_bs)} factors x {len(_ev_op_codes)} ops vs K={_ev_K}"
+            )
         # NJIT materialise: ALL (ext x op) candidate columns in one nogil
         # kernel (bit-identical to the numpy bin_funcs; see
         # ``_materialise_extval_njit``). Column order ext-outer/op-inner ==
@@ -367,6 +372,12 @@ def _emit_pair_features_step2_read_here_once_part2(
     # on a host with 2.4 GiB free). A minimal batch under the cap is therefore taken whatever the budget says; a larger one keeps the loop.
     if not _ev_can_batch and _ev_param_bs and len(X) * _ev_n_bin * 8 <= _EXTVAL_MIN_BATCH_BYTES:
         _ev_can_batch, _ev_chunk = True, 1
+    if not _ev_can_batch and _ev_param_bs:
+        log_throttle(
+            logger, "pairs_extval_per_candidate_loop", logging.WARNING,
+            "external validation: the (%d rows x %d factors x %d ops) float64 batch does not fit the RAM budget; scoring one candidate at a time (much slower)",
+            len(X), len(_ev_param_bs), _ev_n_bin,
+        )
     return _pa_dev, param_a, best_valid_mi, config, _else_cols, _ev_param_bs, _pb_vals, _ev_can_batch, _ev_chunk
 
 

@@ -10,6 +10,8 @@ import logging
 import sys
 import threading
 
+from mlframe.utils.log_throttle import log_throttle
+
 # Same logger name as the parent ``feature_engineering`` module (not ``__name__``): callers
 # and tests (``caplog.at_level(..., logger=fe_mod.logger.name)``) filter on the PARENT's
 # logger name, which is the pre-split single-file module's historical logger identity.
@@ -395,7 +397,8 @@ def _decide_hoist_shared_buffer(
     if buffer_bytes > _ceiling:
         # ABSOLUTE CEILING: refuse regardless of how much RAM is free - the anti-sawtooth
         # cap (see ``_fe_buffer_absolute_max_bytes`` docstring). Applies to BOTH acceptance paths below.
-        logger.debug(
+        log_throttle(
+            logger, "fe_mem_budget.hoist_declined_ceiling", logging.WARNING,
             "_can_hoist_shared_buffer: buffer_bytes=%d exceeds absolute ceiling=%d (available=%d) -- declining, recompute fallback.",
             buffer_bytes, _ceiling, available,
         )
@@ -437,7 +440,8 @@ def _decide_hoist_shared_buffer(
                 buffer_bytes, budget, available, peak_footprint, reserve,
             )
             return True, buffer_bytes, available
-    logger.debug(
+    log_throttle(
+        logger, "fe_mem_budget.hoist_declined_budget", logging.WARNING,
         "_can_hoist_shared_buffer: buffer_bytes=%d over budget=%d, no headroom -- declining, recompute fallback (available=%d).",
         buffer_bytes, budget, available,
     )

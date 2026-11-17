@@ -19,6 +19,7 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
 from ._fe_gain_stats import quantile_codes
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
@@ -160,7 +161,7 @@ def quantile_codes_columns_device(cols: Sequence[np.ndarray], bins: Any) -> Opti
                 o[sel] = got
         return outs
     except Exception as exc:
-        logger.debug("device quantile codes failed (%s: %s); host form", type(exc).__name__, exc)
+        log_throttle(logger, "gain_stats_codes.device_codes", logging.WARNING, "device quantile codes failed (%s: %s); the host form runs", type(exc).__name__, exc)
         return None
 
 
@@ -207,7 +208,7 @@ def main_effect_z_device(cols: Sequence[np.ndarray], bins: int, t: np.ndarray, e
             out[c0 : c0 + width] = cp.asnumpy(_main_effect_z(cp, codes, t_dev, ev, od, int(bins), float(base)))
         return out
     except Exception as exc:
-        logger.debug("device main-effect statistics failed (%s: %s); host form", type(exc).__name__, exc)
+        log_throttle(logger, "gain_stats_codes.device_main_effect", logging.WARNING, "device main-effect statistics failed (%s: %s); the host form runs", type(exc).__name__, exc)
         return None
 
 

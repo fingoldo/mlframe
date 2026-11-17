@@ -129,6 +129,13 @@ def _emit_quadruplet_products(out_cols, cache, x_i, x_j, x_k, x_l, basis_i, basi
                             continue
 
 
+def _filled_f64(col):
+    """Float64 copy of a source column with the non-finite values mean-filled, exactly as the fit-time generator builds its leg operands."""
+    x = np.array(col.to_numpy(), dtype=np.float64)
+    mean_fill_nonfinite(x)
+    return x
+
+
 def _leg_column(leg_cache, X, col, dtype, basis):
     """``(non-finite-filled copy of X[col] at dtype, its basis)`` for one quadruplet leg, memoised in ``leg_cache`` for the whole call."""
     hit = leg_cache.get(col)
@@ -206,10 +213,7 @@ def generate_quadruplet_cross_basis_features(
             and pd.api.types.is_numeric_dtype(X[col_l])
         ):
             continue
-        from ._fe_usability_signal import _crit_np_dtype
-        _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); matches the GPU device
-        # builder's operand dtype (_gpu_resident_cross_basis.py) so host and device run the polynomial
-        # recurrence at the SAME precision - see build_leg_product_matrix_gpu's docstring.
+        _dt = np.float64  # Intentional float64: the recipe replay applies the frozen params at float64, so the fit-time values are built on the same axis
         # np.array (copy=True): X[col].to_numpy() can alias the DataFrame's backing block - e.g. a
         # zero-copy Arrow-backed view or a frozen MRMR-fit-cache array reused via fe_append_columns from
         # an earlier stage - and the np.copyto NaN-fill below would then either mutate the CALLER's X or
@@ -617,13 +621,7 @@ def hybrid_orth_mi_quadruplet_fe_with_recipes(
             # Value-construction (recovers the basis preprocess params for recipe replay): always
             # double precision, matching the fresh-path's own dtype (see generate_quadruplet_cross_basis_features).
             # Intentional float64: value construction is always f64 by design (matches the fresh-path dtype)
-            x_i = X[col_i].to_numpy(dtype=np.float64)
-            # Intentional float64: value construction is always f64 by design (matches the fresh-path dtype)
-            x_j = X[col_j].to_numpy(dtype=np.float64)
-            # Intentional float64: value construction is always f64 by design (matches the fresh-path dtype)
-            x_k = X[col_k].to_numpy(dtype=np.float64)
-            # Intentional float64: value construction is always f64 by design (matches the fresh-path dtype)
-            x_l = X[col_l].to_numpy(dtype=np.float64)
+            x_i, x_j, x_k, x_l = (_filled_f64(X[c]) for c in (col_i, col_j, col_k, col_l))
             if basis == "auto":
                 try:
                     basis_a = basis_route_by_moments(x_i)

@@ -142,7 +142,7 @@ def modular_device_chosen(n_elements: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_elements))) == "device"
     except Exception as exc:
-        logger.debug("fe_modular_codes_backend: KTC choose() failed, using the element-count fallback: %s", exc)
+        log_throttle(logger, "modular_codes_gpu.choose_failed", logging.WARNING, "fe_modular_codes_backend: KTC choose() failed (%s), using the element-count fallback", exc)
         return int(n_elements) >= DEVICE_FALLBACK_ROWS
 
 
@@ -223,23 +223,25 @@ def modular_family_codes_gpu(
 
         starts = list(range(0, len(cols), step))
         prefetch = ThreadPoolExecutor(max_workers=1)  # the next block is prepared on the host while the device scores the current one
-        pending = prefetch.submit(_host_block, starts[0])
-        for k, s0 in enumerate(starts):
-            part = cols[s0 : s0 + step]
-            host = pending.result()
-            if k + 1 < len(starts):
-                pending = prefetch.submit(_host_block, starts[k + 1])
-            src = cp.asarray(host)
-            del host
-            out = cp.empty((len(part) * per_source, n), dtype=cp.float32)
-            threads = block_size_for(kernel, work_items=n)
-            kernel((min(1024, (n + threads - 1) // threads), len(part) * len(periods)), (threads,), (src, p_dev, np.int64(n), np.int32(len(periods)), out))
-            del src
-            r0 = s0 * per_source
-            with parallel_kernel_entry():
-                quantile_codes_resident_f32(cp, out, int(n_bins), codes[r0 : r0 + out.shape[0]], nx[r0 : r0 + out.shape[0]])
-            del out
-        prefetch.shutdown(wait=True)
+        try:
+            pending = prefetch.submit(_host_block, starts[0])
+            for k, s0 in enumerate(starts):
+                part = cols[s0 : s0 + step]
+                host = pending.result()
+                if k + 1 < len(starts):
+                    pending = prefetch.submit(_host_block, starts[k + 1])
+                src = cp.asarray(host)
+                del host
+                out = cp.empty((len(part) * per_source, n), dtype=cp.float32)
+                threads = block_size_for(kernel, work_items=n)
+                kernel((min(1024, (n + threads - 1) // threads), len(part) * len(periods)), (threads,), (src, p_dev, np.int64(n), np.int32(len(periods)), out))
+                del src
+                r0 = s0 * per_source
+                with parallel_kernel_entry():
+                    quantile_codes_resident_f32(cp, out, int(n_bins), codes[r0 : r0 + out.shape[0]], nx[r0 : r0 + out.shape[0]])
+                del out
+        finally:
+            prefetch.shutdown(wait=True)
     except Exception as exc:
         logger.warning("device modular candidate codes failed (%s: %s); building the pool on the host", type(exc).__name__, exc)
         return None

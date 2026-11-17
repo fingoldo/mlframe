@@ -15,9 +15,10 @@ from __future__ import annotations
 import math
 
 import numpy as np
+from ._reject_count import reject_count
 from numba import njit, prange
 
-from ._batch_kernels import _mi_from_joint, _plogp_sum, _shuffled_y_matrix
+from ._batch_kernels import _CODES_RANGE_MSG, _mi_from_joint, _plogp_sum, _shuffled_y_matrix, _y_codes_in_range
 
 
 @njit(parallel=True, nogil=True, cache=True)
@@ -102,13 +103,16 @@ def _perm_failcount_codes(
 
 
 @njit(nogil=True, cache=True)
-def _observed_column(disc_t, k, nb_k, classes_y, freqs_y, n, use_su, classes_dense_t, freqs_dense, kx, original_mi):
-    """Observed MI of column ``k`` (dense codes written to ``classes_dense_t[k]``, ``freqs_dense[k]`` and ``kx[k]`` set)."""
+def _observed_column(disc_t, k, nb_k, classes_y, freqs_y, n, use_su, classes_dense_t, freqs_dense, kx, original_mi) -> bool:
+    """Observed MI of column ``k`` (dense codes written to ``classes_dense_t[k]``, ``freqs_dense[k]`` and ``kx[k]`` set); False when a code lies outside ``[0, nb_k)``."""
     K_y = freqs_y.shape[0]
     inv_n = 1.0 / n
     counts = np.zeros(nb_k, dtype=np.int64)
     for r in range(n):
-        counts[disc_t[k, r]] += 1
+        v = disc_t[k, r]
+        if v < 0 or v >= nb_k:
+            return False
+        counts[v] += 1
     lookup = np.empty(nb_k, dtype=np.int64)
     nzeros = 0
     for c in range(nb_k):
@@ -130,7 +134,7 @@ def _observed_column(disc_t, k, nb_k, classes_y, freqs_y, n, use_su, classes_den
     mi_xy = _mi_from_joint(joint, freqs_dense[k], freqs_y, inv_n)
     if not use_su:
         original_mi[k] = mi_xy
-        return
+        return True
     denom = _plogp_sum(freqs_dense[k], K_x) + _plogp_sum(freqs_y, K_y)
     if denom <= 1e-12:
         original_mi[k] = 0.0
@@ -138,6 +142,7 @@ def _observed_column(disc_t, k, nb_k, classes_y, freqs_y, n, use_su, classes_den
         if mi_xy < 0.0:
             mi_xy = 0.0
         original_mi[k] = 2.0 * mi_xy / denom
+    return True
 
 
 @njit(parallel=True, nogil=True, cache=True)
@@ -171,21 +176,27 @@ def batch_mi_with_noise_gate_v3(
     if max_nbins > 1 and classes_dtype(max_nbins - 1) != max_nbins - 1:
         raise ValueError("batch_mi_with_noise_gate: factors_nbins exceeds classes_dtype capacity; widen classes_dtype (int32).")
 
+    if not (_y_codes_in_range(classes_y, freqs_y.shape[0], n) and _y_codes_in_range(classes_y_safe, freqs_y.shape[0], n)):
+        raise ValueError(_CODES_RANGE_MSG)
+
     disc_t = np.empty((K, n), dtype=disc_2d.dtype)
     _transpose_blocked(disc_2d, disc_t)
     classes_dense_t: np.ndarray = np.empty((K, n), dtype=classes_dtype)
     freqs_dense = np.zeros((K, max_nbins), dtype=np.float64)  # Intentional float64: class/bin counts and frequencies feeding the MI formula
     kx = np.zeros(K, dtype=np.int64)
     original_mi = np.zeros(K, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    ok_cols = np.ones(K, dtype=np.bool_)
     for k in prange(K):
-        _observed_column(disc_t, k, int(factors_nbins[k]), classes_y, freqs_y, n, use_su, classes_dense_t, freqs_dense, kx, original_mi)
+        ok_cols[k] = _observed_column(disc_t, k, int(factors_nbins[k]), classes_y, freqs_y, n, use_su, classes_dense_t, freqs_dense, kx, original_mi)
+    if not np.all(ok_cols):
+        raise ValueError(_CODES_RANGE_MSG)
 
     if npermutations <= 0:
         for k in range(K):
             fe_mi[k] = original_mi[k]
         return fe_mi
 
-    max_failed = int(npermutations * (1.0 - min_nonzero_confidence))
+    max_failed = reject_count(npermutations, min_nonzero_confidence)
     if max_failed <= 1:
         max_failed = 1
     nfailed = np.zeros(K, dtype=np.int64)

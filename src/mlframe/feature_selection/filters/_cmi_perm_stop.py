@@ -23,7 +23,6 @@ import logging
 import math
 
 import numpy as np
-from ._fe_usability_signal import _crit_np_dtype
 
 from numba import njit
 
@@ -187,7 +186,7 @@ def uaed_elbow(curve: np.ndarray, sensitivity: float = 1.0) -> int:
 
     Args:
         curve: 1-D array of values (CMI gain per added feature, or CV score).
-        sensitivity: ``> 1.0`` favours earlier elbows; ``< 1.0`` later. Default
+        sensitivity: ``< 1.0`` favours earlier elbows (steeper position decay ``(i+1)**(-1/sensitivity)``); ``> 1.0`` later. Default
             1.0 picks the canonical knee.
 
     Returns:
@@ -208,7 +207,8 @@ def uaed_elbow(curve: np.ndarray, sensitivity: float = 1.0) -> int:
     for i in range(1, n - 1):
         second_deriv[i] = curve[i + 1] - 2.0 * curve[i] + curve[i - 1]
     # Knee is where the curve flattens => second derivative most negative.
-    weights = (np.arange(n, dtype=_crit_np_dtype()) + 1.0) ** (-1.0 / max(sensitivity, 1e-6))
+    # Intentional float64: weights multiply the f64 second differences; f32 weights flip near-tied elbows
+    weights = (np.arange(n, dtype=np.float64) + 1.0) ** (-1.0 / max(sensitivity, 1e-6))
     score = -second_deriv * weights
     elbow = int(np.argmax(score[1:-1])) + 1  # exclude endpoints from search
     return elbow

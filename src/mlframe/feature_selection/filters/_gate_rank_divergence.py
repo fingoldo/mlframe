@@ -21,6 +21,8 @@ from typing import Any, Optional
 import numpy as np
 from numba import njit, prange
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -187,10 +189,13 @@ def gate_divergence(mat: np.ndarray, y: np.ndarray, probe_idx: "list[int]", nbin
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
     mat = np.ascontiguousarray(mat)
+    y = np.asarray(y).ravel()
+    if y.shape[0] != mat.shape[0]:
+        raise ValueError(f"gate_divergence: y has {y.shape[0]} rows, mat has {mat.shape[0]}")
     if not np.isfinite(mat).all():
         return None
     order = probe_orders(mat[:, probe_idx])
-    classes, y_dense = np.unique(np.asarray(y), return_inverse=True)
+    classes, y_dense = np.unique(y, return_inverse=True)
     with parallel_kernel_entry():
         out: np.ndarray = _divergence_njit(mat, order, np.asarray(probe_idx, dtype=np.int64), np.ascontiguousarray(y_dense, dtype=np.int64), int(classes.size), int(nbins))
     return out
@@ -279,7 +284,7 @@ def gate_divergence_device(cp: Any, mat: Any, y: Any, probe_idx: "list[int]", nb
             parts.append(res[len(probe_idx) :])
         return np.asarray(cp.asnumpy(cp.concatenate(parts)), dtype=np.float64)  # Intentional float64: statistic vector
     except Exception as exc:
-        logger.debug("device gate divergence unavailable (%s: %s)", type(exc).__name__, exc)
+        log_throttle(logger, "gate_rank_divergence.device", logging.WARNING, "device gate divergence failed (%s: %s); the host walk runs", type(exc).__name__, exc)
         return None
 
 

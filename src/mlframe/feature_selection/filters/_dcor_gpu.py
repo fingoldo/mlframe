@@ -141,7 +141,7 @@ def dcor_backend(m: int, k: int) -> str:
         if res:
             return str(res.get("kernel_choice", fallback))
     except Exception as exc:
-        logger.debug("dCor backend selection failed: %r", exc)
+        log_throttle(logger, "_dcor_gpu.backend_selection_failed", logging.WARNING, "dCor backend selection failed (%s: %s); using the work-crossover choice %r", type(exc).__name__, exc, fallback)
     return fallback
 
 
