@@ -84,6 +84,9 @@ def _conditioning_rows_per_cell(ctx, X: tuple) -> float:
                 var_is_nominal=None,
                 factors_nbins=ctx.factors_nbins,
                 dtype=np.int32,
+                current_nclasses=1,
+                final_classes=None,
+                verbose=False,  # all arguments explicit: a default left to numba sends the call through the interpreter-side resolver
             )
             ctx._z_merge_cache = (z_key, z_classes, z_nclasses)
         else:
@@ -96,6 +99,7 @@ def _conditioning_rows_per_cell(ctx, X: tuple) -> float:
             dtype=np.int32,
             current_nclasses=z_nclasses,
             final_classes=z_classes.copy(),
+            verbose=False,
         )
     except Exception as e:
         # Hot per-candidate path (100-150 calls/round): debug-only, no per-call warning spam.

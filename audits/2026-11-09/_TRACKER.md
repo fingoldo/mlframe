@@ -863,3 +863,9 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 - `_usability_greedy_steps._abscorr`: 1824 calls on the serial tail (pure-form retention pool), each two `np.std` plus `np.corrcoef` on 100000-row columns (0.32 ms in the fit, 0.58 s).
 - One compiled two-pass mean-centred loop with the same guards (standard deviation below 1e-12, non-finite ratio, empty input): 57 us a call, difference from the numpy form at most 8e-16 on 300 random pairs.
 - Wall 48.4 / 48.9 s (50.8-51.1 s at the start of the day), the same seven features; 83 related usability / pair tests pass.
+
+### MR11-10 numba omitted-default dispatch (2026-11-17)
+- Found through cProfile: `Dispatcher._compile_for_args` 1829 calls in a fit. numba 0.65.1 keeps one type code for all omitted arguments: after any kernel has been called with a default left out, a call that omits a default of another value is resolved in the interpreter on every call (reproducer: `f(a, k=1)` once, then `g(a, m=0)` costs 60 us instead of 0.4 us).
+- Three recurring sites now pass every argument: `evaluate_gain` in `_conditional_gain_step` (929 calls), `merge_vars` + `entropy` in `_warm_marginal_entropies` (376 each), `merge_vars` in `_conditioning_rows_per_cell` (113). Slow dispatches 1829 -> 35 (the rest are first-call cache loads), 0.77 -> 0.37 s.
+- Wall 47.6 / 47.8 s, the same seven features. Day total: 50.8-51.1 -> 47.6-47.8 s.
+- Upstream: worth a numba issue with the two-function reproducer (not filed; needs the owner's go-ahead).
