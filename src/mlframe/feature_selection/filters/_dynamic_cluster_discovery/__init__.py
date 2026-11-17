@@ -224,38 +224,6 @@ class DCDState:
 # =============================================================================
 
 
-def _kernel_tuning_cache_lookup_tau(factors_data, factors_nbins, fallback: float = 0.7) -> float:
-    """Route ``dcd_tau_cluster`` through pyutilz kernel_tuning_cache.
-
-    Looks up a calibrated tau by ``(n_samples, n_features, mean_pairwise_su_proxy)``
-    fingerprint. Falls back to the constructor-supplied value when the cache
-    is cold / unavailable. Per memory rule: hardcoded thresholds should route
-    through ``pyutilz.performance.kernel_tuning.cache`` so per-host calibration
-    persists across runs.
-    """
-    try:
-        from .._kernel_tuning import get_kernel_tuning_cache
-        _cache = get_kernel_tuning_cache()
-        if _cache is None:
-            return float(fallback)
-        n_samples = int(factors_data.shape[0]) if factors_data is not None else 0
-        n_features = int(factors_data.shape[1]) if factors_data is not None else 0
-        # Coarse buckets to keep the cache key stable across small fluctuations.
-        n_samples_bucket = round(np.log10(max(n_samples, 1)) * 2) / 2
-        n_features_bucket = round(np.log10(max(n_features, 1)) * 2) / 2
-        entry = _cache.lookup(
-            "dcd_tau_cluster",
-            n_samples_log10=float(n_samples_bucket),
-            n_features_log10=float(n_features_bucket),
-        )
-        if entry is not None and "tau_cluster" in entry:
-            return float(entry["tau_cluster"])
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
-    return float(fallback)
-
-
 # =============================================================================
 # Layer 47: auto-tau calibration via small SU sweep on the data
 # =============================================================================
@@ -437,24 +405,7 @@ def make_dcd_state(
             "su_mean": cal_diag["su_mean"],
             "su_std": cal_diag["su_std"],
         }
-        # NOTE: persisting the calibrated tau back to kernel_tuning_cache is
-        # intentionally NOT done here. KernelTuningCache.update() takes a
-        # ``regions`` list shape, not a flat ``(key, value)`` pair, so a
-        # round-trip persist requires the upstream bench-style mutate that
-        # owns the cache file. The lookup-only path in the
-        # ``_kernel_tuning_cache_lookup_tau`` helper above is the existing
-        # half of that loop; users wanting cross-run persistence should run
-        # the dedicated calibration bench and write a single regions entry.
         return state
-    # kernel_tuning_cache override for ``tau_cluster`` when the
-    # constructor-supplied value is the dev-machine default 0.7. Lets
-    # per-host calibration kick in without code edits while preserving
-    # user-pinned overrides.
-    if abs(float(state.tau_cluster) - 0.7) < 1e-9:
-        calibrated = _kernel_tuning_cache_lookup_tau(
-            factors_data, factors_nbins, fallback=float(state.tau_cluster),
-        )
-        state.tau_cluster = calibrated
     return state
 
 
