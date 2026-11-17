@@ -48,6 +48,7 @@ from ._fe_usability_signal import _crit_np_dtype
 from ._grouped_coerce_shared import auto_detect_num_cols_plain as _auto_detect_num_cols
 from typing import TYPE_CHECKING
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
+from mlframe.utils.log_throttle import log_throttle
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -909,6 +910,15 @@ def hybrid_composite_group_agg_fe(
         return X, [], [], pd.DataFrame()
 
     base_cols = list(num_cols)
+    support_cache: dict = {}
+    if conditioning_leaves_no_candidate(X, base_cols, n_bins, min_cmi, support_cache):
+        # every row is its own conditioning cell: each candidate scores exactly 0 and none can pass ``min_cmi``, so the broadcasts are not built (1920 columns and 2.2 s at 100000 x 100)
+        log_throttle(
+            logger, "composite_group_agg.singleton_support", logging.WARNING,
+            "composite_group_agg: the %d conditioning columns put every one of the %d rows in its own cell, so every candidate's conditional MI is 0; no column is generated",
+            len(base_cols), len(X),
+        )  # fmt: skip
+        return X, [], [], pd.DataFrame(columns=["engineered_col", "source_col", "cmi", "source_mi", "uplift"])
     # The broadcast of every engineered column at once costs keys x rows x 8 bytes per source and stat; beyond the block budget the columns are generated, scored and reduced
     # block by block (see composite_group_agg_top_blockwise), so the peak is one block and the selected set is the same ranking.
     n_keys_max = max((n_d for n_d in (int(_key_cache[g][3]) if _key_cache and g in _key_cache else 0 for g in group_col_sets)), default=0)
@@ -935,7 +945,7 @@ def hybrid_composite_group_agg_fe(
 
     eng_to_source = {name: raw_recipes[name]["num_col"] for name in enc_df.columns}
     scores = score_grouped_agg_by_cmi_uplift(
-        X, enc_df, y, base_cols, n_bins=n_bins, eng_to_source=eng_to_source,
+        X, enc_df, y, base_cols, n_bins=n_bins, eng_to_source=eng_to_source, support_cache=support_cache,
     )
     keep = scores[(scores["cmi"] >= float(min_cmi)) & (scores["uplift"] >= float(min_uplift))]
     winners = list(keep["engineered_col"].head(int(top_k)))
@@ -953,4 +963,5 @@ from ._composite_group_agg_blockwise import (  # after the definitions, like the
     _composite_block_budget_bytes,
     _composite_full_matrix_bytes,
     composite_group_agg_top_blockwise,
+    conditioning_leaves_no_candidate,
 )
