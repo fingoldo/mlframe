@@ -203,7 +203,7 @@ jobs:
     # macOS shards run with one worker and have been seen to stall inside a native numba/OpenMP call for 5-6 hours before
     # cancellation: the in-process timeout cannot fire there. The job-level cap is the only bound, so macOS gets 180 minutes
     # rather than the 345 used elsewhere. Raise it if the shard durations artifacts show a healthy shard needing more.
-    timeout-minutes: ${{ matrix.os == 'macos-15' && 180 || 345 }}  # below the 360-minute platform default (a value at or above it bounds nothing)
+    timeout-minutes: 345  # below the 360-minute platform default (a value at or above it bounds nothing); the cap is for hangs, not a budget
     # Newest-Python rows are marked experimental so a single optional-extra
     # that has not yet published a cp314 wheel does not turn a required check
     # red while the ecosystem finishes catching up. The core stack (numpy /
@@ -392,6 +392,7 @@ jobs:
           pytest -m "not slow and not gpu and not multigpu" \
             --splits "$SHARD_SPLITS" --group "$SHARD_GROUP" \
             --ignore=tests/training/test_core.py \
+            --ignore=tests/test_meta \
             -n "$XDIST_WORKERS" \
             --dist=loadgroup \
             --cov=src/mlframe \
@@ -568,6 +569,62 @@ jobs:
             --timeout=900 \
             --timeout-method=signal \
             --junitxml=junit-heavy-serial-${{ matrix.group }}.xml \
+            --durations=200 \
+            --no-cov \
+            --show-progress
+
+  # The meta suite (tests/test_meta) runs here, on Linux, in one job, instead of inside the macOS shards. The shards run
+  # with -n 1, so every meta test ran one after another on a shard, and the whole-tree scans of the code-audit and CUDA
+  # gates sat on the shard's critical path. Excluded from the shards with --ignore; the assertions are unchanged.
+  test-meta:
+    name: pytest ${{ needs.matrix-setup.outputs.representative_python }} on ubuntu-24.04 (tests/test_meta)
+    needs: matrix-setup
+    runs-on: ubuntu-24.04
+    timeout-minutes: 345
+    env:
+      UV_NO_SOURCES: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python ${{ needs.matrix-setup.outputs.representative_python }}
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: ${{ needs.matrix-setup.outputs.representative_python }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884  # v10.3.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
+      - name: Read the pyutilz revision from uv.lock
+        id: pyutilz-pin
+        run: echo "sha=$(python3 scripts/read_pyutilz_pin.py uv.lock)" >> "$GITHUB_OUTPUT"
+
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@5264e5d154aadc56028d46118b515166adaee7a5  # v1.23.11  # pragma: allowlist secret
+        with:
+          pyutilz-extras: "system,pandas,polars,database"
+          project-extras: ".[all,dev]"
+          pyutilz-ref: ${{ steps.pyutilz-pin.outputs.sha }}
+
+      - name: Install contributor tooling not declarable in [dev]
+        run: uv pip install --system -r requirements-dev.txt
+
+      - name: Run tests/test_meta
+        env:
+          PYTHONUNBUFFERED: "1"
+          MLFRAME_FAST: "1"
+        run: |
+          pytest tests/test_meta \
+            -m "not slow and not gpu and not multigpu" \
+            -n auto \
+            --dist=loadgroup \
+            -p no:randomly \
+            --timeout=900 \
+            --timeout-method=signal \
+            --junitxml=junit-test-meta.xml \
             --durations=200 \
             --no-cov \
             --show-progress
@@ -1024,7 +1081,7 @@ jobs:
     # matrix-setup is in this list deliberately. Everything below it is `needs:`-dependent on it, so if it
     # fails every test job SKIPS -- and a skip is not a failure, so without it here this gate reported
     # green having run zero tests. That is the worst possible outcome for a required check.
-    needs: [matrix-setup, test, test-heavy-serial, ruff-blocking, lint-blocking, tests-ruff-blocking, tests-black-filtered, tests-lint-blocking, build, install-smoke, lockfile]
+    needs: [matrix-setup, test, test-heavy-serial, test-meta, ruff-blocking, lint-blocking, tests-ruff-blocking, tests-black-filtered, tests-lint-blocking, build, install-smoke, lockfile]
     steps:
       - name: Check all required jobs succeeded
         env:
