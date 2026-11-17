@@ -884,3 +884,9 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 - `cheap_row_argmax_scan` and `_top_marginal_mi_columns` ranked the eligible columns with one `_mi` call per column (about 100 launches, 0.44 s at 30000 rows STRICT-resident; tiny-cupy row `cheap_row_argmax_scan`, 0.76 s in CT11-149). `_pairwise_modular_fe._mi_columns` scores them in column blocks with one batched call: 0.10 s, values equal bit for bit on the host and STRICT-resident routes at 4000 / 30000 / 100000 rows.
 - Wall 47.9 / 48.0 s, the same seven features (the family sits on a concurrent lane).
 - Three biz-value tests are red at HEAD without this change (`test_master_on_emits_discrete_operator_feature`, `test_row_argmax_detects_on_argmax_regression_target`, `test_biz_val_conditional_gate_end_to_end_auc_lift`): next item.
+
+### MR11-14 three stale biz-value sensors of the discrete operators (2026-11-17)
+- Red at origin/master as well (checked on a clean worktree), each because a newer family now carries the structure the test looked for under one fixed name:
+- `test_row_argmax_detects_on_argmax_regression_target`: the argmax column is generated, the selector keeps `opat__ca_cb_cc` (the ordinal pattern of the three columns, gain 1.03, determines the argmax). The test now accepts an argmax or an ordinal-pattern column of the three in the selection.
+- `test_master_on_emits_discrete_operator_feature`: `il_gcd__a__b` is generated and selected inside `max(sqr(cross_a_b),prewarp(il_gcd__a__b))`; the helper looked for the prefix at the start of the name only. It now finds an operator column anywhere in a name (not the pair step's `gate_med` unary).
+- `test_biz_val_conditional_gate_end_to_end_auc_lift`: gate ON 0.9974 with one `gate_select` column, OFF 0.9973 through about ten pair / greedy composites; the AUC margin is noise. The test pins ON >= 0.99, a `gate_` column selected in every seed, and ON not below OFF by more than 0.002.
