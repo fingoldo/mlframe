@@ -227,13 +227,6 @@ def _dcor_proxy_columns(A: np.ndarray, y_sub: np.ndarray) -> np.ndarray:
     return np.asarray(best[np.isfinite(best)])
 
 
-def _dcor_proxy_vectorised(X_sub: pd.DataFrame, y_sub: np.ndarray, num_cols: list) -> float:
-    """:func:`_dcor_proxy`'s statistic for an all-finite subsample."""
-    # Intentional float64: correlation sums run in double precision
-    best = _dcor_proxy_columns(np.asarray(X_sub[num_cols].to_numpy(dtype=np.float64)), y_sub)
-    return float(np.mean(best)) if best.size else 0.0
-
-
 def _dcor_proxy(X_num: pd.DataFrame, num_cols: list, y_arr: np.ndarray, n: int, dcor_proxy_sample: int, random_state: int) -> float:
     """Cheap non-linear dependence proxy: mean over columns of max(|Spearman|, |Pearson(|x - mean|, y)|) on a subsample."""
     # dcor_proxy: mean MAX(|Spearman|, |Pearson(|x - mean|, y)|) of each

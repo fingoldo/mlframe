@@ -151,9 +151,9 @@ def preorder_source(max_depth: int, real=np.float32) -> str:
     return render(f"#define MAXD {int(max_depth) + 2}\n" + _PREORDER_SRC, real, acc=real)
 
 
-def kernel_preorder(cp, real=np.float32):
-    """``treeshap_table_preorder`` at depth 6 for the element type ``real``; registry factory."""
-    return cp.RawKernel(preorder_source(6, real), "treeshap_table_preorder")
+def kernel_preorder(cp, real=np.float32, max_depth: int = 6):
+    """``treeshap_table_preorder`` for trees up to ``max_depth`` and the element type ``real``: the compile point of the production walk and (at the default depth) the registry factory."""
+    return cp.RawKernel(preorder_source(max_depth, real), "treeshap_table_preorder")
 
 
 def _use_stack_walk() -> bool:
@@ -169,7 +169,7 @@ def _ensure_preorder_kernel(max_depth: int, real):
         if k is None:
             import cupy as cp
 
-            k = _KERNELS[key] = cp.RawKernel(preorder_source(max_depth, real), "treeshap_table_preorder")
+            k = _KERNELS[key] = kernel_preorder(cp, real, int(max_depth))
     return k
 
 

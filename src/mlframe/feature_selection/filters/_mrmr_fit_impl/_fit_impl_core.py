@@ -57,9 +57,11 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
     from .._orthogonal_univariate_fe._orth_dedup import dedup_collinear_memo_scope
 
     from mlframe.feature_selection.filters.hermite_fe.shared import heavy_tail_memo_scope
+    from .._orthogonal_univariate_fe._orth_scoring_memo import orth_scoring_memo_scope
 
-    # the source-column dedup and the per-column spike-contamination verdicts of the FE families are shared by the whole fit, worker threads of the stage cascades included
-    with dedup_collinear_memo_scope(), heavy_tail_memo_scope():
+    # the source-column dedup, the per-column spike-contamination verdicts and the raw-column MI baselines / correlation matrices of the FE families are shared by the
+    # whole fit, worker threads of the stage cascades included
+    with dedup_collinear_memo_scope(), heavy_tail_memo_scope(), orth_scoring_memo_scope():
         return _fit_impl_scoped(self, X, y, groups, **fit_params)
 
 

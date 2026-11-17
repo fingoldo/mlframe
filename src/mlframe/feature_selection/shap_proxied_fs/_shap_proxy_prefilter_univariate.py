@@ -38,14 +38,6 @@ _AUTO_BATCH_MIN = 256
 _AUTO_BATCH_MAX = 8192
 
 
-def _pow2_bucket(x: int) -> int:
-    """Smallest power-of-2 >= x (or 1 for non-positive inputs). Used to key the kernel cache so
-    nearby sizes share an entry without a per-shape calibration run."""
-    if x <= 1:
-        return 1
-    return 1 << (int(x - 1).bit_length())
-
-
 def _available_ram_bytes() -> Optional[int]:
     """Available RAM in bytes via psutil, or None if psutil is missing or the probe fails.
 
