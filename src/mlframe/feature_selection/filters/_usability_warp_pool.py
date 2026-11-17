@@ -22,7 +22,7 @@ MAX_OFFERED = 8  # warps offered to the linear pool: bounds the extra cross-vali
 def warp_pool_candidates(df: Any, y_cont: np.ndarray, base_names: Sequence[str], feature_dtype: Any, quantization_nbins: int) -> list:
     """``UsableCandidate`` objects for the warps of the numeric ``base_names`` columns of ``df`` (empty on any failure: the pool simply stays as it was)."""
     from ._mi_greedy_cmi_fe import _quantile_bin, precompute_marginal_y_terms
-    from ._oof_warp_fe import build_oof_warp1d_recipe, training_column, warp_candidates
+    from ._oof_warp_fe import build_oof_warp1d_recipe, candidate_fit, training_column, warp_candidates
     from ._usability_aware_selection import UsableCandidate, _binned_mi, _scrub
 
     try:
@@ -41,7 +41,7 @@ def warp_pool_candidates(df: Any, y_cont: np.ndarray, base_names: Sequence[str],
         values = _scrub(col, feature_dtype)
         if float(np.std(values)) <= 1e-9:
             continue
-        fit = cand["fit"]
+        fit = candidate_fit(cand)
         name = f"oofwarp({cand['col']})"
         recipe = build_oof_warp1d_recipe(name=name, src=cand["col"], cx=fit["cx"], cy=fit["cy"], fill=fit["fill"], lo=float(col.min()), hi=float(col.max()))
         out.append(UsableCandidate(name, values, _binned_mi(values, y_codes, quantization_nbins, y_terms), recipe, (str(cand["col"]),), ()))

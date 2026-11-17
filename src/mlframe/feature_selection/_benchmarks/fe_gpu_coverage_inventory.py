@@ -651,6 +651,7 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_orthogonal_triplet_fe": ("_triple_mi_gpu", "_orthogonal_triplet_recipes",),
     "_offset_product_fe": ("_offset_product_gpu",),
     "_parity_fe": ("_parity_gpu",),
+    "_oof_warp_fe": ("_oof_warp_gpu", "_oof_warp_service"),
     "_orthogonal_dcor_fe": ("_dcor_gpu",),
     "_family_maxt_gate": ("_family_maxt_cuda_bits", "_family_maxt_cuda", "_family_maxt_stack", "_family_maxt_stream", "_family_maxt_null_v2_njit"),
     "_orthogonal_hsic_fe": ("_hsic_gpu",),

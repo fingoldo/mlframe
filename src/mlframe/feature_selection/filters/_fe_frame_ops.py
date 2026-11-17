@@ -50,6 +50,13 @@ def fe_columns(X: Any) -> list[str]:
     raise TypeError(f"fe_columns: unsupported frame type {type(X)!r}")
 
 
+def _column_lookup_errors() -> tuple:
+    """What a direct column lookup of a pandas frame raises when it cannot answer (evaluated only when a lookup failed, so pandas is not imported by this module)."""
+    import pandas as pd
+
+    return (LookupError, TypeError, ValueError, AttributeError, pd.errors.InvalidIndexError)
+
+
 def _pandas_column_array(X: Any, c: Any) -> Any:
     """Backing array of pandas column ``c`` (an ndarray or an extension array) without building a Series, or ``None`` when the column is absent, its name is duplicated or the frame
     has no direct accessor. ``X[c]`` constructs a Series on every call (30 us with pandas 3, 40 us with ``.to_numpy()``); the FE families read columns about 90000 times in a 100000 x 100 fit."""
@@ -58,7 +65,7 @@ def _pandas_column_array(X: Any, c: Any) -> Any:
         if type(i) is not int:
             return None
         return X._get_column_array(i)
-    except Exception:
+    except _column_lookup_errors():  # absent or unhashable name, a non-unique index, a frame without the accessor: the caller reads ``X[c]``
         return None
 
 
@@ -81,6 +88,21 @@ def fe_stack_columns(columns: "list[np.ndarray]", dtype: Any, out: "np.ndarray |
         r1 = min(n, r0 + _STACK_TILE_ROWS)
         for j in range(k):
             mat[r0:r1, j] = columns[j][r0:r1]
+    return mat
+
+
+def fe_stack_rows(columns: "list[np.ndarray]", dtype: Any) -> np.ndarray:
+    """The ``(k, n)`` C-ordered matrix whose row ``j`` is ``columns[j]`` cast to ``dtype`` (each row a contiguous copy of one column), filled in tiles of rows of the source.
+
+    The columns of a frame built from an ``(n, k)`` array are strided views of it, so copying one whole column after another reads a cache line per element (1.1 ms per column of 100000
+    float32 rows, 102 columns: 121 ms); in tiles every column's slice of the same source rows is read while they are in cache."""
+    k = len(columns)
+    n = int(columns[0].shape[0]) if k else 0
+    mat = np.empty((k, n), dtype=dtype)
+    for r0 in range(0, n, _STACK_TILE_ROWS):
+        r1 = min(n, r0 + _STACK_TILE_ROWS)
+        for j in range(k):
+            mat[j, r0:r1] = columns[j][r0:r1]
     return mat
 
 
