@@ -193,8 +193,23 @@ def _block_size(max_depth: int = 6) -> int:
     return max(32, min(block, fit))
 
 
+_ROW_BLOCK_MEMORY_SHARE = 0.4  # share of the free device memory one row block of X, its transpose and its phi may take (the tables and records stay resident next to them)
+_ROW_BLOCK_MIN = 4096
+
+
+def _row_block(n: int, f: int, real) -> int:
+    """Rows per device block: the (f, rows) float32 transpose of X, the staged float32 block of X and the (f, rows) ``phi`` of the element type ``real`` have to fit in a share of the free memory,
+    so a frame of tens of millions of rows is streamed in row blocks instead of exhausting the card (the per-row cost is ``f * (4 + 4 + itemsize(real))`` bytes)."""
+    import cupy as cp
+
+    free, _total = cp.cuda.runtime.memGetInfo()
+    per_row = f * (8 + np.dtype(real).itemsize)
+    return int(max(_ROW_BLOCK_MIN, min(n, (free * _ROW_BLOCK_MEMORY_SHARE) // max(1, per_row))))
+
+
 def treeshap_phi_base_table_gpu(ensemble: "TreeEnsemble", X: np.ndarray) -> Optional[tuple]:
-    """``(phi (n, f) float64, base)`` from the device table kernel, or ``None`` when the ensemble does not fit the table form or the rows do not repay the table build (the caller keeps the path kernel)."""
+    """``(phi (n, f) float64, base)`` from the device table kernel, or ``None`` when the ensemble does not fit the table form or the rows do not repay the table build (the caller keeps the path kernel).
+    The rows go through the device in row blocks sized from the free memory (:func:`_row_block`); the node arrays, the table and the preorder records are uploaded once and stay resident for the blocks."""
     import cupy as cp
 
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table import build_tables
@@ -205,30 +220,39 @@ def treeshap_phi_base_table_gpu(ensemble: "TreeEnsemble", X: np.ndarray) -> Opti
     if tab is None:
         return None
     real = _real()
-    if not _use_stack_walk():
+    i32 = np.int32
+    table_d = cp.asarray(tab["table"].astype(real))
+    leaf_feat_d = cp.asarray(tab["leaf_feat"].astype(i32))
+    preorder = not _use_stack_walk()
+    shared = False
+    if preorder:
         from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_preorder import preorder_records
 
         rec = preorder_records(ensemble, tab)
-        phi_d = cp.zeros((f, n), dtype=real)  # (feature, sample): coalesced adds, transposed once below
+        rec_d = cp.asarray(rec)
+        kern = _ensure_preorder_kernel(ensemble.max_depth, real)
         block = min(_block_size(), 1024)
-        _ensure_preorder_kernel(ensemble.max_depth, real)(
-            ((n + block - 1) // block,), (block,),
-            (cp.ascontiguousarray(cp.asarray(Xf).T), np.int32(n), np.int32(f), cp.asarray(rec), np.int32(rec.shape[0]), cp.asarray(tab["table"].astype(real)), cp.asarray(tab["leaf_feat"].astype(np.int32)), phi_d),
+    else:
+        shared = _stack_shared()
+        kern = _ensure_kernel(ensemble.max_depth, real, shared)
+        block = _block_size(ensemble.max_depth) if shared else min(_block_size(), 1024)
+        consts: tuple[Any, ...] = (
+            cp.asarray(ensemble.children_left), cp.asarray(ensemble.children_right), cp.asarray(ensemble.children_default), cp.asarray(ensemble.features), cp.asarray(ensemble.thresholds),
+            cp.asarray(tab["node_slot"].astype(i32)), cp.asarray(tab["leaf_of_node"].astype(i32)),
+            cp.asarray(tab["leaf_ud"].astype(i32)), cp.asarray(tab["leaf_feat_off"].astype(i32)), leaf_feat_d, cp.asarray(tab["leaf_table_off"].astype(i32)),
+            table_d, cp.asarray(ensemble.tree_roots), i32(ensemble.tree_roots.shape[0]),
         )
-        phi = np.ascontiguousarray(cp.asnumpy(phi_d).T).astype(np.float64, copy=False)  # Intentional float64: the caller's phi contract
-        return phi, float(ensemble.base_offset)
-    shared = _stack_shared()
-    kern = _ensure_kernel(ensemble.max_depth, real, shared)
-    i32 = np.int32
-    args: tuple[Any, ...] = (
-        cp.ascontiguousarray(cp.asarray(Xf).T), i32(n), i32(f),  # feature-major (f, n): the node reads of a warp coalesce
-        cp.asarray(ensemble.children_left), cp.asarray(ensemble.children_right), cp.asarray(ensemble.children_default), cp.asarray(ensemble.features), cp.asarray(ensemble.thresholds),
-        cp.asarray(tab["node_slot"].astype(i32)), cp.asarray(tab["leaf_of_node"].astype(i32)),
-        cp.asarray(tab["leaf_ud"].astype(i32)), cp.asarray(tab["leaf_feat_off"].astype(i32)), cp.asarray(tab["leaf_feat"].astype(i32)), cp.asarray(tab["leaf_table_off"].astype(i32)),
-        cp.asarray(tab["table"].astype(real)), cp.asarray(ensemble.tree_roots), i32(ensemble.tree_roots.shape[0]),
-    )
-    phi_d = cp.zeros((f, n), dtype=real)  # (feature, sample): coalesced adds, transposed once below
-    block = _block_size(ensemble.max_depth) if shared else min(_block_size(), 1024)
-    kern(((n + block - 1) // block,), (block,), (*args, phi_d), shared_mem=8 * _maxsp(ensemble.max_depth) * block if shared else 0)
-    phi = np.ascontiguousarray(cp.asnumpy(phi_d).T).astype(np.float64, copy=False)  # Intentional float64: the caller's phi contract
+    rows = _row_block(n, f, real)
+    phi = np.empty((n, f), dtype=np.float64)  # Intentional float64: the caller's phi contract
+    for start in range(0, n, rows):
+        stop = min(n, start + rows)
+        m = stop - start
+        xt_d = cp.ascontiguousarray(cp.asarray(Xf[start:stop]).T)  # feature-major (f, m): the node reads of a warp coalesce
+        phi_d = cp.zeros((f, m), dtype=real)  # (feature, sample): coalesced adds, transposed once below
+        grid = ((m + block - 1) // block,)
+        if preorder:
+            kern(grid, (block,), (xt_d, i32(m), i32(f), rec_d, i32(rec.shape[0]), table_d, leaf_feat_d, phi_d))
+        else:
+            kern(grid, (block,), (xt_d, i32(m), i32(f), *consts, phi_d), shared_mem=8 * _maxsp(ensemble.max_depth) * block if shared else 0)
+        phi[start:stop] = cp.asnumpy(phi_d).T
     return phi, float(ensemble.base_offset)

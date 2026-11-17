@@ -116,3 +116,24 @@ def test_preorder_kernel_equals_stack_kernel_with_nan(monkeypatch):
     monkeypatch.setenv("MLFRAME_SHAP_TREESHAP_KERNEL", "preorder")
     got = treeshap_phi_base_table_gpu(ens, X)
     np.testing.assert_array_equal(got[0], ref[0])
+
+
+@pytest.mark.parametrize("walk", ["preorder", "stack"])
+def test_row_blocks_give_the_same_values_as_one_block(monkeypatch, walk):
+    """A frame larger than the row block is streamed through the device in several blocks (the tables stay resident) and the values equal those of one block, for both walks, with NaN rows."""
+    import mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table_gpu as tg
+
+    monkeypatch.setenv("MLFRAME_SHAP_TREESHAP_KERNEL", "stack" if walk == "stack" else "preorder")
+    ens, X = _ensemble(8, 4, 20)
+    X = np.tile(X, (3, 1))
+    X[::7, 2] = np.nan
+    whole, base = tg.treeshap_phi_base_table_gpu(ens, X)
+    calls = []
+    real_block = tg._row_block
+    monkeypatch.setattr(tg, "_row_block", lambda n, f, real: (calls.append(n), 250)[1])
+    blocked, base_b = tg.treeshap_phi_base_table_gpu(ens, X)
+    assert calls and X.shape[0] > 250
+    np.testing.assert_allclose(blocked, whole, rtol=0, atol=1e-6)
+    assert base_b == base
+    assert real_block(10**9, 100, np.float32) >= tg._ROW_BLOCK_MIN
+    assert real_block(10**9, 100, np.float32) < 10**9  # a billion rows cannot sit on the card at once
