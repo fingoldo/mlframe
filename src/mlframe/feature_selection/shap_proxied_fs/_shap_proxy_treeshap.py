@@ -70,6 +70,8 @@ class TreeEnsemble:
 
 _XGB_DEFAULT_FEATURE = re.compile(r"^f(\d+)$")
 
+_XGB_LOG_LINK_OBJECTIVES = frozenset({"count:poisson", "reg:gamma", "reg:tweedie", "survival:cox"})
+
 
 def _resolve_split_feature(split, fmap) -> int:
     """Map an xgboost JSON-dump split name to a column index.
@@ -108,6 +110,9 @@ def _extract_xgboost_ensemble(booster, n_features: int) -> TreeEnsemble:
         # as the least-bad behaviour for a degenerate input, and CPU/GPU agree on it (not a parity bug).
         p = min(max(base_offset, 1e-7), 1.0 - 1e-7)
         base_offset = float(np.log(p / (1.0 - p)))
+    elif objective in _XGB_LOG_LINK_OBJECTIVES:
+        # log-link objectives also store base_score in output space; the margin intercept is log(base_score).
+        base_offset = float(np.log(max(base_offset, 1e-300)))
 
     fmap = {name: i for i, name in enumerate(booster.feature_names)} if booster.feature_names else None
     dumps = booster.get_dump(dump_format="json", with_stats=True)

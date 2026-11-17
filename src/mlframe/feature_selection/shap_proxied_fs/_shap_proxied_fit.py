@@ -68,6 +68,8 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
         # Reset per-fit su_seeded_interactions scratch so a re-fit never reuses a prior fit's pairs.
         self._su_seeded_pairs_orig = None
         self._su_seeded_screen_info = {}
+        # A re-fit must replay the same stream as the first fit, not continue the one __init__ seeded.
+        self._rng = np.random.default_rng(self.random_state)
         return X, y, n_features
 
     def _fit_resolve_model_template(

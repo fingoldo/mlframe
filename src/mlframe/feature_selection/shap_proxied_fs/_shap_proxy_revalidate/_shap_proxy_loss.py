@@ -57,6 +57,12 @@ _HONEST_LOSS_CACHE_PREFIX = "honest_loss_"
 _PERM_IMP_FIT_CACHE_PREFIX = "perm_imp_fit_"
 
 
+def _estimator_identity(model_template) -> str:
+    """Fully qualified class name of the template, so two estimator classes sharing identical params never share a disk-cache key."""
+    cls = type(model_template)
+    return f"{cls.__module__}.{cls.__qualname__}"
+
+
 def _build_honest_loss_disk_key(model_template, X_tr, y_tr, X_ev, y_ev, idx, classification, metric, seed, n_estimators_cap, template_id) -> Optional[str]:
     """Return a stable cache key for an ``_honest_loss`` call, or ``None`` if hashing fails.
 
@@ -90,6 +96,7 @@ def _build_honest_loss_disk_key(model_template, X_tr, y_tr, X_ev, y_ev, idx, cla
             "n_estimators_cap": n_estimators_cap,
             "template_id": template_id,
             "params": params,
+            "estimator": _estimator_identity(model_template),
         })
         return _HONEST_LOSS_CACHE_PREFIX + compose_key(x_tr_key, y_tr_key, x_ev_key, y_ev_key, state_key)
     except Exception as exc:
@@ -127,6 +134,7 @@ def _build_perm_fit_disk_key(model_template, X_tr, y_tr, idx, n_estimators_cap, 
             "n_estimators_cap": n_estimators_cap,
             "template_id": template_id,
             "params": params,
+            "estimator": _estimator_identity(model_template),
         })
         return _PERM_IMP_FIT_CACHE_PREFIX + compose_key(x_tr_key, y_tr_key, state_key)
     except Exception as exc:
@@ -560,7 +568,9 @@ def _parallel_honest_losses(tasks, model_template, X_tr, y_tr, X_ev, y_ev, class
     n_cores = os.cpu_count() or 1
     if n_jobs in (None, 0):
         n_jobs = 1
-    outer = n_cores if n_jobs == -1 else n_jobs
+    if n_jobs < 0:
+        n_jobs = max(1, n_cores + 1 + n_jobs)  # joblib convention: -1 -> all cores, -2 -> all but one
+    outer = n_jobs
     outer = max(1, min(outer, len(tasks), n_cores))
     if inner_n_jobs_cap:
         inner = max(1, n_cores // outer)

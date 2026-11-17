@@ -152,6 +152,7 @@ def _residual_pass2_shap(
             inner_n_jobs_cap=self.inner_n_jobs_cap,
             return_per_fold_phi_mean=True,
             cache_dir=self.cache_dir,
+            cv_policy=getattr(self, "_search_cv_policy", None),
         )
     return phi2, base2, y2, per_fold_phi_mean2
 

@@ -153,13 +153,17 @@ def _stable_class_ss(
     return sst, ssbn
 
 
-def _per_class_sums_legacy(chunk: np.ndarray, masks: list, acc_dtype: np.dtype, K: int, b: int) -> tuple[np.ndarray, np.ndarray]:
-    """Legacy K-loop per-class column sums and sums of squares (sklearn bit-parity path); returns ``(sums, sumsq)``."""
+def _per_class_sums_legacy(
+    chunk: np.ndarray, masks: list, acc_dtype: np.dtype, K: int, b: int, with_sumsq: bool = True
+) -> tuple[np.ndarray, Optional[np.ndarray]]:
+    """Legacy K-loop per-class column sums and sums of squares (sklearn bit-parity path); returns ``(sums, sumsq)`` (``sumsq`` is None when ``with_sumsq`` is False)."""
     sums = np.empty((K, b), dtype=acc_dtype)
-    sumsq = np.empty((K, b), dtype=acc_dtype)
+    sumsq = np.empty((K, b), dtype=acc_dtype) if with_sumsq else None
     for k, mask in enumerate(masks):
         block = chunk[mask, :]  # (n_k, b)
         sums[k] = block.sum(axis=0)
+        if sumsq is None:
+            continue
         # Use (block * block).sum to match sklearn's safe_sqr(a).sum(axis=0) accumulation
         # order. einsum would route through a BLAS dot that reorders sums and breaks
         # bit-parity with sklearn under float32.
@@ -259,12 +263,10 @@ def f_classif_chunked(
             # K column-reductions with one BLAS call; chunk_sq is the only (N,b) scratch we pay
             # for, same as the legacy path's (n_k,b) per-class block taken K times.
             sums = indicators @ chunk
-            chunk_sq = chunk * chunk
-            sumsq = indicators @ chunk_sq
+            sumsq = None if stable else indicators @ (chunk * chunk)
         else:
-            sums, sumsq = _per_class_sums_legacy(chunk, masks, acc_dtype, K, b)
+            sums, sumsq = _per_class_sums_legacy(chunk, masks, acc_dtype, K, b, with_sumsq=not stable)
         grand_sum = sums.sum(axis=0)  # (b,)
-        total_sumsq = sumsq.sum(axis=0)  # (b,)
         correction = (grand_sum * grand_sum) / acc_dtype.type(N)
         if stable:
             # Re-accumulate against the grand mean. `sst` is then a sum of squares of deviations -- every term
@@ -272,6 +274,7 @@ def f_classif_chunked(
             # because the centred grand sum is zero by construction.
             sst, ssbn = _stable_class_ss(chunk, grand_sum, n_per_class, indicators, masks, acc_dtype, gemm_active, N, K, b)
         else:
+            total_sumsq = cast(np.ndarray, sumsq).sum(axis=0)  # (b,)
             sst = total_sumsq - correction
             ssbn = (sums * sums / n_per_class[:, None]).sum(axis=0) - correction
         sswn = sst - ssbn
