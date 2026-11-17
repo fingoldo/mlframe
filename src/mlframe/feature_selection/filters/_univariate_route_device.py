@@ -23,9 +23,31 @@ def _native_column(series: Any) -> np.ndarray:
     return a if a.dtype.kind == "f" else a.astype(np.float32)
 
 
+#: Share of the free device memory one whole-block upload (the row-major block and its transposed copy) may take; a larger block is filled column by column.
+_BLOCK_UPLOAD_FRACTION = 0.25
+
+
 def _upload_columns(cp: Any, columns: list, dtype: Any) -> Any:
-    """The ``(n, k)`` device matrix of the host columns, filled column by column on the device (no host ``column_stack`` copy of the whole block: 0.1 s for 100 columns of 100000 rows)."""
-    out = cp.empty((int(columns[0].shape[0]), len(columns)), dtype=dtype)
+    """The ``(n, k)`` device matrix of the host columns.
+
+    The columns are copied as the rows of one host block (a contiguous copy each, no strided ``column_stack`` write), uploaded in one transfer and transposed on the device: two launches
+    for the block. Filling the device matrix column by column was one transfer and one assignment launch per column (420 transfers of 120 kB, 0.48 s of a 100000 x 100 fit). A block whose two
+    device copies do not fit the free-memory share keeps the column-by-column fill."""
+    n, k = int(columns[0].shape[0]), len(columns)
+    need = 2 * n * k * int(np.dtype(dtype).itemsize)
+    try:
+        from ._device_sort_safe import device_room
+
+        fits = need <= _BLOCK_UPLOAD_FRACTION * device_room(cp)
+    except Exception as exc:
+        log_throttle(logger, "univariate_route_device_room", logging.DEBUG, "device room unknown (%s: %s); column-by-column upload", type(exc).__name__, exc)
+        fits = False
+    if fits and k > 1:
+        rows = np.empty((k, n), dtype=dtype)
+        for j, col in enumerate(columns):
+            rows[j] = col
+        return cp.ascontiguousarray(cp.asarray(rows).T)
+    out = cp.empty((n, k), dtype=dtype)
     for j, col in enumerate(columns):
         out[:, j] = cp.asarray(col)
     return out
