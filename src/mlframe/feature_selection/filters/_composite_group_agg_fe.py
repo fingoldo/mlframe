@@ -882,7 +882,7 @@ def hybrid_composite_group_agg_fe(
     ``y`` is consumed ONLY by the CMI scorer / gate; recipes carry no y, so
     transform-time replay is leakage-free.
     """
-    from ._grouped_agg_fe import score_grouped_agg_by_cmi_uplift
+    from ._grouped_agg_fe import _filter_num_cols_by_relevance, score_grouped_agg_by_cmi_uplift
 
     if not isinstance(X, pd.DataFrame):
         raise TypeError(f"hybrid_composite_group_agg_fe: X must be a pandas DataFrame; got " f"{type(X).__name__}")
@@ -904,6 +904,10 @@ def hybrid_composite_group_agg_fe(
     if num_cols is None or len(num_cols) == 0:
         all_group_cols = sorted({c for gset in group_col_sets for c in gset})
         num_cols = _auto_detect_num_cols(X, all_group_cols)
+        # As in ``hybrid_grouped_agg_fe``: keep the auto-detected sources that carry marginal information about y. The scorer conditions on every source, and the joint class of 32 continuous
+        # columns puts each row in a cell of its own, which made every candidate's conditional MI exactly 0 (nothing could ever be selected at 100000 x 100); an aggregate of a source independent of y
+        # can only re-encode the key's own information. Columns the caller names are trusted as given.
+        num_cols = _filter_num_cols_by_relevance(X, y, num_cols, n_bins=n_bins)
     else:
         num_cols = [c for c in num_cols if c in X.columns]
     if not num_cols:
