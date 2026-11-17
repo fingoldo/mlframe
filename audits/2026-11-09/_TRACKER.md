@@ -850,3 +850,11 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 - `mi_cd_columns_device` ran 132 times in a 100000 x 100 fit (2.2 s synchronised, 0.84 s of it a thrust argsort with the lock held); 105 of the calls scored one column each: `_batch_one_scorer('ksg')` sent every column to the per-column scorer as soon as one column of the block had a missing value.
 - The complete columns now go in one batch (same values: each column draws its noise from its own seed) and only the incomplete ones are scored on their finite rows: 132 -> 28 calls, 2.2 -> 1.1 s.
 - Wall 49.2 / 50.6 s, the same seven features: the saving is on one of three concurrent lanes and below the run-to-run spread (about 1.5 s).
+
+### MR11-08 serial tail: what the 19 s after the cascades are made of (2026-11-17)
+- cProfile of a `MLFRAME_FE_STAGE_CONCURRENCY=0` fit (62.4 s under the profiler, 12.2 M calls): main thread waits 9.6 s on pools, 3.7 s in `cupy.ndarray.get` (2515 blocking reads), 2.5 s in `numpy.ascontiguousarray` (23594 calls), 1.3 s in pandas `_interleave` (79 frame-to-matrix copies).
+- Tail, which is serial and therefore on the critical path: pair step 6.9 s (`check_prospective_fe_pairs` 2.9, materialise 1.5, gradient seeder 1.3, score pairs 1.0), two screens 5.8 s (FDR floor 2.8, of it the honest null 2.5 s for 184 columns x 999 permutations; confirm 2.1), `_assign_support` 3.3 s (`retain_usable_pure_forms` 1.7).
+- Honest null: one spec per fit, the second screen computes only its 6 new columns (0.24 s) - the per-column cache already works across screens.
+- Open candidate (not done): compute the honest null of the raw columns on a worker during the cascades and transplant it into the real spec's `_null_columns` (about 1.4 s of the tail). Needs the screen's evaluation rows, seed and target codes before the screen exists.
+- Gradient seeder `_rff_analytic_mixed_partial_energy_gram`: 13 calls x 40 ms, already about 20 GFlop/s on the host BLAS; a device version would save about 0.3 s. Not done.
+- Row sweep reminder: 25000 rows 39.7 s against 100000 rows 50 s, so about 40 s of the fit does not depend on the row count (per-family orchestration and launches).
