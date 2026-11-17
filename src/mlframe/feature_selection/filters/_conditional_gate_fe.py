@@ -69,7 +69,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 
 from mlframe.feature_selection.filters._y_encoding import encode_y_for_classif_mi
 
-from ._pairwise_modular_fe import _mi
+from ._pairwise_modular_fe import _mi, _mi_columns
 from ._lattice_gate_hit_shared import margin_over_operands as _margin_over_operands, responded_property as _responded_property
 
 logger = logging.getLogger(__name__)
@@ -565,7 +565,7 @@ def cheap_row_argmax_scan(
     # name order alone drops a planted column past the first few names (x2 after x0, x1, x10 ... at p=200). Rank the columns by marginal MI
     # against y instead, ties broken by name, so the budget is spent on the strongest triples and the result stays invariant to input order.
     _yi_rank = encode_y_for_classif_mi(np.asarray(y))
-    _mi_rank = {c: _mi(np.asarray(X[c]), _yi_rank, nbins=nbins) for c in cols}
+    _mi_rank = _mi_columns(X, cols, _yi_rank, nbins=nbins)  # one batched call for all columns, the per-column values
     cols = sorted(cols, key=lambda c: (-_mi_rank[c], str(c)))
     # `encode_y_for_classif_mi`, NOT `astype(np.int64)`. The bare cast is the continuous-target truncation trap
     # `_y_encoding.py` exists to prevent, and every sibling FE family already routes through it: on a regression

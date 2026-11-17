@@ -879,3 +879,8 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 - `utilization 100000 100` (STRICT set, wait-cool 70 C): wall 49.8 s, CPU busy 58.4 % of all cores, GPU busy 18.8 %, card under 10 % in 43 % of the samples, never both idle. GPU 70 C before, mean 75 C, max 84 C, SM clock 1704/1911 MHz, no throttle; CPU 2808 MHz.
 - Background during the run: two VS Code processes at about 20 % of all cores together and an open Task Manager; the same harness without the sampler gave 47.6-48.4 s in this session.
 - Against the morning baseline (54.1 s, CPU 41.7 %, GPU 17.2 %): wall -4.3 s; GPU occupancy unchanged, which is the open problem (the cascades hold the interpreter lock, the card waits).
+
+### MR11-13 marginal-MI ranking of the row-argmax / gate families in one batch (2026-11-17)
+- `cheap_row_argmax_scan` and `_top_marginal_mi_columns` ranked the eligible columns with one `_mi` call per column (about 100 launches, 0.44 s at 30000 rows STRICT-resident; tiny-cupy row `cheap_row_argmax_scan`, 0.76 s in CT11-149). `_pairwise_modular_fe._mi_columns` scores them in column blocks with one batched call: 0.10 s, values equal bit for bit on the host and STRICT-resident routes at 4000 / 30000 / 100000 rows.
+- Wall 47.9 / 48.0 s, the same seven features (the family sits on a concurrent lane).
+- Three biz-value tests are red at HEAD without this change (`test_master_on_emits_discrete_operator_feature`, `test_row_argmax_detects_on_argmax_regression_target`, `test_biz_val_conditional_gate_end_to_end_auc_lift`): next item.

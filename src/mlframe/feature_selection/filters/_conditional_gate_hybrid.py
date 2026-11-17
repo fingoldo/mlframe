@@ -12,7 +12,7 @@ import numpy as np
 
 from mlframe.feature_selection.filters._y_encoding import encode_y_for_classif_mi
 
-from ._pairwise_modular_fe import _mi
+from ._pairwise_modular_fe import _mi_columns
 
 # the parent's logger: the carve moved these entry points into this file, and their messages keep the logger name configurations and tests use
 logger = logging.getLogger("mlframe.feature_selection.filters._conditional_gate_fe")
@@ -111,7 +111,8 @@ def detect_conditional_gate(
 def _top_marginal_mi_columns(X, y: np.ndarray, cols: Sequence[str], k: int, *, nbins: int) -> list[str]:
     """The ``k`` columns of ``cols`` with the largest marginal binned MI against ``y``, in their original order."""
     yi = encode_y_for_classif_mi(np.asarray(y))
-    scores = np.array([_mi(np.asarray(X[c]), yi, nbins=nbins) for c in cols], dtype=np.float64)  # Intentional float64: ranking statistic
+    by_col = _mi_columns(X, cols, yi, nbins=nbins)  # one batched call, the per-column values
+    scores = np.array([by_col[c] for c in cols], dtype=np.float64)  # Intentional float64: ranking statistic
     keep = set(np.argsort(-scores, kind="stable")[:k].tolist())
     return [c for i, c in enumerate(cols) if i in keep]
 
