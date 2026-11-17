@@ -988,3 +988,7 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 - `_fe_frame_ops.fe_stack_columns` fills the matrix in tiles of 1024 rows: 75-77 ms for the same block, identical matrix. Used for the honest null's raw block, the dominant-candidate matrix and `_mi_columns`.
 - After MR11-34 the day's replacements that run inside thread pools were timed again with eight threads: held-out smooth R2 with compiled ranks 126 ms against 200 ms with scipy (105 columns); `pointwise_mi` 35 against 90 ms (400 calls); spread test 30 against 57 ms; non-finite scrub 23 against 95 ms (300 columns of 100000). They hold.
 - Wall of the last five runs 45.6-47.4 s (the machine is noisier this hour); the same seven features.
+
+### MR11-36 resident matrix assembled from the caller's columns (plan step D) (2026-11-17)
+- `_gpu_build_and_score_univariate` stacked its candidate / used columns into a host matrix and `assemble_resident_matrix` cut that matrix back into contiguous columns to look each one up in the operand cache (1486 strided column copies and two `column_stack` calls per variant call). `assemble_resident_matrix(columns=...)` takes the columns as they are (contiguous, requested dtype, the form the matrix route hands the cache, so they hit the same operands); the host matrix is built only for the fallback upload.
+- 55 related tests pass (a new one pins: same device matrix, no upload on the second route). Wall 45.1-46.6 s over five runs, the same seven features.
