@@ -348,6 +348,13 @@ def iter_candidates(
 # Materialisation + scoring.
 # ---------------------------------------------------------------------------
 
+def _zero_nonfinite(out: np.ndarray) -> np.ndarray:
+    """``out`` with NaN and both infinities set to 0: the values ``nan_to_num(nan=0, posinf=0, neginf=0)`` gives (``isfinite`` is False for exactly those three) without its per-call sign and
+    limit machinery. One test pass, and a second pass only for a column that has something to replace (932 candidates a fit took 2.4 ms each through ``nan_to_num``)."""
+    finite = np.isfinite(out)
+    return out if bool(finite.all()) else np.where(finite, out, out.dtype.type(0))
+
+
 def _materialise_candidate(
     X: pd.DataFrame, src_cols: tuple[str, ...], tname: str, col_cache: Optional[dict] = None,
 ) -> Optional[np.ndarray]:
@@ -379,8 +386,7 @@ def _materialise_candidate(
             tname, src_cols, exc,
         )
         return None
-    out = np.asarray(out, dtype=_crit_np_dtype())
-    return np.asarray(np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0))
+    return _zero_nonfinite(np.asarray(out, dtype=_crit_np_dtype()))
 
 @fe_timed("mi_greedy")
 def generate_mi_greedy_features(
@@ -754,5 +760,4 @@ def apply_mi_greedy_transform(
         out = fn_b(src_values[0], src_values[1])
     else:
         raise ValueError(f"apply_mi_greedy_transform: src_values length {len(src_values)} " f"unsupported (only unary / binary registered).")
-    out = np.asarray(out, dtype=_crit_np_dtype())
-    return np.asarray(np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0))
+    return _zero_nonfinite(np.asarray(out, dtype=_crit_np_dtype()))
