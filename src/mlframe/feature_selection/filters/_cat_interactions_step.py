@@ -7,6 +7,7 @@ resolves transparently.
 """
 from __future__ import annotations
 
+from mlframe.system._ram_probe import host_memory
 import logging
 import math
 from typing import Tuple, Any
@@ -366,8 +367,7 @@ def _run_cat_interactio_memmap_detection(data):
     """Block of run_cat_interaction_step starting at ``if isinstance(data.base, np.memmap):``."""
     if isinstance(data.base, np.memmap):
         try:
-            import psutil
-            avail = psutil.virtual_memory().available
+            avail = host_memory()[0]
         except ImportError:
             avail = -1
         if avail > 0 and data.nbytes > avail * 0.5:

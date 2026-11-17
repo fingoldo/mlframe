@@ -42,6 +42,7 @@ Leakage safety (CRITICAL)
 """
 from __future__ import annotations
 
+from mlframe.system._ram_probe import host_memory
 from mlframe.feature_selection.filters._fe_frame_ops import fe_column_values
 from ._grouped_coerce_shared import auto_detect_group_cols, coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols, broadcast_lookup as _broadcast_lookup
 
@@ -844,9 +845,7 @@ def _grouped_quantile_block_cols(X: pd.DataFrame, group_cols, num_cols) -> "int 
         return int(forced)
     per_num = len(X) * 3 * 4 * 3  # three float32 candidates, held as the dict, the frame block and a copy
     try:
-        import psutil
-
-        budget = int(psutil.virtual_memory().available) // 4
+        budget = host_memory()[0] // 4
     except Exception as exc:
         log_throttle(logger, "_grouped_quantile_fe.except_769", logging.INFO, "grouped quantile blocks: available RAM unreadable (%r); one block", exc)
         return None

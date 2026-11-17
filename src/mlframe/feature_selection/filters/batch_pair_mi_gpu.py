@@ -29,6 +29,7 @@ available; auto-skip otherwise).
 """
 from __future__ import annotations
 
+from mlframe.system._ram_probe import host_memory
 import logging
 
 from mlframe.utils.log_throttle import log_throttle
@@ -651,9 +652,7 @@ def _free_ram_bytes_for_chunking() -> int:
     ``_mrmr_sis_screen._free_ram_bytes`` - duplicated (not imported) to avoid a cross-package import
     cycle (``_mrmr_sis_screen`` itself lazily imports sibling FE modules that can reach this file)."""
     try:
-        import psutil
-
-        return int(psutil.virtual_memory().available)
+        return host_memory()[0]
     except Exception as e:
         logger.debug("psutil unavailable for free-RAM probe (%s: %s) -- using 2 GB conservative fallback", type(e).__name__, e)
         return 2 * 1024**3  # 2 GB conservative fallback

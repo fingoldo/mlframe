@@ -53,6 +53,7 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 
 from __future__ import annotations
 
+from mlframe.system._ram_probe import host_memory
 from typing import cast
 import logging
 import math
@@ -452,9 +453,7 @@ def _decompose_block_columns(X: pd.DataFrame, cols, per_source: int) -> "int | N
     n_src = len(_numeric_cols(X, cols))
     per_col = len(X) * max(1, per_source) * 4 * 3  # float32 candidates, held as the frame, its array copy and the concat
     try:
-        import psutil
-
-        budget = int(psutil.virtual_memory().available) // 4
+        budget = host_memory()[0] // 4
     except Exception as exc:
         log_throttle(logger, "_numeric_decompose_fe.except_428", logging.INFO, "numeric decompose blocks: available RAM unreadable (%r); one block", exc)
         return None

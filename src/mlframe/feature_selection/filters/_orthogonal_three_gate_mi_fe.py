@@ -61,6 +61,7 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 
 from __future__ import annotations
 
+from mlframe.system._ram_probe import host_memory
 from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name, split_engineered_name
 
 import logging
@@ -454,10 +455,8 @@ def _kfold_fold_jobs(n: int, n_cols: int, itemsize: int, n_folds: int) -> int:
 
     jobs = _resolve_edge_jobs(None, n_folds)
     try:
-        import psutil
-
         per_fold = int(0.8 * n) * n_cols * itemsize * 2
-        return max(1, min(jobs, int(0.4 * psutil.virtual_memory().available // max(1, per_fold))))
+        return max(1, min(jobs, int(0.4 * host_memory()[0] // max(1, per_fold))))
     except Exception as exc:  # best-effort: only the number of folds in flight changes, never a score
         logger.debug("fold pool memory bound unavailable (%s); two folds at most", exc)
         return min(jobs, 2)

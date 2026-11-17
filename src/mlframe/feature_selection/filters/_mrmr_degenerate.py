@@ -29,6 +29,7 @@ column-side diagnostic.
 """
 from __future__ import annotations
 
+from mlframe.system._ram_probe import host_memory
 from typing import Any, Iterator
 import logging
 from typing import Callable, Optional
@@ -374,9 +375,7 @@ def audit_degenerate_columns(X: Any, max_collinearity_cols: int = _COLLINEARITY_
         # that streams (the random-projection pass) instead of allocating (1085 MB of growth for a 400 MB frame at a million rows x 100 columns)
         max_collinearity_bytes = _COLLINEARITY_PASS_MAX_BYTES
         try:
-            import psutil
-
-            max_collinearity_bytes = min(max_collinearity_bytes, int(psutil.virtual_memory().available) // 10)
+            max_collinearity_bytes = min(max_collinearity_bytes, host_memory()[0] // 10)
         except Exception as exc:  # no psutil: the fixed cap decides
             logger.debug("degenerate audit: free-memory probe failed (%s); using the fixed %d byte cap", exc, max_collinearity_bytes)
     degenerate: dict = {}

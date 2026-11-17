@@ -839,3 +839,9 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 - py-spy `--gil`: 2.74 s of the 32.9 s the interpreter lock is held sit in `DataFrame.__getitem__` (pandas 3 builds a Series per `X[c]`: 30 us, 41 us with `.to_numpy()`), about 90000 column reads over ~60 call sites.
 - `_fe_frame_ops.fe_column_values` / `fe_column_is_numeric` read the block array directly (2.9 us) and fall back to the Series route for a duplicated name or a missing accessor; 14 hot modules moved to them (dedup classify, basis memo key, resident operands, quadruplet / pair cross, honest spec, recipe extract, unified gate, greedy CMI pool, binned agg, grouped quantile, composite group agg).
 - Wall, same harness: 50.8-51.1 s before, 50.8 / 49.5 s after; the same seven features. Remaining `X[c]` sites: the long tail below 0.05 s each.
+
+### MR11-06 host memory probe (2026-11-17)
+- py-spy `--gil` after MR11-05: lock held 29.3 s (32.9 before; pandas 5.2 -> 3.2 s). `psutil.virtual_memory()` 0.54 s: 2.1 ms per call on this Windows host, called at every family start (`release_if_memory_low`) and budget check.
+- `mlframe.system._ram_probe.host_memory()` reads `GlobalMemoryStatusEx` (3.8 us, the same available / total numbers), psutil elsewhere, and a `psutil.virtual_memory` replaced by a test double is honoured; 15 filter modules moved to it.
+- Wall 50.9 / 49.1 / 49.5 s (card at 76 C after back-to-back runs), the same seven features.
+- Found red on the way and fixed: `test_synthesis_xor3_recovered_by_triplet_synthesizer` (pair-only arm left the adaptive-arity family on), `test_row_chunked_pair_mi_warns_when_cupy_memory_probe_fails` (asserted a message the module no longer writes).

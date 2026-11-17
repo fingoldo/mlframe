@@ -37,6 +37,7 @@ Performance notes:
 """
 from __future__ import annotations
 
+from mlframe.system._ram_probe import host_memory
 import logging
 import math
 import threading
@@ -682,9 +683,7 @@ def _cap_jobs_by_memory(jobs: int, n_rows: int, bytes_per_row: int = _EDGE_BYTES
     except ValueError:
         pass
     try:
-        import psutil
-
-        cap = min(cap, int(_EDGE_RAM_FREE_FRACTION * psutil.virtual_memory().available))
+        cap = min(cap, int(_EDGE_RAM_FREE_FRACTION * host_memory()[0]))
     except Exception as exc:  # no psutil: the fixed cap stands
         logger.debug("edge memory cap: free RAM unknown (%r)", exc)
     per_column = max(1, int(n_rows)) * int(bytes_per_row)

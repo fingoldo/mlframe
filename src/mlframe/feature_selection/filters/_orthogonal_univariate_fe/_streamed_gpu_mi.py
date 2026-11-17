@@ -14,6 +14,7 @@ Safety margins (measured, pinned against pageable on this host: 5.8 vs 3.8 GB/s 
 
 from __future__ import annotations
 
+from mlframe.system._ram_probe import host_memory
 import logging
 import time
 from typing import Any, Iterable, Optional
@@ -71,8 +72,7 @@ def _host_free_bytes() -> int:
     if now - stamp < _HOST_FREE_TTL_SECONDS:
         return cached
     try:
-        import psutil
-        value = int(psutil.virtual_memory().available)
+        value = host_memory()[0]
     except Exception as _exc:
         logger.warning("free-memory probe failed, assuming 2 GiB: %s", _exc)
         value = 2 * 1024**3

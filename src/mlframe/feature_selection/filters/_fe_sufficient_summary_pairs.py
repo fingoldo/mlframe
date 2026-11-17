@@ -13,6 +13,7 @@ to the old behaviour.
 
 from __future__ import annotations
 
+from mlframe.system._ram_probe import host_memory
 import logging
 import threading
 from typing import Any, Callable, Optional
@@ -378,9 +379,7 @@ def _block_best_gpu(a_t: np.ndarray, b_t: np.ndarray, r: np.ndarray, k: int, kr:
 def _block_cols_for(n_used: int, p: int) -> int:
     """Columns per streamed block: two int8 blocks of ``n_used`` rows stay inside ``BLOCK_RAM_FRACTION`` of the free RAM."""
     try:
-        import psutil
-
-        free = int(psutil.virtual_memory().available)
+        free = host_memory()[0]
     except Exception as exc:
         logger.warning("_block_cols_for: psutil free-RAM probe failed (%s); using the fixed block width %d", exc, BLOCK_COLS)
         return int(min(BLOCK_COLS, p))

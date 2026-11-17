@@ -7,6 +7,7 @@ function that drops its cache and returns the bytes it freed; the budget check r
 
 from __future__ import annotations
 
+from mlframe.system._ram_probe import host_memory
 import logging
 import threading
 from typing import Callable
@@ -57,18 +58,16 @@ def release_if_memory_low() -> int:
     The caches were released only when a budget check refused a fast path, so on a long frame they accumulated through the FE stages (about 1 GB after a 300000-row fit,
     several GB at 10 million rows) until the next large allocation failed; checked at every family start, they are dropped before the family needs the room."""
     try:
-        import psutil
-
-        vm = psutil.virtual_memory()
+        available, total = host_memory()
     except Exception as exc:  # no psutil: nothing is known about the free memory, keep the caches
         global _PROBE_WARNED
         if not _PROBE_WARNED:
             _PROBE_WARNED = True
             logger.warning("free-memory probe failed (%r); keeping the caches (reported once per process)", exc)
         return 0
-    if vm.available >= max(_LOW_FREE_BYTES, int(_LOW_FREE_FRACTION * vm.total)):
+    if available >= max(_LOW_FREE_BYTES, int(_LOW_FREE_FRACTION * total)):
         return 0
     freed = release_registered_caches()
     if freed:
-        log_throttle(logger, "_cache_release.low_memory", logging.INFO, "free RAM %.1f GB: released %.0f MB of stage caches before the next FE family", vm.available / 1e9, freed / 2**20)
+        log_throttle(logger, "_cache_release.low_memory", logging.INFO, "free RAM %.1f GB: released %.0f MB of stage caches before the next FE family", available / 1e9, freed / 2**20)
     return freed
