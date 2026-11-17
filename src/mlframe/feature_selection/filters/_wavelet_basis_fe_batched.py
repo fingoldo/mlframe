@@ -29,6 +29,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 
 from ._fe_env_switch import fused_switch_enabled
 from ._fe_frame_ops import fe_std_below
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +282,7 @@ def select_wavelet_legs_columns_device(xs: list, y: np.ndarray, los: list, spans
 
         if not fe_gpu_device_born_wavelet_enabled() or not fused_switch_enabled(_FUSED_ENV):
             return None
-    except Exception as e:
+    except ImportError as e:  # no cupy on this host: the per-column host selection is the only route
         logger.debug("batched wavelet-leg selection unavailable: %s", e)
         return None
     from ._wavelet_basis_fe import _WAVELET_MIN_HALF_ROWS, _WAVELET_MIN_HELDOUT_MI, _WAVELET_MIN_ROWS, _bin_y_codes
@@ -345,7 +346,7 @@ def select_wavelet_legs_columns_device(xs: list, y: np.ndarray, los: list, spans
                 flush()
         flush()
     except Exception as e:
-        logger.debug("batched wavelet-leg selection failed, the columns are selected one by one: %s", e)
+        log_throttle(logger, "wavelet_legs_columns.failed", logging.WARNING, "batched wavelet-leg selection failed (%s: %s); the columns are selected one by one", type(e).__name__, e)
         return None
     return out
 

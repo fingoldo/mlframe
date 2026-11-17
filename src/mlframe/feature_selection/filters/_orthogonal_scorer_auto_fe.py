@@ -138,21 +138,37 @@ MUTUAL_RANK_AGGREGATORS = ("mutual_top_k",)
 #   seeds. Rank fusion averages the noise out and the consensus rank
 #   stabilises faster than the per-column-winner identity.
 
+def _plugin_target(y_arr: np.ndarray) -> np.ndarray:
+    """The target the plug-in MI batch reads: a non-integer target of at most 32 distinct values becomes dense class codes."""
+    y_mi = y_arr
+    if not np.issubdtype(y_mi.dtype, np.integer):
+        uniq = np.unique(y_mi[np.isfinite(y_mi)] if y_mi.dtype.kind in "fc" else y_mi)
+        if uniq.size <= 32:
+            # densify via np.unique(return_inverse=...) rather
+            # than truncating .astype(int64) - non-integer labels (e.g. 0.1/0.2/...) would
+            # otherwise all collapse to class 0.
+            _, y_mi = np.unique(y_mi, return_inverse=True)
+            y_mi = y_mi.astype(np.int64, copy=False)
+    return y_mi
+
+
+def _complete_in_one_batch(s, Xmat, y_arr, complete, batch, call):
+    """Scores of every column of ``Xmat``: the columns flagged ``complete`` from one ``batch(sub_matrix)`` call, each of the others from the per-column scorer ``call``."""
+    out = np.zeros(Xmat.shape[1], dtype=np.float64)  # Intentional float64: scorer values kept as a double precision vector, like the batched ones
+    if complete.any():
+        out[complete] = batch(Xmat[:, complete])
+    for j in np.flatnonzero(~complete):
+        out[j] = call(s, Xmat[:, j], y_arr)
+    return out
+
+
 def _batch_one_scorer(s, Xmat, y_arr, *, nbins, random_state, n_neighbors, copula_n_bins, dcor_n_sample, call):
     """Scores of the batchable scorer ``s`` for every column of ``Xmat`` in one call (``call`` is the per-column dispatcher the non-finite KSG case falls back to)."""
     if s == "plug_in":
         from ._orthogonal_univariate_fe import _mi_classif_batch
-        y_mi = y_arr
-        if not np.issubdtype(y_mi.dtype, np.integer):
-            uniq = np.unique(y_mi[np.isfinite(y_mi)] if y_mi.dtype.kind in "fc" else y_mi)
-            if uniq.size <= 32:
-                # densify via np.unique(return_inverse=...) rather
-                # than truncating .astype(int64) - non-integer labels (e.g. 0.1/0.2/...) would
-                # otherwise all collapse to class 0.
-                _, y_mi = np.unique(y_mi, return_inverse=True)
-                y_mi = y_mi.astype(np.int64, copy=False)
+
         # Intentional float64: MI batch scores kept as an f64 accumulator vector (ranking ties)
-        return np.asarray(_mi_classif_batch(Xmat, y_mi, nbins=int(nbins)), dtype=np.float64)
+        return np.asarray(_mi_classif_batch(Xmat, _plugin_target(y_arr), nbins=int(nbins)), dtype=np.float64)
     elif s == "copula":
         from ._orthogonal_copula_mi_fe import _copula_mi_batch
 
@@ -176,12 +192,9 @@ def _batch_one_scorer(s, Xmat, y_arr, *, nbins, random_state, n_neighbors, copul
             return _hsic_batch(Xmat, y_arr, n_sample=int(dcor_n_sample), random_state=int(random_state))
         # One column with a missing value used to send every column to its own call (117 single-column HSIC calls, 1.5 s of a 100000 x 100 fit): the complete columns stay in
         # one batch and only the incomplete ones are scored one by one.
-        out = np.zeros(Xmat.shape[1], dtype=np.float64)  # Intentional float64: scorer values kept as a double precision vector, like the batched ones
-        if complete.any():
-            out[complete] = _hsic_batch(np.ascontiguousarray(Xmat[:, complete]), y_arr, n_sample=int(dcor_n_sample), random_state=int(random_state))
-        for j in np.flatnonzero(~complete):
-            out[j] = call(s, Xmat[:, j], y_arr)
-        return out
+        return _complete_in_one_batch(
+            s, Xmat, y_arr, complete, lambda sub: _hsic_batch(np.ascontiguousarray(sub), y_arr, n_sample=int(dcor_n_sample), random_state=int(random_state)), call
+        )
     elif s == "ksg":
         # KSG is per column in the per-column path (one kNN build each); the batch draws each column's noise from its own seed, so every column equals its
         # single-column call bit for bit. A continuous target or a non-finite column keeps the per-column scorer.
@@ -196,14 +209,11 @@ def _batch_one_scorer(s, Xmat, y_arr, *, nbins, random_state, n_neighbors, copul
             # columns still go in one batch, read at the dtype the per-column scorer reads them at, and only the incomplete ones are scored on their own rows.
             from ._fe_usability_signal import _crit_np_dtype
 
-            out = np.zeros(Xmat.shape[1], dtype=np.float64)  # Intentional float64: scorer values kept as a double precision vector, like the batched ones
-            if complete.any():
-                out[complete] = ksg_mi_discrete_target_columns(
-                    np.asarray(Xmat[:, complete], dtype=_crit_np_dtype()), y_arr, n_neighbors=int(n_neighbors), random_state=int(random_state)
-                )
-            for j in np.flatnonzero(~complete):
-                out[j] = call(s, Xmat[:, j], y_arr)
-            return out
+            return _complete_in_one_batch(
+                s, Xmat, y_arr, complete,
+                lambda sub: ksg_mi_discrete_target_columns(np.asarray(sub, dtype=_crit_np_dtype()), y_arr, n_neighbors=int(n_neighbors), random_state=int(random_state)),
+                call,
+            )  # fmt: skip
         else:
             # Intentional float64: scorer values kept as a double precision vector, like the batched ones
             return np.array([call(s, Xmat[:, j], y_arr) for j in range(Xmat.shape[1])], dtype=np.float64)
@@ -215,12 +225,7 @@ def _batch_one_scorer(s, Xmat, y_arr, *, nbins, random_state, n_neighbors, copul
         if complete.all():
             return tail_dependence_columns(np.ascontiguousarray(Xmat.T), y_arr)
         # the complete columns in one kernel call, a column with a missing value through the per-column scorer
-        out = np.zeros(Xmat.shape[1], dtype=np.float64)  # Intentional float64: scorer values kept as a double precision vector, like the batched ones
-        if complete.any():
-            out[complete] = tail_dependence_columns(np.ascontiguousarray(Xmat[:, complete].T), y_arr)
-        for j in np.flatnonzero(~complete):
-            out[j] = call(s, Xmat[:, j], y_arr)
-        return out
+        return _complete_in_one_batch(s, Xmat, y_arr, complete, lambda sub: tail_dependence_columns(np.ascontiguousarray(sub.T), y_arr), call)
     raise ValueError(f"_batch_one_scorer: {s!r} is not a batchable scorer")
 
 

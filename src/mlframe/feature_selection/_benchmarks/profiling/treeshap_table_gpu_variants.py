@@ -120,7 +120,6 @@ def _pack_preorder(ens, tab):
     return np.asarray(recs, dtype=np.int32)
 
 
-
 def _variants(base_src: str) -> dict:
     """``name -> (source, compile options, block, feature_major_x)``: the production kernel (feature-major X) with block / register-cap variants, and the row-major X form it replaced."""
     v: dict[str, tuple] = {"base_b128": (base_src, (), 128, True)}
@@ -144,6 +143,26 @@ def _variants(base_src: str) -> dict:
     v["pre_rreg40"] = (None, ("--maxrregcount=40",), 128, True)
     v["aos_b256"] = (None, (), 256, True)
     return v
+
+
+def _pre_variant_source(k: str, pre_src: str, rt: str, max_depth: int) -> str:
+    """Source of the preorder-kernel variant ``k``: the base text with the edits its name asks for (unroll, restrict, shared-memory stacks, paired table)."""
+    src = pre_src
+    if "unr4" in k:
+        src = src.replace("    for (int p = 0; p < n_rec; p++){", "    #pragma unroll 4\n    for (int p = 0; p < n_rec; p++){")
+    if "rstr" in k or "pair" in k:
+        src = src.replace("const float* X,", "const float* __restrict__ X,").replace("const int4* rec", "const int4* __restrict__ rec").replace("const " + rt + "* table", "const " + rt + "* __restrict__ table").replace("const int* leaf_feat", "const int* __restrict__ leaf_feat")
+    if "shared" in k:
+        md = str(max_depth + 2)
+        src = src.replace("    int mL[" + md + "];", "    extern __shared__ int smem[]; int* mL = smem;").replace("    int mR[" + md + "];", "    int* mR = smem + " + md + " * blockDim.x;")
+        src = src.replace("mL[depth - 1]", "mL[(depth - 1) * blockDim.x + threadIdx.x]").replace("mR[depth - 1]", "mR[(depth - 1) * blockDim.x + threadIdx.x]")
+        src = src.replace("mL[depth] =", "mL[depth * blockDim.x + threadIdx.x] =").replace("mR[depth] =", "mR[depth * blockDim.x + threadIdx.x] =")
+    if "pair" in k:
+        src = src.replace("const " + rt + "* __restrict__ table", "const PairT* __restrict__ table").replace("const int* __restrict__ leaf_feat, ", "").replace(
+            "phi[(long long)leaf_feat[r.z + j] * n + i] += table[base + j];", "{ const PairT e = table[base + j]; phi[(long long)e.f * n + i] += e.v; }"
+        )
+        src = "struct PairT { " + rt + " v; int f; };\n" + src
+    return src
 
 
 def main(argv=None) -> int:
@@ -192,25 +211,7 @@ def main(argv=None) -> int:
     pair_d = cp.asarray(pair_h.view(np.uint8))
     rt = "float" if real == np.float32 else "double"
 
-    def pre_variant(k):
-        src = pre_src
-        if "unr4" in k:
-            src = src.replace("    for (int p = 0; p < n_rec; p++){", "    #pragma unroll 4\n    for (int p = 0; p < n_rec; p++){")
-        if "rstr" in k or "pair" in k:
-            src = src.replace("const float* X,", "const float* __restrict__ X,").replace("const int4* rec", "const int4* __restrict__ rec").replace("const {REAL}* table".replace("{REAL}", "float" if real == np.float32 else "double"), "const " + ("float" if real == np.float32 else "double") + "* __restrict__ table").replace("const int* leaf_feat", "const int* __restrict__ leaf_feat")
-        if "shared" in k:
-            md = str(ens.max_depth + 2)
-            src = src.replace("    int mL[" + md + "];", "    extern __shared__ int smem[]; int* mL = smem;").replace("    int mR[" + md + "];", "    int* mR = smem + " + md + " * blockDim.x;")
-            src = src.replace("mL[depth - 1]", "mL[(depth - 1) * blockDim.x + threadIdx.x]").replace("mR[depth - 1]", "mR[(depth - 1) * blockDim.x + threadIdx.x]")
-            src = src.replace("mL[depth] =", "mL[depth * blockDim.x + threadIdx.x] =").replace("mR[depth] =", "mR[depth * blockDim.x + threadIdx.x] =")
-        if "pair" in k:
-            src = src.replace("const " + rt + "* __restrict__ table", "const PairT* __restrict__ table").replace("const int* __restrict__ leaf_feat, ", "").replace(
-                "phi[(long long)leaf_feat[r.z + j] * n + i] += table[base + j];", "{ const PairT e = table[base + j]; phi[(long long)e.f * n + i] += e.v; }"
-            )
-            src = "struct PairT { " + rt + " v; int f; };\n" + src
-        return src
-
-    kernels = {k: cp.RawKernel(pre_variant(k) if k.startswith("pre") else (aos_src if src is None else src), "treeshap_table", options=opts) for k, (src, opts, _b, _x) in variants.items()}
+    kernels = {k: cp.RawKernel(_pre_variant_source(k, pre_src, rt, ens.max_depth) if k.startswith("pre") else (aos_src if src is None else src), "treeshap_table", options=opts) for k, (src, opts, _b, _x) in variants.items()}
     for k, kern in kernels.items():
         kern.compile()
         print(f"{k:14s} regs {kern.num_regs:3d} local {kern.local_size_bytes:4d} B")
