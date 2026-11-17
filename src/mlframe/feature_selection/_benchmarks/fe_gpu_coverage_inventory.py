@@ -17,9 +17,9 @@ MRMR_LAYER = ("_mrmr_fit_impl", "mrmr", "_mrmr_fe_step")
 # A second inventory root: kernel modules outside ``filters/`` that the owner directive of tracker OP11-21 puts under the same contract (every GPU kernel of the project, not only the FE ones). The MRMR-layer
 # import closure cannot reach them, so they are named here, each one a module that is taken on and has to meet the contract; a module is listed in this table only together with its evidence.
 EXTRA_ROOT = Path(__file__).resolve().parents[1] / "shap_proxied_fs"
-EXTRA_CONTRACT_MODULES: tuple[str, ...] = ("_shap_proxy_treeshap_interactions_table_gpu", "_shap_proxy_treeshap_table_gpu")
+EXTRA_CONTRACT_MODULES: tuple[str, ...] = ("_shap_proxy_treeshap_gpu", "_shap_proxy_treeshap_interactions_gpu", "_shap_proxy_treeshap_interactions_table_gpu", "_shap_proxy_treeshap_table_gpu")
 # Modules of the second root that are only the host twins named by a contract table (resolved for their text, not classified themselves).
-EXTRA_TWIN_FILES: tuple[str, ...] = ("_shap_proxy_treeshap_table", "_shap_proxy_treeshap_ktc", "_shap_proxy_treeshap_interactions_table", "_shap_proxy_treeshap_interactions_ktc")
+EXTRA_TWIN_FILES: tuple[str, ...] = ("_shap_proxy_treeshap_table", "_shap_proxy_treeshap_ktc", "_shap_proxy_treeshap_interactions_table", "_shap_proxy_treeshap_interactions_ktc", "_shap_proxy_treeshap", "_shap_proxy_treeshap_interactions")
 GPU_MARKERS = re.compile(r"\bcupy\b|\bcp\.|numba\.cuda|cuda\.jit|RawKernel|ElementwiseKernel|_cuda\b|_gpu\b|gpu_[a-z]|CUDA_AVAIL|_CUPY_AVAIL")
 DISPATCH_MARKERS = re.compile(r"kernel_tuner|kernel_tuning_cache|_backend_choice|dispatch_[a-z_]*\(|force_backend|gpu_globally_disabled")
 IMPORT = re.compile(r"from\s+(?:mlframe\.feature_selection\.filters|\.+)\s*\.?(_[A-Za-z0-9_]+|[a-z][A-Za-z0-9_]*)\s+import|from\s+\.+(_[A-Za-z0-9_]+)\s+import")
@@ -119,6 +119,14 @@ KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
 #: dispatcher registers a ``kernel_tuner(`` entry AND imports the backend (``ktc_dispatch_problems`` checks both, so a stale mapping fails the contract test). A backend with a choice of its own
 #: (its own thresholds, variants, block size) registers itself instead.
 KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
+    "_shap_proxy_treeshap_interactions_gpu": (
+        "_shap_proxy_treeshap_interactions_ktc",
+        "the host or device choice of the interaction tensor is the kernel_tuner entry shap_proxy_treeshap_interactions_backend of _shap_proxy_treeshap_interactions_ktc; the conditioned-scan kernel is the fallback it reaches when the ensemble does not fit the pair tables",
+    ),
+    "_shap_proxy_treeshap_gpu": (
+        "_shap_proxy_treeshap_ktc",
+        "the host or device choice of the TreeSHAP path kernel (the fallback of the table form, reached through treeshap_phi_base_gpu) is the kernel_tuner entry shap_proxy_treeshap_backend of _shap_proxy_treeshap_ktc",
+    ),
     "_shap_proxy_treeshap_interactions_table_gpu": (
         "_shap_proxy_treeshap_interactions_ktc",
         "the host or device choice of the interaction pair-table kernel is the kernel_tuner entry shap_proxy_treeshap_interactions_backend of _shap_proxy_treeshap_interactions_ktc (the numba pair-table kernel timed against the device kernel over cells = rows x features^2 and trees)",
@@ -358,6 +366,14 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_shap_proxy_treeshap_interactions_gpu": (
+        "_shap_proxy_treeshap_interactions",
+        "the host path of the device conditioned-scan kernel is the numba conditioned-scan kernel interaction_tensor_reference of _shap_proxy_treeshap_interactions (two path scans per conditioning feature, prange over samples), the reference of the device equality tests",
+    ),
+    "_shap_proxy_treeshap_gpu": (
+        "_shap_proxy_treeshap",
+        "the host path of the device path kernel is the numba path kernel treeshap_phi_base_path of _shap_proxy_treeshap (the same EXTEND / unwound-sum arithmetic, prange over samples) and the reference of the device equality tests",
+    ),
     "_shap_proxy_treeshap_interactions_table_gpu": (
         "_shap_proxy_treeshap_interactions_table",
         "the host path of the device pair-table kernel is the numba interaction table kernels of _shap_proxy_treeshap_interactions_table (per-leaf main and pair tables, blocked four-rows-abreast walk, prange over row blocks), the reference of the device equality tests",

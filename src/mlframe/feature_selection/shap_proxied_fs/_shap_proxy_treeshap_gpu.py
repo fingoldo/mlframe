@@ -53,11 +53,11 @@ _DEFAULT_BLOCK_SIZE = 32  # measured: 32 beat 64 / 128 / 256 by 14 % (n = 20000,
 
 _KERNEL_SRC = r"""
 // Node record: the child cover shares of a node (cover of the child over the node's cover, ``0`` for a leaf or a zero-cover node) and the leaf value, read once per visited node.
-#define NODE_LOAD(nd) const int ncl = cl[nd], ncr = cr[nd], ncd = cd[nd], nfeat = feat[nd]; const float nthr = thr[nd]; const {ACC} nval = val[nd]; const {ACC} wn_ = cover[nd];     const {ACC} rl = (wn_ > 0 && ncl >= 0) ? cover[ncl] / wn_ : ({ACC})0; const {ACC} rr = (wn_ > 0 && ncl >= 0) ? cover[ncr] / wn_ : ({ACC})0;
+#define NODE_LOAD(nd) const int ncl = cl[nd], ncr = cr[nd], ncd = cd[nd], nfeat = feat[nd]; const {REAL} nthr = thr[nd]; const {ACC} nval = val[nd]; const {ACC} wn_ = cover[nd];     const {ACC} rl = (wn_ > 0 && ncl >= 0) ? cover[ncl] / wn_ : ({ACC})0; const {ACC} rr = (wn_ > 0 && ncl >= 0) ? cover[ncr] / wn_ : ({ACC})0;
 extern "C" __global__
-void treeshap(const float* X, const int n, const int f,
+void treeshap(const {REAL}* X, const int n, const int f,
               const int* cl, const int* cr, const int* cd,
-              const int* feat, const float* thr, const {REAL}* val, const {REAL}* cover,
+              const int* feat, const {REAL}* thr, const {REAL}* val, const {REAL}* cover,
               const int* roots, const int n_trees, const int max_path,
               {REAL}* phi){
     // coalescing-ok: one thread walks the trees for one sample; xi[feat[node]] is a data-dependent gather and the walks diverge, so no layout makes lanes adjacent; selector off the MRMR fit path
@@ -71,7 +71,7 @@ void treeshap(const float* X, const int n, const int f,
     {ACC} pf_one[MAXW * MAXW];
     {ACC} pweight[MAXW * MAXW];
 
-    const float* xi = X + (long long)i * f;
+    const {REAL}* xi = X + (long long)i * f;
     {REAL}* phi_i = phi + (long long)i * f;
 
     // Explicit stack replacing recursion: each frame is (node, level, unique_depth, zero, one, feat).
@@ -131,7 +131,7 @@ void treeshap(const float* X, const int n, const int f,
             }
 
             int ff = nfeat;
-            float xv = xi[ff];
+            {REAL} xv = xi[ff];
             int hot, cold;
             if (isnan(xv)) hot = ncd;
             else if (xv < nthr) hot = ncl;
@@ -271,21 +271,26 @@ def treeshap_phi_base_gpu(ensemble: TreeEnsemble, X: np.ndarray, use_table: bool
     kernel = _ensure_kernel(ensemble.max_depth, real)
     block = _block_size()
 
-    X_d = cp.asarray(Xf)
     roots_d = cp.asarray(ensemble.tree_roots)
-    phi_d = cp.zeros((n, f), dtype=real)
     node_args = (
         cp.asarray(ensemble.children_left), cp.asarray(ensemble.children_right), cp.asarray(ensemble.children_default),
-        cp.asarray(ensemble.features), cp.asarray(ensemble.thresholds),
+        cp.asarray(ensemble.features), cp.asarray(ensemble.thresholds.astype(real, copy=False)),
         cp.asarray(ensemble.values, dtype=real), cp.asarray(ensemble.node_sample_weight, dtype=real),
     )
-
-    grid = ((n + block - 1) // block,)
-    kernel(grid, (block,), (
-        X_d, np.int32(n), np.int32(f),
-        *node_args,
-        roots_d, np.int32(ensemble.tree_roots.shape[0]), np.int32(ensemble.max_depth),
-        phi_d,
-    ))
-    phi = cp.asnumpy(phi_d).astype(np.float64, copy=False)  # Intentional float64: the caller's phi contract is float64
+    # The rows stream through the device in row blocks sized from the free device memory: the (rows, f) X block of ``real`` and the (rows, f) phi block must fit in a share of it (the node arrays stay resident for all blocks).
+    free, _total = cp.cuda.runtime.memGetInfo()
+    rows = int(max(4096, min(n, (free * 0.4) // max(1, 2 * f * np.dtype(real).itemsize))))
+    phi = np.empty((n, f), dtype=np.float64)  # Intentional float64: the caller's phi contract is float64
+    for start in range(0, n, rows):
+        stop = min(n, start + rows)
+        m = stop - start
+        X_d = cp.asarray(Xf[start:stop].astype(real, copy=False))
+        phi_d = cp.zeros((m, f), dtype=real)
+        kernel(((m + block - 1) // block,), (block,), (
+            X_d, np.int32(m), np.int32(f),
+            *node_args,
+            roots_d, np.int32(ensemble.tree_roots.shape[0]), np.int32(ensemble.max_depth),
+            phi_d,
+        ))
+        phi[start:stop] = cp.asnumpy(phi_d)
     return phi, float(ensemble.base_offset)

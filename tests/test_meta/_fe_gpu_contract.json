@@ -193,6 +193,8 @@
     "_residual_rescue_gpu",
     "_residual_rescue_ktc",
     "_row_argmax_gpu",
+    "_shap_proxy_treeshap_gpu",
+    "_shap_proxy_treeshap_interactions_gpu",
     "_shap_proxy_treeshap_interactions_table_gpu",
     "_shap_proxy_treeshap_table_gpu",
     "_synergy_combo_gpu",

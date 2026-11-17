@@ -2,7 +2,7 @@
 
 The cost of both grows with ``rows x features^2 x trees`` but the device kernel pays a fixed upload and table-build cost, so the crossover depends on the size of the tensor (``cells = rows x features^2``) and of the ensemble.
 The sweep times the two over a (cells, trees) grid on small XGBoost ensembles of depth 4 over 30 features; the measured floor ``_FALLBACK_MIN_CELLS`` decides until the sweep has run on the host. The device
-kernel module is ``_shap_proxy_treeshap_interactions_table_gpu``, the host twin ``_shap_proxy_treeshap_interactions_table``.
+kernel module is ``_shap_proxy_treeshap_interactions_table_gpu`` (when the ensemble does not fit its tables the conditioned-scan fallback ``_shap_proxy_treeshap_interactions_gpu`` answers), the host twin ``_shap_proxy_treeshap_interactions_table``.
 """
 
 from __future__ import annotations

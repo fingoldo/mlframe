@@ -295,3 +295,23 @@ def test_interaction_backend_choice_follows_the_tuner_entry(monkeypatch):
     monkeypatch.setattr(ktc, "use_gpu", lambda cells, trees: (seen.append((cells, trees)), True)[1])
     assert mod._interaction_gpu_pays(800, 20, 30) is True
     assert seen == [(800 * 20 * 20, 30)]
+
+
+def test_path_interaction_kernel_streams_row_blocks_with_the_same_tensor(monkeypatch):
+    """The conditioned-scan interaction kernel (the fallback and reference) streams the rows in blocks sized from the free memory: with a (1, 1) memory report it runs 1024-row blocks over 2500 rows and equals the one-block tensor."""
+    cp = pytest.importorskip("cupy")
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_treeshap_interactions_gpu as g
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import extract_ensemble
+
+    xgb = pytest.importorskip("xgboost")
+    rng = np.random.default_rng(0)
+    X = rng.normal(size=(2500, 6)).astype(np.float32)
+    y = X[:, 0] * X[:, 1] + X[:, 2]
+    ens = extract_ensemble(xgb.XGBRegressor(n_estimators=8, max_depth=3, verbosity=0, n_jobs=1).fit(X, y))
+    X[::9, 1] = np.nan
+    whole = g.interaction_tensor_gpu_path(ens, X)
+    monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", lambda: (1, 1))
+    blocked = g.interaction_tensor_gpu_path(ens, X)
+    np.testing.assert_array_equal(blocked[0], whole[0])
+    np.testing.assert_array_equal(blocked[1], whole[1])
+    assert blocked[2] == whole[2]

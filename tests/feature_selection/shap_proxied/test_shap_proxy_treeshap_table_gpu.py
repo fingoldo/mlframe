@@ -137,3 +137,21 @@ def test_row_blocks_give_the_same_values_as_one_block(monkeypatch, walk):
     assert base_b == base
     assert real_block(10**9, 100, np.float32) >= tg._ROW_BLOCK_MIN
     assert real_block(10**9, 100, np.float32) < 10**9  # a billion rows cannot sit on the card at once
+
+
+@pytest.mark.parametrize("real", ["float32", "float64"])
+def test_path_kernel_streams_row_blocks_with_the_same_values(monkeypatch, real):
+    """The conditioned-scan path kernel (``use_table=False``, the fallback and reference) also streams the rows in blocks sized from the free memory: with a (1, 1) memory report it runs 4096-row blocks over 9000 rows and equals the one-block result."""
+    import cupy as cp
+
+    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu import treeshap_phi_base_gpu
+
+    monkeypatch.setenv("MLFRAME_SHAP_TREESHAP_REAL", real)
+    ens, X = _ensemble(8, 4, 20)
+    X = np.tile(X, (30, 1))[:9000]
+    X[::11, 3] = np.nan
+    whole, base = treeshap_phi_base_gpu(ens, X, use_table=False)
+    monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", lambda: (1, 1))
+    blocked, base_b = treeshap_phi_base_gpu(ens, X, use_table=False)
+    np.testing.assert_allclose(blocked, whole, rtol=0, atol=1e-6 if real == "float32" else 1e-12)
+    assert base_b == base

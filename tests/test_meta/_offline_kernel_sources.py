@@ -167,7 +167,7 @@ _RECIPES: dict = {
     "../shap_proxied_fs/_shap_proxy_treeshap_interactions_gpu.py::_KERNEL_SRC": lambda s: [
         (
             "depth 6",
-            _define(MAXW=8, MAXLVL=9, MAXP=16) + _str_constant("feature_selection/shap_proxied_fs/_shap_proxy_treeshap_interactions_gpu.py", "_DEVICE_SRC") + s,
+            _fill(_define(MAXW=8, MAXLVL=9, MAXP=16) + _str_constant("feature_selection/shap_proxied_fs/_shap_proxy_treeshap_interactions_gpu.py", "_DEVICE_SRC") + s, **{"{REAL}": "float", "{ACC}": "double"}),
             (),
         )
     ],
