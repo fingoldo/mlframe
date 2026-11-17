@@ -68,14 +68,58 @@ def quantile_codes(x: np.ndarray, n_bins: int = N_BINS) -> np.ndarray:
     return codes
 
 
-def pointwise_mi(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) -> np.ndarray:
-    """Per-row pointwise mutual information of integer ``codes`` (in ``[0, n_codes)``) and ``y_codes`` (in ``[0, ky)``); its mean is the plug-in MI in nats."""
+@njit(cache=True, nogil=True)
+def _pointwise_mi_njit(codes, n_codes, y_codes, ky, out):
+    """Fill ``out`` with the per-row pointwise MI; ``False`` (nothing usable in ``out``) when a code lies outside its range, so the caller takes the numpy form and its own error."""
+    n_rows = codes.shape[0]
+    joint = np.zeros((n_codes, ky), dtype=np.float64)  # Intentional float64: joint-count matrix, exact integer-scale accumulation
+    for i in range(n_rows):
+        c = codes[i]
+        t = y_codes[i]
+        if c < 0 or c >= n_codes or t < 0 or t >= ky:
+            return False
+        joint[c, t] += 1.0
+    px = np.zeros(n_codes, dtype=np.float64)  # Intentional float64: marginal counts
+    py = np.zeros(ky, dtype=np.float64)  # Intentional float64: marginal counts
+    for a in range(n_codes):
+        for b in range(ky):
+            px[a] += joint[a, b]
+            py[b] += joint[a, b]
+    n = 0.0
+    for a in range(n_codes):
+        n += px[a]
+    table = np.zeros((n_codes, ky), dtype=np.float64)  # Intentional float64: the log-ratio of each occupied cell
+    for a in range(n_codes):
+        for b in range(ky):
+            if joint[a, b] > 0.0:
+                table[a, b] = np.log(joint[a, b] * n / (px[a] * py[b]))
+    for i in range(n_rows):
+        out[i] = table[codes[i], y_codes[i]]
+    return True
+
+
+def _pointwise_mi_numpy(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) -> np.ndarray:
+    """The numpy form of :func:`pointwise_mi` (the reference of the compiled one, and the route of inputs it does not take)."""
     joint = np.bincount(codes * ky + y_codes, minlength=n_codes * ky).reshape(n_codes, ky).astype(np.float64)  # Intentional float64: plug-in MI joint-count matrix; exact integer-scale accumulation feeding entropy
     n = joint.sum()
     px, py = joint.sum(axis=1, keepdims=True), joint.sum(axis=0, keepdims=True)
     with np.errstate(divide="ignore", invalid="ignore"):
         table = np.log(joint * n / (px @ py))
     return np.asarray(np.where(joint > 0, table, 0.0)[codes, y_codes])
+
+
+def pointwise_mi(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) -> np.ndarray:
+    """Per-row pointwise mutual information of integer ``codes`` (in ``[0, n_codes)``) and ``y_codes`` (in ``[0, ky)``); its mean is the plug-in MI in nats.
+
+    One compiled pass (counts, the table of occupied cells, the gather) without the interpreter lock; the numpy form made five full-length temporaries per call and a fit calls this about a
+    thousand times from the column pools. Same counts and the same per-cell arithmetic; the values agree with the numpy form to the last bit or two of the logarithm."""
+    c = np.asarray(codes)
+    t = np.asarray(y_codes)
+    if c.ndim == 1 and c.shape == t.shape and c.dtype.kind in "iu" and t.dtype.kind in "iu" and c.size:
+        out = np.empty(c.shape[0], dtype=np.float64)  # Intentional float64: per-row pointwise MI (statistic vector)
+        if _pointwise_mi_njit(np.ascontiguousarray(c), int(n_codes), np.ascontiguousarray(t), int(ky), out):
+            return out
+    return _pointwise_mi_numpy(codes, n_codes, y_codes, ky)
 
 
 def plugin_mi_of_codes(codes: np.ndarray, n_codes: int, y_codes: np.ndarray, ky: int) -> float:
