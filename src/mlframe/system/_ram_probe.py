@@ -75,7 +75,7 @@ def host_memory() -> "tuple[int, int]":
     try:
         import psutil
     except ImportError:
-        psutil = None  # type: ignore[assignment]
+        psutil = None
     if psutil is not None:
         if _PSUTIL_VIRTUAL_MEMORY is None:
             _PSUTIL_VIRTUAL_MEMORY = psutil.virtual_memory

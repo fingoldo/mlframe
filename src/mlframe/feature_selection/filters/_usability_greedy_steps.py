@@ -69,8 +69,8 @@ def _abscorr_njit(u, v):
     """``|corr(u, v)|`` of two equal-length vectors, mean-centred and accumulated in double precision; 0.0 when either standard deviation is below 1e-12 or the ratio is not finite
     (a non-finite input makes it so). ``nnan`` / ``ninf`` stay out of the fast-math set, so a NaN is not assumed away."""
     n = u.shape[0]
-    su = 0.0
-    sv = 0.0
+    su = np.float64(0.0)  # Intentional float64: numba kernel accumulator
+    sv = np.float64(0.0)  # Intentional float64: numba kernel accumulator
     for i in range(n):
         su += np.float64(u[i])  # Intentional float64: numba kernel accumulator
         sv += np.float64(v[i])  # Intentional float64: numba kernel accumulator

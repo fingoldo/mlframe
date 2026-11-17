@@ -334,7 +334,7 @@ def _mean_abs_skew_and_kurtosis(X_num: pd.DataFrame) -> tuple[float, float]:
         # Intentional float64: moment sums run in double precision
         A = np.asarray(X_num.to_numpy(dtype=np.float64)) if all(pd.api.types.is_numeric_dtype(t) for t in X_num.dtypes) else None
         finite = np.isfinite(A).all(axis=0) if A is not None else None
-        if finite is not None and finite.any():
+        if A is not None and finite is not None and finite.any():
             n = A.shape[0]
             # the central moments of every all-finite column from one two-pass kernel (numba or CUDA per the kernel-tuning cache) instead of four (n, K) temporaries;
             # a column with a missing value or a near-constant one is left to pandas (one such column used to send every column there)
