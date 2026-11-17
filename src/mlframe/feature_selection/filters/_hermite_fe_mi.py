@@ -211,7 +211,7 @@ def _plugin_mi_classif_batch_cuda(X_cols: np.ndarray, y: np.ndarray, n_bins: int
     from ._fe_gpu_vram import fe_gpu_has_vram_cushion
 
     if not fe_gpu_has_vram_cushion(2 * int(X_cols.nbytes)):
-        from .hermite_fe import _plugin_mi_classif_batch_njit  # lazy: hermite_fe re-imports this module
+        from .hermite_fe.shared import plugin_mi_classif_batch_njit as _plugin_mi_classif_batch_njit  # lazy: hermite_fe re-imports this module
 
         return np.asarray(_plugin_mi_classif_batch_njit(X_cols, y, n_bins))
     X_gpu = cp.asarray(X_cols, dtype=_binning_dtype(X_cols))

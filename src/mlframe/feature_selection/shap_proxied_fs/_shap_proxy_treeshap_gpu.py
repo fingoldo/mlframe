@@ -201,7 +201,7 @@ def _block_size() -> int:
 
 def kernel_for_depth(cp, max_depth: int, real=np.float64):  # Intentional float64: double-precision variant: the statistic needs the full mantissa
     """``treeshap`` with the per-thread path scratch sized for one ensemble depth and the tree data, path weights and output in ``real`` (float32 or float64): compile point of ``_ensure_kernel``."""
-    from mlframe.feature_selection.filters._kernel_types import render
+    from mlframe.feature_selection.filters.shared import render
 
     import os
 

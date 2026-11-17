@@ -23,8 +23,8 @@ import numpy as np
 from numba import prange
 
 from ..info_theory import mi
-from ..info_theory._class_encoding import merge_vars
-from ..info_theory._entropy_kernels import _entropy_x_onto_classes, entropy
+from ..info_theory.shared import merge_vars
+from ..info_theory.shared import entropy, entropy_x_onto_classes as _entropy_x_onto_classes
 from mlframe.feature_selection.filters.info_theory.shared import cpu_cmi_loop_parallel as _cpu_cmi_loop_parallel
 
 __all__ = ["batched_member_relevance"]

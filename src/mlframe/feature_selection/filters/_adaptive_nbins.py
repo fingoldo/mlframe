@@ -48,7 +48,7 @@ import numba
 from numba import njit, prange
 
 from mlframe.utils.log_throttle import log_throttle
-from mlframe.feature_selection.filters.discretization._quantile_radix import sorted_quantiles
+from mlframe.feature_selection.filters.discretization.shared import sorted_quantiles
 from mlframe.feature_selection.filters.discretization.shared import (
     knuth_bin_edges as _knuth_bin_edges, bayesian_blocks_bin_edges as _bayesian_blocks_bin_edges,
 )

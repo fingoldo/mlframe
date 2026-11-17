@@ -27,6 +27,8 @@ from ._group_mi import (
     group_relevance_mi,
     prepare_group_segments,
 )
+from ._class_encoding import merge_vars
+from ._entropy_kernels import _entropy_x_onto_classes as entropy_x_onto_classes, entropy
 from ._state_and_dispatch import (
     get_group_mi,
     set_group_mi,
@@ -36,6 +38,9 @@ from . import _state_and_dispatch as state_and_dispatch
 
 __all__ = [
     "check_joint_cardinality",
+    "entropy",
+    "entropy_x_onto_classes",
+    "merge_vars",
     "clear_cmi_resident_cache",
     "conditional_mi_batched_dispatch",
     "cpu_cmi_loop_parallel",

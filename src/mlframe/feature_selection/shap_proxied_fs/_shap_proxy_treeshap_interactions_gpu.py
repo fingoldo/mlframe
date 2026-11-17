@@ -268,7 +268,7 @@ def _block_size() -> int:
 
 def kernel_for_size(cp, max_depth: int, n_features: int):
     """``treeshap_interactions`` with the scratch sized for one (depth, feature count): the __device__ scan precedes the kernel that calls it and both compile as one module."""
-    from mlframe.feature_selection.filters._kernel_types import render
+    from mlframe.feature_selection.filters.shared import render
 
     # X and the thresholds are float32 (the routing precision of every TreeSHAP kernel), the leaf values, covers, path weights and the tensors are double precision: the exact reference.
     module = cp.RawModule(code=render(_defines_header(int(max_depth), int(n_features)) + _DEVICE_SRC + _KERNEL_SRC, np.float32, acc=np.float64))  # Intentional float64: selectable double-precision variant of the kernel (default and environment switch)

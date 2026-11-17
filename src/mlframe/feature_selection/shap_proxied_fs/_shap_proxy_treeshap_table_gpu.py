@@ -134,7 +134,7 @@ def _stack_shared() -> bool:
 
 def kernel_source(max_depth: int, real=np.float32, shared_stack: bool = False) -> str:
     """The kernel source for trees up to ``max_depth``, the element type ``real`` and the stack placement."""
-    from mlframe.feature_selection.filters._kernel_types import render
+    from mlframe.feature_selection.filters.shared import render
 
     return render(f"#define MAXSP {_maxsp(max_depth)}\n#define STACK_SHARED {int(shared_stack)}\n" + _KERNEL_SRC, real, acc=real)
 
@@ -146,7 +146,7 @@ def kernel(cp, real=np.float32):
 
 def preorder_source(max_depth: int, real=np.float32) -> str:
     """The preorder-walk kernel source for trees up to ``max_depth`` and the element type ``real``."""
-    from mlframe.feature_selection.filters._kernel_types import render
+    from mlframe.feature_selection.filters.shared import render
 
     return render(f"#define MAXD {int(max_depth) + 2}\n" + _PREORDER_SRC, real, acc=real)
 

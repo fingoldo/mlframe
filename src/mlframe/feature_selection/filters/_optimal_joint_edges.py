@@ -12,7 +12,7 @@ from typing import Any, Optional, cast
 
 import numpy as np
 from mlframe.feature_selection.filters._lazy_host_codes import ndim_of
-from mlframe.feature_selection.filters.discretization._quantile_radix import unique_with_counts
+from mlframe.feature_selection.filters.discretization.shared import unique_with_counts
 
 
 def _a() -> Any:

@@ -17,6 +17,7 @@ from ._discretization_edges import (
 )
 
 from ._null_binner import PermutedTargetBinner
+from ._quantile_radix import sort_xy, sorted_quantiles, unique_with_counts
 
 __all__ = [
     "PermutedTargetBinner",
@@ -25,4 +26,7 @@ __all__ = [
     "knuth_bin_edges",
     "multiselect_inplace",
     "safe_code_dtype",
+    "sort_xy",
+    "sorted_quantiles",
+    "unique_with_counts",
 ]

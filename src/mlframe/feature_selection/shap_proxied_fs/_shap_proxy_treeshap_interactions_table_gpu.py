@@ -138,7 +138,7 @@ def build_pair_tables(tab: dict) -> Optional[dict]:
 
 def kernel_source(max_depth: int, real=np.float32, shared_stack: bool = False) -> str:
     """The kernel source for trees up to ``max_depth`` and the element type ``real``."""
-    from mlframe.feature_selection.filters._kernel_types import render
+    from mlframe.feature_selection.filters.shared import render
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table_gpu import _maxsp
 
     return render(f"#define MAXSP {_maxsp(max_depth)}\n" + _KERNEL_SRC, real, acc=real)

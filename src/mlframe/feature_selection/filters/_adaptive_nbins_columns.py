@@ -17,7 +17,7 @@ from typing import Any, Callable, Optional
 import numpy as np
 
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
-from mlframe.feature_selection.filters.discretization._quantile_radix import unique_with_counts
+from mlframe.feature_selection.filters.discretization.shared import unique_with_counts
 
 logger = logging.getLogger("mlframe.feature_selection.filters._adaptive_nbins")
 
