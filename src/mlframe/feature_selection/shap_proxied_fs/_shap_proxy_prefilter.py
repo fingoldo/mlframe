@@ -36,11 +36,13 @@ original indices via ``working_cols``, so the sklearn ``support_`` stays in orig
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 
 from mlframe.utils.log_throttle import log_throttle
 import time
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -61,7 +63,7 @@ PREFILTER_METHODS = ("model", "univariate", "fast_model", "gpu_model", "two_stag
 # sub-4k width tested (no crossover found down to the lowest), so the auto switchover is lowered to the
 # smallest tested width. End-to-end at 2k (the threshold-just-above formerly routed to "model"): 89.7s
 # -> 26.0s = 3.45x with 8/8 -> 8/8 recall parity, so the prefilter win does not wash out downstream.
-# Overridable via kernel_tuning_cache ("shap_proxy_prefilter" -> "auto_fast_width") so the crossover is
+# Overridable via the env MLFRAME_SHAP_PREFILTER_TUNING (JSON, key "auto_fast_width") so the crossover is
 # tuned per-HW. Below ~500 the prefilter is a near-no-op anyway (prefilter_top default is 500).
 _AUTO_FAST_WIDTH = 1000
 # Row count at/above which "gpu_model" actually beats CPU "model" for the all-columns fit (GPU transfer
@@ -92,19 +94,17 @@ _STAGE_B_GPU_MIN_FEATURES = 200
 
 
 def _prefilter_tuning() -> dict:
-    """Per-HW prefilter thresholds from kernel_tuning_cache (auto_fast_width / gpu_model_min_rows), or
-    ``{}`` when pyutilz / the entry is unavailable (callers fall back to the module defaults)."""
-    try:
-        from mlframe.feature_selection.filters import get_kernel_tuning_cache
-
-        ktc = get_kernel_tuning_cache()
-        if ktc is not None:
-            entry = cast(Any, ktc).lookup("shap_proxy_prefilter")
-            if isinstance(entry, dict):
-                return entry
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
+    """Per-host prefilter threshold overrides (``auto_fast_width`` / ``gpu_model_min_rows`` / ``two_stage_min_width`` / ``stage_b_gpu_min_rows`` / ``stage_b_gpu_min_features``) from the JSON object in the
+    env ``MLFRAME_SHAP_PREFILTER_TUNING``, or ``{}`` (the module defaults). Not a kernel-tuning entry: the thresholds choose between prefilter methods that differ in what they keep, not only in
+    speed (the two-stage funnel drops interaction-only columns, see the module notes), so a timing sweep cannot pick them and a silent cache entry must not."""
+    raw = os.environ.get("MLFRAME_SHAP_PREFILTER_TUNING", "").strip()
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+        except ValueError as e:
+            logger.warning("MLFRAME_SHAP_PREFILTER_TUNING is not valid JSON (%s); using the module defaults", e)
     return {}
 
 

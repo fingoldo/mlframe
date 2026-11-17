@@ -762,10 +762,8 @@ def test_two_stage_calls_gpu_path_when_gate_fires(monkeypatch):
     assert calls["cpu"] == 1 and calls["gpu"] == 0
 
 
-def test_stage_b_gpu_thresholds_overridable_via_kernel_tuning_cache(monkeypatch):
-    """Both stage-B GPU thresholds (rows + features) must be overridable via the shared
-    ``kernel_tuning_cache`` entry under ``shap_proxy_prefilter``, NOT hardcoded. This is the per-HW
-    tuning contract; the cache lookup is the single point where users override conservative defaults."""
+def test_stage_b_gpu_thresholds_overridable_per_host(monkeypatch):
+    """Both stage-B GPU thresholds (rows + features) are overridable per host through ``_prefilter_tuning`` (the env ``MLFRAME_SHAP_PREFILTER_TUNING``), not hardcoded."""
     import mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter as PF
 
     # Override the cheap tuning helper with a synthetic dict; this is the only public hook on the
@@ -778,3 +776,17 @@ def test_stage_b_gpu_thresholds_overridable_via_kernel_tuning_cache(monkeypatch)
     # Defaults restored when no entry.
     assert PF._stage_b_gpu_min_rows() == PF._STAGE_B_GPU_MIN_ROWS
     assert PF._stage_b_gpu_min_features() == PF._STAGE_B_GPU_MIN_FEATURES
+
+
+def test_prefilter_tuning_reads_the_env_json(monkeypatch):
+    """``MLFRAME_SHAP_PREFILTER_TUNING`` carries the per-host overrides as a JSON object; unset, malformed or non-object values leave the module defaults."""
+    import mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter as PF
+
+    monkeypatch.delenv("MLFRAME_SHAP_PREFILTER_TUNING", raising=False)
+    assert PF._prefilter_tuning() == {} and PF._auto_fast_width() == PF._AUTO_FAST_WIDTH
+    monkeypatch.setenv("MLFRAME_SHAP_PREFILTER_TUNING", '{"auto_fast_width": 321, "gpu_model_min_rows": 99}')
+    assert PF._auto_fast_width() == 321 and PF._gpu_model_min_rows() == 99
+    monkeypatch.setenv("MLFRAME_SHAP_PREFILTER_TUNING", "not json")
+    assert PF._prefilter_tuning() == {} and PF._two_stage_min_width() == PF._TWO_STAGE_MIN_WIDTH
+    monkeypatch.setenv("MLFRAME_SHAP_PREFILTER_TUNING", "[1, 2]")
+    assert PF._prefilter_tuning() == {}

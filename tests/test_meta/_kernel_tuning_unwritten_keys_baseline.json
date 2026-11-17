@@ -1,6 +1,4 @@
 {
   "note": "Debt ratchet (tracker OP11-15): cache keys production code reads that nothing writes, so the dispatcher can never leave its default. Fix = register a kernel_tuner sweep for the key (or drop the lookup) and delete the entry here; the list only shrinks.",
-  "keys": [
-    "shap_proxy_prefilter"
-  ]
+  "keys": []
 }
