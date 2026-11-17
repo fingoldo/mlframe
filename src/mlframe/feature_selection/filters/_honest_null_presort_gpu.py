@@ -19,10 +19,11 @@ from ._gpu_resident_select_kernels import _transpose_to_cm
 
 logger = logging.getLogger(__name__)
 
-#: Elements (columns x rows) from which the device sort is the default choice. Measured on the GTX 1050 Ti against the eight-thread host presort, upload and both reads included,
-#: identical outputs (2026-11-17): 100000 rows x 4 / 16 / 40 columns 5 / 19 / 54 ms against 18 / 72 / 220 ms; 30000 x 8 / 40: 4 / 19 against 6 / 40 ms; 10000 x 16: 2.8 against
-#: 3.3 ms; 3000 x 40: equal. The earlier floor of 5 000 000 predated the per-vector device sort and sent every block under 50 columns of a 100000-row fit to the host.
-DEVICE_MIN_ELEMENTS = 200_000
+#: Elements (columns x rows) from which the device sort is the default choice. The device sort alone wins from about 200 000 elements on the GTX 1050 Ti (2026-11-17, against the
+#: eight-thread host presort, upload and both reads included, identical outputs: 100000 rows x 4 / 16 / 40 columns 5 / 19 / 54 ms against 18 / 72 / 220 ms; 30000 x 8 / 40: 4 / 19
+#: against 6 / 40 ms; 3000 x 40 equal), but the order and the tie flags come back to the host (5 bytes a cell) and the acceptance kernel uploads the order again: lowering the
+#: floor to that crossover added 2.1 MB of device-to-host traffic to a 30000-row strict fit and broke its residency budget. The floor stays until the order is kept on the device.
+DEVICE_MIN_ELEMENTS = 5_000_000
 _BUDGET_FRACTION = 0.25
 #: Device bytes one column row holds at the peak: the float copy, the int64 argsort, the sorted copy and the flags.
 _BYTES_PER_COLUMN_ROW = 28
