@@ -845,3 +845,8 @@ Statuses as in the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTURE (de
 - `mlframe.system._ram_probe.host_memory()` reads `GlobalMemoryStatusEx` (3.8 us, the same available / total numbers), psutil elsewhere, and a `psutil.virtual_memory` replaced by a test double is honoured; 15 filter modules moved to it.
 - Wall 50.9 / 49.1 / 49.5 s (card at 76 C after back-to-back runs), the same seven features.
 - Found red on the way and fixed: `test_synthesis_xor3_recovered_by_triplet_synthesizer` (pair-only arm left the adaptive-arity family on), `test_row_chunked_pair_mi_warns_when_cupy_memory_probe_fails` (asserted a message the module no longer writes).
+
+### MR11-07 KSG scorer: one launch for the complete columns (2026-11-17)
+- `mi_cd_columns_device` ran 132 times in a 100000 x 100 fit (2.2 s synchronised, 0.84 s of it a thrust argsort with the lock held); 105 of the calls scored one column each: `_batch_one_scorer('ksg')` sent every column to the per-column scorer as soon as one column of the block had a missing value.
+- The complete columns now go in one batch (same values: each column draws its noise from its own seed) and only the incomplete ones are scored on their finite rows: 132 -> 28 calls, 2.2 -> 1.1 s.
+- Wall 49.2 / 50.6 s, the same seven features: the saving is on one of three concurrent lanes and below the run-to-run spread (about 1.5 s).

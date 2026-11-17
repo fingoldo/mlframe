@@ -181,8 +181,22 @@ def _batch_one_scorer(s, Xmat, y_arr, *, nbins, random_state, n_neighbors, copul
         from ._orthogonal_ksg_mi_fe import _is_discrete_target
         from ._ksg_cd_fast import ksg_mi_discrete_target_columns
 
-        if _is_discrete_target(y_arr) and np.isfinite(Xmat).all():
-            return ksg_mi_discrete_target_columns(Xmat, y_arr, n_neighbors=int(n_neighbors), random_state=int(random_state))
+        if _is_discrete_target(y_arr):
+            complete = np.isfinite(Xmat).all(axis=0)
+            if complete.all():
+                return ksg_mi_discrete_target_columns(Xmat, y_arr, n_neighbors=int(n_neighbors), random_state=int(random_state))
+            # One column with a missing value used to send every column to its own call (105 device launches of one column each, 1.45 s of a 100000 x 100 fit): the complete
+            # columns still go in one batch, read at the dtype the per-column scorer reads them at, and only the incomplete ones are scored on their own rows.
+            from ._fe_usability_signal import _crit_np_dtype
+
+            out = np.zeros(Xmat.shape[1], dtype=np.float64)  # Intentional float64: scorer values kept as a double precision vector, like the batched ones
+            if complete.any():
+                out[complete] = ksg_mi_discrete_target_columns(
+                    np.asarray(Xmat[:, complete], dtype=_crit_np_dtype()), y_arr, n_neighbors=int(n_neighbors), random_state=int(random_state)
+                )
+            for j in np.flatnonzero(~complete):
+                out[j] = call(s, Xmat[:, j], y_arr)
+            return out
         else:
             # Intentional float64: scorer values kept as a double precision vector, like the batched ones
             return np.array([call(s, Xmat[:, j], y_arr) for j in range(Xmat.shape[1])], dtype=np.float64)
