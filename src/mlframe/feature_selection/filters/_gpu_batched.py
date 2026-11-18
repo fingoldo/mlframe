@@ -15,6 +15,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+import threading
+
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
@@ -50,19 +52,21 @@ def cap_batch_size(batch_size: int, free_bytes: int, n: int) -> int:
 
 
 _MI_COUNTS_REDUCTIONS: dict = {}
+_MI_COUNTS_REDUCTIONS_LOCK = threading.Lock()
 
 
 def _mi_counts_reduction(cp, dtype):
     """One fused device reduction per float dtype: ``sum_cells (c/n) * log(((c/n) / outer) if c > 0 else 1)`` over the joint cells of each row."""
     key = np.dtype(dtype).str
-    kernel = _MI_COUNTS_REDUCTIONS.get(key)
-    if kernel is None:
-        kernel = cp.ReductionKernel(
-            "S c, T outer, T n", "T out",
-            "(T(c) / n) * log((c > 0) ? (T(c) / n) / outer : T(1))",
-            "a + b", "out = a", "T(0)", "mi_counts_reduction",
-        )
-        _MI_COUNTS_REDUCTIONS[key] = kernel
+    with _MI_COUNTS_REDUCTIONS_LOCK:
+        kernel = _MI_COUNTS_REDUCTIONS.get(key)
+        if kernel is None:
+            kernel = cp.ReductionKernel(
+                "S c, T outer, T n", "T out",
+                "(T(c) / n) * log((c > 0) ? (T(c) / n) / outer : T(1))",
+                "a + b", "out = a", "T(0)", "mi_counts_reduction",
+            )
+            _MI_COUNTS_REDUCTIONS[key] = kernel
     return kernel
 
 
