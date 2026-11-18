@@ -386,6 +386,9 @@ def _prune_after_admission(self, X, y, cols, selected_vars, design, pool, prune_
             logger.info("MRMR residual rescue: pruned raw column %r (no held-out gain given the rest of the selection).", cols[idx])
     pruned_eng = [n for n in prune_names if n in eng_set]
     _record_prunes(self, [str(cols[idx]) for idx in dropped], pruned_eng)
+    from ._pruned_raw_restore import record_pruned_raws
+
+    record_pruned_raws(self, [str(cols[idx]) for idx in dropped])
     if pruned_eng:
         keep = [(f, r) for f, r in zip(self._engineered_features_, self._engineered_recipes_) if str(f) not in pruned_eng]
         self._engineered_features_[:] = [f for f, _ in keep]

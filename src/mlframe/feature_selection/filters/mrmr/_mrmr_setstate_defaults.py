@@ -505,6 +505,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "parity_features_": [],
     "mi_greedy_candidates_": [],  # the greedy family's candidate roster; a fit sets [] first
     "_final_subsumption_dropped_": [],
+    "_residual_rescue_pruned_raw_": [],
     "no_significant_features_": False,
     # Fitted attributes that were baselined as having no neutral default. Each reader passes ``None`` (or ``{}``) to getattr, so an
     # absent attribute and the injected value take the same branch; a fit that never reached the stage writes the same value.

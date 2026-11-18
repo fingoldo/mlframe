@@ -134,6 +134,12 @@ def _assign_support_tail(
         if run_residual_rescue(self, X, selected_vars, cols, engineered_recipes or {}, _retention_added_eng_names, verbose, prune_only=True):
             self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
 
+    # The raws the rescue pruned were judged against designs that the passes above shrank afterwards: the ones the finished design still needs for a private linear term come back.
+    from ._pruned_raw_restore import restore_pruned_raws
+
+    if restore_pruned_raws(self, X, selected_vars, cols, engineered_recipes or {}, verbose):
+        self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
+
     # HIERARCHY: the main effect a joint-cell composite only modulates stays beside it, however fully the composite subsumes it.
     from ._main_effect_restore import run_main_effect_restore
 
