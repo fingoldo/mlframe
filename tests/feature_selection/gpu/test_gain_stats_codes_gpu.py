@@ -147,3 +147,24 @@ def test_main_effect_statistics_decline_on_non_finite_columns_and_small_inputs()
     assert mod.main_effect_z_device(cols, 10, t, even, 1.0) is None  # the last-but-one column holds NaN
     assert mod.main_effect_z_device(cols[:3], 1, t, even, 1.0) is None
     assert mod.main_effect_z_device(cols[:3], 10, t, np.zeros(3000, dtype=bool), 1.0) is None
+
+
+@pytest.mark.parametrize("dt", [np.float32, np.float64])
+@pytest.mark.parametrize("ky", [2, 5])
+def test_device_plugin_mi_equals_the_host_plugin_mi_of_the_codes(dt, ky):
+    """The MI of the quantile codes with the labels, computed on the card without the codes crossing, equals the host plug-in MI of the host codes."""
+    if not has_device(cp):
+        pytest.skip("no usable device")
+    from mlframe.feature_selection.filters._fe_gain_stats import plugin_mi_of_codes
+
+    rng = np.random.default_rng(7)
+    n = 20_001
+    cols = [c for c in _columns(dt, n) if np.isfinite(c).all()]
+    y = (cols[0] * 0.8 + rng.standard_normal(n) > 0).astype(np.int64) if ky == 2 else rng.integers(0, ky, n).astype(np.int64)
+    got = mod.plugin_mi_columns_device(cols, 10, y, ky)
+    assert got is not None and got.shape == (len(cols),)
+    want = np.array([plugin_mi_of_codes(quantile_codes(c, 10), 10, y, ky) for c in cols])
+    np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-12)
+    assert got[0] > got[1], "the column that drives the labels carries more information than a random one"
+    np.testing.assert_allclose(mod.plugin_mi_columns(cols, 10, y, ky), want, rtol=1e-9, atol=1e-12)
+    assert mod.plugin_mi_columns_device([np.where(np.arange(n) % 5 == 0, np.nan, cols[0])], 10, y, ky) is None
