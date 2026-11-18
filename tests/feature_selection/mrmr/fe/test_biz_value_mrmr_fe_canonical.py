@@ -389,6 +389,15 @@ def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
         "df=pd.DataFrame({'a':a,'b':b,'c':c,'d':d,'e':e})\n"
         "fs=MRMR(verbose=0, redundancy_policy='drop'); fs.fit(df,pd.Series(y,name='y'))\n"
         "import json; print('RESULT_JSON='+json.dumps(list(fs.get_feature_names_out())))\n"
+        + (
+            "from sklearn.linear_model import Ridge\n"
+            "from sklearn.model_selection import cross_val_score\n"
+            "sel=np.asarray(fs.transform(df),dtype=float)\n"
+            "r2=lambda M: float(cross_val_score(Ridge(alpha=1e-6),M,y,cv=3,scoring='r2').mean())\n"
+            "print('GAP_JSON='+json.dumps(r2(np.column_stack([sel,a]))-r2(sel)))\n"
+            if private
+            else ""
+        )
     )
     env = dict(os.environ)
     # Force CPU + deterministic path so the verdict is not perturbed by GPU/HNSW.
@@ -413,16 +422,29 @@ def _run_user_case_in_subprocess(seed: int, private: bool, n: int = _BUG1_N):
         env=env,
     )
     out_names = None
+    gap = None
     for line in proc.stdout.splitlines():
         if line.startswith("RESULT_JSON="):
             import json
 
             out_names = json.loads(line[len("RESULT_JSON=") :])
+        elif line.startswith("GAP_JSON="):
+            import json
+
+            gap = json.loads(line[len("GAP_JSON=") :])
     assert out_names is not None, (
         f"[seed={seed} private={private}] subprocess fit did not return a selection "
         f"(rc={proc.returncode}); stderr tail:\n" + "\n".join(proc.stderr.splitlines()[-15:])
     )
-    return out_names
+    return _Selection(out_names, gap)
+
+
+class _Selection(list):
+    """The selected names of a fit, with ``r2_gap``: the held-out ridge R^2 gained by adding raw ``a`` to the selection's own output (private runs only, else ``None``)."""
+
+    def __init__(self, names, gap):
+        super().__init__(names)
+        self.r2_gap = gap
 
 
 @pytest.mark.timeout(3600)
@@ -456,17 +478,19 @@ def test_user_case_drops_redundant_raw_a_multi_seed(seed):
 @pytest.mark.parametrize("seed", [0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
 def test_private_raw_a_kept_alongside_engineered_multi_seed(seed):
     """OVER-DROP CONTROL (multi-seed): when ``a`` carries a DOMINANT standalone
-    linear term (``y += 10*a``) the engineered children built from ``a`` do NOT
-    capture that private additive signal, so ``a`` keeps a large conditional
-    residual given its clean a**2/b sub-expression and MUST be KEPT on every seed.
-    Pins that the nested-sub-expression redundancy fix does not over-correct into
-    dropping a genuine private-term raw. Same fresh-subprocess-per-seed isolation
-    as the drop pin above."""
+    linear term (``y += 10*a``) that term must SURVIVE the selection on every seed.
+    It survives either as raw ``a`` or inside an engineered column that carries it
+    (the single-index direction ``sir__...__dir0`` correlates -0.985 with ``a`` on
+    seed 6, so dropping ``a`` there loses nothing). The property is therefore the
+    downstream one, not the name: adding raw ``a`` back to the selection's own
+    output must not raise the held-out ridge R^2 by more than 0.01 (measured on
+    seed 6: 0.9712 without, 0.9713 with). A real over-drop of a genuine private
+    term loses the dominant ``10*a`` and the gap is large. Same fresh-subprocess-
+    per-seed isolation as the drop pin above."""
     out = _run_user_case_in_subprocess(seed, private=True)
-    assert "a" in out, (
-        f"[seed={seed}] raw 'a' wrongly dropped despite a DOMINANT standalone linear "
-        f"term (10*a) the engineered children do not capture (over-drop regression): "
-        f"out={out}"
+    assert "a" in out or (out.r2_gap is not None and out.r2_gap <= 0.01), (
+        f"[seed={seed}] raw 'a' dropped and its DOMINANT standalone linear term (10*a) is lost: "
+        f"adding 'a' back raises the held-out ridge R^2 by {out.r2_gap} (over-drop regression): out={out}"
     )
 
 
