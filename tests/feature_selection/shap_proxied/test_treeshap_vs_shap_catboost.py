@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+from mlframe.feature_selection.shap_proxied_fs.shared import maybe_patch_shap_xgb_base_score as _maybe_patch_shap_xgb_base_score
 import pandas as pd
 import pytest
 
@@ -49,7 +50,8 @@ def test_values_equal_catboost_native_and_the_public_library(kind):
     assert explainer.backend_ == "catboost"
     np.testing.assert_allclose(got, ref, rtol=0, atol=1e-9)
     assert float(np.asarray(explainer.expected_value).ravel()[0]) == pytest.approx(base, abs=1e-9)
-    public = np.asarray(shap.TreeExplainer(model, feature_perturbation="tree_path_dependent").shap_values(X, check_additivity=False))
+    with _maybe_patch_shap_xgb_base_score():
+        public = np.asarray(shap.TreeExplainer(model, feature_perturbation="tree_path_dependent").shap_values(X, check_additivity=False))
     np.testing.assert_allclose(got, public, rtol=0, atol=1e-6)
     raw = model.predict(X, prediction_type="RawFormulaVal")
     np.testing.assert_allclose(base + got.sum(axis=1), raw, rtol=0, atol=1e-6)

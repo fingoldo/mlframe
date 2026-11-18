@@ -3,14 +3,14 @@
 The host kernel sorts a column, walks its runs of equal values and reads both tails off the average rank of each run. The statistic depends only on the runs and on how many rows of each
 run fall in the target's tails, never on the order of rows inside a run.
 
-Versions (all kept; every one is bit-identical to the host kernel, because everything compared or counted is an integer count and the final arithmetic is done on the host in float64 in the
+Versions (all kept; every one is bit-identical to the host kernel, because everything compared or counted is an integer count and the final arithmetic is done on the host in double precision in the
 host kernel's order):
 
 * ``_block_counts_packed`` (float32 columns, the default): one kernel (``pack_keys``) packs the target's two tail flags are packed into the low bits of a 64-bit key together with the order-preserving bits of the value and
   the column number, one flat array of keys is sorted with no payload, and ONE kernel (``tail_counts``, a block per column segment) walks the sorted keys, finds each run, forms its average rank in
   double as the host does and adds the four counts in shared memory. Win axis: the sort is the only heavy step; there is no permutation of the target, no gather and no intermediate table.
-* ``_block_counts_chain`` (float64 columns, and the reference the tests compare against): ``argsort`` of each column, then about twenty array operations with ``(b, n)`` int64 tables in
-  global memory. Slower; kept for float64 input, which the 64-bit key cannot hold.
+* ``_block_counts_chain`` (double precision columns, and the reference the tests compare against): ``argsort`` of each column, then about twenty array operations with ``(b, n)`` int64 tables in
+  global memory. Slower; kept for double precision input, which the 64-bit key cannot hold.
 
 Columns go to the device in column blocks that fit ``_BUDGET_FRACTION`` of the room the allocator has left; on any device fault the caller runs the host kernel. The kernel-tuning cache decides by
 row count (fallback ``DEVICE_FALLBACK_ROWS``).
@@ -165,7 +165,7 @@ def tail_dependence_columns_device(cols_rows: Any, v: np.ndarray, q: float) -> O
 
     ``cols_rows`` is a host array, which is uploaded block by block, or a cupy array already on the device, which is read in place with no upload."""
     k, n = cols_rows.shape
-    if cols_rows.dtype not in (np.dtype(np.float32), np.dtype(np.float64)) or k == 0 or n < 2:
+    if cols_rows.dtype not in (np.dtype(np.float32), np.dtype(np.float64)) or k == 0 or n < 2:  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
         return None
     if int(np.shape(v)[0]) != int(n):
         log_throttle(logger, "tail_dependence_gpu.target_length", logging.WARNING, "device tail dependence skipped: the target has %d rows, the columns %d; the host kernel scores the columns", int(np.shape(v)[0]), int(n))

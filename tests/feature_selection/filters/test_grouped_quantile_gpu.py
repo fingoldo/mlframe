@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+from tests.feature_selection.gpu._gpu_support import require_device
 import pandas as pd
 import pytest
 
@@ -26,12 +27,11 @@ def _block(n=6000, k=6, n_groups=7):
 
 def test_the_two_forms_agree_exactly():
     """Ranks, sorted segments and both spreads are equal between the numba form and the CUDA form."""
-    pytest.importorskip("cupy")
+    require_device()
     xs, codes, n_groups = _block()
     host = G._stats_host(xs, codes, n_groups)
     dev = G._stats_device(xs, codes, n_groups)
-    if dev is None:
-        pytest.skip("no usable device")
+    assert dev is not None, "the device path returned nothing on a host with a usable device"
     for key in ("pct", "sorted", "iqr", "p90p10"):
         assert np.array_equal(host[key], dev[key]), key
 
@@ -63,12 +63,9 @@ def test_generated_features_do_not_change(monkeypatch, forced, with_nan):
     for c in want_df.columns:
         assert np.array_equal(got_df[c].to_numpy(), want_df[c].to_numpy(), equal_nan=True), c
     assert set(got_rec) == set(want_rec)
-    assert want_rec
+    assert any(payload["op"] == "pct_rank" for payload in want_rec.values())
     for name, payload in want_rec.items():
         assert payload["iqr_lookup"] == got_rec[name]["iqr_lookup"] and payload["p90p10_lookup"] == got_rec[name]["p90p10_lookup"], name
-        if payload["op"] != "pct_rank":
-            assert payload["group_sorted"] == {}, name  # the spread recipes carry the lookups only
-            continue
-        assert payload["group_sorted"], name
+        assert (payload["op"] == "pct_rank") == bool(payload["group_sorted"]), name  # only the rank recipe stores the sorted segments
         for key, sv in payload["group_sorted"].items():
             assert np.array_equal(np.asarray(sv), np.asarray(got_rec[name]["group_sorted"][key])), (name, key)

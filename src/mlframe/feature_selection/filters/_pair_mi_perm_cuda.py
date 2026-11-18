@@ -198,7 +198,7 @@ def _launch_pairs(
             np.int32(K),
             np.int32(ky),
             np.int64(cap),
-            np.float64(1.0 / n),
+            np.float64(1.0 / n),  # Intentional float64: scalar argument of a double-typed kernel parameter or accumulator
             out,
         ),  # Intentional float64: MI scalar handed to the kernel (kernel contract double)
         shared_mem=shared,

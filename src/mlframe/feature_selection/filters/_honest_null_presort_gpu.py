@@ -20,7 +20,10 @@ from ._gpu_resident_select_kernels import _transpose_to_cm
 
 logger = logging.getLogger(__name__)
 
-#: Elements (columns x rows) from which the device sort is the default choice.
+#: Elements (columns x rows) from which the device sort is the default choice. The device sort alone wins from about 200 000 elements on the GTX 1050 Ti (against the
+#: eight-thread host presort, upload and both reads included, identical outputs: 100000 rows x 4 / 16 / 40 columns 5 / 19 / 54 ms against 18 / 72 / 220 ms; 30000 x 8 / 40: 4 / 19
+#: against 6 / 40 ms; 3000 x 40 equal), but the order and the tie flags come back to the host (5 bytes a cell) and the acceptance kernel uploads the order again: lowering the
+#: floor to that crossover added 2.1 MB of device-to-host traffic to a 30000-row strict fit and broke its residency budget. The floor stays until the order is kept on the device.
 DEVICE_MIN_ELEMENTS = 5_000_000
 _BUDGET_FRACTION = 0.25
 #: Device bytes one column row holds at the peak: the float copy, the int64 argsort, the sorted copy and the flags.
@@ -88,9 +91,9 @@ def presort_and_ties_gpu(raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
             if isinstance(exc, _cp.cuda.memory.OutOfMemoryError):
                 from ._fe_gpu_vram import note_gpu_oom
 
-                note_gpu_oom()  # GPU11-13: the block-halving retry above gave up (block already at its floor); arm the shared cooldown for other call sites.
+                note_gpu_oom()  # the block-halving retry above gave up (block already at its floor); arm the shared cooldown for other call sites.
         except Exception:  # nosec B110 - best-effort cooldown note, never let it mask the original failure
-            pass
+            logger.debug("GPU out-of-memory cooldown note failed", exc_info=True)
         return None
     return order, tie
 

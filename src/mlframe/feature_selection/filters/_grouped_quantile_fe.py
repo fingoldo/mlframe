@@ -42,6 +42,8 @@ Leakage safety (CRITICAL)
 """
 from __future__ import annotations
 
+from mlframe.system import host_memory
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_values
 from ._grouped_coerce_shared import auto_detect_group_cols, coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols, broadcast_lookup as _broadcast_lookup
 
 import functools
@@ -214,6 +216,12 @@ def _device_group_stats(X: "pd.DataFrame", cols: list, g_keys: np.ndarray, group
         return {}
 
 
+def _pct_rank_scrubbed(pct: np.ndarray) -> np.ndarray:
+    """A within-group percentile-rank column with NaN -> 0.5, +inf -> 1 and -inf -> 0. An all-finite column (the usual case) is returned as it is after one test pass:
+    ``nan_to_num`` took 5.6 ms a column at 100000 rows whether or not anything needed replacing."""
+    return pct if bool(np.isfinite(pct).all()) else np.nan_to_num(pct, nan=0.5, posinf=1.0, neginf=0.0)
+
+
 @fe_timed("grouped_quantile")
 def generate_grouped_quantile_features(
     X: pd.DataFrame,
@@ -277,7 +285,7 @@ def generate_grouped_quantile_features(
             else:
                 group_sorted, iqr_lookup, p90p10_lookup, pct_out = _groups_on_host(x, group_rows, global_sorted, global_iqr, global_p90p10)
 
-            pct_out = np.nan_to_num(pct_out, nan=0.5, posinf=1.0, neginf=0.0)
+            pct_out = _pct_rank_scrubbed(pct_out)
 
             pct_name = engineered_name_grouped_pctrank(num_col, group_col)
             encoded[pct_name] = pct_out
@@ -358,7 +366,7 @@ def apply_grouped_quantile(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
                     sv = global_sorted
                 cache[key] = sv
             out[rows] = _pct_rank_in_sorted(sv, x[rows])
-        return np.nan_to_num(out, nan=0.5, posinf=1.0, neginf=0.0)
+        return _pct_rank_scrubbed(out)
     raise ValueError(f"apply_grouped_quantile: unknown op {op!r}")
 
 # ---------------------------------------------------------------------------
@@ -630,7 +638,7 @@ def _grouped_quantile_mi_device(eng_X: pd.DataFrame, eng_cols: list, y_bin: np.n
 
         cols = []
         for c in eng_cols:
-            a = np.asarray(eng_X[c].to_numpy(), dtype=_crit_np_dtype())
+            a = np.asarray(fe_column_values(eng_X, c), dtype=_crit_np_dtype())
             if not np.isfinite(a).all():
                 continue
             # at most n_bins distinct values (integer or not): the host cuts at float32 quantiles, where an edge interpolated between two adjacent values can
@@ -672,7 +680,7 @@ def _prebinned_codes(frame: pd.DataFrame, cols: list, n_bins: int) -> dict:
         return {}
     keep, arrs = [], []
     for c in cols:
-        a = np.asarray(frame[c].to_numpy(), dtype=np.float32)
+        a = np.asarray(fe_column_values(frame, c), dtype=np.float32)
         # a column with at most n_bins distinct values stays on the host binner: its float32 quantile edges can merge two adjacent levels, which the kernel's exact level codes do not
         if a.size and np.isfinite(a).all() and not has_few_distinct(a, n_bins):
             keep.append(c)
@@ -840,9 +848,7 @@ def _grouped_quantile_block_cols(X: pd.DataFrame, group_cols, num_cols) -> "int 
         return int(forced)
     per_num = len(X) * 3 * 4 * 3  # three float32 candidates, held as the dict, the frame block and a copy
     try:
-        import psutil
-
-        budget = int(psutil.virtual_memory().available) // 4
+        budget = host_memory()[0] // 4
     except Exception as exc:
         log_throttle(logger, "_grouped_quantile_fe.except_769", logging.INFO, "grouped quantile blocks: available RAM unreadable (%r); one block", exc)
         return None

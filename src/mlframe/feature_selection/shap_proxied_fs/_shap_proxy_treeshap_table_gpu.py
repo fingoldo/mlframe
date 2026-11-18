@@ -2,7 +2,7 @@
 entries of the per-leaf contribution table to its phi row. The ``O(depth^2)`` unwinding of the path kernel (``_shap_proxy_treeshap_gpu``) is gone from the per-sample work: the table is built once per
 ensemble on the host (numba, with the path kernel's own arithmetic) and uploaded.
 
-Element type ``{REAL}``: float32 by default (the table is rounded once, the sums are over a few entries per leaf), float64 for the exact reference (``MLFRAME_SHAP_TREESHAP_REAL=float64``).
+Element type ``{REAL}``: float32 by default (the table is rounded once, the sums are over a few entries per leaf), double for the exact reference (``MLFRAME_SHAP_TREESHAP_REAL=double``).
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ void treeshap_table(const {REAL}* X, const int n, const int f,
                 const int leaf = leaf_of_node[node];
                 const int ud = leaf_ud[leaf];
                 if (ud > 0){
-                    const int base = leaf_table_off[leaf] + (mask & ((1 << ud) - 1)) * ud;
+                    const int base = leaf_table_off[leaf] + (mask & ((1 << ud) - 1)) * ud;  // width-ok: a row of the leaf table, below 2^ud * ud for a path of ud <= max_depth features; the offsets are int32 by construction
                     const int fo = leaf_feat_off[leaf];
                     // phi is stored (feature, sample): the lanes of a warp stand on the same leaf, so they add to the same feature and consecutive samples, one coalesced transaction
                     for (int j = 0; j < ud; j++) phi[(long long)leaf_feat[fo + j] * n + i] += table[base + j];
@@ -95,7 +95,7 @@ void treeshap_table_preorder(const {REAL}* __restrict__ X, const int n, const in
         if ((r.x >> 9) & 1){   // leaf: add the table entries of the satisfied-feature mask
             const int ud = r.y;
             if (ud > 0){
-                const int base = r.w + (mask & ((1 << ud) - 1)) * ud;
+                const int base = r.w + (mask & ((1 << ud) - 1)) * ud;  // width-ok: a row of the leaf table, below 2^ud * ud for a path of ud <= max_depth features; the offsets are int32 by construction
                 // phi is stored (feature, sample): the lanes of a warp stand on the same leaf, so they add to the same feature and consecutive samples, one coalesced transaction
                 for (int j = 0; j < ud; j++) phi[(long long)leaf_feat[r.z + j] * n + i] += table[base + j];
             }
@@ -115,8 +115,8 @@ _LOCK = threading.Lock()
 
 
 def _real():
-    """Element type of the device table form: float32 by default, ``MLFRAME_SHAP_TREESHAP_REAL=float64`` for the exact reference."""
-    return np.float64 if os.environ.get("MLFRAME_SHAP_TREESHAP_REAL", "").strip().lower() == "float64" else np.float32
+    """Element type of the device table form: float32 by default, ``MLFRAME_SHAP_TREESHAP_REAL=double precision`` for the exact reference."""
+    return np.float64 if os.environ.get("MLFRAME_SHAP_TREESHAP_REAL", "").strip().lower() == "float64" else np.float32  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
 
 
 _SMEM_BUDGET = 32 * 1024  # bytes of shared memory the DFS stacks of one block may take (the device limit is 48 KB)
@@ -132,28 +132,28 @@ def _stack_shared() -> bool:
     return os.environ.get("MLFRAME_SHAP_TREESHAP_STACK", "local").strip().lower() == "shared"
 
 
-def kernel_source(max_depth: int, real=np.float32, shared_stack: bool = False) -> str:
+def kernel_source(max_depth: int, real: Any = np.float32, shared_stack: bool = False) -> str:
     """The kernel source for trees up to ``max_depth``, the element type ``real`` and the stack placement."""
-    from mlframe.feature_selection.filters._kernel_types import render
+    from mlframe.feature_selection.filters.shared import render
 
     return render(f"#define MAXSP {_maxsp(max_depth)}\n#define STACK_SHARED {int(shared_stack)}\n" + _KERNEL_SRC, real, acc=real)
 
 
-def kernel(cp, real=np.float32):
+def kernel(cp: Any, real: Any = np.float32) -> Any:
     """``treeshap_table`` (the stack walk, kept as the reference) at depth 6 for the element type ``real``; the register-pressure registry and the offline per-arch test compile it through this."""
     return cp.RawKernel(kernel_source(6, real), "treeshap_table")
 
 
-def preorder_source(max_depth: int, real=np.float32) -> str:
+def preorder_source(max_depth: int, real: Any = np.float32) -> str:
     """The preorder-walk kernel source for trees up to ``max_depth`` and the element type ``real``."""
-    from mlframe.feature_selection.filters._kernel_types import render
+    from mlframe.feature_selection.filters.shared import render
 
     return render(f"#define MAXD {int(max_depth) + 2}\n" + _PREORDER_SRC, real, acc=real)
 
 
-def kernel_preorder(cp, real=np.float32):
-    """``treeshap_table_preorder`` at depth 6 for the element type ``real``; registry factory."""
-    return cp.RawKernel(preorder_source(6, real), "treeshap_table_preorder")
+def kernel_preorder(cp: Any, real: Any = np.float32, max_depth: int = 6) -> Any:
+    """``treeshap_table_preorder`` for trees up to ``max_depth`` and the element type ``real``: the compile point of the production walk and (at the default depth) the registry factory."""
+    return cp.RawKernel(preorder_source(max_depth, real), "treeshap_table_preorder")
 
 
 def _use_stack_walk() -> bool:
@@ -169,20 +169,28 @@ def _ensure_preorder_kernel(max_depth: int, real):
         if k is None:
             import cupy as cp
 
-            k = _KERNELS[key] = cp.RawKernel(preorder_source(max_depth, real), "treeshap_table_preorder")
+            k = _KERNELS[key] = kernel_preorder(cp, real, int(max_depth))
     return k
 
 
-def _ensure_kernel(max_depth: int, real, shared_stack: bool = False):
-    """Compile once per (depth, type, stack placement) under a module lock."""
-    key = (int(max_depth), np.dtype(real).name, bool(shared_stack))
-    with _LOCK:
-        k = _KERNELS.get(key)
-        if k is None:
-            import cupy as cp
+def make_ensure_kernel(source: Any, entry: str, cache: dict, lock: Any) -> Any:
+    """The ``ensure_kernel(max_depth, real, shared_stack)`` compile point of a TreeSHAP table module: compiles ``source(max_depth, real, shared_stack)`` once per (depth, type, stack placement) under ``lock``."""
 
-            k = _KERNELS[key] = cp.RawKernel(kernel_source(max_depth, real, shared_stack), "treeshap_table")
-    return k
+    def ensure_kernel(max_depth: int, real, shared_stack: bool = False):
+        """Compile once per (depth, type, stack placement) under a module lock."""
+        key = (int(max_depth), np.dtype(real).name, bool(shared_stack))
+        with lock:
+            k = cache.get(key)
+            if k is None:
+                import cupy as cp
+
+                k = cache[key] = cp.RawKernel(source(max_depth, real, shared_stack), entry)
+        return k
+
+    return ensure_kernel
+
+
+_ensure_kernel = make_ensure_kernel(kernel_source, "treeshap_table", _KERNELS, _LOCK)
 
 
 def _block_size(max_depth: int = 6) -> int:
@@ -208,7 +216,7 @@ def _row_block(n: int, f: int, real) -> int:
 
 
 def treeshap_phi_base_table_gpu(ensemble: "TreeEnsemble", X: np.ndarray) -> Optional[tuple]:
-    """``(phi (n, f) float64, base)`` from the device table kernel, or ``None`` when the ensemble does not fit the table form or the rows do not repay the table build (the caller keeps the path kernel).
+    """``(phi (n, f) double precision, base)`` from the device table kernel, or ``None`` when the ensemble does not fit the table form or the rows do not repay the table build (the caller keeps the path kernel).
     The rows go through the device in row blocks sized from the free memory (:func:`_row_block`); the node arrays, the table and the preorder records are uploaded once and stay resident for the blocks."""
     import cupy as cp
 

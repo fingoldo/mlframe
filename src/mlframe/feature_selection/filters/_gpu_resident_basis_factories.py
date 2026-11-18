@@ -5,6 +5,8 @@ The lazy getters of that module (which is at the module-size limit) call these f
 
 from __future__ import annotations
 
+import threading
+
 from typing import Any
 
 import numpy as np
@@ -44,17 +46,19 @@ void abs_corr(const REAL_T* __restrict__ cand, const REAL_T* __restrict__ yc, co
 }
 """)
 _ABS_CORR_KERNELS: dict = {}
+_ABS_CORR_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def _get_abs_corr_kernel(real_t: str = "double"):
     """Lazily compile-and-cache the ``abs_corr`` RawKernel for the input element type ``real_t`` (``"float"`` or ``"double"``); the sums accumulate in double either way."""
-    with _basis()._KERNEL_CACHE_LOCK:
-        kern = _ABS_CORR_KERNELS.get(real_t)
-        if kern is None:
-            import cupy as cp
-            kern = kernel_abs_corr(cp, np.float32 if real_t == "float" else np.float64)
-            _ABS_CORR_KERNELS[real_t] = kern
-    return kern
+    with _ABS_CORR_KERNELS_LOCK:
+        with _basis()._KERNEL_CACHE_LOCK:
+            kern = _ABS_CORR_KERNELS.get(real_t)
+            if kern is None:
+                import cupy as cp
+                kern = kernel_abs_corr(cp, np.float32 if real_t == "float" else np.float64)  # Intentional float64: the device kernel is built in the data's own precision: float64 data keeps double
+                _ABS_CORR_KERNELS[real_t] = kern
+        return kern
 
 
 def _basis() -> Any:

@@ -141,24 +141,44 @@ _DETECT_HEAVY_TAIL_NJIT_MAX_N = env_int("MLFRAME_DETECT_HEAVY_TAIL_NJIT_MAX_N", 
 import threading as _threading
 import contextlib as _contextlib
 import logging
-from typing import Iterator
+from typing import Any, Callable, Iterator, Optional
 
 logger = logging.getLogger(__name__)
-_HEAVY_TAIL_MEMO = _threading.local()
+# One table for the process, entered by a counted scope: the column sweeps run on pool threads, and a per-thread table (as this was) is empty in every worker, so each column
+# was examined again by every caller (715 examinations of about 105 columns in a 100000 x 100 fit).
+_HEAVY_TAIL_MEMO: dict = {"cache": None, "depth": 0}
+_HEAVY_TAIL_MEMO_LOCK = _threading.Lock()
+_heavy_tail_hash: Optional[Callable[[Any], int]]
+try:
+    import xxhash as _xxhash
+
+    _heavy_tail_hash = _xxhash.xxh3_64_intdigest
+except ImportError:  # without xxhash the memo recognises an array by identity only
+    _heavy_tail_hash = None
+
+
+def _heavy_tail_key(x: np.ndarray) -> "tuple | None":
+    """Content key of a column (shape, dtype, 64-bit hash of its bytes), or ``None`` when it cannot be hashed in place: the verdict is a function of the values alone."""
+    if _heavy_tail_hash is None or not isinstance(x, np.ndarray) or not x.flags.c_contiguous or x.dtype.kind not in "fiub":
+        return None
+    return (x.shape, x.dtype.str, int(_heavy_tail_hash(x)))
 
 
 @_contextlib.contextmanager
 def heavy_tail_memo_scope() -> Iterator[None]:
     """Enable the fit-scoped ``_detect_heavy_tail`` memo for one orth-FE column sweep, then clear it. Nesting-safe:
     an inner scope reuses the outer cache and the outer owner clears it."""
-    if getattr(_HEAVY_TAIL_MEMO, "cache", None) is not None:
-        yield  # reuse outer scope; outer owner clears
-        return
-    _HEAVY_TAIL_MEMO.cache = {}
+    with _HEAVY_TAIL_MEMO_LOCK:
+        if _HEAVY_TAIL_MEMO["depth"] == 0:
+            _HEAVY_TAIL_MEMO["cache"] = {}
+        _HEAVY_TAIL_MEMO["depth"] += 1
     try:
         yield
     finally:
-        _HEAVY_TAIL_MEMO.cache = None
+        with _HEAVY_TAIL_MEMO_LOCK:
+            _HEAVY_TAIL_MEMO["depth"] -= 1
+            if _HEAVY_TAIL_MEMO["depth"] == 0:
+                _HEAVY_TAIL_MEMO["cache"] = None  # the outermost scope clears; an inner or concurrent one reuses the table
 
 
 def _detect_heavy_tail(x: np.ndarray) -> bool:
@@ -174,12 +194,16 @@ def _detect_heavy_tail(x: np.ndarray) -> bool:
     Below ``_DETECT_HEAVY_TAIL_NJIT_MAX_N`` finite values the fused njit core (``_detect_heavy_tail_njit``) is the faster
     BIT-IDENTICAL path (the per-column FE search calls this thousands of times on small columns); above it the numpy body
     wins on its introselect median, so we route there."""
-    _cache = getattr(_HEAVY_TAIL_MEMO, "cache", None)
-    _k = None
+    _cache = _HEAVY_TAIL_MEMO["cache"]
+    _k: object = None
+    _by_content = False
     if _cache is not None:
-        _k = id(x)
+        _k = _heavy_tail_key(x)
+        _by_content = _k is not None
+        if not _by_content:
+            _k = id(x)
         _hit = _cache.get(_k)
-        if _hit is not None and _hit[0] is x:  # identity-verify -> collision-proof against id reuse
+        if _hit is not None and (_by_content or _hit[0] is x):  # an identity entry is verified against id reuse; a content entry holds for any array of these values
             return bool(_hit[1])
     finite = np.isfinite(x)
     n_finite = int(np.count_nonzero(finite))
@@ -190,7 +214,7 @@ def _detect_heavy_tail(x: np.ndarray) -> bool:
     else:
         _verdict = _detect_heavy_tail_numpy(x)
     if _cache is not None:
-        _cache[_k] = (x, _verdict)  # hold the array ref so id() stays valid + the identity check is sound
+        _cache[_k] = (None if _by_content else x, _verdict)  # an identity entry holds the array so id() stays valid; a content entry needs no reference
     return _verdict
 
 

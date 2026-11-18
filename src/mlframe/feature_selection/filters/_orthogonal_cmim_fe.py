@@ -108,6 +108,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.utils.array_shape import size_of
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
@@ -361,7 +362,7 @@ def _cmim_min_scores(eng_bins, y_bin, sel_bins, support_names, eng_sources, n_bi
         if none.size:
             # a candidate with no reference of another source is scored by its marginal MI (Miller-Madow, clipped at 0): the CMI against one constant reference is that value (k_xyz + k_z - k_xz - k_yz
             # = k_xy + 1 - k_x - k_y), so the same kernels score them in one more call instead of one host ``_cmi_from_binned`` each
-            marginal = cmim_min_scores(np.asarray(eng_bins)[none], np.asarray(y_bin), [np.zeros(np.asarray(y_bin).size, dtype=np.int64)], np.ones((1, none.size), dtype=bool), int(n_bins))
+            marginal = cmim_min_scores(np.asarray(eng_bins)[none], np.asarray(y_bin), [np.zeros(size_of(y_bin), dtype=np.int64)], np.ones((1, none.size), dtype=bool), int(n_bins))
             got = got.copy()
             got[none] = np.inf if marginal is None else marginal
         return got

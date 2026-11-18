@@ -102,9 +102,9 @@ def unique_with_counts(values: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
 
 @njit(nogil=True, cache=True)
 def _sorted_quantiles_f32_njit(x: np.ndarray, quantiles: np.ndarray) -> np.ndarray:
-    """``np.quantile(x.astype(float64), quantiles)`` (method ``linear``) of a NaN-free float32 vector from one radix sort of a copy.
+    """``np.quantile(x.astype(double precision), quantiles)`` (method ``linear``) of a NaN-free float32 vector from one radix sort of a copy.
 
-    The virtual index is ``(n - 1) * q``, the interpolation is numpy's ``_lerp`` in float64 (``a + (b - a) * t``, and ``b - (b - a) * (1 - t)`` from ``t >= 0.5``), so the float64 results are the ones numpy gives bit for bit.
+    The virtual index is ``(n - 1) * q``, the interpolation is numpy's ``_lerp`` in double precision (``a + (b - a) * t``, and ``b - (b - a) * (1 - t)`` from ``t >= 0.5``), so the double precision results are the ones numpy gives bit for bit.
     """
     n = x.shape[0]
     col = x.copy()
@@ -112,7 +112,7 @@ def _sorted_quantiles_f32_njit(x: np.ndarray, quantiles: np.ndarray) -> np.ndarr
     tmp = np.empty(n, dtype=np.uint32)
     cnt = np.empty(256, dtype=np.int64)
     _radix_sort_f32(col, keys, tmp, cnt)
-    out = np.empty(quantiles.shape[0], dtype=np.float64)
+    out = np.empty(quantiles.shape[0], dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     for qi in range(quantiles.shape[0]):
         v = quantiles[qi] * (n - 1)
         lo = math.floor(v)
@@ -133,14 +133,14 @@ def _sorted_quantiles_f32_njit(x: np.ndarray, quantiles: np.ndarray) -> np.ndarr
 def sorted_quantiles(values: np.ndarray, quantiles: np.ndarray) -> "np.ndarray | None":
     """Float64 quantiles (fractions in ``[0, 1]``) of a large NaN-free float32 vector by the radix route, or ``None`` when it does not apply (another dtype, a small vector): the caller then uses numpy."""
     if values.dtype == np.float32 and values.ndim == 1 and values.size >= _UNIQUE_COUNTS_MIN_SIZE:
-        found: np.ndarray = _sorted_quantiles_f32_njit(np.ascontiguousarray(values), np.ascontiguousarray(quantiles, dtype=np.float64))
+        found: np.ndarray = _sorted_quantiles_f32_njit(np.ascontiguousarray(values), np.ascontiguousarray(quantiles, dtype=np.float64))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
         return found
     return None
 
 
 @njit(nogil=True, cache=True)
 def _sort_xy_f32_njit(x: np.ndarray, y: np.ndarray):
-    """``(x[order].astype(float64), y[order])`` for the stable ascending order of the NaN-free float32 vector ``x``: a radix argsort (the order-preserving key of each float with its index riding along, four 8-bit LSD passes) and one gather of both arrays.
+    """``(x[order].astype(double precision), y[order])`` for the stable ascending order of the NaN-free float32 vector ``x``: a radix argsort (the order-preserving key of each float with its index riding along, four 8-bit LSD passes) and one gather of both arrays.
 
     Equal ``x`` keep their input order (``np.argsort``'s quicksort leaves them in an unspecified one); the sorted ``x`` is identical, and so are the per-value label counts that the MDLP split search reads.
     """
@@ -186,7 +186,7 @@ def _sort_xy_f32_njit(x: np.ndarray, y: np.ndarray):
 
 
 def sort_xy(x: np.ndarray, y: np.ndarray) -> "tuple[np.ndarray, np.ndarray] | None":
-    """``(x sorted ascending as float64, y in that order)`` by the radix route for a large NaN-free float32 ``x`` with a 1-D integer ``y`` of the same length, else ``None`` (the caller sorts with numpy)."""
+    """``(x sorted ascending as double precision, y in that order)`` by the radix route for a large NaN-free float32 ``x`` with a 1-D integer ``y`` of the same length, else ``None`` (the caller sorts with numpy)."""
     if x.dtype == np.float32 and x.ndim == 1 and x.size >= _UNIQUE_COUNTS_MIN_SIZE and y.ndim == 1 and y.shape[0] == x.shape[0] and y.dtype.kind in "iu":
         pair: "tuple[np.ndarray, np.ndarray]" = _sort_xy_f32_njit(np.ascontiguousarray(x), np.ascontiguousarray(y))
         return pair

@@ -75,7 +75,7 @@ def kernel(cp: Any, real: Any) -> Any:
 
 def live_rows(cp: Any, cand: Any, rel_tol: float) -> tuple:
     """``(live, row_min, row_max)`` device vectors for the C-contiguous ``(kk, n)`` block ``cand``: ``live[r]`` is True when row ``r`` has spread above ``rel_tol`` times its largest ``|value|``;
-    ``row_min`` / ``row_max`` (float64) are the row extremes the MI edge dedup needs, produced in the same pass."""
+    ``row_min`` / ``row_max`` (double precision) are the row extremes the MI edge dedup needs, produced in the same pass."""
     kk, n = int(cand.shape[0]), int(cand.shape[1])
     out = cp.empty(kk, dtype=cp.uint8)
     rmin = cp.empty(kk, dtype=cp.float64)  # Intentional float64: MI edge bounds, compared at full precision

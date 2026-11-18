@@ -116,29 +116,29 @@ def _get_dedup_edges_kernel(real_t: str = "double"):
     return kern
 
 
-def kernel(cp, real):
+def kernel(cp: Any, real: Any) -> Any:
     """``mi_mm_from_values`` (double values); the register-pressure registry compiles it through this."""
     return cp.RawKernel(_MI_MM_FROM_VALUES_SRC, "mi_mm_from_values")
 
 
-def kernel_nek(cp, real):
+def kernel_nek(cp: Any, real: Any) -> Any:
     """``mi_mm_from_values_nek`` for values of dtype ``real`` (float32: the ``_nek_f32`` twin); registry factory."""
     if np.dtype(real) == np.float32:
         return cp.RawKernel(_MI_MM_FROM_VALUES_NEK_F32_SRC, "mi_mm_from_values_nek_f32")
     return cp.RawKernel(_MI_MM_FROM_VALUES_NEK_SRC, "mi_mm_from_values_nek")
 
 
-def kernel_tile(cp, real):
+def kernel_tile(cp: Any, real: Any) -> Any:
     """``mm_nek_tile`` for values of dtype ``real``; registry factory."""
-    return cp.RawKernel(render(_MM_NEK_TILE_TEMPLATE, real=np.float32 if np.dtype(real) == np.float32 else np.float64), "mm_nek_tile")
+    return cp.RawKernel(render(_MM_NEK_TILE_TEMPLATE, real=np.float32 if np.dtype(real) == np.float32 else np.float64), "mm_nek_tile")  # Intentional float64: the device kernel is built in the data's own precision: float64 data keeps double
 
 
-def kernel_minmax(cp, real):
+def kernel_minmax(cp: Any, real: Any) -> Any:
     """``col_minmax`` for values of dtype ``real``; registry factory."""
-    return cp.RawKernel(render(_COL_MINMAX_TEMPLATE, real=np.float32 if np.dtype(real) == np.float32 else np.float64), "col_minmax")
+    return cp.RawKernel(render(_COL_MINMAX_TEMPLATE, real=np.float32 if np.dtype(real) == np.float32 else np.float64), "col_minmax")  # Intentional float64: the device kernel is built in the data's own precision: float64 data keeps double
 
 
-def kernel_dedup(cp, real):
+def kernel_dedup(cp: Any, real: Any) -> Any:
     """``dedup_njit_edges`` for edges of dtype ``real``; registry factory."""
     real_t = "float" if np.dtype(real) == np.float32 else "double"
     return cp.RawKernel(_DEDUP_EDGES_SRC.replace("{ACC}", "double").replace("{REAL}", real_t), "dedup_njit_edges")  # Intentional float64: edges and bounds are deduplicated in double
@@ -183,7 +183,7 @@ def _get_mi_mm_from_values_nek_kernel():
     global _MI_MM_FROM_VALUES_NEK_KERNEL
     if _MI_MM_FROM_VALUES_NEK_KERNEL is None:
         import cupy as cp
-        _MI_MM_FROM_VALUES_NEK_KERNEL = kernel_nek(cp, np.float64)
+        _MI_MM_FROM_VALUES_NEK_KERNEL = kernel_nek(cp, np.float64)  # Intentional float64: double-precision variant: the statistic needs the full mantissa
     return _MI_MM_FROM_VALUES_NEK_KERNEL
 
 
@@ -201,7 +201,7 @@ def _get_mi_mm_from_values_kernel():
     global _MI_MM_FROM_VALUES_KERNEL
     if _MI_MM_FROM_VALUES_KERNEL is None:
         import cupy as cp
-        _MI_MM_FROM_VALUES_KERNEL = kernel(cp, np.float64)
+        _MI_MM_FROM_VALUES_KERNEL = kernel(cp, np.float64)  # Intentional float64: double-precision variant: the statistic needs the full mantissa
     return _MI_MM_FROM_VALUES_KERNEL
 
 
@@ -286,10 +286,10 @@ def _launch_mm_nek_tile(Xc: Any, Ec: Any, yv: Any, n: int, K: int, nbins: int, K
         with _KERNEL_CACHE_LOCK:
             kern = _MM_NEK_TILE_KERNELS.get(bool(is_f32))
             if kern is None:
-                kern = kernel_tile(cp, np.float32 if is_f32 else np.float64)
+                kern = kernel_tile(cp, np.float32 if is_f32 else np.float64)  # Intentional float64: the device kernel is built in the data's own precision: float64 data keeps double
                 _MM_NEK_TILE_KERNELS[bool(is_f32)] = kern
         kern(((K + G - 1) // G,), (_MM_NEK_TILE_THREADS,), (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(nbins), np.int32(Ky), np.int32(G),  # launch-ok: the tile's edge cache and per-column reduction are written for a fixed 256-lane block (the loader strides by blockDim / G)
-                                                             np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)), ne_k, mi_out),
+                                                             np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)), ne_k, mi_out),  # Intentional float64: scalar argument of a double-typed kernel parameter
              shared_mem=shared_bytes)
     except Exception as exc:
         log_throttle(
@@ -342,14 +342,14 @@ _COL_MINMAX_KERNELS: dict = {}  # {is_f32: RawKernel}; module-level, pickle-safe
 
 
 def _column_min_max(Xc: Any, n: int, K: int, is_f32: bool) -> tuple:
-    """``(cmin, cmax)`` float64 per-column bounds of the row-major ``Xc``: one coalesced kernel, cupy's axis-0 reductions when the launch fails."""
+    """``(cmin, cmax)`` double precision per-column bounds of the row-major ``Xc``: one coalesced kernel, cupy's axis-0 reductions when the launch fails."""
     import cupy as cp
 
     try:
         with _KERNEL_CACHE_LOCK:
             kern = _COL_MINMAX_KERNELS.get(bool(is_f32))
             if kern is None:
-                kern = kernel_minmax(cp, np.float32 if is_f32 else np.float64)
+                kern = kernel_minmax(cp, np.float32 if is_f32 else np.float64)  # Intentional float64: the device kernel is built in the data's own precision: float64 data keeps double
                 _COL_MINMAX_KERNELS[bool(is_f32)] = kern
         cmin = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI edge bounds; compared at full precision
         cmax = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI edge bounds; compared at full precision

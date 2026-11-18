@@ -6,6 +6,7 @@ A one-off setup belongs in a fixture, which runs only when a test that needs it 
 """
 
 from __future__ import annotations
+from tests.test_meta._scan_guard import assert_scanned_enough
 
 import ast
 from pathlib import Path
@@ -83,7 +84,9 @@ def test_import_time_scan_sees_a_fit_run_through_a_module_function():
 def test_no_test_module_trains_a_model_at_import():
     """Collecting the suite runs no fit: no module-level statement of any test file trains."""
     offenders = []
-    for path in sorted(p for pattern in ("test_*.py", "conftest.py") for p in TESTS_ROOT.rglob(pattern)):
+    files = sorted(p for pattern in ("test_*.py", "conftest.py") for p in TESTS_ROOT.rglob(pattern))
+    assert_scanned_enough(len(files), "tests")
+    for path in files:
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except (SyntaxError, UnicodeDecodeError):

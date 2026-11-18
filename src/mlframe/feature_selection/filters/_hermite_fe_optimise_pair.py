@@ -9,6 +9,7 @@ import os
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from mlframe.utils.array_shape import length_of
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 if TYPE_CHECKING:
@@ -680,7 +681,7 @@ def _optimise_hermite_pai_step1_try(optimizer, ca_size, cb_size, coef_range, n_t
                 import cupy  # noqa: F401
                 from mlframe.feature_selection.filters._cupy_polynom_optimizer import device_search_preferred, run_cupy_kernel_search
 
-                _use_cupy = bool(device_search_preferred(int(np.asarray(eval_kwargs["z_a"]).shape[0])))
+                _use_cupy = bool(device_search_preferred(int(length_of(eval_kwargs["z_a"]))))
                 if _use_cupy:
                     _kernel_search = run_cupy_kernel_search
                 else:

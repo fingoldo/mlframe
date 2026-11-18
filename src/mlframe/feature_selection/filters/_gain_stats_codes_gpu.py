@@ -18,6 +18,7 @@ import logging
 from typing import Any, Optional, Sequence
 
 import numpy as np
+from mlframe.utils.array_shape import length_of
 
 from mlframe.utils.log_throttle import log_throttle
 from ._fe_gain_stats import quantile_codes
@@ -75,7 +76,7 @@ def _bin_list(bins: Any) -> list:
 
 
 def kernel(cp: Any, real: Any) -> Any:
-    """``quantile_codes_right`` for columns of dtype ``real`` (float32 or float64); compile point of :func:`_codes_of_block` and of the register-pressure registry."""
+    """``quantile_codes_right`` for columns of dtype ``real`` (float32 or double precision); compile point of :func:`_codes_of_block` and of the register-pressure registry."""
     return _MODULES["float" if np.dtype(real) == np.float32 else "double"].get(cp).get_function("quantile_codes_right")
 
 
@@ -86,7 +87,7 @@ def _host_codes(cols: Sequence[np.ndarray], n_bins: int) -> np.ndarray:
 
 def _numpy_edges(cp: Any, sorted_cols: Any, n_bins: int) -> Any:
     """``(k, n_bins - 1)`` interior edges of the ascending ``(k, n)`` block ``sorted_cols`` by numpy's 'linear' rule (virtual index ``(n - 1) q``, difference taken in the data dtype, the
-    ``t >= 0.5`` branch ``b - diff (1 - t)``), so each edge equals ``np.quantile`` of that column bit for bit; float64 whatever the data dtype."""
+    ``t >= 0.5`` branch ``b - diff (1 - t)``), so each edge equals ``np.quantile`` of that column bit for bit; double precision whatever the data dtype."""
     n = int(sorted_cols.shape[1])
     q = np.linspace(0.0, 1.0, int(n_bins) + 1)[1:-1]
     virtual = (n - 1) * q
@@ -142,7 +143,7 @@ def quantile_codes_columns_device(cols: Sequence[np.ndarray], bins: Any) -> Opti
     try:
         import cupy as cp
 
-        n = int(np.asarray(cols[0]).shape[0])
+        n = int(length_of(cols[0]))
         if n < 2:
             return None
         dtypes = {np.asarray(c).dtype for c in cols}
@@ -161,7 +162,7 @@ def quantile_codes_columns_device(cols: Sequence[np.ndarray], bins: Any) -> Opti
                 o[sel] = got
         return outs
     except Exception as exc:
-        log_throttle(logger, "gain_stats_codes.device_codes", logging.WARNING, "device quantile codes failed (%s: %s); the host form runs", type(exc).__name__, exc)
+        log_throttle(logger, "gain_stats_codes_gpu_device_quantile_codes_failed", logging.WARNING, "device quantile codes failed (%s: %s); host form", type(exc).__name__, exc)
         return None
 
 
@@ -190,7 +191,7 @@ def main_effect_z_device(cols: Sequence[np.ndarray], bins: int, t: np.ndarray, e
     try:
         import cupy as cp
 
-        n = int(np.asarray(cols[0]).shape[0])
+        n = int(length_of(cols[0]))
         even_idx, odd_idx = np.flatnonzero(even), np.flatnonzero(~even)
         if n < 2 or even_idx.size < 2 or odd_idx.size < 2:
             return None
@@ -208,13 +209,13 @@ def main_effect_z_device(cols: Sequence[np.ndarray], bins: int, t: np.ndarray, e
             out[c0 : c0 + width] = cp.asnumpy(_main_effect_z(cp, codes, t_dev, ev, od, int(bins), float(base)))
         return out
     except Exception as exc:
-        log_throttle(logger, "gain_stats_codes.device_main_effect", logging.WARNING, "device main-effect statistics failed (%s: %s); the host form runs", type(exc).__name__, exc)
+        log_throttle(logger, "gain_stats_codes_gpu_device_main_effect_statistics_failed", logging.WARNING, "device main-effect statistics failed (%s: %s); host form", type(exc).__name__, exc)
         return None
 
 
 def main_effect_z_columns(cols: Sequence[np.ndarray], bins: int, t: np.ndarray, even: np.ndarray, base: float) -> Optional[np.ndarray]:
     """:func:`main_effect_z_device` when the tuner says the device for this row count, else ``None`` (the caller's host loop)."""
-    if len(cols) and quantile_codes_on_device(int(np.asarray(cols[0]).shape[0])):
+    if len(cols) and quantile_codes_on_device(int(length_of(cols[0]))):
         return main_effect_z_device(cols, bins, t, even, base)
     return None
 
@@ -277,7 +278,7 @@ def quantile_codes_columns(cols: Sequence[np.ndarray], bins: Any) -> list:
     bin_list = _bin_list(bins)
     if len(cols) == 0:
         return [np.empty((0, 0), dtype=np.int64) for _ in bin_list]
-    if quantile_codes_on_device(int(np.asarray(cols[0]).shape[0])):
+    if quantile_codes_on_device(int(length_of(cols[0]))):
         got = quantile_codes_columns_device(cols, bin_list)
         if got is not None:
             return got

@@ -9,6 +9,7 @@ modules import.
 """
 from __future__ import annotations
 
+from mlframe.system import host_memory
 from typing import TYPE_CHECKING, Any, Optional, cast
 
 import logging
@@ -506,7 +507,7 @@ def _strict_mi_keeps_float32(X: Any) -> bool:
 
         return bool(crit_dtype_relaxed())
     except Exception as exc:
-        logger.warning("_strict_mi_keeps_float32: crit_dtype_relaxed unavailable (%s); float64 operand", exc)
+        logger.warning("_strict_mi_keeps_float32: crit_dtype_relaxed unavailable (%s); double operand", exc)
         return False
 
 def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_binning: bool = False) -> np.ndarray:
@@ -641,8 +642,7 @@ def _mi_chunk_cols_for(n_rows: int) -> int:
     A fixed COLUMN count alone is unsafe at large n (1024 cols x n=1M double precision = 8 GiB still OOMs); bounding the
     block BYTES makes the chunked scorer safe in n as well as p. Conservative 2 GiB fallback if psutil missing."""
     try:
-        import psutil
-        free = int(psutil.virtual_memory().available)
+        free = host_memory()[0]
     except Exception as e:
         logger.warning("psutil.virtual_memory() probe failed, using the conservative 2GiB default: %s", e)
         free = 2 * 1024**3

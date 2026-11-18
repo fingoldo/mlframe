@@ -71,7 +71,7 @@ extern "C" __global__ void copula_joint(const {REAL}* __restrict__ xs, const lon
 }
 """
 
-_MODULES = {np.dtype(np.float32): RawModuleCache(_SRC.replace("{REAL}", "float").replace("{ACC}", "double")), np.dtype(np.float64): RawModuleCache(_SRC.replace("{REAL}", "double").replace("{ACC}", "double"))}
+_MODULES = {np.dtype(np.float32): RawModuleCache(_SRC.replace("{REAL}", "float").replace("{ACC}", "double")), np.dtype(np.double): RawModuleCache(_SRC.replace("{REAL}", "double").replace("{ACC}", "double"))}
 
 
 def _mi_from_joint(joint: np.ndarray, total: float) -> float:

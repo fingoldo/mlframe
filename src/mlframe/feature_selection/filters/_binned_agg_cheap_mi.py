@@ -5,6 +5,7 @@ Carved out of ``_binned_numeric_agg_fe``, which re-exports every name so the his
 
 from __future__ import annotations
 
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_values
 from typing import Any, cast
 import logging
 from collections.abc import Sequence
@@ -27,7 +28,7 @@ _SWEEP_SALT = 1
 
 
 def _sweep_inputs(dims: dict) -> tuple:
-    """A float64 column of ``dims["n_samples"]`` rows with ties (rounded values), the case the tied-edge handling of the device quantile has to reproduce."""
+    """A double precision column of ``dims["n_samples"]`` rows with ties (rounded values), the case the tied-edge handling of the device quantile has to reproduce."""
     rng = np.random.default_rng(0)
     x = rng.standard_normal(int(dims["n_samples"]))
     x[::7] = np.round(x[::7], 1)
@@ -186,7 +187,7 @@ def _cheap_mi_group_selection_device(X: pd.DataFrame, gcands: Sequence[str], y_c
     out: dict = {}
     usable: list = []
     for g in gcands:
-        cv = np.asarray(X[g].to_numpy(), dtype=dt)
+        cv = np.asarray(fe_column_values(X, g), dtype=dt)
         if not np.isfinite(cv).all() or float(np.min(cv)) == float(np.max(cv)):
             out[g] = 0.0
             continue
@@ -227,7 +228,7 @@ def _cheap_mi_group_selection(X: pd.DataFrame, gcands: Sequence[str], y_codes: n
     valid_cols: list = []
     for g in gcands:
         cv = np.asarray(
-            X[g].to_numpy(), dtype=np.float64
+            X[g].to_numpy(), dtype=np.float64  # Intentional float64: double-precision variant: the statistic needs the full mantissa
         )  # Intentional float64: the group and operand columns are binned by exact quantile edges from the host float64 values
         if not np.isfinite(cv).all() or float(np.min(cv)) == float(np.max(cv)):
             out[g] = 0.0

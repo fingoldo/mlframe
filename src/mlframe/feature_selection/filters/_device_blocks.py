@@ -7,12 +7,8 @@ block is sized from the room under the calling thread's pool; a block that still
 
 from __future__ import annotations
 
+import sys
 from typing import Any, Callable, List
-
-
-def host_block_width(n_rows: int, block_bytes: int) -> int:
-    """Columns of float64 at ``n_rows`` rows that fit in ``block_bytes`` host bytes (at least one)."""
-    return max(1, int(block_bytes) // max(1, 8 * int(n_rows)))
 
 
 def first_block(cp: Any, n_rows: int, n_cols: int, itemsize: int, multiple: int) -> int:
@@ -45,3 +41,14 @@ def run_column_blocks(cp: Any, n_cols: int, block: int, work: Callable[[int, int
         pieces.append(piece)
         lo = hi
     return pieces
+
+
+def double_block_width_of(owner: str, name: str = "_BLOCK_BYTES") -> "Callable[[int], int]":
+    """The column-block width function of a module that bounds a block of double precision rows by a byte constant: ``width(n_rows)`` is as many columns as the constant ``name`` of the module named
+    ``owner`` (pass ``__name__``) holds at ``n_rows`` rows of double precision, at least one. The constant is read at call time, so a test or an operator replacing it takes effect."""
+
+    def column_block_width(n_rows: int) -> int:
+        """Columns per column block: as many as the owner's byte budget holds at ``n_rows`` rows of double precision (at least one)."""
+        return int(max(1, getattr(sys.modules[owner], name) // max(1, 8 * int(n_rows))))
+
+    return column_block_width

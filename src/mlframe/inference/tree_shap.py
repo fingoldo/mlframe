@@ -18,7 +18,6 @@ from typing import Any, Optional
 
 import numpy as np
 
-from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 _FALLBACK_LOGGED: set = set()
@@ -72,7 +71,7 @@ class TreeExplainer:
     def expected_value(self) -> Any:
         """The base value E[f(X)] in margin space. Known before any call for XGBoost / LightGBM (it is a property of the extracted ensemble); set by the first call otherwise."""
         if self._expected_value is None and self._backend_request != "shap" and self._supported() and _is_flat_tree_model(self._est):
-            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import extract_ensemble
+            from mlframe.feature_selection.shap_proxied_fs.shared import extract_ensemble
 
             ens = extract_ensemble(self._est)
             if ens is not None:
@@ -94,8 +93,8 @@ class TreeExplainer:
 
     def _supported(self) -> bool:
         """Whether our implementation covers this model (single-output XGBoost / LightGBM / CatBoost)."""
-        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_catboost import is_catboost_estimator
-        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import is_supported_lightgbm, is_supported_xgboost
+        from mlframe.feature_selection.shap_proxied_fs.shared import is_catboost_estimator
+        from mlframe.feature_selection.shap_proxied_fs.shared import is_supported_lightgbm, is_supported_xgboost
 
         est = self._est
         if is_catboost_estimator(est):
@@ -108,13 +107,12 @@ class TreeExplainer:
         try:
             classes = getattr(est, "classes_", None)
             return classes is None or len(classes) <= 2
-        except Exception as exc:
-            log_throttle(logger, "tree_shap.catboost_classes_unreadable", logging.WARNING, "CatBoost classes_ unreadable (%s: %s); the model is treated as multi-output and not explained here", type(exc).__name__, exc)
+        except TypeError:  # best-effort: ``classes_`` without a length is not the single-margin case
             return False
 
     def _catboost_backend(self) -> str:
         """``"treeshap_numba"`` for non-symmetric CatBoost trees (explained by our kernel from the JSON export), ``"catboost"`` otherwise."""
-        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_catboost import cached_nonsymmetric_ensemble
+        from mlframe.feature_selection.shap_proxied_fs.shared import cached_nonsymmetric_ensemble
 
         return "treeshap_numba" if not self._est.get_params().get("cat_features") and cached_nonsymmetric_ensemble(self._est) is not None else "catboost"
 
@@ -123,7 +121,7 @@ class TreeExplainer:
         if self._public is None:
             import shap
 
-            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _maybe_patch_shap_xgb_base_score
+            from mlframe.feature_selection.shap_proxied_fs.shared import maybe_patch_shap_xgb_base_score as _maybe_patch_shap_xgb_base_score
 
             with _maybe_patch_shap_xgb_base_score():
                 self._public = shap.TreeExplainer(self._est, feature_perturbation="tree_path_dependent", **self._shap_kwargs)
@@ -133,7 +131,7 @@ class TreeExplainer:
         """SHAP values of ``X``: an ``(n, features)`` array for regressors and binary classifiers (margin / log-odds), whatever the public library returns for the families it answers (a list or a 3-D array for multiclass)."""
         frame = _as_frame(X)
         if self._backend_request != "shap" and self._supported():
-            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _pick_backend, _shap_phi_and_base
+            from mlframe.feature_selection.shap_proxied_fs.shared import pick_backend as _pick_backend, shap_phi_and_base as _shap_phi_and_base
 
             phi, base = _shap_phi_and_base(self._est, frame, self._backend_request)
             self.backend_ = _pick_backend(self._est, frame, self._backend_request) if _is_flat_tree_model(self._est) else self._catboost_backend()
@@ -166,7 +164,7 @@ class TreeExplainer:
         if self._backend_request != "shap" and self._supported():
             name = type(est).__name__
             if name.startswith("LGBM") or name.startswith("XGB") or name == "Booster":
-                from mlframe.feature_selection.shap_proxied_fs._shap_proxy_interactions import _interaction_tensor_numba
+                from mlframe.feature_selection.shap_proxied_fs.shared import interaction_tensor_numba as _interaction_tensor_numba
 
                 out = _interaction_tensor_numba(est, frame, classification=name.endswith("Classifier"))
                 if out is not None:
@@ -174,7 +172,7 @@ class TreeExplainer:
                     Phi, base = out
                     self.expected_value = float(np.asarray(base).ravel()[0])
                     return Phi
-            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_catboost import is_catboost_estimator
+            from mlframe.feature_selection.shap_proxied_fs.shared import is_catboost_estimator
 
             if is_catboost_estimator(est):
                 from catboost import EFstrType, Pool
@@ -207,7 +205,7 @@ def is_supported(model: Any) -> bool:
 
 def _is_flat_tree_model(est: Any) -> bool:
     """XGBoost or LightGBM (answered by our table / CUDA kernels), as opposed to CatBoost's native kernel."""
-    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_catboost import is_catboost_estimator
+    from mlframe.feature_selection.shap_proxied_fs.shared import is_catboost_estimator
 
     return not is_catboost_estimator(est)
 

@@ -50,16 +50,101 @@ def fe_columns(X: Any) -> list[str]:
     raise TypeError(f"fe_columns: unsupported frame type {type(X)!r}")
 
 
+def _column_lookup_errors() -> tuple:
+    """What a direct column lookup of a pandas frame raises when it cannot answer (evaluated only when a lookup failed, so pandas is not imported by this module)."""
+    import pandas as pd
+
+    return (LookupError, TypeError, ValueError, AttributeError, pd.errors.InvalidIndexError)
+
+
+def _pandas_column_array(X: Any, c: Any) -> Any:
+    """Backing array of pandas column ``c`` (an ndarray or an extension array) without building a Series, or ``None`` when the column is absent, its name is duplicated or the frame
+    has no direct accessor. ``X[c]`` constructs a Series on every call (30 us with pandas 3, 40 us with ``.to_numpy()``); the FE families read columns about 90000 times in a 100000 x 100 fit."""
+    try:
+        i = X.columns.get_loc(c)
+        if type(i) is not int:
+            return None
+        return X._get_column_array(i)
+    except _column_lookup_errors():  # best-effort: absent or unhashable name, a non-unique index or a frame without the accessor; the caller then reads ``X[c]``
+        return None
+
+
+#: Rows per tile of :func:`fe_stack_columns`: 1024 rows of a few hundred float32 columns stay inside the second-level cache.
+_STACK_TILE_ROWS = 1024
+
+
+def fe_stack_columns(columns: "list[np.ndarray]", dtype: Any, out: "np.ndarray | None" = None) -> np.ndarray:
+    """The ``(n, k)`` C-ordered matrix whose column ``j`` is ``columns[j]`` cast to ``dtype`` (``np.column_stack`` of the casts), filled in row tiles.
+
+    Writing one whole column after another walks the destination with a stride of ``k`` values, a cache line per element: 483 ms for 170 columns of 100000 float32 rows, 77 ms in
+    tiles of 1024 rows (each tile of the destination stays in cache while every column's slice of it is written). ``out`` (an ``(n, k)`` array of ``dtype``) is filled when given."""
+    k = len(columns)
+    n = int(columns[0].shape[0]) if k else 0
+    mat = np.empty((n, k), dtype=dtype) if out is None else out
+    if k == 1:
+        mat[:, 0] = columns[0]
+        return mat
+    for r0 in range(0, n, _STACK_TILE_ROWS):
+        r1 = min(n, r0 + _STACK_TILE_ROWS)
+        for j in range(k):
+            mat[r0:r1, j] = columns[j][r0:r1]
+    return mat
+
+
+def fe_stack_rows(columns: "list[np.ndarray]", dtype: Any) -> np.ndarray:
+    """The ``(k, n)`` C-ordered matrix whose row ``j`` is ``columns[j]`` cast to ``dtype`` (each row a contiguous copy of one column), filled in tiles of rows of the source.
+
+    The columns of a frame built from an ``(n, k)`` array are strided views of it, so copying one whole column after another reads a cache line per element (1.1 ms per column of 100000
+    float32 rows, 102 columns: 121 ms); in tiles every column's slice of the same source rows is read while they are in cache."""
+    k = len(columns)
+    n = int(columns[0].shape[0]) if k else 0
+    mat = np.empty((k, n), dtype=dtype)
+    for r0 in range(0, n, _STACK_TILE_ROWS):
+        r1 = min(n, r0 + _STACK_TILE_ROWS)
+        for j in range(k):
+            mat[j, r0:r1] = columns[j][r0:r1]
+    return mat
+
+
+def fe_std_below(a: np.ndarray, tol: float = 1e-12) -> bool:
+    """``float(np.std(a)) < tol`` for a small ``tol`` (the "this column is constant" test of the FE families), without the standard deviation when the range settles it.
+
+    With one value at the minimum and one at the maximum the standard deviation is at least ``range / sqrt(2 n)``, so a range above ``1e6 * tol`` cannot go with a standard deviation
+    below ``tol`` for any column that fits in memory: two reductions instead of the four passes and two temporaries of ``np.std`` (0.14 ms -> 0.03 ms at 100000 rows; the families ask
+    this several thousand times a fit). A NaN in ``a`` makes the range test fail, so the answer is then ``np.std``'s (False)."""
+    if a.size and float(np.max(a)) - float(np.min(a)) > 1e6 * tol:
+        return False
+    return bool(float(np.std(a)) < tol)
+
+
+def fe_column_values(X: Any, c: Any) -> np.ndarray:
+    """``X[c].to_numpy()`` of a pandas frame: the column's values as a read-only view of the frame's block when it is numpy-backed."""
+    arr = _pandas_column_array(X, c) if is_pandas(X) else None
+    if type(arr) is np.ndarray:
+        out: np.ndarray = arr.view()
+        out.flags.writeable = False
+        return out
+    return np.asarray(X[c].to_numpy())
+
+
+def fe_column_is_numeric(X: Any, c: Any) -> bool:
+    """``c in X.columns and pd.api.types.is_numeric_dtype(X[c])`` of a pandas frame, read from the column's dtype alone."""
+    arr = _pandas_column_array(X, c)
+    if arr is None:
+        if c not in X.columns:
+            return False
+        s = X[c]
+        return bool(getattr(s, "ndim", 1) == 1 and pd.api.types.is_numeric_dtype(s))
+    if type(arr) is np.ndarray:
+        return arr.dtype.kind in "biufc"
+    return bool(pd.api.types.is_numeric_dtype(arr.dtype))
+
+
 def fe_is_numeric_col(X: Any, c: str) -> bool:
     """Whether column ``c`` of ``X`` is a numeric (incl. bool) scalar column, for pandas or polars, without raising on
     categorical / string columns. Duplicate-named pandas columns (``X[c]`` -> 2D) are treated as non-numeric (ambiguous)."""
     if is_pandas(X):
-        if c not in X.columns:
-            return False
-        s = X[c]
-        if getattr(s, "ndim", 1) != 1:
-            return False
-        return bool(pd.api.types.is_numeric_dtype(s))
+        return fe_column_is_numeric(X, c)
     if is_polars(X):
         if c not in X.columns:
             return False
@@ -93,7 +178,7 @@ def fe_extract_columns(X: Any, names: Iterable[str]) -> dict[str, np.ndarray]:
     out: dict[str, np.ndarray] = {}
     for nm in names:
         if is_pandas(X):
-            out[nm] = X[nm].to_numpy()
+            out[nm] = fe_column_values(X, nm)
         elif is_polars(X):
             out[nm] = X[nm].to_numpy()
         else:

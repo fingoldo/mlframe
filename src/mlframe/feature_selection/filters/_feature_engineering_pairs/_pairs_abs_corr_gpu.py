@@ -78,7 +78,7 @@ _MODULES = {"float": RawModuleCache(_SRC.replace("{REAL}", "float")), "double": 
 
 
 def kernel(cp: Any, real: Any) -> Any:
-    """``abs_corr_finite_stats`` for columns of dtype ``real`` (float32 or float64); compile point of :func:`abs_corr_finite_gpu` and of the register-pressure registry."""
+    """``abs_corr_finite_stats`` for columns of dtype ``real`` (float32 or double precision); compile point of :func:`abs_corr_finite_gpu` and of the register-pressure registry."""
     return _MODULES["float" if np.dtype(real) == np.float32 else "double"].get(cp).get_function("abs_corr_finite_stats")
 
 
@@ -103,7 +103,7 @@ def _finish(stats: Any, min_n: int) -> float:
 
 
 def abs_corr_finite_batch_gpu(cols_dev: Any, y: np.ndarray, y_finite: np.ndarray, min_n: int = 8) -> list:
-    """:func:`abs_corr_finite_gpu` for every row of the C-contiguous device batch ``cols_dev`` of shape ``(K, n)`` (float32 or float64) in ONE launch (a block per column) and
+    """:func:`abs_corr_finite_gpu` for every row of the C-contiguous device batch ``cols_dev`` of shape ``(K, n)`` (float32 or double precision) in ONE launch (a block per column) and
     one read of ``6 K`` doubles; the value of row ``k`` equals the single-column call on that row (same kernel, same fixed tree)."""
     k, n = int(cols_dev.shape[0]), int(cols_dev.shape[1])
     _check_target_rows(n, y, y_finite)

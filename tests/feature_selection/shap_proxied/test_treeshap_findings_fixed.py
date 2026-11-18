@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+from mlframe.feature_selection.shap_proxied_fs.shared import maybe_patch_shap_xgb_base_score as _maybe_patch_shap_xgb_base_score
 import pytest
 
 shap = pytest.importorskip("shap")
@@ -33,7 +34,8 @@ def test_xgboost_dart_weights_are_applied():
     for fn in (treeshap_phi_base_numba, treeshap_phi_base_path):
         phi, base = fn(extract_ensemble(model), X)
         assert float(np.max(np.abs(base + phi.sum(axis=1) - margin))) < 1e-4, fn.__name__
-    ref = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent").shap_values(X, check_additivity=False)
+    with _maybe_patch_shap_xgb_base_score():
+        ref = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent").shap_values(X, check_additivity=False)
     np.testing.assert_allclose(treeshap_phi_base_numba(extract_ensemble(model), X)[0], ref, rtol=0, atol=1e-4)
 
 

@@ -130,7 +130,7 @@ def gpu_materialise_extval_codes_host(
         # limit (e.g. by the resident-operand cache) fails this call's allocation on EVERY (base, external-
         # factor-set) pair with the SAME OutOfMemoryError, each attempt paying cupy's own allocator work for a
         # request that cannot succeed until something else frees VRAM (the exact pattern fixed in
-        # perm_null_residue_mis_resident, GPU11-13). One cheap memGetInfo here skips straight to the host path.
+        # perm_null_residue_mis_resident). One cheap memGetInfo here skips straight to the host path.
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
 
         if not fe_gpu_has_vram_cushion(n * K * np.dtype(_real).itemsize):
@@ -167,9 +167,9 @@ def gpu_materialise_extval_codes_host(
             if isinstance(e, _cp.cuda.memory.OutOfMemoryError):
                 from ._fe_gpu_vram import note_gpu_oom
 
-                note_gpu_oom()  # GPU11-13: arm the shared cooldown even though the cushion check above passed - a race against another allocation can still OOM here.
+                note_gpu_oom()  # arm the shared cooldown even though the cushion check above passed - a race against another allocation can still OOM here.
         except Exception:  # nosec B110 - best-effort cooldown note, never let it mask the original failure
-            pass
+            logger.debug("GPU out-of-memory cooldown note failed", exc_info=True)
         return None
 
 

@@ -14,11 +14,14 @@ binner (same bins, same tie rule); only the summation order of the plug-in diffe
 
 from __future__ import annotations
 
+import threading
+
 import logging
 import os
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.core.shared import median_sorted
 from numba import njit, prange
 
 from mlframe.utils.log_throttle import log_throttle
@@ -59,11 +62,11 @@ _CHUNK = 16  # gate columns walked together: one row of a chunk is a 64-byte cac
 
 @njit(cache=True, nogil=True)
 def _column_median(mat: np.ndarray, g: int) -> float:
-    """Median of column ``g`` (a contiguous copy, then ``np.median``)."""
+    """Median of column ``g`` (a contiguous copy, then the sort-based median that equals ``np.median`` bit for bit)."""
     col = np.empty(mat.shape[0], dtype=mat.dtype)
     for i in range(mat.shape[0]):
         col[i] = mat[i, g]
-    return float(np.median(col))
+    return float(median_sorted(col))
 
 
 @njit(cache=True, nogil=True)
@@ -101,13 +104,13 @@ def _walk_chunk(mat: np.ndarray, g0: int, g1: int, meds: np.ndarray, order: np.n
     r_lo = np.zeros(w, dtype=np.int64)
     gs_hi = np.zeros(w, dtype=np.int64)
     gs_lo = np.zeros(w, dtype=np.int64)
-    prev_hi = np.zeros(w, dtype=np.float64)
+    prev_hi = np.zeros(w, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     prev_lo = np.zeros(w, dtype=np.float64)
     bin_hi = np.zeros(w, dtype=np.int64)  # bin of the run start, advanced as the run start moves up the positions (no division per row)
     bin_lo = np.zeros(w, dtype=np.int64)
     end_hi = np.zeros(w, dtype=np.int64)  # first position past the current bin
     end_lo = np.zeros(w, dtype=np.int64)
-    total = np.zeros(w, dtype=np.float64)
+    total = np.zeros(w, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     for a in range(order.shape[0]):
         hi[:, :, :] = 0
         lo[:, :, :] = 0
@@ -194,16 +197,18 @@ def gate_divergence(mat: np.ndarray, y: np.ndarray, probe_idx: "list[int]", nbin
 _DEVICE_BYTES_PER_CELL = 28
 _DEVICE_BLOCK_BYTES = 256 * 1024 * 1024
 _KEY_KERNELS: dict = {}
+_KEY_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def _key_kernel(cp: Any) -> Any:
     """Fused elementwise pass: the flat histogram key ``(side * nbins + bin) * classes + class`` of every (row, gate column), the bin read from the run-start position inside the row's own half."""
-    ker = _KEY_KERNELS.get("key")
-    if ker is None:
-        ker = _KEY_KERNELS["key"] = cp.ElementwiseKernel(
-            "bool h, int32 gh, int32 gl, int64 mh, int32 y, int64 n, int32 nbins, int32 classes",
-            "int32 key",
-            """
+    with _KEY_KERNELS_LOCK:
+        ker = _KEY_KERNELS.get("key")
+        if ker is None:
+            ker = _KEY_KERNELS["key"] = cp.ElementwiseKernel(
+                "bool h, int32 gh, int32 gl, int64 mh, int32 y, int64 n, int32 nbins, int32 classes",
+                "int32 key",
+                """
             const long long m = h ? mh : (n - mh);
             const long long g = h ? gh : gl;
             const long long base = (m / nbins) > 0 ? (m / nbins) : 1;
@@ -212,9 +217,9 @@ def _key_kernel(cp: Any) -> Any:
             const long long b = g < thr ? g / (base + 1) : rem + (g - thr) / base;
             key = (int)((((h ? 0 : 1) * nbins) + b) * classes + y);
             """,
-            "gate_divergence_key",
-        )
-    return ker
+                "gate_divergence_key",
+            )
+        return ker
 
 
 def _device_block(cp: Any, mat: Any, meds: Any, y: Any, n_classes: int, probe_idx: "list[int]", nbins: int) -> Any:
@@ -253,7 +258,7 @@ def _device_block(cp: Any, mat: Any, meds: Any, y: Any, n_classes: int, probe_id
 
 def gate_divergence_device(cp: Any, mat: Any, y: Any, probe_idx: "list[int]", nbins: int, medians: Any = None) -> Optional[np.ndarray]:
     """Device form of :func:`gate_divergence` for the resident finite matrix ``mat`` ``(n, p)`` and class codes ``y`` (a device vector); the columns go through in column blocks of
-    ``_DEVICE_BLOCK_BYTES`` of temporaries. ``medians`` (device, ``(p,)``) when the caller already has them. A host ``(p,)`` float64 vector, or ``None`` on any device fault."""
+    ``_DEVICE_BLOCK_BYTES`` of temporaries. ``medians`` (device, ``(p,)``) when the caller already has them. A host ``(p,)`` double precision vector, or ``None`` on any device fault."""
     try:
         n, p = int(mat.shape[0]), int(mat.shape[1])
         classes, y_dense = cp.unique(y, return_inverse=True)
@@ -273,7 +278,7 @@ def gate_divergence_device(cp: Any, mat: Any, y: Any, probe_idx: "list[int]", nb
             parts.append(res[len(probe_idx) :])
         return np.asarray(cp.asnumpy(cp.concatenate(parts)), dtype=np.float64)  # Intentional float64: statistic vector
     except Exception as exc:
-        log_throttle(logger, "gate_rank_divergence.device", logging.WARNING, "device gate divergence failed (%s: %s); the host walk runs", type(exc).__name__, exc)
+        log_throttle(logger, "gate_rank_divergence_device_gate_divergence_unavailable", logging.WARNING, "device gate divergence unavailable (%s: %s)", type(exc).__name__, exc)
         return None
 
 

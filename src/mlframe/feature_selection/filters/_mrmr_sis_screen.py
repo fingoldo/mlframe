@@ -44,6 +44,7 @@ cached kernels in sibling modules - so it is pickle-clean by construction.
 """
 from __future__ import annotations
 
+from mlframe.system import host_memory
 import logging
 from typing import Any, Optional
 
@@ -61,9 +62,7 @@ logger = logging.getLogger(__name__)
 def _free_ram_bytes() -> int:
     """Best-effort free physical RAM in bytes; conservative fallback if psutil is missing."""
     try:
-        import psutil
-
-        return int(psutil.virtual_memory().available)
+        return host_memory()[0]
     except Exception as e:
         logger.debug("psutil.virtual_memory() probe failed, using 2GB conservative fallback: %s", e)
         return 2 * 1024**3  # 2 GB conservative fallback

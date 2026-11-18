@@ -46,6 +46,8 @@ default path untouched). NEVER ``free_all_blocks`` (mempool teardown owns that).
 """
 from __future__ import annotations
 
+import threading
+
 import logging
 from typing import Any, Callable, Optional, Sequence
 
@@ -138,17 +140,19 @@ void disp_columns(const {REAL}* __restrict__ xi_all, const long long* __restrict
 )
 _KIND_MODE = {"z": 0, "absz": 1, "z2": 2}
 _COLUMN_KERNELS: dict = {}
+_COLUMN_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def kernel(cp: Any, real: Any, out: Any = None) -> Any:
     """``disp_columns`` reading values of the dtype ``real`` and writing the dtype ``out`` (default ``real``); compiled once per pair of types."""
-    out = real if out is None else out
-    key = (np.dtype(real).str, np.dtype(out).str)
-    compiled = _COLUMN_KERNELS.get(key)
-    if compiled is None:
-        src = render(_COLUMN_SRC, real=real, edge=out).replace("{FABS}", "fabsf" if np.dtype(real) == np.float32 else "fabs")
-        compiled = _COLUMN_KERNELS[key] = cp.RawKernel(src, "disp_columns")
-    return compiled
+    with _COLUMN_KERNELS_LOCK:
+        out = real if out is None else out
+        key = (np.dtype(real).str, np.dtype(out).str)
+        compiled = _COLUMN_KERNELS.get(key)
+        if compiled is None:
+            src = render(_COLUMN_SRC, real=real, edge=out).replace("{FABS}", "fabsf" if np.dtype(real) == np.float32 else "fabs")
+            compiled = _COLUMN_KERNELS[key] = cp.RawKernel(src, "disp_columns")
+        return compiled
 
 
 def _fused_columns(cp: Any, out: Any, xi_all: Any, codes_all: Any, mean_tab: Any, std_tab: Any, xi_idx: Any, code_idx: Any, tab_idx: Any, mode: Any) -> None:
@@ -193,15 +197,17 @@ void disp_bin_codes(const {REAL}* __restrict__ xj_all, const {EDGE}* __restrict_
 """,
 )
 _CODES_KERNELS: dict = {}
+_CODES_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def kernel_codes(cp: Any, real: Any) -> Any:
     """``disp_bin_codes`` for values of the dtype ``real``; compiled once per type."""
-    key = np.dtype(real).str
-    compiled = _CODES_KERNELS.get(key)
-    if compiled is None:
-        compiled = _CODES_KERNELS[key] = cp.RawKernel(render(_CODES_SRC, real=real, edge=np.float64), "disp_bin_codes")  # Intentional float64: the host digitiser compares against float64 edges
-    return compiled
+    with _CODES_KERNELS_LOCK:
+        key = np.dtype(real).str
+        compiled = _CODES_KERNELS.get(key)
+        if compiled is None:
+            compiled = _CODES_KERNELS[key] = cp.RawKernel(render(_CODES_SRC, real=real, edge=np.float64), "disp_bin_codes")  # Intentional float64: the host digitiser compares against float64 edges
+        return compiled
 
 
 def _bin_codes_block(cp: Any, xj_list: list, edge_rows: list) -> Any:

@@ -8,6 +8,8 @@ flips to opt the whole family out without hunting down four separate flags.
 
 from __future__ import annotations
 
+import re
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -17,6 +19,8 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 pytestmark = pytest.mark.timeout(1800)  # untimed biz_val real-fit tier: surface a hang fast (global --timeout=600 is a coarse backstop). Raised 60->150->300: CI runners are shared 2-vCPU boxes under -n auto xdist contention with up to ~20 pytest shards running concurrently -- real (non-hung) fits legitimately exceeded 150s there under full-matrix load, causing spurious timeout failures unrelated to any actual hang; 300s still catches a genuine hang well before the 600s global backstop.
 
 _DISCRETE_PREFIXES = ("il_", "pmod_", "argmax_", "gate_")
+# ``gate_med`` is a unary of the pair step (the median gate of one column), not the conditional-gate operator
+_DISCRETE_TOKENS = tuple(re.compile(r"(?<![A-Za-z0-9_])" + re.escape(p) + (r"(?!med\()" if p == "gate_" else "")) for p in _DISCRETE_PREFIXES)
 
 
 def _gcd_frame(seed: int = 1, n: int = 2000):
@@ -32,7 +36,8 @@ def _gcd_frame(seed: int = 1, n: int = 2000):
 def _discrete_cols(estimator, X):
     """Discrete cols."""
     out = estimator.transform(X)
-    return [c for c in out.columns if any(str(c).startswith(p) for p in _DISCRETE_PREFIXES)]
+    # an operator column counts wherever it sits in the name: the pair step may select a composite built on it, e.g. ``max(sqr(cross_a_b),prewarp(il_gcd__a__b))``
+    return [c for c in out.columns if any(tok.search(str(c)) for tok in _DISCRETE_TOKENS)]
 
 
 def test_master_switch_defaults_on():

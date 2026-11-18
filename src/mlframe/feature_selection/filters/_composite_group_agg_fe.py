@@ -30,6 +30,7 @@ broadcast would carry no generalisable signal. Refused keys emit nothing.
 """
 from __future__ import annotations
 
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_values, fe_stack_rows
 import logging
 import threading
 from itertools import combinations
@@ -47,6 +48,7 @@ from ._fe_usability_signal import _crit_np_dtype
 from ._grouped_coerce_shared import auto_detect_num_cols_plain as _auto_detect_num_cols
 from typing import TYPE_CHECKING
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
+from mlframe.utils.log_throttle import log_throttle
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -245,8 +247,10 @@ def _broadcast_lookup(
     ``uniq`` / ``inverse`` may be supplied (from :func:`_unique_inverse`) so the
     de-duplication is shared across every stat for the same key array.
     """
-    keys = np.asarray(keys, dtype=object)
     if uniq is None or inverse is None:
+        # the object view of the keys is needed only to de-duplicate them here or for the per-row route below: with ``uniq`` / ``inverse`` supplied (every statistic of a
+        # key array after the first) converting a full-length string array to objects on each call was most of the call
+        keys = np.asarray(keys, dtype=object)
         uniq, inverse = _unique_inverse(keys)
     if uniq is not None and inverse is not None and isinstance(lookup, _ArrayLookup) and len(lookup.labels) == len(uniq):
         # one value per group code already: the per-key string lookup gives exactly these values (distinct labels, every key present)
@@ -337,6 +341,56 @@ def _key_labels(key_uniq: Any) -> "tuple[list, bool]":
     return labels, len(set(labels)) == len(labels)
 
 
+_COLUMN_CACHE_MAX_BYTES = 256 * 1024 * 1024
+
+
+class _ColumnCache:
+    """Contiguous copies (in the crit dtype) and content hashes of the numeric columns of one generator call, shared by its (key set, column) tasks.
+
+    The copies are made once, in tiles (the columns of a frame built from an ``(n, k)`` array are strided), when together they fit ``_COLUMN_CACHE_MAX_BYTES``; a wider column set is left to
+    the tasks. The hash of a column is taken on first use; two pool threads asking at once only compute the same value twice."""
+
+    def __init__(self, X: pd.DataFrame, num_cols: Sequence[str]) -> None:
+        dtype = np.dtype(_crit_np_dtype())
+        cols = list(dict.fromkeys(num_cols))
+        self._rows: dict = {}
+        self._digests: dict = {}
+        self._lock = threading.Lock()
+        if cols and len(cols) * len(X) * dtype.itemsize <= _COLUMN_CACHE_MAX_BYTES:
+            mat = fe_stack_rows([fe_column_values(X, c) for c in cols], dtype)
+            self._rows = {c: mat[j] for j, c in enumerate(cols)}
+
+    def values(self, col: str) -> "np.ndarray | None":
+        """The contiguous copy of ``col``, or ``None`` when the cache does not hold it."""
+        return self._rows.get(col)
+
+    def digest(self, col: str, x: np.ndarray) -> str:
+        """The content hash of column ``col`` (whose values are ``x``)."""
+        from mlframe.utils.disk_cache import hash_array_content
+
+        with self._lock:
+            hit = self._digests.get(col)
+            if hit is None:
+                hit = self._digests[col] = hash_array_content(np.ascontiguousarray(x))
+        return str(hit)
+
+
+def _residual_recipe(group_cols: Sequence[str], num_col: str, op: str, lookup_mean: Any, lookup_std: Any, global_mean: float, global_std: float) -> dict:
+    """The replay recipe of a residual column (``z_within`` or ``ratio``): both read the per-group mean and std tables and the pooled values."""
+    return {
+        "group_cols": tuple(group_cols),
+        "num_col": num_col,
+        "stat": "mean",
+        "op": op,
+        "group_lookup_dict": lookup_mean,
+        "global_value": global_mean,
+        "lookup_mean": lookup_mean,
+        "lookup_std": lookup_std,
+        "global_mean": global_mean,
+        "global_std": global_std if global_std > 0.0 else 1.0,
+    }
+
+
 def _emit_num_col_features(
     X: pd.DataFrame,
     num_col: str,
@@ -348,10 +402,15 @@ def _emit_num_col_features(
     encoded: dict,
     raw_recipes: dict,
     key_labels_info: "tuple[list, bool] | None" = None,
+    column_cache: "_ColumnCache | None" = None,
 ) -> None:
-    """Compute one numeric column's per-composite-group broadcasts plus its z-within-group and ratio residuals into ``encoded`` / ``raw_recipes``."""
+    """Compute one numeric column's per-composite-group broadcasts plus its z-within-group and ratio residuals into ``encoded`` / ``raw_recipes``.
+
+    ``column_cache`` holds the contiguous copy and the content hash of the numeric columns of one generator call: a column meets every key set, and each task copied and hashed it again."""
     # one contiguous copy of the column (a column of a row-major frame block is strided): the kernels, the content hashes and the residuals below each asked for their own copy of it, six per column
-    x = np.ascontiguousarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
+    x = column_cache.values(num_col) if column_cache is not None else None
+    if x is None:
+        x = np.ascontiguousarray(fe_column_values(X, num_col), dtype=_crit_np_dtype())
     # Group on the integer codes of the key when the caller has them (the key strings are then hashed once per column set, not once per numeric column and statistic);
     # the recipe lookups stay keyed by the key string, taken from the unique keys.
     label: Callable[[Any], str]
@@ -381,7 +440,7 @@ def _emit_num_col_features(
         lookup_std = _group_lookup(std_series, label, zero_nonfinite=True)
     from mlframe.utils.disk_cache import hash_array_content
 
-    x_digest = hash_array_content(np.ascontiguousarray(x))
+    x_digest = column_cache.digest(num_col, x) if column_cache is not None else hash_array_content(np.ascontiguousarray(x))
     global_mean = _global_value_for_stat(x, "mean", x_digest)
     global_std = _global_value_for_stat(x, "std", x_digest)
 
@@ -451,18 +510,7 @@ def _emit_num_col_features(
         ).astype(x.dtype, copy=False)
     z_name = engineered_name_composite_z(num_col, group_cols)
     encoded[z_name] = zscore
-    raw_recipes[z_name] = {
-        "group_cols": tuple(group_cols),
-        "num_col": num_col,
-        "stat": "mean",
-        "op": "z_within",
-        "group_lookup_dict": lookup_mean,
-        "global_value": global_mean,
-        "lookup_mean": lookup_mean,
-        "lookup_std": lookup_std,
-        "global_mean": global_mean,
-        "global_std": global_std if global_std > 0.0 else 1.0,
-    }
+    raw_recipes[z_name] = _residual_recipe(group_cols, num_col, "z_within", lookup_mean, lookup_std, global_mean, global_std)
 
     # ---- ratio-to-composite-group residual ----
     if ratio_fast is not None:
@@ -472,18 +520,7 @@ def _emit_num_col_features(
         ratio = np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0).astype(x.dtype, copy=False)
     r_name = engineered_name_composite_ratio(num_col, group_cols)
     encoded[r_name] = ratio
-    raw_recipes[r_name] = {
-        "group_cols": tuple(group_cols),
-        "num_col": num_col,
-        "stat": "mean",
-        "op": "ratio",
-        "group_lookup_dict": lookup_mean,
-        "global_value": global_mean,
-        "lookup_mean": lookup_mean,
-        "lookup_std": lookup_std,
-        "global_mean": global_mean,
-        "global_std": global_std if global_std > 0.0 else 1.0,
-    }
+    raw_recipes[r_name] = _residual_recipe(group_cols, num_col, "ratio", lookup_mean, lookup_std, global_mean, global_std)
 
 
 _FRAME_CHUNK_COLUMNS = 128
@@ -591,6 +628,7 @@ def generate_composite_group_agg_features(
     from ._fe_deadline import _state as _deadline_state, fe_deadline_scope
 
     deadline = getattr(_deadline_state, "deadline", None)
+    column_cache = _ColumnCache(X, [t[0] for t in tasks])
 
     def _run(task):
         """One task into private dicts, with the fit's wall-clock budget published to the worker thread."""
@@ -598,7 +636,7 @@ def generate_composite_group_agg_features(
         enc: dict[str, np.ndarray] = {}
         rec: dict[str, dict] = {}
         with fe_deadline_scope(deadline):
-            _emit_num_col_features(X, num_col, keys, key_uniq, key_inverse, group_cols, stats, enc, rec, labels_info)
+            _emit_num_col_features(X, num_col, keys, key_uniq, key_inverse, group_cols, stats, enc, rec, labels_info, column_cache)
         return enc, rec
 
     jobs = _resolve_edge_jobs(None, len(tasks))
@@ -840,7 +878,7 @@ def hybrid_composite_group_agg_fe(
     ``y`` is consumed ONLY by the CMI scorer / gate; recipes carry no y, so
     transform-time replay is leakage-free.
     """
-    from ._grouped_agg_fe import score_grouped_agg_by_cmi_uplift
+    from ._grouped_agg_fe import _filter_num_cols_by_relevance, score_grouped_agg_by_cmi_uplift
 
     if not isinstance(X, pd.DataFrame):
         raise TypeError(f"hybrid_composite_group_agg_fe: X must be a pandas DataFrame; got " f"{type(X).__name__}")
@@ -862,12 +900,25 @@ def hybrid_composite_group_agg_fe(
     if num_cols is None or len(num_cols) == 0:
         all_group_cols = sorted({c for gset in group_col_sets for c in gset})
         num_cols = _auto_detect_num_cols(X, all_group_cols)
+        # As in ``hybrid_grouped_agg_fe``: keep the auto-detected sources that carry marginal information about y. The scorer conditions on every source, and the joint class of 32 continuous
+        # columns puts each row in a cell of its own, which made every candidate's conditional MI exactly 0 (nothing could ever be selected at 100000 x 100); an aggregate of a source independent of y
+        # can only re-encode the key's own information. Columns the caller names are trusted as given.
+        num_cols = _filter_num_cols_by_relevance(X, y, num_cols, n_bins=n_bins)
     else:
         num_cols = [c for c in num_cols if c in X.columns]
     if not num_cols:
         return X, [], [], pd.DataFrame()
 
     base_cols = list(num_cols)
+    support_cache: dict = {}
+    if conditioning_leaves_no_candidate(X, base_cols, n_bins, min_cmi, support_cache):
+        # every row is its own conditioning cell: each candidate scores exactly 0 and none can pass ``min_cmi``, so the broadcasts are not built (1920 columns and 2.2 s at 100000 x 100)
+        log_throttle(
+            logger, "composite_group_agg.singleton_support", logging.WARNING,
+            "composite_group_agg: the %d conditioning columns put every one of the %d rows in its own cell, so every candidate's conditional MI is 0; no column is generated",
+            len(base_cols), len(X),
+        )  # fmt: skip
+        return X, [], [], pd.DataFrame(columns=["engineered_col", "source_col", "cmi", "source_mi", "uplift"])
     # The broadcast of every engineered column at once costs keys x rows x 8 bytes per source and stat; beyond the block budget the columns are generated, scored and reduced
     # block by block (see composite_group_agg_top_blockwise), so the peak is one block and the selected set is the same ranking.
     n_keys_max = max((n_d for n_d in (int(_key_cache[g][3]) if _key_cache and g in _key_cache else 0 for g in group_col_sets)), default=0)
@@ -894,7 +945,7 @@ def hybrid_composite_group_agg_fe(
 
     eng_to_source = {name: raw_recipes[name]["num_col"] for name in enc_df.columns}
     scores = score_grouped_agg_by_cmi_uplift(
-        X, enc_df, y, base_cols, n_bins=n_bins, eng_to_source=eng_to_source,
+        X, enc_df, y, base_cols, n_bins=n_bins, eng_to_source=eng_to_source, support_cache=support_cache,
     )
     keep = scores[(scores["cmi"] >= float(min_cmi)) & (scores["uplift"] >= float(min_uplift))]
     winners = list(keep["engineered_col"].head(int(top_k)))
@@ -912,4 +963,5 @@ from ._composite_group_agg_blockwise import (  # after the definitions, like the
     _composite_block_budget_bytes,
     _composite_full_matrix_bytes,
     composite_group_agg_top_blockwise,
+    conditioning_leaves_no_candidate,
 )

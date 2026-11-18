@@ -234,7 +234,7 @@ def _launch_pairs(
                 np.int32(n_pairs),
                 np.int32(max_joint),
                 np.int32(n_classes_y),
-                np.float64(1.0 / float(n_samples)),
+                np.float64(1.0 / float(n_samples)),  # Intentional float64: scalar argument of a double-typed kernel parameter or accumulator
                 d_out,
             ),  # Intentional float64: kernel ABI declares double inv_n
             shared_mem=shared_bytes,

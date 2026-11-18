@@ -54,7 +54,7 @@ if __name__ == "__main__":
     # permanently fails every later "import cupy" in this SAME process) must stay scoped to a standalone run of
     # this script. At module level it would also poison cupy for any OTHER process that happens to import this
     # file as a side effect (pyutilz's kernel-tuning registry walks every _benchmarks module to find
-    # @kernel_tuner-decorated functions) - found live (GPU11-22) when it broke a kernel-tuning-cache refresh
+    # @kernel_tuner-decorated functions) - found live when it broke a kernel-tuning-cache refresh
     # that needed real cupy for unrelated kernels.
     if "cupy" not in sys.modules:
         cast(Any, sys.modules)["cupy"] = None

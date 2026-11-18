@@ -234,7 +234,7 @@ def detect_synergy(
         return False, {"reason": "degenerate_target"}
     kt = int(yc.max()) + 1
     ns = Xs.shape[0]
-    ycount = np.bincount(yc, minlength=kt).astype(np.float64)
+    ycount = np.bincount(yc, minlength=kt).astype(np.float64)  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     py = ycount[ycount > 0] / ns
     h_y = float(-(py * np.log(py)).sum())
 
@@ -254,7 +254,7 @@ def detect_synergy(
         pa, pb = pa[sel], pb[sel]
     n_pairs = int(pa.shape[0])
     g = _pair_deviances(codes, levels, yc, kt, pa, pb, _IPF_ITERS)
-    df = ((levels[pa] - 1) * (levels[pb] - 1) * (kt - 1)).astype(np.float64)
+    df = ((levels[pa] - 1) * (levels[pb] - 1) * (kt - 1)).astype(np.float64)  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     valid = df > 0
     if not valid.any():
         return False, {"reason": "degenerate_features"}

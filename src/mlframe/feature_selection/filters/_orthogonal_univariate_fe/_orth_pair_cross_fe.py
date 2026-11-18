@@ -10,6 +10,7 @@ plus its recipe-emitting variant. The shared univariate scaffolding
 """
 from __future__ import annotations
 
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_is_numeric
 from .._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
 
 import logging
@@ -204,7 +205,7 @@ def generate_pair_cross_basis_features(
                 "generate_pair_cross_basis_features: missing column %r or %r; skipping", col_i, col_j,
             )
             continue
-        if not (pd.api.types.is_numeric_dtype(X[col_i]) and pd.api.types.is_numeric_dtype(X[col_j])):
+        if not (fe_column_is_numeric(X, col_i) and fe_column_is_numeric(X, col_j)):
             continue
         # np.array (copy=True): X[col].to_numpy() can alias the DataFrame's backing block for a
         # contiguous float64 column, and the np.copyto NaN-fill below would then mutate the CALLER's X

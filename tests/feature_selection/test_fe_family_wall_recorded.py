@@ -1,7 +1,6 @@
 """The wall of every FE family of one fit is stored on the estimator, in the provenance frame and in the report; gate laps are kept per thread."""
 
 import threading
-import time
 
 import numpy as np
 import pandas as pd
@@ -10,8 +9,10 @@ from mlframe.feature_selection.filters import _fe_family_timing as timing
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 
-def test_gate_laps_of_two_threads_do_not_close_each_other():
+def test_gate_laps_of_two_threads_do_not_close_each_other(monkeypatch):
     """Two threads walking their own gates in turn each get their own lap, and ``close_thread_laps`` ends only the calling thread's lap."""
+    clock = [100.0]  # a clock the test advances itself: no wall-clock waits
+    monkeypatch.setattr(timing, "perf_counter", lambda: clock[0])
     timer = timing.FamilyLapTimer()
     before = timing.get_fe_family_wall()
     started, release = threading.Event(), threading.Event()
@@ -21,14 +22,14 @@ def test_gate_laps_of_two_threads_do_not_close_each_other():
         timer.gate("worker_family", True)
         started.set()
         release.wait(5)
-        time.sleep(0.05)
+        clock[0] += 0.05
         timing.close_thread_laps()
 
     thread = threading.Thread(target=worker)
     thread.start()
     assert started.wait(5)
     timer.gate("main_family", True)  # does not end the worker's lap
-    time.sleep(0.02)
+    clock[0] += 0.02
     timer.close()
     release.set()
     thread.join(5)

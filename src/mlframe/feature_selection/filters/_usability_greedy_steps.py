@@ -6,8 +6,10 @@ Carved out of ``_usability_aware_selection``, which re-exports every name so the
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any
 
+import numba
 import numpy as np
 from mlframe.utils.log_throttle import log_throttle
 from ._fe_usability_signal import _crit_np_dtype
@@ -52,10 +54,42 @@ def _abscorr(u: np.ndarray, v: np.ndarray) -> float:
         except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
             log_throttle(logger, "usability_greedy_steps.abscorr_gpu_failed", logging.WARNING, "_abscorr: GPU path failed, falling back to the exact CPU path: %s", e)
     u = _f64(u); v = _f64(v)  # precision for the heavy-tail correlation
-    if u.size == 0 or float(np.std(u)) < 1e-12 or float(np.std(v)) < 1e-12:
+    if u.size == 0:
+        return 0.0
+    if u.ndim == 1 and u.shape == v.shape:
+        # two passes over the pair in one compiled loop; ``np.std`` twice plus ``np.corrcoef`` read each column four times (0.32 ms a call at 100000 rows, 1800 calls a fit)
+        return float(_abscorr_njit(np.ascontiguousarray(u), np.ascontiguousarray(v)))
+    if float(np.std(u)) < 1e-12 or float(np.std(v)) < 1e-12:
         return 0.0
     r = np.corrcoef(u, v)[0, 1]
     return abs(float(r)) if np.isfinite(r) else 0.0
+
+
+@numba.njit(cache=True, nogil=True, fastmath={"reassoc", "contract", "arcp", "afn", "nsz"})
+def _abscorr_njit(u, v):
+    """``|corr(u, v)|`` of two equal-length vectors, mean-centred and accumulated in double precision; 0.0 when either standard deviation is below 1e-12 or the ratio is not finite
+    (a non-finite input makes it so). ``nnan`` / ``ninf`` stay out of the fast-math set, so a NaN is not assumed away."""
+    n = u.shape[0]
+    su = np.float64(0.0)  # Intentional float64: numba kernel accumulator
+    sv = np.float64(0.0)  # Intentional float64: numba kernel accumulator
+    for i in range(n):
+        su += np.float64(u[i])  # Intentional float64: numba kernel accumulator
+        sv += np.float64(v[i])  # Intentional float64: numba kernel accumulator
+    mu = su / n
+    mv = sv / n
+    suu = 0.0
+    svv = 0.0
+    suv = 0.0
+    for i in range(n):
+        a = np.float64(u[i]) - mu  # Intentional float64: numba kernel accumulator
+        b = np.float64(v[i]) - mv  # Intentional float64: numba kernel accumulator
+        suu += a * a
+        svv += b * b
+        suv += a * b
+    if math.sqrt(suu / n) < 1e-12 or math.sqrt(svv / n) < 1e-12:
+        return 0.0
+    r = suv / math.sqrt(suu * svv)
+    return abs(r) if math.isfinite(r) else 0.0
 
 
 def _GPU_USABILITY() -> bool:

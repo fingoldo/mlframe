@@ -25,6 +25,8 @@ import logging
 from typing import Any, Optional, Sequence
 
 import numpy as np
+
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from numba import njit, prange
 
 from mlframe.utils.log_throttle import log_throttle
@@ -282,7 +284,8 @@ def fleuret_confirm_batch(
         y_col = block[pos[int(y_var)]]
         out_y = np.empty((n_cand * n_perm, n), dtype=dt)
         out_x = np.empty((n_cand * n_perm, n), dtype=dt)
-        _shuffled_jobs(y_col, x_cols, mult, np.asarray(base_seeds, dtype=np.uint64), n_perm, int(perm_offset), bool(extra_x_shuffling), out_y, out_x)
+        with parallel_kernel_entry():  # a prange kernel, reached from the confirmation pool
+            _shuffled_jobs(y_col, x_cols, mult, np.asarray(base_seeds, dtype=np.uint64), n_perm, int(perm_offset), bool(extra_x_shuffling), out_y, out_x)
         n_jobs = n_cand * n_perm
         gains_arr = np.asarray(bootstrapped_gains, dtype=np.float64)  # Intentional float64: compared with the statistics
         ne = np.repeat(np.asarray(nexisting, dtype=np.int64), n_perm)
@@ -297,7 +300,7 @@ def fleuret_confirm_batch(
             cells = int(nx_tot.max() * ny * nz_tot.max())
             threads = min(_THREADS, block_size_for(kern, dyn_smem=4 * cells, work_items=n))
             threads = 1 << (int(threads).bit_length() - 1)  # a power of two for the reduction tree
-            d_out = cp.empty((n_jobs, len(scored), N_STATS), dtype=cp.float64)
+            d_out = cp.empty((n_jobs, len(scored), N_STATS), dtype=cp.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
             kern(
                 (n_jobs, len(scored)),
                 (threads,),
@@ -314,7 +317,7 @@ def fleuret_confirm_batch(
             segments = [(int(o), int(w)) for o, w in zip(offs, worker_loads)]
         return _counts_from_gains(gains, n_cand, n_perm, gains_arr, int(max_failed), segments)
     except Exception as exc:
-        log_throttle(logger, "fleuret_confirm_gpu.device", logging.WARNING, "device Fleuret confirmation failed (%s: %s); the host kernel runs", type(exc).__name__, exc)
+        log_throttle(logger, "fleuret_confirm_gpu_device_Fleuret_confirmation_failed", logging.WARNING, "device Fleuret confirmation failed (%s: %s); host kernel", type(exc).__name__, exc)
         return None
 
 

@@ -308,7 +308,7 @@ def _note_oom_if_applicable(e: Exception) -> None:
 
             note_gpu_oom()
     except Exception:  # nosec B110 - best-effort cooldown note, never let it mask the original failure
-        pass
+        logger.debug("GPU out-of-memory cooldown note failed", exc_info=True)
 
 
 def _usability_greedy_clf_multinomial_fns(cp, n_classes):

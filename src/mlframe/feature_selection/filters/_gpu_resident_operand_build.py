@@ -133,7 +133,7 @@ def _spec_blocks(col_specs: Sequence[Any], fb: Any, n: int, budget_bytes: int) -
     for spec in col_specs:
         raw_vals = spec[1]
         if raw_vals is not None and spec[2] not in fb and id(raw_vals) not in seen:
-            nbytes = int(n) * int(np.dtype(getattr(raw_vals, "dtype", np.float64)).itemsize)
+            nbytes = int(n) * int(np.dtype(getattr(raw_vals, "dtype", np.float64)).itemsize)  # Intentional float64: default itemsize of an operand without a dtype: the host table is double
             if blocks[-1] and used + nbytes > budget_bytes:
                 blocks.append([])
                 used = 0
@@ -351,7 +351,7 @@ _SWEEP_UNARIES = ("identity", "neg", "abs", "sqr", "sin", "cos", "tanh", "cbrt",
 
 
 def _sweep_inputs(dims: dict) -> tuple:
-    """``dims["n_samples"]`` rows: ``_SWEEP_RAWS`` raw float64 operands, the host operand table of every plain unary of ``_SWEEP_UNARIES`` over each (float32, as the CPU path stores it) and the column specs."""
+    """``dims["n_samples"]`` rows: ``_SWEEP_RAWS`` raw double precision operands, the host operand table of every plain unary of ``_SWEEP_UNARIES`` over each (float32, as the CPU path stores it) and the column specs."""
     rng = np.random.default_rng(0)
     n = int(dims["n_samples"])
     raws = [rng.standard_normal(n) for _ in range(_SWEEP_RAWS)]

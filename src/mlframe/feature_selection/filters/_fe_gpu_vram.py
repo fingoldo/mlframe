@@ -119,7 +119,7 @@ def _warn_cushion_refused(free_b: int, bytes_needed: int, total_b: int) -> None:
 
     The refusal used to be silent, so a fit that ran its FE on the CPU because another process held the card looked the same as one that ran on the GPU, and the two
     can select differently."""
-    note_gpu_oom()  # GPU11-13: a real refusal informs the shared cooldown for every OTHER internal-probe caller in this process.
+    note_gpu_oom()  # a real refusal informs the shared cooldown for every OTHER internal-probe caller in this process.
     mib = 1024 * 1024
     log_throttle(
         logger,
@@ -192,7 +192,7 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = Non
         # fresh memGetInfo here would almost certainly repeat the same decline at the same (non-trivial)
         # per-attempt cost. Caller-supplied-probe calls are deliberately NOT short-circuited here: that
         # path's return value must stay a pure function of its own free_b/total_b arguments (see the
-        # docstring's no-reprobe contract, and the GPU11-4 fix this depends on).
+        # docstring's no-reprobe contract, and the fix this depends on).
         if _in_oom_cooldown():
             log_throttle(
                 logger, "fe_gpu_vram_cooldown_decline", logging.DEBUG,

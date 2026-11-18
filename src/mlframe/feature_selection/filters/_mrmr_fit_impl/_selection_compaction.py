@@ -262,7 +262,7 @@ def _recipe_consumers(recipes: list) -> dict:
     return consumers
 
 
-def inherit_fe_rosters(estimator, cand: str, replaced) -> None:
+def inherit_fe_rosters(estimator: Any, cand: str, replaced: Any) -> None:
     """Put ``cand`` into every FE roster that listed a column it replaces (at the position of the first one), so a family's roster still names the engineered column that stands for its work.
 
     The replacement is a pool candidate, not a member of the replaced column's roster; without this a roster whose only survivor was replaced ends up empty although its family's

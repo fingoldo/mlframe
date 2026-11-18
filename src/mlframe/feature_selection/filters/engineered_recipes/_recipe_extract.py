@@ -9,6 +9,7 @@ so this submodule imports nothing from a sibling.
 
 from __future__ import annotations
 
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_values
 from typing import Any
 
 import numpy as np
@@ -40,7 +41,7 @@ def _extract_column(X: Any, name: str, col_cache: "dict[str, np.ndarray] | None"
             return _cached
     if pd is not None and isinstance(X, pd.DataFrame):
         # ``.values`` is zero-copy for numeric dtypes; categorical/object materialises only the single column.
-        out = np.asarray(X[name].to_numpy() if hasattr(X[name], "to_numpy") else X[name].values)
+        out = fe_column_values(X, name)
     elif pl is not None and isinstance(X, pl.DataFrame):
         out = X[name].to_numpy()
     elif isinstance(X, np.ndarray):

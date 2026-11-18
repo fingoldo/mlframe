@@ -25,11 +25,14 @@ GATE: ``fe_gpu_device_born_extra_basis_enabled`` (DEFAULT ON under STRICT-reside
 """
 from __future__ import annotations
 
+import threading
+
 import logging
 import math
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.utils.array_shape import length_of
 
 from .._ktc_fallback import selection_view
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
@@ -156,15 +159,17 @@ void bspline_block(const {REAL}* __restrict__ xs, const int* __restrict__ src_id
 """,
 )
 _BSPLINE_KERNELS: dict = {}
+_BSPLINE_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def kernel_spline(cp: Any, real: Any) -> Any:
     """``bspline_block`` for values of the dtype ``real``; compiled once per type, with ``--fmad=false`` so that the multiply-adds round as the separate cupy launches did."""
-    key = np.dtype(real).str
-    compiled = _BSPLINE_KERNELS.get(key)
-    if compiled is None:
-        compiled = _BSPLINE_KERNELS[key] = cp.RawKernel(render(_BSPLINE_SRC, real=real), "bspline_block", options=("--fmad=false",))  # separate multiply and add, as the cupy chain rounds
-    return compiled
+    with _BSPLINE_KERNELS_LOCK:
+        key = np.dtype(real).str
+        compiled = _BSPLINE_KERNELS.get(key)
+        if compiled is None:
+            compiled = _BSPLINE_KERNELS[key] = cp.RawKernel(render(_BSPLINE_SRC, real=real), "bspline_block", options=("--fmad=false",))  # separate multiply and add, as the cupy chain rounds
+        return compiled
 
 
 def _bspline_block_gpu(cp, xs_list: list, metas: list):
@@ -181,7 +186,7 @@ def _bspline_block_gpu(cp, xs_list: list, metas: list):
     srcs = list({id(x): x for x in xs_list}.values())
     xs = cp.stack([cp.asarray(c, dtype=dt) for c in srcs])
     src_idx = np.array([uniq[id(x)] for x in xs_list], dtype=np.int32)
-    nk = max(int(np.asarray(m["knots"]).shape[0]) for m in metas)
+    nk = max(int(length_of(m["knots"])) for m in metas)
     knots = np.zeros((len(metas), nk), dtype=_crit_np_dtype())
     lo = np.empty(len(metas))
     span = np.empty(len(metas))

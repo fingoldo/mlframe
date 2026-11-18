@@ -4,6 +4,7 @@ Carved out of the package ``__init__`` for file size; the package re-exports eve
 """
 from __future__ import annotations
 
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_is_numeric, fe_column_values
 import logging
 import threading
 from typing import Any, Callable
@@ -49,11 +50,11 @@ def _basis_memo_key(X: pd.DataFrame, cols: Any, degrees: Any, basis: str, dedup:
             return hashlib.blake2b(data, digest_size=16)
 
     try:
-        names = list(cols) if cols is not None else [c for c in X.columns if pd.api.types.is_numeric_dtype(X[c])]
+        names = list(cols) if cols is not None else [c for c in X.columns if fe_column_is_numeric(X, c)]
         h = new_hash()
         for c in names:
             h.update(str(c).encode())
-            arr = np.ascontiguousarray(X[c].to_numpy())
+            arr = np.ascontiguousarray(fe_column_values(X, c))
             if arr.dtype == object or arr.dtype.kind not in "biufc":
                 # A categorical / string / object column has no byte view (it made the whole key fail, so a call whose ``cols`` listed one never reached the memo): hash its values.
                 h.update(np.ascontiguousarray(pd.util.hash_pandas_object(X[c], index=False).to_numpy()).view(np.uint8).data)

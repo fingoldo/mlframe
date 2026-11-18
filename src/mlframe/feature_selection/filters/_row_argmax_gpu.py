@@ -69,7 +69,7 @@ def _read_only_view(a: np.ndarray) -> np.ndarray:
 
 
 def row_argmax_host(columns: Sequence[np.ndarray]) -> np.ndarray:
-    """Host form: the parallel numba kernel over the columns (promoted to one common dtype); float64 ``(n,)`` index of the first maximum."""
+    """Host form: the parallel numba kernel over the columns (promoted to one common dtype); double precision ``(n,)`` index of the first maximum."""
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
     common = np.result_type(*[np.asarray(c).dtype for c in columns])
@@ -164,7 +164,7 @@ _FINITE_MAX = 256
 
 
 def kernel(cp: Any, real: Any) -> Any:
-    """``row_argmax`` for resident columns of dtype ``real`` (float32 or float64); compile point of :func:`row_argmax_cm` and of the register-pressure registry."""
+    """``row_argmax`` for resident columns of dtype ``real`` (float32 or double precision); compile point of :func:`row_argmax_cm` and of the register-pressure registry."""
     name = "float" if np.dtype(real) == np.float32 else "double"
     with _LOCK:
         ker = _KERNELS.get(name)

@@ -57,6 +57,7 @@ import os
 from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
+from mlframe.utils.array_shape import size_of
 from mlframe._numerical_floors import VARIANCE_FLOOR
 import pandas as pd
 from numba import njit, prange
@@ -529,17 +530,17 @@ def _precheck_survivors(cols_x: list, y_arr: np.ndarray) -> list:
     """The ``(col_name, x)`` pairs of ``cols_x`` whose coarse hinge probe clears ``_HINGE_PRECHECK_MIN_SSE_DROP``, from ONE batched pass over the block (:mod:`._hinge_precheck_gpu`: the numba kernel or the
     fused CUDA kernel, per the kernel-tuning cache) instead of one ``np.linalg.qr`` per column inside :func:`_detect_hinge_breakpoints` (1.14 s against 0.10 s on 100 columns x 100000 rows). A column the
     probe drops is one the per-column detector would have returned ``[]`` for; the survivors still run the detector, whose own precheck and pinned QR are unchanged. Any failure keeps every column."""
-    if len(cols_x) < 2 or int(np.asarray(y_arr).size) < _HINGE_MIN_ROWS:
+    if len(cols_x) < 2 or int(size_of(y_arr)) < _HINGE_MIN_ROWS:
         return cols_x
     try:
         from ._hinge_precheck_gpu import column_block_width, hinge_precheck_drops
 
-        y64 = np.asarray(y_arr, dtype=np.float64).ravel()
+        y64 = np.asarray(y_arr, dtype=np.float64).ravel()  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
         width = column_block_width(int(y64.size))
         survivors: list = []
         for a in range(0, len(cols_x), width):
             block = cols_x[a : a + width]
-            xs = np.stack([np.asarray(x, dtype=np.float64).ravel() for _c, x in block])
+            xs = np.stack([np.asarray(x, dtype=np.float64).ravel() for _c, x in block])  # Intentional float64: statistic / reference vector in double precision
             drops = hinge_precheck_drops(xs, y64, _HINGE_PRECHECK_QS, _HINGE_MIN_SEG_ROWS)
             survivors.extend(item for item, d in zip(block, drops) if d >= _HINGE_PRECHECK_MIN_SSE_DROP)
         return survivors

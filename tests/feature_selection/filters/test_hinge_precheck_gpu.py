@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+from tests.feature_selection.gpu._gpu_support import require_device
 import pytest
 
 from mlframe._numerical_floors import VARIANCE_FLOOR
@@ -58,11 +59,10 @@ def test_the_host_kernel_gives_the_drops_of_the_qr_precheck():
 
 def test_the_device_kernel_gives_the_drops_of_the_host_kernel():
     """The CUDA kernel agrees with the numba kernel on the same block (float64 columns)."""
-    pytest.importorskip("cupy")
+    require_device()
     xs, y = _block()
     dev = H._drops_device(xs, y, QS, B._HINGE_MIN_SEG_ROWS, VARIANCE_FLOOR)
-    if dev is None:
-        pytest.skip("no usable device")
+    assert dev is not None, "the device path returned nothing on a host with a usable device"
     host = H._drops_host(xs, y, QS, B._HINGE_MIN_SEG_ROWS, VARIANCE_FLOOR)
     assert np.abs(dev - host)[np.arange(len(xs)) != 7].max() < 1e-9
     assert dev[7] < B._HINGE_PRECHECK_MIN_SSE_DROP

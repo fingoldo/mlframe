@@ -430,8 +430,9 @@ def _pd_view_memo_store(orig_df, pandas_df) -> None:
     conversion."""
     try:
         key = _pd_view_memo_key(orig_df)
-        _PD_VIEW_LAST_CACHE["result"] = pandas_df
-        _PD_VIEW_LAST_CACHE["id_key"] = key
+        with _PD_VIEW_LAST_CACHE_LOCK:  # an RLock: the caller already holds it, and a direct caller is covered too
+            _PD_VIEW_LAST_CACHE["result"] = pandas_df
+            _PD_VIEW_LAST_CACHE["id_key"] = key
         # Close the id()-recycling gap: invalidate the memo the instant the CALLER's original df is actually collected.
         # Close the id()-recycling gap: invalidate the memo the instant the CALLER's original df is
         # actually collected, so a later frame's id() can never alias a still-live stale entry. Must

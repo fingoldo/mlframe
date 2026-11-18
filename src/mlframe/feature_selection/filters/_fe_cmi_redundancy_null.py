@@ -498,7 +498,7 @@ def _swept_device_null(inp: _NullInputs, sup: _StratifiedSupport, nperm: int, qu
             inp.resident_or_host(), inp.y, np.ascontiguousarray(sup.z, dtype=np.int64), order=sup.order, z_rank=sup.z_rank, n_permutations=nperm, quantile=quantile, seed=seed, salt=salt
         )
     except Exception as exc:
-        log_throttle(logger, "cmi_null.swept_device", logging.WARNING, "swept device conditional perm-null failed (%s: %s); the host table null runs", type(exc).__name__, exc)
+        log_throttle(logger, "cmi_redundancy_null.device_failed", logging.WARNING, "swept device conditional perm-null failed (%s: %s); host table null", type(exc).__name__, exc)
         return None
 
 

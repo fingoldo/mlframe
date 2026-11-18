@@ -116,3 +116,28 @@ def test_train_edges_do_not_leak_test_rows():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_cmi_gate_scores_batched_device_pass_equals_the_per_column_route(monkeypatch):
+    """Gate 3 scores every engineered column in one device CMI pass when the device CMI route is on; the values equal the per-column route and the batched pass really runs."""
+    pytest.importorskip("cupy")
+    import pandas as pd
+
+    from mlframe.feature_selection.filters import _orthogonal_three_gate_mi_fe as m
+
+    rng = np.random.default_rng(0)
+    n = 4000
+    sup = pd.DataFrame(rng.standard_normal((n, 2)), columns=["s0", "s1"])
+    y = ((sup["s0"] + 0.5 * rng.standard_normal(n)) > 0).astype(np.int64).to_numpy()
+    eng = pd.DataFrame(rng.standard_normal((n, 12)), columns=[f"e{i}" for i in range(12)])
+    eng["e0"] = eng["e0"] + y
+    real = m._cmi_gate_scores_batched
+    monkeypatch.setattr(m, "_cmi_gate_scores_batched", lambda *a, **k: None)
+    per_column = m._cmi_gate_scores(eng, y, sup)
+    calls = []
+    monkeypatch.setenv("MLFRAME_CMI_GPU", "1")
+    monkeypatch.setattr(m, "_cmi_gate_scores_batched", lambda *a, **k: (calls.append(1), real(*a, **k))[1])
+    batched = m._cmi_gate_scores(eng, y, sup)
+    assert calls and real(np.zeros((n, 2), dtype=np.int64), y, np.zeros(n, dtype=np.int64)) is not None
+    assert list(batched) == list(per_column)
+    np.testing.assert_allclose([batched[c] for c in batched], [per_column[c] for c in per_column], rtol=0, atol=1e-12)

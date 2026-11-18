@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from tests._cuda_require import require_cuda_device
 
 from mlframe.feature_selection.filters import _row_argmax_gpu as ra
+from tests.feature_selection.gpu._gpu_support import require_device
 
 
 def _columns(n: int, m: int, dtype, ties: bool) -> list:
@@ -32,8 +32,7 @@ def test_host_twin_matches_numpy_first_maximum(dtype, ties):
 @pytest.mark.parametrize("ties", [False, True])
 def test_device_kernel_matches_host_twin(dtype, ties):
     """The CUDA kernel and the host twin give the same index vector."""
-    cp = pytest.importorskip("cupy")
-    require_cuda_device()
+    cp = require_device()
     cols = _columns(7001, 3, dtype, ties)
     got = cp.asnumpy(ra.row_argmax_cm(cp, [cp.asarray(c) for c in cols]))
     np.testing.assert_array_equal(got, ra.row_argmax_host(cols))

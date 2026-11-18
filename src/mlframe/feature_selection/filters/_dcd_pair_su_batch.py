@@ -214,10 +214,9 @@ def _warm_marginal_entropies(state: Any, pairs_list: list, fd: Optional[np.ndarr
                     state._pair_idx_buf = pair_buf
                 for col_idx in needed:
                     pair_buf[0] = int(col_idx)
-                    _, freqs_c, _ = merge_vars(
-                        fd, pair_buf[:1], None, fn_arr, dtype=dtype,
-                    )
-                    ec[int(col_idx)] = float(entropy(freqs_c))
+                    # no argument left to its default: numba's dispatcher then resolves the call in the interpreter every time (60 us instead of 1 us, see ``evaluate_gain``'s call)
+                    _, freqs_c, _ = merge_vars(fd, pair_buf[:1], None, fn_arr, dtype, 1, None, False)
+                    ec[int(col_idx)] = float(entropy(freqs_c, 0.0))
             except Exception as e:  # nosec B110 - non-trivial body; best-effort/optional path, no module logger
                 logger.debug("column-entropy cache warmup failed for column %r: %s", col_idx, e)
                 # Defensive: if the warmup hits an unexpected shape

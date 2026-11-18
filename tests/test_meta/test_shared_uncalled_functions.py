@@ -294,7 +294,6 @@ _REEXPORTED_PUBLIC_API = {
     "optimize_composite",
     "optimize_group_blend_weight",
     "optimize_persistence_floor",
-    "orth_scoring_memo_scope",
     "overfit_verdict",
     "pair_vi",
     "particle_filter_posterior",

@@ -79,9 +79,9 @@ extern "C" __global__ void ksg_psi_m_sums(const {REAL}* __restrict__ xs, const i
 _MODULE = RawModuleCache(render(_SRC, real=np.float64))  # Intentional float64: the data type is 64-bit on purpose (see the comment in the kernel); {ACC} is the 64-bit accumulator
 
 
-def kernel(cp: Any, real: Any = np.float64) -> Any:
+def kernel(cp: Any, real: Any = np.float64) -> Any:  # Intentional float64: selectable double-precision variant of the kernel (default and environment switch)
     """``ksg_psi_m_sums`` for 64-bit columns (the only instantiation: ``real`` is accepted for the registry's factory protocol); compile point of :func:`mi_cd_columns_device` and of the register-pressure registry."""
-    if np.dtype(real) != np.float64:
+    if np.dtype(real) != np.float64:  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
         raise ValueError("ksg_psi_m_sums is instantiated for 64-bit columns only")
     return _MODULE.get(cp).get_function("ksg_psi_m_sums")
 
@@ -117,7 +117,7 @@ def mi_cd_columns_device(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbo
         per_col = n_kept * (8 + 8 + 8 + 8 + 4)  # row-major upload, transposed values, sort order, sorted values, sorted labels
         block = int(max(1, min(n_cols, (_BUDGET_FRACTION * free) // per_col)))
         X_kept = X if n_kept == n else X[keep]
-        partial_buf = cp.empty((block, _BLOCKS_PER_COLUMN), dtype=cp.float64)  # one reusable kernel-output buffer for every chunk, not one per chunk
+        partial_buf = cp.empty((block, _BLOCKS_PER_COLUMN), dtype=cp.float64)  # one reusable kernel-output buffer for every chunk, not one per chunk  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
         sum_m_dev = cp.empty(n_cols, dtype=cp.float64)  # one resident accumulator; one D2H after the loop instead of one per chunk
         for c0 in range(0, n_cols, block):
             # one host copy of the block's columns (a plain row-wise copy, none when the block is the whole array), one upload, then the (rows, columns) to (columns, rows) transpose on the device with the coalesced tiled kernel;
@@ -135,7 +135,7 @@ def mi_cd_columns_device(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbo
             sum_m_dev[c0 : c0 + width] = partial.sum(axis=1)
             del xs, ds, order, partial
         sum_m = cp.asnumpy(sum_m_dev)
-        return np.asarray(np.maximum(psi[n_kept] + (sum_k - sum_cnt - sum_m) / n_kept, 0.0), dtype=np.float64)
+        return np.asarray(np.maximum(psi[n_kept] + (sum_k - sum_cnt - sum_m) / n_kept, 0.0), dtype=np.float64)  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     except Exception as exc:
         log_throttle(logger, "ksg_cd_gpu.failed", logging.WARNING, "device KSG MI failed (%s: %s); the host kernel scores the columns", type(exc).__name__, exc)
         return None

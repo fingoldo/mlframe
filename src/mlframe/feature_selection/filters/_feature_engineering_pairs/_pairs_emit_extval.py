@@ -104,7 +104,7 @@ def _extval_host_buffer(param_a, _ev_param_bs, _ev_op_codes, _ev_bin_funcs, _ev_
     return _ev_buf, _ev_col
 
 
-_EXTVAL_MIN_BATCH_BYTES = 64 << 20  # a one-factor batch of float64 candidates up to this size is taken even when the free-RAM budget refuses
+_EXTVAL_MIN_BATCH_BYTES = 64 << 20  # a one-factor batch of double candidates up to this size is taken even when the free-RAM budget refuses
 
 
 def _hstack_chunk_codes(chunks):

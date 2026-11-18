@@ -66,8 +66,45 @@ def _rows_to_host(a: Any, rows: Any) -> np.ndarray:
     return picked
 
 
+@njit(cache=True, nogil=True)
+def _standardise_kernel(col: np.ndarray, out: np.ndarray) -> None:
+    """``out`` = ``col`` centred and scaled by the mean and standard deviation of its finite entries (double precision), 0 for a non-finite entry and for a constant column."""
+    m = col.shape[0]
+    count = 0
+    total = 0.0
+    for i in range(m):
+        v = col[i]
+        if np.isfinite(v):
+            count += 1
+            total += v
+    mean = total / count if count else 0.0
+    sq = 0.0
+    for i in range(m):
+        v = col[i]
+        if np.isfinite(v):
+            d = v - mean
+            sq += d * d
+    std = np.sqrt(sq / count) if count else 0.0
+    for i in range(m):
+        v = col[i]
+        out[i] = (v - mean) / std if (std > 0.0 and np.isfinite(v)) else 0.0
+
+
 def _standardised(col: np.ndarray) -> np.ndarray:
-    """``col`` centred and scaled, non-finite entries set to the mean; a constant column becomes all zeros."""
+    """``col`` centred and scaled, non-finite entries set to the mean; a constant column becomes all zeros. Double precision.
+
+    One compiled pass without the interpreter lock for a float column (the numpy form, ``_standardised_numpy``, is eight array operations, each of which re-takes the lock: 2.3 ms per call
+    inside a fit against 0.3 ms alone, six calls per pair). The moments are accumulated in double precision, so the values agree with the numpy form of a float32 column to about 1e-6."""
+    arr = np.asarray(col)
+    if arr.ndim == 1 and arr.dtype.kind == "f":
+        out = np.empty(arr.shape[0], dtype=np.float64)  # Intentional float64: design columns of the normal equations
+        _standardise_kernel(np.ascontiguousarray(arr), out)
+        return out
+    return np.asarray(_standardised_numpy(arr), dtype=np.float64)  # Intentional float64: design columns of the normal equations
+
+
+def _standardised_numpy(col: np.ndarray) -> np.ndarray:
+    """The numpy form of :func:`_standardised` (its reference, and the route of a non-float column)."""
     finite = np.isfinite(col)
     if not finite.any():
         return np.zeros_like(col)
@@ -85,9 +122,9 @@ def _fold_cross_sums(base: np.ndarray, Y: np.ndarray, cand: np.ndarray, starts: 
     m = cand.shape[0]
     p = base.shape[1]
     k = Y.shape[1]
-    u = np.zeros((n_f, p), dtype=np.float64)
+    u = np.zeros((n_f, p), dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     cc = np.zeros(n_f, dtype=np.float64)
-    cy = np.zeros((n_f, k), dtype=np.float64)
+    cy = np.zeros((n_f, k), dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     for f in range(n_f):
         hi = starts[f + 1] if f + 1 < n_f else m
         for i in range(starts[f], hi):
@@ -108,29 +145,60 @@ def _solve_batch(gram: np.ndarray, rhs: np.ndarray) -> np.ndarray:
     return np.linalg.solve(reg, rhs)
 
 
+@njit(cache=True, nogil=True)
+def _fold_grams(base: np.ndarray, Y: np.ndarray, starts: np.ndarray) -> tuple:
+    """Per-fold ``base' base``, ``base' Y``, ``sum Y^2`` and the total sum of squares of ``Y`` about its fold means, for the fold-sorted rows: one pass over the rows per fold without the
+    interpreter lock (the numpy form, kept as the reference of the kernel tests, is two products, two reductions and their temporaries per fold)."""
+    n_f = starts.shape[0]
+    m, p = base.shape
+    k = Y.shape[1]
+    gram = np.zeros((n_f, p, p), dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
+    rhs = np.zeros((n_f, p, k), dtype=np.float64)
+    yy = np.zeros(n_f, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
+    sst = np.zeros(n_f, dtype=np.float64)
+    col_sum = np.zeros(k, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
+    for f in range(n_f):
+        lo = starts[f]
+        hi = starts[f + 1] if f + 1 < n_f else m
+        col_sum[:] = 0.0
+        for i in range(lo, hi):
+            for a in range(p):
+                va = base[i, a]
+                for b in range(a, p):
+                    gram[f, a, b] += va * base[i, b]
+                for j in range(k):
+                    rhs[f, a, j] += va * Y[i, j]
+            for j in range(k):
+                v = Y[i, j]
+                yy[f] += v * v
+                col_sum[j] += v
+        for a in range(p):
+            for b in range(a):
+                gram[f, a, b] = gram[f, b, a]
+        rows = hi - lo
+        if rows > 0:
+            for i in range(lo, hi):
+                for j in range(k):
+                    d = Y[i, j] - col_sum[j] / rows
+                    sst[f] += d * d
+    return gram, rhs, yy, sst
+
+
 def _prepare(base: np.ndarray, Y: np.ndarray, folds: np.ndarray) -> dict:
     """Fold-sorted base design and targets with every per-fold quantity that does not depend on the candidate, including the base out-of-fold errors."""
     order = stable_argsort_codes(folds, int(folds.max()) + 1 if folds.size else 1)  # fold ids are small integers: the radix order, the same permutation as the stable comparison sort
-    base_s, Y_s = base[order], Y[order]
+    base_s = np.ascontiguousarray(base[order], dtype=np.float64)  # Intentional float64: design matrix of the normal equations
+    Y_s = np.ascontiguousarray(Y[order], dtype=np.float64)  # Intentional float64: class indicators of the normal equations
     starts = np.concatenate([[0], np.cumsum(np.bincount(folds))])[:-1]
-    bounds = np.concatenate([starts, [base_s.shape[0]]])
-    grams, rhs, yy, sst = [], [], [], []
-    for f in range(starts.size):
-        d, y = base_s[bounds[f] : bounds[f + 1]], Y_s[bounds[f] : bounds[f + 1]]
-        grams.append(d.T @ d)
-        rhs.append(d.T @ y)
-        yy.append(float((y * y).sum()))
-        sst.append(float(((y - y.mean(axis=0)) ** 2).sum()))
-    gram, rhs_arr = np.stack(grams), np.stack(rhs)
+    gram, rhs_arr, yy_arr, sst = _fold_grams(base_s, Y_s, np.ascontiguousarray(starts, dtype=np.int64))
     beta = _solve_batch(gram.sum(axis=0) - gram, rhs_arr.sum(axis=0) - rhs_arr)
-    yy_arr = np.asarray(yy)
     sse_base = yy_arr - 2.0 * (beta * rhs_arr).sum(axis=(1, 2)) + (beta * (gram @ beta)).sum(axis=(1, 2))
     a_train = gram.sum(axis=0) - gram
     a_train = a_train + _RIDGE * np.trace(a_train, axis1=-2, axis2=-1)[:, None, None] * np.eye(a_train.shape[-1])
     a_inv = np.linalg.inv(a_train)
     b_train = rhs_arr.sum(axis=0) - rhs_arr
     return {
-        "order": order, "base": base_s, "Y": Y_s, "starts": starts, "gram": gram, "rhs": rhs_arr, "yy": yy_arr, "sst": np.asarray(sst), "sse_base": sse_base,
+        "order": order, "base": base_s, "Y": Y_s, "starts": starts, "gram": gram, "rhs": rhs_arr, "yy": yy_arr, "sst": sst, "sse_base": sse_base,
         "a_inv": a_inv, "b_train": b_train, "a_inv_b": a_inv @ b_train,
     }
 
@@ -163,23 +231,36 @@ def _gains_from_sums(prep: dict, u: np.ndarray, cc: np.ndarray, cy: np.ndarray) 
 
 def _gain(prep: dict, cand_sorted: np.ndarray) -> np.ndarray:
     """Per-fold out-of-fold gain of one candidate given in the fold-sorted row order of ``prep``."""
-    u, cc, cy = _fold_cross_sums(prep["base"], prep["Y"], np.ascontiguousarray(cand_sorted, dtype=np.float64), prep["starts"])
+    u, cc, cy = _fold_cross_sums(prep["base"], prep["Y"], np.ascontiguousarray(cand_sorted, dtype=np.float64), prep["starts"])  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     gains: np.ndarray = _gains_from_sums(prep, u[None], cc[None], cy[None])[0]
     return gains
 
 
+@njit(cache=True, nogil=True)
+def _cell_sums_kernel(base: np.ndarray, Y: np.ndarray, starts: np.ndarray, cells: np.ndarray, n_cells: int) -> tuple:
+    """Per-(fold, cell) row counts and sums of the columns of ``base`` and ``Y`` in one pass over the fold-sorted rows (the row order of the ``bincount`` form, so the sums are the same)."""
+    n_f = starts.shape[0]
+    m, p = base.shape
+    k = Y.shape[1]
+    count = np.zeros((n_f, n_cells), dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
+    sb = np.zeros((n_f, n_cells, p), dtype=np.float64)
+    sy = np.zeros((n_f, n_cells, k), dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
+    for f in range(n_f):
+        hi = starts[f + 1] if f + 1 < n_f else m
+        for i in range(starts[f], hi):
+            c = cells[i]
+            count[f, c] += 1.0
+            for j in range(p):
+                sb[f, c, j] += base[i, j]
+            for j in range(k):
+                sy[f, c, j] += Y[i, j]
+    return count, sb, sy
+
+
 def _cell_sums(prep: dict, cells_s: np.ndarray, n_cells: int) -> dict:
     """Per-(fold, cell) counts and sums of the base columns and class indicators, so a column that is constant per cell needs no pass over the rows."""
-    n_folds = prep["starts"].size
-    fold_s = np.repeat(np.arange(n_folds), np.diff(np.concatenate([prep["starts"], [cells_s.size]])))
-    flat = fold_s * n_cells + cells_s
-    size = n_folds * n_cells
-
-    def summed(weights: np.ndarray) -> np.ndarray:
-        """Per-(fold, cell) sums of every column of ``weights``, shaped (folds, cells, columns)."""
-        return np.stack([np.bincount(flat, weights=weights[:, j], minlength=size) for j in range(weights.shape[1])], axis=1).reshape(n_folds, n_cells, -1)
-
-    return {"count": np.bincount(flat, minlength=size).reshape(n_folds, n_cells).astype(_crit_np_dtype()), "base": summed(prep["base"]), "Y": summed(prep["Y"])}
+    count, sb, sy = _cell_sums_kernel(prep["base"], prep["Y"], np.ascontiguousarray(prep["starts"], dtype=np.int64), np.ascontiguousarray(cells_s, dtype=np.int64), int(n_cells))
+    return {"count": count.astype(_crit_np_dtype()), "base": sb, "Y": sy}
 
 
 def _mean_gains_by_cell(prep: dict, sums: dict, cell_values: np.ndarray) -> np.ndarray:

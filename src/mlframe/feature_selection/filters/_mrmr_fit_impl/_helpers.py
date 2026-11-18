@@ -13,6 +13,7 @@ live in the parent and are imported lazily inside this body to avoid the
 """
 from __future__ import annotations
 
+from mlframe.system import host_memory
 import logging
 from typing import Any, Callable, Iterable, Sequence
 
@@ -626,10 +627,8 @@ def collect_garbage_if_frame_is_large(X: Any) -> bool:
     import gc
 
     try:
-        import psutil
-
         frame_bytes = int(X.memory_usage(index=False, deep=False).sum()) if hasattr(X, "memory_usage") else int(getattr(X, "estimated_size", lambda: 0)())
-        collect = frame_bytes * 8 >= int(psutil.virtual_memory().available) // 64
+        collect = frame_bytes * 8 >= host_memory()[0] // 64
     except Exception as _exc:
         logger.warning("frame-size probe failed, collecting garbage unconditionally: %s", _exc)
         collect = True

@@ -126,3 +126,21 @@ def composite_group_agg_top_blockwise(
     winners_frame = pd.concat(keep_frames, axis=1) if keep_frames else pd.DataFrame(index=X.index)
     all_scores = pd.concat(scores_frames, ignore_index=True) if scores_frames else pd.DataFrame()
     return winners_frame, all_scores, keep_recipes
+
+
+def conditioning_leaves_no_candidate(X: pd.DataFrame, base_cols: Sequence[str], n_bins: int, min_cmi: float, support_cache: dict) -> bool:
+    """Whether no engineered column can reach ``min_cmi``: the joint class of the binned conditioning columns puts every row in a cell of its own, and then
+    ``CMI(candidate; y | support)`` is exactly 0 for every candidate (``_batched_cmi_in_chunks`` and ``_binned_cmi_in_column_blocks`` return zeros there without scoring).
+
+    The joint is built as the scorer builds it and left in ``support_cache`` under the scorer's key, so a support that does leave room is not binned twice. With a threshold at or below
+    zero a zero score still passes, so the answer is ``False`` and the candidates are generated."""
+    from ._mi_greedy_cmi_fe import _conditioning_is_all_singletons, _support_joint
+
+    cols = [c for c in base_cols if c in X.columns]
+    if not cols or not float(min_cmi) > 0.0 or len(X) < 2:
+        return False
+    key = ("joint", tuple(map(str, cols)), int(n_bins))
+    z_joint = support_cache.get(key)
+    if z_joint is None:
+        z_joint = support_cache[key] = _support_joint(X[cols].to_numpy(), int(n_bins))
+    return bool(_conditioning_is_all_singletons(z_joint, len(X)))

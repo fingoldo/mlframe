@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
-from tests._cuda_require import require_cuda_device
 
 from mlframe.feature_selection.filters import _conditional_gate_fe as gate
 from mlframe.feature_selection.filters import _resident_candidate_mi_ktc as ktc
+from tests.feature_selection.gpu._gpu_support import require_device
 
 
 def test_auto_edge_binning_starts_at_the_validated_row_mark(monkeypatch):
@@ -37,7 +36,6 @@ def test_row_mark_fallback_before_any_sweep(monkeypatch):
 
 def test_rank_binned_device_grid_equals_the_host_scan():
     """The sweep's two callables (host scan and rank-binned device-born grid) agree to the sweep tolerance on a small frame."""
-    pytest.importorskip("cupy")
-    require_cuda_device()
+    require_device()
     specs, y = ktc._grid_inputs({"n_samples": 4000})
     np.testing.assert_allclose(ktc._grid_device(specs, y), ktc._grid_host(specs, y), rtol=1e-6, atol=1e-6)

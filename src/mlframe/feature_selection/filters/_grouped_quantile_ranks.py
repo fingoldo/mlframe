@@ -8,8 +8,9 @@ from __future__ import annotations
 from typing import Sequence
 
 import numpy as np
-from numba import njit
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
+from ._numba_utils_shared import _member_pct_ranks_njit  # the kernel lives with the shared numba helpers; re-exported here for the callers of this module
 
 
 def _sorted_linear_quantiles(sv: np.ndarray, qs: Sequence[float]) -> np.ndarray:
@@ -31,26 +32,6 @@ def _sorted_linear_quantiles(sv: np.ndarray, qs: Sequence[float]) -> np.ndarray:
             r = float(b) - diff * (1 - t)
         out[k] = r
     return out
-
-
-@njit(cache=True, nogil=True)
-def _member_pct_ranks_njit(order: np.ndarray, sv: np.ndarray, ranks: np.ndarray) -> None:
-    """Fill ``ranks[order[k]]`` with the average rank of the run of equal values around sorted position ``k``, as the numpy twin below does.
-
-    One pass instead of its eight (concatenate, compare, flatnonzero, diff, two repeats, a fancy assignment), and it releases the GIL so a lane thread does not hold it for every group of
-    every numeric column. The arithmetic is the twin's: the run bounds are integers and ``(lo + hi) / (2.0 * m)`` is one float64 division, so the values are bit-identical.
-    """
-    m = sv.shape[0]
-    denom = 2.0 * m
-    i = 0
-    while i < m:
-        j = i + 1
-        while j < m and sv[j] == sv[i]:
-            j += 1
-        r = (i + j) / denom
-        for k in range(i, j):
-            ranks[order[k]] = r
-        i = j
 
 
 def _member_pct_ranks(order: np.ndarray, sv: np.ndarray, vals: np.ndarray, finite: np.ndarray) -> np.ndarray:

@@ -45,6 +45,7 @@ from the source columns alone (no y reference).
 from __future__ import annotations
 
 import logging
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_is_numeric
 from typing import Optional, Sequence
 
 import numpy as np
@@ -206,12 +207,7 @@ def generate_quadruplet_cross_basis_features(
                 col_i, col_j, col_k, col_l,
             )
             continue
-        if not (
-            pd.api.types.is_numeric_dtype(X[col_i])
-            and pd.api.types.is_numeric_dtype(X[col_j])
-            and pd.api.types.is_numeric_dtype(X[col_k])
-            and pd.api.types.is_numeric_dtype(X[col_l])
-        ):
+        if not (fe_column_is_numeric(X, col_i) and fe_column_is_numeric(X, col_j) and fe_column_is_numeric(X, col_k) and fe_column_is_numeric(X, col_l)):
             continue
         _dt = np.float64  # Intentional float64: the recipe replay applies the frozen params at float64, so the fit-time values are built on the same axis
         # np.array (copy=True): X[col].to_numpy() can alias the DataFrame's backing block - e.g. a

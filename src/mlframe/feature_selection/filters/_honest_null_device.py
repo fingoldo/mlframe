@@ -24,6 +24,8 @@ import weakref
 from typing import Any
 
 import numpy as np
+
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from numba import njit, prange
 
 from ._mdlp_honest_bycol_njit import _cuts_tie_free
@@ -251,6 +253,29 @@ def _pack_bits(y_perm: np.ndarray) -> np.ndarray:
     return out  # (permutations, words)
 
 
+@njit(cache=True, parallel=True, nogil=True)
+def _count_ones_rows(y_perm: np.ndarray) -> np.ndarray:
+    """Number of entries equal to 1 in every row of ``y_perm`` (int64), one parallel task per row and no boolean copy of the matrix."""
+    out = np.zeros(y_perm.shape[0], dtype=np.int64)
+    for b in prange(y_perm.shape[0]):
+        c = 0
+        for i in range(y_perm.shape[1]):
+            if y_perm[b, i] == 1:
+                c += 1
+        out[b] = c
+    return out
+
+
+def label_one_counts(y_perm: np.ndarray) -> np.ndarray:
+    """``(y_perm == 1).sum(axis=1)``: the number of label-1 rows of every permutation, by the parallel kernel for an integer matrix (4 ms at 999 x 100000, where the numpy form
+    built a boolean copy of the whole matrix: 136 ms, once per block of columns and once more for row 0). Counted on every call - at 4 ms a stored vector is not worth the risk
+    of answering for an array that was changed in place."""
+    if y_perm.ndim == 2 and y_perm.dtype.kind in "iub":
+        with parallel_kernel_entry():  # a prange kernel, reached from the column-block pool
+            return np.asarray(_count_ones_rows(np.ascontiguousarray(y_perm)))
+    return np.asarray((y_perm == 1).sum(axis=1))
+
+
 _PACKED_LAST: "tuple[Any, np.ndarray] | None" = None
 _PACKED_LOCK = threading.Lock()
 
@@ -447,6 +472,26 @@ def _prep_declined(prep_box: dict) -> bool:
     return True
 
 
+@njit(cache=True, parallel=True, nogil=True)
+def _labels_at_rows(y_perm: np.ndarray, rows: np.ndarray) -> np.ndarray:
+    """``y_perm[:, rows]`` as a C-contiguous matrix of the same integer type, one parallel task per permutation (the fancy-indexed gather of 999 x 30000 labels took 0.34 s on one core)."""
+    out = np.empty((y_perm.shape[0], rows.shape[0]), dtype=y_perm.dtype)
+    for b in prange(y_perm.shape[0]):
+        for i in range(rows.shape[0]):
+            out[b, i] = y_perm[b, rows[i]]
+    return out
+
+
+@njit(cache=True, parallel=True, nogil=True)
+def _class_counts_rows(ys: np.ndarray, ny: int) -> np.ndarray:
+    """``np.bincount(ys[b], minlength=ny)`` of every row ``b`` as an ``(permutations, ny)`` int64 matrix."""
+    out = np.zeros((ys.shape[0], ny), dtype=np.int64)
+    for b in prange(ys.shape[0]):
+        for i in range(ys.shape[1]):
+            out[b, ys[b, i]] += 1
+    return out
+
+
 def honest_null_columns_device(
     raw_cont: np.ndarray,
     is_cont: np.ndarray,
@@ -495,7 +540,7 @@ def honest_null_columns_device(
         if int(nx.max()) > MAX_BINS:
             return
         # the permuted codes keep their own narrow integer type (int8 for a binary target): widening them to int64 made an 8x copy of the (permutations, rows) matrix
-        ys = y_codes_perm if (eval_rows.shape[0] == y_codes_perm.shape[1] and bool(np.array_equal(eval_rows, np.arange(eval_rows.shape[0])))) else np.ascontiguousarray(y_codes_perm[:, eval_rows])
+        ys = y_codes_perm if (eval_rows.shape[0] == y_codes_perm.shape[1] and bool(np.array_equal(eval_rows, np.arange(eval_rows.shape[0])))) else _labels_at_rows(np.ascontiguousarray(y_codes_perm), np.ascontiguousarray(eval_rows, dtype=np.int64))
         ny = int(ys.max()) + 1
         prep_box["ys"], prep_box["ny"] = ys, ny
         if ny > MAX_CLASSES:
@@ -507,7 +552,7 @@ def honest_null_columns_device(
             # every row of the full permuted-label matrix is a permutation of the same labels: one class-count vector serves all (256 serial bincounts of 2000000 labels were 2.4 s of a 14 s call)
             prep_box["counts_b"] = np.broadcast_to(np.bincount(ys[0], minlength=ny), (n_perm, ny))
         else:
-            prep_box["counts_b"] = np.stack([np.bincount(ys[b], minlength=ny) for b in range(n_perm)])
+            prep_box["counts_b"] = _class_counts_rows(ys, ny)  # one parallel pass; a bincount per permutation was 0.23 s for 999 permutations of 30000 rows
         record_fe_family_wall("stage:honest_host_prep", perf_counter() - _t)
 
     order = np.zeros((0, n), dtype=np.int32)

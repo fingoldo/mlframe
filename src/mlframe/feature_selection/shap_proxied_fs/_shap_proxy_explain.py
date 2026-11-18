@@ -216,7 +216,7 @@ def _n_trees(est) -> int:
             return int(est.booster_.num_trees())
         return int(est.get_booster().num_boosted_rounds())
     except Exception as exc:
-        log_throttle(logger, "shap_proxy.n_trees_unreadable", logging.WARNING, "tree count of the model unreadable (%s: %s); the backend choice sees 0 trees", type(exc).__name__, exc)
+        logger.warning("tree count of %s could not be read (%s: %s); the TreeSHAP backend is chosen as for an empty model", type(est).__name__, type(exc).__name__, exc)
         return 0
 
 

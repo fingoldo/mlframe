@@ -9,6 +9,7 @@ import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
 from pyutilz.performance.gpu_hw_launch import block_size_for
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from mlframe.feature_selection.filters._honest_null_device import XLOGX_TABLE_SIZE
 from mlframe.feature_selection.filters._honest_null_device import _accepted
 from mlframe.feature_selection.filters._honest_null_device import _entropy
@@ -76,8 +77,9 @@ def _order_and_ties(raw_cont):
         got = presort_and_ties_gpu(raw_cont)
         if got is not None:
             return got
-    order = _presort_columns(raw_cont)
-    return order, _tie_flags(raw_cont, order)
+    with parallel_kernel_entry():  # the sort and the tie flags are prange kernels, reached from the column-block pool
+        order = _presort_columns(raw_cont)
+        return order, _tie_flags(raw_cont, order)
 
 
 def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx_table, cp, n_perm, min_split_size, alpha, accepted_c, order, tie, overlap_host_work=None):
@@ -108,9 +110,9 @@ def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx
             pass
         elif n_classes_total == 2:
             ybits = _pack_bits_cached(y_raw_perm)
-            _kernel, _full_table = _root_split_kernel(cp)
-            threads = block_size_for(_kernel, work_items=n_perm * kc)
-            _kernel(
+            root_kernel, _full_table = _root_split_kernel(cp)
+            threads = block_size_for(root_kernel, work_items=n_perm * kc)
+            root_kernel(
                 ((n_perm * kc + threads - 1) // threads,),
                 (threads,),
                 (
@@ -164,6 +166,7 @@ def _continuous_accept_block(kc, raw_cont, y_raw_perm, n_classes_total, n, xlogx
         ncand = np.ascontiguousarray(_int_to_host(cp, d_ncand, n).reshape(kc, n_perm).T)
         bidx = np.ascontiguousarray(_int_to_host(cp, d_idx, n).reshape(kc, n_perm).T)
         if h_full > 0.0:
-            accepted_c = _accepted(gain, ncand, bidx, n, n_classes_total, float(alpha))
+            with parallel_kernel_entry():
+                accepted_c = _accepted(gain, ncand, bidx, n, n_classes_total, float(alpha))
         record_fe_family_wall("stage:honest_accepted_host", perf_counter() - _t0)
     return accepted_c, order, tie

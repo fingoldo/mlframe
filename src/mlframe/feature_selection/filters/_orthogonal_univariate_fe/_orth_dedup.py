@@ -5,6 +5,7 @@ re-exports ``_dedup_collinear_source_cols`` from its bottom). Self-contained - d
 """
 from __future__ import annotations
 
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_is_numeric, fe_column_values
 import contextlib
 import logging
 import threading
@@ -21,7 +22,7 @@ from numba import njit, prange
 
 logger = logging.getLogger(__name__)
 
-#: GPU11-19: below this many rows per tile, `_pc_corr_cupy`'s room-bound tiling pays more in per-tile transfer/sync
+#: below this many rows per tile, `_pc_corr_cupy`'s room-bound tiling pays more in per-tile transfer/sync
 #: overhead than the matmul work is worth; env-overridable for the kernel-tuning-cache style per-host tuning other
 #: dedup backends already use.
 _MIN_CUPY_DEDUP_TILE = env_int("MLFRAME_FE_DEDUP_CUPY_MIN_TILE", 32)
@@ -52,21 +53,28 @@ def _dedup_sample_idx(n_rows: int) -> Optional[np.ndarray]:
 # families on would otherwise repeat the identical O(P^2) corrcoef pass 2-5x within ONE MRMR.fit() call. The
 # memo is OFF by default (cache is None) so every call outside an explicit dedup_collinear_memo_scope() is
 # byte-for-byte unchanged. threading.local -> no cross-worker contamination.
-_DEDUP_MEMO = threading.local()
+_DEDUP_MEMO_LOCK = threading.Lock()
+_DEDUP_MEMO: dict = {"cache": None, "depth": 0}
 
 
 @contextlib.contextmanager
 def dedup_collinear_memo_scope() -> Iterator[None]:
     """Enable the fit-scoped ``_dedup_collinear_source_cols`` memo for one MRMR.fit() call, then clear it.
-    Nesting-safe: an inner scope reuses the outer cache and the outer owner clears it."""
-    if getattr(_DEDUP_MEMO, "cache", None) is not None:
-        yield  # reuse outer scope; outer owner clears
-        return
-    _DEDUP_MEMO.cache = {}
+
+    The memo is shared by every thread of the process while a scope is open (the FE stage cascades run on worker threads, and a thread-local memo was invisible to them: each of about seven
+    families then repeated the classification and the correlation pass, 1.9 s of a 100000 x 100 fit). It is keyed by content, so threads of different fits can share it safely; nested and
+    concurrent scopes are counted and the last one to close clears it."""
+    with _DEDUP_MEMO_LOCK:
+        if _DEDUP_MEMO["depth"] == 0:
+            _DEDUP_MEMO["cache"] = {}
+        _DEDUP_MEMO["depth"] += 1
     try:
         yield
     finally:
-        _DEDUP_MEMO.cache = None
+        with _DEDUP_MEMO_LOCK:
+            _DEDUP_MEMO["depth"] -= 1
+            if _DEDUP_MEMO["depth"] == 0:
+                _DEDUP_MEMO["cache"] = None
 
 
 def _dedup_cache_key(X: pd.DataFrame, cols: Sequence[str], corr_threshold: float) -> tuple:
@@ -81,7 +89,7 @@ def _dedup_cache_key(X: pd.DataFrame, cols: Sequence[str], corr_threshold: float
     sample_idx = _dedup_sample_idx(n_rows)
     parts: list[tuple] = []
     for c in cols:
-        if c not in X.columns or not pd.api.types.is_numeric_dtype(X[c]):
+        if not fe_column_is_numeric(X, c):
             parts.append((c, "non_numeric"))
             continue
         arr = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())
@@ -184,7 +192,7 @@ def _pc_corr_cupy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     if need <= room // 4:
         return _pc_corr_cupy_arrays(cp, resident_operand(Q, "orth_dedup_Q"), resident_operand(R, "orth_dedup_R"))
     tile = int(max(1, min(max(q, r), (room // 4 - 9 * 1024 * 1024 * item) // max(1, 10 * n_obs * item))))
-    # GPU11-19: a tight pool (little free VRAM, or several FE families contending for the same card at a large column
+    # a tight pool (little free VRAM, or several FE families contending for the same card at a large column
     # count) can shrink the tile below a floor where the loop below would launch thousands of tiny cupy calls instead
     # of a handful - each paying its own host<->device transfer and sync, far slower than one numpy(BLAS) call on the
     # same data. Bail to the dispatcher's existing cupy-failure fallback (numpy) rather than thrash through that many
@@ -203,25 +211,32 @@ def _pc_corr_cupy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
 
 
 _FINAL_KERNELS: dict = {}
+_FINAL_KERNELS_LOCK = threading.Lock()
 
 
 def _corr_final_kernel(cp: Any) -> Any:
     """One fused elementwise pass for the last stage of the masked-matmul correlation: covariance and both variances from the six sums, ``|r|``, and ``nan`` where fewer than 8 common rows or either
     side is near-constant (the 12 or so cupy elementwise launches of the unfused form, one launch here)."""
-    ker = _FINAL_KERNELS.get("final")
-    if ker is None:
-        ker = _FINAL_KERNELS["final"] = cp.ElementwiseKernel(
-            "S n, T Sx, T Sy, T Sxx, T Syy, T Sxy",
-            "T out",
-            """
-            const T cov = Sxy - Sx * Sy / n;
-            const T vx = Sxx - Sx * Sx / n;
-            const T vy = Syy - Sy * Sy / n;
-            out = (n < 8 || vx <= 1e-24 || vy <= 1e-24) ? (T)nan("") : (T)fabs(cov / sqrt(vx * vy));
-            """,
-            "pc_corr_final",
-        )
+    with _FINAL_KERNELS_LOCK:
+        ker = _FINAL_KERNELS.get("final")
+        if ker is None:
+            ker = _FINAL_KERNELS["final"] = _build_corr_final_kernel(cp)
     return ker
+
+
+def _build_corr_final_kernel(cp: Any) -> Any:
+    """The elementwise kernel of :func:`_corr_final_kernel`."""
+    return cp.ElementwiseKernel(
+        "S n, T Sx, T Sy, T Sxx, T Syy, T Sxy",
+        "T out",
+        """
+        const T cov = Sxy - Sx * Sy / n;
+        const T vx = Sxx - Sx * Sx / n;
+        const T vy = Syy - Sy * Sy / n;
+        out = (n < 8 || vx <= 1e-24 || vy <= 1e-24) ? (T)nan("") : (T)fabs(cov / sqrt(vx * vy));
+        """,
+        "pc_corr_final",
+    )
 
 
 def _pc_corr_cupy_arrays(cp: Any, Qd: Any, Rd: Any) -> np.ndarray:
@@ -230,7 +245,7 @@ def _pc_corr_cupy_arrays(cp: Any, Qd: Any, Rd: Any) -> np.ndarray:
     Rm = cp.isfinite(Rd)
     Q0 = cp.where(Qm, Qd, 0.0)
     R0 = cp.where(Rm, Rd, 0.0)
-    mask_dtype = Qd.dtype if (Qd.dtype == Rd.dtype and Qd.dtype in (cp.float32, cp.float64)) else crit_float_dtype()  # the masks in the data's own dtype: a float32 mask against float64 data was copied to float64 inside each of three GEMMs
+    mask_dtype = Qd.dtype if (Qd.dtype == Rd.dtype and Qd.dtype in (cp.float32, cp.float64)) else crit_float_dtype()  # the masks in the data's own dtype: a float32 mask against float64 data was copied to float64 inside each of three GEMMs  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
     Qmf = Qm.astype(mask_dtype)
     Rmf = Rm.astype(mask_dtype)
     n = cp.matmul(Qmf, Rmf.T)
@@ -520,10 +535,10 @@ def _classify_dedup_columns(X: pd.DataFrame, cols: Sequence[str], _sample_idx: O
     from .._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); coarse corr-threshold dedup is scale-robust. Hoisted out of the loop (was re-invoked once per column).
     for i, c in enumerate(cols):
-        if c not in X.columns or not pd.api.types.is_numeric_dtype(X[c]):
+        if not fe_column_is_numeric(X, c):
             classes.append("pass_through")
             continue
-        arr = np.asarray(X[c].to_numpy(), dtype=_dt)
+        arr = np.asarray(fe_column_values(X, c), dtype=_dt)
         if _sample_idx is not None:
             arr = arr[_sample_idx]
         finite = np.isfinite(arr)
@@ -604,7 +619,7 @@ def _dedup_collinear_source_cols(
     """
     if not cols:
         return list(cols)
-    _memo = getattr(_DEDUP_MEMO, "cache", None)
+    _memo = _DEDUP_MEMO["cache"]
     _memo_key = None
     if _memo is not None:
         _memo_key = _dedup_cache_key(X, cols, corr_threshold)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+
 # --- imports (managed) ---
 import hashlib
 import logging
@@ -128,6 +130,7 @@ def _rebin_continuous_targets(self, _nbins_strategy, target_indices, cols, _x_fo
 
 _SUPERVISED_STRATEGIES = ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated", "optimal_joint", "cv", "mah", "mah_sci", "sci", "marx")
 _WARMUPS: "dict[int, Any]" = {}
+_WARMUPS_LOCK = threading.Lock()  # guards the table only (the dict operations), never the warm-up or the join
 
 
 def start_discretization_warmup(self: Any, X: Any, y: Any) -> None:
@@ -174,7 +177,8 @@ def start_discretization_warmup(self: Any, X: Any, y: Any) -> None:
     import weakref
 
     worker = threading.Thread(target=run, name="discretize-warmup", daemon=True)
-    _WARMUPS[id(self)] = (weakref.ref(self), worker)
+    with _WARMUPS_LOCK:
+        _WARMUPS[id(self)] = (weakref.ref(self), worker)
     worker.start()
 
 
@@ -187,7 +191,8 @@ def _discretize_inputs(self, _is_polars_input, X, target_names):
         categorize_dataset,
     )
 
-    entry = _WARMUPS.pop(id(self), None)
+    with _WARMUPS_LOCK:
+        entry = _WARMUPS.pop(id(self), None)
     if entry is not None and entry[0]() is self:
         entry[1].join()
     if self.nan_strategy in ("ffill_bfill",):

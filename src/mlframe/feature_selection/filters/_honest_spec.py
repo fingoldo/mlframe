@@ -8,6 +8,7 @@ target-free collapse fallbacks are precomputed per column.
 
 from __future__ import annotations
 
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_is_numeric, fe_column_values
 from collections.abc import Sequence
 from typing import Any
 
@@ -63,7 +64,7 @@ class _FrameColumns:
         name = self._cols[j]
         if name is None:
             return np.zeros(self.shape[0], dtype=self.dtype)
-        return np.asarray(self._X[name].to_numpy(dtype=self.dtype, copy=False))
+        return np.asarray(fe_column_values(self._X, name), dtype=self.dtype)
 
 
 def _median_filled_column(col: pd.Series) -> "tuple[np.ndarray, np.ndarray] | None":
@@ -95,7 +96,7 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
     nan_by_col: dict[int, np.ndarray] = {}  # the NaN masks of the columns that have NaN; the (n, m) bool matrix exists only when one does
     # float32 frames keep a float32 matrix: widening a float32 value to float64 is exact, so the cut search reads the same numbers (a column with NaN is median-filled in double
     # precision, so any NaN keeps the double matrix); the (n, m) matrix is the largest array of the spec, 4 bytes per cell instead of 8
-    _numeric = [c for c in cols if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
+    _numeric = [c for c in cols if fe_column_is_numeric(X, c)]
     _f32_exact = bool(_numeric) and all(X[c].dtype == np.float32 for c in _numeric) and not any(bool(X[c].isna().any()) for c in _numeric)
     filled: dict[int, np.ndarray] = {}  # the median-filled columns of the frame's columns that have NaN
     raw: Any = _FrameColumns(X, cols, n, np.float32 if _f32_exact else np.float64, filled)  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)

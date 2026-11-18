@@ -36,7 +36,7 @@ original indices via ``working_cols``, so the sklearn ``support_`` stays in orig
 
 from __future__ import annotations
 
-import json
+import orjson
 import logging
 import os
 
@@ -102,7 +102,7 @@ def _prefilter_tuning() -> dict:
     raw = os.environ.get("MLFRAME_SHAP_PREFILTER_TUNING", "").strip()
     if raw:
         try:
-            parsed = json.loads(raw)
+            parsed = orjson.loads(raw)
             if isinstance(parsed, dict):
                 return parsed
         except ValueError as e:

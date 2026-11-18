@@ -16,7 +16,6 @@ Two backends of one function: ``_drops_njit`` (``prange`` over columns, ``np.qua
 
 from __future__ import annotations
 
-import functools
 import logging
 import os
 from typing import Any, Optional, Sequence
@@ -27,9 +26,9 @@ from numba import njit, prange
 from mlframe._numerical_floors import VARIANCE_FLOOR
 from mlframe.utils.log_throttle import log_throttle
 
-from ._device_blocks import host_block_width
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
+from ._device_blocks import double_block_width_of
 from ._raw_module_cache import RawModuleCache
 
 logger = logging.getLogger(__name__)
@@ -108,7 +107,7 @@ _MODULES = {"float": RawModuleCache(_SRC.replace("{REAL}", "float")), "double": 
 
 
 def kernel(cp: Any, real: Any) -> Any:
-    """``hinge_precheck_drops`` for columns of dtype ``real`` (float32 or float64); compile point of :func:`_drops_device` and of the register-pressure registry."""
+    """``hinge_precheck_drops`` for columns of dtype ``real`` (float32 or double precision); compile point of :func:`_drops_device` and of the register-pressure registry."""
     return _MODULES["float" if np.dtype(real) == np.float32 else "double"].get(cp).get_function("hinge_precheck_drops")
 
 
@@ -133,7 +132,7 @@ def _cut_drop(row: np.ndarray, yc: np.ndarray, mean_x: float, sxx: float, sxy: f
             ry += r * yc[i]
     if cnt < min_seg or (n - cnt) < min_seg:
         return -1.0
-    denom = rr - r1 * r1 / n - rx * rx / sxx  # moment-ok: r is the distance above the cut and xv is centred, so the sums are of the order of the spread squared; at least min_seg rows have r == 0
+    denom = rr - r1 * r1 / n - rx * rx / sxx  # moment-ok: r is the positive part of x - cut at a central quantile cut, so its mean is of the order of its spread; double precision sums
     sse_h = sse_lin
     if not (denom < floor_var):
         num = ry - rx * sxy / sxx
@@ -175,9 +174,9 @@ def _column_drop(row: np.ndarray, yc: np.ndarray, syy: float, qs: np.ndarray, mi
 
 @njit(cache=True, parallel=True, nogil=True)
 def _drops_njit(xs: np.ndarray, y: np.ndarray, qs: np.ndarray, min_seg: int, floor_var: float) -> np.ndarray:
-    """Best fractional SSE drop of the three-cut hinge over the line for every row of ``xs`` ``(columns, n)``; ``-1`` for a column the precheck rejects outright. ``y`` is the raw float64 target."""
+    """Best fractional SSE drop of the three-cut hinge over the line for every row of ``xs`` ``(columns, n)``; ``-1`` for a column the precheck rejects outright. ``y`` is the raw double precision target."""
     k, n = xs.shape
-    out = np.empty(k, dtype=np.float64)
+    out = np.empty(k, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     yc = np.empty(n, dtype=np.float64)
     my = 0.0
     for i in range(n):
@@ -204,23 +203,23 @@ def _drops_device(xs: np.ndarray, y: np.ndarray, qs: Sequence[float], min_seg: i
         xd = cp.asarray(xs)
         real = xd.dtype
         # the three cuts are order statistics: the sort-free radix select gives them (bit-identical to cp.percentile) without sorting the columns (the sort was 43 % of the device call)
-        got_q = _radix_quantiles(cp.ascontiguousarray(xd.T), np.asarray(qs, dtype=np.float64))
+        got_q = _radix_quantiles(cp.ascontiguousarray(xd.T), np.asarray(qs, dtype=np.float64))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
         if got_q is None:
             log_throttle(logger, "hinge_precheck_radix_declined", logging.WARNING, "hinge precheck: the device radix select declined (%d columns x %d rows); the host kernel runs", k, n)
             return None
         cuts = got_q.T
-        yc = np.empty(n + 1, dtype=np.float64)
+        yc = np.empty(n + 1, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
         yc[:n] = np.asarray(y, dtype=np.float64) - float(np.mean(y))
         yc[n] = float(yc[:n] @ yc[:n])
-        out = cp.empty(k, dtype=cp.float64)
+        out = cp.empty(k, dtype=cp.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
         ker = kernel(cp, real)
         ker(
             (k,), (block_size_for(ker, work_items=n),),
-            (xd, cp.asarray(yc), cp.ascontiguousarray(cuts), np.int64(n), np.int32(min_seg), np.float64(floor_var), out),
+            (xd, cp.asarray(yc), cp.ascontiguousarray(cuts), np.int64(n), np.int32(min_seg), np.float64(floor_var), out),  # Intentional float64: scalar argument of a double-typed kernel parameter or accumulator
         )
-        return np.asarray(cp.asnumpy(out), dtype=np.float64)
+        return np.asarray(cp.asnumpy(out), dtype=np.float64)  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     except Exception as exc:
-        log_throttle(logger, "hinge_precheck_device_unavailable", logging.WARNING, "hinge precheck: the device form is unavailable (%s: %s); the host kernel runs", type(exc).__name__, exc)
+        log_throttle(logger, "hinge_precheck_gpu_hinge_precheck_the_device_form_is_unavailable", logging.WARNING, "hinge precheck: the device form is unavailable (%s: %s)", type(exc).__name__, exc)
         return None
 
 
@@ -229,7 +228,7 @@ def _drops_host(xs: np.ndarray, y: np.ndarray, qs: Sequence[float], min_seg: int
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
     with parallel_kernel_entry():
-        out: np.ndarray = _drops_njit(np.ascontiguousarray(xs, dtype=np.float64), np.ascontiguousarray(y, dtype=np.float64), np.asarray(qs, dtype=np.float64), int(min_seg), float(floor_var))
+        out: np.ndarray = _drops_njit(np.ascontiguousarray(xs, dtype=np.float64), np.ascontiguousarray(y, dtype=np.float64), np.asarray(qs, dtype=np.float64), int(min_seg), float(floor_var))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     return out
 
 
@@ -240,7 +239,7 @@ _SALT = 1
 
 
 def _sweep_inputs(dims: dict) -> tuple:
-    """``(columns, y)``: a block of ``_SWEEP_COLS`` kinked float64 columns of ``dims["n_rows"]`` rows and a target for the sweep."""
+    """``(columns, y)``: a block of ``_SWEEP_COLS`` kinked double precision columns of ``dims["n_rows"]`` rows and a target for the sweep."""
     rng = np.random.default_rng(0)
     n_rows = int(dims["n_samples"])
     xs = rng.normal(size=(_SWEEP_COLS, n_rows))
@@ -299,7 +298,7 @@ def hinge_precheck_on_device(n_rows: int) -> bool:
 _BLOCK_BYTES = 256 * 1024 * 1024
 
 
-column_block_width = functools.partial(host_block_width, block_bytes=_BLOCK_BYTES)  # columns of float64 that fit one host block
+column_block_width = double_block_width_of(__name__)  # columns per column block: as many as ``_BLOCK_BYTES`` holds at the row count
 
 
 def hinge_precheck_drops(xs: np.ndarray, y: np.ndarray, qs: Sequence[float], min_seg: int, floor_var: float = VARIANCE_FLOOR) -> np.ndarray:
@@ -313,4 +312,4 @@ def hinge_precheck_drops(xs: np.ndarray, y: np.ndarray, qs: Sequence[float], min
         block = xs[a : a + width]
         got = _drops_device(block, y, qs, min_seg, floor_var) if on_device else None
         parts.append(got if got is not None else _drops_host(block, y, qs, min_seg, floor_var))
-    return np.concatenate(parts) if parts else np.empty(0, dtype=np.float64)
+    return np.concatenate(parts) if parts else np.empty(0, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision

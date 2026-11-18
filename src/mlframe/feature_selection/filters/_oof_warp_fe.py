@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
-__all__ = ["hybrid_oof_warp_fe", "apply_oof_warp1d_recipe", "build_oof_warp1d_recipe", "warp_candidates"]
+__all__ = ["hybrid_oof_warp_fe", "apply_oof_warp1d_recipe", "build_oof_warp1d_recipe", "warp_candidates", "candidate_fit"]
 
 SIGNIFICANCE_Z = 2.0  # one-sided normal critical value applied to the standard error of the MI gain
 DEFAULT_MIN_RELATIVE_GAIN = 0.05  # default of the practical-effect knob
@@ -72,12 +72,16 @@ def _has_few_values(v: np.ndarray, cap: int) -> bool:
 
 
 def warp_candidates(
-    X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *, scan_rows: int = DEFAULT_SCAN_ROWS, seed: int = 0, multiclass: str = "rank"
+    X: "pd.DataFrame", y: np.ndarray, cols: Sequence[str], *, scan_rows: int = DEFAULT_SCAN_ROWS, seed: int = 0, multiclass: str = "rank", device: Optional[bool] = None
 ) -> "list[dict]":
     """Fit the warp of each numeric column of ``cols`` and score it against the raw column on the odd rows of the scan sample.
 
-    Returns one dict per usable column: ``col``, ``x`` (the full column), ``fit`` (the service result on the scan rows), ``rows`` (the scan index), ``mi_raw``, ``mi_warp``, ``gain``, ``se``, ``bulk_gain``, ``bulk_se`` (the same gain and its standard error on the central rows only), ``cls`` (``None`` for the rank-scaled warp; the class of the 0/1 indicator with ``multiclass="ovr"``).
-    Columns that are constant, nominal-like (at most ``FEW_CLASSES_MAX`` distinct values) or too short are skipped."""
+    Returns one dict per usable column: ``col``, ``x`` (the full column), ``fit`` (the service result on the scan rows; ``None`` until :func:`candidate_fit` is asked for it when the device scored
+    the column), ``rows`` (the scan index), ``mi_raw``, ``mi_warp``, ``gain``, ``se``, ``bulk_gain``, ``bulk_se`` (the same gain and its standard error on the central rows only), ``cls`` (``None``
+    for the rank-scaled warp; the class of the 0/1 indicator with ``multiclass="ovr"``), ``scored_on`` (``"host"`` or ``"device"``).
+    Columns that are constant, nominal-like (at most ``FEW_CLASSES_MAX`` distinct values) or too short are skipped.
+
+    ``device``: ``True`` / ``False`` forces the device scan (``_oof_warp_gpu``) or the host pool; ``None`` leaves it to the kernel-tuning entry. A device fault falls back to the host pool."""
     from ._y_encoding import encode_y_for_classif_mi
 
     validate_multiclass_mode(multiclass)
@@ -93,6 +97,10 @@ def warp_candidates(
     targets: list[tuple[Optional[int], np.ndarray]] = list(ovr_indicators(codes, ky) if multiclass == "ovr" else [])
     if not targets:
         targets = [(None, _rank_scaled(y_arr[rows]))]
+    scored = _device_candidates(X, cols, rows, targets, codes, ky, seed, device)
+    if scored is not None:
+        return scored
+
     def _one_column(c):
         """The scored warp candidates of one column (one per target), empty when the column is skipped."""
         found: list = []
@@ -104,7 +112,8 @@ def warp_candidates(
         cr = held_out_codes(np.where(finite, xr, np.min(xr[finite])), even, ~even, N_MI_BINS)
         mi_r = plugin_mi_of_codes(cr, N_MI_BINS, y_odd, ky)
         x_odd = xr[~even]
-        lo, hi = np.quantile(xr[finite], [BULK_TRIM, 1.0 - BULK_TRIM])
+        # plain floats: the range is then compared in the column's own type under every numpy promotion rule (a float64 numpy scalar is cast down by numpy 1 and kept by numpy 2)
+        lo, hi = (float(v) for v in np.quantile(xr[finite], [BULK_TRIM, 1.0 - BULK_TRIM]))
         bulk = np.isfinite(x_odd) & (x_odd >= lo) & (x_odd <= hi)
         for cls, target in targets:
             fit = fit_oof_warp1d(xr, target, seed=seed)
@@ -118,7 +127,7 @@ def warp_candidates(
             found.append(
                 {
                     "col": c, "cls": cls, "x": x, "fit": fit, "rows": rows, "mi_raw": mi_r, "mi_warp": mi_w, "gain": mi_w - mi_r, "se": paired_gain_se(cw, cr, y_odd, ky, N_MI_BINS),
-                    "bulk_gain": bulk_gain, "bulk_se": bulk_se,
+                    "bulk_gain": bulk_gain, "bulk_se": bulk_se, "target": target, "seed": seed, "scored_on": "host",
                 }
             )
         return found
@@ -130,9 +139,49 @@ def warp_candidates(
     out = [cand for found in per_column for cand in found]
     return out
 
+def _device_candidates(X: "pd.DataFrame", cols: Sequence[str], rows: np.ndarray, targets: list, codes: np.ndarray, ky: int, seed: int, device: Optional[bool]) -> "Optional[list[dict]]":
+    """The candidates of :func:`warp_candidates` scored by the device scan, in the host's order; ``None`` when the host pool should scan (not chosen, no usable block, a device fault)."""
+    from ._oof_warp_gpu import use_device, warp_scores_device
+    from ._oof_warp_service import N_BINS, N_FOLDS, SHRINK, _fold_ids
+
+    if not cols or not (use_device(len(rows)) if device is None else device):
+        return None
+    from ._fe_frame_ops import fe_column_values, fe_stack_rows
+
+    columns = list(fe_stack_rows([fe_column_values(X, c) for c in cols], _crit_np_dtype()))  # contiguous rows: the form the operand cache hashes
+    got = warp_scores_device(
+        columns, list(cols), None if len(rows) == len(X) else rows, [t for _cls, t in targets], codes, ky, _fold_ids(len(rows), N_FOLDS, int(seed)),
+        n_folds=N_FOLDS, n_bins=N_BINS, shrink=SHRINK, mi_bins=N_MI_BINS, min_rows=_MIN_ROWS, few_cap=FEW_CLASSES_MAX, bulk_trim=BULK_TRIM,
+    )  # fmt: skip
+    if got is None:
+        return None
+    usable, stats = got
+    out: list = []
+    for j, c in enumerate(cols):
+        if not usable[j]:
+            continue
+        for t, (cls, target) in enumerate(targets):
+            mi_r, mi_w, se, bulk_gain, bulk_se = (float(v) for v in stats[t, j])
+            out.append(
+                {
+                    "col": c, "cls": cls, "x": columns[j], "fit": None, "rows": rows, "mi_raw": mi_r, "mi_warp": mi_w, "gain": mi_w - mi_r, "se": se,
+                    "bulk_gain": bulk_gain, "bulk_se": bulk_se, "target": target, "seed": seed, "scored_on": "device",
+                }
+            )
+    return out
+
+
+def candidate_fit(cand: dict) -> dict:
+    """The warp fit of a candidate (``oof``, ``cx``, ``cy``, ``fill``): the one the host scan made, or the host service's fit made now for a candidate the device scored."""
+    fit = cand.get("fit")
+    if fit is None:
+        fit = cand["fit"] = fit_oof_warp1d(cand["x"][cand["rows"]], cand["target"], seed=cand["seed"])
+    return dict(fit)
+
+
 def training_column(cand: dict) -> np.ndarray:
     """The warp column over every row: the cross-fitted value on the fitting rows, the full table on the others."""
-    fit = cand["fit"]
+    fit = candidate_fit(cand)
     col = apply_warp1d(cand["x"], fit["cx"], fit["cy"], fit["fill"])
     col[cand["rows"]] = fit["oof"]
     return col
@@ -178,7 +227,7 @@ def hybrid_oof_warp_fe(
             continue
         col = training_column(cand)
         new_cols[name] = col
-        fit = cand["fit"]
+        fit = candidate_fit(cand)
         recipes.append(build_oof_warp1d_recipe(name=name, src=cand["col"], cx=fit["cx"], cy=fit["cy"], fill=fit["fill"], lo=float(col.min()), hi=float(col.max())))
     if not new_cols:
         return empty

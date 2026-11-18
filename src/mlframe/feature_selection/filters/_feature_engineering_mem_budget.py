@@ -6,6 +6,7 @@ point consumed by ``_feature_engineering_pairs``.
 """
 from __future__ import annotations
 
+from mlframe.system import host_memory
 import logging
 import sys
 import threading
@@ -312,8 +313,7 @@ def _available_ram_bytes_cached() -> int:
     if cached is not None and (now - cached[0]) < _FE_VMEM_TTL_S:
         return int(cached[1])
     try:
-        import psutil
-        available = int(psutil.virtual_memory().available)
+        available = host_memory()[0]
     except Exception as e:
         logger.debug("_available_ram_bytes_cached: psutil unavailable or failed, treating as permissive (-1): %s", e)
         return -1

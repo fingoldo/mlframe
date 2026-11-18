@@ -49,7 +49,7 @@ def _fourier_block_njit(xs, src, cosine, power, quad, lo, span, mean, std, w):
 
 
 def fourier_block_host(xs: np.ndarray, src: np.ndarray, cosine: np.ndarray, power: np.ndarray, quad: np.ndarray, lo: np.ndarray, span: np.ndarray, mean: np.ndarray, std: np.ndarray, w: np.ndarray) -> np.ndarray:
-    """The ``(names, rows)`` block on the host. ``xs`` is ``(sources, rows)`` float32 or float64; ``lo``, ``span``, ``mean``, ``std`` and ``w`` are rounded once to its dtype, as the device launcher rounds them."""
+    """The ``(names, rows)`` block on the host. ``xs`` is ``(sources, rows)`` float32 or double precision; ``lo``, ``span``, ``mean``, ``std`` and ``w`` are rounded once to its dtype, as the device launcher rounds them."""
     dt = xs.dtype
     return np.asarray(
         _fourier_block_njit(
@@ -94,7 +94,7 @@ _SINCOS_MIN_ROWS = 20_000
 
 def sincos_legs(z: np.ndarray, freq: float) -> "tuple[np.ndarray, np.ndarray]":
     """``(sin(2 pi freq z), cos(2 pi freq z))``. A double-precision axis of at least ``_SINCOS_MIN_ROWS`` rows takes the fused parallel pass (equal to numpy's values, 3.9x faster at 100000 rows, six frequencies); a single-precision axis keeps the numpy ufuncs, whose SIMD single-precision sine and cosine are 2.2x faster than the numba loop."""
-    if z.dtype == np.float64 and z.shape[0] >= _SINCOS_MIN_ROWS:
+    if z.dtype == np.float64 and z.shape[0] >= _SINCOS_MIN_ROWS:  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
         both = sincos_axis_host(z, np.asarray([2.0 * np.pi * float(freq)]))
         return both[0, 0], both[0, 1]
     ang = 2.0 * np.pi * freq * z

@@ -286,7 +286,7 @@ def scan_offset_products_gpu(U: Any, tasks: np.ndarray, yr: Any, ycodes: Any, ky
         blk[:, 0], blk[:, 1] = remap[blk[:, 0]], remap[blk[:, 1]]
         # Intentional float64: operand tables, ranks and clips feed the 4x4 normal-equation solve (kernel contract double*)
         every = used.shape[0] == m  # the block touches every column: no gather, the tables go up as they are
-        ud = cp.ascontiguousarray(cp.asarray(U if every else (U[used] if not hasattr(U, "device") else U[cp.asarray(used)]), dtype=cp.float64))
+        ud = cp.ascontiguousarray(cp.asarray(U if every else (U[used] if not hasattr(U, "device") else U[cp.asarray(used)]), dtype=cp.float64))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
         cd = cp.ascontiguousarray(cp.asarray(clips if every else (np.asarray(clips)[used] if not hasattr(clips, "device") else clips[cp.asarray(used)]), dtype=cp.float64))
         out_shift = cp.empty((hi - lo, 2), dtype=cp.float64)  # Intentional float64: output buffer the offset-product kernel writes in double
         out_mi = cp.empty((hi - lo, 2, _N_FEATURES), dtype=cp.float64)  # Intentional float64: output buffer the offset-product kernel writes in double

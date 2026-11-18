@@ -37,6 +37,14 @@ _TEST_META_DIR = Path(__file__).resolve().parent
 # Imports of a production private symbol from a meta-test that are
 # legitimate. Each entry is "test_meta_filename::imported_dotted_name".
 _PERMITTED_PRIVATE_IMPORTS: set[str] = {
+    # GPU kernel gates: each compiles or inspects the kernels of one private module (the kernel factory of the grid-fill check, the launch geometry of the
+    # register-pressure registry) and the placeholder table of the contract inventory; these modules and names ARE the surface under test, and they have
+    # no public alias because nothing outside the filters package launches them directly.
+    "test_cuda_grid_fill::mlframe.feature_selection.filters._cmi_null_strata_gpu",
+    "test_cuda_grid_fill::mlframe.feature_selection.filters._family_maxt_cuda_bits",
+    "test_cuda_grid_fill::mlframe.feature_selection.filters._fe_batched_mi_cmi_hist",
+    "test_cuda_kernel_register_pressure::mlframe.feature_selection.filters._lof_gpu",
+    "test_fe_gpu_streaming_contract::mlframe.feature_selection._benchmarks.fe_gpu_coverage_inventory._TYPE_PLACEHOLDERS",
     # The nested-parallel gate tests the guard itself: it calls parallel_kernel_entry and resets the guard's cached concurrency probe, so the private guard
     # module is the surface under test (the module has no public alias, it is the primitive every shared dispatcher enters).
     "test_no_unguarded_nested_parallel::mlframe._numba_parallel_guard",

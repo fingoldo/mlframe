@@ -14,7 +14,7 @@ if cp.cuda.runtime.getDeviceCount() < 1:
     pytest.skip("no CUDA device", allow_module_level=True)
 
 from mlframe.feature_selection.filters import _fe_batched_mi as M
-from mlframe.feature_selection.filters import _fe_batched_mi_mm_values as V
+from mlframe.feature_selection.filters import _fe_batched_mi_mm_values as MV
 
 
 def _y_stats(y: np.ndarray, ky: int) -> tuple:
@@ -27,7 +27,7 @@ def _y_stats(y: np.ndarray, ky: int) -> tuple:
 def _run(X, edges, y, nbins, ky, monkeypatch, tiled: bool):
     """The MM MI for one route: the tiled launcher as is, or forced to refuse so the per-column kernel runs."""
     if not tiled:
-        monkeypatch.setattr(V, "_launch_mm_nek_tile", lambda *a, **k: False)
+        monkeypatch.setattr(MV, "_launch_mm_nek_tile", lambda *a, **k: False)  # the entry point reads the launcher in the module that defines it
     h_y, k_y = _y_stats(cp.asnumpy(y), ky)
     return cp.asnumpy(M.binned_mm_mi_from_values_gpu(X, edges, y, nbins, ky, h_y, k_y, return_device=True))
 

@@ -7,10 +7,14 @@ kernel module is ``_shap_proxy_treeshap_interactions_table_gpu`` (when the ensem
 
 from __future__ import annotations
 
+import threading
+
 import logging
 from typing import Any
 
 import numpy as np
+
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_ktc import make_sweep_ensemble, numba_gpu_sweep
 
 logger = logging.getLogger(__name__)
 
@@ -22,21 +26,10 @@ _SALT = 1
 _FALLBACK_MIN_CELLS = 2_000_000  # between the measured points: the host kernel wins at 900 000 cells (1000 rows x 30 features), the device kernel at 3 600 000 (4000 rows); the old hand floor was 4 800 000
 
 _ENSEMBLES: dict = {}
+_ENSEMBLES_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
-def _ensemble(trees: int):
-    """A flat ensemble of ``trees`` depth-``_DEPTH`` trees over ``_FEATURES`` features (built once per size)."""
-    ens = _ENSEMBLES.get(trees)
-    if ens is None:
-        import xgboost as xgb
-
-        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import extract_ensemble
-
-        rng = np.random.default_rng(0)
-        X = rng.standard_normal((3_000, _FEATURES)).astype(np.float32)
-        y = 1e-3 * (X[:, 0] * 2 + X[:, 1] * X[:, 2] + np.sin(X[:, 3]))  # leaf values of order 1e-3: the float32 kernel's absolute error then sits under the shared 1e-6 tolerance cap
-        ens = _ENSEMBLES[trees] = extract_ensemble(xgb.XGBRegressor(n_estimators=trees, max_depth=_DEPTH, tree_method="hist", verbosity=0, n_jobs=2).fit(X, y))
-    return ens
+_ensemble = make_sweep_ensemble(_ENSEMBLES, _ENSEMBLES_LOCK, _FEATURES, _DEPTH, 3_000)  # a flat ensemble of ``trees`` depth-``_DEPTH`` trees over ``_FEATURES`` features, built once per size
 
 
 def _sweep_inputs(dims: dict) -> tuple:
@@ -64,11 +57,7 @@ def _gpu(ens, X) -> np.ndarray:
     return np.asarray(out[0])
 
 
-def _sweep() -> list:
-    """Time the two kernels per (cells, trees); the sweep model is scaled so that float32 error sits under the tolerance cap."""
-    from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_ktc import numba_gpu_sweep
-
-    return numba_gpu_sweep(_numba, _gpu, {"cells": _SWEEP_CELLS, "trees": _SWEEP_TREES}, _sweep_inputs)
+_sweep = numba_gpu_sweep(_numba, _gpu, {"cells": _SWEEP_CELLS, "trees": _SWEEP_TREES}, _sweep_inputs)  # per (cells, trees)
 
 
 def _fallback(cells: int, trees: int) -> str:
