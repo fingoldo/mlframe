@@ -740,10 +740,8 @@ def _heldout_smooth_r2_prep(y: np.ndarray) -> Optional[tuple]:
 
 
 @numba.njit(cache=True, nogil=True)
-def _cubic_heldout_r2_kernel(ranks: np.ndarray, va: np.ndarray, y_tr: np.ndarray, yv: np.ndarray, sst: float) -> float:
-    """Held-out R^2 of the cubic fit of ``y`` on ``zx = 2 * (rank - 1) / (n - 1) - 1`` (``ranks`` are the 1-based average ranks): the normal equations of ``[z^3, z^2, z, 1]`` on the training rows
-    (``va`` False) from their power sums, a pivoted 4 x 4 elimination, and the squared error on the validation rows, in double precision and two passes over the rows. ``NaN`` when the system is
-    singular, so the caller takes the numpy form (``np.linalg.lstsq``)."""
+def _cubic_normal_system(ranks: np.ndarray, va: np.ndarray, y_tr: np.ndarray) -> np.ndarray:
+    """The augmented ``(4, 5)`` normal system of the cubic ``[z^3, z^2, z, 1]`` on the training rows (``va`` False), ``z = 2 * (rank - 1) / (n - 1) - 1``, from power sums in one pass."""
     n = ranks.shape[0]
     denom = max(n - 1, 1)
     pw = np.zeros(7)
@@ -766,13 +764,20 @@ def _cubic_heldout_r2_kernel(ranks: np.ndarray, va: np.ndarray, y_tr: np.ndarray
         for c in range(4):
             a[r, c] = pw[6 - r - c]  # column order [z^3, z^2, z, 1]: entry (r, c) is the sum of z^((3 - r) + (3 - c))
         a[r, 4] = rhs[r]
+    return a
+
+
+@numba.njit(cache=True, nogil=True)
+def _solve_augmented4(a: np.ndarray) -> np.ndarray:
+    """Solution of the augmented ``(4, 5)`` system by pivoted elimination; four NaN when it is singular (the caller then takes the least-squares form)."""
+    coef = np.full(4, np.nan)
     for col in range(4):
         piv = col
         for r in range(col + 1, 4):
             if abs(a[r, col]) > abs(a[piv, col]):
                 piv = r
         if abs(a[piv, col]) < 1e-300:
-            return np.nan
+            return coef
         if piv != col:
             for c in range(5):
                 tmp = a[col, c]
@@ -782,22 +787,31 @@ def _cubic_heldout_r2_kernel(ranks: np.ndarray, va: np.ndarray, y_tr: np.ndarray
             f = a[r, col] / a[col, col]
             for c in range(col, 5):
                 a[r, c] -= f * a[col, c]
-    coef = np.empty(4)
     for r in range(3, -1, -1):
         acc = a[r, 4]
         for c in range(r + 1, 4):
             acc -= a[r, c] * coef[c]
         coef[r] = acc / a[r, r]
+    return coef
+
+
+@numba.njit(cache=True, nogil=True)
+def _cubic_heldout_r2_kernel(ranks: np.ndarray, va: np.ndarray, y_tr: np.ndarray, yv: np.ndarray, sst: float) -> float:
+    """Held-out R^2 of the cubic fit of ``y`` on ``z = 2 * (rank - 1) / (n - 1) - 1`` (``ranks`` are the 1-based average ranks): the normal equations on the training rows, their pivoted
+    solution and the squared error on the validation rows (``va`` True), in double precision. ``NaN`` when the system is singular, so the caller takes the numpy form (``np.linalg.lstsq``)."""
+    coef = _solve_augmented4(_cubic_normal_system(ranks, va, y_tr))
+    if coef[0] != coef[0]:
+        return np.nan
+    n = ranks.shape[0]
+    denom = max(n - 1, 1)
     sse = 0.0
     v = 0
     for i in range(n):
-        if not va[i]:
-            continue
-        z = (ranks[i] - 1.0) / denom * 2.0 - 1.0
-        pred = ((coef[0] * z + coef[1]) * z + coef[2]) * z + coef[3]
-        d = yv[v] - pred
-        sse += d * d
-        v += 1
+        if va[i]:
+            z = (ranks[i] - 1.0) / denom * 2.0 - 1.0
+            d = yv[v] - (((coef[0] * z + coef[1]) * z + coef[2]) * z + coef[3])
+            sse += d * d
+            v += 1
     return 1.0 - sse / sst
 
 
