@@ -177,24 +177,6 @@ def _fit_chirp_warp_for_col(x: np.ndarray):
     return float(mean), float(std), float(lo), max(float(hi - lo), 1e-12)
 
 
-def _fit_chirp_warp_numpy(x: np.ndarray):
-    """The numpy form of :func:`_fit_chirp_warp_for_col` (its reference; the moments of a float32 column accumulate in float32)."""
-    x = np.asarray(x, dtype=_crit_np_dtype())
-    finite = np.isfinite(x)
-    if not finite.any():
-        return 0.0, 1.0, 0.0, 1.0
-    xf = x[finite]
-    mean = float(np.mean(xf))
-    std = float(np.std(xf))
-    std = std if std > 1e-12 else 1.0
-    z = (xf - mean) / std
-    u = np.sign(z) * (z * z)
-    lo = float(np.min(u))
-    hi = float(np.max(u))
-    span = max(hi - lo, 1e-12)
-    return mean, std, lo, span
-
-
 @numba.njit(cache=True, nogil=True)
 def _chirp_axis_njit(x: np.ndarray, mean: float, std: float, lo: float, span: float) -> np.ndarray:
     """Fused single-pass core of :func:`_chirp_axis`. NO fastmath (the ops - subtract,

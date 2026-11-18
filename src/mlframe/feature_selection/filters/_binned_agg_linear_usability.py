@@ -148,7 +148,7 @@ def _solve_batch(gram: np.ndarray, rhs: np.ndarray) -> np.ndarray:
 @njit(cache=True, nogil=True)
 def _fold_grams(base: np.ndarray, Y: np.ndarray, starts: np.ndarray) -> tuple:
     """Per-fold ``base' base``, ``base' Y``, ``sum Y^2`` and the total sum of squares of ``Y`` about its fold means, for the fold-sorted rows: one pass over the rows per fold without the
-    interpreter lock (the numpy form, ``_fold_grams_numpy``, is two products, two reductions and their temporaries per fold)."""
+    interpreter lock (the numpy form, kept as the reference of the kernel tests, is two products, two reductions and their temporaries per fold)."""
     n_f = starts.shape[0]
     m, p = base.shape
     k = Y.shape[1]
@@ -182,19 +182,6 @@ def _fold_grams(base: np.ndarray, Y: np.ndarray, starts: np.ndarray) -> tuple:
                     d = Y[i, j] - col_sum[j] / rows
                     sst[f] += d * d
     return gram, rhs, yy, sst
-
-
-def _fold_grams_numpy(base_s: np.ndarray, Y_s: np.ndarray, starts: np.ndarray) -> tuple:
-    """The numpy form of :func:`_fold_grams` (its reference)."""
-    bounds = np.concatenate([starts, [base_s.shape[0]]])
-    grams, rhs, yy, sst = [], [], [], []
-    for f in range(starts.size):
-        d, y = base_s[bounds[f] : bounds[f + 1]], Y_s[bounds[f] : bounds[f + 1]]
-        grams.append(d.T @ d)
-        rhs.append(d.T @ y)
-        yy.append(float((y * y).sum()))
-        sst.append(float(((y - y.mean(axis=0)) ** 2).sum()))
-    return np.stack(grams), np.stack(rhs), np.asarray(yy), np.asarray(sst)
 
 
 def _prepare(base: np.ndarray, Y: np.ndarray, folds: np.ndarray) -> dict:
@@ -274,20 +261,6 @@ def _cell_sums(prep: dict, cells_s: np.ndarray, n_cells: int) -> dict:
     """Per-(fold, cell) counts and sums of the base columns and class indicators, so a column that is constant per cell needs no pass over the rows."""
     count, sb, sy = _cell_sums_kernel(prep["base"], prep["Y"], np.ascontiguousarray(prep["starts"], dtype=np.int64), np.ascontiguousarray(cells_s, dtype=np.int64), int(n_cells))
     return {"count": count.astype(_crit_np_dtype()), "base": sb, "Y": sy}
-
-
-def _cell_sums_numpy(prep: dict, cells_s: np.ndarray, n_cells: int) -> dict:
-    """The ``bincount`` form of :func:`_cell_sums` (its reference)."""
-    n_folds = prep["starts"].size
-    fold_s = np.repeat(np.arange(n_folds), np.diff(np.concatenate([prep["starts"], [cells_s.size]])))
-    flat = fold_s * n_cells + cells_s
-    size = n_folds * n_cells
-
-    def summed(weights: np.ndarray) -> np.ndarray:
-        """Per-(fold, cell) sums of every column of ``weights``, shaped (folds, cells, columns)."""
-        return np.stack([np.bincount(flat, weights=weights[:, j], minlength=size) for j in range(weights.shape[1])], axis=1).reshape(n_folds, n_cells, -1)
-
-    return {"count": np.bincount(flat, minlength=size).reshape(n_folds, n_cells).astype(_crit_np_dtype()), "base": summed(prep["base"]), "Y": summed(prep["Y"])}
 
 
 def _mean_gains_by_cell(prep: dict, sums: dict, cell_values: np.ndarray) -> np.ndarray:
