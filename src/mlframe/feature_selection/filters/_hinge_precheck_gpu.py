@@ -133,7 +133,7 @@ def _cut_drop(row: np.ndarray, yc: np.ndarray, mean_x: float, sxx: float, sxy: f
             ry += r * yc[i]
     if cnt < min_seg or (n - cnt) < min_seg:
         return -1.0
-    denom = rr - r1 * r1 / n - rx * rx / sxx
+    denom = rr - r1 * r1 / n - rx * rx / sxx  # moment-ok: r is the distance above the cut and xv is centred, so the sums are of the order of the spread squared; at least min_seg rows have r == 0
     sse_h = sse_lin
     if not (denom < floor_var):
         num = ry - rx * sxy / sxx
