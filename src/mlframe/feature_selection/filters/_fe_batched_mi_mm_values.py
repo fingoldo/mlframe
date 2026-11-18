@@ -116,29 +116,29 @@ def _get_dedup_edges_kernel(real_t: str = "double"):
     return kern
 
 
-def kernel(cp, real):
+def kernel(cp: Any, real: Any) -> Any:
     """``mi_mm_from_values`` (double values); the register-pressure registry compiles it through this."""
     return cp.RawKernel(_MI_MM_FROM_VALUES_SRC, "mi_mm_from_values")
 
 
-def kernel_nek(cp, real):
+def kernel_nek(cp: Any, real: Any) -> Any:
     """``mi_mm_from_values_nek`` for values of dtype ``real`` (float32: the ``_nek_f32`` twin); registry factory."""
     if np.dtype(real) == np.float32:
         return cp.RawKernel(_MI_MM_FROM_VALUES_NEK_F32_SRC, "mi_mm_from_values_nek_f32")
     return cp.RawKernel(_MI_MM_FROM_VALUES_NEK_SRC, "mi_mm_from_values_nek")
 
 
-def kernel_tile(cp, real):
+def kernel_tile(cp: Any, real: Any) -> Any:
     """``mm_nek_tile`` for values of dtype ``real``; registry factory."""
     return cp.RawKernel(render(_MM_NEK_TILE_TEMPLATE, real=np.float32 if np.dtype(real) == np.float32 else np.float64), "mm_nek_tile")  # Intentional float64: the device kernel is built in the data's own precision: float64 data keeps double
 
 
-def kernel_minmax(cp, real):
+def kernel_minmax(cp: Any, real: Any) -> Any:
     """``col_minmax`` for values of dtype ``real``; registry factory."""
     return cp.RawKernel(render(_COL_MINMAX_TEMPLATE, real=np.float32 if np.dtype(real) == np.float32 else np.float64), "col_minmax")  # Intentional float64: the device kernel is built in the data's own precision: float64 data keeps double
 
 
-def kernel_dedup(cp, real):
+def kernel_dedup(cp: Any, real: Any) -> Any:
     """``dedup_njit_edges`` for edges of dtype ``real``; registry factory."""
     real_t = "float" if np.dtype(real) == np.float32 else "double"
     return cp.RawKernel(_DEDUP_EDGES_SRC.replace("{ACC}", "double").replace("{REAL}", real_t), "dedup_njit_edges")  # Intentional float64: edges and bounds are deduplicated in double

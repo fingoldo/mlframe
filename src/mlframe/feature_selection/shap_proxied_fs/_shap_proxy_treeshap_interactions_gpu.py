@@ -266,7 +266,7 @@ def _block_size() -> int:
     return block_size_from_tuning_cache("shap_proxy_treeshap", "interaction_gpu_block_size", _DEFAULT_BLOCK_SIZE)
 
 
-def kernel_for_size(cp, max_depth: int, n_features: int):
+def kernel_for_size(cp: Any, max_depth: int, n_features: int) -> Any:
     """``treeshap_interactions`` with the scratch sized for one (depth, feature count): the __device__ scan precedes the kernel that calls it and both compile as one module."""
     from mlframe.feature_selection.filters.shared import render
 
@@ -275,7 +275,7 @@ def kernel_for_size(cp, max_depth: int, n_features: int):
     return module.get_function("treeshap_interactions")
 
 
-def kernel(cp, real=None):
+def kernel(cp: Any, real: Any = None) -> Any:
     """``treeshap_interactions`` at depth 6 with 16 features (the reference size of the offline per-arch recipe; ``real`` unused); registry factory."""
     return kernel_for_size(cp, 6, 16)
 

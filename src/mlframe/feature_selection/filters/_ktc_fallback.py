@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import sys
-from typing import Callable
+from typing import Any, Callable
 
 import numpy as np
 
@@ -24,7 +24,7 @@ def rows_fallback(owner: str, name: str = "DEVICE_FALLBACK_ROWS") -> "Callable[[
     return _fallback_choice
 
 
-def ktc_device_chooser(owner: str, label: str, *, env: "str | None" = None, pairs: bool = False):
+def ktc_device_chooser(owner: str, label: str, *, env: "str | None" = None, pairs: bool = False) -> Any:
     """The device-or-host decision of a kernel module whose ``kernel_tuner`` entry sits in ``_SPEC`` (module named ``owner``, pass ``__name__``).
 
     The returned function takes the row count (``pairs=True``: the row count and the pair count, the work being their product) and answers whether the device runs: never when the GPU is
@@ -70,7 +70,7 @@ def ktc_device_chooser(owner: str, label: str, *, env: "str | None" = None, pair
     return use_device
 
 
-def host_device_sweep(owner: str, host, device, *, repeats: int = 3, rtol: float = 1e-9, atol: float | None = None, residency: bool = False):
+def host_device_sweep(owner: str, host: Any, device: Any, *, repeats: int = 3, rtol: float = 1e-9, atol: float | None = None, residency: bool = False) -> Any:
     """The kernel-tuning sweep of a host-versus-device kernel: time both per row count and require the device to agree with the host.
 
     ``host`` and ``device`` are the two callables; ``owner`` is the module's ``__name__``, in which ``_SWEEP_ROWS`` and ``_sweep_inputs`` are looked up at call time, so the module

@@ -132,26 +132,26 @@ def _stack_shared() -> bool:
     return os.environ.get("MLFRAME_SHAP_TREESHAP_STACK", "local").strip().lower() == "shared"
 
 
-def kernel_source(max_depth: int, real=np.float32, shared_stack: bool = False) -> str:
+def kernel_source(max_depth: int, real: Any = np.float32, shared_stack: bool = False) -> str:
     """The kernel source for trees up to ``max_depth``, the element type ``real`` and the stack placement."""
     from mlframe.feature_selection.filters.shared import render
 
     return render(f"#define MAXSP {_maxsp(max_depth)}\n#define STACK_SHARED {int(shared_stack)}\n" + _KERNEL_SRC, real, acc=real)
 
 
-def kernel(cp, real=np.float32):
+def kernel(cp: Any, real: Any = np.float32) -> Any:
     """``treeshap_table`` (the stack walk, kept as the reference) at depth 6 for the element type ``real``; the register-pressure registry and the offline per-arch test compile it through this."""
     return cp.RawKernel(kernel_source(6, real), "treeshap_table")
 
 
-def preorder_source(max_depth: int, real=np.float32) -> str:
+def preorder_source(max_depth: int, real: Any = np.float32) -> str:
     """The preorder-walk kernel source for trees up to ``max_depth`` and the element type ``real``."""
     from mlframe.feature_selection.filters.shared import render
 
     return render(f"#define MAXD {int(max_depth) + 2}\n" + _PREORDER_SRC, real, acc=real)
 
 
-def kernel_preorder(cp, real=np.float32, max_depth: int = 6):
+def kernel_preorder(cp: Any, real: Any = np.float32, max_depth: int = 6) -> Any:
     """``treeshap_table_preorder`` for trees up to ``max_depth`` and the element type ``real``: the compile point of the production walk and (at the default depth) the registry factory."""
     return cp.RawKernel(preorder_source(max_depth, real), "treeshap_table_preorder")
 

@@ -137,7 +137,7 @@ def build_pair_tables(tab: dict) -> Optional[dict]:
     return {**tab, "leaf_pair_off": off, "pair_table": pair}
 
 
-def kernel_source(max_depth: int, real=np.float32, shared_stack: bool = False) -> str:
+def kernel_source(max_depth: int, real: Any = np.float32, shared_stack: bool = False) -> str:
     """The kernel source for trees up to ``max_depth`` and the element type ``real``."""
     from mlframe.feature_selection.filters.shared import render
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table_gpu import _maxsp
@@ -145,7 +145,7 @@ def kernel_source(max_depth: int, real=np.float32, shared_stack: bool = False) -
     return render(f"#define MAXSP {_maxsp(max_depth)}\n" + _KERNEL_SRC, real, acc=real)
 
 
-def kernel(cp, real=np.float32):
+def kernel(cp: Any, real: Any = np.float32) -> Any:
     """``treeshap_interactions_table`` at depth 6 for the element type ``real``; registry factory."""
     return cp.RawKernel(kernel_source(6, real), "treeshap_interactions_table")
 

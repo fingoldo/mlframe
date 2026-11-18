@@ -6,6 +6,8 @@ Carved out of ``_fe_batched_mi_cmi`` (which re-exports every name here) to keep 
 
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 
 import numpy as np
@@ -161,22 +163,22 @@ def _get_rows_ent_nnz_split_kernels(cp):
     return _ROWS_ENT_NNZ_SPLIT_KERNELS
 
 
-def kernel(cp, real=None):
+def kernel(cp: Any, real: Any = None) -> Any:
     """``rows_ent_nnz`` (double accumulators; the entropy kernels read integer counts, so ``real`` is unused); the register-pressure registry compiles it through this."""
     return cp.RawKernel(_ROWS_ENT_NNZ_SRC, "rows_ent_nnz")
 
 
-def kernel_i32(cp, real=None):
+def kernel_i32(cp: Any, real: Any = None) -> Any:
     """``rows_ent_nnz_i32`` (int32 counts); registry factory."""
     return cp.RawKernel(_ROWS_ENT_NNZ_SRC, "rows_ent_nnz_i32")
 
 
-def kernel_split(cp, real=None):
+def kernel_split(cp: Any, real: Any = None) -> Any:
     """``rows_ent_nnz_i32_split`` (the partial-sum stage of the wide-row path); registry factory."""
     return cp.RawModule(code=_ROWS_ENT_NNZ_SRC).get_function("rows_ent_nnz_i32_split")
 
 
-def kernel_finish(cp, real=None):
+def kernel_finish(cp: Any, real: Any = None) -> Any:
     """``rows_ent_nnz_finish`` (the reduction stage of the wide-row path); registry factory."""
     return cp.RawModule(code=_ROWS_ENT_NNZ_SRC).get_function("rows_ent_nnz_finish")
 
@@ -186,77 +188,77 @@ def _hist_entry(cp, source: str, name: str):
     return cp.RawModule(code=source).get_function(name)
 
 
-def kernel_joint_hist1(cp, real=None):
+def kernel_joint_hist1(cp: Any, real: Any = None) -> Any:
     """``joint_hist1`` (integer histogram kernel, ``real`` unused); registry factory."""
     return _hist_entry(cp, _JOINT_HIST_SRC, "joint_hist1")
 
 
-def kernel_joint_hist2(cp, real=None):
+def kernel_joint_hist2(cp: Any, real: Any = None) -> Any:
     """``joint_hist2`` (integer histogram kernel, ``real`` unused); registry factory."""
     return _hist_entry(cp, _JOINT_HIST_SRC, "joint_hist2")
 
 
-def kernel_joint_hist3(cp, real=None):
+def kernel_joint_hist3(cp: Any, real: Any = None) -> Any:
     """``joint_hist3`` (integer histogram kernel, ``real`` unused); registry factory."""
     return _hist_entry(cp, _JOINT_HIST_SRC, "joint_hist3")
 
 
-def kernel_batched_joint_hist2(cp, real=None):
+def kernel_batched_joint_hist2(cp: Any, real: Any = None) -> Any:
     """``batched_joint_hist2`` (integer histogram kernel, ``real`` unused); registry factory."""
     return _hist_entry(cp, _JOINT_HIST_SRC, "batched_joint_hist2")
 
 
-def kernel_batched_joint_hist1(cp, real=None):
+def kernel_batched_joint_hist1(cp: Any, real: Any = None) -> Any:
     """``batched_joint_hist1`` (integer histogram kernel, ``real`` unused); registry factory."""
     return _hist_entry(cp, _JOINT_HIST_SRC, "batched_joint_hist1")
 
 
-def kernel_batched_joint_hist2_i32(cp, real=None):
+def kernel_batched_joint_hist2_i32(cp: Any, real: Any = None) -> Any:
     """``batched_joint_hist2_i32`` (integer histogram kernel, ``real`` unused); registry factory."""
     return _hist_entry(cp, _JOINT_HIST_SRC, "batched_joint_hist2_i32")
 
 
-def kernel_batched_joint_hist2_i32_smem(cp, real=None):
+def kernel_batched_joint_hist2_i32_smem(cp: Any, real: Any = None) -> Any:
     """``batched_joint_hist2_i32_smem`` (integer histogram kernel, ``real`` unused); registry factory."""
     return _hist_entry(cp, _JOINT_HIST_SRC, "batched_joint_hist2_i32_smem")
 
 
-def kernel_batched_joint_hist1_i32(cp, real=None):
+def kernel_batched_joint_hist1_i32(cp: Any, real: Any = None) -> Any:
     """``batched_joint_hist1_i32`` (integer histogram kernel, ``real`` unused); registry factory."""
     return _hist_entry(cp, _JOINT_HIST_SRC, "batched_joint_hist1_i32")
 
 
-def kernel_joint_hist_nnz1(cp, real=None):
+def kernel_joint_hist_nnz1(cp: Any, real: Any = None) -> Any:
     """``joint_hist_nnz1`` (integer histogram kernel, ``real`` unused); registry factory."""
     return _hist_entry(cp, _JOINT_HIST_SRC, "joint_hist_nnz1")
 
 
-def kernel_joint_hist_nnz2(cp, real=None):
+def kernel_joint_hist_nnz2(cp: Any, real: Any = None) -> Any:
     """``joint_hist_nnz2`` (integer histogram kernel, ``real`` unused); registry factory."""
     return _hist_entry(cp, _JOINT_HIST_SRC, "joint_hist_nnz2")
 
 
-def kernel_joint_hist_nnz3(cp, real=None):
+def kernel_joint_hist_nnz3(cp: Any, real: Any = None) -> Any:
     """``joint_hist_nnz3`` (integer histogram kernel, ``real`` unused); registry factory."""
     return _hist_entry(cp, _JOINT_HIST_SRC, "joint_hist_nnz3")
 
 
-def kernel_batched_joint_hist2_i32_u8(cp, real=None):
+def kernel_batched_joint_hist2_i32_u8(cp: Any, real: Any = None) -> Any:
     """``batched_joint_hist2_i32_u8`` (integer histogram kernel, ``real`` unused); registry factory."""
     return _hist_entry(cp, _JOINT_HIST_U8_SRC, "batched_joint_hist2_i32_u8")
 
 
-def kernel_batched_joint_hist2_i32_smem_u8(cp, real=None):
+def kernel_batched_joint_hist2_i32_smem_u8(cp: Any, real: Any = None) -> Any:
     """``batched_joint_hist2_i32_smem_u8`` (integer histogram kernel, ``real`` unused); registry factory."""
     return _hist_entry(cp, _JOINT_HIST_U8_SRC, "batched_joint_hist2_i32_smem_u8")
 
 
-def kernel_batched_joint_hist2_i32_smem_u8_v2(cp, real=None):
+def kernel_batched_joint_hist2_i32_smem_u8_v2(cp: Any, real: Any = None) -> Any:
     """``batched_joint_hist2_i32_smem_u8_v2`` (integer histogram kernel, ``real`` unused); registry factory."""
     return _hist_entry(cp, _JOINT_HIST_U8_SRC, "batched_joint_hist2_i32_smem_u8_v2")
 
 
-def kernel_batched_joint_hist1_i32_u8(cp, real=None):
+def kernel_batched_joint_hist1_i32_u8(cp: Any, real: Any = None) -> Any:
     """``batched_joint_hist1_i32_u8`` (integer histogram kernel, ``real`` unused); registry factory."""
     return _hist_entry(cp, _JOINT_HIST_U8_SRC, "batched_joint_hist1_i32_u8")
 

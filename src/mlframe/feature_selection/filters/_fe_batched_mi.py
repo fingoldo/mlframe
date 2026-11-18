@@ -157,7 +157,7 @@ def _mi_from_codes_tile_width(cells: int) -> int:
     return min(_MI_FROM_CODES_TILE_COLS, _MI_FROM_CODES_MAX_SHARED // (4 * max(1, cells)))
 
 
-def kernel(cp, real):
+def kernel(cp: Any, real: Any) -> Any:
     """``mi_from_codes_tile`` for codes of dtype ``real`` (uint8: byte codes, else int64); the register-pressure registry compiles it through this."""
     return _get_mi_from_codes_tile_kernel(np.dtype(real) == np.uint8)
 

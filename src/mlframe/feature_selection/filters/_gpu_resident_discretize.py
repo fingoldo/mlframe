@@ -12,6 +12,8 @@ dispatch-threshold, or selection behavior changed.
 
 from __future__ import annotations
 
+from typing import Any
+
 import os
 import threading
 
@@ -89,7 +91,7 @@ _BIN_CODES_KERNELS: dict = {}
 _BIN_CODES_KERNELS_LOCK = threading.Lock()
 
 
-def kernel_bin(cp, real, out_name: str = "int32"):
+def kernel_bin(cp: Any, real: Any, out_name: str = "int32") -> Any:
     """``bin_codes_<f32|f64>_<out_name>``: the fused binning kernel for float32 / double precision input (``real``) writing ``out_name`` codes; compile point of the getter and of the register-pressure registry."""
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     in_key = "f64" if real == cp.float64 else "f32"
@@ -206,14 +208,14 @@ _BIN_CODES_F32E_V2_MAX_EDGES = 63  # 2^6 - 1 padded rows fit the 64-row shared t
 _BIN_CODES_F32E_V2_KERNELS: dict = {}
 
 
-def kernel_f32e(cp, real):
+def kernel_f32e(cp: Any, real: Any) -> Any:
     """``bin_codes_f32e_<out>`` (float32-edge tiled binning) writing codes of dtype ``real`` (int8 / int16 / int32); registry factory and compile point of the getter."""
     out_name = np.dtype(real).name
     sym = "bin_codes_f32e_" + out_name
     return cp.RawKernel(_BIN_CODES_F32E_SRC.replace("bin_codes_f32e_OUTNAME", sym).replace("OUTTYPE", _BIN_CODES_OUTTYPE.get(out_name, "int")), sym)
 
 
-def kernel_f32e_v2(cp, real):
+def kernel_f32e_v2(cp: Any, real: Any) -> Any:
     """``bin_codes_f32e_v2_<out>`` (the V2 float32-edge binning) writing codes of dtype ``real``; registry factory and compile point of the getter."""
     out_name = np.dtype(real).name
     sym = "bin_codes_f32e_v2_" + out_name

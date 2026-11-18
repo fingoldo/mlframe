@@ -42,7 +42,7 @@ from __future__ import annotations
 import threading
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 from collections.abc import Sequence
 
 import numpy as np
@@ -157,7 +157,7 @@ _BF_KERNELS: dict = {}
 _BF_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
-def kernel(cp, real):
+def kernel(cp: Any, real: Any) -> Any:
     """``bf_apply`` for the dtype ``real`` (float32 or double), compiled once with ``--fmad=false``."""
     with _BF_KERNELS_LOCK:
         key = "float" if np.dtype(real) == np.float32 else "double"

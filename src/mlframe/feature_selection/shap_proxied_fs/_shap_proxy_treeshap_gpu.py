@@ -199,7 +199,7 @@ def _block_size() -> int:
     return block_size_from_tuning_cache("shap_proxy_treeshap", "gpu_block_size", _DEFAULT_BLOCK_SIZE)
 
 
-def kernel_for_depth(cp, max_depth: int, real=np.float64):  # Intentional float64: double-precision variant: the statistic needs the full mantissa
+def kernel_for_depth(cp: Any, max_depth: int, real: Any = np.float64) -> Any:  # Intentional float64: double-precision variant: the statistic needs the full mantissa
     """``treeshap`` with the per-thread path scratch sized for one ensemble depth and the tree data, path weights and output in ``real`` (float32 or float64): compile point of ``_ensure_kernel``."""
     from mlframe.feature_selection.filters.shared import render
 
@@ -209,7 +209,7 @@ def kernel_for_depth(cp, max_depth: int, real=np.float64):  # Intentional float6
     return cp.RawKernel(render(_kernel_source(int(max_depth)), real, acc=real), "treeshap", options=("--use_fast_math",) if fast else ())
 
 
-def kernel(cp, real=np.float64):  # Intentional float64: double-precision variant: the statistic needs the full mantissa
+def kernel(cp: Any, real: Any = np.float64) -> Any:  # Intentional float64: double-precision variant: the statistic needs the full mantissa
     """``treeshap`` at depth 6 (the reference depth of the offline per-arch recipe) for tree data of dtype ``real``; the register-pressure registry compiles it through this."""
     return kernel_for_depth(cp, 6, real)
 

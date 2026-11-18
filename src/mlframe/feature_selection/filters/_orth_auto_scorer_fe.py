@@ -16,7 +16,7 @@ from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engine
 
 import functools
 import logging
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 
@@ -232,7 +232,7 @@ _AUTO_SCORER_COLUMNS = [
 ]
 
 
-def bound_scorer_dispatch(*, nbins, n_neighbors, copula_n_bins, dcor_n_sample):
+def bound_scorer_dispatch(*, nbins: Any, n_neighbors: Any, copula_n_bins: Any, dcor_n_sample: Any) -> Any:
     """``_dispatch_scorer`` with this call's shared hyperparameters bound; the result is called ``(name, x_vec, y_vec, seed)``."""
     return functools.partial(_dispatch_scorer, nbins=nbins, n_neighbors=n_neighbors, copula_n_bins=copula_n_bins, dcor_n_sample=dcor_n_sample)
 
