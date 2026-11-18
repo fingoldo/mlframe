@@ -3,7 +3,7 @@
 The detector's `high` hits in the current source, one row per function. The baseline (`tests/test_meta/_tiny_cupy_loops_baseline.json`) holds these keys.
 Dispositions to fill in: **FALSE POSITIVE** (the loop is a chunk, fold or fallback loop with a few trips and real work per trip), **FALLBACK** (the cupy loop runs only when a batched path is not taken, measured), **REAL** (a launch-bound loop, to restructure), **OPEN** (not yet read).
 
-Rows: 110.
+Rows: 116.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -120,3 +120,6 @@ Rows: 110.
 | feature_selection/filters/_fe_stability_vote.py | _batched_replay_codes | 274, 280, 290 | REAL, measured 2026-11-16 (stability vote, 30 recipes x 5 folds at 100000 rows, STRICT, cProfile): 0.494 s for the whole batched replay of which the per-(recipe, fold) device replay `apply_unary_binary_gpu_resident` is 0.207 s over 150 calls; the binning that used to be per job (about 30000 launches, 1.87 s) is already one row-batched call per block (`qbin_codes_rows`); the remaining replay launches are the recipe's own elementwise ops, 1.4 ms a job |
 | feature_selection/filters/_orthogonal_adaptive_arity_fe.py | _best_cell_per_tuple | 166 | REAL but tiny, measured 2026-11-16: the loop runs once per arity (2 and 3 by default), each trip one device product-matrix rebuild and one batched MI of all the arity's cells; adaptive arity on 8 columns at 100000 rows takes 0.098 s STRICT in total (CT11-143); bounded by max_arity, not by n |
 | feature_selection/filters/_pairwise_modular_fe.py | _residue_grid_mi | 194 | REAL but small: one batched MI call per effective-nbins group of the moduli (a handful of groups), the residue matrices are built device-born in one pass first (`residue_grid_mis_resident`); the group count is bounded by the distinct max(nbins, k) values |
+| feature_selection/filters/_oof_warp_gpu.py | _block_stats | 184 | FALSE POSITIVE: the loop is over the targets of one call (the observed target and the few permutation targets of the family null), one per trip, each a handful of bincounts over the whole block of columns x folds x bins; the block is the unit of work and the column block width is sized from the free device memory |
+| feature_selection/filters/_orthogonal_univariate_fe/_gpu_resident_cross_basis.py | _product_mi_blocked_many | 459, 461 | FALSE POSITIVE: the outer loop is over column blocks sized from the free device memory (a quarter of the room over three copies of the block), the inner loop over the targets, a handful of shuffled targets; each trip is the resident plug-in MI of a whole block (built once, scored against every target), not per-column work |
+| feature_selection/filters/_wavelet_basis_fe_batched.py | select_wavelet_legs_columns_device | 332 | FALLBACK: the per-column loop only builds the operand and the fused leg matrices of each column into the pending block; the scoring is one MI call per block of columns (200 MI calls for 100 columns before), so the per-column trip is the leg build (an O(n) device pass per column, GPU11-68) and launch overhead is a small share |
