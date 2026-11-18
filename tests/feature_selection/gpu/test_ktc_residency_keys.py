@@ -16,10 +16,18 @@ def test_residency_report_times_every_declared_scenario_and_derives_the_transfer
     m._SWEEP_RESIDENCIES = [("host", "host"), ("device", "device")]
     m._sweep_inputs = lambda dims: ("host-data",)
     m._sweep_place = lambda inputs, residency: ("device-data",) if residency == "device" else inputs
-    m._sweep_host = lambda x: time.sleep(0.002)
-    m._sweep_device = lambda x: time.sleep(0.001 if x == "device-data" else 0.004)
+    clock = [0.0]  # the backends advance a fake clock instead of waiting
+
+    def advance(seconds: float) -> None:
+        """Move the fake clock forward by ``seconds``."""
+        clock[0] += seconds
+
+    m._sweep_host = lambda x: advance(0.002)
+    m._sweep_device = lambda x: advance(0.001 if x == "device-data" else 0.004)
     monkeypatch.setitem(sys.modules, "fake_ktc_module", m)
-    rows = residency_report("fake_ktc_module", repeats=2)
+    with monkeypatch.context() as scope:
+        scope.setattr(time, "perf_counter", lambda: clock[0])
+        rows = residency_report("fake_ktc_module", repeats=2)
     assert {r["scenario"] for r in rows} == {("host", "host"), ("device", "device")}
     share = rows[0]["transfer_share"]
     assert 0.6 < share < 0.85

@@ -84,10 +84,9 @@ def main(argv: "list[str] | None" = None) -> int:
     rank_ref = np.argsort(-np.abs(ref).mean(0))
 
     def ranks(a):
-        order = np.argsort(-np.abs(a).mean(0))
-        r = np.empty(len(order))
-        r[order] = np.arange(len(order))
-        return r
+        from scipy.stats import rankdata
+
+        return rankdata(-np.abs(a).mean(0), method="average") - 1.0  # 0-based, tied features share their average rank
 
     rr = ranks(ref)
     base = float(ens.base_offset)

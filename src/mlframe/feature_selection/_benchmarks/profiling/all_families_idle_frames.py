@@ -16,7 +16,7 @@ Companions (all in this package, same protocol: a warm-up fit first, then the me
 - ``env_sampled_fit``, ``stack_timeline``, ``utilization``, ``tick_utilization``, ``family_profile``, ``family_scale``: older siblings of the same fit (system sampler, 6 s buckets, idle share, one family at a time).
 """
 from typing import Any
-import os,sys,threading,time,warnings,collections
+import os, sys, threading, time, warnings, collections
 import numpy as np
 warnings.simplefilter("ignore")
 mode=sys.argv[3] if len(sys.argv)>3 else "gpu"
@@ -32,7 +32,7 @@ data=F._make(n,p,0)
 main=threading.get_ident(); stop=threading.Event(); hist: Any=collections.Counter(); leaf: Any=collections.Counter()
 PRE=("_stage_","hybrid_","screen_predictors","_run_fe_step","check_prospective_fe_pairs","_fe_stage_cascade_","_gate_engineered_accuracy","_second_pass","_emit_pair","_score_one_pair","family_pass","compute_pair_mis","build_fe_operand_pool","apply_surrogate","propose_gradient","mrmr_fit_post","_fit_body","_finalise","populate_fe","_apply_pair_family_gate","_adaptive_relax","_materialise_and_fina","filter_inert","honest_","_cross_stage","_temporal","generate_","score_","fit_binned")
 def stage(fr):
-    best=None
+    best = None
     while fr is not None:
         nm=fr.f_code.co_name
         if nm.startswith(PRE) and best is None: best=nm
@@ -46,7 +46,7 @@ def inner(fr):
     return (f"{fr.f_code.co_filename.split('Lib')[-1].split('filters')[-1][-26:]}:{fr.f_code.co_name}  <- {near}" if fr is not None else None)
 chain: Any = collections.Counter()
 def in_stack(fr):
-    t=os.environ.get('TARGET_STACK')
+    t = os.environ.get("TARGET_STACK")
     while t and fr is not None:
         if fr.f_code.co_name==t: return True
         fr=fr.f_back
@@ -63,38 +63,40 @@ def gpu_pct():
         return float(subprocess.run(["nvidia-smi","--query-gpu=utilization.gpu","--format=csv,noheader,nounits"],capture_output=True,text=True,timeout=5).stdout.strip().splitlines()[0])
     except Exception:
         return float("nan")
-cmem: Any = {}; mem: Any={}; TARGET=os.environ.get('TARGET','_stage_binned_numeric_agg'); tchain: Any=collections.Counter(); lowc: Any=collections.Counter(); agg: Any=collections.defaultdict(lambda:np.zeros(3)); idle_chain: Any=collections.Counter(); idle_stage: Any=collections.Counter(); nsamp=[0,0]
+import types
+TARGET=os.environ.get('TARGET','_stage_binned_numeric_agg'); mem: Any={}; agg: Any=collections.defaultdict(lambda:np.zeros(3))
+S=types.SimpleNamespace(cmem={}, tchain=collections.Counter(), lowc=collections.Counter(), idle_chain=collections.Counter(), idle_stage=collections.Counter(), nsamp=[0,0])  # the sampler thread's tallies, one object instead of module globals
 def sampler():
-    psutil.cpu_percent(None,percpu=True)
+    psutil.cpu_percent(None, percpu=True)
     while not stop.is_set():
         stop.wait(0.1)
         fr=sys._current_frames().get(main)
         cpu=float(np.mean(psutil.cpu_percent(None,percpu=True))); g=gpu_pct()
-        nsamp[0]+=1
+        S.nsamp[0]+=1
         try:
             import cupy as _cp; _p=_cp.get_default_memory_pool(); _u=_p.used_bytes(); _t=_p.total_bytes(); st=stage(fr); mem[st]=max(mem.get(st,(0,0)),(_u,_t))
-            if in_stack(fr): ck=chain_of(fr); cmem[ck]=max(cmem.get(ck,0),_u)
+            if in_stack(fr): ck=chain_of(fr); S.cmem[ck]=max(S.cmem.get(ck,0),_u)
         except Exception: pass
         agg[stage(fr)]+=[1,cpu,g]
-        if cpu<35: lowc[chain_of(fr)]+=1
-        if stage(fr)==TARGET or in_stack(fr): tchain[chain_of(fr)]+=1
+        if cpu<35: S.lowc[chain_of(fr)]+=1
+        if stage(fr)==TARGET or in_stack(fr): S.tchain[chain_of(fr)]+=1
         if cpu<25 and g<10:
-            nsamp[1]+=1; idle_stage[stage(fr)]+=1; idle_chain[chain_of(fr)]+=1
+            S.nsamp[1]+=1; S.idle_stage[stage(fr)]+=1; S.idle_chain[chain_of(fr)]+=1
 threading.Thread(target=sampler,daemon=True).start()
 t=time.perf_counter(); m=MRMR(verbose=0,random_seed=0,n_jobs=1,**kw).fit(*data); wall=time.perf_counter()-t; stop.set()
-print("WALL",round(wall,1),mode, "samples",nsamp)
-print("--- stages while both idle"); [print(f"{v:5d}  {k}") for k,v in idle_stage.most_common(14)]
-print("--- chains while both idle"); [print(f"{v:5d}  {k}") for k,v in idle_chain.most_common(18)]
+print("WALL",round(wall,1),mode, "samples",S.nsamp)
+print("--- stages while both idle"); [print(f"{v:5d}  {k}") for k,v in S.idle_stage.most_common(14)]
+print("--- chains while both idle"); [print(f"{v:5d}  {k}") for k,v in S.idle_chain.most_common(18)]
 
 print("--- per stage: samples avgCPU%% avgGPU%%")
 for k,v in sorted(agg.items(),key=lambda kv:-kv[1][0])[:22]: print(f"{int(v[0]):4d} cpu{v[1]/v[0]:5.0f} gpu{v[2]/v[0]:5.0f}  {k}")
 
-print("--- target chains");[print(f"{v:4d} {k}") for k,v in tchain.most_common(30)]
+print("--- target chains");[print(f"{v:4d} {k}") for k,v in S.tchain.most_common(30)]
 
-print("--- low-cpu chains");[print(f"{v:4d} {k}") for k,v in lowc.most_common(25)]
+print("--- low-cpu chains");[print(f"{v:4d} {k}") for k,v in S.lowc.most_common(25)]
 
 print("--- peak pool used/total MB by stage")
 for k,(u,t) in sorted(mem.items(),key=lambda kv:-kv[1][0])[:14]: print("%6.0f %6.0f  %s"%(u/1e6,t/1e6,k))
 
 print("--- peak used MB by chain (TARGET_STACK)")
-for k,u in sorted(cmem.items(),key=lambda kv:-kv[1])[:12]: print("%6.0f  %s"%(u/1e6,k[:170]))
+for k,u in sorted(S.cmem.items(),key=lambda kv:-kv[1])[:12]: print("%6.0f  %s"%(u/1e6,k[:170]))
