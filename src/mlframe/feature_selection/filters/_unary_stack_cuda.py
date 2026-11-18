@@ -10,40 +10,46 @@ A small per-call cache keyed by the operand's device buffer lets an operand that
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from typing import Any, Optional
 
 import numpy as np
 
+from ._unary_op_table import UNARY_OP_CODES
+
 logger = logging.getLogger(__name__)
 
-_BODY = r"""
+_BODY_TEMPLATE = r"""
     long long c = i / n;
     long long j = i - c * n;
     T v = x[j];
     int code = codes[c];
     T r;
     switch (code) {
-        case 0: r = v; break;
-        case 1: r = -v; break;
-        case 2: r = fabs(v); break;
-        case 3: r = v * v; break;
-        case 4: r = T(1.0) / v; break;
-        case 5: r = sqrt(fabs(v)); break;
-        case 6: r = pos ? log(v) : log(v + shift); break;
-        case 7: r = sin(v); break;
-        case 8: r = isnan(v) ? v : (T)((v > T(0)) - (v < T(0))); break;   // NaN stays NaN, as np.sign and the njit twins give
-        case 9: r = rint(v); break;
-        case 10: r = v * v * v; break;
-        case 11: r = T(1.0) / (v * v); break;
-        case 12: r = T(1.0) / (v * v * v); break;
-        case 13: r = cbrt(v); break;
-        case 14: r = pow(v, T(-1.0 / 3.0)); break;
-        case 15: r = pow(v, T(-0.5)); break;
+        case @identity@: r = v; break;
+        case @neg@: r = -v; break;
+        case @abs@: r = fabs(v); break;
+        case @sqr@: r = v * v; break;
+        case @reciproc@: r = T(1.0) / v; break;
+        case @sqrt@: r = sqrt(fabs(v)); break;
+        case @log@: r = pos ? log(v) : log(v + shift); break;
+        case @sin@: r = sin(v); break;
+        case @sign@: r = isnan(v) ? v : (T)((v > T(0)) - (v < T(0))); break;   // NaN stays NaN, as np.sign and the njit twins give
+        case @rint@: r = rint(v); break;
+        case @qubed@: r = v * v * v; break;
+        case @invsquared@: r = T(1.0) / (v * v); break;
+        case @invqubed@: r = T(1.0) / (v * v * v); break;
+        case @cbrt@: r = cbrt(v); break;
+        case @invcbrt@: r = pow(v, T(-1.0 / 3.0)); break;
+        case @invsqrt@: r = pow(v, T(-0.5)); break;
         default: r = exp(v); break;
     }
     out = r;
 """
+
+# The case labels are written by name and filled from the shared table, so the kernel and the numba ladder cannot disagree about a code (``exp`` is the default branch, as in the ladder).
+_BODY = re.sub(r"@(\w+)@", lambda m: str(UNARY_OP_CODES[m.group(1)]), _BODY_TEMPLATE)
 
 _KERNEL: Optional[Any] = None
 _KERNEL_LOCK = threading.Lock()

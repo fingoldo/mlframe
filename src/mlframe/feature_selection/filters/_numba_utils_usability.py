@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 from numba import njit, prange
 from .discretization.shared import multiselect_inplace
+from ._unary_op_table import UNARY_OP_CODES
 
 # Intentional float64: relative tolerance on the float64 statistics the degenerate-column test compares, so its scale is float64 epsilon.
 _USABILITY_DEGENERATE_REL_TOL = 32.0 * np.finfo(np.float64).eps
@@ -52,24 +53,34 @@ def _apply_unary_low(v, code, xmin):
         return 0.0 if v == 0.0 else (1.0 if v > 0.0 else -1.0)
 
 
+# The numeric codes come from the shared table (``_unary_op_table``), so a renumbering there reaches this ladder and the CUDA stack kernel together. Module-level integers are compile-time constants to numba.
+_OP_RINT = UNARY_OP_CODES["rint"]
+_OP_QUBED = UNARY_OP_CODES["qubed"]
+_OP_INVSQUARED = UNARY_OP_CODES["invsquared"]
+_OP_INVQUBED = UNARY_OP_CODES["invqubed"]
+_OP_CBRT = UNARY_OP_CODES["cbrt"]
+_OP_INVCBRT = UNARY_OP_CODES["invcbrt"]
+_OP_INVSQRT = UNARY_OP_CODES["invsqrt"]
+
+
 @njit(cache=True, inline="always", nogil=True)
 def _apply_unary_high(v, code):
-    """Codes 9-16 of :func:`_apply_unary`: rint through exp (any other code falls through to exp, as before)."""
-    if code == 9:  # rint
+    """Codes ``rint`` .. ``exp`` of :func:`_apply_unary` (the table's 9 to 16; any other code falls through to exp, as before)."""
+    if code == _OP_RINT:
         return np.rint(v)
-    elif code == 10:  # qubed = np.power(x, 3)
+    elif code == _OP_QUBED:  # np.power(x, 3)
         return v * v * v
-    elif code == 11:  # invsquared = np.power(x, -2)
+    elif code == _OP_INVSQUARED:  # np.power(x, -2)
         return 1.0 / (v * v)
-    elif code == 12:  # invqubed = np.power(x, -3)
+    elif code == _OP_INVQUBED:  # np.power(x, -3)
         return 1.0 / (v * v * v)
-    elif code == 13:  # cbrt
+    elif code == _OP_CBRT:
         return np.cbrt(v)
-    elif code == 14:  # invcbrt = np.power(x, -1/3)
+    elif code == _OP_INVCBRT:  # np.power(x, -1/3)
         return v ** (-1.0 / 3.0)
-    elif code == 15:  # invsqrt = np.power(x, -1/2)
+    elif code == _OP_INVSQRT:  # np.power(x, -1/2)
         return v ** (-0.5)
-    else:  # code == 16: exp
+    else:  # exp
         return np.exp(v)
 
 
