@@ -168,6 +168,7 @@ def clear_hash_memo() -> None:
 # content signature (shape + dtype-str + content hash)  ->  device_array. OrderedDict gives O(1) LRU: hits
 # move-to-end (hot), overflow pops the front (coldest).
 _FE_RESIDENT_OPERANDS: "OrderedDict" = OrderedDict()
+_BIGGEST_SEEN = [0]  # the largest operand uploaded so far (an upper bound of any entry's size; only grows)
 
 # Bound: content-keyed, so entries == DISTINCT fit-constant operands live this fit. A 1M strict-resident fit
 # touched 118 distinct contents (~330 MB) over its lifetime; 192 holds that whole working set with headroom so
@@ -260,7 +261,10 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
             _FE_RESIDENT_OPERANDS.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
         # bounded in bytes as well: 192 entries were fine at 100000 rows but up to 15 GB of columns at 10 million on a 4 GB card; the coldest go first, the newest stays
         budget = _resident_bytes_budget(cp)
-        while len(_FE_RESIDENT_OPERANDS) > 1 and sum(int(getattr(v, "nbytes", 0)) for v in _FE_RESIDENT_OPERANDS.values()) > budget:
+        biggest = max(_BIGGEST_SEEN[0], int(getattr(g, "nbytes", 0)))
+        _BIGGEST_SEEN[0] = biggest
+        # the O(entries) byte sum is needed only when the table could exceed the budget at all: no entry seen so far is larger than ``biggest``
+        while len(_FE_RESIDENT_OPERANDS) * biggest > budget and len(_FE_RESIDENT_OPERANDS) > 1 and sum(int(getattr(v, "nbytes", 0)) for v in _FE_RESIDENT_OPERANDS.values()) > budget:
             _FE_RESIDENT_OPERANDS.popitem(last=False)  # evict-ok: a miss re-uploads the operand
         return g
 
