@@ -23,8 +23,8 @@ occur). Test paths are under `tests/reporting/`.
 | `labels_and_layout.md` | 16 | 16 | 0 | 0 | 0 | 0 |
 | `render_performance.md` | 18 | 16 | 0 | 0 | 2 | 0 |
 | `visual_design.md` | 30 | 29 | 0 | 0 | 0 | 1 |
-| `visual_walkthrough.md` | 11 | 9 | 1 | 0 | 0 | 1 |
-| **Total** | **75** | **70** | **1** | **0** | **2** | **2** |
+| `visual_walkthrough.md` | 11 | 10 | 0 | 0 | 0 | 1 |
+| **Total** | **75** | **71** | **0** | **0** | **2** | **2** |
 
 ### `labels_and_layout.md`
 
@@ -109,7 +109,7 @@ occur). Test paths are under `tests/reporting/`.
 
 | Status | Sev | ID | Finding | Evidence / what remains |
 |---|---|---|---|---|
-| **PARTIAL** | P1 | `WALK-01` | LTR rotated tick label runs onto the panel below | The CI left the tick labels (now an error bar; `test_ltr_ndcg_bootstrap_ci.py::test_ndcg_by_qsize_title_and_bins_carry_ci`) and rotated labels get measured pitch and the layout engine (LBL-06, LBL-13). Remains: the NDCG_DIST instance (`all queries (n=300)` against its own axis title) has not been re-rendered, and no disposition was recorded. |
+| **RESOLVED** | P1 | `WALK-01` | LTR rotated tick label runs onto the panel below | The CI left the tick labels (now an error bar; `test_ltr_ndcg_bootstrap_ci.py::test_ndcg_by_qsize_title_and_bins_carry_ci`) and rotated labels get measured pitch and the layout engine (LBL-06, LBL-13). Re-rendered 2026-11-18 (300 queries, one size bin, `compose_ltr_figure` with NDCG_DIST and NDCG_BY_QSIZE, looked at the PNG): the NDCG_DIST tick reads `n=300`, clear of its `query population` axis title, and NDCG_BY_QSIZE reads `8-15` with a narrow bar (WALK-02 padding). `test_ltr_tick_labels_stay_short.py` pins the length (at most 14 characters, no interval in the text) and that the support and the size bin are still readable. |
 | **RESOLVED** | P1 | `WALK-02` | a single category drawn as a full-panel-width bar | One window for both backends: `sparse_category_limits` (`renderers/_shared_helpers.py`) gives the category axis `MIN_CATEGORY_SLOTS` slots for one to three bars; matplotlib applies it with `_pad_sparse_category_axis`, plotly with an explicit axis range (descending, autorange off, for horizontal bars). `test_sparse_category_axis_parity.py` pins the window on both backends, both orientations, and the untouched axis from four bars. |
 | **RESOLVED** | P1 | `WALK-03` | legends drawn inside the axes cover the data | The automatic placement is `_place_legend` / `_legend_overflows` (`renderers/_matplotlib_legend.py`): an overflowing legend (more than eight entries, or an entry wider than 62 % of the panel) moves beside the panel only on the rightmost panel without a secondary axis, otherwise it stays inside at font 7 over a more opaque box; an explicit `legend_outside` wins. LBL-08 fixed the multiclass overlays. `test_legend_automatic_promotion.py` pins every branch (short entries, rightmost, inner panel, right-hand axis, the entry-count rule, `force_outside`). The four named panels were not re-rendered; their entry counts and label lengths go through the same rule. |
 | **RESOLVED** | P1 | `WALK-04` | operating-point text duplicates the legend and overflows | The label rides the legend entry only, on both backends (`renderers/matplotlib.py` point-marker loop, `renderers/_plotly_line.py` marker traces). No test asserts the absence of the second copy. |
