@@ -77,6 +77,6 @@ def test_bin_codes_kernel_equals_the_searchsorted_reference(real):
         edge_rows.append(edges)
     got = cp.asnumpy(dr._bin_codes_block(cp, [cp.asarray(c) for c in cols], edge_rows))
     for k, (x, e) in enumerate(zip(cols, edge_rows)):
-        # production uploads the stored edges at the criterion dtype (``resident_operand(..., dtype=crit_float_dtype())``), and both routes compare the value rounded to it with those edges
-        want = cp.asnumpy(dr._codes_from_edges_gpu(cp, cp.asarray(x), cp.asarray(e, dtype=dr.crit_float_dtype())))
+        # the host digitiser compares the value rounded to the criterion dtype with the stored float64 edges; the kernel and its cupy reference do the same
+        want = cp.asnumpy(dr._codes_from_edges_gpu(cp, cp.asarray(x), cp.asarray(e, dtype=cp.float64)))
         np.testing.assert_array_equal(got[k], want)

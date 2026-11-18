@@ -14,7 +14,7 @@ from typing import Any, cast
 
 import numpy as np
 
-from ._code_type_kernels import compile_code_kernel
+from ._code_type_kernels import compile_code_kernel, registry_entry
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 
@@ -125,9 +125,9 @@ def _kernel(cp: Any, narrow: bool) -> Any:
     return compile_code_kernel(cp, _KERNELS, _SRC, "relaxmrmr_pair", narrow)
 
 
+@registry_entry(_kernel)
 def kernel(cp: Any, real: Any) -> Any:
     """``relaxmrmr_pair`` for codes of dtype ``real`` (uint8: byte codes, else 32-bit integers); the register-pressure registry compiles it through this."""
-    return _kernel(cp, np.dtype(real) == np.uint8)
 
 
 def _cells(k_x: int, k_y: int, k_sel: np.ndarray, pi: np.ndarray, pj: np.ndarray) -> np.ndarray:

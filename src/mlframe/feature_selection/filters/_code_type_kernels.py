@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
+
+import numpy as np
 
 
 def compile_code_kernel(cp: Any, cache: dict, source: str, name: str, narrow: bool) -> Any:
@@ -10,3 +12,23 @@ def compile_code_kernel(cp: Any, cache: dict, source: str, name: str, narrow: bo
     if narrow not in cache:
         cache[narrow] = cp.RawKernel(source.replace("{CT}", "signed char" if narrow else "int"), name)
     return cache[narrow]
+
+
+def registry_entry(compile_for: Callable[[Any, bool], Any]) -> Callable[[Callable[..., Any]], Callable[[Any, Any], Any]]:
+    """Decorator for the ``kernel(cp, real)`` entry the register-pressure registry compiles through: the decorated stub keeps its name and docstring, and calls ``compile_for`` with
+    ``narrow`` set when ``real`` is the byte-code dtype (uint8), so the byte-or-int32 choice lives here once."""
+
+    def decorate(stub: Callable[..., Any]) -> Callable[[Any, Any], Any]:
+        """Replace ``stub`` by the shared entry, keeping its identity for the registry."""
+
+        def kernel(cp: Any, real: Any) -> Any:
+            """The compiled kernel for codes of dtype ``real``."""
+            return compile_for(cp, np.dtype(real) == np.uint8)
+
+        kernel.__name__ = stub.__name__
+        kernel.__qualname__ = stub.__qualname__
+        kernel.__doc__ = stub.__doc__
+        kernel.__module__ = stub.__module__
+        return kernel
+
+    return decorate

@@ -50,8 +50,6 @@ import logging
 from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
-
-from ._ktc_fallback import selection_view
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 import pandas as pd
@@ -175,20 +173,19 @@ def _fused_column(cp: Any, out_row: Any, xi_g: Any, codes_g: Any, mean_g: Any, s
 _CODES_SRC = render(
     r"""
 extern "C" __global__
-void disp_bin_codes(const {REAL}* __restrict__ xj_all, const {REAL}* __restrict__ edges, const int* __restrict__ n_interior, const int emax, const long long n, const long long J,
+void disp_bin_codes(const {REAL}* __restrict__ xj_all, const double* __restrict__ edges, const int* __restrict__ n_interior, const int emax, const long long n, const long long J,
                     long long* __restrict__ out) {
     // The bin codes of every distinct x_j in ONE launch over the (J, n) output (rows fastest): the number of interior edges (edges[1:-1] of the stored quantile edges) that are <= x, i.e.
-    // np.searchsorted(side="right"), clipped to the top bin, with a non-finite x in bin 0 (the host's _digitize_with_edges). Edges and values are compared at the criterion dtype, as the host
-    // digitiser rounds x before it compares.
+    // np.searchsorted(side="right"), clipped to the top bin, with a non-finite x in bin 0 (the host's _digitize_with_edges). The values are compared with the float64 edges the host digitiser uses (x is rounded to the criterion dtype first, as there).
     for (long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x; t < J * n; t += (long long)gridDim.x * blockDim.x) {
         const long long j = t / n;
         const {REAL} x = xj_all[t];
         const int m = n_interior[j];
-        const {REAL}* e = edges + j * emax;
+        const double* e = edges + j * emax;
         int lo = 0, hi = m;
         while (lo < hi) {
             const int mid = (lo + hi) >> 1;
-            if (e[mid] <= x) lo = mid + 1; else hi = mid;
+            if (e[mid] <= (double)x) lo = mid + 1; else hi = mid;
         }
         out[t] = isfinite(x) ? (long long)lo : 0LL;
     }
@@ -213,9 +210,9 @@ def _bin_codes_block(cp: Any, xj_list: list, edge_rows: list) -> Any:
 
     dt = crit_float_dtype()
     xj_all = cp.stack([cp.asarray(c, dtype=dt) for c in xj_list])
-    inner = [np.asarray(e, dtype=_crit_np_dtype())[1:-1] for e in edge_rows]
+    inner = [np.asarray(e, dtype=np.float64)[1:-1] for e in edge_rows]  # Intentional float64: the host digitiser compares against float64 edges
     emax = max(1, max(int(e.shape[0]) for e in inner))
-    tab = np.zeros((len(inner), emax), dtype=_crit_np_dtype())
+    tab = np.zeros((len(inner), emax), dtype=np.float64)  # Intentional float64: edge table
     for k, e in enumerate(inner):
         tab[k, : e.shape[0]] = e
     J, n = int(xj_all.shape[0]), int(xj_all.shape[1])
@@ -224,7 +221,7 @@ def _bin_codes_block(cp: Any, xj_list: list, edge_rows: list) -> Any:
     threads = block_size_for(kern, work_items=J * n)
     sms = int(cp.cuda.Device().attributes["MultiProcessorCount"])
     grid = int(max(1, min((J * n + threads - 1) // threads, sms * 32)))
-    kern((grid,), (threads,), (xj_all, cp.asarray(tab, dtype=dt), cp.asarray(np.array([e.shape[0] for e in inner], dtype=np.int32)), np.int32(emax), np.int64(n), np.int64(J), out))
+    kern((grid,), (threads,), (xj_all, cp.asarray(tab, dtype=cp.float64), cp.asarray(np.array([e.shape[0] for e in inner], dtype=np.int32)), np.int32(emax), np.int64(n), np.int64(J), out))
     return out
 
 
@@ -261,7 +258,7 @@ def _stage_columns(cp: Any, X: pd.DataFrame, col_specs: Sequence[dict], table_ke
             xj = np.asarray(X[x_j].to_numpy(), dtype=_crit_np_dtype())
             xj_names[x_j] = len(xj_cols)
             xj_cols.append(resident_operand(np.ascontiguousarray(xj), ("disp_xj", x_j), dtype=crit_float_dtype()))
-            edge_rows.append(np.asarray(spec["edges"], dtype=_crit_np_dtype()))
+            edge_rows.append(np.asarray(spec["edges"], dtype=np.float64))  # Intentional float64: host fit-time edges
         if x_i not in xi_names:
             xi = np.asarray(X[x_i].to_numpy(), dtype=_crit_np_dtype())
             xi_names[x_i] = len(xi_cols)
@@ -362,6 +359,7 @@ DEVICE_FALLBACK_ROWS = 20_000  # rows from which the device-born build is taken 
 _SWEEP_ROWS = [5_000, 30_000, 100_000]
 _SALT = 1
 _SWEEP_COLS = 6
+_SWEEP_TOP = 10
 
 
 def _sweep_inputs(dims: dict) -> tuple:
@@ -377,11 +375,18 @@ def _sweep_inputs(dims: dict) -> tuple:
     return (X, enc_df, recipes, y, 10)
 
 
+def _view(mi: np.ndarray) -> np.ndarray:
+    """The selection view of a scoring pass: how many candidates, and which are among the best ``_SWEEP_TOP`` (``_ktc_fallback.selection_view``)."""
+    from ._ktc_fallback import selection_view
+
+    return selection_view(np.asarray(mi, dtype=np.float64), top=_SWEEP_TOP, tie_band=1e-4)  # Intentional float64: MI statistic
+
+
 def _sweep_host(X: pd.DataFrame, enc_df: pd.DataFrame, recipes: dict, y: np.ndarray, nbins: int) -> np.ndarray:
     """The host gate's scoring: MI of the host-built candidate matrix."""
     from ._orthogonal_univariate_fe import mi_classif_batch_chunked
 
-    return selection_view(mi_classif_batch_chunked(enc_df, y, nbins=nbins))
+    return _view(mi_classif_batch_chunked(enc_df, y, nbins=nbins))
 
 
 def _sweep_device(X: pd.DataFrame, enc_df: pd.DataFrame, recipes: dict, y: np.ndarray, nbins: int) -> np.ndarray:
@@ -389,12 +394,14 @@ def _sweep_device(X: pd.DataFrame, enc_df: pd.DataFrame, recipes: dict, y: np.nd
     import cupy as cp
 
     specs = [{"name": c, **{k: recipes[c][k] for k in ("x_i", "x_j", "edges", "bin_mean", "bin_std", "kind")}} for c in enc_df.columns]
-    return selection_view(_mi_by_column_blocks(cp, build_dispersion_matrix_gpu, X, specs, y, nbins))
+    return _view(_mi_by_column_blocks(cp, build_dispersion_matrix_gpu, X, specs, y, nbins))
 
 
-from ._ktc_fallback import host_device_sweep as _host_device_sweep
+def _run_sweep() -> list:
+    """Time the host and the device scoring per row count; both must put the same candidates at the top."""
+    from pyutilz.dev.benchmarking import sweep_backend_grid
 
-_run_sweep = _host_device_sweep(__name__, _sweep_host, _sweep_device, rtol=1e-6, atol=1e-6)
+    return list(sweep_backend_grid({"host": _sweep_host, "device": _sweep_device}, {"n_samples": _SWEEP_ROWS}, _sweep_inputs, reference="host", repeats=3, equiv_rtol=1e-6, equiv_atol=1e-6))
 
 
 try:
