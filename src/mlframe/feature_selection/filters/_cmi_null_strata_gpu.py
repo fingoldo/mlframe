@@ -176,24 +176,50 @@ def strata_joint_entropy(cp: Any, xs: Any, ys: Any, starts: Any, kx: int, ky: in
 # SAME device arrays. A short identity-keyed list keeps them (strong references, so an id cannot be recycled into a false match).
 _ZY_TERMS_CACHE: list[tuple[Any, Any, tuple[Any, Any, Any, Any]]] = []  # [(dz, dy, (ky, h_zy, k_z, k_yz))], newest last
 _ZY_TERMS_CACHE_MAX = 4
+_ZY_TERMS_LOCK = threading.Lock()
 
 
 def _zy_terms(cp: Any, dz: Any, dy: Any, inv_n: float) -> tuple[Any, Any, Any, Any]:
     """``(ky, h_yz - h_z, k_z, k_yz)`` of the support ``dz`` and the target ``dy``, computed once per array pair."""
     from ._fe_batched_mi import joint_entropy_gpu
 
-    for zk, yk, terms in _ZY_TERMS_CACHE:
-        if zk is dz and yk is dy:
-            return terms
+    with _ZY_TERMS_LOCK:
+        for zk, yk, terms in _ZY_TERMS_CACHE:
+            if zk is dz and yk is dy:
+                return terms
     ky = int(dy.max()) + 1 if dy.size else 1
     kz = int(dz.max()) + 1
     h_z, k_z = joint_entropy_gpu([dz], [kz], inv_n)
     yz = dy * kz + dz
     h_yz, k_yz = joint_entropy_gpu([yz], [int(yz.max()) + 1], inv_n)
     terms = (ky, float(h_yz - h_z), k_z, k_yz)
-    _ZY_TERMS_CACHE.append((dz, dy, terms))
-    del _ZY_TERMS_CACHE[:-_ZY_TERMS_CACHE_MAX]
+    with _ZY_TERMS_LOCK:
+        _ZY_TERMS_CACHE.append((dz, dy, terms))
+        del _ZY_TERMS_CACHE[:-_ZY_TERMS_CACHE_MAX]
     return terms
+
+
+# The run starts of the strata depend only on the dense stratum rank of the z-sorted rows, which every candidate of a gate round shares (the layout cache hands out one array, and ``z_rank_d[:, 0]`` is a new
+# view of it on each call, so the key is the buffer address, shape and strides). The entry keeps a reference to the view, so the buffer cannot be recycled under the key.
+_STRATA_RUNS_CACHE: list[tuple[tuple, Any, Any, Any]] = []  # [(key, z_rank view, srank, starts)], newest last
+_STRATA_RUNS_CACHE_MAX = 4
+_STRATA_RUNS_LOCK = threading.Lock()
+
+
+def _strata_runs(cp: Any, z_rank: Any, S: int) -> tuple:
+    """``(srank, starts)``: the int32 stratum rank and the ``S + 1`` run starts of the strata, built once per stratum layout."""
+    key = (int(z_rank.data.ptr), tuple(z_rank.shape), tuple(z_rank.strides), str(z_rank.dtype), int(S))
+    with _STRATA_RUNS_LOCK:
+        for k, _ref, srank, starts in _STRATA_RUNS_CACHE:
+            if k == key:
+                return srank, starts
+    srank = z_rank.astype(cp.int32)
+    starts = cp.zeros(S + 1, dtype=cp.int32)
+    starts[1:] = cp.cumsum(cp.bincount(srank, minlength=S)).astype(cp.int32)
+    with _STRATA_RUNS_LOCK:
+        _STRATA_RUNS_CACHE.append((key, z_rank, srank, starts))
+        del _STRATA_RUNS_CACHE[:-_STRATA_RUNS_CACHE_MAX]
+    return srank, starts
 
 
 def strata_null_cmi(cp: Any, shuffled_sorted: Any, y_sorted: Any, z_rank: Any, dz: Any, dy: Any, kx: int, order_d: Any, x_sorted: Any, variant: Optional[str] = None) -> Optional[Any]:
@@ -211,10 +237,8 @@ def strata_null_cmi(cp: Any, shuffled_sorted: Any, y_sorted: Any, z_rank: Any, d
     if kx * ky > MAX_CELLS or kx > 255 or ky > 255 or S < MIN_STRATA:
         return None
     try:
-        srank = z_rank.astype(cp.int32)
-        # run starts from the stratum sizes: no host sync (the number of strata is known)
-        starts = cp.zeros(S + 1, dtype=cp.int32)
-        starts[1:] = cp.cumsum(cp.bincount(srank, minlength=S)).astype(cp.int32)
+        # run starts from the stratum sizes: no host sync (the number of strata is known); built once per stratum layout
+        srank, starts = _strata_runs(cp, z_rank, S)
         xs8 = shuffled_sorted.astype(cp.uint8)
         ys8 = y_sorted.astype(cp.uint8)
         use_rows = (n >= LONG_STRATUM_ROWS * S) if variant is None else (variant == "rows")
