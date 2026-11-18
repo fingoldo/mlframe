@@ -230,6 +230,19 @@ def _key_pack_kernel(cp: Any) -> Any:
     return _KEY_PACK_KERNEL
 
 
+_KEY_PACK_KERNEL32: Any = None
+
+
+def _key_pack_kernel32(cp: Any) -> Any:
+    """The int32 form of :func:`_key_pack_kernel`: the packed key fits 31 bits, so the radix sort that follows runs half the passes over half the memory; built once per process."""
+    global _KEY_PACK_KERNEL32
+    if _KEY_PACK_KERNEL32 is None:
+        _KEY_PACK_KERNEL32 = cp.ElementwiseKernel(
+            "int32 zr, int32 x, int32 r, int32 p, int32 a, int32 b, int32 l", "int32 key", "key = (zr << a) | (p << l) | (r << b) | x", "flat_strata_key_pack32"
+        )
+    return _KEY_PACK_KERNEL32
+
+
 class _DeviceRng:
     """The device random source of one permutation-null call: a counter-based Philox generator seeded with the call's seed, exposing the two draws the null uses (``randint`` and ``random_sample``).
 
@@ -266,6 +279,22 @@ def _flat_within_stratum_shuffle(cp: Any, rs: Any, x_sorted_d: Any, z_rank_d: An
     rand_bits = 62 - col_bits - rank_bits - x_bits
     if rand_bits < _FLAT_SHUFFLE_MIN_RAND_BITS:
         return None
+    if col_bits + rank_bits + x_bits + _FLAT_SHUFFLE_MIN_RAND_BITS <= 31:
+        # The key fits 31 bits with at least the minimum number of random bits: sort int32 keys (half the radix passes and half the memory traffic of the int64 key; 100000 rows x 40
+        # permutations, 15 strata, two value codes: 7.4 ms -> the int32 sort, see the tracker). The random bits are what is left of the 31, the tie argument above is unchanged.
+        r32 = 31 - col_bits - rank_bits - x_bits
+        low32 = rank_bits + r32 + x_bits
+        key32 = _key_pack_kernel32(cp)(
+            z_rank_d[:, 0].astype(cp.int32)[None, :],
+            x_sorted_d.astype(cp.int32, copy=False)[None, :],
+            rs.randint(0, 1 << r32, size=(nperm, n), dtype=cp.int32),
+            cp.arange(nperm, dtype=cp.int32)[:, None],
+            r32 + x_bits,
+            x_bits,
+            low32,
+        )
+        flat32 = cp.sort(key32.ravel())
+        return (flat32 & np.int32((1 << x_bits) - 1)).reshape(nperm, n)
     low = rank_bits + rand_bits + x_bits
     # one elementwise pass writes the packed key (the stratum rank, the permutation column, the random bits and the value are OR-ed in registers) instead of seven separate passes over the
     # (nperm, n) matrix: 100000 rows x 25 permutations 9.7 -> 8.2 ms with the same keys (the sort of the keys is the rest)
