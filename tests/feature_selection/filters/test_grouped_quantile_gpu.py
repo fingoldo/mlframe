@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+from tests.feature_selection.gpu._gpu_support import require_device
 import pandas as pd
 import pytest
 
@@ -26,12 +27,11 @@ def _block(n=6000, k=6, n_groups=7):
 
 def test_the_two_forms_agree_exactly():
     """Ranks, sorted segments and both spreads are equal between the numba form and the CUDA form."""
-    pytest.importorskip("cupy")
+    require_device()
     xs, codes, n_groups = _block()
     host = G._stats_host(xs, codes, n_groups)
     dev = G._stats_device(xs, codes, n_groups)
-    if dev is None:
-        pytest.skip("no usable device")
+    assert dev is not None, "the device path returned nothing on a host with a usable device"
     for key in ("pct", "sorted", "iqr", "p90p10"):
         assert np.array_equal(host[key], dev[key]), key
 

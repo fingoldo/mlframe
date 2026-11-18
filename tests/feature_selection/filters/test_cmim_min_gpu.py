@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+from tests.feature_selection.gpu._gpu_support import require_device
 import pandas as pd
 import pytest
 
@@ -50,12 +51,11 @@ def test_the_numba_kernel_gives_the_host_loop_scores():
 
 def test_the_cuda_kernel_gives_the_host_loop_scores():
     """The CUDA kernel agrees with the host loop (one launch for the whole block)."""
-    pytest.importorskip("cupy")
+    require_device()
     x, y, zs, allowed, nb = _case()
     ref = _reference(x, y, zs, allowed)
     got = C._scores_device(x, y, zs, allowed, nb)
-    if got is None:
-        pytest.skip("no usable device")
+    assert got is not None, "the device path returned nothing on a host with a usable device"
     ok = ref < NO_REF
     assert got[5] >= NO_REF
     assert np.abs(got - ref)[ok].max() < 1e-12

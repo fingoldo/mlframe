@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+from tests.feature_selection.gpu._gpu_support import require_device
 import pandas as pd
 import pytest
 
@@ -35,13 +36,12 @@ def test_the_numba_kernel_gives_the_numpy_moments():
 
 def test_the_cuda_kernel_gives_the_numpy_moments():
     """The CUDA kernel agrees with numpy on the same block."""
-    pytest.importorskip("cupy")
+    require_device()
     X, y = _frame()
     xs = np.ascontiguousarray(X.to_numpy().T)
     yc = y - y.mean()
     got = MF._moments_device(xs, yc)
-    if got is None:
-        pytest.skip("no usable device")
+    assert got is not None, "the device path returned nothing on a host with a usable device"
     np.testing.assert_allclose(got, _reference_moments(xs, yc), rtol=1e-9, atol=1e-10)
 
 
