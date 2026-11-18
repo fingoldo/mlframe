@@ -42,6 +42,18 @@ PX_PER_INCH = 100
 _NETWORK_MAX_LABELS = 25
 
 
+MIN_CATEGORY_SLOTS = 4  # fewer categories than this would let each bar swell to fill the panel
+
+
+def sparse_category_limits(n_categories: int) -> Optional[tuple]:
+    """Axis limits ``(lo, hi)`` in category-index units (the bar of category ``i`` sits at ``i``) that keep ``MIN_CATEGORY_SLOTS`` slots of room around ``n_categories`` bars, or ``None`` when there are
+    enough categories (or none) and the axis is left alone. Both renderers use it so a one- or two-bar panel reads the same in the PNG and in the HTML."""
+    if not 0 < n_categories < MIN_CATEGORY_SLOTS:
+        return None
+    centre = (n_categories - 1) / 2.0
+    return centre - MIN_CATEGORY_SLOTS / 2.0, centre + MIN_CATEGORY_SLOTS / 2.0
+
+
 def network_label_indices(node_size: np.ndarray, max_labels: int = _NETWORK_MAX_LABELS) -> List[int]:
     """Indices of the nodes worth labelling: the ``max_labels`` largest, in drawing order."""
     sizes = np.asarray(node_size, dtype=float).ravel()

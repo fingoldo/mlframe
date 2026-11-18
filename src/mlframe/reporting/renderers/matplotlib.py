@@ -21,13 +21,13 @@ from mlframe.reporting.spec import (
 )
 
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
-    _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, heatmap_value_to_index,
+    _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, MIN_CATEGORY_SLOTS, heatmap_value_to_index,
     CAPTION_FONTSIZE, CAPTION_WRAP_CHARS, PANEL_TITLE_FONTSIZE, SUPTITLE_WRAP_CHARS,
     _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
     _TITLE_REF_WIDTH_IN, histogram_bar_extent, label_width_pitch_in, log_axis_dropped_note, network_label_indices, low_evidence_mask, non_colliding_label_indices,
     panel_title_wrap_chars,
     rotated_tick_pitch_in, select_per_point, ticks_that_fit, truncate_bar_label,
-    wrap_annotation_text, wrap_text_to_width, wrap_title_lines,
+    sparse_category_limits, wrap_annotation_text, wrap_text_to_width, wrap_title_lines,
 )
 
 from mlframe.reporting.colors import BAR_PRIMARY, resolve_heatmap_cmap
@@ -125,15 +125,15 @@ def _bar_colors(colors, values):
 # two levels) can land on one or two bars. Matplotlib sizes bars in category units and autoscales the axis to
 # the categories present, so a lone 0.8-wide bar covers 80% of the panel and reads as a filled background
 # rather than as a measurement. Padding the category axis out to a few slots restores a bar's proportions.
-_MIN_CATEGORY_SLOTS = 4
+_MIN_CATEGORY_SLOTS = MIN_CATEGORY_SLOTS  # kept as a name of this module; the value and the limits live in _shared_helpers
 
 
 def _pad_sparse_category_axis(ax, n_categories: int, *, horizontal: bool) -> None:
     """Widen the category axis when too few categories would let the bars swell to fill the panel."""
-    if not 0 < n_categories < _MIN_CATEGORY_SLOTS:
+    limits = sparse_category_limits(n_categories)
+    if limits is None:
         return
-    centre = (n_categories - 1) / 2.0
-    lo, hi = centre - _MIN_CATEGORY_SLOTS / 2.0, centre + _MIN_CATEGORY_SLOTS / 2.0
+    lo, hi = limits
     if horizontal:
         # The y axis is already inverted here, so the limits go back in descending order to keep it that way.
         ax.set_ylim(hi, lo)

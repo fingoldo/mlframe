@@ -49,7 +49,7 @@ from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported f
     CAPTION_FONTSIZE, CAPTION_WRAP_CHARS, PANEL_TITLE_FONTSIZE, SUPTITLE_WRAP_CHARS,
     _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks, label_width_pitch_in, log_axis_dropped_note, plotly_axis_suffix, rotated_tick_pitch_in, stagger_label_rows, ticks_that_fit,
     histogram_bar_extent, low_evidence_mask, panel_title_wrap_chars, select_per_point, truncate_bar_label, wrap_annotation_text,
-    wrap_text_to_width, wrap_title_lines,
+    sparse_category_limits, wrap_text_to_width, wrap_title_lines,
 )
 
 from mlframe.reporting.colors import BAR_PRIMARY, NORMAL_OVERLAY
@@ -742,6 +742,14 @@ class PlotlyRenderer:
             else:
                 fig.update_xaxes(title_text=p.xlabel, row=row, col=col, tickangle=tickangle, showgrid=False)
             fig.update_yaxes(title_text=p.ylabel, row=row, col=col, showgrid=p.grid)
+        # A one- or two-bar panel: widen the category axis as the matplotlib twin does, so the bars keep their width instead of swelling to the panel.
+        limits = sparse_category_limits(len(cats))
+        if limits is not None:
+            lo, hi = limits
+            if horizontal:
+                fig.update_yaxes(autorange=False, range=[hi, lo], row=row, col=col)  # descending: the first category stays on top
+            else:
+                fig.update_xaxes(range=[lo, hi], row=row, col=col)
 
     def _violin(self, fig, p: ViolinPanelSpec, row: int, col: int) -> None:
         """Render one ``go.Violin`` trace per group in ``p.groups`` (tab10 color cycle for cross-backend parity with matplotlib), with an optional inner box overlay.
