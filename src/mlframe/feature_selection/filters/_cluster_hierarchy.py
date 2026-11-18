@@ -153,14 +153,12 @@ def _su_codes_device(X_dev, n_bins: int) -> tuple:
     has_interior = cp.any((edges > emin) & (edges < emax), axis=0)
     excl = (edges == emin) | dup | (has_interior[None, :] & (edges == emax))
     e2 = cp.sort(cp.where(excl, cp.inf, edges), axis=0).T  # (k, n_bins + 1), ascending with the +inf tail
-    codes = cp.empty((int(X_dev.shape[1]), n), dtype=cp.int64)
-    block = max(1, min(int(X_dev.shape[1]), (1 << 27) // max(1, n * (int(n_bins) + 1))))
-    for c0 in range(0, int(X_dev.shape[1]), block):
-        c1 = min(int(X_dev.shape[1]), c0 + block)
-        vals = X_dev[:, c0:c1].T  # (b, n), the criterion dtype
-        codes[c0:c1] = (e2[c0:c1, None, :] <= vals[:, :, None]).sum(axis=2)
+    codes = cp.empty((n, int(X_dev.shape[1])), dtype=cp.int64)
+    for c in range(int(X_dev.shape[1])):
+        # side="right": the count of inner edges <= value, i.e. the coder's code (the +inf tail never counts)
+        codes[:, c] = cp.searchsorted(e2[c], X_dev[:, c], side="right")
     one_class = distinct < 3
-    codes = cp.where(one_class[:, None], 0, codes).T
+    codes = cp.where(one_class[None, :], 0, codes)
     nbins = cp.where(one_class, 1, codes.max(axis=0) + 1)
     return codes, nbins
 
