@@ -131,16 +131,13 @@ def _su_code_column(col: np.ndarray, n_bins: int) -> tuple:
 def _su_codes_device(X_dev, n_bins: int) -> tuple:
     """Device twin of the SU quantiser (:func:`_su_codes_of_finite_columns`) for an all-finite ``(n, k)`` device matrix: ``(codes, nbins)`` as device arrays.
 
-    The codes come from the shared device quantile coder (equal to the host quantiser for every column with three or more distinct quantile edges). The SU rule for the
-    rest is: fewer than three distinct quantile edges -> one class. The device coder keeps one split for a two-valued column, so those columns are set to one class here,
-    with the distinct-edge count taken from the same interpolated edges the coder uses. Nothing is changed in the shared coder.
+    One sort per call: the sorted columns give the quantile edges (the coder's interpolation), the distinct-edge count of the SU rule, and the inner edges the codes are
+    counted against (the coder's exclusion rule, with the two-valued column set to one class where the SU rule has fewer than three distinct edges). Equal to the host
+    quantiser per column (tested); the shared device coder is not called, so its second sort is not paid.
     """
     import cupy as cp
 
-    from ._mi_greedy_cmi_fe_binning import _sync_free_qbin_codes_matrix
-
     n = int(X_dev.shape[0])
-    codes = _sync_free_qbin_codes_matrix(cp, X_dev, int(n_bins))
     xs = cp.sort(X_dev, axis=0)
     pos = cp.linspace(0.0, 100.0, int(n_bins) + 1) / 100.0 * (n - 1)
     lo = cp.floor(pos).astype(cp.int64)
@@ -149,8 +146,21 @@ def _su_codes_device(X_dev, n_bins: int) -> tuple:
     diff = xs[hi] - xs[lo]
     edges = cp.where(frac[:, None] >= 0.5, xs[hi] - diff * (1 - frac)[:, None], xs[lo] + diff * frac[:, None])
     distinct = 1 + (edges[1:] != edges[:-1]).sum(axis=0)
+    emin = edges[0]
+    emax = edges[-1]
+    dup = cp.zeros(edges.shape, dtype=bool)
+    dup[1:] = edges[1:] == edges[:-1]
+    has_interior = cp.any((edges > emin) & (edges < emax), axis=0)
+    excl = (edges == emin) | dup | (has_interior[None, :] & (edges == emax))
+    e2 = cp.sort(cp.where(excl, cp.inf, edges), axis=0).T  # (k, n_bins + 1), ascending with the +inf tail
+    codes = cp.empty((int(X_dev.shape[1]), n), dtype=cp.int64)
+    block = max(1, min(int(X_dev.shape[1]), (1 << 27) // max(1, n * (int(n_bins) + 1))))
+    for c0 in range(0, int(X_dev.shape[1]), block):
+        c1 = min(int(X_dev.shape[1]), c0 + block)
+        vals = X_dev[:, c0:c1].T  # (b, n), the criterion dtype
+        codes[c0:c1] = (e2[c0:c1, None, :] <= vals[:, :, None]).sum(axis=2)
     one_class = distinct < 3
-    codes = cp.where(one_class[None, :], 0, codes)
+    codes = cp.where(one_class[:, None], 0, codes).T
     nbins = cp.where(one_class, 1, codes.max(axis=0) + 1)
     return codes, nbins
 
@@ -204,7 +214,7 @@ def _quantize_for_su(X) -> tuple:
                 import cupy as cp
 
                 codes_dev, nb_dev = _su_codes_device(cp.asarray(np.column_stack(cols_block)), n_bins)
-                factors_data[:, j0 : j0 + len(cols_block)] = cp.asnumpy(codes_dev).astype(factors_data.dtype, copy=False)
+                factors_data[:, j0 : j0 + len(cols_block)] = cp.asnumpy(codes_dev.astype(cp.int8)).astype(factors_data.dtype, copy=False)  # narrow on the device: an eighth of the copy back
                 nbins[j0 : j0 + len(cols_block)] = cp.asnumpy(nb_dev).astype(np.int64)
                 continue
             except Exception:
