@@ -343,9 +343,13 @@ def score_grouped_agg_by_cmi_uplift(
     n_bins: int = 10,
     eng_to_source: Optional[dict] = None,
     support_cache: "dict | None" = None,
+    heldout_uplift: bool = False,
 ) -> pd.DataFrame:
     """Rank engineered aggregates by ``CMI(agg; y | base_cols)`` and gate by
     uplift over the source num_col's own marginal ``MI(num_col; y)``.
+
+    ``heldout_uplift=True`` adds the held-out marginal redundancy test of ``_grouped_agg_heldout_uplift``: the aggregate is compared with the best partition of its
+    source, fitted on one half of the rows and measured on the other, and its ``z`` is recorded in the ``heldout_z`` column. The default keeps the conditional ``uplift``.
 
     Reuses the Layer 60 CMI primitives (``score_candidates_by_cmi`` for the
     conditional term, ``_cmi_from_binned`` for the marginal source MI).
@@ -422,17 +426,30 @@ def score_grouped_agg_by_cmi_uplift(
         return float(mi)
 
     rows = []
+    heldout = {}
+    if heldout_uplift and y_bin.size > 1:
+        from ._grouped_agg_heldout_uplift import heldout_marginal_gain
+
+        perm = np.random.default_rng(0).permutation(y_bin.size)  # the split is fixed: the verdict must not depend on the call order
+        fit_rows, eval_rows = perm[: y_bin.size // 2], perm[y_bin.size // 2 :]
+        for col in eng_X.columns:
+            src = eng_to_source.get(col)
+            if src and src in raw_X.columns:
+                heldout[col] = heldout_marginal_gain(eng_X[col].to_numpy(), raw_X[src].to_numpy(), y_bin, fit_rows, eval_rows)[1]
     for col in eng_X.columns:
         src = eng_to_source.get(col)
         smi = _source_mi(src) if src else 0.0
         c = float(cmi.get(col, 0.0))
-        rows.append({
+        row = {
             "engineered_col": col,
             "source_col": src,
             "cmi": c,
             "source_mi": smi,
             "uplift": c - smi,
-        })
+        }
+        if heldout_uplift:
+            row["heldout_z"] = float(heldout.get(col, np.nan))
+        rows.append(row)
     out = pd.DataFrame(rows)
     return out.sort_values("cmi", ascending=False, kind="mergesort").reset_index(drop=True)
 
