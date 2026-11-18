@@ -9,10 +9,13 @@ chi-square tail) stays the host code of ``added_information_p`` so both paths ap
 
 from __future__ import annotations
 
+import threading
+
 import logging
 from typing import Any
 
 import numpy as np
+from mlframe.utils.array_shape import length_of
 
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
@@ -70,13 +73,15 @@ void added_information_g(const {CT}* __restrict__ cand, const int* __restrict__ 
 )
 
 _KERNELS: dict = {}
+_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def _kernel(cp: Any, narrow: bool) -> Any:
     """The compiled kernel; candidate codes are read as bytes when every candidate has at most 127 levels, else as 32-bit integers (one build per code type)."""
-    if narrow not in _KERNELS:
-        _KERNELS[narrow] = cp.RawKernel(_SRC.replace("{CT}", "signed char" if narrow else "int"), "added_information_g")
-    return _KERNELS[narrow]
+    with _KERNELS_LOCK:
+        if narrow not in _KERNELS:
+            _KERNELS[narrow] = cp.RawKernel(_SRC.replace("{CT}", "signed char" if narrow else "int"), "added_information_g")
+        return _KERNELS[narrow]
 
 
 def g_statistics_gpu(cands: np.ndarray, bcs: np.ndarray, s: np.ndarray, bs: int, t: np.ndarray, by: int) -> np.ndarray:
@@ -188,7 +193,7 @@ def added_information_p_many(candidates: "list[np.ndarray]", source: "np.ndarray
     k = len(candidates)
     if k == 0:
         return []
-    n = int(np.asarray(y).shape[0])
+    n = int(length_of(y))
     dense = [_dense_codes(c) for c in candidates]
     t, by = y_dense if y_dense is not None else _dense_codes(y)
     if source is None:

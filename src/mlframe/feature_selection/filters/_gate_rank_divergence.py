@@ -14,6 +14,8 @@ binner (same bins, same tie rule); only the summation order of the plug-in diffe
 
 from __future__ import annotations
 
+import threading
+
 import logging
 import os
 from typing import Any, Optional
@@ -191,16 +193,18 @@ def gate_divergence(mat: np.ndarray, y: np.ndarray, probe_idx: "list[int]", nbin
 _DEVICE_BYTES_PER_CELL = 28
 _DEVICE_BLOCK_BYTES = 256 * 1024 * 1024
 _KEY_KERNELS: dict = {}
+_KEY_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def _key_kernel(cp: Any) -> Any:
     """Fused elementwise pass: the flat histogram key ``(side * nbins + bin) * classes + class`` of every (row, gate column), the bin read from the run-start position inside the row's own half."""
-    ker = _KEY_KERNELS.get("key")
-    if ker is None:
-        ker = _KEY_KERNELS["key"] = cp.ElementwiseKernel(
-            "bool h, int32 gh, int32 gl, int64 mh, int32 y, int64 n, int32 nbins, int32 classes",
-            "int32 key",
-            """
+    with _KEY_KERNELS_LOCK:
+        ker = _KEY_KERNELS.get("key")
+        if ker is None:
+            ker = _KEY_KERNELS["key"] = cp.ElementwiseKernel(
+                "bool h, int32 gh, int32 gl, int64 mh, int32 y, int64 n, int32 nbins, int32 classes",
+                "int32 key",
+                """
             const long long m = h ? mh : (n - mh);
             const long long g = h ? gh : gl;
             const long long base = (m / nbins) > 0 ? (m / nbins) : 1;
@@ -209,9 +213,9 @@ def _key_kernel(cp: Any) -> Any:
             const long long b = g < thr ? g / (base + 1) : rem + (g - thr) / base;
             key = (int)((((h ? 0 : 1) * nbins) + b) * classes + y);
             """,
-            "gate_divergence_key",
-        )
-    return ker
+                "gate_divergence_key",
+            )
+        return ker
 
 
 def _device_block(cp: Any, mat: Any, meds: Any, y: Any, n_classes: int, probe_idx: "list[int]", nbins: int) -> Any:

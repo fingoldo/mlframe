@@ -704,6 +704,7 @@ def _sm_count() -> int:
 
             _SM_COUNT.append(int(cp.cuda.Device().attributes["MultiProcessorCount"]))
         except Exception:
+            logging.getLogger(__name__).debug("multiprocessor count unavailable; assuming 16", exc_info=True)
             _SM_COUNT.append(16)
     return int(_SM_COUNT[0])
 

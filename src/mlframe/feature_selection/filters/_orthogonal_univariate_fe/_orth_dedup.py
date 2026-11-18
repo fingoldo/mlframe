@@ -21,7 +21,7 @@ from numba import njit, prange
 
 logger = logging.getLogger(__name__)
 
-#: GPU11-19: below this many rows per tile, `_pc_corr_cupy`'s room-bound tiling pays more in per-tile transfer/sync
+#: below this many rows per tile, `_pc_corr_cupy`'s room-bound tiling pays more in per-tile transfer/sync
 #: overhead than the matmul work is worth; env-overridable for the kernel-tuning-cache style per-host tuning other
 #: dedup backends already use.
 _MIN_CUPY_DEDUP_TILE = env_int("MLFRAME_FE_DEDUP_CUPY_MIN_TILE", 32)
@@ -191,7 +191,7 @@ def _pc_corr_cupy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     if need <= room // 4:
         return _pc_corr_cupy_arrays(cp, resident_operand(Q, "orth_dedup_Q"), resident_operand(R, "orth_dedup_R"))
     tile = int(max(1, min(max(q, r), (room // 4 - 9 * 1024 * 1024 * item) // max(1, 10 * n_obs * item))))
-    # GPU11-19: a tight pool (little free VRAM, or several FE families contending for the same card at a large column
+    # a tight pool (little free VRAM, or several FE families contending for the same card at a large column
     # count) can shrink the tile below a floor where the loop below would launch thousands of tiny cupy calls instead
     # of a handful - each paying its own host<->device transfer and sync, far slower than one numpy(BLAS) call on the
     # same data. Bail to the dispatcher's existing cupy-failure fallback (numpy) rather than thrash through that many
@@ -210,25 +210,32 @@ def _pc_corr_cupy(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
 
 
 _FINAL_KERNELS: dict = {}
+_FINAL_KERNELS_LOCK = threading.Lock()
 
 
 def _corr_final_kernel(cp: Any) -> Any:
     """One fused elementwise pass for the last stage of the masked-matmul correlation: covariance and both variances from the six sums, ``|r|``, and ``nan`` where fewer than 8 common rows or either
     side is near-constant (the 12 or so cupy elementwise launches of the unfused form, one launch here)."""
-    ker = _FINAL_KERNELS.get("final")
-    if ker is None:
-        ker = _FINAL_KERNELS["final"] = cp.ElementwiseKernel(
-            "S n, T Sx, T Sy, T Sxx, T Syy, T Sxy",
-            "T out",
-            """
-            const T cov = Sxy - Sx * Sy / n;
-            const T vx = Sxx - Sx * Sx / n;
-            const T vy = Syy - Sy * Sy / n;
-            out = (n < 8 || vx <= 1e-24 || vy <= 1e-24) ? (T)nan("") : (T)fabs(cov / sqrt(vx * vy));
-            """,
-            "pc_corr_final",
-        )
+    with _FINAL_KERNELS_LOCK:
+        ker = _FINAL_KERNELS.get("final")
+        if ker is None:
+            ker = _FINAL_KERNELS["final"] = _build_corr_final_kernel(cp)
     return ker
+
+
+def _build_corr_final_kernel(cp: Any) -> Any:
+    """The elementwise kernel of :func:`_corr_final_kernel`."""
+    return cp.ElementwiseKernel(
+        "S n, T Sx, T Sy, T Sxx, T Syy, T Sxy",
+        "T out",
+        """
+        const T cov = Sxy - Sx * Sy / n;
+        const T vx = Sxx - Sx * Sx / n;
+        const T vy = Syy - Sy * Sy / n;
+        out = (n < 8 || vx <= 1e-24 || vy <= 1e-24) ? (T)nan("") : (T)fabs(cov / sqrt(vx * vy));
+        """,
+        "pc_corr_final",
+    )
 
 
 def _pc_corr_cupy_arrays(cp: Any, Qd: Any, Rd: Any) -> np.ndarray:

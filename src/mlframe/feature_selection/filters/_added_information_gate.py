@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Optional
 
 import numpy as np
+from mlframe.utils.array_shape import length_of
 import pandas as pd
 from numba import njit
 
@@ -102,7 +103,7 @@ def added_information_p(candidate: np.ndarray, source: "np.ndarray | None", y: n
     ``1.0`` when the table has no degrees of freedom (a constant candidate or target).
 
     ``y_dense`` / ``source_dense``: the :func:`_dense_codes` result of ``y`` / ``source`` when the caller scores many candidates against the same target or source (the renumbering is a pass over every row per call)."""
-    n = int(np.asarray(y).shape[0])
+    n = int(length_of(y))
     t, by = y_dense if y_dense is not None else _dense_codes(y)
     if source is None:
         s, bs = np.zeros(n, dtype=np.int64), 1

@@ -5,6 +5,8 @@ Carved out of ``_fe_batched_mi`` for file size; ``_fe_batched_mi`` re-exports th
 
 from __future__ import annotations
 
+import threading
+
 import logging
 from typing import Any
 
@@ -18,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 _QBIN_CODERS: dict = {}
+_QBIN_CODERS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 _QBIN_TABLE_BYTES = 24 * 1024  # shared bytes of the staged edge-key table per block
 _QBIN_BLOCKS_PER_SM = 8  # grid-stride blocks per SM (interleaved sweep at 100000 x 100: 2 -> 2.3 ms, 4 -> 1.3, 8 -> 1.16, 16 -> 1.19)
 
@@ -75,15 +78,16 @@ def _get_qbin_coder_kernel(real: str = "double", out: str = "long long"):
     identically (signed compare) to key = b >= 0 ? b : b ^ 0x7FFF..F (flip magnitude bits of negatives), so convert x ONCE per element and the edges once per call, then all ne
     comparisons run on the integer pipeline. Signed zeros normalized via +0.0; non-finite values only occur in columns the caller discards wholesale. ``real`` is ``"double"`` or
     ``"float"``: a float32 column is coded without widening it (see ``batched_quantile_bin_gpu``)."""
-    kern = _QBIN_CODERS.get((real, out))
-    if kern is None:
-        import cupy as cp
+    with _QBIN_CODERS_LOCK:
+        kern = _QBIN_CODERS.get((real, out))
+        if kern is None:
+            import cupy as cp
 
-        src = _QBIN_CODER_TEMPLATE.replace("{REAL}", real).replace("{OUT}", out)
-        for key, value in _QBIN_VARIANTS[real].items():
-            src = src.replace("{" + key + "}", value)
-        kern = _QBIN_CODERS[(real, out)] = cp.RawKernel(src, "qbin_code")
-    return kern
+            src = _QBIN_CODER_TEMPLATE.replace("{REAL}", real).replace("{OUT}", out)
+            for key, value in _QBIN_VARIANTS[real].items():
+                src = src.replace("{" + key + "}", value)
+            kern = _QBIN_CODERS[(real, out)] = cp.RawKernel(src, "qbin_code")
+        return kern
 
 
 def kernel(cp: Any, real: Any) -> Any:

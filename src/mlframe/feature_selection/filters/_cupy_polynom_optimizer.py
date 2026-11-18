@@ -39,6 +39,8 @@ multi-fidelity closures.
 """
 from __future__ import annotations
 
+import threading
+
 import logging
 from typing import Optional
 from collections.abc import Sequence
@@ -152,18 +154,20 @@ void bf_apply(const {REAL}* __restrict__ A, const {REAL}* __restrict__ B, const 
 )
 _BF_FUNCS = {"float": {"ATAN2": "atan2f", "LOG": "logf", "FABS": "fabsf"}, "double": {"ATAN2": "atan2", "LOG": "log", "FABS": "fabs"}}
 _BF_KERNELS: dict = {}
+_BF_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def kernel(cp, real):
     """``bf_apply`` for the dtype ``real`` (float32 or double), compiled once with ``--fmad=false``."""
-    key = "float" if np.dtype(real) == np.float32 else "double"
-    compiled = _BF_KERNELS.get(key)
-    if compiled is None:
-        src = render(_BF_SRC, real=real)
-        for name, value in _BF_FUNCS[key].items():
-            src = src.replace("{" + name + "}", value)
-        compiled = _BF_KERNELS[key] = cp.RawKernel(src, "bf_apply", options=("--fmad=false",))
-    return compiled
+    with _BF_KERNELS_LOCK:
+        key = "float" if np.dtype(real) == np.float32 else "double"
+        compiled = _BF_KERNELS.get(key)
+        if compiled is None:
+            src = render(_BF_SRC, real=real)
+            for name, value in _BF_FUNCS[key].items():
+                src = src.replace("{" + name + "}", value)
+            compiled = _BF_KERNELS[key] = cp.RawKernel(src, "bf_apply", options=("--fmad=false",))
+        return compiled
 
 
 def _bf_apply_checked(cp, bf_idx: int, A, Bm):

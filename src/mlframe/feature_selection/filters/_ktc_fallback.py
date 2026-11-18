@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sys
 from typing import Callable
 
@@ -29,7 +30,6 @@ def ktc_device_chooser(owner: str, label: str, *, env: "str | None" = None, pair
     The returned function takes the row count (``pairs=True``: the row count and the pair count, the work being their product) and answers whether the device runs: never when the GPU is
     globally disabled; ``env`` (``0`` / ``1``) forces a side; else the per-host tuning cache; else the owner's ``DEVICE_FALLBACK_ROWS`` floor. ``_SPEC`` and the floor are read from the
     owner at call time, so a test or an operator replacing them takes effect. A failing ``choose`` is logged at DEBUG under ``label`` and the floor decides."""
-    import logging
     import os
 
     logger = logging.getLogger(owner)
@@ -141,7 +141,7 @@ def residency_report(owner: str, *, repeats: int = 3) -> list:
 
             cp.cuda.Stream.null.synchronize()
         except Exception:  # nosec B110 - no device: nothing to synchronise
-            pass
+            logging.getLogger(owner).debug("no device to synchronise before timing", exc_info=True)
 
     def _best(fn, args) -> float:
         """Best of ``repeats`` synchronised timings of ``fn(*args)`` after one warm-up call."""

@@ -7,6 +7,8 @@ the sweep has run on the host.
 
 from __future__ import annotations
 
+import threading
+
 import logging
 from typing import Any
 
@@ -23,21 +25,23 @@ _SALT = 1
 _FALLBACK_MIN_WORK = 2_500_000
 
 _ENSEMBLES: dict = {}
+_ENSEMBLES_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def _ensemble(trees: int):
     """A flat ensemble of ``trees`` depth-``_DEPTH`` trees (built once per size)."""
-    ens = _ENSEMBLES.get(trees)
-    if ens is None:
-        import xgboost as xgb
+    with _ENSEMBLES_LOCK:
+        ens = _ENSEMBLES.get(trees)
+        if ens is None:
+            import xgboost as xgb
 
-        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import extract_ensemble
+            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import extract_ensemble
 
-        rng = np.random.default_rng(0)
-        X = rng.standard_normal((4_000, _FEATURES)).astype(np.float32)
-        y = 1e-3 * (X[:, 0] * 2 + X[:, 1] * X[:, 2] + np.sin(X[:, 3]))  # leaf values of order 1e-3: the float32 kernel's absolute error (about 1e-5 for order-1 leaves) is then ~1e-8, inside the shared 1e-6 sweep tolerance cap, while a wrong kernel is off by the size of phi (~1e-4)
-        ens = _ENSEMBLES[trees] = extract_ensemble(xgb.XGBRegressor(n_estimators=trees, max_depth=_DEPTH, tree_method="hist", verbosity=0, n_jobs=2).fit(X, y))
-    return ens
+            rng = np.random.default_rng(0)
+            X = rng.standard_normal((4_000, _FEATURES)).astype(np.float32)
+            y = 1e-3 * (X[:, 0] * 2 + X[:, 1] * X[:, 2] + np.sin(X[:, 3]))  # leaf values of order 1e-3: the float32 kernel's absolute error (about 1e-5 for order-1 leaves) is then ~1e-8, inside the shared 1e-6 sweep tolerance cap, while a wrong kernel is off by the size of phi (~1e-4)
+            ens = _ENSEMBLES[trees] = extract_ensemble(xgb.XGBRegressor(n_estimators=trees, max_depth=_DEPTH, tree_method="hist", verbosity=0, n_jobs=2).fit(X, y))
+        return ens
 
 
 def _sweep_inputs(dims: dict) -> tuple:

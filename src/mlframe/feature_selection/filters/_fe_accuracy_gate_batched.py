@@ -23,6 +23,7 @@ from collections.abc import Sequence
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.utils.array_shape import length_of
 
 from mlframe.utils.log_throttle import log_throttle
 
@@ -77,7 +78,7 @@ def _sweep_gate_batch() -> list:
     variants = {"host": lambda *a: _gate_batch_host_variant(*a), "device": lambda *a: _gate_batch_device_variant(*a)}
     return list(
         sweep_backend_grid(
-            variants, {"n_designs": [8, 24, 64, 160, 400]}, _make_gate_batch_inputs, reference="host", repeats=2, equiv_rtol=1e-9, equiv_atol=1e-12  # measured 2026-11-13: host and device uplifts are bit-identical (max abs difference 0.0 at 8 to 400 designs)
+            variants, {"n_designs": [8, 24, 64, 160, 400]}, _make_gate_batch_inputs, reference="host", repeats=2, equiv_rtol=1e-9, equiv_atol=1e-12  # measured: host and device uplifts are bit-identical (max abs difference 0.0 at 8 to 400 designs)
         )
     )
 
@@ -209,7 +210,7 @@ def batched_uplift(
 
         real = np.dtype(_crit_np_dtype())
         n = int(np.asarray(y).ravel().shape[0])
-        if n == 0 or any(int(np.asarray(c).shape[0]) != n for c in base_cols) or any(int(np.asarray(c).shape[0]) != n for c in eng_cols):
+        if n == 0 or any(int(length_of(c)) != n for c in base_cols) or any(int(length_of(c)) != n for c in eng_cols):
             return None
         if 2 > MAX_K:  # pragma: no cover - the design width is 1 (base) or 2 (augmented)
             return None

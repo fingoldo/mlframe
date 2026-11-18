@@ -81,6 +81,7 @@ from typing import Any
 
 import numba
 import numpy as np
+from mlframe.utils.array_shape import length_of
 from pyutilz.performance.gpu_hw_launch import block_size_for
 from numba import prange
 
@@ -625,7 +626,7 @@ def batch_pair_usability_corr_cuda_warp_blocked(
     those columns are gathered and uploaded for a chunk (a column block of the operand matrix per chunk). The values are the unblocked call's, pair for pair."""
     pa = np.asarray(pair_a, dtype=np.int64)
     pb = np.asarray(pair_b, dtype=np.int64)
-    out = np.empty((pa.shape[0], int(np.asarray(form_ids).shape[0])), dtype=crit_float_dtype())
+    out = np.empty((pa.shape[0], int(length_of(form_ids))), dtype=crit_float_dtype())
     for chunk in pair_chunks_by_operand_block(pa, pb, max_operands):
         used, inverse = np.unique(np.concatenate([pa[chunk], pb[chunk]]), return_inverse=True)
         k = chunk.shape[0]

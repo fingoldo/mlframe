@@ -9,6 +9,8 @@ count (``run_column_blocks``: a block of combos at a time, halved on an out-of-m
 
 from __future__ import annotations
 
+import threading
+
 import logging
 import math
 from typing import Any, Mapping, Sequence
@@ -97,13 +99,15 @@ void synergy_combo(const {CT}* __restrict__ codes, const int* __restrict__ c0, c
 )
 
 _KERNELS: dict = {}
+_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def _kernel(cp: Any, narrow: bool) -> Any:
     """The compiled kernel, one per code type: bytes when every cardinality is at most 127, else 32-bit integers."""
-    if narrow not in _KERNELS:
-        _KERNELS[narrow] = cp.RawKernel(_SRC.replace("{CT}", "signed char" if narrow else "int"), "synergy_combo")
-    return _KERNELS[narrow]
+    with _KERNELS_LOCK:
+        if narrow not in _KERNELS:
+            _KERNELS[narrow] = cp.RawKernel(_SRC.replace("{CT}", "signed char" if narrow else "int"), "synergy_combo")
+        return _KERNELS[narrow]
 
 
 kernel = code_width_kernel(_kernel)  # ``synergy_combo`` for byte or 32-bit codes; the register-pressure registry compiles it through this

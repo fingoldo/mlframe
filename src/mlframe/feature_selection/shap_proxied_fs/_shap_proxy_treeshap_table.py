@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Optional
 
 import numpy as np
+from mlframe.utils.array_shape import length_of
 from numba import njit, prange
 
 from ._shap_proxy_treeshap import _NO_CHILD, TreeEnsemble, _extend_path, _unwound_sum
@@ -415,7 +416,7 @@ def treeshap_phi_base_table(ensemble: TreeEnsemble, X: np.ndarray, tables: Optio
     DFS-stack kernel); the first two fall back to ``"stack"`` when the tree node ids are not contiguous. All three agree to ~1e-14 (the order of the leaf adds differs)."""
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
-    tab = tables if tables is not None else build_tables(ensemble, int(np.asarray(X).shape[0]))
+    tab = tables if tables is not None else build_tables(ensemble, int(length_of(X)))
     if tab is None:
         return None
     Xf = ensemble.as_float32(X)

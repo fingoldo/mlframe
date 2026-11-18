@@ -10,6 +10,8 @@ Each member follows the single-fit recipe operation by operation: train-fold sta
 
 from __future__ import annotations
 
+import threading
+
 from typing import Any
 
 import numpy as np
@@ -73,20 +75,22 @@ def cv_candidates_binary(
 
 
 _LOGISTIC_KERNELS: dict = {}
+_LOGISTIC_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def _logistic_p_and_weight(cp: Any, z: Any) -> "tuple[Any, Any]":
     """``p = 1 / (1 + exp(-z))`` and the IRLS weight ``p (1 - p)`` of the logits ``z`` in one launch at ``z``'s dtype (the unfused form was five cupy operations per Newton step)."""
-    if not hasattr(cp, "ElementwiseKernel"):  # the host twin runs this loop on NumPy
-        p = 1.0 / (1.0 + cp.exp(-z))
-        return p, p * (1.0 - p)
-    dt = str(z.dtype)
-    kernel = _LOGISTIC_KERNELS.get(dt)
-    if kernel is None:
-        c = {"float32": "float", "float64": "double"}[dt]  # Intentional float64: dtype-name table of the kernel source rendering: float64 data maps to the C type double
-        kernel = _LOGISTIC_KERNELS[dt] = cp.ElementwiseKernel("%s z" % dt, "%s p, %s w" % (dt, dt), "p = (%s)1 / ((%s)1 + exp(-z)); w = p * ((%s)1 - p);" % (c, c, c), "mlframe_logistic_p_w_" + dt)
-    out: "tuple[Any, Any]" = kernel(z)
-    return out
+    with _LOGISTIC_KERNELS_LOCK:
+        if not hasattr(cp, "ElementwiseKernel"):  # the host twin runs this loop on NumPy
+            p = 1.0 / (1.0 + cp.exp(-z))
+            return p, p * (1.0 - p)
+        dt = str(z.dtype)
+        kernel = _LOGISTIC_KERNELS.get(dt)
+        if kernel is None:
+            c = {"float32": "float", "float64": "double"}[dt]  # Intentional float64: dtype-name table of the kernel source rendering: float64 data maps to the C type double
+            kernel = _LOGISTIC_KERNELS[dt] = cp.ElementwiseKernel("%s z" % dt, "%s p, %s w" % (dt, dt), "p = (%s)1 / ((%s)1 + exp(-z)); w = p * ((%s)1 - p);" % (c, c, c), "mlframe_logistic_p_w_" + dt)
+        out: "tuple[Any, Any]" = kernel(z)
+        return out
 
 
 def _newton(cp: Any, A: Any, yb: Any, mb: int, kk: int, dtype: Any, max_iter: int, tol: float, lam: float, fallback_error: type) -> Any:

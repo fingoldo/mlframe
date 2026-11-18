@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional, Sequence
 
 import numpy as np
+from mlframe.utils.array_shape import size_of
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 import pandas as pd
@@ -93,7 +94,7 @@ def _code_fractions(codes: np.ndarray) -> np.ndarray:
     verdicts is pinned by the tests, not by this sweep."""
     out = np.zeros(64, dtype=np.float64)  # Intentional float64: comparison vector
     counts = np.bincount(np.asarray(codes).ravel().astype(np.int64, copy=False), minlength=1)[:64]
-    out[: counts.size] = counts / float(max(1, np.asarray(codes).size))
+    out[: counts.size] = counts / float(max(1, size_of(codes)))
     return out
 
 

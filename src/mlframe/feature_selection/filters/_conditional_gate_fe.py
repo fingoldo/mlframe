@@ -62,6 +62,7 @@ from itertools import combinations
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.utils.array_shape import size_of
 from mlframe.feature_selection.filters._device_sort_safe import device_median  # thrust aborts the process on a short pool
 from mlframe.feature_selection.filters._lazy_host_codes import length_of
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
@@ -751,7 +752,7 @@ def _gate_device_born_all_mi(_pending, yi, nbins):
         strict = fe_gpu_device_born_gate_enabled()
         if not strict and not _gate_auto_device_enabled():
             return None
-        n_rows = int(np.asarray(yi).size)
+        n_rows = int(size_of(yi))
         edge_auto = (not strict) and _gate_auto_edge_enabled(n_rows)
         if not strict and not edge_auto:
             from ._resident_candidate_mi_ktc import gate_grid_use_device

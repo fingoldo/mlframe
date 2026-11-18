@@ -13,6 +13,8 @@ from a batched device sort, and one kernel codes every element by a binary searc
 
 from __future__ import annotations
 
+import threading
+
 from typing import Any
 
 import numpy as np
@@ -105,14 +107,16 @@ void rescue_score_columns(const {QT}* __restrict__ Q, const {ACC}* __restrict__ 
 )
 
 _KERNELS: dict = {}
+_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 _THREADS = 256
 
 
 def _kernel(cp: Any, narrow: bool) -> Any:
     """The compiled scoring kernel: bin codes read as bytes when every code fits (``n_bins <= 127``), else as 32-bit integers; one per code type and process."""
-    if narrow not in _KERNELS:
-        _KERNELS[narrow] = cp.RawKernel(_SCORE_SRC.replace("{QT}", "signed char" if narrow else "int"), "rescue_score_columns")
-    return _KERNELS[narrow]
+    with _KERNELS_LOCK:
+        if narrow not in _KERNELS:
+            _KERNELS[narrow] = cp.RawKernel(_SCORE_SRC.replace("{QT}", "signed char" if narrow else "int"), "rescue_score_columns")
+        return _KERNELS[narrow]
 
 
 def score_columns_gpu(Q: np.ndarray, resid: np.ndarray, even: np.ndarray, n_bins: int, shrink: float) -> "tuple[np.ndarray, np.ndarray]":
@@ -167,14 +171,16 @@ void rescue_codes(const {REAL}* __restrict__ M, const {REAL}* __restrict__ edges
 """
 _CODES_SRC = render(_CODES_SRC_TEMPLATE, real=np.float32)  # the float32 build, the form the offline checks compile
 _CODES_KERNELS: dict = {}
+_CODES_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def _codes_kernel(cp: Any, real: Any) -> Any:
     """The compiled coding kernel for float32 or double precision columns."""
-    key = np.dtype(real)
-    if key not in _CODES_KERNELS:
-        _CODES_KERNELS[key] = cp.RawKernel(render(_CODES_SRC_TEMPLATE, real=real), "rescue_codes")
-    return _CODES_KERNELS[key]
+    with _CODES_KERNELS_LOCK:
+        key = np.dtype(real)
+        if key not in _CODES_KERNELS:
+            _CODES_KERNELS[key] = cp.RawKernel(render(_CODES_SRC_TEMPLATE, real=real), "rescue_codes")
+        return _CODES_KERNELS[key]
 
 
 def codes_matrix_gpu(M: np.ndarray, n_bins: int, sample: int, min_finite: int, few_classes: int) -> "tuple[np.ndarray, np.ndarray]":

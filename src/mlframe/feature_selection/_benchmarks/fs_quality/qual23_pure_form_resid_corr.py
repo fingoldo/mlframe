@@ -21,7 +21,7 @@ import sys
 # cupy permanently poisoned for the rest of THIS process) must happen BEFORE the numba/scipy imports below for a
 # standalone run's own segfault guard to work, but must not leak into another process that happens to import this
 # file (pyutilz's kernel-tuning registry walks every _benchmarks module looking for @kernel_tuner-decorated
-# functions - found live, GPU11-22, when a sibling script's same pattern broke a kernel-tuning-cache refresh
+# functions - found live, when a sibling script's same pattern broke a kernel-tuning-cache refresh
 # that needed real cupy for unrelated kernels). __name__ is already set correctly here, before any other import.
 if __name__ == "__main__":
     os.environ.setdefault("MLFRAME_SKIP_NUMBA_PREWARM", "1")

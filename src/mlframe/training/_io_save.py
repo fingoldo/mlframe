@@ -450,7 +450,7 @@ def save_mlframe_model(
     # pickle.dumps + zstd. No optimization warranted. NOTE asizeof grossly under-estimates Cython/numpy-buffer-backed
     # models (RF: est 0.4 MB vs 155 MB serialized), so it is correctly used ONLY for the SimpleNamespace eager/lean
     # flip and must NOT be swapped for a "cheaper" estimate that would change the gate decision.
-    lean = _save_mlframe_model_flip_must_swapped_cheaper(lean, auto_lean_retry, auto_lean_pre_check_mb, model, verbose, file)
+    lean = _save_mlframe_model_flip_must_swapped_cheaper(lean, auto_lean_retry, auto_lean_pre_check_mb, model, file)
     if lean and isinstance(model, SimpleNamespace):
         _lean = SimpleNamespace(**{k: v for k, v in vars(model).items() if k not in _LEAN_STRIP_FIELDS})
         _payload: object = _lean
@@ -505,7 +505,7 @@ def _save_mlframe_model_eager_fallback(_compile_swaps):
             logger.debug("save_mlframe_model: could not restore compile-wrapped attr %r", _k)
 
 
-def _save_mlframe_model_flip_must_swapped_cheaper(lean, auto_lean_retry, auto_lean_pre_check_mb, model, verbose, file):
+def _save_mlframe_model_flip_must_swapped_cheaper(lean, auto_lean_retry, auto_lean_pre_check_mb, model, file):
     """Block of save_mlframe_model starting at ``if not lean and auto_lean_retry and auto_lean_pre_check_mb > 0.0 and i``."""
     if not lean and auto_lean_retry and auto_lean_pre_check_mb > 0.0 and isinstance(model, SimpleNamespace):
         try:

@@ -7,6 +7,8 @@ with non-finite values mapped to 0. Both are per-element IEEE operations in doub
 
 from __future__ import annotations
 
+import threading
+
 import logging
 from typing import Any, Sequence, cast
 
@@ -49,15 +51,17 @@ void decompose_columns(const {REAL}* __restrict__ X, const long long n, const in
 _SRC = render(_SRC_TEMPLATE, real=np.float32)  # the float32 build, the form the offline checks compile
 
 _KERNELS: dict = {}
+_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 _THREADS = 256
 
 
 def _kernel(cp: Any, real: Any) -> Any:
     """The compiled kernel for columns of value type ``real`` (the pipeline's criterion dtype)."""
-    key = np.dtype(real)
-    if key not in _KERNELS:
-        _KERNELS[key] = cp.RawKernel(render(_SRC_TEMPLATE, real=real), "decompose_columns")
-    return _KERNELS[key]
+    with _KERNELS_LOCK:
+        key = np.dtype(real)
+        if key not in _KERNELS:
+            _KERNELS[key] = cp.RawKernel(render(_SRC_TEMPLATE, real=real), "decompose_columns")
+        return _KERNELS[key]
 
 
 def decompose_columns_host(cols: Sequence[np.ndarray], kinds: Sequence[int], params: Sequence[float]) -> np.ndarray:

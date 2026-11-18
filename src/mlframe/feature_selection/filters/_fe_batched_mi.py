@@ -24,6 +24,8 @@ host-or-device choice and the kernel variant are tuned by ``_mi_greedy_cmi_fe_kt
 """
 from __future__ import annotations
 
+import threading
+
 import logging
 
 from mlframe.utils.log_throttle import log_throttle
@@ -147,6 +149,7 @@ void mi_from_codes_tile(const {CT}* __restrict__ codes,  // (n, K) row-major int
 """)
 _MI_FROM_CODES_TILE_COLS = 8
 _MI_FROM_CODES_TILE_KERNELS: dict = {}
+_MI_FROM_CODES_TILE_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def _mi_from_codes_tile_width(cells: int) -> int:
@@ -161,12 +164,13 @@ def kernel(cp, real):
 
 def _get_mi_from_codes_tile_kernel(byte_codes: bool = False):
     """Lazy-compile + cache the tiled coalesced ``mi_from_codes_tile`` RawKernel for int64 or byte codes (module-level, pickle-safe)."""
-    kern = _MI_FROM_CODES_TILE_KERNELS.get(bool(byte_codes))
-    if kern is None:
-        import cupy as cp
+    with _MI_FROM_CODES_TILE_KERNELS_LOCK:
+        kern = _MI_FROM_CODES_TILE_KERNELS.get(bool(byte_codes))
+        if kern is None:
+            import cupy as cp
 
-        kern = _MI_FROM_CODES_TILE_KERNELS[bool(byte_codes)] = cp.RawKernel(_MI_FROM_CODES_TILE_SRC.replace("{CT}", "unsigned char" if byte_codes else "long long"), "mi_from_codes_tile")
-    return kern
+            kern = _MI_FROM_CODES_TILE_KERNELS[bool(byte_codes)] = cp.RawKernel(_MI_FROM_CODES_TILE_SRC.replace("{CT}", "unsigned char" if byte_codes else "long long"), "mi_from_codes_tile")
+        return kern
 
 
 # FUSED VALUES->BIN->HIST->MI RawKernel (mega-fusion). For an (n,K) FLOAT matrix + per-column

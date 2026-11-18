@@ -18,6 +18,8 @@ Any device fault returns ``None`` and the caller scans on the host. The host/dev
 
 from __future__ import annotations
 
+import threading
+
 import logging
 from typing import Any, Optional, Sequence
 
@@ -33,16 +35,18 @@ _BUDGET_FRACTION = 0.33
 _BYTES_PER_ELEMENT = 96  # peak device bytes per (column, row) of a block: the block, its sorted copy, codes, keys, weights, the warp and the pointwise terms
 
 _KERNELS: dict = {}
+_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def _codes_kernel(cp: Any) -> Any:
     """``code`` = number of the column's edges ``<= v`` (``-1`` for a non-finite ``v``); ``edges`` holds ``ne`` ascending edges per column, the column being ``i / width``."""
-    ker = _KERNELS.get("codes")
-    if ker is None:
-        ker = _KERNELS["codes"] = cp.ElementwiseKernel(
-            "T v, raw float64 edges, int32 ne, int64 width",  # Intentional float64: CUDA signature text: the parameter is a double in the kernel source
-            "int32 code",
-            """
+    with _KERNELS_LOCK:
+        ker = _KERNELS.get("codes")
+        if ker is None:
+            ker = _KERNELS["codes"] = cp.ElementwiseKernel(
+                "T v, raw float64 edges, int32 ne, int64 width",  # Intentional float64: CUDA signature text: the parameter is a double in the kernel source
+                "int32 code",
+                """
             if (!isfinite(v)) {
                 code = -1;
             } else {
@@ -56,20 +60,21 @@ def _codes_kernel(cp: Any) -> Any:
                 code = lo;
             }
             """,
-            "oof_warp_codes",
-        )
-    return ker
+                "oof_warp_codes",
+            )
+        return ker
 
 
 def _interp_kernel(cp: Any) -> Any:
     """The warp value of ``v`` on the table of its column (``i / width``) and fold ``f``: linear between the centres of the bins that hold rows, the end values outside, the fold mean for a
     non-finite ``v`` or an empty table (the arithmetic of ``_oof_warp_service._interp``)."""
-    ker = _KERNELS.get("interp")
-    if ker is None:
-        ker = _KERNELS["interp"] = cp.ElementwiseKernel(
-            "T v, int32 f, raw float64 cx, raw float64 cy, raw float64 cnt, raw float64 mu, int32 nb, int32 nf, int64 width",  # Intentional float64: CUDA signature text: the parameter is a double in the kernel source
-            "float64 o",
-            """
+    with _KERNELS_LOCK:
+        ker = _KERNELS.get("interp")
+        if ker is None:
+            ker = _KERNELS["interp"] = cp.ElementwiseKernel(
+                "T v, int32 f, raw float64 cx, raw float64 cy, raw float64 cnt, raw float64 mu, int32 nb, int32 nf, int64 width",  # Intentional float64: CUDA signature text: the parameter is a double in the kernel source
+                "float64 o",
+                """
             const long long cf = (i / width) * nf + f;
             const long long tb = cf * nb;
             const double fill = mu[cf];
@@ -97,9 +102,9 @@ def _interp_kernel(cp: Any) -> Any:
                 }
             }
             """,
-            "oof_warp_interp",
-        )
-    return ker
+                "oof_warp_interp",
+            )
+        return ker
 
 
 def _row_quantiles(cp: Any, sorted_rows: Any, counts: Any, probs: np.ndarray) -> Any:

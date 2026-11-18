@@ -9,6 +9,8 @@ with a throttled warning. The arrays of one value column and its entity codes ar
 
 from __future__ import annotations
 
+import threading
+
 import logging
 from typing import Any
 
@@ -72,15 +74,17 @@ void rolling_stat_past_only(const {TT}* __restrict__ times, const {ACC}* __restr
 )
 
 _KERNELS: dict = {}
+_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def _kernel(cp: Any, integer_time: bool) -> Any:
     """The compiled kernel for int64 (datetime) or double (numeric) times, one per process."""
-    key = bool(integer_time)
-    if key not in _KERNELS:
-        src = _SRC.replace("{TT}", "long long" if key else "double")
-        _KERNELS[key] = cp.RawKernel(src, "rolling_stat_past_only")
-    return _KERNELS[key]
+    with _KERNELS_LOCK:
+        key = bool(integer_time)
+        if key not in _KERNELS:
+            src = _SRC.replace("{TT}", "long long" if key else "double")
+            _KERNELS[key] = cp.RawKernel(src, "rolling_stat_past_only")
+        return _KERNELS[key]
 
 
 def kernel(cp: Any, real: Any) -> Any:

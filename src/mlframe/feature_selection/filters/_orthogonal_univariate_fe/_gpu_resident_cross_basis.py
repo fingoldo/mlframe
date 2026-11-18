@@ -41,6 +41,8 @@ path untouched). NEVER ``free_all_blocks`` (mempool teardown owns that).
 """
 from __future__ import annotations
 
+import threading
+
 from .._basis_name_codes import BASIS_NAME_CODES
 
 import logging
@@ -277,6 +279,7 @@ def _prefetch_legs(cp: Any, X: Any, col_specs: Sequence[dict], basis: str, basis
 
 
 _LEG_PRODUCT_KERNELS: dict = {}
+_LEG_PRODUCT_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def _fused_leg_products(cp: Any, col_specs: Sequence[dict], leg_cache: dict, basis_of_col: dict, leg_fn: Any, n: int, column_major: bool = False) -> Any:
@@ -284,47 +287,48 @@ def _fused_leg_products(cp: Any, col_specs: Sequence[dict], leg_cache: dict, bas
 
     Every product of the per-leg loop was a ``prod * h`` cupy operation (about four thousand in a 30000 x 60 fit). Here the distinct legs are stacked once into a ``(legs, n)`` block and each
     output cell multiplies its legs in the spec's order at the legs' own dtype (``acc = acc * v``, as the loop does), then widens to double: the same values bit for bit."""
-    index_of: dict = {}
-    leg_cols: list = []
-    rows: list = []
-    for spec in col_specs:
-        row = []
-        for leg in spec["legs"]:
-            col, degree = leg[0], int(leg[1])
-            explicit = leg[2] if len(leg) == 3 else None
-            h = leg_fn(col, degree, explicit)
-            key = id(h)
-            if key not in index_of:
-                index_of[key] = len(leg_cols)
-                leg_cols.append(h)
-            row.append(index_of[key])
-        rows.append(row)
-    if not rows or not leg_cols:
-        return None
-    dtypes = {str(h.dtype) for h in leg_cols}
-    if len(dtypes) != 1 or next(iter(dtypes)) not in ("float32", "float64"):  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
-        return None
-    dt = next(iter(dtypes))
-    width = max(len(r) for r in rows)
-    idx = np.full((len(rows), width), -1, dtype=np.int32)
-    for s_, r_ in enumerate(rows):
-        idx[s_, : len(r_)] = r_
-    ctype = {"float32": "float", "float64": "double"}[dt]  # Intentional float64: dtype-name table of the kernel source rendering: float64 data maps to the C type double
-    kernel = _LEG_PRODUCT_KERNELS.get(dt)
-    if kernel is None:
-        kernel = _LEG_PRODUCT_KERNELS[dt] = cp.ElementwiseKernel(
-            "raw %s L, raw int32 idx, int32 width, int32 nrows, int32 ncols" % dt,
-            "float64 out",  # Intentional float64: CUDA signature text: the parameter is a double in the kernel source
-            "int s = i / nrows; int r = i - s * nrows; %s acc = (%s)1; bool first = true;"
-            " for (int p = 0; p < width; ++p) { int k = idx[s * width + p]; if (k < 0) break; %s v = L[(size_t)k * nrows + r]; acc = first ? v : acc * v; first = false; }"
-            " out = (double)acc;" % (ctype, ctype, ctype),
-            "mlframe_leg_products_cm_" + dt,
-        )
-    block = cp.ascontiguousarray(cp.stack(leg_cols))
-    # the kernel walks the (K, n) output with the rows fastest: a warp reads consecutive rows of one leg (coalesced) and writes consecutive words of one output column
-    out = cp.empty((len(rows), n), dtype=cp.float64)  # Intentional float64: GPU cross-basis output; kernel contract is float64
-    kernel(block, cp.asarray(idx), np.int32(width), np.int32(n), np.int32(len(rows)), out)
-    return out if column_major else cp.ascontiguousarray(out.T)
+    with _LEG_PRODUCT_KERNELS_LOCK:
+        index_of: dict = {}
+        leg_cols: list = []
+        rows: list = []
+        for spec in col_specs:
+            row = []
+            for leg in spec["legs"]:
+                col, degree = leg[0], int(leg[1])
+                explicit = leg[2] if len(leg) == 3 else None
+                h = leg_fn(col, degree, explicit)
+                key = id(h)
+                if key not in index_of:
+                    index_of[key] = len(leg_cols)
+                    leg_cols.append(h)
+                row.append(index_of[key])
+            rows.append(row)
+        if not rows or not leg_cols:
+            return None
+        dtypes = {str(h.dtype) for h in leg_cols}
+        if len(dtypes) != 1 or next(iter(dtypes)) not in ("float32", "float64"):  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
+            return None
+        dt = next(iter(dtypes))
+        width = max(len(r) for r in rows)
+        idx = np.full((len(rows), width), -1, dtype=np.int32)
+        for s_, r_ in enumerate(rows):
+            idx[s_, : len(r_)] = r_
+        ctype = {"float32": "float", "float64": "double"}[dt]  # Intentional float64: dtype-name table of the kernel source rendering: float64 data maps to the C type double
+        kernel = _LEG_PRODUCT_KERNELS.get(dt)
+        if kernel is None:
+            kernel = _LEG_PRODUCT_KERNELS[dt] = cp.ElementwiseKernel(
+                "raw %s L, raw int32 idx, int32 width, int32 nrows, int32 ncols" % dt,
+                "float64 out",  # Intentional float64: CUDA signature text: the parameter is a double in the kernel source
+                "int s = i / nrows; int r = i - s * nrows; %s acc = (%s)1; bool first = true;"
+                " for (int p = 0; p < width; ++p) { int k = idx[s * width + p]; if (k < 0) break; %s v = L[(size_t)k * nrows + r]; acc = first ? v : acc * v; first = false; }"
+                " out = (double)acc;" % (ctype, ctype, ctype),
+                "mlframe_leg_products_cm_" + dt,
+            )
+        block = cp.ascontiguousarray(cp.stack(leg_cols))
+        # the kernel walks the (K, n) output with the rows fastest: a warp reads consecutive rows of one leg (coalesced) and writes consecutive words of one output column
+        out = cp.empty((len(rows), n), dtype=cp.float64)  # Intentional float64: GPU cross-basis output; kernel contract is float64
+        kernel(block, cp.asarray(idx), np.int32(width), np.int32(n), np.int32(len(rows)), out)
+        return out if column_major else cp.ascontiguousarray(out.T)
 
 
 def _resident_mi(cp, mat_gpu, y, nbins: int, column_major: bool = False) -> np.ndarray:

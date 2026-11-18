@@ -9,6 +9,8 @@ rows go up once as bytes (a column block of the selection), pairs in one launch;
 
 from __future__ import annotations
 
+import threading
+
 import logging
 from typing import Any, cast
 
@@ -118,13 +120,15 @@ void relaxmrmr_pair(const {CT}* __restrict__ sel, const {CT}* __restrict__ x, co
 )
 
 _KERNELS: dict = {}
+_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def _kernel(cp: Any, narrow: bool) -> Any:
     """The compiled kernel, one per code type: bytes when every cardinality is at most 127, else 32-bit integers."""
-    if narrow not in _KERNELS:
-        _KERNELS[narrow] = cp.RawKernel(_SRC.replace("{CT}", "signed char" if narrow else "int"), "relaxmrmr_pair")
-    return _KERNELS[narrow]
+    with _KERNELS_LOCK:
+        if narrow not in _KERNELS:
+            _KERNELS[narrow] = cp.RawKernel(_SRC.replace("{CT}", "signed char" if narrow else "int"), "relaxmrmr_pair")
+        return _KERNELS[narrow]
 
 
 kernel = code_width_kernel(_kernel)  # ``relaxmrmr_pair`` for byte or 32-bit codes; the register-pressure registry compiles it through this

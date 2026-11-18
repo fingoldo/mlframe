@@ -18,6 +18,7 @@ import logging
 from typing import Any, Optional, Sequence
 
 import numpy as np
+from mlframe.utils.array_shape import length_of
 
 from ._fe_gain_stats import quantile_codes
 from ._kernel_types import render
@@ -143,7 +144,7 @@ def quantile_codes_columns_device(cols: Sequence[np.ndarray], bins: Any) -> Opti
     try:
         import cupy as cp
 
-        n = int(np.asarray(cols[0]).shape[0])
+        n = int(length_of(cols[0]))
         if n < 2:
             return None
         dtypes = {np.asarray(c).dtype for c in cols}
@@ -191,7 +192,7 @@ def main_effect_z_device(cols: Sequence[np.ndarray], bins: int, t: np.ndarray, e
     try:
         import cupy as cp
 
-        n = int(np.asarray(cols[0]).shape[0])
+        n = int(length_of(cols[0]))
         even_idx, odd_idx = np.flatnonzero(even), np.flatnonzero(~even)
         if n < 2 or even_idx.size < 2 or odd_idx.size < 2:
             return None
@@ -215,7 +216,7 @@ def main_effect_z_device(cols: Sequence[np.ndarray], bins: int, t: np.ndarray, e
 
 def main_effect_z_columns(cols: Sequence[np.ndarray], bins: int, t: np.ndarray, even: np.ndarray, base: float) -> Optional[np.ndarray]:
     """:func:`main_effect_z_device` when the tuner says the device for this row count, else ``None`` (the caller's host loop)."""
-    if len(cols) and quantile_codes_on_device(int(np.asarray(cols[0]).shape[0])):
+    if len(cols) and quantile_codes_on_device(int(length_of(cols[0]))):
         return main_effect_z_device(cols, bins, t, even, base)
     return None
 
@@ -278,7 +279,7 @@ def quantile_codes_columns(cols: Sequence[np.ndarray], bins: Any) -> list:
     bin_list = _bin_list(bins)
     if len(cols) == 0:
         return [np.empty((0, 0), dtype=np.int64) for _ in bin_list]
-    if quantile_codes_on_device(int(np.asarray(cols[0]).shape[0])):
+    if quantile_codes_on_device(int(length_of(cols[0]))):
         got = quantile_codes_columns_device(cols, bin_list)
         if got is not None:
             return got
