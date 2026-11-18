@@ -174,11 +174,11 @@ def strata_joint_entropy(cp: Any, xs: Any, ys: Any, starts: Any, kx: int, ky: in
 
 # H(z), H(y, z) and their occupied-cell counts depend only on the support and the target (not on the candidate), and a gate round calls the null for every candidate with the
 # SAME device arrays. A short identity-keyed list keeps them (strong references, so an id cannot be recycled into a false match).
-_ZY_TERMS_CACHE: list = []  # [(dz, dy, (ky, h_zy, k_z, k_yz))], newest last
+_ZY_TERMS_CACHE: list[tuple[Any, Any, tuple[Any, Any, Any, Any]]] = []  # [(dz, dy, (ky, h_zy, k_z, k_yz))], newest last
 _ZY_TERMS_CACHE_MAX = 4
 
 
-def _zy_terms(cp: Any, dz: Any, dy: Any, inv_n: float) -> tuple:
+def _zy_terms(cp: Any, dz: Any, dy: Any, inv_n: float) -> tuple[Any, Any, Any, Any]:
     """``(ky, h_yz - h_z, k_z, k_yz)`` of the support ``dz`` and the target ``dy``, computed once per array pair."""
     from ._fe_batched_mi import joint_entropy_gpu
 
