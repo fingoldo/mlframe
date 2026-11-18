@@ -28,7 +28,8 @@ def test_the_decorator_sets_the_variable_for_the_call_and_restores_it(monkeypatc
 
     monkeypatch.delenv("TQDM_DISABLE", raising=False)
     call()
-    assert seen == ["1"] and "TQDM_DISABLE" not in os.environ
+    env_unset = "TQDM_DISABLE" not in os.environ
+    assert seen == ["1"] and env_unset
     monkeypatch.setenv("TQDM_DISABLE", "0")
     try:
         call(fail=True)

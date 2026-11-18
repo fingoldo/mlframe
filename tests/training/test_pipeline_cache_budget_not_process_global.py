@@ -13,7 +13,8 @@ def test_a_second_cache_gets_its_own_fraction(monkeypatch):
     small = PipelineCache(verbose=False, ram_budget_fraction=0.02)
     large = PipelineCache(verbose=False, ram_budget_fraction=0.5)
     assert small._bytes_limit <= large._bytes_limit
-    assert "MLFRAME_PIPELINE_CACHE_RAM_FRACTION" not in os.environ, "the fraction must not be published process-globally"
+    env_unset = "MLFRAME_PIPELINE_CACHE_RAM_FRACTION" not in os.environ
+    assert env_unset, "the fraction must not be published process-globally"
 
 
 def test_the_operator_env_still_wins_over_the_configured_fraction(monkeypatch):
@@ -46,5 +47,6 @@ def test_suite_setup_leaves_the_environment_alone(monkeypatch):
         model_name="m", target_name="t", mlframe_models=None, verbose=0,
     )
     ctx = pcs.setup_configuration(**kwargs)
-    assert "MLFRAME_PIPELINE_CACHE_RAM_FRACTION" not in os.environ
+    env_unset = "MLFRAME_PIPELINE_CACHE_RAM_FRACTION" not in os.environ
+    assert env_unset
     assert ctx.behavior_config.pipeline_cache_ram_budget_fraction == 0.2, "the configured value is what the cache is handed"
