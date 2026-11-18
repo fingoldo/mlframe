@@ -25,6 +25,8 @@ import logging
 from typing import Any, Optional, Sequence
 
 import numpy as np
+
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from numba import njit, prange
 
 from ._internals import LARGE_CONST, MAX_CONFIRMATION_CAND_NBINS, NMAX_NONPARALLEL_ITERS
@@ -283,7 +285,8 @@ def fleuret_confirm_batch(
         y_col = block[pos[int(y_var)]]
         out_y = np.empty((n_cand * n_perm, n), dtype=dt)
         out_x = np.empty((n_cand * n_perm, n), dtype=dt)
-        _shuffled_jobs(y_col, x_cols, mult, np.asarray(base_seeds, dtype=np.uint64), n_perm, int(perm_offset), bool(extra_x_shuffling), out_y, out_x)
+        with parallel_kernel_entry():  # a prange kernel, reached from the confirmation pool
+            _shuffled_jobs(y_col, x_cols, mult, np.asarray(base_seeds, dtype=np.uint64), n_perm, int(perm_offset), bool(extra_x_shuffling), out_y, out_x)
         n_jobs = n_cand * n_perm
         gains_arr = np.asarray(bootstrapped_gains, dtype=np.float64)  # Intentional float64: compared with the statistics
         ne = np.repeat(np.asarray(nexisting, dtype=np.int64), n_perm)

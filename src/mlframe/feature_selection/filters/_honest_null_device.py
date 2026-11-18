@@ -24,6 +24,8 @@ import weakref
 from typing import Any
 
 import numpy as np
+
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from numba import njit, prange
 
 from ._mdlp_honest_bycol_njit import _cuts_tie_free
@@ -268,7 +270,8 @@ def label_one_counts(y_perm: np.ndarray) -> np.ndarray:
     built a boolean copy of the whole matrix: 136 ms, once per block of columns and once more for row 0). Counted on every call - at 4 ms a stored vector is not worth the risk
     of answering for an array that was changed in place."""
     if y_perm.ndim == 2 and y_perm.dtype.kind in "iub":
-        return np.asarray(_count_ones_rows(np.ascontiguousarray(y_perm)))
+        with parallel_kernel_entry():  # a prange kernel, reached from the column-block pool
+            return np.asarray(_count_ones_rows(np.ascontiguousarray(y_perm)))
     return np.asarray((y_perm == 1).sum(axis=1))
 
 
