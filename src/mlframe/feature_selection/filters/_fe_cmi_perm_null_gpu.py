@@ -59,7 +59,7 @@ import threading
 from typing import Any, Optional
 
 import numpy as np
-from mlframe.feature_selection.filters._strata_shuffle_gpu import MIN_STRATA, strata_shuffle
+from mlframe.feature_selection.filters._strata_shuffle_gpu import MIN_STRATA, MIN_STRATA_NARROW, strata_shuffle
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # thrust aborts the process on a short pool
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -271,8 +271,13 @@ def _flat_within_stratum_shuffle(cp: Any, rs: Any, x_sorted_d: Any, z_rank_d: An
     of those bits orders by x: a microscopically non-uniform but valid permutation, the same selection-equivalence bar as the device RNG stream itself.
     """
     n = int(x_sorted_d.shape[0])
-    if nrank >= MIN_STRATA and os.environ.get("MLFRAME_STRATA_SHUFFLE_KERNEL", "0").strip() == "1":
-        return strata_shuffle(cp, rs, x_sorted_d, z_rank_d[:, 0], nperm, nrank)
+    _switch = os.environ.get("MLFRAME_STRATA_SHUFFLE_KERNEL", "").strip()
+    if _switch != "0":
+        if kx <= 255 and nrank >= MIN_STRATA_NARROW:
+            # many short strata and byte value codes: the per-stratum kernel on a byte matrix (1.1 to 3.3 ms against the 7.3 ms flat sort at 1000 to 15000 strata; see MIN_STRATA_NARROW)
+            return strata_shuffle(cp, rs, x_sorted_d, z_rank_d[:, 0], nperm, nrank, narrow=True)
+        if _switch == "1" and nrank >= MIN_STRATA:
+            return strata_shuffle(cp, rs, x_sorted_d, z_rank_d[:, 0], nperm, nrank)
     col_bits = max(1, int(np.ceil(np.log2(max(2, nperm)))))
     rank_bits = max(1, int(np.ceil(np.log2(max(2, nrank)))))
     x_bits = max(1, int(np.ceil(np.log2(max(2, kx)))))
