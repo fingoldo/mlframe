@@ -262,7 +262,7 @@ def _device_code_bounds(d_data: Any, d_cy: Any) -> "tuple[np.ndarray, np.ndarray
     out[k : 2 * k] = -2147483647 - 1
     if n and k:
         stride = min(n, max(64, 32768 // k))
-        threads = 256
+        threads = block_size_for(_COL_MIN_MAX_KERNEL, work_items=stride * k)
         _COL_MIN_MAX_KERNEL(((stride * k + threads - 1) // threads,), (threads,), (d_data, np.int64(n), np.int32(k), np.int64(stride), out[:k], out[k : 2 * k]))
     if d_cy.size:
         out[2 * k] = d_cy.min()

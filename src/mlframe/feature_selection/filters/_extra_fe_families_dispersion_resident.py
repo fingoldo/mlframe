@@ -173,7 +173,7 @@ def _fused_column(cp: Any, out_row: Any, xi_g: Any, codes_g: Any, mean_g: Any, s
 _CODES_SRC = render(
     r"""
 extern "C" __global__
-void disp_bin_codes(const {REAL}* __restrict__ xj_all, const double* __restrict__ edges, const int* __restrict__ n_interior, const int emax, const long long n, const long long J,
+void disp_bin_codes(const {REAL}* __restrict__ xj_all, const {EDGE}* __restrict__ edges, const int* __restrict__ n_interior, const int emax, const long long n, const long long J,
                     long long* __restrict__ out) {
     // The bin codes of every distinct x_j in ONE launch over the (J, n) output (rows fastest): the number of interior edges (edges[1:-1] of the stored quantile edges) that are <= x, i.e.
     // np.searchsorted(side="right"), clipped to the top bin, with a non-finite x in bin 0 (the host's _digitize_with_edges). The values are compared with the float64 edges the host digitiser uses (x is rounded to the criterion dtype first, as there).
@@ -181,11 +181,11 @@ void disp_bin_codes(const {REAL}* __restrict__ xj_all, const double* __restrict_
         const long long j = t / n;
         const {REAL} x = xj_all[t];
         const int m = n_interior[j];
-        const double* e = edges + j * emax;
+        const {EDGE}* e = edges + j * emax;
         int lo = 0, hi = m;
         while (lo < hi) {
             const int mid = (lo + hi) >> 1;
-            if (e[mid] <= (double)x) lo = mid + 1; else hi = mid;
+            if (e[mid] <= ({EDGE})x) lo = mid + 1; else hi = mid;
         }
         out[t] = isfinite(x) ? (long long)lo : 0LL;
     }
@@ -200,7 +200,7 @@ def kernel_codes(cp: Any, real: Any) -> Any:
     key = np.dtype(real).str
     compiled = _CODES_KERNELS.get(key)
     if compiled is None:
-        compiled = _CODES_KERNELS[key] = cp.RawKernel(render(_CODES_SRC, real=real), "disp_bin_codes")
+        compiled = _CODES_KERNELS[key] = cp.RawKernel(render(_CODES_SRC, real=real, edge=np.float64), "disp_bin_codes")  # Intentional float64: the host digitiser compares against float64 edges
     return compiled
 
 

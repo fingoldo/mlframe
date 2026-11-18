@@ -494,7 +494,7 @@ def _subsumed_raw_operand_check_gpu(ha, hb, subsumed_raws, X, n_rows, _raw_bin_c
         # TAIL-CONCENTRATION OVERRIDE, the host proposal's second verdict: the binned keep-probe sees phantom private residual in a heavy-tailed raw that the fused compound subsumes continuously.
         if _retains and _y_cont_for_tail is not None and fused_vals is not None:
             if _fused_host is None:
-                _fused_host = np.asarray(fused_vals, dtype=np.float64)  # Intentional float64: one bounded read of the admitted fused values
+                _fused_host = np.asarray(fused_vals, dtype=np.float64)  # Intentional float64: one bounded read of the admitted fused values  # loop-invariant-ok: read once, guarded by `_fused_host is None`
             if raw_is_tail_concentrated_subsumed(
                 _rv,
                 _y_cont_for_tail,

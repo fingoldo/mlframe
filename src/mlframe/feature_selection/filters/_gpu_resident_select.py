@@ -31,10 +31,6 @@ logger = logging.getLogger(__name__)
 _SCRATCH_FREE_FRACTION = 0.5
 
 
-class _ScratchOverBudgetError(Exception):
-    """The compaction scratch would take more than its share of the free VRAM (already logged where it is raised)."""
-
-
 def _free_vram_bytes() -> int | None:
     """Free device memory in bytes, or None when it cannot be read."""
     try:
@@ -123,6 +119,37 @@ def _launch_radix_f32_v4(cp, data_cm, n: int, K: int, ranks_g, R: int, osv, thre
     except Exception as exc:
         log_throttle(logger, "radix_f32_v4_launch_failed", logging.WARNING, "radix select: the f32 v4 compaction launch failed (%s: %s); using v3.", type(exc).__name__, exc)
         return False
+
+
+def _launch_radix_v3(cp, kern3, data_cm, n, K, threads, ranks_g, R, interp, ne_rows, edges, shmem):
+    """Launch the f64 select+interp kernel with the compaction scratch; the filled ``edges``, or ``None`` when the scratch would take too much of the free VRAM or the launch fails (each logged), so the caller falls back to the v2 kernel."""
+    bi, ai, w = interp
+    try:
+        cap = max(1024, int(n) // 4)
+        if not _scratch_fits(K * cap * 8):
+            log_throttle(
+                logger, "radix_v3_scratch_skipped", logging.INFO,
+                "radix select: the compaction scratch (%.2f GiB for n=%d, K=%d) would take over %d%% of the free VRAM; using the v2 kernel.",
+                K * cap * 8 / (1 << 30), int(n), int(K), int(_SCRATCH_FREE_FRACTION * 100),
+            )
+            return None
+        cand = cp.empty((K, cap), dtype=cp.uint64)
+        kern3((K,), (threads,),
+            (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R),
+             bi, ai, cp.ascontiguousarray(w), np.int32(ne_rows),
+             cand, np.int64(cap), edges), shared_mem=shmem)
+        return edges
+    except MemoryError as exc:
+        log_throttle(
+            logger, "radix_v3_scratch_oom", logging.WARNING,
+            "radix select: the v3 compaction scratch allocation ran out of memory (%s) for n=%d, K=%d; using the v2 kernel.", exc, int(n), int(K),
+        )
+    except Exception as exc:
+        log_throttle(
+            logger, "radix_v3_launch_failed", logging.WARNING,
+            "radix select: the v3 compaction launch failed (%s: %s) for n=%d, K=%d; using the v2 kernel.", type(exc).__name__, exc, int(n), int(K),
+        )
+    return None
 
 
 def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extremes: bool = False, data_is_cm: bool = False):
@@ -223,33 +250,9 @@ def _radix_select_interior_edges(cand_gpu, nbins: int, cm_hint=None, with_extrem
             edges = cp.empty((ne_rows, K), dtype=cp.float64)
             kern3 = _get_radix_select_interp_f64_v3_kernel()
             if kern3 is not None:
-                try:
-                    cap = max(1024, int(n) // 4)
-                    if not _scratch_fits(K * cap * 8):
-                        log_throttle(
-                            logger, "radix_v3_scratch_skipped", logging.INFO,
-                            "radix select: the compaction scratch (%.2f GiB for n=%d, K=%d) would take over %d%% of the free VRAM; using the v2 kernel.",
-                            K * cap * 8 / (1 << 30), int(n), int(K), int(_SCRATCH_FREE_FRACTION * 100),
-                        )
-                        raise _ScratchOverBudgetError("scratch over budget")
-                    cand = cp.empty((K, cap), dtype=cp.uint64)
-                    kern3((K,), (threads,),
-                        (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R),
-                         bi, ai, cp.ascontiguousarray(w), np.int32(ne_rows),
-                         cand, np.int64(cap), edges), shared_mem=shmem)
-                    return edges          # (nbins-1, K) double
-                except _ScratchOverBudgetError:
-                    pass  # over budget: already logged above, v2 follows
-                except MemoryError as exc:
-                    log_throttle(
-                        logger, "radix_v3_scratch_oom", logging.WARNING,
-                        "radix select: the v3 compaction scratch allocation ran out of memory (%s) for n=%d, K=%d; using the v2 kernel.", exc, int(n), int(K),
-                    )
-                except Exception as exc:
-                    log_throttle(
-                        logger, "radix_v3_launch_failed", logging.WARNING,
-                        "radix select: the v3 compaction launch failed (%s: %s) for n=%d, K=%d; using the v2 kernel.", type(exc).__name__, exc, int(n), int(K),
-                    )
+                v3_edges = _launch_radix_v3(cp, kern3, data_cm, n, K, threads, ranks_g, R, (bi, ai, w), ne_rows, edges, shmem)
+                if v3_edges is not None:
+                    return v3_edges  # (nbins-1, K) double
             _get_radix_select_interp_f64_kernel()((K,), (threads,),
                 (data_cm, np.int64(n), np.int32(K), ranks_g, np.int32(R),
                  bi, ai, cp.ascontiguousarray(w), np.int32(ne_rows), edges), shared_mem=shmem)

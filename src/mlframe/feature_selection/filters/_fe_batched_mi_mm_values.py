@@ -220,7 +220,7 @@ void mm_nek_tile(const {REAL}* __restrict__ X, const {ACC}* __restrict__ edges,
     extern __shared__ char smem[];
     int M = nbins * Ky;
     int* sh = (int*)smem;                        // (G, M) joint histograms
-    {ACC}* se = ({ACC}*)(smem + ((G * M * 4 + 7) & ~7));    // (G, 256) cached interior edges of each column, 8-byte aligned for the double reads
+    {ACC}* se = ({ACC}*)(smem + ((G * M * 4 + 7) & ~7));    // (G, 256) cached interior edges of each column, 8-byte aligned for the {ACC} reads
     int c0 = blockIdx.x * G;
     int g = min(G, K - c0);
     int tid = threadIdx.x, nt = blockDim.x;

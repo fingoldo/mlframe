@@ -15,7 +15,7 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-from ._code_type_kernels import compile_code_kernel, registry_entry
+from ._code_type_kernels import registry_entry
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 
@@ -106,7 +106,9 @@ _KERNELS: dict = {}
 
 def _kernel(cp: Any, narrow: bool) -> Any:
     """The compiled kernel, one per code type: bytes when every cardinality is at most 127, else 32-bit integers."""
-    return compile_code_kernel(cp, _KERNELS, _SRC, "synergy_combo", narrow)
+    if narrow not in _KERNELS:
+        _KERNELS[narrow] = cp.RawKernel(_SRC.replace("{CT}", "signed char" if narrow else "int"), "synergy_combo")
+    return _KERNELS[narrow]
 
 
 @registry_entry(_kernel)

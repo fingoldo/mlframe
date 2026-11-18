@@ -342,6 +342,11 @@ def _build_outer_loop_state(
     return state
 
 
+def _outer_progressbar(prefix: str, leave: bool, n_features: int, max_refits: Any) -> Any:
+    """The progress bar of the outer loop: one step per feature count, capped by ``max_refits`` when a refit budget is set."""
+    return tqdmu(desc=prefix, leave=leave, total=min(n_features + 1, max_refits) if active_budget(max_refits) is not None else n_features + 1)
+
+
 def _prepare_outer_loop(
     self: Any,
     *,
@@ -437,11 +442,7 @@ def _prepare_outer_loop(
         )
 
     progressbar_prefix = "RFECV:"
-    iters_pbar = tqdmu(
-        desc=progressbar_prefix,
-        leave=leave_progressbars,
-        total=min(len(original_features) + 1, max_refits) if active_budget(max_refits) is not None else len(original_features) + 1,
-    )
+    iters_pbar = _outer_progressbar(progressbar_prefix, leave_progressbars, len(original_features), max_refits)
 
     suppress_irritating_3rdparty_warnings()
 
