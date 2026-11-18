@@ -218,13 +218,14 @@ def _quantize_for_su(X) -> tuple:
 
 
 def _su_device_enabled(n: int, p: int) -> bool:
-    """Whether the SU quantiser bins on the device: the KTC-backed FE binning gate, which also honours the global GPU kill switch."""
-    try:
-        from ._feature_engineering_pairs._pairs_gpu_gates import _fe_gpu_binning_enabled
+    """Whether the SU quantiser bins on the device: only when ``MLFRAME_SU_QUANTISE_GPU=1`` is set.
 
-        return bool(_fe_gpu_binning_enabled(int(n), int(p)))
-    except Exception:
-        return False
+    Measured on the GTX 1050 Ti (one run each, same input): 100000 x 100, device 0.44 s against CPU 0.24 s; 300000 x 100, device 1.25 s against CPU 0.88 s. The host
+    quantiser wins at both shapes (the device route pays the upload and the block sort), so the default stays on the CPU and the twin is opt-in until a shape where it wins
+    is measured. The shape arguments are kept for that measurement."""
+    import os
+
+    return os.environ.get("MLFRAME_SU_QUANTISE_GPU", "0").strip() == "1" and n >= 0 and p >= 0
 
 
 def _resolve_anchor_indices(anchor_names: list, name_to_idx: dict) -> dict:
