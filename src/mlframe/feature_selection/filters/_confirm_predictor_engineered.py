@@ -13,11 +13,47 @@ import re
 from typing import Dict, List
 
 import numpy as np
+from numba import njit
 
 from .info_theory import merge_vars
 from ._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger(__name__)
+
+
+# Largest cell space (base classes times the bins of the folded variables) the occupied-cell count tries as a bit map: 2**28 bits is 32 MB; a larger joint keeps ``merge_vars``.
+_MAX_CELL_SPAN = 1 << 28
+
+
+@njit(cache=True, nogil=True)
+def _occupied_cells_over(base_classes: np.ndarray, factors_data: np.ndarray, vars_indices: np.ndarray, factors_nbins: np.ndarray, span: int) -> int:
+    """Number of distinct ``(base class, variables...)`` tuples among the rows, by one pass over the rows and a bit map of the ``span`` possible cells.
+
+    ``merge_vars`` folds the variables one at a time into a dense class array with a table of ``classes x bins`` entries per variable, which at ~15000 base classes costs ~20 ms a call for a result that is only
+    this count. The count of distinct tuples does not depend on how they are encoded, so a bit map gives the same number. Returns ``-1`` when a code falls outside its bins (the caller keeps ``merge_vars``).
+    """
+    n = base_classes.shape[0]
+    words = (span + 63) >> 6
+    bits = np.zeros(words, dtype=np.uint64)
+    for i in range(n):
+        key = np.int64(base_classes[i])
+        for k in range(vars_indices.shape[0]):
+            v = vars_indices[k]
+            code = np.int64(factors_data[i, v])
+            if code < 0 or code >= factors_nbins[v]:
+                return -1
+            key = key * factors_nbins[v] + code
+        if key >= span:
+            return -1
+        bits[key >> 6] |= np.uint64(1) << np.uint64(key & 63)
+    total = 0
+    for w in range(words):
+        x = bits[w]
+        x = x - ((x >> np.uint64(1)) & np.uint64(0x5555555555555555))
+        x = (x & np.uint64(0x3333333333333333)) + ((x >> np.uint64(2)) & np.uint64(0x3333333333333333))
+        x = (x + (x >> np.uint64(4))) & np.uint64(0x0F0F0F0F0F0F0F0F)
+        total += np.int64((x * np.uint64(0x0101010101010101)) >> np.uint64(56))
+    return total
 
 
 def _conditioning_rows_per_cell(ctx, X: tuple) -> float:
@@ -91,16 +127,25 @@ def _conditioning_rows_per_cell(ctx, X: tuple) -> float:
             ctx._z_merge_cache = (z_key, z_classes, z_nclasses)
         else:
             z_classes, z_nclasses = np.zeros(n_samples, dtype=np.int32), 1
-        _, _, n_nonempty_cells = merge_vars(
-            factors_data=factors_data,
-            vars_indices=xy_indices,
-            var_is_nominal=None,
-            factors_nbins=ctx.factors_nbins,
-            dtype=np.int32,
-            current_nclasses=z_nclasses,
-            final_classes=z_classes.copy(),
-            verbose=False,
-        )
+        n_nonempty_cells = -1
+        span = int(z_nclasses)
+        for c in xy_indices:
+            span *= int(ctx.factors_nbins[c])
+        if 0 < span <= _MAX_CELL_SPAN and factors_data.ndim == 2:
+            n_nonempty_cells = _occupied_cells_over(
+                np.ascontiguousarray(z_classes, dtype=np.int32), factors_data, np.asarray(xy_indices, dtype=np.int64), np.asarray(ctx.factors_nbins, dtype=np.int64), span
+            )
+        if n_nonempty_cells < 0:
+            _, _, n_nonempty_cells = merge_vars(
+                factors_data=factors_data,
+                vars_indices=xy_indices,
+                var_is_nominal=None,
+                factors_nbins=ctx.factors_nbins,
+                dtype=np.int32,
+                current_nclasses=z_nclasses,
+                final_classes=z_classes.copy(),
+                verbose=False,
+            )
     except Exception as e:
         # Hot per-candidate path (100-150 calls/round): debug-only, no per-call warning spam.
         logger.debug("conditioning-joint cell count failed, treating as undersampled: %s", e)
