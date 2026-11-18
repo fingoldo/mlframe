@@ -44,10 +44,11 @@ def _needs_gpu():
     return cp
 
 
+@pytest.mark.parametrize("seed", [1, 2])
 @pytest.mark.parametrize("dt,tol", [(np.float32, 1e-5), (np.float64, 1e-12)])
-def test_block_equals_the_numpy_chain(dt, tol):
+def test_block_equals_the_numpy_chain(dt, tol, seed):
     """Every name of the block equals the per-column numpy expression of ``_fourier_col_gpu`` run on numpy arrays."""
-    rng = np.random.default_rng(1)
+    rng = np.random.default_rng(seed)
     xs = rng.standard_normal((5, 4001)).astype(dt)
     metas = _metas(24, 5)
     got = host.fourier_block_host(*_args(xs, metas))
@@ -56,11 +57,12 @@ def test_block_equals_the_numpy_chain(dt, tol):
     np.testing.assert_allclose(got, want, rtol=0, atol=tol)
 
 
+@pytest.mark.parametrize("seed", [2, 3])
 @pytest.mark.parametrize("dt,tol", [(np.float32, 2e-5), (np.float64, 1e-11)])
-def test_block_equals_the_device_kernel(dt, tol):
+def test_block_equals_the_device_kernel(dt, tol, seed):
     """The host twin and the device kernel agree to the rounding of the element type."""
     cp = _needs_gpu()
-    rng = np.random.default_rng(2)
+    rng = np.random.default_rng(seed)
     xs = rng.standard_normal((6, 5003)).astype(dt)
     metas = _metas(32, 6)
     dev = cuda_mod.fourier_block_cuda(cp, [cp.asarray(xs[m["src"]]) for m in metas], metas)

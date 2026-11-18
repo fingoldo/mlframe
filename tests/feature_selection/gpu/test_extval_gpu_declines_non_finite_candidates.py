@@ -21,9 +21,10 @@ def _host_codes(a, bs, ops, nbins):
     return discretize_2d_quantile_batch(np.stack(cols, axis=1), nbins, np.int8)
 
 
-def test_nan_in_an_external_factor_gives_the_host_codes():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_nan_in_an_external_factor_gives_the_host_codes(seed):
     """30% NaN in the external factor: the codes equal the host binner's (NaN to the top bin), for several ops and a second finite factor."""
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     a = rng.normal(size=1000)
     b = rng.normal(size=1000)
     b_nan = b.copy()

@@ -95,11 +95,12 @@ def test_strict_resident_fit_selects_the_same_columns_as_the_cpu_path(monkeypatc
     assert gpu_names == cpu_names
 
 
-def test_device_built_inputs_match_host_built_inputs():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_device_built_inputs_match_host_built_inputs(seed):
     """Unary outputs, fills and winsorisation bounds made on the device give the same scan as the host-built block, including a column with non-positive values (frozen log anchor)."""
     from mlframe.feature_selection.filters._offset_product_gpu import scan_offset_products_device
 
-    r = np.random.default_rng(3)
+    r = np.random.default_rng(seed)
     n = 20000
     cols = [r.random(n), r.random(n) - 0.2, r.random(n), r.random(n)]
     cols[1][::997] = 0.0

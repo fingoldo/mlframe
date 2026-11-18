@@ -19,12 +19,13 @@ except Exception:
 pytestmark = pytest.mark.skipif(not _HAS_DEVICE, reason="needs a CUDA device")
 
 
-def test_device_cmi_with_missing_code_matches_host():
+@pytest.mark.parametrize("seed", [2, 3])
+def test_device_cmi_with_missing_code_matches_host(seed):
     """Device and host CMI agree on candidate codes that contain -1."""
     from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _cmi_from_binned
     from mlframe.feature_selection.filters._mi_greedy_cmi_fe_gpu import _cmi_from_binned_cupy
 
-    rng = np.random.default_rng(2)
+    rng = np.random.default_rng(seed)
     n = 4000
     x = rng.integers(-1, 4, n).astype(np.int64)
     y = rng.integers(0, 3, n).astype(np.int64)

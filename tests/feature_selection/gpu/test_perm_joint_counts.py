@@ -48,11 +48,12 @@ def test_a_table_over_the_shared_memory_limit_is_left_to_the_caller():
     assert K.perm_joint_counts(cp, x, y, 12289) is None
 
 
-def test_the_resident_floor_runs_the_fused_kernel_and_equals_the_njit_floor(monkeypatch):
+@pytest.mark.parametrize("seed", [0, 1])
+def test_the_resident_floor_runs_the_fused_kernel_and_equals_the_njit_floor(seed, monkeypatch):
     """pooled_gain_floor_perms_cupy asks the fused kernel for its tables (it ran) and returns the njit floor to round-off."""
     from mlframe.feature_selection.filters import _permutation_null as P
 
-    rng = np.random.default_rng(3)
+    rng = np.random.default_rng(seed)
     n, ncand, nperm = 3000, 4, 25
     nby = 3
     y = rng.integers(0, nby, n).astype(np.int64)

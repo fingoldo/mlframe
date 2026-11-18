@@ -44,10 +44,11 @@ def _clear_cache():
     _BIN_BOUNDARIES_CACHE.clear()
 
 
-def test_rank_bin_codes_bit_identical_to_cpu_reference_tie_free():
+@pytest.mark.parametrize("seed", [0, 1])
+def test_rank_bin_codes_bit_identical_to_cpu_reference_tie_free(seed):
     """Tie-free column: the GPU rank binner must be BIT-IDENTICAL to _quantile_bin_njit (per the module's
     own bit-identity contract docstring) -- a real regression pin, not previously tested anywhere."""
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(seed)
     x = rng.standard_normal(5000).astype(np.float64)  # continuous -> tie-free w.p. 1
     for nb in (10, 20, 7):
         host_codes = _quantile_bin_njit(x, nb)

@@ -51,12 +51,13 @@ def test_device_moments_reproducible_and_resident_input():
         assert np.array_equal(x, y) and np.array_equal(x, z)
 
 
-def test_dispersion_generator_matches_the_per_pair_host_path(monkeypatch):
+@pytest.mark.parametrize("seed", [5, 6])
+def test_dispersion_generator_matches_the_per_pair_host_path(monkeypatch, seed):
     """Forcing the batched device moments gives the columns of the per-pair host statistic to 1e-9."""
     _needs_gpu()
     from mlframe.feature_selection.filters import _extra_fe_families_dispersion as disp
 
-    rng = np.random.default_rng(5)
+    rng = np.random.default_rng(seed)
     X = pd.DataFrame({f"x{i}": rng.standard_normal(6000) * (1 + i) for i in range(4)})
     X.iloc[::9, 1] = np.nan
     X["x2"] = X["x2"] * (1 + np.abs(X["x0"]))
