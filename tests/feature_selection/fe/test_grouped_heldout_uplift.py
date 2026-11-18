@@ -52,3 +52,23 @@ def test_a_clean_source_does_not_pass_the_held_out_test():
         X, y = _frame(seed, 0.01)
         z = float(_mean_row(_score(X, y, heldout=True)).heldout_z)
         assert z < _BAR, f"seed {seed}: z {z:.2f} not below {_BAR}"
+
+
+def test_an_independent_source_and_target_stay_below_the_bar():
+    """Pure null: the source and the target are both independent of the groups, so no aggregate carries information about the target. The median held-out z stays below the bar for several data seeds and group counts (MR11-95)."""
+    from mlframe.feature_selection.filters import _grouped_agg_heldout_uplift as heldout
+
+    n = 6000
+    for groups in (4, 12):
+        for seed in (1, 2, 3):
+            rng = np.random.default_rng(seed)
+            region = rng.integers(0, groups, n)
+            x = rng.normal(size=n)
+            y = rng.integers(0, 2, n).astype(np.int64)
+            X = pd.DataFrame({"region": region, "x": x})
+            enc, _raw = generate_grouped_agg_features(X, ["region"], ["x"], stats=("mean",))
+            agg = enc[next(c for c in enc.columns if c.startswith("grpagg_mean"))].to_numpy()
+            fine = heldout.source_fine_bins(x)
+            zs = [heldout.heldout_marginal_gain(agg, x, y, (i := np.random.default_rng(s).permutation(n))[: n // 2], i[n // 2 :], fine=fine)[1] for s in range(25)]
+            z = float(np.median(zs))
+            assert z < _BAR, f"groups {groups} seed {seed}: median z {z:.2f} on an independent source"
