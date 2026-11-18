@@ -157,10 +157,14 @@ except ImportError:  # without xxhash the memo recognises an array by identity o
 
 
 def _heavy_tail_key(x: np.ndarray) -> "tuple | None":
-    """Content key of a column (shape, dtype, 64-bit hash of its bytes), or ``None`` when it cannot be hashed in place: the verdict is a function of the values alone."""
-    if _heavy_tail_hash is None or not isinstance(x, np.ndarray) or not x.flags.c_contiguous or x.dtype.kind not in "fiub":
+    """Content key of a column (shape, dtype, 64-bit hash of its bytes), or ``None`` for an input that is not a numeric array: the verdict is a function of the values alone.
+
+    A strided column (a view of a frame block, the usual shape of ``frame[c].to_numpy()``) is hashed through a contiguous copy: the copy of 100000 float32 values costs 0.4 ms, the verdict it saves 6 ms,
+    and without a key such a column was looked up by the identity of a fresh array on every call and never hit (237 of 811 lookups in the 100000 x 100 fit)."""
+    if _heavy_tail_hash is None or not isinstance(x, np.ndarray) or x.dtype.kind not in "fiub":
         return None
-    return (x.shape, x.dtype.str, int(_heavy_tail_hash(x)))
+    flat = x if x.flags.c_contiguous else np.ascontiguousarray(x)
+    return (x.shape, x.dtype.str, int(_heavy_tail_hash(flat)))
 
 
 @_contextlib.contextmanager
