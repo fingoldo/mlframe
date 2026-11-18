@@ -21,6 +21,7 @@ import os
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.core.shared import median_sorted
 from numba import njit, prange
 
 from mlframe.utils.log_throttle import log_throttle
@@ -61,11 +62,11 @@ _CHUNK = 16  # gate columns walked together: one row of a chunk is a 64-byte cac
 
 @njit(cache=True, nogil=True)
 def _column_median(mat: np.ndarray, g: int) -> float:
-    """Median of column ``g`` (a contiguous copy, then ``np.median``)."""
+    """Median of column ``g`` (a contiguous copy, then the sort-based median that equals ``np.median`` bit for bit)."""
     col = np.empty(mat.shape[0], dtype=mat.dtype)
     for i in range(mat.shape[0]):
         col[i] = mat[i, g]
-    return float(np.median(col))
+    return float(median_sorted(col))
 
 
 @njit(cache=True, nogil=True)

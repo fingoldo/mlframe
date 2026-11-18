@@ -57,6 +57,6 @@ def test_fit_with_the_relevant_pool_runs_and_keeps_the_strong_column():
     chosen = {}
     for arm in ("all", "relevant"):
         MRMR._FIT_CACHE.clear()
-        m = MRMR(verbose=0, random_seed=0, n_jobs=1, fe_max_steps=0, fe_shape_pool=arm, fe_hinge_enable=True, fe_wavelet_enable=True).fit(X, y)
+        m = MRMR(verbose=0, random_seed=0, n_jobs=1, fe_max_steps=1, fe_shape_pool=arm, fe_hinge_enable=True, fe_wavelet_enable=True).fit(X, y)
         chosen[arm] = list(m.get_feature_names_out())
         assert any("sig_x" in c for c in chosen[arm]), (arm, chosen[arm])

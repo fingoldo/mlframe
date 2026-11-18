@@ -173,16 +173,24 @@ def _ensure_preorder_kernel(max_depth: int, real):
     return k
 
 
-def _ensure_kernel(max_depth: int, real, shared_stack: bool = False):
-    """Compile once per (depth, type, stack placement) under a module lock."""
-    key = (int(max_depth), np.dtype(real).name, bool(shared_stack))
-    with _LOCK:
-        k = _KERNELS.get(key)
-        if k is None:
-            import cupy as cp
+def make_ensure_kernel(source: Any, entry: str, cache: dict, lock: Any) -> Any:
+    """The ``ensure_kernel(max_depth, real, shared_stack)`` compile point of a TreeSHAP table module: compiles ``source(max_depth, real, shared_stack)`` once per (depth, type, stack placement) under ``lock``."""
 
-            k = _KERNELS[key] = cp.RawKernel(kernel_source(max_depth, real, shared_stack), "treeshap_table")
-    return k
+    def ensure_kernel(max_depth: int, real, shared_stack: bool = False):
+        """Compile once per (depth, type, stack placement) under a module lock."""
+        key = (int(max_depth), np.dtype(real).name, bool(shared_stack))
+        with lock:
+            k = cache.get(key)
+            if k is None:
+                import cupy as cp
+
+                k = cache[key] = cp.RawKernel(source(max_depth, real, shared_stack), entry)
+        return k
+
+    return ensure_kernel
+
+
+_ensure_kernel = make_ensure_kernel(kernel_source, "treeshap_table", _KERNELS, _LOCK)
 
 
 def _block_size(max_depth: int = 6) -> int:

@@ -19,6 +19,7 @@ import numpy as np
 from numba import njit, prange
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import _extend_path, _unwound_sum
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table_gpu import make_ensure_kernel
 
 if TYPE_CHECKING:
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import TreeEnsemble
@@ -149,16 +150,7 @@ def kernel(cp, real=np.float32):
     return cp.RawKernel(kernel_source(6, real), "treeshap_interactions_table")
 
 
-def _ensure_kernel(max_depth: int, real, shared_stack: bool = False):
-    """Compile once per (depth, type, stack placement) under a module lock."""
-    key = (int(max_depth), np.dtype(real).name, bool(shared_stack))
-    with _LOCK:
-        k = _KERNELS.get(key)
-        if k is None:
-            import cupy as cp
-
-            k = _KERNELS[key] = cp.RawKernel(kernel_source(max_depth, real, shared_stack), "treeshap_interactions_table")
-    return k
+_ensure_kernel = make_ensure_kernel(kernel_source, "treeshap_interactions_table", _KERNELS, _LOCK)  # compile once per (depth, type, stack placement) under the module lock
 
 
 def interaction_tensor_table_gpu(ensemble: "TreeEnsemble", X: np.ndarray) -> Optional[tuple]:

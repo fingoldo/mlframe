@@ -212,7 +212,8 @@ def _block_stats(
         se = d.std(axis=1) / np.sqrt(mo)
         db = _pointwise(cp, cw, y_odd, mi_bins, ky, bulk) - pm_rb
         mean_b = db.sum(axis=1) / n_bulk_f
-        var_b = cp.maximum((db * db).sum(axis=1) / n_bulk_f - mean_b * mean_b, 0.0)
+        centred = cp.where(bulk, db - mean_b[:, None], 0.0)  # the differences are 0 outside the bulk: centre first, then square
+        var_b = (centred * centred).sum(axis=1) / n_bulk_f
         bulk_gain = cp.where(use_bulk, mean_b, mi_w - mi_r)
         bulk_se = cp.where(use_bulk, cp.sqrt(var_b) / cp.sqrt(n_bulk_f), se)
         out.append(cp.stack([mi_r, mi_w, se, bulk_gain, bulk_se], axis=1))

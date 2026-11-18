@@ -28,20 +28,28 @@ _ENSEMBLES: dict = {}
 _ENSEMBLES_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
-def _ensemble(trees: int):
-    """A flat ensemble of ``trees`` depth-``_DEPTH`` trees (built once per size)."""
-    with _ENSEMBLES_LOCK:
-        ens = _ENSEMBLES.get(trees)
-        if ens is None:
-            import xgboost as xgb
+def make_sweep_ensemble(cache: dict, lock: Any, features: int, depth: int, rows: int) -> Any:
+    """The ``ensemble(trees)`` builder of a tuner module: a flat ensemble of ``trees`` depth-``depth`` trees over ``features`` features, fitted on ``rows`` rows and built once per size in ``cache``."""
 
-            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import extract_ensemble
+    def ensemble(trees: int):
+        """A flat ensemble of ``trees`` trees (built once per size)."""
+        with lock:
+            ens = cache.get(trees)
+            if ens is None:
+                import xgboost as xgb
 
-            rng = np.random.default_rng(0)
-            X = rng.standard_normal((4_000, _FEATURES)).astype(np.float32)
-            y = 1e-3 * (X[:, 0] * 2 + X[:, 1] * X[:, 2] + np.sin(X[:, 3]))  # leaf values of order 1e-3: the float32 kernel's absolute error (about 1e-5 for order-1 leaves) is then ~1e-8, inside the shared 1e-6 sweep tolerance cap, while a wrong kernel is off by the size of phi (~1e-4)
-            ens = _ENSEMBLES[trees] = extract_ensemble(xgb.XGBRegressor(n_estimators=trees, max_depth=_DEPTH, tree_method="hist", verbosity=0, n_jobs=2).fit(X, y))
-        return ens
+                from mlframe.feature_selection.shap_proxied_fs.shared import extract_ensemble
+
+                rng = np.random.default_rng(0)
+                X = rng.standard_normal((rows, features)).astype(np.float32)
+                y = 1e-3 * (X[:, 0] * 2 + X[:, 1] * X[:, 2] + np.sin(X[:, 3]))  # leaf values of order 1e-3: the float32 kernel's absolute error then sits under the shared 1e-6 tolerance cap
+                ens = cache[trees] = extract_ensemble(xgb.XGBRegressor(n_estimators=trees, max_depth=depth, tree_method="hist", verbosity=0, n_jobs=2).fit(X, y))
+            return ens
+
+    return ensemble
+
+
+_ensemble = make_sweep_ensemble(_ENSEMBLES, _ENSEMBLES_LOCK, _FEATURES, _DEPTH, 4_000)
 
 
 def _sweep_inputs(dims: dict) -> tuple:

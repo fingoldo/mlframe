@@ -133,7 +133,7 @@ def _cut_drop(row: np.ndarray, yc: np.ndarray, mean_x: float, sxx: float, sxy: f
             ry += r * yc[i]
     if cnt < min_seg or (n - cnt) < min_seg:
         return -1.0
-    denom = rr - r1 * r1 / n - rx * rx / sxx
+    denom = rr - r1 * r1 / n - rx * rx / sxx  # moment-ok: r is the positive part of x - cut at a central quantile cut, so its mean is of the order of its spread; double precision sums
     sse_h = sse_lin
     if not (denom < floor_var):
         num = ry - rx * sxy / sxx
