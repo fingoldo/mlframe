@@ -47,7 +47,9 @@ def test_two_bin_counts_come_from_one_call_and_match_separate_calls():
     cols = _columns(np.float32)
     both = mod.quantile_codes_columns_device(cols, [10, 60])
     assert len(both) == 2
-    for b, m in zip((10, 60), both):
+    pairs = list(zip((10, 60), both))
+    assert pairs
+    for b, m in pairs:
         assert np.array_equal(m, np.stack([quantile_codes(c, b) for c in cols]))
 
 

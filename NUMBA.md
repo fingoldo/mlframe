@@ -98,7 +98,7 @@ Each signal is a cheap experiment. Rows marked (M) were exercised in miniature o
 | E | branch-bound | sorted or constant input much faster than random | branchless select, sort or partition inputs |
 | F | bounds / error checks | exception-path calls in the inner loop asm | pre-check ranges outside the loop, `error_model='numpy'` |
 | G | parallel, low speed-up | under about 4x at 8 threads; `parallel_diagnostics` shows the loop not parallel or wrongly fused | parallelise the outer loop, bigger tasks |
-| H | parallel, load imbalance | per-thread times unequal (WPA) or `set_parallel_chunksize` beats static | dynamic chunks (tbb), sort by cost |
+| H | parallel, load imbalance | per-thread times unequal (WPA) or a dynamic chunk size beats static | dynamic chunks (tbb), sort by cost |
 | I | parallel, false sharing | efficiency collapses only for adjacent per-thread slots; padding fixes it | pad, accumulate in locals |
 | J | oversubscription | more threads than cores (outer joblib x inner prange); worse than serial | `NUMBA_NUM_THREADS`, one level of parallelism |
 | K | compile in the timed region | `signatures` grows or the `numba:compile` event fires (M) | warm up with identical types and layout |

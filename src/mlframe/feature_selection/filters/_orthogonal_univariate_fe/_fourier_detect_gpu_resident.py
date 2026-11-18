@@ -258,7 +258,7 @@ def _target_side_of_split(y_in: np.ndarray, n: int, cap: int) -> "tuple[np.ndarr
             value = (y_tr_h, y_va_h)
     try:
         ref = weakref.ref(y_in)
-    except TypeError:  # not an array object (a list): computed every time
+    except TypeError:  # best-effort: not an array object (a list), so nothing is remembered and the split is computed every time
         return value
     with _TARGET_SIDE_LOCK:
         _TARGET_SIDE.update({"key": key, "ref": ref, "value": value})

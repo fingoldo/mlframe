@@ -65,7 +65,7 @@ def _pandas_column_array(X: Any, c: Any) -> Any:
         if type(i) is not int:
             return None
         return X._get_column_array(i)
-    except _column_lookup_errors():  # absent or unhashable name, a non-unique index, a frame without the accessor: the caller reads ``X[c]``
+    except _column_lookup_errors():  # best-effort: absent or unhashable name, a non-unique index or a frame without the accessor; the caller then reads ``X[c]``
         return None
 
 

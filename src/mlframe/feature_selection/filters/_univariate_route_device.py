@@ -40,7 +40,7 @@ def _upload_columns(cp: Any, columns: list, dtype: Any) -> Any:
 
         fits = need <= _BLOCK_UPLOAD_FRACTION * device_room(cp)
     except Exception as exc:
-        log_throttle(logger, "univariate_route_device_room", logging.DEBUG, "device room unknown (%s: %s); column-by-column upload", type(exc).__name__, exc)
+        log_throttle(logger, "univariate_route_device_room", logging.WARNING, "device room unknown (%s: %s); column-by-column upload", type(exc).__name__, exc)
         fits = False
     if fits and k > 1:
         rows = np.empty((k, n), dtype=dtype)

@@ -43,6 +43,7 @@ def test_numpy_backed_column_is_a_read_only_view_of_the_frame(frame: pd.DataFram
 
 def test_numeric_test_equals_pandas(frame: pd.DataFrame) -> None:
     """The dtype-only numeric test agrees with ``is_numeric_dtype`` on every column and is false for an absent one."""
+    assert len(frame.columns) > 0
     for c in frame.columns:
         assert fe_column_is_numeric(frame, c) == pd.api.types.is_numeric_dtype(frame[c]), c
     assert not fe_column_is_numeric(frame, "absent")

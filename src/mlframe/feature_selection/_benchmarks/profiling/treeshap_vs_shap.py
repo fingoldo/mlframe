@@ -43,16 +43,16 @@ def main(argv: "list[str] | None" = None) -> int:
     ens = extract_ensemble(model)
     assert ens is not None
 
-
     def best(fn, repeats):
         fn()
+        cp.cuda.Device().synchronize()
         out = []
         for _ in range(repeats):
             t0 = time.perf_counter()
             fn()
+            cp.cuda.Device().synchronize()  # the timer stops at completion, not at the launch
             out.append(time.perf_counter() - t0)
         return min(out)
-
 
     def sync(fn):
         def run():
@@ -61,7 +61,6 @@ def main(argv: "list[str] | None" = None) -> int:
             return r
 
         return run
-
 
     explainer = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
     runs = {
@@ -84,13 +83,11 @@ def main(argv: "list[str] | None" = None) -> int:
     scale = float(np.abs(ref).mean())
     rank_ref = np.argsort(-np.abs(ref).mean(0))
 
-
     def ranks(a):
         order = np.argsort(-np.abs(a).mean(0))
         r = np.empty(len(order))
         r[order] = np.arange(len(order))
         return r
-
 
     rr = ranks(ref)
     base = float(ens.base_offset)

@@ -355,6 +355,7 @@ class _ColumnCache:
         cols = list(dict.fromkeys(num_cols))
         self._rows: dict = {}
         self._digests: dict = {}
+        self._lock = threading.Lock()
         if cols and len(cols) * len(X) * dtype.itemsize <= _COLUMN_CACHE_MAX_BYTES:
             mat = fe_stack_rows([fe_column_values(X, c) for c in cols], dtype)
             self._rows = {c: mat[j] for j, c in enumerate(cols)}
@@ -365,12 +366,29 @@ class _ColumnCache:
 
     def digest(self, col: str, x: np.ndarray) -> str:
         """The content hash of column ``col`` (whose values are ``x``)."""
-        hit = self._digests.get(col)
-        if hit is None:
-            from mlframe.utils.disk_cache import hash_array_content
+        from mlframe.utils.disk_cache import hash_array_content
 
-            hit = self._digests[col] = hash_array_content(np.ascontiguousarray(x))
+        with self._lock:
+            hit = self._digests.get(col)
+            if hit is None:
+                hit = self._digests[col] = hash_array_content(np.ascontiguousarray(x))
         return str(hit)
+
+
+def _residual_recipe(group_cols: Sequence[str], num_col: str, op: str, lookup_mean: Any, lookup_std: Any, global_mean: float, global_std: float) -> dict:
+    """The replay recipe of a residual column (``z_within`` or ``ratio``): both read the per-group mean and std tables and the pooled values."""
+    return {
+        "group_cols": tuple(group_cols),
+        "num_col": num_col,
+        "stat": "mean",
+        "op": op,
+        "group_lookup_dict": lookup_mean,
+        "global_value": global_mean,
+        "lookup_mean": lookup_mean,
+        "lookup_std": lookup_std,
+        "global_mean": global_mean,
+        "global_std": global_std if global_std > 0.0 else 1.0,
+    }
 
 
 def _emit_num_col_features(
@@ -492,18 +510,7 @@ def _emit_num_col_features(
         ).astype(x.dtype, copy=False)
     z_name = engineered_name_composite_z(num_col, group_cols)
     encoded[z_name] = zscore
-    raw_recipes[z_name] = {
-        "group_cols": tuple(group_cols),
-        "num_col": num_col,
-        "stat": "mean",
-        "op": "z_within",
-        "group_lookup_dict": lookup_mean,
-        "global_value": global_mean,
-        "lookup_mean": lookup_mean,
-        "lookup_std": lookup_std,
-        "global_mean": global_mean,
-        "global_std": global_std if global_std > 0.0 else 1.0,
-    }
+    raw_recipes[z_name] = _residual_recipe(group_cols, num_col, "z_within", lookup_mean, lookup_std, global_mean, global_std)
 
     # ---- ratio-to-composite-group residual ----
     if ratio_fast is not None:
@@ -513,18 +520,7 @@ def _emit_num_col_features(
         ratio = np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0).astype(x.dtype, copy=False)
     r_name = engineered_name_composite_ratio(num_col, group_cols)
     encoded[r_name] = ratio
-    raw_recipes[r_name] = {
-        "group_cols": tuple(group_cols),
-        "num_col": num_col,
-        "stat": "mean",
-        "op": "ratio",
-        "group_lookup_dict": lookup_mean,
-        "global_value": global_mean,
-        "lookup_mean": lookup_mean,
-        "lookup_std": lookup_std,
-        "global_mean": global_mean,
-        "global_std": global_std if global_std > 0.0 else 1.0,
-    }
+    raw_recipes[r_name] = _residual_recipe(group_cols, num_col, "ratio", lookup_mean, lookup_std, global_mean, global_std)
 
 
 _FRAME_CHUNK_COLUMNS = 128

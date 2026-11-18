@@ -107,7 +107,7 @@ class TreeExplainer:
         try:
             classes = getattr(est, "classes_", None)
             return classes is None or len(classes) <= 2
-        except TypeError:  # ``classes_`` without a length: not the single-margin case
+        except TypeError:  # best-effort: ``classes_`` without a length is not the single-margin case
             return False
 
     def _catboost_backend(self) -> str:
