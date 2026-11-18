@@ -128,6 +128,33 @@ def _su_code_column(col: np.ndarray, n_bins: int) -> tuple:
     return binned, int(binned.max()) + 1
 
 
+def _su_codes_device(X_dev, n_bins: int) -> tuple:
+    """Device twin of the SU quantiser (:func:`_su_codes_of_finite_columns`) for an all-finite ``(n, k)`` device matrix: ``(codes, nbins)`` as device arrays.
+
+    The codes come from the shared device quantile coder (equal to the host quantiser for every column with three or more distinct quantile edges). The SU rule for the
+    rest is: fewer than three distinct quantile edges -> one class. The device coder keeps one split for a two-valued column, so those columns are set to one class here,
+    with the distinct-edge count taken from the same interpolated edges the coder uses. Nothing is changed in the shared coder.
+    """
+    import cupy as cp
+
+    from ._mi_greedy_cmi_fe_binning import _sync_free_qbin_codes_matrix
+
+    n = int(X_dev.shape[0])
+    codes = _sync_free_qbin_codes_matrix(cp, X_dev, int(n_bins))
+    xs = cp.sort(X_dev, axis=0)
+    pos = cp.linspace(0.0, 100.0, int(n_bins) + 1) / 100.0 * (n - 1)
+    lo = cp.floor(pos).astype(cp.int64)
+    hi = cp.minimum(lo + 1, n - 1)
+    frac = pos - lo
+    diff = xs[hi] - xs[lo]
+    edges = cp.where(frac[:, None] >= 0.5, xs[hi] - diff * (1 - frac)[:, None], xs[lo] + diff * frac[:, None])
+    distinct = 1 + (edges[1:] != edges[:-1]).sum(axis=0)
+    one_class = distinct < 3
+    codes = cp.where(one_class[None, :], 0, codes)
+    nbins = cp.where(one_class, 1, codes.max(axis=0) + 1)
+    return codes, nbins
+
+
 def _quantize_for_su(X) -> tuple:
     """Quantize a DataFrame / ndarray into integer bin codes the same
     way the L47 calibration test does, so the resulting ``factors_data``
@@ -169,14 +196,35 @@ def _quantize_for_su(X) -> tuple:
     nbins = np.empty(p, dtype=np.int64)
     # a block of columns is binned together by the parallel block quantiser; the block holds at most 128 MB of values
     block = max(1, (128 << 20) // (np.dtype(_crit_np_dtype()).itemsize * max(n, 1)))
+    use_device = _su_device_enabled(n, p)
     for j0 in range(0, p, block):
         cols_block = [get(ci) for ci in range(j0, min(p, j0 + block))]
+        if use_device and all(np.isfinite(c).all() for c in cols_block):
+            try:
+                import cupy as cp
+
+                codes_dev, nb_dev = _su_codes_device(cp.asarray(np.column_stack(cols_block)), n_bins)
+                factors_data[:, j0 : j0 + len(cols_block)] = cp.asnumpy(codes_dev).astype(factors_data.dtype, copy=False)
+                nbins[j0 : j0 + len(cols_block)] = cp.asnumpy(nb_dev).astype(np.int64)
+                continue
+            except Exception:
+                log_throttle(logger, "su_quantise_device", logging.WARNING, "SU quantiser: device binning failed, quantising on the CPU", exc_info=True)
         pre = _su_codes_of_finite_columns(cols_block, n_bins)
         for k, col in enumerate(cols_block):
             binned, nb = pre[k] if pre[k] is not None else _su_code_column(col, n_bins)
             factors_data[:, j0 + k] = binned
             nbins[j0 + k] = nb
     return factors_data, nbins, names
+
+
+def _su_device_enabled(n: int, p: int) -> bool:
+    """Whether the SU quantiser bins on the device: the KTC-backed FE binning gate, which also honours the global GPU kill switch."""
+    try:
+        from ._feature_engineering_pairs._pairs_gpu_gates import _fe_gpu_binning_enabled
+
+        return bool(_fe_gpu_binning_enabled(int(n), int(p)))
+    except Exception:
+        return False
 
 
 def _resolve_anchor_indices(anchor_names: list, name_to_idx: dict) -> dict:
