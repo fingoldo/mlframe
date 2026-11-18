@@ -258,7 +258,7 @@ def _launch_shape(k_total: int, m_cells: int) -> "tuple[int, int]":
     return tile, tile * max(1, _FUSED_THREADS // tile) if tile else 0
 
 
-def _fused_observed_mi_and_bins(device_codes: Any, yc: np.ndarray, ky: int) -> "Optional[tuple[np.ndarray, np.ndarray]]":
+def _fused_observed_mi_and_bins(device_codes: Any, yc: np.ndarray, ky: int, code_bound: Optional[int] = None) -> "Optional[tuple[np.ndarray, np.ndarray]]":
     """Fused single-pass observed MI + occupied bins over an int8 ``(n, K)`` resident matrix, or ``None`` when the shape / dtype is outside what the kernel
     covers (the caller then takes the generic path)."""
     import cupy as cp
@@ -267,10 +267,15 @@ def _fused_observed_mi_and_bins(device_codes: Any, yc: np.ndarray, ky: int) -> "
         return None
     n, k_total = int(device_codes.shape[0]), int(device_codes.shape[1])
     codes = cp.ascontiguousarray(device_codes)
-    lo, hi = _minmax_i8(cp, codes) if codes.size else (0, 0)  # one pass, one read: every code must sit inside its histogram
-    if lo < 0:
-        return None
-    kx = hi + 1
+    if code_bound is None:
+        lo, hi = _minmax_i8(cp, codes) if codes.size else (0, 0)  # one pass, one read: every code must sit inside its histogram
+        if lo < 0:
+            return None
+        kx = hi + 1
+    else:
+        # The codes are the quantile binner's output, so each lies in [0, code_bound): the launch is sized from the bound and needs no device read.
+        # Empty histogram cells add nothing to the plug-in MI and the occupied-bin count is read from the histogram, so the outputs are unchanged.
+        kx = int(code_bound)
     if yc.size and int(yc.min()) < 0:
         # A negative target code would index the shared histogram below zero (into a neighbouring column's cells); the generic path handles it.
         return None
@@ -309,7 +314,7 @@ def _fused_observed_mi_and_bins(device_codes: Any, yc: np.ndarray, ky: int) -> "
     return np.asarray(both[:k_total], dtype=np.float64), both[k_total:].astype(np.int64)  # Intentional float64: MI statistic output compared at full precision
 
 
-def resident_observed_mi_and_bins(device_codes: Any, classes_y: np.ndarray, by: int) -> "tuple[np.ndarray, np.ndarray]":
+def resident_observed_mi_and_bins(device_codes: Any, classes_y: np.ndarray, by: int, code_bound: Optional[int] = None) -> "tuple[np.ndarray, np.ndarray]":
     """Observed plug-in MI (nats) and occupied-bin count of every column of the resident ``(n, K)`` code matrix, against the target codes ``classes_y``.
 
     An int8 matrix goes through the fused single-pass kernel; anything else (or a histogram too large for shared memory) takes the generic block-wise path.
@@ -321,7 +326,7 @@ def resident_observed_mi_and_bins(device_codes: Any, classes_y: np.ndarray, by: 
 
     yc = np.ascontiguousarray(classes_y, dtype=np.int64).ravel()
     try:
-        fused = _fused_observed_mi_and_bins(device_codes, yc, int(by))
+        fused = _fused_observed_mi_and_bins(device_codes, yc, int(by), code_bound)
     except Exception as e:  # best-effort: the generic block-wise path computes the same observed MI and occupied bins
         logger.debug("fused observed-MI kernel failed, using the generic path: %s", e)
         fused = None
@@ -342,12 +347,12 @@ def resident_observed_mi_and_bins(device_codes: Any, classes_y: np.ndarray, by: 
     return observed, bins
 
 
-def resident_analytic_gate(device_codes: Any, classes_y: np.ndarray, by: int, n_rows: int, min_nonzero_confidence: float) -> Optional[np.ndarray]:
+def resident_analytic_gate(device_codes: Any, classes_y: np.ndarray, by: int, n_rows: int, min_nonzero_confidence: float, code_bound: Optional[int] = None) -> Optional[np.ndarray]:
     """``fe_mi[K]`` of the analytic noise gate computed from resident codes, or ``None`` on any device fault so the caller keeps the host path."""
     try:
         from .._analytic_mi_null import analytic_batch_noise_gate, pair_gate_min_n
 
-        observed, bins = resident_observed_mi_and_bins(device_codes, classes_y, by)
+        observed, bins = resident_observed_mi_and_bins(device_codes, classes_y, by, code_bound)
         return analytic_batch_noise_gate(None, observed, classes_y, int(n_rows), float(min_nonzero_confidence), bx_per_col=bins, by=int(by), min_n=pair_gate_min_n())
     except Exception as e:
         logger.warning("resident analytic noise gate failed, using the host path: %s", e)
