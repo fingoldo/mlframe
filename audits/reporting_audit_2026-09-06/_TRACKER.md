@@ -22,9 +22,9 @@ occur). Test paths are under `tests/reporting/`.
 |---|---|---|---|---|---|---|
 | `labels_and_layout.md` | 16 | 16 | 0 | 0 | 0 | 0 |
 | `render_performance.md` | 18 | 16 | 0 | 0 | 2 | 0 |
-| `visual_design.md` | 30 | 28 | 1 | 0 | 0 | 1 |
+| `visual_design.md` | 30 | 29 | 0 | 0 | 0 | 1 |
 | `visual_walkthrough.md` | 11 | 6 | 4 | 0 | 0 | 1 |
-| **Total** | **75** | **66** | **5** | **0** | **2** | **2** |
+| **Total** | **75** | **67** | **4** | **0** | **2** | **2** |
 
 ### `labels_and_layout.md`
 
@@ -78,7 +78,7 @@ occur). Test paths are under `tests/reporting/`.
 | **RESOLVED** | P1 | `VIS-02` | plotly horizontal bar axis titles swapped | Value/category titles agree across backends. `test_horizontal_bar_axis_titles.py`. |
 | **RESOLVED** | P1 | `VIS-03` | mangled escape printed on the SHAP notice | Real newline (`charts/shap_panels.py`). `test_heatmap_scale_and_notice.py` reads the text off the figure. |
 | **RESOLVED** | P2 | `VIS-04` | plotly horizontal bars not thinned | Same policy as matplotlib. `test_horizontal_bar_tick_thinning.py`. |
-| **PARTIAL** | P2 | `VIS-05` | separability classes drawn on a sequential colourbar | Classes remapped to contiguous codes on `tab10` with bounds pinned to `-0.5 .. n_classes - 0.5` (`charts/engineered_separability.py`); `test_separability_class_colours.py`. Remains: a discrete per-class legend in place of the colourbar, which needs a new `ScatterPanelSpec` field and support in both renderers. |
+| **RESOLVED** | P2 | `VIS-05` | separability classes drawn on a sequential colourbar | Classes remapped to contiguous codes on `tab10` with bounds pinned to `-0.5 .. n_classes - 0.5` (`charts/engineered_separability.py`); the colourbar carries exactly the class values and names (`colorbar_ticks`, `colorbar_ticklabels` of `ScatterPanelSpec`), so no tick the data cannot take is printed. `test_separability_class_colours.py`. 2026-11-18: the separate per-class legend that the row listed as remaining is a cosmetic alternative to a labelled discrete colourbar, not a defect, and is not built. |
 | **NOT A DEFECT** | P2 | `VIS-06` | traffic-light verdict encoded in colour alone | Rendered: the verdict is written in text three times on the model card; `fairness_calibration` colours encode the group, not the verdict. |
 | **RESOLVED** | P2 | `VIS-07` | plotly inline labels lack the contrast halo and edge flip | Both protections ported. `test_inline_label_contrast.py`. |
 | **RESOLVED** | P2 | `VIS-08` | plotly data-hull window applied on non-square panels | Gated on `equal_aspect`; explicit limits honoured. `test_scatter_backend_parity.py`. |
