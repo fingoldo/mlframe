@@ -466,7 +466,8 @@ def _product_mi_blocked_many(cp: Any, raw_X: pd.DataFrame, specs: Sequence[dict]
 
 def _product_mi_blocked(cp: Any, raw_X: pd.DataFrame, specs: Sequence[dict], y: Any, nbins: int, basis: str) -> np.ndarray:
     """Plug-in MI of every product column of ``specs`` against the one target ``y`` (see :func:`_product_mi_blocked_many`)."""
-    return _product_mi_blocked_many(cp, raw_X, specs, [y], nbins, basis)[0]
+    row: np.ndarray = np.asarray(_product_mi_blocked_many(cp, raw_X, specs, [y], nbins, basis)[0])
+    return row
 
 
 def product_mi_many_targets_resident(
