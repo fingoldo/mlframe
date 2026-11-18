@@ -81,6 +81,8 @@ SEED = 42
 # per feature (against ~30 for the plain recursion), which is 1.7M interpreted ``_entropy_from_counts_njit``
 # calls once JIT is off -- 97% of the wall time, and exactly the kernel body the nightly exists to cover.
 FIT_TIMEOUT = int(perf_time_budget(300))
+# The n-sweep reaches 50000 rows, where one default fit of the 5-column case measured 458 s standalone (MR11-72); the budget covers that with margin. Only the sweep carries it, the other cases keep FIT_TIMEOUT.
+NSWEEP_FIT_TIMEOUT = int(perf_time_budget(900))
 
 
 def _warm_up_numba_kernels() -> None:
@@ -1104,7 +1106,7 @@ _NSWEEP_FORMULAS = ["ws1_easy_ratio_sqr", "F2_easy_two_pairs_marginal_zero_guard
 _NSWEEP_NS = [1000, 5000, 20000, 50000]
 
 
-@pytest.mark.timeout(FIT_TIMEOUT)
+@pytest.mark.timeout(NSWEEP_FIT_TIMEOUT)
 @pytest.mark.parametrize("formula", _NSWEEP_FORMULAS)
 @pytest.mark.parametrize("n", _NSWEEP_NS)
 def test_create_keep_drop_nsweep(formula, n):
