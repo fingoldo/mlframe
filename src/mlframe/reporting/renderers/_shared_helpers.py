@@ -54,6 +54,23 @@ def sparse_category_limits(n_categories: int) -> Optional[tuple]:
     return centre - MIN_CATEGORY_SLOTS / 2.0, centre + MIN_CATEGORY_SLOTS / 2.0
 
 
+TITLE_MAX_LINES = 3  # a panel title that needs more lines than this gets a smaller font, and a warning if even the smallest does not fit
+TITLE_MIN_FONTSIZE = 7
+
+
+def fit_title_lines(text: Any, *, fontsize: float, width_in: float, fallback_chars: int = 90) -> tuple:
+    """``(lines, fontsize)`` of a panel title wrapped to ``width_in`` inches in at most ``TITLE_MAX_LINES`` lines.
+
+    A title that carries statistics must keep every one of them, so the budget is met by stepping the font down (one point at a time, to ``TITLE_MIN_FONTSIZE``) rather than by cutting words. When the
+    smallest font still needs more lines the text is returned as wrapped at that size, and the caller is told by the length of the list."""
+    size = float(fontsize)
+    lines = wrap_text_to_width(text, fontsize=size, width_in=width_in, fallback_chars=fallback_chars)
+    while len(lines) > TITLE_MAX_LINES and size - 1.0 >= TITLE_MIN_FONTSIZE:
+        size -= 1.0
+        lines = wrap_text_to_width(text, fontsize=size, width_in=width_in, fallback_chars=fallback_chars)
+    return lines, size
+
+
 def network_label_indices(node_size: np.ndarray, max_labels: int = _NETWORK_MAX_LABELS) -> List[int]:
     """Indices of the nodes worth labelling: the ``max_labels`` largest, in drawing order."""
     sizes = np.asarray(node_size, dtype=float).ravel()
