@@ -13,7 +13,7 @@ from numba import njit
 
 from ._fe_gain_stats import plugin_mi_of_codes, pointwise_mi
 
-_FINE_BINS = 256  # fine equal-frequency bins of the source the partition is cut from
+_FINE_BINS = 1024  # fine equal-frequency bins of the source the partition is cut from
 _MAX_LEVELS = 64  # cap of the intervals of the partition (the dynamic programme costs levels x fine bins squared x classes)
 
 

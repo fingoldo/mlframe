@@ -5,7 +5,6 @@ A noisy copy of a group key carries information its source lacks, so its aggrega
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from mlframe.feature_selection.filters._grouped_agg_fe import generate_grouped_agg_features, score_grouped_agg_by_cmi_uplift
 
@@ -47,7 +46,6 @@ def test_a_noisy_copy_of_the_key_passes_the_held_out_test():
         assert z >= _BAR, f"seed {seed}: z {z:.2f} below {_BAR}"
 
 
-@pytest.mark.xfail(strict=True, reason="clean-key median z is 2.9 on seed 1 at 256 fine bins (MR11-88): the bar of 2.326 sits inside the clean-key distribution, so the flagged test does not yet separate the cases")
 def test_a_clean_source_does_not_pass_the_held_out_test():
     """A clean source identifies the groups, so the aggregate adds nothing: z stays below the bar."""
     for seed in (1, 7, 13):
