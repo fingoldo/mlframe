@@ -129,7 +129,8 @@ def _variants(base_src: str) -> dict:
         v[f"base_rreg{r}"] = (base_src, (f"--maxrregcount={r}",), 128, True)
     decl = "    int i = blockIdx.x * blockDim.x + threadIdx.x;"
     row = base_src.replace(_X_FEATURE_MAJOR[0], _X_FEATURE_MAJOR[1]).replace(decl, decl + " const float* xi = X + (long long)i * f;", 1)
-    assert row != base_src
+    if row == base_src:
+        raise RuntimeError("the feature-major edit of the kernel source matched nothing")
     v["xrow_b128"] = (row, (), 128, False)
     v["aos_b128"] = (None, (), 128, True)
     v["pre_b128"] = (None, (), 128, True)
