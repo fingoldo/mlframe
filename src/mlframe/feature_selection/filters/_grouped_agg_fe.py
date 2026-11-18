@@ -334,6 +334,9 @@ def grouped_agg_with_recipes(
 # CMI-uplift scorer / gate
 # ---------------------------------------------------------------------------
 
+_HELDOUT_SPLITS = 25  # row splits whose median z is the held-out statistic (one split is unstable, MR11-87)
+
+
 def score_grouped_agg_by_cmi_uplift(
     raw_X: pd.DataFrame,
     eng_X: pd.DataFrame,
@@ -430,12 +433,22 @@ def score_grouped_agg_by_cmi_uplift(
     if heldout_uplift and y_bin.size > 1:
         from ._grouped_agg_heldout_uplift import heldout_marginal_gain
 
-        perm = np.random.default_rng(0).permutation(y_bin.size)  # the split is fixed: the verdict must not depend on the call order
-        fit_rows, eval_rows = perm[: y_bin.size // 2], perm[y_bin.size // 2 :]
+        from ._grouped_agg_heldout_uplift import source_fine_bins
+
+        source_bins: dict = {}
+        # the z is the MEDIAN over fixed row splits (seeds 0..24): one split is unstable (a partition fitted on a single half can lose to the aggregate on the other), the median is not
+        splits = []
+        for seed in range(_HELDOUT_SPLITS):
+            perm = np.random.default_rng(seed).permutation(y_bin.size)
+            splits.append((perm[: y_bin.size // 2], perm[y_bin.size // 2 :]))
         for col in eng_X.columns:
             src = eng_to_source.get(col)
             if src and src in raw_X.columns:
-                heldout[col] = heldout_marginal_gain(eng_X[col].to_numpy(), raw_X[src].to_numpy(), y_bin, fit_rows, eval_rows)[1]
+                fine = source_bins.get(src)
+                if fine is None:
+                    fine = source_bins[src] = source_fine_bins(raw_X[src].to_numpy())  # the fine bins do not depend on the split: once per source
+                zs = [heldout_marginal_gain(eng_X[col].to_numpy(), raw_X[src].to_numpy(), y_bin, fit_rows, eval_rows, fine=fine)[1] for fit_rows, eval_rows in splits]
+                heldout[col] = float(np.median(zs))
     for col in eng_X.columns:
         src = eng_to_source.get(col)
         smi = _source_mi(src) if src else 0.0

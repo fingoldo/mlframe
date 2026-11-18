@@ -13,7 +13,7 @@ from numba import njit
 
 from ._fe_gain_stats import plugin_mi_of_codes, pointwise_mi
 
-_FINE_BINS = 1024  # fine equal-frequency bins of the source the partition is cut from
+_FINE_BINS = 256  # fine equal-frequency bins of the source the partition is cut from
 _MAX_LEVELS = 64  # cap of the intervals of the partition (the dynamic programme costs levels x fine bins squared x classes)
 
 
@@ -71,7 +71,14 @@ def _mm_mi(codes: np.ndarray, k: int, y: np.ndarray, ky: int) -> float:
     return plugin_mi_of_codes(codes, int(k), y, int(ky)) - float(max(kx - 1, 0) * max(kc - 1, 0)) / (2.0 * n)
 
 
-def heldout_marginal_gain(agg: np.ndarray, source: np.ndarray, y_bin: np.ndarray, fit_rows: np.ndarray, eval_rows: np.ndarray) -> tuple:
+def source_fine_bins(source: np.ndarray) -> np.ndarray:
+    """The fine equal-frequency bins of a source (independent of the row split: computed once per source for a set of splits)."""
+    from ._mi_greedy_cmi_fe import quantile_bin_columns
+
+    return quantile_bin_columns(np.asarray(source, dtype=np.float64)[:, None], _FINE_BINS)[0]  # Intentional float64: source bins
+
+
+def heldout_marginal_gain(agg: np.ndarray, source: np.ndarray, y_bin: np.ndarray, fit_rows: np.ndarray, eval_rows: np.ndarray, fine: "np.ndarray | None" = None) -> tuple:
     """``(gain, z)`` of the aggregate over the best same-cardinality partition of its source, the partition fitted on ``fit_rows`` and both sides measured on ``eval_rows``.
 
     ``gain`` is ``MI_mm(agg) - MI_mm(partition)`` on the evaluation rows and ``z`` its value divided by the standard error of the paired per-row difference of pointwise MI. Returns
@@ -84,7 +91,8 @@ def heldout_marginal_gain(agg: np.ndarray, source: np.ndarray, y_bin: np.ndarray
     if lv < 2 or fit_rows.size == 0 or eval_rows.size == 0:
         return float("nan"), float("nan")
     ky = int(y_bin.max()) + 1
-    fine = quantile_bin_columns(np.asarray(source, dtype=np.float64)[:, None], _FINE_BINS)[0]  # Intentional float64: source bins
+    if fine is None:
+        fine = source_fine_bins(source)
     cnt = np.zeros((int(fine.max()) + 1, ky), dtype=np.int64)
     np.add.at(cnt, (fine[fit_rows], y_bin[fit_rows]), 1)
     cuts = _best_interval_cuts(cnt, lv)

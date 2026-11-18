@@ -39,7 +39,6 @@ def test_the_default_scorer_keeps_its_columns():
     assert list(df.columns) == ["engineered_col", "source_col", "cmi", "source_mi", "uplift"]
 
 
-@pytest.mark.xfail(strict=True, reason="held-out z depends on the split seed (MR11-87): the same data gives z from -31 to +23 across split seeds, so the flagged test is not yet a gate")
 def test_a_noisy_copy_of_the_key_passes_the_held_out_test():
     """The group mean of a noisy copy of the key is significantly better than its source (z above the bar) on several seeds."""
     for seed in (1, 7, 13):
@@ -48,7 +47,7 @@ def test_a_noisy_copy_of_the_key_passes_the_held_out_test():
         assert z >= _BAR, f"seed {seed}: z {z:.2f} below {_BAR}"
 
 
-@pytest.mark.xfail(strict=True, reason="held-out z depends on the split seed (MR11-87): the same data gives z from -31 to +23 across split seeds, so the flagged test is not yet a gate")
+@pytest.mark.xfail(strict=True, reason="clean-key median z is 2.9 on seed 1 at 256 fine bins (MR11-88): the bar of 2.326 sits inside the clean-key distribution, so the flagged test does not yet separate the cases")
 def test_a_clean_source_does_not_pass_the_held_out_test():
     """A clean source identifies the groups, so the aggregate adds nothing: z stays below the bar."""
     for seed in (1, 7, 13):
