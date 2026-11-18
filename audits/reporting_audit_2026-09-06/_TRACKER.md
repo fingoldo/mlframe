@@ -23,8 +23,8 @@ occur). Test paths are under `tests/reporting/`.
 | `labels_and_layout.md` | 16 | 16 | 0 | 0 | 0 | 0 |
 | `render_performance.md` | 18 | 16 | 0 | 0 | 2 | 0 |
 | `visual_design.md` | 30 | 29 | 0 | 0 | 0 | 1 |
-| `visual_walkthrough.md` | 11 | 7 | 3 | 0 | 0 | 1 |
-| **Total** | **75** | **68** | **3** | **0** | **2** | **2** |
+| `visual_walkthrough.md` | 11 | 8 | 2 | 0 | 0 | 1 |
+| **Total** | **75** | **69** | **2** | **0** | **2** | **2** |
 
 ### `labels_and_layout.md`
 
@@ -111,7 +111,7 @@ occur). Test paths are under `tests/reporting/`.
 |---|---|---|---|---|
 | **PARTIAL** | P1 | `WALK-01` | LTR rotated tick label runs onto the panel below | The CI left the tick labels (now an error bar; `test_ltr_ndcg_bootstrap_ci.py::test_ndcg_by_qsize_title_and_bins_carry_ci`) and rotated labels get measured pitch and the layout engine (LBL-06, LBL-13). Remains: the NDCG_DIST instance (`all queries (n=300)` against its own axis title) has not been re-rendered, and no disposition was recorded. |
 | **RESOLVED** | P1 | `WALK-02` | a single category drawn as a full-panel-width bar | One window for both backends: `sparse_category_limits` (`renderers/_shared_helpers.py`) gives the category axis `MIN_CATEGORY_SLOTS` slots for one to three bars; matplotlib applies it with `_pad_sparse_category_axis`, plotly with an explicit axis range (descending, autorange off, for horizontal bars). `test_sparse_category_axis_parity.py` pins the window on both backends, both orientations, and the untouched axis from four bars. |
-| **PARTIAL** | P1 | `WALK-03` | legends drawn inside the axes cover the data | matplotlib promotes an overflowing legend outside (`_legend_overflows` / `_place_legend`), but only on the rightmost panel with no secondary axis; plotly moves it only when a builder sets `legend_outside`; LBL-08 fixed the multiclass overlays. Remains: no test pins the automatic promotion, and the four named panels (multilabel CALIB_GRID, regression decile, binary SCORE_DIST, model_comparison overlay) have not been re-rendered. |
+| **RESOLVED** | P1 | `WALK-03` | legends drawn inside the axes cover the data | The automatic placement is `_place_legend` / `_legend_overflows` (`renderers/_matplotlib_legend.py`): an overflowing legend (more than eight entries, or an entry wider than 62 % of the panel) moves beside the panel only on the rightmost panel without a secondary axis, otherwise it stays inside at font 7 over a more opaque box; an explicit `legend_outside` wins. LBL-08 fixed the multiclass overlays. `test_legend_automatic_promotion.py` pins every branch (short entries, rightmost, inner panel, right-hand axis, the entry-count rule, `force_outside`). The four named panels were not re-rendered; their entry counts and label lengths go through the same rule. |
 | **RESOLVED** | P1 | `WALK-04` | operating-point text duplicates the legend and overflows | The label rides the legend entry only, on both backends (`renderers/matplotlib.py` point-marker loop, `renderers/_plotly_line.py` marker traces). No test asserts the absence of the second copy. |
 | **PARTIAL** | P2 | `WALK-05` | statistic-bearing panel titles wrap to two or three lines | The two titles the walkthrough named are cut to one line each while keeping every statistic: the reliability title drops the axis restatement, the interval-width title drops the span definition the xlabel already carries. Remains: a renderer-level length budget, so a future statistic-bearing title cannot wrap again. |
 | **RESOLVED** | P2 | `WALK-06` | Spearman heatmap reads as anti-correlation | Same defect as VIS-01. `test_heatmap_scale_and_notice.py`. |
