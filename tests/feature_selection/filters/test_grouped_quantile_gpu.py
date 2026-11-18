@@ -66,6 +66,9 @@ def test_generated_features_do_not_change(monkeypatch, forced, with_nan):
     assert want_rec
     for name, payload in want_rec.items():
         assert payload["iqr_lookup"] == got_rec[name]["iqr_lookup"] and payload["p90p10_lookup"] == got_rec[name]["p90p10_lookup"], name
-        assert payload["group_sorted"]
+        if payload["op"] != "pct_rank":
+            assert payload["group_sorted"] == {}, name  # the spread recipes carry the lookups only
+            continue
+        assert payload["group_sorted"], name
         for key, sv in payload["group_sorted"].items():
             assert np.array_equal(np.asarray(sv), np.asarray(got_rec[name]["group_sorted"][key])), (name, key)

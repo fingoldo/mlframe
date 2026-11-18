@@ -59,14 +59,17 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from tests.feature_selection.conftest import fast_subset
+from tests.feature_selection.conftest import LEGACY_FE_OFF, fast_subset
 
 warnings.filterwarnings("ignore")
 
 SEEDS = (0, 1, 2, 3)
 N = 1300
 
-# Common MRMR kwargs: disable the default-on general-FE competitors (hinge,
+# Common MRMR kwargs, applied on top of ``LEGACY_FE_OFF`` (every family that is default-on now): without that base the selection is
+# filled by random-Fourier, sliced-inverse-regression, RBF and basis columns of the categorical, and the lift of the mechanism under
+# test is the difference between two ensembles of unrelated engineered columns (per-seed lifts of -0.19 to +0.22 for grouped-agg).
+# Disable the default-on general-FE competitors (hinge,
 # conditional-dispersion, wavelet, univariate basis/Fourier, the pair-FE step,
 # AND the newer default-on cat-aware families -- pairwise-modular, integer-lattice,
 # binned-numeric-agg, conditional-gate, row-argmax) so the family under test is the
@@ -309,10 +312,10 @@ def test_fe_mech_fits_transforms_and_lifts(
         y, _ = _make_target(logit, task, seed)
         y_ser = pd.Series(y, name="y")
 
-        m_fe = MRMR(**mech_kwargs, **_ISOLATE).fit(X, y_ser)
+        m_fe = MRMR(**{**LEGACY_FE_OFF, **_ISOLATE, **mech_kwargs}).fit(X, y_ser)
         # Every mechanism under test is default-on, so the baseline must switch ITS OWN family off: with it left on the
         # baseline auto-detects the same columns and the FE-minus-baseline lift measures restricted-vs-auto, not the mechanism.
-        m_no = MRMR(**{k: False for k, v in mech_kwargs.items() if k.endswith("_enable") and v}, **_ISOLATE).fit(X, y_ser)
+        m_no = MRMR(**{**LEGACY_FE_OFF, **_ISOLATE, **{k: False for k, v in mech_kwargs.items() if k.endswith("_enable") and v}}).fit(X, y_ser)
 
         names_fe = list(m_fe.get_feature_names_out())
 
