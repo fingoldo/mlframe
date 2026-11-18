@@ -340,33 +340,6 @@ class TestArrowLargeStringCompat:
         except ImportError:
             pass
 
-    def test_xgb_polars_utf8_does_not_explode(self, temp_data_dir, common_init_params):
-        """XGBoost's arrow bridge rejected pl.Utf8 in prior versions; verify one-time precast works."""
-        pytest.importorskip("xgboost")
-        from .shared import SimpleFeaturesAndTargetsExtractor
-        from mlframe.training.core import train_mlframe_models_suite
-
-        df = _make_simple_polars_df()
-        assert df.schema["cat_feat"] in (pl.Utf8, pl.String)
-        fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=False)
-        models, _ = train_mlframe_models_suite(
-            df=df,
-            target_name="t",
-            model_name="xgb_utf8",
-            features_and_targets_extractor=fte,
-            mlframe_models=["xgb"],
-            reporting_config=common_init_params,
-            hyperparams_config={"iterations": 10},
-            behavior_config=CPU_BEHAVIOR,
-            use_ordinary_models=True,
-            use_mlframe_ensembles=False,
-            verbose=0,
-            output_config=OutputConfig(data_dir=temp_data_dir),
-        )
-        entries = [e for by_name in models.values() for lst in by_name.values() for e in lst]
-        assert len(entries) == 1 and hasattr(entries[0], "model")
-        self._assert_lib_versions_logged()
-
     @pytest.mark.parametrize("model_name", ["cb", "hgb", "xgb"])
     def test_polars_native_models_handle_utf8_and_string_dtypes(self, model_name, temp_data_dir, common_init_params):
         """All Polars-native strategies must survive pl.Utf8 AND pl.String (same dtype
@@ -376,6 +349,7 @@ class TestArrowLargeStringCompat:
         from mlframe.training.core import train_mlframe_models_suite
 
         df = _make_simple_polars_df()
+        assert df.schema["cat_feat"] in (pl.Utf8, pl.String)  # the Utf8 case (XGBoost's arrow bridge rejected pl.Utf8 in prior versions: the one-time precast must hold); the standalone xgb test was this fit with the same frame
         # Force String dtype if the Polars version exposes it separately.
         if hasattr(pl, "String"):
             df = df.with_columns(pl.col("cat_feat").cast(pl.String))
