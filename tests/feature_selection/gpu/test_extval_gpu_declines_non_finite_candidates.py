@@ -37,6 +37,7 @@ def test_nan_in_an_external_factor_gives_the_host_codes(seed):
 
 
 def test_an_infinite_candidate_is_handed_to_the_host():
+    # parity-ok: asserts that the device path declines infinite input; it compares no device value with the host, so there is no seed to vary
     """An infinite entry makes the interpolated edge undefined: the function declines (None) and the caller keeps the host binner."""
     rng = np.random.default_rng(1)
     a = rng.normal(size=1000)

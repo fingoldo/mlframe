@@ -86,7 +86,7 @@ def bench_bspline():
 
 
 def bench_ratio_delta_redundancy():
-    from mlframe.feature_selection.filters._ratio_delta_fe import _passes_redundancy
+    from mlframe.feature_selection.filters._ratio_delta_screen import RATIO, ratio_pair_screen_host
 
     def ref(candidate, a_vals, b_vals, threshold):
         cand = candidate
@@ -111,13 +111,10 @@ def bench_ratio_delta_redundancy():
     cols = [rng.normal(size=n) for _ in range(p)]
     pairs = [(i, j) for i in range(p) for j in range(p) if i != j]
 
-    _a0 = np.nan_to_num(safe_div(cols[0], cols[1]))
-    _passes_redundancy(_a0.copy(), cols[0].copy(), cols[1].copy(), 0.99)
+    ratio_pair_screen_host(cols[:2], RATIO, 1e-9, 0.99)  # compile
 
     t0 = time.perf_counter()
-    for i, j in pairs:
-        cand = np.nan_to_num(safe_div(cols[i], cols[j]), nan=0.0, posinf=0.0, neginf=0.0)
-        _passes_redundancy(cand, cols[i], cols[j], 0.99)
+    ratio_pair_screen_host(cols, RATIO, 1e-9, 0.99)  # every ordered pair in one parallel pass
     t_new = time.perf_counter() - t0
 
     t0 = time.perf_counter()

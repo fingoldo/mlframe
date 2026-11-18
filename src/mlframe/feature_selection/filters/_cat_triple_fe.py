@@ -292,6 +292,11 @@ class _TripleIIScorer:
         self._code_cache: dict[str, np.ndarray] = {}
         self._mi_cache: dict[frozenset, float] = {}
 
+    def seed_codes(self, coded: dict) -> None:
+        """Adopt the ``{column: (tokens, int64 codes)}`` the pair stage already computed for this frame (the same ``column_string_codes`` result), so those columns are not coded again."""
+        for col, (_tokens, c) in coded.items():
+            self._code_cache.setdefault(col, np.asarray(c, dtype=np.int64))
+
     def codes(self, col: str) -> np.ndarray:
         """Memoized dense integer codes for column ``col``, reused across every triple/pair/singleton MI lookup in the beam search."""
         if col not in self._code_cache:
@@ -393,8 +398,10 @@ def score_cat_triples_by_interaction_information(
         empty.attrs["n_triples_exhaustive"] = 0
         return empty
 
+    # The pair stage factorises every column; its (tokens, codes) are kept so the triple scorer reuses them instead of hashing and coding the same columns a second time.
+    codes_out: dict = code_cache_out if code_cache_out is not None else {}
     pair_scores = score_cat_pairs_by_interaction_information(
-        X, y, cat_cols, n_bins=n_bins,
+        X, y, cat_cols, n_bins=n_bins, code_cache_out=codes_out,
     )
     if pair_scores.empty:
         empty.attrs["n_triples_evaluated"] = 0
@@ -409,6 +416,7 @@ def score_cat_triples_by_interaction_information(
     # Cache dense codes + the discrete-MI primitive so repeated sweeps do not
     # recompute marginals / joints per candidate.
     scorer = _TripleIIScorer(X, y_bin, code_cache_out)
+    scorer.seed_codes(codes_out)
 
     seen: set[frozenset] = set()
     triple_ii3: dict[frozenset, float] = {}

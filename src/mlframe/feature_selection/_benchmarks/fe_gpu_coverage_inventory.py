@@ -14,6 +14,20 @@ from pathlib import Path
 
 FILTERS = Path(__file__).resolve().parents[1] / "filters"
 MRMR_LAYER = ("_mrmr_fit_impl", "mrmr", "_mrmr_fe_step")
+# A second inventory root: kernel modules that the owner directive of tracker OP11-21 puts under the same contract (every GPU kernel of the project, not only the FE ones) and that the FE name regex or the MRMR-layer
+# import closure does not reach (the ``shap_proxied_fs`` kernels, and kernel modules of ``filters/`` whose names carry no FE marker). They are named here, each one a module that is taken on and has to meet the contract; a module is listed in this table only together with its evidence.
+EXTRA_ROOT = Path(__file__).resolve().parents[1] / "shap_proxied_fs"
+EXTRA_CONTRACT_MODULES: tuple[str, ...] = (
+    "_family_maxt_cuda_bits",
+    "_order_stats_gpu",
+    "_rolling_window_gpu",
+    "_shap_proxy_treeshap_gpu",
+    "_shap_proxy_treeshap_interactions_gpu",
+    "_shap_proxy_treeshap_interactions_table_gpu",
+    "_shap_proxy_treeshap_table_gpu",
+)
+# Modules of the second root that are only the host twins named by a contract table (resolved for their text, not classified themselves).
+EXTRA_TWIN_FILES: tuple[str, ...] = ("_shap_proxy_treeshap_table", "_shap_proxy_treeshap_ktc", "_shap_proxy_treeshap_interactions_table", "_shap_proxy_treeshap_interactions_ktc", "_shap_proxy_treeshap", "_shap_proxy_treeshap_interactions")
 GPU_MARKERS = re.compile(r"\bcupy\b|\bcp\.|numba\.cuda|cuda\.jit|RawKernel|ElementwiseKernel|_cuda\b|_gpu\b|gpu_[a-z]|CUDA_AVAIL|_CUPY_AVAIL")
 DISPATCH_MARKERS = re.compile(r"kernel_tuner|kernel_tuning_cache|_backend_choice|dispatch_[a-z_]*\(|force_backend|gpu_globally_disabled")
 IMPORT = re.compile(r"from\s+(?:mlframe\.feature_selection\.filters|\.+)\s*\.?(_[A-Za-z0-9_]+|[a-z][A-Za-z0-9_]*)\s+import|from\s+\.+(_[A-Za-z0-9_]+)\s+import")
@@ -76,6 +90,8 @@ def module_file(name: str) -> Path | None:
     for cand in (FILTERS / f"{name}.py", FILTERS / name / "__init__.py"):
         if cand.is_file():
             return cand
+    if name in EXTRA_CONTRACT_MODULES or name in EXTRA_TWIN_FILES:
+        return EXTRA_ROOT / f"{name}.py"
     for cand in FILTERS.glob(f"*/{name}.py"):
         if cand.is_file():
             return cand
@@ -111,6 +127,22 @@ KTC_REGISTRATION = re.compile(r"\bkernel_tuner\(")
 #: dispatcher registers a ``kernel_tuner(`` entry AND imports the backend (``ktc_dispatch_problems`` checks both, so a stale mapping fails the contract test). A backend with a choice of its own
 #: (its own thresholds, variants, block size) registers itself instead.
 KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
+    "_shap_proxy_treeshap_interactions_gpu": (
+        "_shap_proxy_treeshap_interactions_ktc",
+        "the host or device choice of the interaction tensor is the kernel_tuner entry shap_proxy_treeshap_interactions_backend of _shap_proxy_treeshap_interactions_ktc; the conditioned-scan kernel is the fallback it reaches when the ensemble does not fit the pair tables",
+    ),
+    "_shap_proxy_treeshap_gpu": (
+        "_shap_proxy_treeshap_ktc",
+        "the host or device choice of the TreeSHAP path kernel (the fallback of the table form, reached through treeshap_phi_base_gpu) is the kernel_tuner entry shap_proxy_treeshap_backend of _shap_proxy_treeshap_ktc",
+    ),
+    "_shap_proxy_treeshap_interactions_table_gpu": (
+        "_shap_proxy_treeshap_interactions_ktc",
+        "the host or device choice of the interaction pair-table kernel is the kernel_tuner entry shap_proxy_treeshap_interactions_backend of _shap_proxy_treeshap_interactions_ktc (the numba pair-table kernel timed against the device kernel over cells = rows x features^2 and trees)",
+    ),
+    "_shap_proxy_treeshap_table_gpu": (
+        "_shap_proxy_treeshap_ktc",
+        "the host or device choice of the TreeSHAP table kernel is the kernel_tuner entry shap_proxy_treeshap_backend of _shap_proxy_treeshap_ktc (the numba table kernel timed against the device table kernel over rows and trees, float32 error under the shared 1e-6 cap)",
+    ),
     "_fe_cpu_batch": (
         "_fe_batch_dispatch_ktc",
         "the host or device choice of the FE batcher is the kernel_tuner entry fe_batch_backend_choice of _fe_batch_dispatch_ktc (cpu_fe_batch_mi timed against multi_gpu_fe_batch_mi over the candidate work n x K at identical MI vectors, the work mark as fallback, MLFRAME_FE_BATCH_DEVICE=0|1 forces a side)",
@@ -178,6 +210,16 @@ KTC_DISPATCHERS: dict[str, tuple[str, str]] = {
 #: met when the kernel module exists, the module's text names it, and ``contract_violations(kernel module)`` is empty (``gpu_backend_problems`` checks all three, so a stale mapping, or a backend that
 #: loses a contract point, fails the contract test). This is for glue that routes, enumerates and scores cells through kernels owned elsewhere; a module that does array work of its own needs its own kernel.
 GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
+    "_orthogonal_routing_fe": (
+        ("_gpu_resident_basis",),
+        "the device twin _orthogonal_routing_device builds the cells with the batched Clenshaw kernels of _gpu_resident_basis (clenshaw_basis, basis_preprocess_nr) and scores them with the resident MI and abs-corr kernels; the host or device choice is fe_basis_cells_device of _basis_cells_ktc",
+        True,
+    ),
+    "_cat_pair_fe": (
+        ("_cat_pair_joint_gpu",),
+        "the pair joint-MI pass goes through pair_joint_mi_dispatch of _cat_pair_joint_gpu (device kernel against the njit pass, per-host choice cat_pair_search_backend of _cat_pair_search_tuner); the string factorisation stays on the host",
+        True,
+    ),
     "_target_mix_gate": (
         ("_pair_residual_screen",),
         "the pair screen is pair_interaction_screen of _pair_residual_screen (pair_residual_t device kernel, tuned choice) and the one-column main-effect statistics come from main_effect_z_columns of _gain_stats_codes_gpu (batched device quantile codes), the host loop when the device declines",
@@ -332,6 +374,30 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_shap_proxy_treeshap_interactions_gpu": (
+        "_shap_proxy_treeshap_interactions",
+        "the host path of the device conditioned-scan kernel is the numba conditioned-scan kernel interaction_tensor_reference of _shap_proxy_treeshap_interactions (two path scans per conditioning feature, prange over samples), the reference of the device equality tests",
+    ),
+    "_shap_proxy_treeshap_gpu": (
+        "_shap_proxy_treeshap",
+        "the host path of the device path kernel is the numba path kernel treeshap_phi_base_path of _shap_proxy_treeshap (the same EXTEND / unwound-sum arithmetic, prange over samples) and the reference of the device equality tests",
+    ),
+    "_shap_proxy_treeshap_interactions_table_gpu": (
+        "_shap_proxy_treeshap_interactions_table",
+        "the host path of the device pair-table kernel is the numba interaction table kernels of _shap_proxy_treeshap_interactions_table (per-leaf main and pair tables, blocked four-rows-abreast walk, prange over row blocks), the reference of the device equality tests",
+    ),
+    "_shap_proxy_treeshap_table_gpu": (
+        "_shap_proxy_treeshap_table",
+        "the host path of the device table kernel is the numba table kernels of _shap_proxy_treeshap_table (per-leaf contribution table built once, blocked four-rows-abreast walk, prange over rows), the same arithmetic and the reference of the device equality tests",
+    ),
+    "_orthogonal_routing_fe": (
+        "_numba_utils",
+        "the host path of the conditional basis routing builds every cell as a host vector and scores the stacked matrix with _mi_classif_batch (the njit batch plug-in MI of _numba_utils, reached through _orth_mi_backends) plus the host |Pearson corr|",
+    ),
+    "_cat_pair_fe": (
+        "_cat_pair_joint_njit",
+        "the host scorer of the cat x cat pairs is the parallel njit joint-MI pass of _cat_pair_joint_njit over every pair at once (marginals cached per column)",
+    ),
     "_target_mix_gate": (
         "_pair_residual_screen",
         "the host form of the structure check is the main-effect statistic loop of this module and pair_interaction_screen of _pair_residual_screen (njit pair residual kernel), on the same row subsample",
@@ -557,6 +623,7 @@ GPU_THROUGHPUT = re.compile(r"throughput|utilization|bandwidth", re.IGNORECASE)
 #: This is not a way to skip the contract: the parent has to meet every point with its children's code counted, and one record covers the family, where one record per carved file
 #: would repeat the same measurements.
 CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
+    "_orthogonal_routing_fe": ("_orthogonal_routing_device",),
     "_fe_auto_escalation": ("_fe_auto_escalation_proposers",),
     "_ratio_delta_fe": ("_ratio_delta_screen",),
     "_orth_extra_basis_fe": ("_orth_extra_basis_fe_helpers",),
@@ -775,8 +842,8 @@ def contract_violations(name: str) -> list[str]:
 
 
 def fe_modules() -> list[str]:
-    """The FE modules the MRMR layer imports."""
-    return sorted(n for n in imported_modules() if FE_NAME.search(n))
+    """The FE modules the MRMR layer imports, plus the modules of the second inventory root (``EXTRA_CONTRACT_MODULES``)."""
+    return sorted({n for n in imported_modules() if FE_NAME.search(n)} | set(EXTRA_CONTRACT_MODULES))
 
 
 def main() -> None:

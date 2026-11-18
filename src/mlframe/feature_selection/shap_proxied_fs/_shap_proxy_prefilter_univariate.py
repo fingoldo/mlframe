@@ -23,7 +23,7 @@ Batch size resolves through three priorities:
 from __future__ import annotations
 
 import logging
-from typing import Any, Optional, cast
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -64,31 +64,14 @@ def resolve_batch_size(
 ) -> int:
     """Resolve the column-batch width for chunked F-statistic computation.
 
-    Priority: explicit ``user_value`` (clamped) > KernelTuningCache hit > auto-size from
-    available RAM and ``_AUTO_BATCH_CHUNK_BYTES``. Auto value is clamped to
+    Priority: explicit ``user_value`` (clamped) > auto-size from
+    available RAM and ``_AUTO_BATCH_CHUNK_BYTES`` (not tuned per host: on the development host the auto width is within 8 percent of the best of 16..4096 at
+    2000x5000, 20000x5000, 5000x100000 and 500x500000 for both statistics, 16 to 64 columns being 1.3x to 2.4x slower). Auto value is clamped to
     ``[_AUTO_BATCH_MIN, _AUTO_BATCH_MAX]`` and never exceeds ``n_features``."""
     n_features = max(1, int(n_features))
     n_samples = max(1, int(n_samples))
     if user_value is not None:
         return int(max(1, min(int(user_value), n_features)))
-
-    try:
-        from mlframe.feature_selection.filters import get_kernel_tuning_cache
-
-        cache = get_kernel_tuning_cache()
-        if cache is not None:
-            feature_bucket = _pow2_bucket(n_features)
-            sample_bucket = _pow2_bucket(n_samples)
-            hit = cast(Any, cache).lookup(
-                "shap_proxy_prefilter_univariate_batch",
-                n_features=feature_bucket,
-                n_samples=sample_bucket,
-            )
-            if hit is not None and "batch_size" in hit:
-                cached = int(hit["batch_size"])
-                return max(1, min(cached, n_features))
-    except Exception as exc:  # pragma: no cover - defensive; cache must never crash ranking.
-        logger.debug("shap_proxy_prefilter_univariate batch cache lookup failed: %s", exc)
 
     bytes_per_row = 8 * n_samples
     chunk_cap = max(1, _AUTO_BATCH_CHUNK_BYTES // max(1, bytes_per_row))

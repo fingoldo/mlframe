@@ -237,6 +237,17 @@ def _shap(model: object, data: Any, target: Any, train_data: Any, *, importance_
     # so the resulting mean(|SHAP|) is already an OOF importance.
     # The alias name makes that semantic explicit for callers who
     # want SHAP-OOF elimination without having to read the source.
+    # tree models: mlframe's own TreeSHAP (the public package is not even needed); every other model family keeps ``shap.Explainer`` (linear, permutation), which we do not reimplement.
+    from mlframe.inference.tree_shap import TreeExplainer as _TreeExplainer, is_supported as _tree_supported
+
+    if _tree_supported(model):
+        try:
+            vals = np.asarray(_TreeExplainer(model).shap_values(data))
+            if vals.ndim > 2:
+                vals = np.abs(vals).mean(axis=tuple(range(2, vals.ndim)))
+            return np.abs(vals).mean(axis=0)
+        except Exception as _exc:
+            raise RuntimeError(f"TreeSHAP failed for {type(model).__name__}: {_exc}. " f"Try importance_getter='permutation' instead.") from _exc
     try:
         import shap as _shap
     except ImportError as _exc:

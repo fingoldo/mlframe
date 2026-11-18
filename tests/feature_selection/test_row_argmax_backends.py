@@ -58,3 +58,16 @@ def test_gate_host_path_uses_the_twin_and_keeps_nan_semantics():
     np.testing.assert_array_equal(_argmax_host([a, b]), [1.0, 0.0, 0.0])
     c = np.array([1.0, np.nan, 3.0], dtype=np.float32)
     np.testing.assert_array_equal(_argmax_host([c, b]), np.argmax(np.stack([c, b], axis=1), axis=1))
+
+
+def test_host_argmax_accepts_a_mix_of_read_only_and_writable_columns():
+    """Frame columns are often read-only views and computed ones are writable arrays: the tuple handed to the numba kernel must still type (it raised a TypingError before)."""
+    rng = np.random.default_rng(0)
+    a = rng.normal(size=1000).astype(np.float32)
+    b = rng.normal(size=1000).astype(np.float32)
+    c = rng.normal(size=1000).astype(np.float32)
+    a.flags.writeable = False
+    b.flags.writeable = False  # c stays writable
+    got = ra.row_argmax_host([a, b, c])
+    want = np.argmax(np.stack([a, b, c], axis=1), axis=1).astype(np.float64)
+    np.testing.assert_array_equal(got, want)

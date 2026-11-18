@@ -401,8 +401,9 @@ def _shap_confidence_plot(use_shap, test_df, confidence_model, max_features, cma
         # frames). The view materialises lazily where SHAP indexes column-by-column.
         from mlframe.training.utils import get_pandas_view_of_polars_df as _get_pandas_view
         _test_df_for_shap = _get_pandas_view(test_df) if isinstance(test_df, pl.DataFrame) else test_df
-        explainer = shap.TreeExplainer(confidence_model)
-        shap_values = explainer(_test_df_for_shap)
+        from mlframe.inference.tree_shap import TreeExplainer as _TreeExplainer
+
+        shap_values = _TreeExplainer(confidence_model).explain(_test_df_for_shap)  # our TreeSHAP values, drawn by shap.plots below
         # shap.plots.beeswarm creates its own figure (+ a colorbar axes); snapshot the open
         # figure ids first so we can close EVERY figure it opened, not just plt.gcf().
         _figs_before = set(plt.get_fignums())

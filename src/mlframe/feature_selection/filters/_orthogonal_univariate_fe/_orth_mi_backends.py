@@ -210,7 +210,7 @@ def _mi_classif_batch_numba(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, ra
                         # full-array nan scan (~12% of the GPU MI wall) that would otherwise be a pure no-op cost here.
                         # f32 opt-in (MLFRAME_FE_VRAM_F32): ~2.2x faster, selection-equivalent (Spearman rank 1.0).
                         # Intentional float64: GPU f64 MI path: cupy/numpy buffers feeding the f64 MI kernels, dtype contract kept (kernel refactor deferred).
-                        _dt = np.float32 if fe_gpu_f32_enabled() else np.float64
+                        _dt = np.float32 if (fe_gpu_f32_enabled() or X_dense.dtype == np.float32) else np.float64  # a float32 matrix is scored as such: no host up-cast to double and half the upload
                         mis[dense_cols] = multi_gpu_fe_batch_mi(X_dense, y_i64, nbins, scrub=False, dtype=_dt)
                     elif _fe_edge_binning_enabled():
                         from .._fe_edge_mi import plugin_mi_classif_batch_edge_njit
@@ -436,7 +436,12 @@ def _strict_resident_mi(X: Any, y: Any, nbins: int, rank_binning: bool) -> Optio
             # (built on device from the resident raw operands) - use it as-is so it never re-crosses H2D at this
             # :311 site. (It also fixes a latent crash: np.asarray on a cupy array raises, so the host path below
             # must NOT run for a device input.) Host ndarray inputs take the exact prior upload path.
-            if isinstance(X, cp.ndarray):
+            _keep_f32 = _strict_mi_keeps_float32(X)
+            if _keep_f32:
+                # A float32 candidate matrix stays float32 on the device: the radix select, the transpose and the copy no longer widen it to double (about half of a 500-candidate gate pass).
+                # The order statistics are float32 ones (selection-equivalent, not bit-identical, to the double path; ``MLFRAME_STRICT_MI_F32=0`` restores it).
+                Xd = X if isinstance(X, cp.ndarray) else cp.asarray(np.ascontiguousarray(X))
+            elif isinstance(X, cp.ndarray):
                 # Intentional float64: GPU f64 MI path: cupy/numpy buffers feeding the f64 MI kernels, dtype contract kept (kernel refactor deferred).
                 Xd = X.astype(cp.float64, copy=False)
             else:
@@ -452,6 +457,9 @@ def _strict_resident_mi(X: Any, y: Any, nbins: int, rank_binning: bool) -> Optio
             # keyed on the y array identity + content fingerprint so it is uploaded ONCE per fit
             # (selection-equivalent: same int64 labels, just not re-uploaded).
             yd, _ymin, _ncls = _resident_labels(y, cp)
+            if rank_binning and _keep_f32:
+                Xd = Xd.astype(cp.float64)  # Intentional float64: the rank-binned gate MI route reads double
+                _keep_f32 = False
             # GATE MI rank route: when the caller is the conditional gate (rank_binning=True) AND the resident
             # opt-in is on, bin by argsort equi-frequency RANK so the STRICT gate MI byte-matches the CPU njit
             # rank MI on the gate's heavily-tied columns (edge would lump tied zeros into one bin -> lower MI).
@@ -472,13 +480,29 @@ def _strict_resident_mi(X: Any, y: Any, nbins: int, rank_binning: bool) -> Optio
                         # Intentional float64: GPU f64 MI path: cupy/numpy buffers feeding the f64 MI kernels, dtype contract kept (kernel refactor deferred).
                         return np.asarray(_rank_mi, dtype=np.float64)
             # Intentional float64: GPU f64 MI path: cupy/numpy buffers feeding the f64 MI kernels, dtype contract kept (kernel refactor deferred).
-            return np.asarray(_plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=_ymin, n_classes=_ncls), dtype=np.float64)
+            return np.asarray(_plugin_mi_classif_batch_cuda_resident(Xd, yd, int(nbins), y_min=_ymin, n_classes=_ncls, keep_dtype=_keep_f32), dtype=np.float64)
     except (ImportError, *_DEV_ERRS):  # _DEV_ERRS is runtime-filtered to actual BaseException subclasses just above
         pass  # cupy/strict-module absent OR a genuine device fault -> exact CPU njit below.
         # NOTE (FIX1): ValueError / IndexError are intentionally NOT caught here - a -1 / out-of-range
         # code raised by _assert_codes_in_range (illegal-address guard) must surface, not degrade to CPU.
     return None
 
+
+def _strict_mi_keeps_float32(X: Any) -> bool:
+    """Whether the strict-resident MI of the candidate matrix ``X`` keeps float32 operands: the matrix is float32 (host or device), the criterion dtype is relaxed (the default) and ``MLFRAME_STRICT_MI_F32`` is not 0."""
+    import os
+
+    if os.environ.get("MLFRAME_STRICT_MI_F32", "1").strip().lower() in ("0", "false", "off", "no"):
+        return False
+    if getattr(X, "dtype", None) != np.float32 and "float32" not in str(getattr(X, "dtype", "")):
+        return False
+    try:
+        from .._fe_gpu_batch._devices import crit_dtype_relaxed
+
+        return bool(crit_dtype_relaxed())
+    except Exception as exc:
+        logger.warning("_strict_mi_keeps_float32: crit_dtype_relaxed unavailable (%s); float64 operand", exc)
+        return False
 
 def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_binning: bool = False) -> np.ndarray:
     """Batch MI(X_j; y) for classification target.

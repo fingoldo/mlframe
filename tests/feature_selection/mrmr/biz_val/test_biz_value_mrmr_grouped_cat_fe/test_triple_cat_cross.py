@@ -380,7 +380,9 @@ class TestCardinalityControl:
                 str(r.extra.get("encoding")) == "target"
             ), f"recipe {r.name!r} encoding is {r.extra.get('encoding')!r}; high-card triple must route through target encoding."
             col = apply_recipe(r, X)
-            assert col.dtype == np.float64
+            from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
+            assert col.dtype == _crit_np_dtype()  # the criterion dtype (float32 by default), not a pinned float64
             assert np.isfinite(col).all()
             assert 0.0 <= float(col.min()) and float(col.max()) <= 1.0
 

@@ -81,8 +81,7 @@ logger = logging.getLogger(__name__)
 # no-drop (keep_frac=1.0 -> the screen is a structural no-op, byte-identical to the flat sweep).
 # The aggressive fractions below are still measurement-backed (Intel host,; n=5000,
 # p=40, 5 seeds: ~2x at 0.5, 3-11x at 0.25) but are now OPT-IN - a caller takes the speedup by
-# setting ``fe_rung_keep_frac`` (or MLFRAME_FE_RUNG_KEEP_FRAC, or an offline kernel_tuning_cache
-# entry) explicitly, accepting the weak-interaction tradeoff on their data. The joint-synergy
+# setting ``fe_rung_keep_frac`` (or MLFRAME_FE_RUNG_KEEP_FRAC) explicitly, accepting the weak-interaction tradeoff on their data. The joint-synergy
 # screen of the planned numba FE re-platform is the path to a no-drop screen that is ALSO fast.
 _OPTIN_KEEP_FRAC_BY_POOL: tuple[tuple[int, float], ...] = (
     # (min_pairs_in_pool, keep_frac) - the recommended OPT-IN aggressive fractions; first
@@ -109,7 +108,7 @@ _MIN_PAIRS_DEFAULT = 6
 def _fallback_keep_frac(n_pairs: int) -> float:
     """Accuracy-safe default keep-fraction (always 1.0, i.e. no drop) used when no explicit opt-in and no kernel_tuning_cache entry are available."""
     # Accuracy-safe default: no fractional cut (no-drop). The screen only prunes when a caller
-    # opts into an aggressive keep_frac explicitly (fe_rung_keep_frac / env / tuned cache).
+    # opts into an aggressive keep_frac explicitly (fe_rung_keep_frac / env).
     return 1.0
 
 
@@ -126,21 +125,9 @@ def _optin_keep_frac(n_pairs: int) -> float:
 def _dispatch_keep_frac(n_rows: int, n_pairs: int, *, run_auto_tune: bool = False) -> float:
     """Per-host rung keep-fraction for a (n_rows, n_pairs) workload.
 
-    Env override (``MLFRAME_FE_RUNG_KEEP_FRAC``) wins; then the kernel_tuning_cache;
-    then the measurement-backed fallback. Mirrors ``dispatch_recursion_backend`` /
-    ``_batch_pair_mi_backend_choice`` (the iron rule: never hardcode a single threshold
-    across hardware / data shapes - route through the per-host cache).
-
-    Uses a PURE ``cache.lookup()``, never ``get_or_tune``: no ``kernel_tuner()`` is
-    registered for ``fe_rung_keep_frac`` anywhere in mlframe, so ``get_or_tune`` would
-    spawn a background async-sweep thread (debounce-sleep + idle-poll, ~10-120s) on EVERY
-    fresh fit that can NEVER populate the cache (there is no real tuner to run) - pure
-    per-process overhead, forever. ``lookup`` degrades silently to the fallback on a miss,
-    exactly like ``_ktc_dispatch._lookup_backend``'s deferred-sweep branch and
-    ``dispatch.lookup_pairwise_corr_backend`` in ``_benchmarks/kernel_tuning_cache/dispatch.py``.
-    An operator/offline sweep can still populate the cache via ``cache.update(...)`` directly;
-    this dispatcher then honors it on the next call. ``run_auto_tune`` is currently unused
-    (kept for signature parity with the other dispatchers) since no tuner exists yet to run."""
+    Env override (``MLFRAME_FE_RUNG_KEEP_FRAC``) wins, else the accuracy-safe no-drop fallback. There is no per-host tuning entry: the keep fraction trades recall for time
+    (a cut below 1.0 can drop a weak-interaction winner), so a timing sweep cannot choose it and a cache entry would only let a host silently lower accuracy; a caller who accepts that
+    trade sets ``fe_rung_keep_frac`` or the env explicitly. ``n_rows`` and ``run_auto_tune`` are kept for signature parity with the other dispatchers."""
     forced = os.environ.get("MLFRAME_FE_RUNG_KEEP_FRAC", "").strip()
     if forced:
         try:
@@ -149,20 +136,7 @@ def _dispatch_keep_frac(n_rows: int, n_pairs: int, *, run_auto_tune: bool = Fals
                 return v
         except ValueError:
             pass
-    fallback = _fallback_keep_frac(n_pairs)
-    try:
-        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
-
-        result = KernelTuningCache.load_or_create().lookup(
-            "fe_rung_keep_frac", n_rows=int(n_rows), n_pairs=int(n_pairs),
-        )
-        if isinstance(result, dict):
-            kf = float(result.get("keep_frac", fallback))
-            if 0.0 < kf <= 1.0:
-                return kf
-    except Exception as e:  # pyutilz missing / cache error -> fallback
-        logger.debug("fe_rung keep_frac lookup failed: %s", e)
-    return fallback
+    return _fallback_keep_frac(n_pairs)
 
 
 def apply_rung_schedule(

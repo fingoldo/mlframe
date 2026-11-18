@@ -82,18 +82,13 @@ class _MRMRConfigMixin:
 
     @classmethod
     def _fast_search_default_subsample_n(cls) -> int:
-        """Screen subsample size for the fast FE pair search, resolved via the kernel_tuning_cache when a
-        tuned entry exists for this host, else a safe HW-agnostic fallback. The MI/CMI pair screen is
+        """Screen subsample size for the fast FE pair search (a fixed, selection-validated size, not tuned per host: it trades screen accuracy for time, so a timing sweep cannot choose it). The MI/CMI pair screen is
         rank-stable under subsampling and the FINAL survivor columns are replayed at full n, so this only
-        bounds the screen cost. Never hardcode per-HW thresholds (mlframe is shared infra); the cache lets
-        a quiet/large-RAM box record a better value. Fallback 90_000: the smallest screen-n that kept the
+        bounds the screen cost. Value 90_000: the smallest screen-n that kept the
         warped (c,d) interaction's selection bit-stable on the n=100k synthetics (75k/85k flipped the
         (a,b) composite at the MI tie; 90k did not).
 
-        The KTC lookup result is host/class-constant (it depends only on the installed
-        kernel_tuning_cache entry for this machine, never on a particular fit's data), so it is
-        resolved once per class per process and cached - every subsequent fit reuses the cached
-        int instead of round-tripping through ``get_kernel_tuning_cache().lookup(...)`` again."""
+        The value is class-constant, so it is resolved once per class per process and cached."""
         if cls in _FAST_SEARCH_SUBSAMPLE_N_CACHE:
             return _FAST_SEARCH_SUBSAMPLE_N_CACHE[cls]
         with _CLASS_CACHES_LOCK:
@@ -106,26 +101,13 @@ class _MRMRConfigMixin:
         """Resolve and store the fast-search screen size; the store takes ``_CLASS_CACHES_LOCK`` (re-entrant, callers normally hold it already)."""
         _fallback = 90_000
         _result = _fallback
-        try:
-            from .._kernel_tuning import get_kernel_tuning_cache
-
-            _cache = get_kernel_tuning_cache()
-            if _cache is not None:
-                tuned = _cache.lookup("mrmr_fast_search_screen_n")
-                if tuned:
-                    _v = int(tuned.get("subsample_n", 0) or 0)
-                    if _v > 0:
-                        _result = _v
-        except Exception as exc:
-            logger.debug("mrmr: fast_search screen_n KTC lookup failed; using fallback %d: %r", _fallback, exc, exc_info=True)
         with _CLASS_CACHES_LOCK:  # re-entrant: the normal caller already holds it, a direct call must not race
             _FAST_SEARCH_SUBSAMPLE_N_CACHE[cls] = _result
         return _result
 
     @classmethod
     def _default_screen_subsample_n(cls) -> int:
-        """Feature-recovery default screen-subsample size, kernel_tuning_cache-resolved when a tuned entry
-        exists for this host, else the HW-agnostic ``_DEFAULT_SCREEN_SUBSAMPLE_N`` floor. See the class
+        """Feature-recovery default screen-subsample size: the validated ``_DEFAULT_SCREEN_SUBSAMPLE_N`` floor (a screen-accuracy-for-time trade, not tuned per host). See the class
         attribute docstring for the rank-stability rationale + measured wins.
 
         Cached per class per process, same rationale as ``_fast_search_default_subsample_n``."""
@@ -141,18 +123,6 @@ class _MRMRConfigMixin:
         """Resolve and store the default screen size; the store takes ``_CLASS_CACHES_LOCK`` (re-entrant, callers normally hold it already)."""
         _fallback = int(cls._DEFAULT_SCREEN_SUBSAMPLE_N)
         _result = _fallback
-        try:
-            from .._kernel_tuning import get_kernel_tuning_cache
-
-            _cache = get_kernel_tuning_cache()
-            if _cache is not None:
-                tuned = _cache.lookup("mrmr_default_screen_n")
-                if tuned:
-                    _v = int(tuned.get("subsample_n", 0) or 0)
-                    if _v > 0:
-                        _result = _v
-        except Exception as exc:
-            logger.debug("mrmr: default screen_n KTC lookup failed; using fallback %d: %r", _fallback, exc, exc_info=True)
         with _CLASS_CACHES_LOCK:  # re-entrant: the normal caller already holds it, a direct call must not race
             _DEFAULT_SCREEN_SUBSAMPLE_N_CACHE[cls] = _result
         return _result

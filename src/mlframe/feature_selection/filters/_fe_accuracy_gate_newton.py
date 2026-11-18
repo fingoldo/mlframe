@@ -80,7 +80,7 @@ def _newton_kernel(A: np.ndarray, y: np.ndarray, lam: float, max_iter: int, grad
             w_new = w - t * step
             z_new = A @ w_new
             f_new = _penalised_loss(z_new, y, w_new, lam)
-            if np.isfinite(f_new) and f_new <= f + 1e-11 * abs(f):
+            if f_new <= f + 1e-11 * abs(f):
                 accepted = True
                 break
             t *= 0.5
@@ -139,7 +139,7 @@ def fit_logistic_ridge_newton_numpy(X: np.ndarray, y01: np.ndarray, C: float = 1
             w_new = w - t * step
             z_new: np.ndarray = A @ w_new
             f_new = _objective(z_new, y, w_new, lam)
-            if np.isfinite(f_new) and f_new <= f:
+            if f_new <= f:
                 break
             t *= 0.5
         else:

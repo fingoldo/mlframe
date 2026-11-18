@@ -92,7 +92,7 @@ def _skip_or_fail(reason: str):
     """Skip when the toolchain is absent, or FAIL when ``MLFRAME_REQUIRE_OFFLINE=1`` (set it in the CI image that has the CUDA toolkit: a missing ptxas must not turn the whole suite into silent skips)."""
     if os.environ.get("MLFRAME_REQUIRE_OFFLINE", "").strip() == "1":
         pytest.fail(f"MLFRAME_REQUIRE_OFFLINE=1 but the offline toolchain is missing: {reason}")
-    pytest.skip(reason)
+    pytest.skip(f"CUDA toolkit component missing (ptxas / NVRTC not installed): {reason}")
 
 
 def _ptxas() -> str:
@@ -126,11 +126,14 @@ _VARIANTS = all_variants()
 _REPORT_ROWS: list = []  # filled by the per-arch test as it runs; the report test below reads it (a partial list under xdist only shortens the report)
 
 
-@pytest.mark.parametrize("key,reason", sorted(_SPILL_EXEMPT.items()) or [pytest.param(None, None, marks=pytest.mark.skip(reason="no spill exemptions registered"))])
-def test_every_spill_exemption_names_a_real_kernel_and_a_reason(key, reason):
-    """An exemption must match an extracted kernel source (or one variant of it, by its ``key[label]`` id) and carry a reason; a stale or empty one fails (an empty registry is a skip, not a silent pass)."""
-    assert key in {v.key for v in _VARIANTS} or key in {_variant_id(v) for v in _VARIANTS}, f"exemption for a kernel or variant that is not extracted: {key}"
-    assert reason.strip(), f"empty reason for {key}"
+def test_every_spill_exemption_names_a_real_kernel_and_a_reason():
+    """An exemption must match an extracted kernel source (or one variant of it, by its ``key[label]`` id) and carry a reason; a stale or empty one fails (the registry may be empty; nothing is skipped)."""
+    known = {v.key for v in _VARIANTS} | {_variant_id(v) for v in _VARIANTS}
+    assert known  # the extracted variants the exemptions are matched against
+    stale = sorted(key for key in _SPILL_EXEMPT if key not in known)
+    assert not stale, f"exemption for a kernel or variant that is not extracted: {stale}"
+    empty = sorted(key for key, reason in _SPILL_EXEMPT.items() if not reason.strip())
+    assert not empty, f"empty reason for {empty}"
 
 
 def test_every_file_with_a_kernel_yields_a_variant():

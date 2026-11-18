@@ -60,7 +60,11 @@ Selection rule
 
 Off in MRMR.fit unless explicitly enabled via
 ``fe_hybrid_orth_conditional_routing_enable=True``.
-"""
+
+
+Backends and memory (2026-11-16): the device twin is ``_orthogonal_routing_device`` (batched Clenshaw cells of ``_gpu_resident_basis``, resident MI and abs-corr), chosen against this host path by the
+``fe_basis_cells_device`` entry of ``_basis_cells_ktc``. The device path scores one column block of source columns at a time (``_gpu_k_chunk(n)`` cells per block); the host path stacks the cells of all source
+columns, so its working set grows with the number of cells. ``audits/2026-10-22/profiles/_orthogonal_routing_fe.md`` has the measured figures."""
 from __future__ import annotations
 
 from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS

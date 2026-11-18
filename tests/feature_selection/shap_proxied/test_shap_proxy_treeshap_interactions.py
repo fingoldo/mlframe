@@ -203,9 +203,8 @@ def test_biz_val_interaction_kernel_faster_than_shap():
     np.testing.assert_allclose(Phi_n, Phi_ref, rtol=1e-4, atol=1e-4)
 
 
-def test_auto_routes_xgboost_to_native_and_lightgbm_to_numba(monkeypatch):
-    """Without a GPU, auto must not send xgboost through the numba kernel (xgboost's own C++ is faster) but
-    must send LightGBM there (shap's single-threaded fallback is slower)."""
+def test_auto_routes_both_families_to_the_numba_pair_table(monkeypatch):
+    """Without a GPU, auto sends XGBoost and LightGBM through the numba pair-table kernel: xgboost's own ``pred_interactions`` needs 20 s where the kernel needs 55 ms (1500 rows x 50 features x 200 depth-4 trees, tracker OP11-52) and LightGBM has no native interaction predict."""
     lgb = pytest.importorskip("lightgbm")
     from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_interactions as SI
     from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_treeshap_interactions_gpu as G
@@ -228,7 +227,8 @@ def test_auto_routes_xgboost_to_native_and_lightgbm_to_numba(monkeypatch):
 
     Phi, _ = SI.compute_interaction_tensor(make_default_estimator(classification=True, n_estimators=20), X, y, classification=True, rng=np.random.default_rng(0), backend="auto")
     assert Phi.shape == (200, P, P)
-    assert calls == [], f"auto routed xgboost through the numba kernel: {calls}"
+    assert calls and all("XGB" in c for c in calls), f"auto did not route xgboost to the numba kernel: {calls}"
+    calls.clear()
 
     tmpl = lgb.LGBMClassifier(n_estimators=20, max_depth=3, num_leaves=7, verbose=-1, n_jobs=1)
     Phi, _ = SI.compute_interaction_tensor(tmpl, X, y, classification=True, rng=np.random.default_rng(0), backend="auto")

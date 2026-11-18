@@ -80,10 +80,9 @@ def _skipped_interactions(reason: str, plot_file: Optional[str], plot_outputs: O
 
 def _mean_abs_interaction(model: Any, X_sample: Any) -> np.ndarray:
     """Mean over rows of |interaction matrix|; returns a (F, F) array. ONE TreeExplainer pass."""
-    import shap
+    from mlframe.inference.tree_shap import TreeExplainer as _TreeExplainer
 
-    explainer = shap.TreeExplainer(model)
-    iv = explainer.shap_interaction_values(X_sample)
+    iv = _TreeExplainer(model).shap_interaction_values(X_sample)  # our kernel for LightGBM, XGBoost's native predict for XGBoost, the public library otherwise
     if isinstance(iv, list):  # legacy list-of-(rows,F,F) per class
         arr = np.asarray(iv[-1], dtype=np.float64)
     else:

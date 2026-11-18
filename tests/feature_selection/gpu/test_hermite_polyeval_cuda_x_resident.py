@@ -46,6 +46,7 @@ def _clear_cache():
 
 
 def test_polyeval_cuda_uploads_x_once_across_trials_with_same_column():
+    # parity-ok: counts device uploads of x across trials; the outputs are not compared with the host
     """Two calls on the SAME x column content but DIFFERENT coefficient vectors (mirrors two CMA-ES/Optuna
     trials scoring the same column) must upload the x-shaped array via cp.asarray only ONCE; c must still
     upload every call (it genuinely varies per trial)."""

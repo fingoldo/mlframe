@@ -10,6 +10,8 @@ full table, which never saw them. The recipe stores the full table only (``cx``,
 
 from __future__ import annotations
 
+import threading
+
 import numpy as np
 from numba import njit
 
@@ -132,17 +134,20 @@ def _fit_core(x, y, b, fold, k_folds, nbin, m):
 
 
 _FOLD_CACHE: dict = {}
+_FOLD_CACHE_LOCK = threading.Lock()
 
 
 def _fold_ids(n: int, n_folds: int, seed: int) -> np.ndarray:
-    """Fold id of every row: the same for every column of one fit (same ``n``, ``n_folds``, ``seed``), so the permutation is drawn once and shared read-only."""
+    """Fold id of every row: the same for every column of one fit (same ``n``, ``n_folds``, ``seed``), so the permutation is drawn once and shared read-only. The columns are fitted from worker threads, so the whole
+    get-or-draw-or-evict sequence runs under a lock."""
     key = (n, n_folds, seed)
-    fold = _FOLD_CACHE.get(key)
-    if fold is None:
-        if len(_FOLD_CACHE) >= 4:
-            _FOLD_CACHE.clear()
-        fold = (np.random.default_rng(seed).permutation(n) % n_folds).astype(np.int64)
-        _FOLD_CACHE[key] = fold
+    with _FOLD_CACHE_LOCK:
+        fold = _FOLD_CACHE.get(key)
+        if fold is None:
+            if len(_FOLD_CACHE) >= 4:
+                _FOLD_CACHE.clear()
+            fold = (np.random.default_rng(seed).permutation(n) % n_folds).astype(np.int64)
+            _FOLD_CACHE[key] = fold
     return fold
 
 

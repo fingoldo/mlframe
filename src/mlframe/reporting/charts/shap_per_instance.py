@@ -127,7 +127,6 @@ def shap_worst_errors_explanation(
 
     Returns a :class:`ShapPerInstanceResult`; degenerate / skipped input returns ``skipped`` set.
     """
-    import shap  # required dep; let ImportError surface to the caller
 
     carrier, vals, names = _as_frame_and_names(X, feature_names)
     n = vals.shape[0]
@@ -165,8 +164,9 @@ def shap_worst_errors_explanation(
     explain_idx = worst_idx[: max(int(max_explain_rows), 1)]
     dropped_note = f" ({n_dropped:,} rows had no finite label/score and were not ranked)" if n_dropped else ""
     X_explain = _row_subset(carrier, explain_idx)
-    explainer = shap.TreeExplainer(model)
-    sv = explainer(X_explain, check_additivity=False)
+    from mlframe.inference.tree_shap import TreeExplainer as _TreeExplainer
+
+    sv = _TreeExplainer(model).explain(X_explain)  # our TreeSHAP values (the public library answers only the families we do not implement)
     shap_mat = _shap_values_2d(sv)
 
     pos = {int(orig): row for row, orig in enumerate(explain_idx)}

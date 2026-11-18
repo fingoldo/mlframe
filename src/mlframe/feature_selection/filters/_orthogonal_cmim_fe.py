@@ -430,6 +430,43 @@ def _cmim_scores_device(eng_bins, y_bin, sel_bins, support_names, eng_sources, n
         return None
 
 
+def _cmim_rows(columns, eng_sources, raw_mi_map, eng_bins, device_scores, y_bin, support_col_names, filtered, n_rows) -> list:
+    """One result row per engineered column, in column order: the device score when finite, else the host CMIM against the references that are not the column's own source;
+    stops scoring once the fit deadline passes (the rows already scored are returned)."""
+    from ._fe_deadline import fe_deadline_passed
+
+    rows: list[dict] = []
+    for eng_idx, eng_name in enumerate(columns):
+        # MRMR.fit's max_runtime_mins: score no further candidates once it passes; the ones already scored are returned.
+        if fe_deadline_passed():
+            break
+        source = eng_sources[eng_idx]
+        baseline = float(raw_mi_map.get(source, 0.0))
+        cand_bin = eng_bins[eng_idx]
+        # Fleuret 2004 CMIM: min over support of CMI(cand; y | X_j).
+        # CRITICAL: skip the candidate's own raw source when scoring -
+        # CMI(He_2(x_dup_a); y | x_dup_a) collapses to ~0 trivially
+        # (the engineered column is a deterministic function of its
+        # source). We want the redundancy filter to penalise OVERLAP
+        # with OTHER support members; the self-source overlap is
+        # accounted for by ranking on engineered_mi vs baseline_mi.
+        if device_scores is not None and np.isfinite(device_scores[eng_idx]):
+            score = float(device_scores[eng_idx])
+        elif not any(sname != source for sname in support_col_names):
+            score = float(_cmi_from_binned(cand_bin, y_bin, None))
+        else:
+            score = _cmim_score_cached(cand_bin, y_bin, filtered(source), n_rows)
+        uplift = relative_uplift(score, baseline)
+        rows.append({
+            "engineered_col": eng_name,
+            "source_col": source,
+            "baseline_mi": baseline,
+            "engineered_mi": score,
+            "uplift": uplift,
+        })
+    return rows
+
+
 def score_features_by_cmim(
     raw_X: pd.DataFrame,
     engineered_X: pd.DataFrame,
@@ -539,42 +576,12 @@ def score_features_by_cmim(
             filtered_by_source[source] = [entry for entry, sname in zip(full_cache, support_col_names) if sname != source]
         return filtered_by_source[source]
 
-    rows: list[dict] = []
     eng_bins = quantile_bin_columns(engineered_X.to_numpy(dtype=_crit_np_dtype()), int(n_bins), dtype=np.int16)  # int16 codes: 2 bytes a value, not 8  # every candidate column binned at once (not one device round trip per column)
     eng_sources = [source_of_engineered_name(eng_name) for eng_name in engineered_X.columns]
     device_scores = _cmim_min_scores(eng_bins, y_bin, sel_bins, support_col_names, eng_sources, int(n_bins))
     if device_scores is None:
         device_scores = _cmim_scores_device(eng_bins, y_bin, sel_bins, support_col_names, eng_sources, int(n_bins))
-    from ._fe_deadline import fe_deadline_passed
-
-    for eng_idx, eng_name in enumerate(engineered_X.columns):
-        # MRMR.fit's max_runtime_mins: score no further candidates once it passes; the ones already scored are returned.
-        if fe_deadline_passed():
-            break
-        source = eng_sources[eng_idx]
-        baseline = float(raw_mi_map.get(source, 0.0))
-        cand_bin = eng_bins[eng_idx]
-        # Fleuret 2004 CMIM: min over support of CMI(cand; y | X_j).
-        # CRITICAL: skip the candidate's own raw source when scoring -
-        # CMI(He_2(x_dup_a); y | x_dup_a) collapses to ~0 trivially
-        # (the engineered column is a deterministic function of its
-        # source). We want the redundancy filter to penalise OVERLAP
-        # with OTHER support members; the self-source overlap is
-        # accounted for by ranking on engineered_mi vs baseline_mi.
-        if device_scores is not None and np.isfinite(device_scores[eng_idx]):
-            score = float(device_scores[eng_idx])
-        elif not any(sname != source for sname in support_col_names):
-            score = float(_cmi_from_binned(cand_bin, y_bin, None))
-        else:
-            score = _cmim_score_cached(cand_bin, y_bin, _filtered(source), n_rows)
-        uplift = relative_uplift(score, baseline)
-        rows.append({
-            "engineered_col": eng_name,
-            "source_col": source,
-            "baseline_mi": baseline,
-            "engineered_mi": score,
-            "uplift": uplift,
-        })
+    rows = _cmim_rows(engineered_X.columns, eng_sources, raw_mi_map, eng_bins, device_scores, y_bin, support_col_names, _filtered, n_rows)
     df = pd.DataFrame(rows)
     if not df.empty:
         # Sort by the RAW CMIM score (``engineered_mi``). The per-source

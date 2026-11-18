@@ -305,15 +305,11 @@ def knockoff_importance(
         _is_tree = hasattr(model, "feature_importances_") and any(t in _name for t in ("Forest", "Tree", "Boost", "LGBM", "XGB", "CatBoost", "GBM"))
         _w = "shap" if _is_tree else ("coef" if hasattr(model, "coef_") else "gain")
     if _w == "shap":
-        # TreeSHAP path.
+        # TreeSHAP path: mlframe's own implementation (the public ``shap`` package answers only the families we do not implement).
         try:
-            import shap as _shap
-        except ImportError as _exc:
-            raise ImportError(
-                "w_statistic='shap' requires the optional ``shap`` package. " "Install via ``pip install shap`` or set w_statistic='gain'/'coef'."
-            ) from _exc
-        try:
-            _expl = _shap.TreeExplainer(model)
+            from mlframe.inference.tree_shap import TreeExplainer as _TreeExplainer
+
+            _expl = _TreeExplainer(model)
             _vals = _expl.shap_values(X_joint_df)
             _arr = _vals if not isinstance(_vals, list) else np.stack(_vals)
             if _arr.ndim > 2:

@@ -516,12 +516,27 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "shap_proxy_treeshap_gpu.treeshap": (
         "mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_gpu",
         "kernel",
-        ("float64",),
+        ("float32", "float64"),
+    ),
+    "shap_proxy_treeshap_table_gpu.treeshap_table": (
+        "mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table_gpu",
+        "kernel",
+        ("float32", "float64"),
+    ),
+    "shap_proxy_treeshap_table_gpu.treeshap_table_preorder": (
+        "mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table_gpu",
+        "kernel_preorder",
+        ("float32", "float64"),
     ),
     "shap_proxy_treeshap_interactions_gpu.treeshap_interactions": (
         "mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_gpu",
         "kernel",
         ("float64",),
+    ),
+    "shap_proxy_treeshap_interactions_table_gpu.treeshap_interactions_table": (
+        "mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_interactions_table_gpu",
+        "kernel",
+        ("float32", "float64"),
     ),
     "null_max_perm_gpu.null_mi_perms": (
         "mlframe.feature_selection.filters._null_max_perm_gpu",
@@ -694,6 +709,14 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
 # it. Pack any thread-private triangular-matrix array (Hessian, Cholesky factor) before reaching for this dict - that
 # cut this kernel's spill from 1512 to 936 bytes/thread for free (see the reason string for what remains).
 _SPILL_EXEMPT: dict[str, str] = {
+    "shap_proxy_treeshap_table_gpu.treeshap_table": (
+        "160 bytes/thread (float32 build, 32 registers): the explicit DFS stack of the table walk (node and mask per level, two frames per level, MAXSP 24 at the reference depth 6), dynamically indexed so it lives in the "
+        "stack frame; no register spill of live values. The spill-free alternative exists and is selectable (`MLFRAME_SHAP_TREESHAP_STACK=shared`: the stacks in shared memory laid out [level][thread]) and was measured "
+        "slower, in seven interleaved local/shared pairs at each size on this host (GTX 1050 Ti, 75-82 C, no throttle, SM 1695 MHz, CPU load 59-74 percent from other jobs): 20000 rows x 100 trees depth 6 "
+        "local best 92.9 ms median 100.3 ms against shared best 114.5 ms median 116.4 ms (shared 1.16x slower at the median, every shared run slower than every local run); 100000 rows local best 523.5 ms "
+        "median 537.9 ms against shared best 607.6 ms median 618.5 ms (1.15x slower, again no overlap). The walk is divergence-free (every lane visits the same node at each step), so the stack frame is L1-resident "
+        "and the shared-memory form only adds bank traffic and a smaller resident block count."
+    ),
     "modular_codes_gpu.modular_all_ops": (
         "32 bytes/thread with no thread-private array in the source: the stack frame libdevice reserves for the slow path of the single-precision `sincos` (the sine and cosine are taken at the "
         "stored type to keep the 1:32 FP64 pipe out of the transcendental); no register spill, memory-bound residue / sin / cos writes. Same effect as the exempted `nonpoly_cells` and "
@@ -760,6 +783,15 @@ _SPILL_EXEMPT: dict[str, str] = {
         "the explicit DFS stack that replaces recursion, all dynamically indexed, so they live in the stack frame (54 registers, no register spill). The module header states the design; the "
         "frame grows with the square of the depth, which is why `_ensure_kernel` sizes it by the ensemble's real depth and not the cap (at the cap of 24 it reserved gigabytes of device "
         "local memory and starved later GPU paths). Removing the frame means a different algorithm (the shared-memory tile of the tree), not a register fix."
+    ),
+    "shap_proxy_treeshap_table_gpu.treeshap_table_preorder": (
+        "64 bytes/thread = the two int arrays mL / mR (the child masks per depth, MAXD 8) indexed by the run-time depth, in the stack frame, 32 registers, no register spill. Shared-memory placement (spill-free) "
+        "measured in 7 interleaved rounds, 20000 x 100 x 100 trees depth 6, GPU 72 to 82 C, no throttle: frame best 24.75 ms / median 24.96 ms, shared best 25.82 ms / median 26.77 ms (4 percent slower)."
+    ),
+    "shap_proxy_treeshap_interactions_table_gpu.treeshap_interactions_table": (
+        "The same two int DFS stack arrays as treeshap_table (MAXSP 24, indexed by the run-time depth, so they sit in the stack frame). Interleaved A/B of the shared-memory placement against the "
+        "frame, one process, 7 rounds, 20000 rows x 40 features x 200 trees of depth 4, GPU 73 to 77 C, no throttle: frame best 251.7 ms / median 277.8 ms, shared best 280.2 ms / median 297.5 ms "
+        "(shared 11 percent slower)."
     ),
     "shap_proxy_treeshap_interactions_gpu.treeshap_interactions": (
         "3136 bytes/thread at depth 6 with 16 features (MAXW 8, MAXLVL 9, MAXP 16) = the same per-thread path scratch as treeshap plus the conditioned-pass accumulators (one level deeper, "
@@ -831,11 +863,13 @@ def test_registered_kernel_has_no_register_spill(name: str):
         )
 
 
-@pytest.mark.parametrize("name,reason", sorted(_SPILL_EXEMPT.items()) or [pytest.param(None, None, marks=pytest.mark.skip(reason="no spill exemptions registered"))])
-def test_every_exempted_kernel_states_its_reason(name, reason):
-    """Every entry in _SPILL_EXEMPT names a registered kernel and carries a non-empty reason (an empty registry is a skip, not a silent pass)."""
-    assert name in _REGISTRY, f"{name} is exempted but not registered"
-    assert reason.strip(), f"{name} has an empty exemption reason"
+def test_every_exempted_kernel_states_its_reason():
+    """Every entry in _SPILL_EXEMPT names a registered kernel and carries a non-empty reason (the registry may be empty; nothing is skipped)."""
+    assert _REGISTRY  # the registry the exemptions are checked against is never empty
+    unregistered = sorted(name for name in _SPILL_EXEMPT if name not in _REGISTRY)
+    assert not unregistered, f"{unregistered} are exempted but not registered"
+    empty = sorted(name for name, reason in _SPILL_EXEMPT.items() if not reason.strip())
+    assert not empty, f"{empty} have an empty exemption reason"
 
 
 _OFFLINE_ARCHS = (52, 61, 70, 75, 86, 89, 90, 120)

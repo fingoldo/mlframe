@@ -130,32 +130,19 @@ def test_resolve_batch_size_auto_bounds():
     assert got_small == 50
 
 
-def test_resolve_batch_size_cache_hit(monkeypatch):
-    """Kernel-tuning cache hit overrides the auto path."""
+def test_resolve_batch_size_ignores_the_tuning_cache(monkeypatch):
+    """The batch width is the RAM-derived auto size (measured within 8 percent of the best width, so it is not tuned per host); a cache entry for the retired key changes nothing."""
 
     class _StubCache:
-        """Groups tests covering StubCache."""
+        """Answers every lookup with a width the auto path would not pick."""
+
         def lookup(self, kernel_name, **dims):
-            """Helper that lookup."""
-            assert kernel_name == "shap_proxy_prefilter_univariate_batch"
-            return {"batch_size": 1024}
+            """A hit for any key."""
+            return {"batch_size": 7}
 
-    import mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter_univariate as mod
-
-    # resolve_batch_size imports get_kernel_tuning_cache from the PUBLIC
-    # ``mlframe.feature_selection.filters`` surface (the underscore-prefixed
-    # ``._kernel_tuning`` source path was retired during the cross-package
-    # underscore-imports cleanup). Monkeypatch the public symbol so the
-    # cache-hit branch sees the stub.
-    monkeypatch.setattr(
-        "mlframe.feature_selection.filters.get_kernel_tuning_cache",
-        lambda: _StubCache(),
-    )
-    got = resolve_batch_size(20000, 10000, user_value=None)
-    assert got == 1024
-    # Cached value above n_features is still clamped down.
-    got_clamp = mod.resolve_batch_size(500, 10000, user_value=None)
-    assert got_clamp == 500
+    expected = resolve_batch_size(20000, 10000, user_value=None)
+    monkeypatch.setattr("mlframe.feature_selection.filters.get_kernel_tuning_cache", lambda: _StubCache())
+    assert resolve_batch_size(20000, 10000, user_value=None) == expected != 7
 
 
 def test_resolve_batch_size_cache_miss_falls_through(monkeypatch):

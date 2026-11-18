@@ -507,7 +507,7 @@ def _tiny_cv_rmse_y_scale_multiseed(
                 seed_results.append(result)
         if _early_stop_active and s_idx < _effective_repeats - 1:
             _lb = _seed_median_lower_bound(seed_results, _effective_repeats - 1 - s_idx)
-            if math.isfinite(_lb) and _lb >= seed_early_stop_threshold:
+            if _lb >= seed_early_stop_threshold:
                 # True median can only be >= this lower bound (see ``_seed_median_lower_bound``);
                 # the candidate is already guaranteed to be rejected -- stop running seeds.
                 break
@@ -596,7 +596,7 @@ def _tiny_cv_rmse_raw_y_multiseed(
                 seed_results.append(result)
         if _early_stop_active and s_idx < _effective_repeats - 1:
             _lb = _seed_median_lower_bound(seed_results, _effective_repeats - 1 - s_idx)
-            if math.isfinite(_lb) and _lb >= seed_early_stop_threshold:
+            if _lb >= seed_early_stop_threshold:
                 break
     seed_arr = per_seed_full
     if not seed_results:

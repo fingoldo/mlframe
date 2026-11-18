@@ -74,6 +74,7 @@ def test_regression_batch_joint_entropy_pairs_rejects_nonpositive_nbins():
 
 
 def test_regression_gpu_resident_materialise_entrypoints_do_not_blanket_clear_handoff():
+    # parity-ok: checks membership in the handoff dict; no device-versus-host value comparison exists to repeat on a second seed
     """Pre-fix: both entry points called clear_resident_codes_handoff() with no argument, which could
     silently drop another thread's in-flight deferred-fill entry. Post-fix: the blanket call is gone
     entirely (relies on the bounded-FIFO eviction instead), so a stashed entry from a prior call survives."""

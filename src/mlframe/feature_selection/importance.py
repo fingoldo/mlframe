@@ -50,12 +50,16 @@ def _sanitize_for_filename(s: str, max_len: int = 120) -> str:
 
 
 def show_shap_beeswarm_plot(model: object, df: pd.DataFrame, **kwargs) -> None:
-    """Render a SHAP beeswarm plot for a tree model over ``df`` using ``shap.TreeExplainer``; ``kwargs`` forward to ``shap.plots.beeswarm`` (e.g. ``ax``, ``show``, ``max_display``)."""
+    """Render a SHAP beeswarm plot for a tree model over ``df`` (values from mlframe's TreeSHAP, drawn by ``shap.plots.beeswarm``); ``kwargs`` forward to ``shap.plots.beeswarm`` (e.g. ``ax``, ``show``, ``max_display``)."""
     shap = import_optional("shap", "calibration", "SHAP plots")
     shap.initjs()
 
-    explainer = shap.TreeExplainer(model)
-    shap_values = explainer(df)
+    # the values come from mlframe's own TreeSHAP; the public library only draws
+    from mlframe.inference.tree_shap import TreeExplainer, to_explanation
+
+    explainer = TreeExplainer(model)
+    values = explainer.shap_values(df)
+    shap_values = to_explanation(values, df, base_values=explainer.expected_value)
 
     shap.plots.beeswarm(shap_values, **kwargs)
 

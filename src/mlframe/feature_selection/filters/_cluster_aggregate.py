@@ -45,10 +45,8 @@ CLUSTER_AGGREGATE_HOMOGENEITY_TAU_DEFAULT = 0.6
 
 
 def _kernel_tuning_cache_lookup_cluster_threshold(kernel_name: str, factors_data, fallback: float) -> float:
-    """Route a cluster-aggregate threshold (corr_threshold / homogeneity_tau) through
-    ``pyutilz.system.kernel_tuning_cache``, mirroring the DCD layer's
-    ``_kernel_tuning_cache_lookup_tau`` pattern (docs backlog: "kernel_tuning_cache for cluster
-    thresholds"). Looks up a calibrated value by a coarse ``(n_samples, n_features)`` log10-bucketed
+    """Look up a cluster-aggregate threshold (corr_threshold / homogeneity_tau) in
+    ``pyutilz.system.kernel_tuning_cache`` by a coarse ``(n_samples, n_features)`` log10-bucketed
     fingerprint; falls back to the caller-supplied default when the cache is cold/unavailable, so a
     quiet/large-RAM host can record a better-tuned value without hardcoding it for every host."""
     try:

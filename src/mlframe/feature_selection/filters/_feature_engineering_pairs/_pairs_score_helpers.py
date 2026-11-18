@@ -398,7 +398,7 @@ def _score_one_pair_flips(var_pairs_perf, _resolve_col, _safe_abs_corr, _use_map
         try:
             got = many([c[2] for c in cfgs], target[0], target[1])
         except Exception as e:  # nosec B110 - best-effort, the per-config loop is the reference path
-            logger.debug("batched |corr| of the pair failed: %s", e)
+            logger.warning("batched |corr| of the pair failed (%s); per-config loop", e)
             got = None
         if got is not None and len(got) == len(cfgs):
             _use_map.update(zip(cfgs, got))

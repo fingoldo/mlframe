@@ -42,6 +42,7 @@ __device__ __forceinline__ {ACC} block_max({ACC} v, {ACC}* sh) {
     if (threadIdx.x == 0) { for (int w = 0; w < 8; ++w) r = fmax(r, sh[w]); }
     return r;
 }
+// coalescing-ok: one thread owns one row of B (D contiguous elements, its own cache lines, every fetched byte used); staging the block's rows through shared memory with coalesced loads was timed against it (n = 200000, d = 9, float32, 5 sweeps: 40.4 ms staged against 37.0 ms) and was not faster, identical output
 __global__ void matvec_stats(const {REAL}* B, const {ACC}* c, {REAL}* f, {ACC}* stats, const long long n) {
     {ACC} cc[D];
     #pragma unroll
@@ -67,6 +68,7 @@ __global__ void matvec_stats(const {REAL}* B, const {ACC}* c, {REAL}* f, {ACC}* 
         stats[blockIdx.x * 4 + 0] = r1; stats[blockIdx.x * 4 + 1] = r2; stats[blockIdx.x * 4 + 2] = r3; stats[blockIdx.x * 4 + 3] = f0;
     }
 }
+// coalescing-ok: one thread owns one row of B (D contiguous elements, its own cache lines, every fetched byte used); staging the block's rows through shared memory with coalesced loads was timed against it (n = 200000, d = 9, float32, 5 sweeps: 40.4 ms staged against 37.0 ms) and was not faster, identical output
 __global__ void gram_scaled(const {REAL}* B, const {REAL}* w, const {REAL}* y, const {ACC}* stats, {ACC}* part, const long long n, const int nstat, const int use_w, const {ACC} rel_tol) {
     __shared__ {ACC} scale_sh;
     if (threadIdx.x == 0) {

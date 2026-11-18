@@ -19,7 +19,7 @@ not inside the numba hot loop - documented in ``METRIC_CODES``.
 from __future__ import annotations
 
 import logging
-from typing import Any, Sequence, cast
+from typing import Sequence
 
 import numpy as np
 
@@ -186,30 +186,6 @@ def score_margin_parallel(margin: np.ndarray, y: np.ndarray, metric_code: int) -
 # so no caller regresses. Per-HW override via kernel_tuning_cache so the crossover tracks core count
 # / exp throughput instead of a dev-box constant (mirrors the prefilter / cluster_su tuning hooks).
 _SCORE_MARGIN_PARALLEL_MIN_ROWS = 10000
-_score_margin_parallel_min_rows_cache: int | None = None
-
-
-def _score_margin_parallel_min_rows() -> int:
-    """Crossover row count for routing to ``score_margin_parallel``, from kernel_tuning_cache if set.
-
-    Resolved once and memoized (the lookup may touch disk); falls back to the calibrated default on
-    any error so a cache hiccup never changes the numeric result, only the serial/parallel route."""
-    global _score_margin_parallel_min_rows_cache
-    if _score_margin_parallel_min_rows_cache is not None:
-        return _score_margin_parallel_min_rows_cache
-    val = _SCORE_MARGIN_PARALLEL_MIN_ROWS
-    try:
-        from mlframe.feature_selection.filters import get_kernel_tuning_cache
-
-        ktc = get_kernel_tuning_cache()
-        if ktc is not None:
-            entry = cast(Any, ktc).lookup("shap_proxy_score_margin")
-            if isinstance(entry, dict) and entry.get("parallel_min_rows"):
-                val = int(entry["parallel_min_rows"])
-    except Exception as e:  # nosec B110 - best-effort path
-        logger.debug("kernel_tuning_cache lookup for shap_proxy_score_margin failed (%s: %s) -- using default crossover", type(e).__name__, e)
-    _score_margin_parallel_min_rows_cache = val
-    return val
 
 
 def score_margin_auto(margin: np.ndarray, y: np.ndarray, metric_code: int) -> float:
@@ -218,7 +194,9 @@ def score_margin_auto(margin: np.ndarray, y: np.ndarray, metric_code: int) -> fl
     The fastest path is the default: tall margins (>= the crossover) take the parallel reduction,
     short ones (anchor subsets, small holdouts) stay serial to dodge thread-spawn overhead. Both
     kernels compute the same loss; the choice is purely a wall-clock route, never a semantic one."""
-    if margin.shape[0] >= _score_margin_parallel_min_rows():
+    from ._shap_proxy_score_margin_ktc import use_parallel
+
+    if use_parallel(margin.shape[0]):
         # Reachable from the FE pair sweep's threaded pipeline; see mlframe._numba_parallel_guard.
         with parallel_kernel_entry():
             return float(score_margin_parallel(margin, y, metric_code))

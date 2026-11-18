@@ -81,9 +81,10 @@ def test_the_survivors_keep_every_column_the_detector_finds_a_hinge_in(monkeypat
     xs, y = _block(4000)
     cols = [(f"c{i}", x) for i, x in enumerate(xs)]
     kept = {c for c, _x in B._precheck_survivors(cols, y)}
-    for c, x in cols:
-        if B._detect_hinge_breakpoints(x, y):
-            assert c in kept
+    hinged = [c for c, x in cols if B._detect_hinge_breakpoints(x, y)]
+    assert hinged  # the block contains columns the detector finds a hinge in
+    for c in hinged:
+        assert c in kept
     assert "c1" not in kept and "c0" in kept
 
 

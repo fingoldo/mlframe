@@ -116,7 +116,10 @@ def test_score_margin_auto_routes_by_row_count(monkeypatch):
 
     monkeypatch.setattr(O, "score_margin", spy_serial)
     monkeypatch.setattr(O, "score_margin_parallel", spy_parallel)
-    monkeypatch.setattr(O, "_score_margin_parallel_min_rows", lambda: 1000)
+    from mlframe.feature_selection.shap_proxied_fs import _shap_proxy_score_margin_ktc as K
+
+    monkeypatch.setattr(K, "_SPEC", None)  # no tuned cache: the row mark of the objective module decides
+    monkeypatch.setattr(O, "_SCORE_MARGIN_PARALLEL_MIN_ROWS", 1000)
 
     rng = np.random.default_rng(0)
     y_small = (rng.random(500) > 0.5).astype(float)
