@@ -35,11 +35,11 @@ Generated from each report's `**Disposition**` line: OPEN is recorded as TODO an
 | **RESOLVED** | F02 | `level_strictness_critique.md` | Dense weak-signal failure is power, not calibration |
 | **RESOLVED** | F03 | `level_strictness_critique.md` | Test checks a dead predicate |
 | **TODO** | F04 | `level_strictness_critique.md` | Live gate applies to every narrow pool |
-| **TODO** | F05 | `level_strictness_critique.md` | Uniform alpha across families is not principled |
+| **RESOLVED** | F05 | `level_strictness_critique.md` | Uniform alpha across families is not principled |
 | **TODO** | F06 | `level_strictness_critique.md` | Step-down maxT (Westfall-Young) as a power fix |
 | **TODO** | F07 | `level_strictness_critique.md` | Reliability predicate in the live gate |
 | **TODO** | F08 | `level_strictness_critique.md` | Unmeasured end-to-end checks |
-| **PARTIAL** | F01 | `pair_family_threshold_critique.md` | Per-pair exact threshold does not control FWER over all pairs |
+| **RESOLVED** | F01 | `pair_family_threshold_critique.md` | Per-pair exact threshold does not control FWER over all pairs |
 | **RESOLVED** | F02 | `pair_family_threshold_critique.md` | Cost of the exact test per pair |
 | **RESOLVED** | F03 | `pair_family_threshold_critique.md` | Table docstring and table metadata disagree on the quantile |
 | **RESOLVED** | F04 | `pair_family_threshold_critique.md` | Nearest-neighbour lookup underestimates the threshold for K above the grid |

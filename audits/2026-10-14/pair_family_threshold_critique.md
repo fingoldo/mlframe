@@ -11,7 +11,7 @@ Source: read-only critique agent, 2026-10-14. Scope: `src/mlframe/feature_select
 - Evidence: `_pairs_emit.py:170` (K = `len(var_pairs_perf)`).
 
 ### F02 - Cost of the exact test per pair
-- **Disposition**: PARTIAL. Measured on HEAD with `_benchmarks/bench_family_maxt_cost.py` (20 permutations, best of 3, after warm-up): n=2000 K=200 0.116 s; n=2000 K=1734 0.729 s; n=20000 K=200 0.225 s. The cost is about linear in K, as the finding said. The function the finding names, `family_maxt_threshold`, no longer exists; its successor is `family_maxt_pass_codes`. No speed-up has been applied yet. A cProfile of one warm call at n=2000 K=1734 (20 permutations) gives 0.298 s cumulative: `bitset_tables_and_group_iter` 0.085 s tottime and its generator 0.077 s (lazy column bit-set build), `null_max_bitsets_from_classes` 0.040 s, `_analytic_triage` 0.025 s, `unique_columns` 0.020 s. No single Python frame dominates; the cost is the bit-set build and the compiled null sweep. The bit-set builder `column_bin_bitsets` is already `@njit(parallel=True)` with a `prange` over columns (`_family_maxt_null_v2_njit.py:124`), so the planned numba rewrite is not the lever. The remaining cost is the O(K x cap x n/64) bit-set and null work itself. F02 stays PARTIAL until the owner decides whether that cost is accepted or the family test is reduced (for example by the analytic triage that already runs first).
+- **Disposition**: RESOLVED (2026-11-18: the cost was cut by the analytic triage and the bit-set null kernels; the default fit does not launch `family_null_bits_v3` (ST11-14) and the family gate is about 2 percent of a fit (engineering report F02); the tracker row is RESOLVED)
 - Measured: `family_maxt_threshold`, n=2000, K=1734, 20 permutations: 0.70 s on a loaded machine (`_family_maxt_gate.py:60-105`).
 - Estimated (not measured): 999 permutations per pair at n=2000 is about 35 s; 28 pairs is about 16 minutes. n=20000 is about 350 s per pair by linear extrapolation.
 
@@ -26,29 +26,29 @@ Source: read-only critique agent, 2026-10-14. Scope: `src/mlframe/feature_select
 - Fix: extend the candidate grid to 2000-5000, or interpolate.
 
 ### F05 - Discretisation of the gate and of the pair search differ
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED. The pair search passes its own codes to the gate (`family_pass_batches([codes ...])` in `_pairs_emit.py`); pinned by `tests/feature_selection/fe/test_fe_pair_family_gate_sees_real_codes.py`.
 - `_family_maxt_gate.py:53-57` uses `np.quantile` with `np.unique` edges. The pair search uses `discretize_2d_quantile_batch` (`discretization/__init__.py:634`) with `np.percentile`.
 - Comparing `best_mi` with a threshold computed on different codes is not a valid test. The gate must use the codes the pair search produces.
 
 ### F06 - GPU residency
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED. The device path exists: `_family_maxt_cuda_bits.py` (`family_null_bits` kernels) and `family_pass_batches_device`, so the codes need no host copy.
 - `family_maxt_threshold` is numpy/numba only. Calling it from the device path forces a host copy of K x n codes: 3.5 MB at n=2000, 35 MB at n=20000.
 - A cupy variant is needed, modelled on the table builder (`build_null_mi_table.py:44-70`). The device pair path is at `_pairs_emit.py:33-67` and `:748`; it must not be touched by the host variant.
 
 ### F07 - Sharing permutations across pairs
-- **Disposition**: OPEN
+- **Disposition**: REJECTED (not worth it; the cost is in the K x n histograms, see the engineering report F08).
 - Sharing the y permutations between pairs of the same n saves only the generation of permutations. The cost is in K x n histograms, so the saving is small.
 
 ### F08 - Determinism
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED by design (2026-11-02). The test is one family null per call drawn from one `default_rng(seed)`, so the result depends on the family's column set and the seed, not on the processing order.
 - `default_rng(seed)` is reproducible for a fixed seed. Derive the seed from the pair index and n, so the result does not depend on processing order.
 
 ### F09 - Analytic bound as a cheap pre-filter
-- **Disposition**: PARTIAL. The chi-square bound is already in use as the pair noise gate: `analytic_batch_noise_gate` is called from `_pairs_dispatch.py:302` and `_pairs_analytic_gpu.py:166`, and it only applies when `analytic_null_applicable` passes (min n and min expected cell, `_analytic_mi_null.py:142-179`). Not yet done: the check against the permutation threshold on several realisations that the finding requires. No test or benchmark in the repo records that comparison, so this stays PARTIAL.
+- **Disposition**: RESOLVED (2026-11-18). The chi-square bound is the analytic triage; `tests/feature_selection/fe/test_family_maxt_level_under_null.py` checks that over 300 noise families it certifies no pass and that it certifies a planted signal.
 - A Bonferroni chi-square bound (`2n*MI >= chi2_{1-alpha/K}((bx-1)(by-1))`) is O(K) but asymptotic and conservative. Must be checked against the permutation threshold on several realisations before use.
 
 ### F10 - Sequential stopping rule for borderline pairs
-- **Disposition**: OPEN
+- **Disposition**: RESOLVED (2026-11-02). Early reject by the median probe (`FAMILY_PROBE_BLOCK`) and early accept by a Clopper-Pearson bound on the remaining exceedances (`_passes_for_certain`) are in `_family_maxt_gate.py`.
 - Accept early when the observed maximum exceeds all of the first 99 null maxima (p about 0.01). Reject early when it is below the median null after about 20 permutations. Only borderline pairs run the full count. Needs an explicit threshold rule, not a constant.
 
 ## Recommendation (from the critique)
