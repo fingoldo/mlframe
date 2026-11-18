@@ -120,13 +120,16 @@ def test_performance_sanity_at_100k_rows():
 def test_mrmr_fit_exposes_the_roster_and_transform_replays():
     """Wiring: an MRMR fit with the family on lists the warp in `oof_warp_features_`, transform replays it, and the opt-out flag leaves no warp."""
     from mlframe.feature_selection.filters.mrmr import MRMR
+    from tests.feature_selection.conftest import LEGACY_FE_OFF
 
+    # The wiring under test needs the warp family only. With every default-on family running, this 15000-row fit spends its time in the
+    # conditional-routing basis sweep (about 25 minutes without a device), which says nothing about the warp.
     X, y = _sine_case(15000)
-    fs = MRMR(verbose=0, fe_max_steps=2).fit(X, pd.Series(y, name="y"))
+    fs = MRMR(**LEGACY_FE_OFF, verbose=0, fe_max_steps=2).fit(X, pd.Series(y, name="y"))
     assert isinstance(fs.oof_warp_features_, list)
     Xt = np.asarray(fs.transform(X))
     assert Xt.shape[0] == len(X) and np.isfinite(Xt).all()
-    off = MRMR(verbose=0, fe_max_steps=2, fe_oof_warp_enable=False).fit(X, pd.Series(y, name="y"))
+    off = MRMR(**LEGACY_FE_OFF, verbose=0, fe_max_steps=2, fe_oof_warp_enable=False).fit(X, pd.Series(y, name="y"))
     assert off.oof_warp_features_ == []
     assert not any(str(n).startswith("oofwarp(") for n in off.get_feature_names_out())
 
