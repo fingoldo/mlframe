@@ -190,9 +190,29 @@ def usability_greedy_gpu_resident(
         return None
 
 
+_ABSCORR_TAIL_KERNEL = None
+_ABSCORR_CACHE_MAX_BYTES = 256 * 1024 * 1024  # the centered candidate matrix is kept per row set while it fits
+
+
+def _abscorr_tail_kernel(cp):
+    """Elementwise kernel of the last steps of the |corr| score: ``r = num / sqrt(ssc * ssv)`` where the column and the residual are usable, else 0, then ``|r|`` with non-finite -> 0 (one launch
+    where the ``where`` / ``isfinite`` / ``abs`` chain was ten)."""
+    global _ABSCORR_TAIL_KERNEL
+    if _ABSCORR_TAIL_KERNEL is None:
+        _ABSCORR_TAIL_KERNEL = cp.ElementwiseKernel(
+            "float64 num, float64 ssc, float64 ssv, bool col_ok, bool resid_ok",  # Intentional float64: statistic vector, exact ties decide the selection
+            "float64 out",  # Intentional float64: statistic vector, exact ties decide the selection
+            "double denom = sqrt(ssc * ssv); double r = (col_ok && resid_ok && ssc > 0.0 && denom > 0.0) ? num / denom : 0.0; out = isfinite(r) ? fabs(r) : 0.0;",
+            "usability_abscorr_tail",
+        )
+    return _ABSCORR_TAIL_KERNEL
+
+
 def _usability_greedy_gpu_step1_known_output_size(Vdev, cp, P):
     """Step 1 of usability_greedy_gpu_resident: lines starting at ``def _abscorr_batch_resident(resid_dev, rows_mask) -> np.ndarray:``."""
-    def _abscorr_batch_resident(resid_dev, rows_mask) -> np.ndarray:
+    col_stats: dict = {}  # id(row set) -> (row set, centered candidate matrix, column ok mask): the candidates do not change between calls, the residual does
+
+    def _abscorr_batch_resident_reference(resid_dev, rows_mask) -> np.ndarray:
         """|corr(candidate_j, resid)| for EVERY candidate over ``rows_mask`` rows, on device. Mirrors
         the per-candidate ``_abscorr`` (centered dot / sqrt(ss), std<1e-12 -> 0) batched into one GEMV.
         Returns a host (P,) double score vector (a per-ROUND result, not per-candidate value data)."""
@@ -222,6 +242,32 @@ def _usability_greedy_gpu_step1_known_output_size(Vdev, cp, P):
         r = cp.where(valid, num / cp.where(denom > 0.0, denom, 1.0), 0.0)
         r = cp.where(cp.isfinite(r), cp.abs(r), 0.0)
         return np.asarray(cp.asnumpy(r))
+
+    def _abscorr_batch_resident(resid_dev, rows_mask) -> np.ndarray:
+        """:func:`_abscorr_batch_resident_reference` with the candidate side computed once per row set (the diversity filter and every round score the same candidates against a new residual: the
+        gather, the column standard deviations, the centred matrix and its squared sums were recomputed on every call) and the tail as one kernel; the same arithmetic, so the same scores."""
+        key = id(rows_mask) if rows_mask is not None else None
+        entry = col_stats.get(key)
+        if entry is None or (rows_mask is not None and entry[0] is not rows_mask):
+            M = Vdev if rows_mask is None else Vdev[rows_mask]
+            if int(M.shape[0]) == 0:
+                return np.zeros(P, dtype=np.float64)  # Intentional float64: statistic vector
+            Mc = M - M.mean(axis=0, keepdims=True)
+            ssc = (Mc * Mc).sum(axis=0)
+            col_ok = (M.std(axis=0) >= 1e-12) & (ssc > 0.0)
+            entry = (rows_mask, Mc, ssc, col_ok)
+            if int(Mc.nbytes) <= _ABSCORR_CACHE_MAX_BYTES:
+                col_stats[key] = entry
+        _rows, Mc, ssc, col_ok = entry
+        rv = resid_dev
+        v_std = rv.std()
+        vm = rv - rv.mean()
+        ssv = cp.dot(vm, vm)
+        resid_ok = (v_std >= 1e-12) & (ssv > 0.0)
+        num = Mc.T @ vm
+        return np.asarray(cp.asnumpy(_abscorr_tail_kernel(cp)(num, ssc, ssv, col_ok, resid_ok)))
+
+    _abscorr_batch_resident.reference = _abscorr_batch_resident_reference
     return _abscorr_batch_resident
 
 
