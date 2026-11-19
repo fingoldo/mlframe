@@ -240,15 +240,27 @@ def _store_label_bits(key: Any, p0: int, bits: Any) -> None:
         entry[1][int(p0)] = bits
 
 
+_PERM_UPLOAD_BYTES = 64 * 1024 * 1024  # host row ids held at once by _permuted_labels
+
+
 def _permuted_labels(cp: Any, y8: Any, perms: Any, p0: int, p1: int, width: "int | None" = None) -> Any:
     """``(p1 - p0, width)`` uint8 device matrix of the labels ``y8`` under permutations ``p0 .. p1 - 1`` (columns past ``n`` zero; ``width`` defaults to ``n``), filled one
     permutation at a time: the host holds one row of row ids (40 MB at 10 million rows), not the whole block (64 x 10 million ids were 2.5 GB at int32)."""
     n = int(y8.shape[0])
     w = n if width is None else int(width)
     out = cp.zeros((p1 - p0, w), dtype=cp.uint8) if w > n else cp.empty((p1 - p0, n), dtype=cp.uint8)
-    for r, p in enumerate(range(p0, p1)):
-        perm = perms.one(p) if isinstance(perms, PermutationBlocks) else perms[p]
-        out[r, :n] = y8[perm if isinstance(perm, cp.ndarray) else cp.asarray(np.ascontiguousarray(perm))]
+    # the row ids cross the bus in sub-blocks of whole permutations (one upload, one gather and one copy per sub-block instead of per permutation: 64 x 3 launches a block at 100000 rows); the host
+    # holds at most ``_PERM_UPLOAD_BYTES`` of ids, which at 10 million rows is one permutation, as before
+    rows_per = max(1, _PERM_UPLOAD_BYTES // (4 * max(1, n)))
+    for s0 in range(p0, p1, rows_per):
+        s1 = min(p1, s0 + rows_per)
+        rows = [perms.one(p) if isinstance(perms, PermutationBlocks) else perms[p] for p in range(s0, s1)]
+        if any(isinstance(r, cp.ndarray) for r in rows):
+            for r, perm in enumerate(rows, start=s0 - p0):
+                out[r, :n] = y8[perm if isinstance(perm, cp.ndarray) else cp.asarray(np.ascontiguousarray(perm))]
+            continue
+        ids = cp.asarray(np.ascontiguousarray(np.stack([np.asarray(r) for r in rows])))  # (s1 - s0, n)
+        out[s0 - p0 : s1 - p0, :n] = y8[ids]
     return out
 
 
