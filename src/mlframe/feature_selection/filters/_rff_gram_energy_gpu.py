@@ -67,3 +67,49 @@ def rff_gram_energies_device(rbf: Any, ridge: Any, Xs: np.ndarray, pairs: Any, c
     except Exception as exc:
         log_throttle(logger, "rff_gram_energy_device.failed", logging.WARNING, "device RFF Gram energies failed (%s: %s); the host kernel runs", type(exc).__name__, exc)
         return None
+
+
+def rff_gram_null_maxima_device(rbfs: Any, ridges: Any, Xs: np.ndarray, pairs: Any, chunk: int = 1024) -> Optional[np.ndarray]:
+    """The largest pair energy of every ``(rbf, ridge)`` surrogate of ``rbfs`` / ``ridges`` (``(k,)`` host array), each as :func:`rff_gram_energies_device` gives it for that surrogate alone, with the ``k`` surrogates
+    of a permutation null run together: the cosine features, the ``D x D`` Grams and the pair products are batched matmuls over a stack of surrogates (a few dozen launches for the whole null instead of about
+    forty per surrogate), only the maxima come back. ``None`` when the device route does not apply or fails (the caller scores the surrogates one by one)."""
+    pairs = list(pairs)
+    rbfs = list(rbfs)
+    if not pairs or not rbfs:
+        return None
+    W0 = np.asarray(rbfs[0].random_weights_)
+    if not _device_wanted(len(pairs), int(W0.shape[1])):
+        return None
+    try:
+        import cupy as cp
+
+        n_features = int(W0.shape[1])
+        n = int(Xs.shape[0])
+        scale = np.sqrt(2.0 / n_features)
+        X = cp.asarray(np.ascontiguousarray(Xs), dtype=cp.float32)
+        a_idx = cp.asarray(np.fromiter((q[0] for q in pairs), dtype=np.int64, count=len(pairs)))
+        b_idx = cp.asarray(np.fromiter((q[1] for q in pairs), dtype=np.int64, count=len(pairs)))
+        group = max(1, int((256 << 20) // max(1, n * n_features * 4)))  # surrogates per batch: the (g, n, D) cosine block stays near 256 MB
+        out = np.empty(len(rbfs), dtype=np.float64)  # Intentional float64: the null maxima are compared with a quantile on the host
+        for g0 in range(0, len(rbfs), group):
+            rb = rbfs[g0 : g0 + group]
+            rd = ridges[g0 : g0 + group]
+            W = cp.asarray(np.stack([np.asarray(r.random_weights_) for r in rb]), dtype=cp.float32)  # (g, p, D)
+            off = cp.asarray(np.stack([np.asarray(r.random_offset_) for r in rb]), dtype=cp.float32)  # (g, D)
+            cc = cp.asarray(np.stack([np.asarray(r.coef_, dtype=np.float64).ravel() * scale for r in rd]), dtype=cp.float32)  # (g, D)  # Intentional float64: scaled in double, stored float32 as the single route does
+            mcos = cp.cos(cp.matmul(X, W) + off[:, None, :])  # (g, n, D)
+            gram = cp.matmul(mcos.transpose(0, 2, 1), mcos) / np.float32(n)  # (g, D, D)
+            del mcos
+            wt = W.transpose(0, 2, 1)  # (g, D, p)
+            best = None
+            for start in range(0, len(pairs), chunk):
+                stop = min(len(pairs), start + chunk)
+                coef = cc[:, :, None] * wt[:, :, a_idx[start:stop]] * wt[:, :, b_idx[start:stop]]  # (g, D, k)
+                energy = (coef * cp.matmul(gram, coef)).sum(axis=1)  # (g, k)
+                top = energy.max(axis=1)
+                best = top if best is None else cp.maximum(best, top)
+            out[g0 : g0 + len(rb)] = cp.asnumpy(best)
+        return out
+    except Exception as exc:
+        log_throttle(logger, "rff_gram_null_maxima_device.failed", logging.WARNING, "device RFF Gram null maxima failed (%s: %s); the surrogates run one by one", type(exc).__name__, exc)
+        return None
