@@ -215,13 +215,6 @@ void clenshaw_basis_fwd(const {REAL}* __restrict__ Z, const int* __restrict__ de
 """)
 
 
-def _clenshaw_fwd_enabled() -> bool:
-    """Whether the forward-recurrence block kernel is used (``MLFRAME_CLENSHAW_FWD=0`` keeps the per-degree Clenshaw kernel)."""
-    import os
-
-    return os.environ.get("MLFRAME_CLENSHAW_FWD", "1").strip().lower() not in ("0", "false", "off", "no")
-
-
 _CLENSHAW_FWD_KERNELS: dict = {}
 _CLENSHAW_KERNELS: dict = {}
 _KERNEL_CACHE_LOCK = threading.RLock()
@@ -270,7 +263,7 @@ def _clenshaw_basis_block_gpu(cp, Zg, basis, degrees):
     out = cp.empty((n, m * nd), dtype=crit_float_dtype())
     total = n * m * nd
     dl = [int(d) for d in degrees]
-    if nd and _clenshaw_fwd_enabled() and dl[0] >= 0 and all(a < b for a, b in zip(dl, dl[1:])):
+    if nd and dl[0] >= 0 and all(a < b for a, b in zip(dl, dl[1:])):
         fwd = _get_clenshaw_fwd_kernel("float" if Z.dtype == cp.float32 else "double")
         cells = n * m
         threads = block_size_for(fwd, work_items=cells)
