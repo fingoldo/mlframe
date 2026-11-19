@@ -121,7 +121,7 @@ def fe_column_values(X: Any, c: Any) -> np.ndarray:
     """``X[c].to_numpy()`` of a pandas frame: the column's values as a read-only view of the frame's block when it is numpy-backed."""
     arr = _pandas_column_array(X, c) if is_pandas(X) else None
     if type(arr) is np.ndarray:
-        out = arr.view()
+        out: np.ndarray = arr.view()
         out.flags.writeable = False
         return out
     return np.asarray(X[c].to_numpy())
