@@ -181,6 +181,48 @@ void clenshaw_basis(const {REAL}* __restrict__ Z, const int* __restrict__ degs, 
 """)
 
 
+# FORWARD-RECURRENCE variant (a NEW kernel beside ``clenshaw_basis``, which stays as the reference and the rollback): one thread per (row, column) cell walks the three-term recurrence ONCE up to the
+# largest degree and stores every requested degree on the way, instead of one backward Clenshaw pass per (cell, degree) (about d/2 times fewer double operations; the legendre/laguerre passes divide
+# per step). The values equal the Clenshaw ones up to double rounding, far below the float32 of the stored block. ``degs`` must be strictly ascending.
+_CLENSHAW_FWD_SRC = render(r"""
+extern "C" __global__
+void clenshaw_basis_fwd(const {REAL}* __restrict__ Z, const int* __restrict__ degs, const long long n,
+                        const int m, const int nd, const int basis, {REAL}* __restrict__ out) {
+    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (t >= n * (long long)m) return;
+    int j = (int)(t % (long long)m);
+    long long i = t / (long long)m;
+    {ACC} x = ({ACC})Z[t];
+    {REAL}* o = out + i * ((long long)m * nd) + j;
+    int top = degs[nd - 1];
+    {ACC} pp = 1.0, pc = (basis == 3) ? (1.0 - x) : x;       // P_0, P_1
+    int q = 0;
+    for (int d = 0; d <= top; ++d) {
+        {ACC} v;
+        if (d == 0) v = 1.0;
+        else if (d == 1) v = pc;
+        else {
+            {ACC} pn;
+            if (basis == 0) pn = 2.0 * x * pc - pp;
+            else if (basis == 1) pn = ((2.0 * (d - 1) + 1.0) * x * pc - (d - 1) * pp) / d;
+            else if (basis == 2) pn = x * pc - (d - 1) * pp;
+            else pn = ((2.0 * d - 1.0 - x) * pc - (d - 1) * pp) / d;
+            pp = pc; pc = pn; v = pn;
+        }
+        if (d == degs[q]) { o[(long long)q * m] = ({REAL})v; ++q; }
+    }
+}
+""")
+
+
+def _clenshaw_fwd_enabled() -> bool:
+    """Whether the forward-recurrence block kernel is used (``MLFRAME_CLENSHAW_FWD=0`` keeps the per-degree Clenshaw kernel)."""
+    import os
+
+    return os.environ.get("MLFRAME_CLENSHAW_FWD", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+_CLENSHAW_FWD_KERNELS: dict = {}
 _CLENSHAW_KERNELS: dict = {}
 _KERNEL_CACHE_LOCK = threading.RLock()
 
@@ -203,6 +245,17 @@ def _get_clenshaw_kernel(real_t: str = "double"):
     return kern
 
 
+def _get_clenshaw_fwd_kernel(real_t: str = "double"):
+    """Lazily compile-and-cache the ``clenshaw_basis_fwd`` RawKernel for ``real_t`` (``"float"`` or ``"double"``)."""
+    with _KERNEL_CACHE_LOCK:
+        kern = _CLENSHAW_FWD_KERNELS.get(real_t)
+        if kern is None:
+            import cupy as cp
+            kern = _basis_factories().kernel_clenshaw_fwd(cp, np.float32 if real_t == "float" else np.float64)  # Intentional float64: built in the data's own precision
+            _CLENSHAW_FWD_KERNELS[real_t] = kern
+    return kern
+
+
 def _clenshaw_basis_block_gpu(cp, Zg, basis, degrees):
     """Fused (n, m*nd) one-hot basis block for ``basis`` over (n,m) ``Zg``, columns ordered
     [degrees[0]: all m][degrees[1]: ...] (== the per-degree clen()+concatenate layout). Returns None for an
@@ -216,6 +269,13 @@ def _clenshaw_basis_block_gpu(cp, Zg, basis, degrees):
     degs = cp.asarray(np.asarray([int(d) for d in degrees], dtype=np.int32))
     out = cp.empty((n, m * nd), dtype=crit_float_dtype())
     total = n * m * nd
+    dl = [int(d) for d in degrees]
+    if nd and _clenshaw_fwd_enabled() and dl[0] >= 0 and all(a < b for a, b in zip(dl, dl[1:])):
+        fwd = _get_clenshaw_fwd_kernel("float" if Z.dtype == cp.float32 else "double")
+        cells = n * m
+        threads = block_size_for(fwd, work_items=cells)
+        fwd(((cells + threads - 1) // threads,), (threads,), (Z, degs, np.int64(n), np.int32(m), np.int32(nd), np.int32(bid), out))
+        return out
     clenshaw = _get_clenshaw_kernel("float" if Z.dtype == cp.float32 else "double")
     threads = block_size_for(clenshaw, work_items=total)
     clenshaw(((total + threads - 1) // threads,), (threads,), (Z, degs, np.int64(n), np.int32(m), np.int32(nd), np.int32(bid), out))

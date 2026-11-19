@@ -358,6 +358,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_clenshaw",
         ("float32", "float64"),
     ),
+    "gpu_resident_basis.clenshaw_basis_fwd": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_clenshaw_fwd",
+        ("float32", "float64"),
+    ),
     "gpu_resident_basis.robust_scale_combine": (
         "mlframe.feature_selection.filters._gpu_resident_basis_factories",
         "kernel_robust_scale",

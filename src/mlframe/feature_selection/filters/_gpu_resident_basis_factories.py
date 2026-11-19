@@ -78,6 +78,11 @@ def kernel_clenshaw(cp: Any, real: Any) -> Any:
     return cp.RawKernel(_src(_basis()._CLENSHAW_SRC, real), "clenshaw_basis")
 
 
+def kernel_clenshaw_fwd(cp: Any, real: Any) -> Any:
+    """``clenshaw_basis_fwd`` (forward-recurrence block kernel) for values of dtype ``real``; compile point of the getter and of the register-pressure registry."""
+    return cp.RawKernel(_src(_basis()._CLENSHAW_FWD_SRC, real), "clenshaw_basis_fwd")
+
+
 def kernel_robust_scale(cp: Any, real: Any) -> Any:
     """``robust_scale_combine`` for values of dtype ``real``; compile point of the getter and of the register-pressure registry."""
     return cp.RawKernel(_src(_basis()._ROBUST_SCALE_COMBINE_SRC, real), "robust_scale_combine")
