@@ -132,11 +132,7 @@ _PAIR_INDEX_CACHE_MAX = 64
 
 def _pair_index_arrays(cp, pairs: list):
     """:func:`_pair_index_arrays_upload` memoized per (device, pairs): the pairs depend only on the operand count, so a fit asks for the same two tiny arrays hundreds of times (two host-to-device uploads each);
-    the kernels only read them. ``MLFRAME_PAIR_INDEX_CACHE=0`` uploads every time."""
-    import os
-
-    if os.environ.get("MLFRAME_PAIR_INDEX_CACHE", "1").strip().lower() in ("0", "false", "off", "no"):
-        return _pair_index_arrays_upload(cp, pairs)
+    the kernels only read them."""
     key = (int(cp.cuda.Device().id), tuple(tuple(p) for p in pairs))
     with _PAIR_INDEX_LOCK:
         got = _PAIR_INDEX_CACHE.get(key)
