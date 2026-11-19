@@ -31,7 +31,7 @@ from numba import njit
 
 from ._internals import _entropy_from_counts_njit
 from mlframe.feature_selection.filters._lazy_host_codes import size_of
-from mlframe.feature_selection.filters.discretization._quantile_radix import sort_xy
+from mlframe.feature_selection.filters.discretization.shared import sort_xy
 
 logger = logging.getLogger(__name__)
 

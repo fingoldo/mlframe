@@ -608,7 +608,7 @@ def _build_unary_transformations(preset: str):
 
 @njit(cache=True, nogil=True, error_model="numpy")
 def _safe_div_1d(x, y):
-    """``_safe_div`` of two equal-length vectors in one pass: ``x / y`` in float64, with ``1e-9`` standing in for an exactly zero ``y`` (NaN and inf propagate as in the expression form)."""
+    """``_safe_div`` of two equal-length vectors in one pass: ``x / y`` in double precision, with ``1e-9`` standing in for an exactly zero ``y`` (NaN and inf propagate as in the expression form)."""
     out = np.empty(x.shape[0], dtype=np.float64)  # Intentional float64: the division runs at full precision, as in the expression form
     for i in range(x.shape[0]):
         yi = np.float64(y[i])  # Intentional float64: operands promoted at the division, as the numpy expression does

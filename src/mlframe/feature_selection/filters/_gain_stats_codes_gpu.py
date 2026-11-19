@@ -18,11 +18,14 @@ import logging
 from typing import Any, Optional, Sequence
 
 import numpy as np
+from mlframe.utils.array_shape import length_of
 
-from ._fe_gain_stats import quantile_codes
+from ._fe_gain_stats import plugin_mi_of_codes, quantile_codes
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._raw_module_cache import RawModuleCache
+
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +77,7 @@ def _bin_list(bins: Any) -> list:
 
 
 def kernel(cp: Any, real: Any) -> Any:
-    """``quantile_codes_right`` for columns of dtype ``real`` (float32 or float64); compile point of :func:`_codes_of_block` and of the register-pressure registry."""
+    """``quantile_codes_right`` for columns of dtype ``real`` (float32 or double precision); compile point of :func:`_codes_of_block` and of the register-pressure registry."""
     return _MODULES["float" if np.dtype(real) == np.float32 else "double"].get(cp).get_function("quantile_codes_right")
 
 
@@ -85,7 +88,7 @@ def _host_codes(cols: Sequence[np.ndarray], n_bins: int) -> np.ndarray:
 
 def _numpy_edges(cp: Any, sorted_cols: Any, n_bins: int) -> Any:
     """``(k, n_bins - 1)`` interior edges of the ascending ``(k, n)`` block ``sorted_cols`` by numpy's 'linear' rule (virtual index ``(n - 1) q``, difference taken in the data dtype, the
-    ``t >= 0.5`` branch ``b - diff (1 - t)``), so each edge equals ``np.quantile`` of that column bit for bit; float64 whatever the data dtype."""
+    ``t >= 0.5`` branch ``b - diff (1 - t)``), so each edge equals ``np.quantile`` of that column bit for bit; double precision whatever the data dtype."""
     n = int(sorted_cols.shape[1])
     q = np.linspace(0.0, 1.0, int(n_bins) + 1)[1:-1]
     virtual = (n - 1) * q
@@ -141,7 +144,7 @@ def quantile_codes_columns_device(cols: Sequence[np.ndarray], bins: Any) -> Opti
     try:
         import cupy as cp
 
-        n = int(np.asarray(cols[0]).shape[0])
+        n = int(length_of(cols[0]))
         if n < 2:
             return None
         dtypes = {np.asarray(c).dtype for c in cols}
@@ -160,7 +163,7 @@ def quantile_codes_columns_device(cols: Sequence[np.ndarray], bins: Any) -> Opti
                 o[sel] = got
         return outs
     except Exception as exc:
-        logger.debug("device quantile codes failed (%s: %s); host form", type(exc).__name__, exc)
+        log_throttle(logger, "gain_stats_codes_gpu_device_quantile_codes_failed", logging.WARNING, "device quantile codes failed (%s: %s); host form", type(exc).__name__, exc)
         return None
 
 
@@ -189,7 +192,7 @@ def main_effect_z_device(cols: Sequence[np.ndarray], bins: int, t: np.ndarray, e
     try:
         import cupy as cp
 
-        n = int(np.asarray(cols[0]).shape[0])
+        n = int(length_of(cols[0]))
         even_idx, odd_idx = np.flatnonzero(even), np.flatnonzero(~even)
         if n < 2 or even_idx.size < 2 or odd_idx.size < 2:
             return None
@@ -207,15 +210,67 @@ def main_effect_z_device(cols: Sequence[np.ndarray], bins: int, t: np.ndarray, e
             out[c0 : c0 + width] = cp.asnumpy(_main_effect_z(cp, codes, t_dev, ev, od, int(bins), float(base)))
         return out
     except Exception as exc:
-        logger.debug("device main-effect statistics failed (%s: %s); host form", type(exc).__name__, exc)
+        log_throttle(logger, "gain_stats_codes_gpu_device_main_effect_statistics_failed", logging.WARNING, "device main-effect statistics failed (%s: %s); host form", type(exc).__name__, exc)
         return None
 
 
 def main_effect_z_columns(cols: Sequence[np.ndarray], bins: int, t: np.ndarray, even: np.ndarray, base: float) -> Optional[np.ndarray]:
     """:func:`main_effect_z_device` when the tuner says the device for this row count, else ``None`` (the caller's host loop)."""
-    if len(cols) and quantile_codes_on_device(int(np.asarray(cols[0]).shape[0])):
+    if len(cols) and quantile_codes_on_device(int(length_of(cols[0]))):
         return main_effect_z_device(cols, bins, t, even, base)
     return None
+
+
+def _plugin_mi_of_device_codes(cp: Any, codes: Any, bins: int, y_dev: Any, ky: int) -> Any:
+    """``(kb,)`` plug-in MI (nats) of each row of the device code matrix ``codes`` with the labels ``y_dev``: the sum over occupied cells of ``p(x, y) * log(p(x, y) / (p(x) p(y)))``, the mean of the pointwise MI."""
+    kb, n = int(codes.shape[0]), int(codes.shape[1])
+    key = (codes.astype(cp.int64) * ky + y_dev[None, :]) + (cp.arange(kb, dtype=cp.int64) * (bins * ky))[:, None]
+    joint = cp.bincount(key.ravel(), minlength=kb * bins * ky).reshape(kb, bins, ky).astype(cp.float64)  # Intentional float64: counts feed a logarithm that is summed
+    px = joint.sum(axis=2, keepdims=True)
+    py = joint.sum(axis=1, keepdims=True)
+    safe = cp.where(joint > 0, joint, 1.0)
+    term = cp.where(joint > 0, joint * cp.log(safe * float(n) / cp.maximum(px * py, 1.0)), 0.0)
+    return term.sum(axis=(1, 2)) / float(n)
+
+
+def plugin_mi_columns_device(cols: Sequence[np.ndarray], bins: int, y_codes: np.ndarray, ky: int) -> Optional[np.ndarray]:
+    """``(k,)`` plug-in MI of the ``bins``-level quantile codes of each column with the integer labels ``y_codes`` (in ``[0, ky)``), the codes never leaving the card; ``None`` when the device path
+    does not apply (no card, a bin count outside 2 to 255, a non-finite value) or faulted, and the caller codes on the host."""
+    k = len(cols)
+    if k == 0 or int(bins) < 2 or int(bins) > MAX_DEVICE_BINS:
+        return None
+    try:
+        import cupy as cp
+
+        n = int(length_of(cols[0]))
+        if n < 2:
+            return None
+        dtypes = {np.asarray(c).dtype for c in cols}
+        work = np.float32 if dtypes == {np.dtype(np.float32)} else np.float64  # Intentional float64: any other mix is binned in double, as numpy would compare it
+        x = np.ascontiguousarray(np.stack([np.asarray(c, dtype=work) for c in cols]))
+        if not np.isfinite(x).all():
+            return None
+        y_dev = cp.asarray(np.asarray(y_codes, dtype=np.int64))
+        out = np.empty(k, dtype=np.float64)  # Intentional float64: the statistic ranks columns
+        width = _block_width(cp, n, k, int(x.dtype.itemsize))
+        for c0 in range(0, k, width):
+            codes = _codes_of_block(cp, np.ascontiguousarray(x[c0 : c0 + width]), [int(bins)], on_device=True)[0]
+            out[c0 : c0 + width] = cp.asnumpy(_plugin_mi_of_device_codes(cp, codes, int(bins), y_dev, int(ky)))
+        return out
+    except Exception as exc:
+        log_throttle(logger, "gain_stats_codes_gpu_device_plugin_mi_failed", logging.WARNING, "device plug-in MI of quantile codes failed (%s: %s); host form", type(exc).__name__, exc)
+        return None
+
+
+def plugin_mi_columns(cols: Sequence[np.ndarray], bins: int, y_codes: np.ndarray, ky: int) -> np.ndarray:
+    """``(k,)`` plug-in MI of the ``bins``-level quantile codes of each column with ``y_codes``: :func:`plugin_mi_columns_device` when the tuner says the device for this row count, else the host
+    codes and the compiled plug-in MI per column."""
+    if len(cols) and quantile_codes_on_device(int(length_of(cols[0]))):
+        got = plugin_mi_columns_device(cols, bins, y_codes, ky)
+        if got is not None:
+            return got
+    q = _host_codes(cols, int(bins))
+    return np.array([plugin_mi_of_codes(q[i], int(bins), y_codes, int(ky)) for i in range(len(cols))], dtype=np.float64)  # Intentional float64: ranking statistic
 
 
 def _sweep_inputs(dims: dict) -> tuple:
@@ -276,11 +331,11 @@ def quantile_codes_columns(cols: Sequence[np.ndarray], bins: Any) -> list:
     bin_list = _bin_list(bins)
     if len(cols) == 0:
         return [np.empty((0, 0), dtype=np.int64) for _ in bin_list]
-    if quantile_codes_on_device(int(np.asarray(cols[0]).shape[0])):
+    if quantile_codes_on_device(int(length_of(cols[0]))):
         got = quantile_codes_columns_device(cols, bin_list)
         if got is not None:
             return got
     return [_host_codes(cols, b) for b in bin_list]
 
 
-__all__ = ["main_effect_z_columns", "main_effect_z_device", "quantile_codes_columns", "quantile_codes_columns_device", "quantile_codes_on_device", "kernel"]
+__all__ = ["plugin_mi_columns", "plugin_mi_columns_device", "main_effect_z_columns", "main_effect_z_device", "quantile_codes_columns", "quantile_codes_columns_device", "quantile_codes_on_device", "kernel"]

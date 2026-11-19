@@ -19,6 +19,7 @@ import numpy as np
 from numba import njit, prange
 
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import _extend_path, _unwound_sum
+from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table_gpu import make_ensure_kernel
 
 if TYPE_CHECKING:
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap import TreeEnsemble
@@ -62,7 +63,7 @@ void treeshap_interactions_table(const {REAL}* X, const int n, const int f, cons
                 const int ud = leaf_ud[leaf];
                 if (ud > 0){
                     const int fo = leaf_feat_off[leaf];
-                    const int base = leaf_table_off[leaf] + (mask & ((1 << ud) - 1)) * ud;
+                    const int base = leaf_table_off[leaf] + (mask & ((1 << ud) - 1)) * ud;  // width-ok: a row of the leaf table, below 2^ud * ud for a path of ud <= max_depth features; the offsets are int32 by construction
                     for (int j = 0; j < ud; j++) phi[(long long)leaf_feat[fo + j] * n + i] += table[base + j];
                     if (ud > 1){
                         const long long pbase = leaf_pair_off[leaf];
@@ -136,33 +137,24 @@ def build_pair_tables(tab: dict) -> Optional[dict]:
     return {**tab, "leaf_pair_off": off, "pair_table": pair}
 
 
-def kernel_source(max_depth: int, real=np.float32, shared_stack: bool = False) -> str:
+def kernel_source(max_depth: int, real: Any = np.float32, shared_stack: bool = False) -> str:
     """The kernel source for trees up to ``max_depth`` and the element type ``real``."""
-    from mlframe.feature_selection.filters._kernel_types import render
+    from mlframe.feature_selection.filters.shared import render
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table_gpu import _maxsp
 
     return render(f"#define MAXSP {_maxsp(max_depth)}\n" + _KERNEL_SRC, real, acc=real)
 
 
-def kernel(cp, real=np.float32):
+def kernel(cp: Any, real: Any = np.float32) -> Any:
     """``treeshap_interactions_table`` at depth 6 for the element type ``real``; registry factory."""
     return cp.RawKernel(kernel_source(6, real), "treeshap_interactions_table")
 
 
-def _ensure_kernel(max_depth: int, real, shared_stack: bool = False):
-    """Compile once per (depth, type, stack placement) under a module lock."""
-    key = (int(max_depth), np.dtype(real).name, bool(shared_stack))
-    with _LOCK:
-        k = _KERNELS.get(key)
-        if k is None:
-            import cupy as cp
-
-            k = _KERNELS[key] = cp.RawKernel(kernel_source(max_depth, real, shared_stack), "treeshap_interactions_table")
-    return k
+_ensure_kernel = make_ensure_kernel(kernel_source, "treeshap_interactions_table", _KERNELS, _LOCK)  # compile once per (depth, type, stack placement) under the module lock
 
 
 def interaction_tensor_table_gpu(ensemble: "TreeEnsemble", X: np.ndarray) -> Optional[tuple]:
-    """``(Phi (n, P, P) float64, phi (n, P) float64, base)`` from the device pair-table kernel, or ``None`` when the ensemble does not fit the table form (the caller keeps the path kernel)."""
+    """``(Phi (n, P, P) double precision, phi (n, P) double precision, base)`` from the device pair-table kernel, or ``None`` when the ensemble does not fit the table form (the caller keeps the path kernel)."""
     import cupy as cp
 
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_treeshap_table import build_tables

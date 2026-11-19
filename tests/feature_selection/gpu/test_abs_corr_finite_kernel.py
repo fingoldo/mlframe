@@ -49,12 +49,9 @@ def test_kernel_equals_the_cupy_chain(name, col, y, fin):
     d = cp.asarray(col)
     got = mod.abs_corr_finite_gpu(d, y, fin, 8)
     want = mod._abs_corr_finite_cupy(d, y, fin, 8)
-    if want == 0.0:
-        assert got == 0.0
-    else:
-        assert abs(got - want) <= 1e-11 * max(1.0, abs(want)), (got, want)
-    if name == "correlated":
-        assert want > 0.99
+    assert (got == 0.0) == (want == 0.0), (got, want)  # a degenerate case is exactly 0.0 on both sides
+    assert abs(got - want) <= 1e-11 * max(1.0, abs(want)), (got, want)
+    assert name != "correlated" or want > 0.99
 
 
 def test_kernel_is_faster_per_call_than_the_chain():

@@ -334,6 +334,33 @@ def grouped_agg_with_recipes(
 # CMI-uplift scorer / gate
 # ---------------------------------------------------------------------------
 
+_HELDOUT_SPLITS = 25  # row splits whose median z is the held-out statistic (one split is unstable, MR11-87)
+
+
+def _heldout_z_by_column(eng_X: pd.DataFrame, raw_X: pd.DataFrame, y_bin: np.ndarray, eng_to_source: dict) -> dict:
+    """``{engineered column: median held-out z}`` over the fixed row splits, for the columns whose source is in ``raw_X`` (see ``_grouped_agg_heldout_uplift``)."""
+    if y_bin.size <= 1:
+        return {}
+    from ._grouped_agg_heldout_uplift import heldout_marginal_gain, source_fine_bins
+
+    source_bins: dict = {}
+    # the z is the MEDIAN over fixed row splits (seeds 0..24): one split is unstable (a partition fitted on a single half can lose to the aggregate on the other), the median is not
+    splits = []
+    for seed in range(_HELDOUT_SPLITS):
+        perm = np.random.default_rng(seed).permutation(y_bin.size)
+        splits.append((perm[: y_bin.size // 2], perm[y_bin.size // 2 :]))
+    heldout: dict = {}
+    for col in eng_X.columns:
+        src = eng_to_source.get(col)
+        if src and src in raw_X.columns:
+            fine = source_bins.get(src)
+            if fine is None:
+                fine = source_bins[src] = source_fine_bins(raw_X[src].to_numpy())  # the fine bins do not depend on the split: once per source
+            zs = [heldout_marginal_gain(eng_X[col].to_numpy(), raw_X[src].to_numpy(), y_bin, fit_rows, eval_rows, fine=fine)[1] for fit_rows, eval_rows in splits]
+            heldout[col] = float(np.median(zs))
+    return heldout
+
+
 def score_grouped_agg_by_cmi_uplift(
     raw_X: pd.DataFrame,
     eng_X: pd.DataFrame,
@@ -343,9 +370,13 @@ def score_grouped_agg_by_cmi_uplift(
     n_bins: int = 10,
     eng_to_source: Optional[dict] = None,
     support_cache: "dict | None" = None,
+    heldout_uplift: bool = False,
 ) -> pd.DataFrame:
     """Rank engineered aggregates by ``CMI(agg; y | base_cols)`` and gate by
     uplift over the source num_col's own marginal ``MI(num_col; y)``.
+
+    ``heldout_uplift=True`` adds the held-out marginal redundancy test of ``_grouped_agg_heldout_uplift``: the aggregate is compared with the best partition of its
+    source, fitted on one half of the rows and measured on the other, and its ``z`` is recorded in the ``heldout_z`` column. The default keeps the conditional ``uplift``.
 
     Reuses the Layer 60 CMI primitives (``score_candidates_by_cmi`` for the
     conditional term, ``_cmi_from_binned`` for the marginal source MI).
@@ -422,17 +453,21 @@ def score_grouped_agg_by_cmi_uplift(
         return float(mi)
 
     rows = []
+    heldout = _heldout_z_by_column(eng_X, raw_X, y_bin, eng_to_source) if heldout_uplift else {}
     for col in eng_X.columns:
         src = eng_to_source.get(col)
         smi = _source_mi(src) if src else 0.0
         c = float(cmi.get(col, 0.0))
-        rows.append({
+        row = {
             "engineered_col": col,
             "source_col": src,
             "cmi": c,
             "source_mi": smi,
             "uplift": c - smi,
-        })
+        }
+        if heldout_uplift:
+            row["heldout_z"] = float(heldout.get(col, np.nan))
+        rows.append(row)
     out = pd.DataFrame(rows)
     return out.sort_values("cmi", ascending=False, kind="mergesort").reset_index(drop=True)
 

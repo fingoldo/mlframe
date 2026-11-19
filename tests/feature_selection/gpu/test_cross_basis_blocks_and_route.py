@@ -7,14 +7,13 @@ import pytest
 
 from mlframe.feature_selection.filters import _device_sort_safe as dss
 from mlframe.feature_selection.filters._orthogonal_univariate_fe import _gpu_resident_cross_basis as cb
+from tests.feature_selection.gpu._gpu_support import has_device
 
 
 def _cp():
     """cupy with a usable device, else skip."""
     cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
+    if not has_device(cp):
         pytest.skip("no usable CUDA device")
     return cp
 

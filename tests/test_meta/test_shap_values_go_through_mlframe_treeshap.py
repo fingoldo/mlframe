@@ -6,6 +6,7 @@ The public library is allowed to draw plots and to answer the families we do not
 """
 
 from __future__ import annotations
+from tests.test_meta._scan_guard import assert_scanned_enough
 
 import ast
 from pathlib import Path
@@ -48,7 +49,9 @@ def _direct_calls(path: Path):
 def test_no_direct_public_shap_computation_outside_the_listed_places():
     """Scan src/mlframe (benchmarks excluded: they exist to compare against the public library) for explainers of the public library."""
     offenders = []
-    for path in sorted(SRC.rglob("*.py")):
+    files = sorted(SRC.rglob("*.py"))
+    assert_scanned_enough(len(files), "src/mlframe")
+    for path in files:
         rel = path.relative_to(SRC).as_posix()
         if "/_benchmarks/" in "/" + rel or rel in ALLOWED:
             continue

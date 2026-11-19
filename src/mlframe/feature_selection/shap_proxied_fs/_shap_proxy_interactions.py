@@ -42,19 +42,13 @@ logger = logging.getLogger(__name__)
 # the numba JIT warmup is not paid on trivial widths.
 _INTERACTION_NUMBA_MIN_FEATURES = 8
 
-# The device-or-host choice of the interaction tensor is the kernel_tuner entry ``shap_proxy_treeshap_interactions_backend`` (``_shap_proxy_treeshap_interactions_ktc``); this constant is the
-# hand-calibrated floor the dispatcher used before it, kept for the routing tests and as documentation of the old rule.
-_INTERACTION_GPU_MIN_CELLS = 3_000 * 40 * 40  # ~4.8M cells (e.g. 3000 rows x P=40)
+# The device-or-host choice of the interaction tensor is the kernel_tuner entry ``shap_proxy_treeshap_interactions_backend`` (``_shap_proxy_treeshap_interactions_ktc``). The dispatcher
+# used a hand-calibrated floor of ``n * P^2`` = 4.8M cells (3000 rows x P=40) before it; the tuner's own fallback floor (2M cells, between its measured points) replaced that.
 
 
 def _interaction_numba_min_features() -> int:
     """Feature count from which interactions route to the numba kernel (a hand-calibrated crossover; no per-host cache entry exists or is read)."""
     return _INTERACTION_NUMBA_MIN_FEATURES
-
-
-def _interaction_gpu_min_cells() -> int:
-    """The old hand-calibrated floor of ``n * P^2`` for the GPU kernel; the live choice is :func:`_interaction_gpu_pays`."""
-    return _INTERACTION_GPU_MIN_CELLS
 
 
 def _interaction_gpu_pays(n_rows: int, n_features: int, trees: int) -> bool:

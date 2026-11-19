@@ -58,6 +58,7 @@ import logging
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.utils.array_shape import length_of
 
 from ._kernel_types import render
 
@@ -494,7 +495,7 @@ def adds_nonlinear_value_batch_gpu_resident(
     runs the exact per-candidate CPU path."""
     if not form_values:
         return None
-    n_rows = int(np.asarray(rel_y).shape[0])
+    n_rows = int(length_of(rel_y))
     if n_rows >= 2 and not pure_form_device_chosen(n_rows, len(form_values)):
         try:
             from ._usability_aware_selection import _f64, _scrub

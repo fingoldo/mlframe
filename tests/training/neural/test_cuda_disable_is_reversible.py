@@ -44,7 +44,8 @@ def test_restoring_an_unset_variable_removes_it_again(monkeypatch):
     cf._CUDA_DISABLED_STATE = None
     cf._disable_cuda_globally()
     assert cf.restore_cuda_visibility() is True
-    assert "CUDA_VISIBLE_DEVICES" not in os.environ, "a variable that was never set must not be left behind as empty"
+    env_unset = "CUDA_VISIBLE_DEVICES" not in os.environ
+    assert env_unset, "a variable that was never set must not be left behind as empty"
 
 
 def test_restoring_when_nothing_was_disabled_is_a_no_op():

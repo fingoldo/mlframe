@@ -34,10 +34,13 @@ from typing import Any, Optional
 from collections.abc import Sequence
 
 import numpy as np
+from mlframe.utils.array_shape import length_of
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import assert_kernel_buffers, crit_float_dtype
+
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -295,9 +298,9 @@ def best_existing_op_mi_resident(
             if isinstance(_exc, _cp.cuda.memory.OutOfMemoryError):
                 from ._fe_gpu_vram import note_gpu_oom
 
-                note_gpu_oom()  # GPU11-13: the cushion check above passed but a race against another allocation can still OOM here.
+                note_gpu_oom()  # the cushion check above passed but a race against another allocation can still OOM here.
         except Exception:  # nosec B110 - best-effort cooldown note, never let it mask the original failure
-            pass
+            logger.debug("GPU out-of-memory cooldown note failed", exc_info=True)
         return None
 
 
@@ -351,7 +354,7 @@ def best_existing_op_mi_resident_many(
             out.extend(float(np.max(mis[lo:hi])) for lo, hi in spans)
         return out
     except Exception as exc:
-        logger.debug("best_existing_op_mi_resident_many: device route failed (%s); the sets are scored one by one", exc)
+        log_throttle(logger, "resident_candidate_mi_best_existing_op_mi_resident_many_device_route", logging.WARNING, "best_existing_op_mi_resident_many: device route failed (%s); the sets are scored one by one", exc)
         return None
 
 
@@ -381,7 +384,7 @@ def _tau_grid_kernel(cp, mode: str, out_ctype: str):
 def _tau_grid_block(cp, mode: str, ctup: tuple, cols: tuple, taus_g, out_ctype: str, out):
     """The tau-grid block of one combo built from its resident operands, op for op like the host grid; ``None`` for an unknown mode.
 
-    Column-major (``out`` given): the kernel writes the ``(k, n)`` rows straight into ``out``. Row-major: a new ``(n, k)`` float64 block (the layout the rank-binning kernel takes)."""
+    Column-major (``out`` given): the kernel writes the ``(k, n)`` rows straight into ``out``. Row-major: a new ``(n, k)`` double precision block (the layout the rank-binning kernel takes)."""
     from ._fe_resident_operands import resident_operand
 
     if mode == "mask":
@@ -415,7 +418,7 @@ def _note_oom(exc: BaseException) -> None:
 
             note_gpu_oom()
     except Exception:  # nosec B110  # best-effort: the cooldown note must never mask the original failure, which still returns None for the host fallback
-        pass
+        logger.debug("GPU out-of-memory cooldown note failed", exc_info=True)
 
 
 def gate_grid_mi_resident(
@@ -472,7 +475,7 @@ def gate_grid_mi_resident(
         grid_out: Any = None
         grid_off = 0
         if cm:
-            grid_out = cp.empty((int(sum(len(t) for (_m, _c, _o, t) in specs)), int(np.asarray(specs[0][2][0]).shape[0])), dtype=_gdt)
+            grid_out = cp.empty((int(sum(len(t) for (_m, _c, _o, t) in specs)), int(length_of(specs[0][2][0]))), dtype=_gdt)
         for mode, ctup, cols, taus in specs:
             taus_g = cp.asarray(np.ascontiguousarray(np.asarray(taus, dtype=np.float64)))  # (k,)  # Intentional float64: gate threshold grid; compared at full precision
             k_combo = int(taus_g.shape[0])

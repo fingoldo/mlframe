@@ -79,7 +79,7 @@ from pyutilz.numbalib import (
     python_dict_2_numba_dict,
     set_numba_random_seed,
 )
-from pyutilz.parallel import mem_map_array, parallel_run, split_list_into_chunks  # public facade re-export (F401 already blanket-ignored for __init__.py) (mem_map_array)
+from pyutilz.parallel import mem_map_array, parallel_run  # public facade re-export (F401 already blanket-ignored for __init__.py) (mem_map_array)
 from pyutilz.pythonlib import (
     get_parent_func_args,
     sort_dict_by_value,

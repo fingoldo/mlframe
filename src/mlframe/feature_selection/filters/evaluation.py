@@ -15,7 +15,7 @@ from pyutilz.numbalib import _generate_combinations_recursive_njit_core  # noqa:
 # Module-level import so cloudpickle can resolve tqdmu when the function ships to a joblib worker.
 
 from ._internals import LARGE_CONST
-from ._numba_utils import evaluate_gain
+from ._numba_utils import MAX_CONFIRMATION_CAND_NBINS, evaluate_gain
 from ._numba_utils import _EVALUATE_GAIN_DISK_CACHE  # noqa: F401 -- re-exported; read by the disk-cache contract tests
 from .gpu import mi_direct_gpu
 from .info_theory import (
@@ -337,6 +337,11 @@ def _conditional_gain_step(
         jmim_hit_counter=jmim_hit_counter,
         can_use_x_cache=True,
         can_use_y_cache=True,
+        # every argument is spelled out: a call that leaves a default to numba resolves in the interpreter each time once another kernel with a different default value has run
+        # (the dispatcher keeps one type code for all omitted arguments), 0.3 ms a call here
+        dtype=np.int32,
+        confidence_mode=False,
+        max_confirmation_cand_nbins=MAX_CONFIRMATION_CAND_NBINS,
         use_su=(_use_su := use_su_normalization()),
         use_jmim=use_jmim_aggregator(),
         jmim_discount_only=jmim_exponent_discount_only(),

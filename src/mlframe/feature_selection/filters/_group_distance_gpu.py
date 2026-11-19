@@ -135,7 +135,7 @@ def group_stats_device(
     """``(count, sum, hist, w1)`` of every (column, group) cell, or ``None`` when the device cannot take the block (the caller runs the host loop).
 
     ``gid``: group id per row (``0 .. n_groups - 1``); ``xs``: float32 ``(columns, n)``; ``bins``: the global-histogram bin per element (``-1`` outside); ``global_sorted``: each column's finite values ascending
-    (double precision). ``count`` is ``(columns, groups)`` int64, ``sum`` float64, ``hist`` ``(columns, groups, bins)`` int64, ``w1`` float64."""
+    (double precision). ``count`` is ``(columns, groups)`` int64, ``sum`` double precision, ``hist`` ``(columns, groups, bins)`` int64, ``w1`` double precision."""
     k, n = xs.shape
     if k == 0 or n < 2 or xs.dtype != np.float32 or n_groups > MAX_GROUPS or n_groups * (n_bins + 3) * 4 > _SHARED_BYTES:
         return None
@@ -164,7 +164,7 @@ def group_stats_device(
             x_d = cp.asarray(np.ascontiguousarray(xs[c0 : c0 + w]))
             b_d = cp.asarray(np.ascontiguousarray(bins[c0 : c0 + w], dtype=np.int16))
             cnt_d = cp.zeros((w, n_groups), dtype=cp.int32)
-            sum_d = cp.zeros((w, n_groups), dtype=cp.float64)
+            sum_d = cp.zeros((w, n_groups), dtype=cp.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
             hist_d = cp.zeros((w, n_groups, n_bins), dtype=cp.int32)
             stats_k((min(grid_x, 64), w), (stats_threads,), (x_d, b_d, gid_d, cnt_d, sum_d, hist_d, np.int64(n), np.int32(n_groups), np.int32(n_bins)), shared_mem=shared)
             del b_d
@@ -183,7 +183,7 @@ def group_stats_device(
             g_host = np.zeros((w, gmax), dtype=np.float64)  # Intentional float64: sorted operand of the merge
             g_host[np.arange(gmax)[None, :] < gn[:, None]] = np.concatenate(parts) if parts else np.zeros(0)
             g_d = cp.asarray(g_host)
-            out_d = cp.zeros((w, n_groups), dtype=cp.float64)
+            out_d = cp.zeros((w, n_groups), dtype=cp.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
             cnt64 = cnt_d.astype(cp.int64)
             offs = cp.cumsum(cnt64, axis=1) - cnt64
             chunks = int((int(cnt_d.max()) + gmax + _W1_STEPS - 1) // _W1_STEPS)

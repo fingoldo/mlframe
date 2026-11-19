@@ -21,7 +21,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 import pandas as pd
 
 from ._fe_gain_stats import has_few_distinct, held_out_codes, paired_gain_se, plugin_mi_of_codes
-from ._gain_stats_codes_gpu import quantile_codes_columns
+from ._gain_stats_codes_gpu import plugin_mi_columns
 from ._fe_scan_common import rank_scaled as _rank_scaled
 from ._fe_scan_common import scan_index as _scan_index
 from ._numba_utils import MAX_SUBSET, STAT_NAMES, eval_candidates, stat_column
@@ -97,9 +97,9 @@ def _pool_columns(X: "pd.DataFrame", cols: Sequence[str], rows: np.ndarray, code
     if not xs:
         return []
     # the codes of every kept column and of its distance from the median, each set in one device launch (or the host form per column)
-    q_value = quantile_codes_columns(xs, N_MI_BINS)[0]
-    q_spread = quantile_codes_columns([np.abs(x - np.median(x)) for x in xs], N_MI_BINS)[0]
-    scored = [(max(plugin_mi_of_codes(q_value[i], N_MI_BINS, codes, ky), plugin_mi_of_codes(q_spread[i], N_MI_BINS, codes, ky)), kept[i]) for i in range(len(kept))]
+    mi_value = plugin_mi_columns(xs, N_MI_BINS, codes, ky)
+    mi_spread = plugin_mi_columns([np.abs(x - np.median(x)) for x in xs], N_MI_BINS, codes, ky)
+    scored = [(max(float(mi_value[i]), float(mi_spread[i])), kept[i]) for i in range(len(kept))]
     scored.sort(key=lambda t: -t[0])
     return [c for _, c in scored[:MAX_POOL]]
 

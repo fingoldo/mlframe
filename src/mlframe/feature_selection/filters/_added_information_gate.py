@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Optional
 
 import numpy as np
+from mlframe.utils.array_shape import length_of
 import pandas as pd
 from numba import njit
 
@@ -53,6 +54,36 @@ def _dense_small_ints(flat: np.ndarray, limit: int) -> "tuple[np.ndarray, int]":
     return out, k
 
 
+@njit(cache=True, nogil=True)
+def _joint_counts_kernel(cand: np.ndarray, src: np.ndarray, tgt: np.ndarray, n_src: int, n_tgt: int, limit: int) -> "tuple[np.ndarray, int]":
+    """``(joint, K)``: the ``(n_src, K, n_tgt)`` table of counts of ``(source, candidate, target)`` where the non-negative integer ``cand`` is renumbered to ``0..K-1`` over its occupied values, in two
+    passes over the rows without the index temporaries of the ``bincount`` form. ``K = -1`` (nothing else valid) when a candidate value is negative or not below ``limit``."""
+    n = cand.shape[0]
+    mx = 0
+    for i in range(n):
+        v = cand[i]
+        if v < 0:
+            return np.empty((0, 0, 0), dtype=np.float64), -1  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
+        if v > mx:
+            mx = v
+    if mx >= limit:
+        return np.empty((0, 0, 0), dtype=np.float64), -1  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
+    lut = np.zeros(mx + 1, dtype=np.int64)
+    for i in range(n):
+        lut[cand[i]] = 1
+    k = 0
+    for v in range(mx + 1):
+        if lut[v] == 1:
+            lut[v] = k
+            k += 1
+        else:
+            lut[v] = -1
+    joint = np.zeros((n_src, k, n_tgt), dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
+    for i in range(n):
+        joint[src[i], lut[cand[i]], tgt[i]] += 1.0
+    return joint, k
+
+
 def _dense_codes(a: np.ndarray) -> "tuple[np.ndarray, int]":
     """``a`` renumbered to 0..K-1 over its occupied values, and K. Small non-negative integer codes (the usual input) are renumbered through a count table, not a sort."""
     a = np.asarray(a)
@@ -72,19 +103,28 @@ def added_information_p(candidate: np.ndarray, source: "np.ndarray | None", y: n
     ``1.0`` when the table has no degrees of freedom (a constant candidate or target).
 
     ``y_dense`` / ``source_dense``: the :func:`_dense_codes` result of ``y`` / ``source`` when the caller scores many candidates against the same target or source (the renumbering is a pass over every row per call)."""
-    n = int(np.asarray(y).shape[0])
-    c, bc = _dense_codes(candidate)
+    n = int(length_of(y))
     t, by = y_dense if y_dense is not None else _dense_codes(y)
     if source is None:
         s, bs = np.zeros(n, dtype=np.int64), 1
     else:
         s, bs = source_dense if source_dense is not None else _dense_codes(source)
+    cand = np.asarray(candidate)
+    joint = None
+    if n > 0 and cand.ndim == 1 and cand.shape[0] == n and cand.dtype.kind in "iu" and s.shape[0] == n and t.shape[0] == n and bs > 0 and by > 0:
+        # the candidate's renumbering and the table in one compiled pass: the sparse-table and no-degrees-of-freedom exits below need its level count, so it is known before the table is kept
+        joint, bc = _joint_counts_kernel(np.ascontiguousarray(cand), np.ascontiguousarray(s, dtype=np.int64), np.ascontiguousarray(t, dtype=np.int64), int(bs), int(by), 1 << 22)
+        if bc < 0:
+            joint = None
+    if joint is None:
+        c, bc = _dense_codes(candidate)
     df = bs * (bc - 1) * (by - 1)
     if n <= 0 or df <= 0:
         return 1.0
     if n / float(bs * bc * by) < _MIN_EXPECTED_CELL:
         return float("nan")
-    joint = np.bincount((s * bc + c) * by + t, minlength=bs * bc * by).reshape(bs, bc, by).astype(np.float64)  # Intentional float64: counts and their logarithms in the G statistic
+    if joint is None:
+        joint = np.bincount((s * bc + c) * by + t, minlength=bs * bc * by).reshape(bs, bc, by).astype(np.float64)  # Intentional float64: counts and their logarithms in the G statistic
     n_sc = joint.sum(axis=2)
     n_sy = joint.sum(axis=1)
     n_s = joint.sum(axis=(1, 2))

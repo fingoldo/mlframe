@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional, Sequence
 
 import numpy as np
+from mlframe.utils.array_shape import size_of
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 import pandas as pd
@@ -93,7 +94,7 @@ def _code_fractions(codes: np.ndarray) -> np.ndarray:
     verdicts is pinned by the tests, not by this sweep."""
     out = np.zeros(64, dtype=np.float64)  # Intentional float64: comparison vector
     counts = np.bincount(np.asarray(codes).ravel().astype(np.int64, copy=False), minlength=1)[:64]
-    out[: counts.size] = counts / float(max(1, np.asarray(codes).size))
+    out[: counts.size] = counts / float(max(1, size_of(codes)))
     return out
 
 
@@ -168,7 +169,7 @@ def _use_device(n_elements: int) -> bool:
     return modular_device_chosen(int(n_elements))
 
 
-def kernel_for_source(cp, real):
+def kernel_for_source(cp: Any, real: Any) -> Any:
     """``modular_all_ops`` for source columns of dtype ``real`` (float32 sources are read as they are, anything else as double): compile point of the caller and of the register-pressure registry."""
     return (_MODULE_F32 if np.dtype(real) == np.float32 else _MODULE).get(cp).get_function("modular_all_ops")
 

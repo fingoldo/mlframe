@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+from mlframe.feature_selection.shap_proxied_fs.shared import maybe_patch_shap_xgb_base_score as _maybe_patch_shap_xgb_base_score
 import pandas as pd
 import pytest
 
@@ -25,7 +26,8 @@ def _data(n: int = 400, f: int = 8, seed: int = 0):
 
 def _public(model, X):
     """The public library's values and base for the same model."""
-    explainer = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
+    with _maybe_patch_shap_xgb_base_score():
+        explainer = shap.TreeExplainer(model, feature_perturbation="tree_path_dependent")
     return np.asarray(explainer.shap_values(X, check_additivity=False)), explainer.expected_value
 
 
@@ -40,7 +42,8 @@ def test_values_match_the_public_library(family):
         "lgb_bin": lambda: lgb.LGBMClassifier(n_estimators=40, num_leaves=16, verbose=-1, n_jobs=2).fit(X, y_bin),
     }
     model = models[family]()
-    explainer = ts.TreeExplainer(model)
+    with _maybe_patch_shap_xgb_base_score():
+        explainer = ts.TreeExplainer(model)
     got = explainer.shap_values(X)
     ref, ref_base = _public(model, X)
     assert explainer.backend_ in ("treeshap_numba", "treeshap_gpu")
@@ -55,7 +58,8 @@ def test_forcing_the_public_backend_returns_the_public_values():
     """backend="shap" is honoured."""
     X, y_reg, _ = _data()
     model = lgb.LGBMRegressor(n_estimators=20, num_leaves=8, verbose=-1, n_jobs=2).fit(X, y_reg)
-    explainer = ts.TreeExplainer(model, backend="shap")
+    with _maybe_patch_shap_xgb_base_score():
+        explainer = ts.TreeExplainer(model, backend="shap")
     got = explainer.shap_values(X)
     assert explainer.backend_ == "shap"
     np.testing.assert_allclose(got, _public(model, X)[0], rtol=0, atol=1e-12)
@@ -68,7 +72,8 @@ def test_multiclass_is_answered_by_the_public_library_and_logged(caplog):
     model = lgb.LGBMClassifier(n_estimators=15, num_leaves=8, verbose=-1, n_jobs=2).fit(X, y3)
     ts._FALLBACK_LOGGED.clear()
     with caplog.at_level(logging.WARNING, logger=ts.logger.name):
-        explainer = ts.TreeExplainer(model)
+        with _maybe_patch_shap_xgb_base_score():
+            explainer = ts.TreeExplainer(model)
         values = explainer.shap_values(X.iloc[:50])
     assert explainer.backend_ == "shap"
     assert (isinstance(values, list) and len(values) == 3) or np.asarray(values).ndim == 3
@@ -83,7 +88,8 @@ def test_a_sklearn_forest_is_answered_by_the_public_library(caplog):
     model = RandomForestRegressor(n_estimators=8, max_depth=4, random_state=0).fit(X, y_reg)
     ts._FALLBACK_LOGGED.clear()
     with caplog.at_level(logging.WARNING, logger=ts.logger.name):
-        explainer = ts.TreeExplainer(model)
+        with _maybe_patch_shap_xgb_base_score():
+            explainer = ts.TreeExplainer(model)
         values = explainer.shap_values(X.iloc[:30])
     assert explainer.backend_ == "shap" and np.asarray(values).shape == (30, X.shape[1])
     assert any("RandomForestRegressor" in r.getMessage() for r in caplog.records)
@@ -97,12 +103,15 @@ def test_interaction_values_match_the_public_library(family):
         model = lgb.LGBMRegressor(n_estimators=20, num_leaves=8, verbose=-1, n_jobs=2).fit(X, y_reg)
     else:
         model = xgb.XGBRegressor(n_estimators=20, max_depth=3, tree_method="hist", verbosity=0).fit(X, y_reg)
-    explainer = ts.TreeExplainer(model)
+    with _maybe_patch_shap_xgb_base_score():
+        explainer = ts.TreeExplainer(model)
     got = explainer.shap_interaction_values(X)
-    ref = np.asarray(shap.TreeExplainer(model, feature_perturbation="tree_path_dependent").shap_interaction_values(X))
+    with _maybe_patch_shap_xgb_base_score():
+        ref = np.asarray(shap.TreeExplainer(model, feature_perturbation="tree_path_dependent").shap_interaction_values(X))
     np.testing.assert_allclose(got, ref, rtol=0, atol=1e-4)
     np.testing.assert_allclose(got, np.swapaxes(got, 1, 2), rtol=0, atol=1e-5 if family == "xgb" else 1e-9)  # XGBoost's native tensor is symmetric to its float32 precision
-    np.testing.assert_allclose(got.sum(axis=2), ts.TreeExplainer(model).shap_values(X), rtol=0, atol=1e-4)
+    with _maybe_patch_shap_xgb_base_score():
+        np.testing.assert_allclose(got.sum(axis=2), ts.TreeExplainer(model).shap_values(X), rtol=0, atol=1e-4)
 
 
 def test_pipeline_and_target_transform_wrappers_are_unwrapped():
@@ -112,7 +121,8 @@ def test_pipeline_and_target_transform_wrappers_are_unwrapped():
 
     X, y_reg, _ = _data(n=200)
     wrapped = TransformedTargetRegressor(regressor=lgb.LGBMRegressor(n_estimators=15, num_leaves=8, verbose=-1, n_jobs=2), transformer=StandardScaler()).fit(X, y_reg)
-    explainer = ts.TreeExplainer(wrapped)
+    with _maybe_patch_shap_xgb_base_score():
+        explainer = ts.TreeExplainer(wrapped)
     got = explainer.shap_values(X.iloc[:40])
     assert explainer.backend_ in ("treeshap_numba", "treeshap_gpu") and got.shape == (40, X.shape[1])
 
@@ -121,7 +131,8 @@ def test_to_explanation_carries_values_data_and_names():
     """The public plotting functions get an Explanation built from our values."""
     X, y_reg, _ = _data(n=100)
     model = lgb.LGBMRegressor(n_estimators=10, num_leaves=8, verbose=-1, n_jobs=2).fit(X, y_reg)
-    explainer = ts.TreeExplainer(model)
+    with _maybe_patch_shap_xgb_base_score():
+        explainer = ts.TreeExplainer(model)
     values = explainer.shap_values(X)
     exp = ts.to_explanation(values, X, base_values=explainer.expected_value)
     assert exp.values.shape == values.shape and list(exp.feature_names) == list(X.columns) and exp.data.shape == X.shape
@@ -134,7 +145,8 @@ def test_xgboost_interactions_use_our_kernel_not_the_native_predict():
     X = pd.DataFrame(rng.normal(size=(150, 6)), columns=[f"c{i}" for i in range(6)])
     y = X["c0"] * X["c1"] + X["c2"] + 0.1 * rng.normal(size=150)
     model = xgb.XGBRegressor(n_estimators=12, max_depth=3, verbosity=0, n_jobs=1).fit(X, y)
-    explainer = ts.TreeExplainer(model)
+    with _maybe_patch_shap_xgb_base_score():
+        explainer = ts.TreeExplainer(model)
     Phi = explainer.shap_interaction_values(X)
     assert explainer.backend_ == "treeshap_numba" and Phi.shape == (150, 6, 6)
     native = model.get_booster().predict(xgb.DMatrix(X), pred_interactions=True)

@@ -171,14 +171,18 @@ def clean_policy(monkeypatch):
 @pytest.mark.usefixtures("clean_policy")
 def test_a_fit_runs_with_background_sweeps_disabled_and_the_environment_is_restored():
     """Inside the policy the pyutilz sweep switch is on; afterwards it is gone again, also when the fit raises."""
-    assert SWITCH not in os.environ
+    env_unset = SWITCH not in os.environ
+    assert env_unset
     with _policy.kernel_tuning_fit_policy():
-        assert os.environ[SWITCH] == "1"
-    assert SWITCH not in os.environ
+        env_state_ok = os.environ[SWITCH] == "1"
+        assert env_state_ok
+    env_unset = SWITCH not in os.environ
+    assert env_unset
     with pytest.raises(ValueError):
         with _policy.kernel_tuning_fit_policy():
             raise ValueError("fit failed")
-    assert SWITCH not in os.environ
+    env_unset = SWITCH not in os.environ
+    assert env_unset
 
 
 @pytest.mark.usefixtures("clean_policy")
@@ -186,8 +190,10 @@ def test_the_callers_own_setting_is_never_overridden_or_removed(monkeypatch):
     """An explicit PYUTILZ_KERNEL_DISABLE_SWEEP (any value) belongs to the caller: kept inside, kept after."""
     monkeypatch.setenv(SWITCH, "0")
     with _policy.kernel_tuning_fit_policy():
-        assert os.environ[SWITCH] == "0"
-    assert os.environ[SWITCH] == "0"
+        env_state_ok = os.environ[SWITCH] == "0"
+        assert env_state_ok
+    env_state_ok = os.environ[SWITCH] == "0"
+    assert env_state_ok
 
 
 @pytest.mark.usefixtures("clean_policy")
@@ -196,7 +202,8 @@ def test_autotune_on_restores_the_old_behaviour(monkeypatch):
     monkeypatch.setenv("MLFRAME_AUTOTUNE", "on")
     assert _policy.autotune_mode() == "on"
     with _policy.kernel_tuning_fit_policy():
-        assert SWITCH not in os.environ
+        env_unset = SWITCH not in os.environ
+        assert env_unset
 
 
 @pytest.mark.usefixtures("clean_policy")
@@ -207,9 +214,11 @@ def test_overlapping_fits_keep_the_switch_until_the_last_one_leaves():
     outer.__enter__()
     inner.__enter__()
     outer.__exit__(None, None, None)
-    assert os.environ[SWITCH] == "1"
+    env_state_ok = os.environ[SWITCH] == "1"
+    assert env_state_ok
     inner.__exit__(None, None, None)
-    assert SWITCH not in os.environ
+    env_unset = SWITCH not in os.environ
+    assert env_unset
 
 
 @pytest.mark.usefixtures("clean_policy")
@@ -259,7 +268,8 @@ def test_hygienic_fit_wraps_the_fit_in_the_policy():
 
     _Sel().fit([[1.0]])
     assert seen["switch"] == "1"
-    assert SWITCH not in os.environ
+    env_unset = SWITCH not in os.environ
+    assert env_unset
 
 
 # --- one tuning run per machine ---------------------------------------------------------------------------------------

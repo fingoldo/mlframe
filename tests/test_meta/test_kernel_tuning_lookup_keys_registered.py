@@ -8,6 +8,7 @@ new unwritten read fails at once, and a key that became written or is no longer 
 """
 
 from __future__ import annotations
+from tests.test_meta._scan_guard import assert_scanned_enough
 
 import ast
 import json
@@ -33,7 +34,9 @@ def _scan() -> tuple[dict[str, list[str]], set[str]]:
     lookups: dict[str, list[str]] = {}
     written: set[str] = set()
     sweep_pkg = SRC / "mlframe" / "feature_selection" / "_benchmarks" / "kernel_tuning_cache"
-    for path in _py_files():
+    files = _py_files()
+    assert_scanned_enough(len(files), "src/mlframe")
+    for path in files:
         try:
             tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
         except SyntaxError:

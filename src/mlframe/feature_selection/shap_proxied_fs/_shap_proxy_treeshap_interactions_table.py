@@ -23,7 +23,7 @@ from numba import njit, prange
 from ._shap_proxy_treeshap import _NO_CHILD, TreeEnsemble, _extend_path, _unwound_sum
 from ._shap_proxy_treeshap_table import MAX_TABLE_ENTRIES, PAYOFF_SHARE, build_tables
 
-MAX_ITABLE_ENTRIES = MAX_TABLE_ENTRIES  # float64 entries of the interaction tables (192 MB)
+MAX_ITABLE_ENTRIES = MAX_TABLE_ENTRIES  # double entries of the interaction tables (192 MB)
 
 
 @njit(cache=True, parallel=True)

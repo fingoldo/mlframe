@@ -100,3 +100,18 @@ def test_operand_build_kernel_matches_a_numpy_reference_for_every_op_of_its_tabl
         for j, nm in enumerate(names):
             want = np.asarray(ref[nm](x), dtype=np.float64).astype(np.float32)
             np.testing.assert_allclose(got[:, j], want, rtol=2e-5, atol=1e-6, equal_nan=True, err_msg=f"op {nm!r} (code {_BATCH_UNARY_OPS[nm]})")
+
+
+def test_the_cuda_body_is_filled_from_the_table_and_the_ladder_constants_are_the_table_codes():
+    """Every code of the table but ``exp`` (the default branch) has exactly one ``case`` label in the generated CUDA text, no placeholder is left, and the ladder's constants are the table's codes."""
+    import re
+
+    from mlframe.feature_selection.filters import _numba_utils_usability as nu
+    from mlframe.feature_selection.filters import _unary_stack_cuda as cu
+
+    assert "@" not in cu._BODY
+    labels = [int(c) for c in re.findall(r"case (\d+):", cu._BODY)]
+    assert sorted(labels) == sorted(code for name, code in UNARY_OP_CODES.items() if name != "exp")
+    assert len(labels) == len(set(labels))
+    for name in ("rint", "qubed", "invsquared", "invqubed", "cbrt", "invcbrt", "invsqrt"):
+        assert getattr(nu, "_OP_" + name.upper()) == UNARY_OP_CODES[name]

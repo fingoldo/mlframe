@@ -5,6 +5,8 @@ Leaf module: the resident discretiser, pair, select, k-chunk and materialise sib
 
 from __future__ import annotations
 
+from typing import Any
+
 from ._device_power import small_power
 import logging
 import os
@@ -523,19 +525,19 @@ _FUSED_GEN_CM_F32_SRC = render(_FUSED_GEN_CM_TEMPLATE, real=np.float32).replace(
 _FUSED_GEN_CM_F32_KERNEL = None
 
 
-def kernel(cp, real=None):
+def kernel(cp: Any, real: Any = None) -> Any:
     """``fused_gen`` (double build; ``real`` unused): the row-major fused candidate generator; the register-pressure registry compiles it through this."""
     return cp.RawKernel(_FUSED_GEN_SRC, "fused_gen")
 
 
-def kernel_cm(cp, real):
+def kernel_cm(cp: Any, real: Any) -> Any:
     """``fused_gen_cm`` for values of dtype ``real`` (float32: the ``fused_gen_cm_f32`` twin); registry factory."""
     if np.dtype(real) == np.float32:
         return cp.RawKernel(_FUSED_GEN_CM_F32_SRC, "fused_gen_cm_f32")
     return cp.RawKernel(_FUSED_GEN_CM_SRC, "fused_gen_cm")
 
 
-def kernel_bin_hist(cp, real=None):
+def kernel_bin_hist(cp: Any, real: Any = None) -> Any:
     """``fused_gen_bin_hist`` (the grand-fusion generate + bin + histogram kernel); registry factory."""
     return cp.RawKernel(_FUSED_GEN_BIN_HIST_SRC, "fused_gen_bin_hist")
 
@@ -560,7 +562,7 @@ def _get_fused_gen_cm_kernel(float32: bool = False):
             _FUSED_GEN_CM_F32_KERNEL = kernel_cm(cp, np.float32)
         return _FUSED_GEN_CM_F32_KERNEL
     if _FUSED_GEN_CM_KERNEL is None:
-        _FUSED_GEN_CM_KERNEL = kernel_cm(cp, np.float64)
+        _FUSED_GEN_CM_KERNEL = kernel_cm(cp, np.float64)  # Intentional float64: double-precision variant: the statistic needs the full mantissa
     return _FUSED_GEN_CM_KERNEL
 
 

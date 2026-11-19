@@ -53,6 +53,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel",
         ("float32", "float64"),
     ),
+    "strata_shuffle_gpu.within_stratum_shuffle_u8": (
+        "mlframe.feature_selection.filters._strata_shuffle_gpu",
+        "kernel_u8",
+        ("float32", "float64"),
+    ),
     "cmi_null_strata_gpu.strata_xy_entropy_rows": (
         "mlframe.feature_selection.filters._cmi_null_strata_gpu",
         "kernel_rows",

@@ -22,7 +22,10 @@ from numba import njit, prange
 
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
+from ._device_blocks import double_block_width_of
 from ._raw_module_cache import RawModuleCache
+
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +69,7 @@ _MODULES = {"float": RawModuleCache(_SRC.replace("{REAL}", "float")), "double": 
 
 
 def kernel(cp: Any, real: Any) -> Any:
-    """``column_moments_blocks`` for columns of dtype ``real`` (float32 or float64); compile point of :func:`_moments_device` and of the register-pressure registry."""
+    """``column_moments_blocks`` for columns of dtype ``real`` (float32 or double precision); compile point of :func:`_moments_device` and of the register-pressure registry."""
     return _MODULES["float" if np.dtype(real) == np.float32 else "double"].get(cp).get_function("column_moments_blocks")
 
 
@@ -101,7 +104,7 @@ def _column_moments(row: np.ndarray, yc: np.ndarray, with_y: bool, out: np.ndarr
 def _moments_njit(xs: np.ndarray, yc: np.ndarray, with_y: bool) -> np.ndarray:
     """``(K, 5)`` moments of the rows of ``xs`` ``(K, n)``: mean, m2, m3, m4 about the mean and the cross sum with the centred target."""
     k = xs.shape[0]
-    out = np.empty((k, 5), dtype=np.float64)
+    out = np.empty((k, 5), dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     for j in prange(k):
         _column_moments(xs[j], yc, with_y, out[j])
     return out
@@ -111,7 +114,7 @@ def _moments_host(xs: np.ndarray, yc: Optional[np.ndarray]) -> np.ndarray:
     """Host form: the parallel numba kernel."""
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
-    y = np.zeros(xs.shape[1], dtype=np.float64) if yc is None else np.ascontiguousarray(yc, dtype=np.float64)
+    y = np.zeros(xs.shape[1], dtype=np.float64) if yc is None else np.ascontiguousarray(yc, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     with parallel_kernel_entry():
         out: np.ndarray = _moments_njit(np.ascontiguousarray(xs), y, yc is not None)
     return out
@@ -124,14 +127,14 @@ def _moments_device(xs: np.ndarray, yc: Optional[np.ndarray]) -> Optional[np.nda
         from pyutilz.performance.gpu_hw_launch import block_size_for
 
         k, n = xs.shape
-        real = np.float32 if xs.dtype == np.float32 else np.float64
+        real = np.float32 if xs.dtype == np.float32 else np.float64  # Intentional float64: the device kernel is built in the data's own precision: float64 data keeps double
         ker = kernel(cp, real)
-        y = np.zeros(n, dtype=np.float64) if yc is None else np.ascontiguousarray(yc, dtype=np.float64)
+        y = np.zeros(n, dtype=np.float64) if yc is None else np.ascontiguousarray(yc, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
         out = cp.empty((k, 5), dtype=cp.float64)
         ker((k,), (block_size_for(ker, work_items=n),), (cp.asarray(np.ascontiguousarray(xs, dtype=real)), cp.asarray(y), np.int64(n), np.int32(yc is not None), out))
-        return np.asarray(cp.asnumpy(out), dtype=np.float64)
+        return np.asarray(cp.asnumpy(out), dtype=np.float64)  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     except Exception as exc:
-        logger.debug("meta fingerprint: the device form is unavailable (%s: %s)", type(exc).__name__, exc)
+        log_throttle(logger, "meta_fingerprint_gpu_meta_fingerprint_the_device_form_is_unavailable", logging.WARNING, "meta fingerprint: the device form is unavailable (%s: %s)", type(exc).__name__, exc)
         return None
 
 
@@ -199,9 +202,7 @@ def fingerprint_moments_on_device(n_rows: int) -> bool:
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 
-def column_block_width(n_rows: int) -> int:
-    """Columns per column block: as many as ``_BLOCK_BYTES`` holds at ``n_rows`` rows of float64 (at least one)."""
-    return max(1, _BLOCK_BYTES // max(1, 8 * int(n_rows)))
+column_block_width = double_block_width_of(__name__)  # columns per column block: as many as ``_BLOCK_BYTES`` holds at the row count
 
 
 def column_moments(xs: np.ndarray, yc: Optional[np.ndarray] = None) -> np.ndarray:
@@ -215,4 +216,4 @@ def column_moments(xs: np.ndarray, yc: Optional[np.ndarray] = None) -> np.ndarra
         block = xs[a : a + width]
         got = _moments_device(block, yc) if on_device else None
         parts.append(got if got is not None else _moments_host(block, yc))
-    return np.concatenate(parts) if parts else np.empty((0, 5), dtype=np.float64)
+    return np.concatenate(parts) if parts else np.empty((0, 5), dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision

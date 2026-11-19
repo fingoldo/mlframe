@@ -11,6 +11,8 @@ re-exports every public name for back-compat; importers continue to use ``from .
 
 from __future__ import annotations
 
+import threading
+
 import logging
 import os
 from typing import Any
@@ -156,7 +158,9 @@ void batched_joint_entropy2_g_wide(const {XT}* __restrict__ X, const long long* 
 }
 """)
 _BATCHED_JOINT_ENTROPY_KERNEL: dict = {}  # code type ('long long' or 'unsigned char') -> the shared-memory kernel
+_BATCHED_JOINT_ENTROPY_KERNEL_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 _BATCHED_JOINT_ENTROPY_G_KERNEL: dict = {}  # code type -> [tiled global-scratch kernel, one-column-per-block kernel]
+_BATCHED_JOINT_ENTROPY_G_KERNEL_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 _JOINT_ENTROPY_TILE_MAX_COLS = 8  # columns per block for both fused joint-entropy kernels; measured fastest at 8 (see the profile record)
@@ -170,61 +174,62 @@ _JOINT_ENTROPY_GLOBAL_MAX_BLOCK_MULT = 2  # global-scratch kernel: blocks per SM
 def batched_joint_entropy_global(X: Any, b: Any, Kx: int, Kb: int, inv_n: float, blocks: int) -> "tuple[Any, Any]":
     """The fused per-column joint entropy with each block's histogram in global scratch (``batched_joint_entropy2_g``), for joints over the shared-memory
     limit: ``(h (K,), k (K,))``, the fused kernel's loop and reduction with ``blocks`` blocks walking the columns."""
-    import cupy as cp
+    with _BATCHED_JOINT_ENTROPY_G_KERNEL_LOCK:
+        import cupy as cp
 
-    xt = _code_type(X)
-    if xt not in _BATCHED_JOINT_ENTROPY_G_KERNEL:
-        _BATCHED_JOINT_ENTROPY_G_KERNEL[xt] = [kernel_entropy_g(cp, _real_of_xt(xt)), kernel_entropy_g_wide(cp, _real_of_xt(xt))]
-    g_kernels = _BATCHED_JOINT_ENTROPY_G_KERNEL[xt]
-    n, K = int(X.shape[0]), int(X.shape[1])
-    M = int(Kx) * int(Kb)
-    if M > _JOINT_ENTROPY_GLOBAL_TILE_MAX_CELLS:
-        # large joints: one column per block (the untiled kernel measured faster here; the column groups only pay for small histograms)
-        g = max(1, min(int(blocks), K))
-        scratch = cp.empty(g * M, dtype=cp.uint32)
+        xt = _code_type(X)
+        if xt not in _BATCHED_JOINT_ENTROPY_G_KERNEL:
+            _BATCHED_JOINT_ENTROPY_G_KERNEL[xt] = [kernel_entropy_g(cp, _real_of_xt(xt)), kernel_entropy_g_wide(cp, _real_of_xt(xt))]
+        g_kernels = _BATCHED_JOINT_ENTROPY_G_KERNEL[xt]
+        n, K = int(X.shape[0]), int(X.shape[1])
+        M = int(Kx) * int(Kb)
+        if M > _JOINT_ENTROPY_GLOBAL_TILE_MAX_CELLS:
+            # large joints: one column per block (the untiled kernel measured faster here; the column groups only pay for small histograms)
+            g = max(1, min(int(blocks), K))
+            scratch = cp.empty(g * M, dtype=cp.uint32)
+            out_h = cp.empty(K, dtype=cp.float64)  # Intentional float64: entropies, as the fused kernel writes them
+            out_k = cp.empty(K, dtype=cp.int64)
+            g_threads = _tree_block(g_kernels[1], 0, n)
+            g_kernels[1](
+                (g,),
+                (g_threads,),
+                (cp.ascontiguousarray(X), b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), float(inv_n), scratch, out_h, out_k),
+            )
+            return out_h, out_k
+        # Blocks and columns per block are sized so that all the blocks' scratch slices stay within L2: the caller admitted ``blocks`` (one per SM)
+        # against that budget, so extra blocks are taken only while the total still fits. More blocks lift the parallelism of the global atomics.
+        l2 = int(cp.cuda.Device().attributes.get("L2CacheSize", 0))
+        if l2 <= 0:
+            l2 = 1 << 20  # L2 size unreported: assume 1 MiB
+        # the second block layer only while its doubled scratch stays in a quarter of L2: at M = 15000 the full-L2 rule measured 29 ms against 23 ms with one per SM
+        mult = _JOINT_ENTROPY_GLOBAL_MAX_BLOCK_MULT if int(blocks) * _JOINT_ENTROPY_GLOBAL_MAX_BLOCK_MULT * M * 4 * 4 <= l2 else 1
+        # column groups only for small joints: G = 8 measured fastest at M = 1000, while G > 1 at M = 5000 and 15000 was slower than one column per block
+        G = _JOINT_ENTROPY_TILE_MAX_COLS if M <= _JOINT_ENTROPY_GLOBAL_G8_MAX_CELLS else 1
+        groups = (K + G - 1) // G
+        g = max(1, min(int(blocks) * mult, groups))
+        scratch = cp.empty(g * G * M, dtype=cp.uint32)
         out_h = cp.empty(K, dtype=cp.float64)  # Intentional float64: entropies, as the fused kernel writes them
         out_k = cp.empty(K, dtype=cp.int64)
-        g_threads = _tree_block(g_kernels[1], 0, n)
-        g_kernels[1](
+        g_threads = _tree_block(g_kernels[0], 0, n)
+        g_kernels[0](
             (g,),
             (g_threads,),
-            (cp.ascontiguousarray(X), b, np.int32(int(Kx)), np.int32(int(Kb)), np.int64(n), np.int32(K), np.int32(M), float(inv_n), scratch, out_h, out_k),
+            (
+                cp.ascontiguousarray(X),
+                b,
+                np.int32(int(Kx)),
+                np.int32(int(Kb)),
+                np.int64(n),
+                np.int32(K),
+                np.int32(M),
+                np.int32(G),
+                float(inv_n),
+                scratch,
+                out_h,
+                out_k,
+            ),
         )
         return out_h, out_k
-    # Blocks and columns per block are sized so that all the blocks' scratch slices stay within L2: the caller admitted ``blocks`` (one per SM)
-    # against that budget, so extra blocks are taken only while the total still fits. More blocks lift the parallelism of the global atomics.
-    l2 = int(cp.cuda.Device().attributes.get("L2CacheSize", 0))
-    if l2 <= 0:
-        l2 = 1 << 20  # L2 size unreported: assume 1 MiB
-    # the second block layer only while its doubled scratch stays in a quarter of L2: at M = 15000 the full-L2 rule measured 29 ms against 23 ms with one per SM
-    mult = _JOINT_ENTROPY_GLOBAL_MAX_BLOCK_MULT if int(blocks) * _JOINT_ENTROPY_GLOBAL_MAX_BLOCK_MULT * M * 4 * 4 <= l2 else 1
-    # column groups only for small joints: G = 8 measured fastest at M = 1000, while G > 1 at M = 5000 and 15000 was slower than one column per block
-    G = _JOINT_ENTROPY_TILE_MAX_COLS if M <= _JOINT_ENTROPY_GLOBAL_G8_MAX_CELLS else 1
-    groups = (K + G - 1) // G
-    g = max(1, min(int(blocks) * mult, groups))
-    scratch = cp.empty(g * G * M, dtype=cp.uint32)
-    out_h = cp.empty(K, dtype=cp.float64)  # Intentional float64: entropies, as the fused kernel writes them
-    out_k = cp.empty(K, dtype=cp.int64)
-    g_threads = _tree_block(g_kernels[0], 0, n)
-    g_kernels[0](
-        (g,),
-        (g_threads,),
-        (
-            cp.ascontiguousarray(X),
-            b,
-            np.int32(int(Kx)),
-            np.int32(int(Kb)),
-            np.int64(n),
-            np.int32(K),
-            np.int32(M),
-            np.int32(G),
-            float(inv_n),
-            scratch,
-            out_h,
-            out_k,
-        ),
-    )
-    return out_h, out_k
 
 
 _BATCHED_JOINT_ENTROPY_SH_LIMIT = None
@@ -302,18 +307,19 @@ def kernel_assemble(cp: Any, real: Any = None) -> Any:
 
 def _get_batched_joint_entropy_kernel(cp, xt: str = "long long"):
     """Lazily compile and cache the ``batched_joint_entropy2`` RawKernel for the code type ``xt``, and probe+cache the device's max shared memory per block (used to decide when the kernel's histogram fits in shared memory vs global scratch)."""
-    global _BATCHED_JOINT_ENTROPY_SH_LIMIT
-    if xt not in _BATCHED_JOINT_ENTROPY_KERNEL:
-        _BATCHED_JOINT_ENTROPY_KERNEL[xt] = kernel_entropy(cp, _real_of_xt(xt))
-        try:
-            _BATCHED_JOINT_ENTROPY_SH_LIMIT = int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
-        # best-effort: a smaller shared-memory limit only moves the dispatch to the global-memory kernel, which gives the same counts
-        except Exception as e:
-            import logging
+    with _BATCHED_JOINT_ENTROPY_KERNEL_LOCK:
+        global _BATCHED_JOINT_ENTROPY_SH_LIMIT
+        if xt not in _BATCHED_JOINT_ENTROPY_KERNEL:
+            _BATCHED_JOINT_ENTROPY_KERNEL[xt] = kernel_entropy(cp, _real_of_xt(xt))
+            try:
+                _BATCHED_JOINT_ENTROPY_SH_LIMIT = int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
+            # best-effort: a smaller shared-memory limit only moves the dispatch to the global-memory kernel, which gives the same counts
+            except Exception as e:
+                import logging
 
-            logging.getLogger(__name__).debug("querying MaxSharedMemoryPerBlock failed, using the 48KiB default: %s", e)
-            _BATCHED_JOINT_ENTROPY_SH_LIMIT = 48 * 1024
-    return _BATCHED_JOINT_ENTROPY_KERNEL[xt]
+                logging.getLogger(__name__).debug("querying MaxSharedMemoryPerBlock failed, using the 48KiB default: %s", e)
+                _BATCHED_JOINT_ENTROPY_SH_LIMIT = 48 * 1024
+        return _BATCHED_JOINT_ENTROPY_KERNEL[xt]
 
 
 def _joint_entropy_tile_cols(M: int) -> int:
@@ -796,7 +802,7 @@ def _cmi_assemble(he1, he2, hc, kc1, kc2, kc, inv2n):
             (threads,),
             # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
             (
-                cp.ascontiguousarray(he1.astype(cp.float64, copy=False)),
+                cp.ascontiguousarray(he1.astype(cp.float64, copy=False)),  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
                 # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
                 cp.ascontiguousarray(he2.astype(cp.float64, copy=False)),
                 float(hc),

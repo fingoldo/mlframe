@@ -348,6 +348,22 @@ def iter_candidates(
 # Materialisation + scoring.
 # ---------------------------------------------------------------------------
 
+def _has_no_spread(arr: np.ndarray) -> bool:
+    """``arr.std() <= 1e-12`` for an all-finite column. A range above 1e-6 settles it without the standard deviation: with one value at the minimum and one at the maximum the
+    standard deviation is at least ``range / sqrt(2 n)``, far above 1e-12 for any column that fits in memory. Two reductions instead of the four passes and two temporaries of ``std``
+    (932 candidates a fit, 2 ms each)."""
+    if arr.size and float(arr.max()) - float(arr.min()) > 1e-6:
+        return False
+    return bool(float(arr.std()) <= 1e-12)
+
+
+def _zero_nonfinite(out: np.ndarray) -> np.ndarray:
+    """``out`` with NaN and both infinities set to 0: the values ``nan_to_num(nan=0, posinf=0, neginf=0)`` gives (``isfinite`` is False for exactly those three) without its per-call sign and
+    limit machinery. One test pass, and a second pass only for a column that has something to replace (932 candidates a fit took 2.4 ms each through ``nan_to_num``)."""
+    finite = np.isfinite(out)
+    return out if bool(finite.all()) else np.where(finite, out, out.dtype.type(0))
+
+
 def _materialise_candidate(
     X: pd.DataFrame, src_cols: tuple[str, ...], tname: str, col_cache: Optional[dict] = None,
 ) -> Optional[np.ndarray]:
@@ -379,8 +395,7 @@ def _materialise_candidate(
             tname, src_cols, exc,
         )
         return None
-    out = np.asarray(out, dtype=_crit_np_dtype())
-    return np.asarray(np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0))
+    return _zero_nonfinite(np.asarray(out, dtype=_crit_np_dtype()))
 
 @fe_timed("mi_greedy")
 def generate_mi_greedy_features(
@@ -419,7 +434,7 @@ def generate_mi_greedy_features(
     def _build(spec: tuple[str, tuple[str, ...], str]) -> Optional[np.ndarray]:
         """The candidate array of ``spec``, or ``None`` when it is not built or has no spread (constant or near-constant columns carry zero MI and clutter the score table)."""
         arr = _materialise_candidate(X, spec[1], spec[2], col_cache)
-        return None if arr is None or float(arr.std()) <= 1e-12 else arr
+        return None if arr is None or _has_no_spread(arr) else arr
 
     from ._edge_pool import map_on_edge_pool
 
@@ -754,5 +769,4 @@ def apply_mi_greedy_transform(
         out = fn_b(src_values[0], src_values[1])
     else:
         raise ValueError(f"apply_mi_greedy_transform: src_values length {len(src_values)} " f"unsupported (only unary / binary registered).")
-    out = np.asarray(out, dtype=_crit_np_dtype())
-    return np.asarray(np.nan_to_num(out, copy=False, nan=0.0, posinf=0.0, neginf=0.0))
+    return _zero_nonfinite(np.asarray(out, dtype=_crit_np_dtype()))

@@ -17,6 +17,8 @@ from ._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._lazy_host_codes import size_of
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 # Conditional-permutation floor: within-stratum shuffles + the null-quantile used as the significance bar.
@@ -495,8 +497,8 @@ def _swept_device_null(inp: _NullInputs, sup: _StratifiedSupport, nperm: int, qu
         return conditional_perm_null_gpu(
             inp.resident_or_host(), inp.y, np.ascontiguousarray(sup.z, dtype=np.int64), order=sup.order, z_rank=sup.z_rank, n_permutations=nperm, quantile=quantile, seed=seed, salt=salt
         )
-    except Exception:
-        logger.debug("swept device conditional perm-null failed; host table null", exc_info=True)
+    except Exception as exc:
+        log_throttle(logger, "cmi_redundancy_null.device_failed", logging.WARNING, "swept device conditional perm-null failed (%s: %s); host table null", type(exc).__name__, exc)
         return None
 
 

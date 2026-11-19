@@ -230,6 +230,8 @@ def test_synthesis_xor3_recovered_by_triplet_synthesizer():
             # form the 3-way feature (else the He1*He1*He1 column leaks in and the pair-vs-triplet contrast vanishes).
             fe_hybrid_orth_triplet_enable=False,
             fe_hybrid_orth_quadruplet_enable=False,
+            # the adaptive-arity family (default ON) escalates a pair seed to a triplet when the pair adds nothing: it emits the same ``orth_triplet_cross`` column
+            fe_hybrid_orth_adaptive_arity_enable=False,
         ),
         df,
         y,

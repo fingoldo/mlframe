@@ -4,6 +4,9 @@ The threshold is the 95th percentile of the largest plug-in MI that pure noise r
 the same row count, bin count and target class prior. Quantile binning makes the null independent of the marginal shape, so the
 fingerprint is (n, bins, target entropy, N); the table is read once and cached, and the lookup is a nearest-neighbour match on
 log n, bins, entropy and log N.
+
+The floor is a cheap pre-filter: a candidate at or below it is rejected without a permutation test. It is a lookup, not a test, so it carries no level and is not part of the family-wise
+guarantee; the guarantee comes from the exact permutation test of ``_family_maxt_gate`` (see the gate levels in ``audits/2026-10-15/family_gate_statistics_critique.md``).
 """
 
 from __future__ import annotations

@@ -35,8 +35,10 @@ def test_noop_on_non_darwin(monkeypatch):
     for plat in ("linux", "win32"):
         monkeypatch.setattr(sys, "platform", plat)
         mlframe._autoconfigure_macos_omp_threads()
-        assert "OMP_NUM_THREADS" not in os.environ
-        assert "KMP_DUPLICATE_LIB_OK" not in os.environ
+        env_unset = "OMP_NUM_THREADS" not in os.environ
+        assert env_unset
+        env_unset = "KMP_DUPLICATE_LIB_OK" not in os.environ
+        assert env_unset
 
 
 def test_never_overrides_explicit_operator_setting(monkeypatch):
@@ -56,5 +58,7 @@ def test_opt_out_env_var_skips_entirely(monkeypatch):
     monkeypatch.setattr(sys, "platform", "darwin")
     monkeypatch.setenv("MLFRAME_NO_MACOS_OMP_AUTOCONFIG", "1")
     mlframe._autoconfigure_macos_omp_threads()
-    assert "OMP_NUM_THREADS" not in os.environ
-    assert "KMP_DUPLICATE_LIB_OK" not in os.environ
+    env_unset = "OMP_NUM_THREADS" not in os.environ
+    assert env_unset
+    env_unset = "KMP_DUPLICATE_LIB_OK" not in os.environ
+    assert env_unset

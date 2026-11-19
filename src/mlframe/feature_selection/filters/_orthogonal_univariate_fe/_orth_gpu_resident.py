@@ -8,6 +8,7 @@ and ``_raise_if_vram_insufficient`` keep their original import path for existing
 """
 from __future__ import annotations
 
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_values
 import logging
 from typing import Any
 
@@ -36,7 +37,7 @@ def _candidate_operands(X: Any, cols: list, cols_auto: bool) -> "tuple[list, lis
     for col in cols:
         if fe_deadline_passed():
             break
-        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
+        x = np.asarray(fe_column_values(X, col), dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
         if (cols_auto and _is_int_as_cat_axis(x)) or not np.isfinite(x).all():
             continue
         cand_cols.append(col)
@@ -185,7 +186,7 @@ def _used_operand_matrix(_Mr: Any, used_idx: list, used_x: list, used_src: list)
         # same-fit caller later requesting the same column at float64 - without ever re-uploading the
         # whole (n, n_used) matrix as one un-deduped blob (the prior behaviour here).
         M = assemble_resident_matrix(
-            np.column_stack(used_x), used_src, ("orth_used_M", tuple(used_src)), dtype=crit_float_dtype(),
+            None, used_src, ("orth_used_M", tuple(used_src)), dtype=crit_float_dtype(), columns=used_x,
         )
     return M
 
@@ -217,7 +218,7 @@ def _gpu_route_candidate_bases(cp: Any, cand_x: list, cand_cols: list, basis: st
                 # Column j is the raw column verbatim -> same bytes -> selection-equivalent; a name/shape
                 # mismatch or cupy fault falls back to the whole-matrix upload.
                 _Mr = assemble_resident_matrix(
-                    np.column_stack(cand_x), cand_cols, ("orth_Mr", tuple(cand_cols)), dtype=crit_float_dtype(),
+                    None, cand_cols, ("orth_Mr", tuple(cand_cols)), dtype=crit_float_dtype(), columns=cand_x,
                 )
                 # _yc is the FIT-CONSTANT routing target, re-uploaded per orth-family call (a fresh cp.asarray
                 # each time). Route through the content-keyed resident cache so it uploads ONCE per fit and

@@ -325,7 +325,7 @@ def _dispatch_batch_mi_with_noise_gate_impl_part1(
             # scanned on the CPU (that scan was ~80% of a strict 100k-row fit). Any device fault returns None and the host path below runs.
             from ._pairs_analytic_gpu import resident_analytic_gate
 
-            _resident_res = resident_analytic_gate(device_codes, classes_y, _by_occ, int(n), float(min_nonzero_confidence))
+            _resident_res = resident_analytic_gate(device_codes, classes_y, _by_occ, int(n), float(min_nonzero_confidence), int(quantization_nbins))
             if _resident_res is not None:
                 return True, (np.asarray(_resident_res))
         if _an_ok:

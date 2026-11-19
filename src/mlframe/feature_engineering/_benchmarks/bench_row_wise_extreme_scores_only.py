@@ -32,7 +32,8 @@ def make_frame(n_rows: int, n_cols: int, nan_frac: float = 0.05, seed: int = 0) 
 def full_output(df: pd.DataFrame, k: int) -> pd.DataFrame:
     """What the suite calls today: scores AND the name columns it then discards."""
     out = row_wise_top_k_extreme_columns(df, k=k)
-    assert isinstance(out, pd.DataFrame)
+    if not isinstance(out, pd.DataFrame):
+        raise TypeError(f"row_wise_top_k_extreme_columns returned {type(out).__name__}, expected a DataFrame")
     return out[[c for c in out.columns if c.endswith("_score")]]
 
 

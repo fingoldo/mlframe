@@ -55,7 +55,8 @@ def test_exact_duplicate_dropped_above_row_cap():
     a = rng.normal(size=n)
     a[rng.random(n) < 0.2] = np.nan  # partial-NaN so the vectorized partial path is exercised
     X = pd.DataFrame({"a": a, "a_dup": a.copy(), "b": rng.normal(size=n)})
-    assert "MLFRAME_FE_DEDUP_MAX_CORR_ROWS" not in os.environ  # trusting the 100k default here
+    env_unset = "MLFRAME_FE_DEDUP_MAX_CORR_ROWS" not in os.environ
+    assert env_unset  # trusting the 100k default here
     kept = _dedup_collinear_source_cols(X, list(X.columns), corr_threshold=0.999)
     assert "a_dup" not in kept, f"exact duplicate survived row-cap: {kept}"
     assert "a" in kept and "b" in kept

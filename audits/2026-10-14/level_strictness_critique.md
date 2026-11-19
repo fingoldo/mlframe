@@ -11,7 +11,7 @@ Source: read-only critique agent, 2026-10-14. Scope: `src/mlframe/feature_select
 - One order statistic at 0.999 needs about 1000 draws to be stable; at K=999 it is almost the sample maximum.
 
 ### F02 - Dense weak-signal failure is power, not calibration
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED (2026-11-18: a diagnosis, not a defect: the failure is power at n=330; the weak-signal tests pass at the 0.998 screen default (F01) and the power trade is the owner decision F15 option B)
 - Empirical check (scripts `D:/Temp/mypyrepro/critic2/weak_calib.py`, `calib_rate.py`, not MRMR runs): the floor matches the family null. On fresh maxima for seed 1 the exceedance rate was 0.028 at q=0.975 (expected 0.025) and 0.015 at q=0.99 (expected 0.010), within noise (SE about 0.003-0.005).
 - Per-feature permutation p-values of the strong features lie in 0.001-0.2. Their MI is 0.02-0.11.
 - At n=330 with 16 target bins against 5 feature bins, the Miller-Madow term `(kx-1)(ky-1)/2n` is about 0.09, the same order as the floor (about 0.06). Weak features cannot clear it.
@@ -26,7 +26,7 @@ Source: read-only critique agent, 2026-10-14. Scope: `src/mlframe/feature_select
 - Turning the floor on for all narrow pools was a change made this session. It has not been benchmarked on the lognormal test or on signal recall beyond the three seeds checked.
 
 ### F05 - Uniform alpha across families is not principled
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED (2026-11-18: the family levels are listed in the statistics report, section 'Gate levels'; the pair family is Bonferroni over its pairs, the screen and the fallback have their own levels)
 - Screen, fallback and pair floors have different family sizes. One alpha does not give the same family-wise error across them. Set alpha per family and correct by the number of families (Bonferroni across families).
 
 ### F06 - Step-down maxT (Westfall-Young) as a power fix

@@ -45,6 +45,7 @@ rest. They never reference y at transform time (they run only at fit).
 
 from __future__ import annotations
 
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_is_numeric, fe_column_values
 from typing import cast
 import logging
 import threading
@@ -218,12 +219,12 @@ def _column_is_numeric(frame, col) -> bool:
     """Numeric test for one column of a pandas or polars frame (the floor reads raw columns one at a time)."""
     if is_polars(frame):
         return bool(frame[col].dtype.is_numeric())
-    return bool(pd.api.types.is_numeric_dtype(frame[col]))
+    return fe_column_is_numeric(frame, col)
 
 
 def _column_values(frame, col, dtype) -> np.ndarray:
     """One column of a pandas or polars frame as a numpy array of ``dtype`` (a single-column copy, never the frame)."""
-    return np.asarray(frame[col].to_numpy(), dtype=dtype)
+    return np.asarray(fe_column_values(frame, col), dtype=dtype)
 
 
 def _numeric_rows(raw_X: Any, num_cols: Sequence[str]) -> np.ndarray:

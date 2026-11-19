@@ -1,6 +1,7 @@
 """Helpers carved out of ``_mi_greedy_cmi_fe`` to keep that module under its size budget."""
 from __future__ import annotations
 
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_values
 import functools
 import logging
 import math
@@ -651,7 +652,7 @@ def _greedy_cmi_fe_constr_step1_content_hash_already(cand_names, engineered, nbi
             from ._mi_greedy_cmi_fe_binning import _qbin_float_dtype
             from ._qbin_block_gpu import resident_qbin_codes_block
 
-            _cand_cols = [engineered[_name].to_numpy(dtype=_crit_np_dtype()) for _name in cand_names]
+            _cand_cols = [np.asarray(fe_column_values(engineered, _name), dtype=_crit_np_dtype()) for _name in cand_names]
             _block_codes = resident_qbin_codes_block(_cand_cols, nbins, _qbin_float_dtype()) if len(_cand_cols) > 1 else None  # one sort for the whole pool
             if _block_codes is not None:
                 cand_bins_dev.update(zip(cand_names, _block_codes))

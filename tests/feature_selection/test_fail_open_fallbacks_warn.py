@@ -127,7 +127,11 @@ def test_noise_gate_sweep_warns_when_psutil_is_unavailable(monkeypatch, caplog):
         """stop stub or test: see module docstring."""
         raise _StopError()
 
-    monkeypatch.setitem(sys.modules, "psutil", None)  # makes `import psutil` raise ImportError
+    def _no_probe():
+        """A host whose memory cannot be read (without psutil the Windows system call still answers, so the probe itself is failed)."""
+        raise RuntimeError("no host memory probe")
+
+    monkeypatch.setattr(mod, "host_memory", _no_probe)
     monkeypatch.setattr(bench, "sweep_backend_grid", _stop)
     with caplog.at_level(logging.DEBUG), pytest.raises(_StopError):
         mod._run_batch_mi_noise_gate_sweep()
@@ -167,4 +171,4 @@ def test_row_chunked_pair_mi_warns_when_cupy_memory_probe_fails(monkeypatch, cap
     freqs_y = np.array([0.5, 0.5])
     with caplog.at_level(logging.DEBUG), pytest.raises(_StopError):
         mod.batch_pair_mi_cuda_row_chunked(factors, pairs, pairs, nbins, classes_y, freqs_y)
-    assert _warnings_mentioning(caplog, "cp.cuda.runtime.memGetInfo() probe failed")
+    assert _warnings_mentioning(caplog, "device-room probe failed")

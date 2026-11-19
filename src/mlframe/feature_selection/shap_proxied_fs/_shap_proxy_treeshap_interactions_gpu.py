@@ -266,16 +266,16 @@ def _block_size() -> int:
     return block_size_from_tuning_cache("shap_proxy_treeshap", "interaction_gpu_block_size", _DEFAULT_BLOCK_SIZE)
 
 
-def kernel_for_size(cp, max_depth: int, n_features: int):
+def kernel_for_size(cp: Any, max_depth: int, n_features: int) -> Any:
     """``treeshap_interactions`` with the scratch sized for one (depth, feature count): the __device__ scan precedes the kernel that calls it and both compile as one module."""
-    from mlframe.feature_selection.filters._kernel_types import render
+    from mlframe.feature_selection.filters.shared import render
 
     # X and the thresholds are float32 (the routing precision of every TreeSHAP kernel), the leaf values, covers, path weights and the tensors are double precision: the exact reference.
-    module = cp.RawModule(code=render(_defines_header(int(max_depth), int(n_features)) + _DEVICE_SRC + _KERNEL_SRC, np.float32, acc=np.float64))
+    module = cp.RawModule(code=render(_defines_header(int(max_depth), int(n_features)) + _DEVICE_SRC + _KERNEL_SRC, np.float32, acc=np.float64))  # Intentional float64: selectable double-precision variant of the kernel (default and environment switch)
     return module.get_function("treeshap_interactions")
 
 
-def kernel(cp, real=None):
+def kernel(cp: Any, real: Any = None) -> Any:
     """``treeshap_interactions`` at depth 6 with 16 features (the reference size of the offline per-arch recipe; ``real`` unused); registry factory."""
     return kernel_for_size(cp, 6, 16)
 
@@ -320,7 +320,7 @@ def interaction_tensor_gpu(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.nd
 
 
 def interaction_tensor_gpu_path(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[np.ndarray, np.ndarray, float]:
-    """cupy path-dependent TreeSHAP interaction tensor (conditioned-scan kernel, all float64; the reference and the fallback). Identical contract to
+    """cupy path-dependent TreeSHAP interaction tensor (conditioned-scan kernel, all double precision; the reference and the fallback). Identical contract to
     ``interaction_tensor_numba``: returns ``(Phi (n,P,P), phi (n,P), base float)`` in double precision.
 
     Raises ``ValueError`` if the ensemble depth or width exceeds the local-memory scratch caps (caller
@@ -368,7 +368,7 @@ def interaction_tensor_gpu_path(ensemble: TreeEnsemble, X: np.ndarray) -> tuple[
         X_d = cp.asarray(Xf[start:stop])
         # Intentional float64: the interaction CUDA kernel writes Phi and phi_main as double precision, so these buffers must be f64.
         Phi_d = cp.zeros((m, P, P), dtype=np.float64)
-        phi_d = cp.zeros((m, P), dtype=np.float64)
+        phi_d = cp.zeros((m, P), dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
         kernel(((m + block - 1) // block,), (block,), (
             X_d, np.int32(m), np.int32(P),
             cl_d, cr_d, cd_d, feat_d, thr_d, val_d, cover_d,

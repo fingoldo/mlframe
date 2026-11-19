@@ -51,10 +51,12 @@ from .permutation import (
 )
 
 from ._device_sort_safe import device_argsort, device_sort
+from ._kernel_types import render
 from ._fe_gpu_batch._devices import assert_kernel_buffers
 
 __all__ = [
     "ContentMemo",
+    "render",
     "apply_conditional_gate",
     "apply_integer_lattice",
     "apply_pairwise_modular",

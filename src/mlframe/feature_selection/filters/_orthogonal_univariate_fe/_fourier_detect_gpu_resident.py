@@ -42,6 +42,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 from mlframe._numerical_floors import VARIANCE_FLOOR
 from .._fe_env_switch import fused_switch_enabled
+from .._fe_frame_ops import fe_std_below
 from ._fourier_core_cycles import core_span, freq_is_tail_aliased
 
 logger = logging.getLogger(__name__)
@@ -224,19 +225,61 @@ def _vander4_gpu(cp, z):
     return cp.stack([z2 * z, z2, z, cp.ones_like(z)], axis=1)
 
 
+_TARGET_SIDE_LOCK = threading.Lock()
+_TARGET_SIDE: dict = {"key": None, "ref": None, "value": None}  # the split target of the last ``y`` object: the detector is called once per column with the same target
+
+
+def _target_side_of_split(y_in: np.ndarray, n: int, cap: int) -> "tuple[np.ndarray, np.ndarray] | None":
+    """``(y_train, y_validation)`` of the seeded split and row cap for a target of ``n`` rows, or ``None`` when the target cannot carry a detection (wrong length, a non-finite
+    value, no spread before or after the split).
+
+    The checks, the split and the cap of the target do not depend on the column, so they are done once per target object and reused by the columns that follow (per column they were
+    two finiteness passes, three standard deviations and two gathers of the target: 800 standard deviations in a 100000 x 100 fit). The arrays are shared and read-only."""
+    import weakref
+
+    key = (id(y_in), int(n), int(cap))
+    with _TARGET_SIDE_LOCK:
+        ref = _TARGET_SIDE["ref"]
+        if _TARGET_SIDE["key"] == key and ref is not None and ref() is y_in:
+            return _TARGET_SIDE["value"]  # type: ignore[no-any-return]
+    value: "tuple[np.ndarray, np.ndarray] | None" = None
+    y = np.asarray(y_in, dtype=_crit_np_dtype()).ravel()
+    if y.size == n and bool(np.all(np.isfinite(y))) and float(np.std(y)) >= 1e-12:
+        train_mask, val_mask = _seeded_split_masks(n)
+        y_tr_h, y_va_h = y[train_mask].copy(), y[val_mask].copy()
+        if cap > 0 and y_tr_h.size > cap:
+            _sub_tr, _sub_va = _seeded_subsample_idx(y_tr_h.size, cap, y_va_h.size, max(8, cap // 2))
+            y_tr_h = np.ascontiguousarray(y_tr_h[_sub_tr])
+            if _sub_va is not None:
+                y_va_h = np.ascontiguousarray(y_va_h[_sub_va])
+        if float(np.std(y_tr_h)) >= 1e-12 and float(np.std(y_va_h)) >= 1e-12:
+            y_tr_h.flags.writeable = False
+            y_va_h.flags.writeable = False
+            value = (y_tr_h, y_va_h)
+    try:
+        ref = weakref.ref(y_in)
+    except TypeError:  # best-effort: not an array object (a list), so nothing is remembered and the split is computed every time
+        return value
+    with _TARGET_SIDE_LOCK:
+        _TARGET_SIDE.update({"key": key, "ref": ref, "value": value})
+    return value
+
+
 def _host_split_for_detect(z01: np.ndarray, y: np.ndarray, f_grid: Sequence[float], *, min_rows: int, fourier_detect_max_n: int):
     """Host-side guards, SEEDED held-out split and row-subsample cap, mirroring the CPU detector exactly.
 
-    Returns ``(grid, z_tr, z_va, y_tr, y_va)`` as host arrays, or ``None`` when the column cannot carry a detection.
+    Returns ``(grid, z_tr, z_va, y_tr, y_va)`` as host arrays, or ``None`` when the column cannot carry a detection. The target's part comes from
+    :func:`_target_side_of_split` (once per target), the column's part is done here.
     """
     z01 = np.asarray(z01, dtype=_crit_np_dtype()).ravel()
-    y = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     n = z01.size
-    if n != y.size or n < int(min_rows):
+    if n != int(np.size(y)) or n < int(min_rows):
         return None
-    if not np.all(np.isfinite(z01)) or not np.all(np.isfinite(y)):
+    if not np.all(np.isfinite(z01)) or fe_std_below(z01):
         return None
-    if float(np.std(z01)) < 1e-12 or float(np.std(y)) < 1e-12:
+    _fdet_cap = int(fourier_detect_max_n)
+    target = _target_side_of_split(y, n, _fdet_cap)
+    if target is None:
         return None
     grid = [float(f) for f in f_grid if float(f) > 0.0]
     if not grid:
@@ -245,21 +288,16 @@ def _host_split_for_detect(z01: np.ndarray, y: np.ndarray, f_grid: Sequence[floa
     # the byte-identical train/val rows (selection-equivalence depends on this matching exactly).
     train_mask, val_mask = _seeded_split_masks(n)
     z_tr_h, z_va_h = z01[train_mask], z01[val_mask]
-    y_tr_h = y[train_mask].copy()
-    y_va_h = y[val_mask].copy()
     if z_tr_h.size < 16 or z_va_h.size < 8:
         return None
     # Row-subsample cap - IDENTICAL seed/recipe to the CPU detector.
-    _fdet_cap = int(fourier_detect_max_n)
     if _fdet_cap > 0 and z_tr_h.size > _fdet_cap:
         _va_cap = max(8, _fdet_cap // 2)
         _sub_tr, _sub_va = _seeded_subsample_idx(z_tr_h.size, _fdet_cap, z_va_h.size, _va_cap)
-        z_tr_h = np.ascontiguousarray(z_tr_h[_sub_tr]); y_tr_h = np.ascontiguousarray(y_tr_h[_sub_tr])
+        z_tr_h = np.ascontiguousarray(z_tr_h[_sub_tr])
         if _sub_va is not None:
-            z_va_h = np.ascontiguousarray(z_va_h[_sub_va]); y_va_h = np.ascontiguousarray(y_va_h[_sub_va])
-    if float(np.std(y_tr_h)) < 1e-12 or float(np.std(y_va_h)) < 1e-12:
-        return None
-    return grid, z_tr_h, z_va_h, y_tr_h, y_va_h
+            z_va_h = np.ascontiguousarray(z_va_h[_sub_va])
+    return grid, z_tr_h, z_va_h, target[0], target[1]
 
 
 def detect_fourier_freqs_for_col_gpu(

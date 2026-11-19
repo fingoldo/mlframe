@@ -251,3 +251,36 @@ def _quantile_bin(col: np.ndarray, nbins: int, *, host_only: bool = False) -> np
 
 
 from ._numba_utils_shared import _FAC_ARRAY_CAP, _factorize_dense_njit  # noqa: F401  -- hosted in _numba_utils_shared for the cross-module njit invariant
+
+
+def _sync_free_qbin_codes_matrix(cp, X, nbins: int):
+    """Equi-frequency bin codes of every column of a resident ``(n, k)`` matrix, equal column for column to :func:`_sync_free_qbin_codes`.
+
+    One sort along axis 0 and one broadcast comparison replace ``k`` separate binnings. ``searchsorted(side="right")`` of a value equals the number of edges
+    that are ``<=`` it, and the excluded edges are ``+inf`` (never ``<=`` a finite value), so the count is taken over all ``nbins + 1`` edges. The column
+    is compared in the dtype of ``X`` (the criterion dtype of :func:`_qbin_float_dtype`, the one the single-column binner casts to); nothing is widened to float64. Columns are processed in blocks to bound the
+    ``(n, block, nbins + 1)`` boolean temporary.
+    """
+    n, k = int(X.shape[0]), int(X.shape[1])
+    qs = cp.linspace(0.0, 100.0, int(nbins) + 1)
+    pos = qs / 100.0 * (n - 1)
+    lo = cp.floor(pos).astype(cp.int64)
+    hi = cp.minimum(lo + 1, n - 1)
+    frac = pos - lo
+    xs = cp.sort(X, axis=0)  # (n, k): every column sorted in one launch
+    diff = xs[hi] - xs[lo]  # (nbins + 1, k)
+    e = cp.where(frac[:, None] >= 0.5, xs[hi] - diff * (1 - frac)[:, None], xs[lo] + diff * frac[:, None])
+    dup = cp.zeros(e.shape, dtype=bool)
+    dup[1:] = e[1:] == e[:-1]
+    emin = e[0:1]
+    emax = e[-1:]
+    has_interior = cp.any((e > emin) & (e < emax), axis=0)  # (k,)
+    excl = (e == emin) | dup | (has_interior[None, :] & (e == emax))
+    e2 = cp.sort(cp.where(excl, cp.inf, e), axis=0).T  # (k, nbins + 1), each row ascending with the +inf tail
+    out = cp.empty((k, n), dtype=cp.int64)
+    block = max(1, min(k, (1 << 27) // max(1, n * (nbins + 1))))
+    for c0 in range(0, k, block):
+        c1 = min(k, c0 + block)
+        vals = X[:, c0:c1].astype(e2.dtype, copy=False).T  # (b, n)
+        out[c0:c1] = (e2[c0:c1, None, :] <= vals[:, :, None]).sum(axis=2)
+    return out.T

@@ -7,14 +7,13 @@ import pytest
 
 from mlframe.feature_selection.filters import _fe_pure_form_retention_gpu_resident as m
 from mlframe.feature_selection.filters import _pure_form_gate_njit as nj
+from tests.feature_selection.gpu._gpu_support import has_device
 
 
 def _cp():
     """cupy with a usable device, else skip."""
     cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
+    if not has_device(cp):
         pytest.skip("no usable CUDA device")
     return cp
 

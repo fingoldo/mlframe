@@ -50,7 +50,7 @@ def _sweep_host(X: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
     try:
         y_i, z_i, h_yz, h_z, k_yz, k_z, n_f = precompute_cmi_yz_terms(y, z)
         yz_dense, _ = _renumber_joint(y_i, z_i)
-        scores = np.array([cmi_from_binned_fixed_yz(X[:, j], y_i, z_i, h_yz, h_z, k_yz, k_z, n_f, yz_i=yz_dense) for j in range(X.shape[1])], dtype=np.float64)
+        scores = np.array([cmi_from_binned_fixed_yz(X[:, j], y_i, z_i, h_yz, h_z, k_yz, k_z, n_f, yz_i=yz_dense) for j in range(X.shape[1])], dtype=np.float64)  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     finally:
         for k, v in saved.items():
             if v is None:
@@ -64,7 +64,7 @@ def _sweep_device(X: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
     """The device path of a greedy round: one batched CMI workload over all candidates; a failed launch raises, so the sweep never records a host fallback as a device time."""
     from ._fe_batched_mi import batched_cmi_gpu
 
-    return selection_view(np.asarray(batched_cmi_gpu(X, y, z, codes_trusted=True, kx=_SWEEP_BINS), dtype=np.float64))
+    return selection_view(np.asarray(batched_cmi_gpu(X, y, z, codes_trusted=True, kx=_SWEEP_BINS), dtype=np.float64))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
 
 
 _fallback_choice = rows_fallback(__name__)

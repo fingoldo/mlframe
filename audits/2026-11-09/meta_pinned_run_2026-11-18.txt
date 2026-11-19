@@ -1,0 +1,115 @@
+# Meta test files run one process each against py-ci-shared v1.23.11 (worktree D:/Temp/pcs_pin), tree at mlframe commit bc884c19e plus uncommitted work; files after test_import_graph_stays_light.py only; run stopped at test_shared_gates_adopted_pass3.py by the owner (handed to another session). Not compared with origin/master: some failures may predate this branch.
+test_install_pyutilz_workflows_disable_uv_sources.py :: 8 passed in 9.71s
+test_kernel_tuning_lookup_keys_registered.py :: 3 passed in 31.28s
+test_ktc_dispatch_selects_more_than_one_path.py :: 2 passed in 20.60s
+test_ktc_sweep_tolerances.py :: 1 passed in 28.29s
+test_kwarg_forwarding_wired.py :: 1 passed in 16.63s
+test_log_only_except_calibration_and_crash_reporting_best_effort.py :: 3 passed in 8.94s
+test_log_only_except_diagnostics_dispatch_worst_k.py :: 1 passed in 8.63s
+test_log_only_except_final_best_effort_sweep.py :: 19 passed in 30.46s
+test_log_only_except_matplotlib_plotly_style_overrides.py :: 1 passed in 8.74s
+test_log_only_except_registry_and_phase_setup_best_effort.py :: 3 passed in 8.87s
+test_log_only_except_reports_and_phase_composite_best_effort.py :: 8 passed in 9.37s
+test_logger_lazy_formatting.py :: 2 passed in 28.28s
+test_loky_pool_caps_numba_threads.py :: 1 passed in 8.67s
+test_markers_registered.py :: 1 passed in 14.66s
+test_memory_budgets.py :: 6 passed in 9.42s
+test_meta_meta.py :: 1 failed, 2 passed in 9.69s
+test_metric_invariants.py :: 12 passed in 24.67s
+test_module_cache_locks_under_threads.py :: 5 passed in 9.60s
+test_module_cache_mutated_without_its_lock.py :: 1 failed, 3 passed in 28.79s
+test_module_global_write_via_reexport_alias.py :: 2 passed in 27.83s
+test_mrmr_research_doc_consistency.py :: 5 passed in 31.77s
+test_mutation_teeth.py :: NO-SUMMARY (timeout or crash)
+test_mutual_exclusion_validators.py :: 2 passed in 9.02s
+test_mypy_gate_floor.py :: 1 failed in 9.64s
+test_nested_parallel_scan_sees_joblib_threads.py :: 2 passed in 9.14s
+test_no_ad_hoc_shuffled_kfold.py :: 2 passed in 9.77s
+test_no_additive_epsilon_in_a_scale_denominator.py :: 2 passed in 16.43s
+test_no_asarray_for_length.py :: 1 failed, 1 passed in 27.96s
+test_no_audit_metadata_in_comments.py :: 1 failed, 1 passed in 26.31s
+test_no_audit_wave_filenames.py :: 1 failed in 12.76s
+test_no_bare_except.py :: 1 failed, 1 passed in 39.91s
+test_no_bare_pickle_load.py :: 1 passed in 30.73s
+test_no_cancellation_prone_moments.py :: 1 failed in 39.25s
+test_no_cast_in_compiled_functions.py :: 2 passed in 29.14s
+test_no_chart_artifacts_in_repo_root.py :: 3 passed in 9.72s
+test_no_constant_fallback_cache_key.py :: 1 passed in 36.85s
+test_no_drifted_duplicate_functions.py :: 2 failed, 1 passed in 41.01s
+test_no_fe_family_enabled_without_budget.py :: 1 failed, 1 passed in 12.47s
+test_no_file_over_1k_loc.py :: 1 failed in 10.65s
+test_no_fit_at_test_module_import.py :: 2 passed in 31.82s
+test_no_frame_copy_in_target_loops.py :: 2 passed in 11.33s
+test_no_hardcoded_seed_in_library.py :: 1 passed in 42.01s
+test_no_import_cycles.py :: 1 passed in 35.03s
+test_no_inbound_edge_to_benchmarking.py :: 2 passed in 28.52s
+test_no_latched_availability_flags.py :: 3 passed in 42.60s
+test_no_lazy_from_import_under_joblib_delayed.py :: 1 passed in 29.81s
+test_no_module_level_env_mutation_in_tests.py :: 1 passed in 41.26s
+test_no_module_level_logging_disable.py :: 2 passed in 28.32s
+test_no_new_explicit_float64.py :: 1 failed, 1 passed in 10.25s
+test_no_njit_unsupported_numpy_reduction.py :: 1 failed, 1 passed in 30.20s
+test_no_nondiscriminating_assert.py :: 1 failed, 1 passed in 51.44s
+test_no_numba_config_env_restore_footgun.py :: 2 passed in 31.09s
+test_no_persisted_negative_hardware_probe.py :: 1 passed in 40.54s
+test_no_shared_mypy_cache_dir.py :: 1 passed in 9.34s
+test_no_sibling_backimport_to_facade.py :: 2 passed in 10.22s
+test_no_single_shot_timing_assertion.py :: 1 passed in 64.53s (0:01:04)
+test_no_sklearn_metrics_in_production.py :: 2 passed in 27.80s
+test_no_source_text_claims.py :: 1 passed in 36.10s
+test_no_stale_not_wired_docstrings.py :: 2 passed in 15.78s
+test_no_stale_source_line_citations.py :: 1 passed in 11.31s
+test_no_tick_isinstance_offset_check.py :: 2 passed in 52.67s
+test_no_tiny_cupy_ops_in_python_loops.py :: 1 failed, 137 passed in 33.06s
+test_no_top_level_side_effects.py :: 1 passed in 12.26s
+test_no_truncating_y_discretisation.py :: 1 passed in 16.07s
+test_no_underscore_imports_cross_package.py :: 1 failed in 27.88s
+test_no_unguarded_nested_parallel.py :: 1 failed, 2 passed in 65.77s (0:01:05)
+test_no_unlocked_module_cache.py :: 1 failed, 1 passed in 27.45s
+test_no_unprotected_shap_treeexplainer.py :: 1 failed, 1 passed in 36.03s
+test_no_unread_function_params.py :: 1 failed in 37.94s
+test_no_unsafe_deserialization.py :: 1 passed in 58.70s
+test_no_unsafe_module_reload.py :: 1 failed in 65.52s (0:01:05)
+test_no_value_bearing_asserts.py :: 1 failed in 30.23s
+test_non_neutral_except_audible.py :: 8 passed in 10.01s
+test_numba_cache_restore_is_exact_key.py :: 1 passed in 9.11s
+test_numba_coverage_report_script.py :: 2 passed in 9.59s
+test_numba_coverage_workflow_exists.py :: 7 passed in 9.22s
+test_optional_third_party_imports_are_guarded.py :: 2 passed in 96.87s (0:01:36)
+test_orth_fe_recipes_freeze_preprocess_params.py :: 2 passed in 9.14s
+test_parametric_eager_helpers.py :: 5 passed in 10.06s
+test_perm_loop_invariants_hoisted.py :: 3 passed, 1 skipped in 28.09s
+test_persist_after_mutate.py :: 3 passed in 11.65s
+test_pre_commit_hooks.py :: 5 passed in 9.72s
+test_pre_test_gate_worker_count_policy.py :: 2 passed in 12.36s
+test_precommit_ci_scope_parity.py :: 1 passed in 11.40s
+test_precommit_mypy_beachhead_coverage.py :: 1 passed in 10.08s
+test_precommit_no_duplicate_blocking_mypy.py :: 2 passed in 11.23s
+test_printed_advice_wired.py :: 1 failed in 12.46s
+test_progress_xdist_plugin_conflict.py :: 1 passed in 27.89s
+test_promoted_public_surfaces.py :: 11 passed in 9.94s
+test_public_annotations.py :: 1 failed, 1 passed in 23.04s
+test_public_api_contract.py :: 10 passed in 9.56s
+test_public_docstrings.py :: 2 passed in 26.18s
+test_py_ci_shared_pin.py :: 4 passed in 10.85s
+test_pydoclint_baseline.py :: 1 passed in 53.15s
+test_python_version_floor_respected.py :: 5 passed in 75.63s (0:01:15)
+test_pyutilz_pin.py :: 2 passed in 12.06s
+test_pyutilz_pin_from_uv_lock.py :: 2 passed in 9.21s
+test_ranker_and_adapter_random_state_naming.py :: 8 passed in 12.66s
+test_readme_env_var_parity.py :: 2 failed in 57.04s
+test_readme_modules_table_completeness.py :: 2 passed in 10.99s
+test_readme_sklearn_version_claim.py :: 3 passed in 9.48s
+test_readonly_to_numpy_mutation.py :: 2 passed in 35.72s
+test_registry_name_literals_are_derived.py :: 1 passed in 28.58s
+test_reproducibility.py :: 6 passed in 15.02s
+test_root_docstring_imports_are_valid.py :: 2 passed in 9.11s
+test_ruff_pin_consistency.py :: 3 passed in 10.48s
+test_save_mlframe_model_lean_explicit.py :: 1 passed in 24.70s
+test_scanning_gates_fail_closed.py :: 1 failed, 1 passed in 9.96s
+test_selector_fitted_attrs_are_setstate_safe.py :: 10 passed in 10.39s
+test_shap_values_go_through_mlframe_treeshap.py :: 2 passed in 26.11s
+test_shared_checks_wired.py :: 7 failed, 95 passed in 403.39s (0:06:43)
+test_shared_gates_adopted.py :: 6 passed in 122.85s (0:02:02)
+test_shared_gates_adopted_pass2.py :: 2 failed, 40 passed, 1 skipped in 360.34s (0:06:00)
+test_shared_gates_adopted_pass3.py :: WARNING  py_ci_shared._core.corpus:corpus.py:118 git ls-files in D:\Temp\wt2\src\mlframe failed (attempt 2 of 3; exit code 3221225794, stderr: no stderr); retrying

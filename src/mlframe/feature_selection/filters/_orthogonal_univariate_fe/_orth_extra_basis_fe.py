@@ -22,6 +22,7 @@ import numba
 import numpy as np
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+from mlframe.feature_selection.filters._fe_frame_ops import fe_std_below
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from numba import prange
 
@@ -112,6 +113,43 @@ def _fit_fourier_for_col(x: np.ndarray):
     return lo, span
 
 
+@numba.njit(cache=True, nogil=True)
+def _chirp_fit_kernel(x: np.ndarray) -> tuple:
+    """``(n_finite, mean, std, lo, hi)`` of the chirp axis of ``x``: the mean and standard deviation of the finite entries and the extremes of ``u = sign(z) * z**2``, ``z = (x - mean) / std``,
+    in three passes over the rows without temporaries and without the interpreter lock. The moments are accumulated in double precision (the numpy form of a float32 column accumulates in float32)."""
+    n = x.shape[0]
+    count = 0
+    total = 0.0
+    for i in range(n):
+        v = x[i]
+        if np.isfinite(v):
+            count += 1
+            total += v
+    if count == 0:
+        return 0, 0.0, 1.0, 0.0, 0.0
+    mean = total / count
+    sq = 0.0
+    for i in range(n):
+        v = x[i]
+        if np.isfinite(v):
+            d = v - mean
+            sq += d * d
+    std = np.sqrt(sq / count)
+    std = std if std > 1e-12 else 1.0
+    lo = np.inf
+    hi = -np.inf
+    for i in range(n):
+        v = x[i]
+        if np.isfinite(v):
+            z = (v - mean) / std
+            u = np.sign(z) * (z * z)
+            if u < lo:
+                lo = u
+            if u > hi:
+                hi = u
+    return count, mean, std, lo, hi
+
+
 def _fit_chirp_warp_for_col(x: np.ndarray):
     """Fit the QUADRATIC-ARGUMENT ("chirp") warp params on ``x``.
 
@@ -132,20 +170,11 @@ def _fit_chirp_warp_for_col(x: np.ndarray):
 
     All four are baked into the recipe at fit time and replayed verbatim at
     transform time (no y, so leakage-free)."""
-    x = np.asarray(x, dtype=_crit_np_dtype())
-    finite = np.isfinite(x)
-    if not finite.any():
+    x = np.ascontiguousarray(np.asarray(x, dtype=_crit_np_dtype()))
+    count, mean, std, lo, hi = _chirp_fit_kernel(x)
+    if count == 0:
         return 0.0, 1.0, 0.0, 1.0
-    xf = x[finite]
-    mean = float(np.mean(xf))
-    std = float(np.std(xf))
-    std = std if std > 1e-12 else 1.0
-    z = (xf - mean) / std
-    u = np.sign(z) * (z * z)
-    lo = float(np.min(u))
-    hi = float(np.max(u))
-    span = max(hi - lo, 1e-12)
-    return mean, std, lo, span
+    return float(mean), float(std), float(lo), max(float(hi - lo), 1e-12)
 
 
 @numba.njit(cache=True, nogil=True)
@@ -710,6 +739,82 @@ def _heldout_smooth_r2_prep(y: np.ndarray) -> Optional[tuple]:
     return va, tr, y[tr], yv, sst
 
 
+@numba.njit(cache=True, nogil=True)
+def _cubic_normal_system(ranks: np.ndarray, va: np.ndarray, y_tr: np.ndarray) -> np.ndarray:
+    """The augmented ``(4, 5)`` normal system of the cubic ``[z^3, z^2, z, 1]`` on the training rows (``va`` False), ``z = 2 * (rank - 1) / (n - 1) - 1``, from power sums in one pass."""
+    n = ranks.shape[0]
+    denom = max(n - 1, 1)
+    pw = np.zeros(7)
+    rhs = np.zeros(4)
+    t = 0
+    for i in range(n):
+        if va[i]:
+            continue
+        z = (ranks[i] - 1.0) / denom * 2.0 - 1.0
+        yy = y_tr[t]
+        t += 1
+        p = 1.0
+        for k in range(7):
+            pw[k] += p
+            if k < 4:
+                rhs[3 - k] += yy * p
+            p *= z
+    a = np.empty((4, 5))
+    for r in range(4):
+        for c in range(4):
+            a[r, c] = pw[6 - r - c]  # column order [z^3, z^2, z, 1]: entry (r, c) is the sum of z^((3 - r) + (3 - c))
+        a[r, 4] = rhs[r]
+    return a
+
+
+@numba.njit(cache=True, nogil=True)
+def _solve_augmented4(a: np.ndarray) -> np.ndarray:
+    """Solution of the augmented ``(4, 5)`` system by pivoted elimination; four NaN when it is singular (the caller then takes the least-squares form)."""
+    coef = np.full(4, np.nan)
+    for col in range(4):
+        piv = col
+        for r in range(col + 1, 4):
+            if abs(a[r, col]) > abs(a[piv, col]):
+                piv = r
+        if abs(a[piv, col]) < 1e-300:
+            return coef
+        if piv != col:
+            for c in range(5):
+                tmp = a[col, c]
+                a[col, c] = a[piv, c]
+                a[piv, c] = tmp
+        for r in range(col + 1, 4):
+            f = a[r, col] / a[col, col]
+            for c in range(col, 5):
+                a[r, c] -= f * a[col, c]
+    for r in range(3, -1, -1):
+        acc = a[r, 4]
+        for c in range(r + 1, 4):
+            acc -= a[r, c] * coef[c]
+        coef[r] = acc / a[r, r]
+    return coef
+
+
+@numba.njit(cache=True, nogil=True)
+def _cubic_heldout_r2_kernel(ranks: np.ndarray, va: np.ndarray, y_tr: np.ndarray, yv: np.ndarray, sst: float) -> float:
+    """Held-out R^2 of the cubic fit of ``y`` on ``z = 2 * (rank - 1) / (n - 1) - 1`` (``ranks`` are the 1-based average ranks): the normal equations on the training rows, their pivoted
+    solution and the squared error on the validation rows (``va`` True), in double precision. ``NaN`` when the system is singular, so the caller takes the numpy form (``np.linalg.lstsq``)."""
+    coef = _solve_augmented4(_cubic_normal_system(ranks, va, y_tr))
+    if coef[0] != coef[0]:
+        return np.nan
+    n = ranks.shape[0]
+    denom = max(n - 1, 1)
+    sse = 0.0
+    v = 0
+    for i in range(n):
+        if va[i]:
+            z = (ranks[i] - 1.0) / denom * 2.0 - 1.0
+            d = yv[v] - (((coef[0] * z + coef[1]) * z + coef[2]) * z + coef[3])
+            sse += d * d
+            v += 1
+    return 1.0 - sse / sst
+
+
 def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
     """Fast twin of :func:`_heldout_smooth_r2` given a precomputed ``prep`` from
     :func:`_heldout_smooth_r2_prep` (the SAME fixed ``y`` across many columns' ``x``) - only the
@@ -717,13 +822,19 @@ def _heldout_smooth_r2_fast(x: np.ndarray, prep: tuple) -> float:
     original (verified: same split mask, same y-side sums, same formula, just hoisted out of the loop)."""
     va, tr, y_tr, yv, sst = prep
     x = np.asarray(x, dtype=_crit_np_dtype()).ravel()
-    if x.size != va.size or not np.all(np.isfinite(x)) or float(np.std(x)) < 1e-12:
+    if x.size != va.size or not np.all(np.isfinite(x)) or fe_std_below(x):
         return 0.0
     # average ranks (0-based): tied feature values share one rank instead of being ordered by row position
-    from scipy.stats import rankdata
+    # (the compiled radix-order ranks: the average rank of a tie run is the same number whichever sort finds the run; scipy's ``rankdata`` took 12 ms per column at 30000 rows)
+    from .._mrmr_fit_impl._eng_dedup_batch_corr import _avg_ranks_inplace
 
-    ranks = (rankdata(x, method="average") - 1.0).astype(_crit_np_dtype(), copy=False)
     n = x.size
+    ranks64 = np.empty(n, dtype=np.float64)  # Intentional float64: average ranks are halves of integers, exact in double as scipy returns them
+    _avg_ranks_inplace(np.ascontiguousarray(x), n, np.empty(n, dtype=np.int64), ranks64)
+    r2 = float(_cubic_heldout_r2_kernel(ranks64, np.ascontiguousarray(va), np.ascontiguousarray(y_tr, dtype=np.float64), np.ascontiguousarray(yv, dtype=np.float64), float(sst)))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
+    if r2 == r2:  # a singular normal system returns NaN: the least-squares form below decides it
+        return r2
+    ranks = (ranks64 - 1.0).astype(_crit_np_dtype(), copy=False)
     zx = (ranks / max(n - 1, 1)) * 2.0 - 1.0
     try:
         _Vtr = np.vander(zx[tr], 4)

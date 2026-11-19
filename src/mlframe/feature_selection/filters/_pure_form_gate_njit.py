@@ -11,6 +11,7 @@ host is the faster side.
 from __future__ import annotations
 
 import numpy as np
+from mlframe.utils.array_shape import length_of
 from numba import njit, prange
 
 
@@ -118,7 +119,7 @@ def host_gate_scalars(form_values: "list[np.ndarray]", base_columns: "list[np.nd
         ib_l.append(name_to_idx[b])
     used = sorted(set(ia_l) | set(ib_l))
     slot = {u: k for k, u in enumerate(used)}
-    n = int(np.asarray(rel_y).shape[0])
+    n = int(length_of(rel_y))
     bc = np.empty((len(used), n, 6))  # Intentional float64: the Gram feeds a ridge solve
     for u, k in slot.items():
         cols = np.stack(_single_operand_basis(np.asarray(base_columns[u], dtype=np.float64)), axis=1)  # Intentional float64: see above

@@ -242,8 +242,8 @@ def _get_kernel_v3(cp, ny1: int, pb: int, cap: int, real: str):
     return kern
 
 
-def kernel_v3(cp, real, ny1: int = 1, pb: int = _V3_MAX_PB, cap: int = 8):
-    """The v3 kernel for the value type ``real`` (a float32 / float64 dtype or the C type name ``"float"`` / ``"double"``): the launcher and the register-pressure registry both resolve it here;
+def kernel_v3(cp: Any, real: Any, ny1: int = 1, pb: int = _V3_MAX_PB, cap: int = 8) -> Any:
+    """The v3 kernel for the value type ``real`` (a float32 / double precision dtype or the C type name ``"float"`` / ``"double"``): the launcher and the register-pressure registry both resolve it here;
     the defaults are one stored class, four permutations per block, eight bins."""
     c_type = real if isinstance(real, str) else ("float" if np.dtype(real) == np.float32 else "double")
     return _get_kernel_v3(cp, ny1, pb, cap, c_type)
@@ -263,7 +263,7 @@ def fill_block_width(width: int, columns: int, other_blocks: int, sms: int) -> i
     return int(max(32, min(int(width), narrow)))
 
 
-def family_null_launcher(cp, n_y: int, words: int, table, cls, n: int, cap: int, b: int):
+def family_null_launcher(cp: Any, n_y: int, words: int, table: Any, cls: Any, n: int, cap: int, b: int) -> Any:
     """The kernel of the shared-memory family null (v3 when it applies, else v2) for ``b`` permutations, resolved ONCE, as a function ``launch(bits, n_x, c_a, px, const_b, k, out)`` for one
     column group of ``k`` columns whose ``(b, k)`` output is ``out``.
 
@@ -299,7 +299,7 @@ def family_null_launcher(cp, n_y: int, words: int, table, cls, n: int, cap: int,
     return launch_v2
 
 
-def launch_family_null(cp, n_y: int, words: int, bits, n_x, cls, table, c_a, px, const_b, n: int, cap: int, k: int, b: int, out) -> None:
+def launch_family_null(cp: Any, n_y: int, words: int, bits: Any, n_x: Any, cls: Any, table: Any, c_a: Any, px: Any, const_b: Any, n: int, cap: int, k: int, b: int, out: Any) -> None:
     """Launch the shared-memory family null kernel (v3 when it applies, else v2) over ``b`` permutations and ``k`` columns; ``out`` is ``(b, k)``.
 
     One-shot form of :func:`family_null_launcher` (a loop over column groups builds the launcher once instead)."""
@@ -375,7 +375,7 @@ def _run(dev: DeviceBitsets, cls_host: np.ndarray, const_b: np.ndarray, reduce_m
     # Intentional float64: label-entropy constants of the MI formula, converted to the table's element type below
     const_d = cp.asarray(np.ascontiguousarray(const_b, dtype=np.float64)).astype(dev.table.dtype, copy=False)
     best = (
-        cp.zeros(B, dtype=cp.float64) if acc is None else acc
+        cp.zeros(B, dtype=cp.float64) if acc is None else acc  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
     )  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     parts = []
     use_v2 = _v2_applies(cp, n_y, dev.words)

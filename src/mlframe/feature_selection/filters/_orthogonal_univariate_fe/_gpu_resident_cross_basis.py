@@ -41,6 +41,8 @@ path untouched). NEVER ``free_all_blocks`` (mempool teardown owns that).
 """
 from __future__ import annotations
 
+import threading
+
 from .._basis_name_codes import BASIS_NAME_CODES
 
 import logging
@@ -277,6 +279,7 @@ def _prefetch_legs(cp: Any, X: Any, col_specs: Sequence[dict], basis: str, basis
 
 
 _LEG_PRODUCT_KERNELS: dict = {}
+_LEG_PRODUCT_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def _fused_leg_products(cp: Any, col_specs: Sequence[dict], leg_cache: dict, basis_of_col: dict, leg_fn: Any, n: int, column_major: bool = False) -> Any:
@@ -284,47 +287,48 @@ def _fused_leg_products(cp: Any, col_specs: Sequence[dict], leg_cache: dict, bas
 
     Every product of the per-leg loop was a ``prod * h`` cupy operation (about four thousand in a 30000 x 60 fit). Here the distinct legs are stacked once into a ``(legs, n)`` block and each
     output cell multiplies its legs in the spec's order at the legs' own dtype (``acc = acc * v``, as the loop does), then widens to double: the same values bit for bit."""
-    index_of: dict = {}
-    leg_cols: list = []
-    rows: list = []
-    for spec in col_specs:
-        row = []
-        for leg in spec["legs"]:
-            col, degree = leg[0], int(leg[1])
-            explicit = leg[2] if len(leg) == 3 else None
-            h = leg_fn(col, degree, explicit)
-            key = id(h)
-            if key not in index_of:
-                index_of[key] = len(leg_cols)
-                leg_cols.append(h)
-            row.append(index_of[key])
-        rows.append(row)
-    if not rows or not leg_cols:
-        return None
-    dtypes = {str(h.dtype) for h in leg_cols}
-    if len(dtypes) != 1 or next(iter(dtypes)) not in ("float32", "float64"):
-        return None
-    dt = next(iter(dtypes))
-    width = max(len(r) for r in rows)
-    idx = np.full((len(rows), width), -1, dtype=np.int32)
-    for s_, r_ in enumerate(rows):
-        idx[s_, : len(r_)] = r_
-    ctype = {"float32": "float", "float64": "double"}[dt]
-    kernel = _LEG_PRODUCT_KERNELS.get(dt)
-    if kernel is None:
-        kernel = _LEG_PRODUCT_KERNELS[dt] = cp.ElementwiseKernel(
-            "raw %s L, raw int32 idx, int32 width, int32 nrows, int32 ncols" % dt,
-            "float64 out",
-            "int s = i / nrows; int r = i - s * nrows; %s acc = (%s)1; bool first = true;"
-            " for (int p = 0; p < width; ++p) { int k = idx[s * width + p]; if (k < 0) break; %s v = L[(size_t)k * nrows + r]; acc = first ? v : acc * v; first = false; }"
-            " out = (double)acc;" % (ctype, ctype, ctype),
-            "mlframe_leg_products_cm_" + dt,
-        )
-    block = cp.ascontiguousarray(cp.stack(leg_cols))
-    # the kernel walks the (K, n) output with the rows fastest: a warp reads consecutive rows of one leg (coalesced) and writes consecutive words of one output column
-    out = cp.empty((len(rows), n), dtype=cp.float64)  # Intentional float64: GPU cross-basis output; kernel contract is float64
-    kernel(block, cp.asarray(idx), np.int32(width), np.int32(n), np.int32(len(rows)), out)
-    return out if column_major else cp.ascontiguousarray(out.T)
+    with _LEG_PRODUCT_KERNELS_LOCK:
+        index_of: dict = {}
+        leg_cols: list = []
+        rows: list = []
+        for spec in col_specs:
+            row = []
+            for leg in spec["legs"]:
+                col, degree = leg[0], int(leg[1])
+                explicit = leg[2] if len(leg) == 3 else None
+                h = leg_fn(col, degree, explicit)
+                key = id(h)
+                if key not in index_of:
+                    index_of[key] = len(leg_cols)
+                    leg_cols.append(h)
+                row.append(index_of[key])
+            rows.append(row)
+        if not rows or not leg_cols:
+            return None
+        dtypes = {str(h.dtype) for h in leg_cols}
+        if len(dtypes) != 1 or next(iter(dtypes)) not in ("float32", "float64"):  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
+            return None
+        dt = next(iter(dtypes))
+        width = max(len(r) for r in rows)
+        idx = np.full((len(rows), width), -1, dtype=np.int32)
+        for s_, r_ in enumerate(rows):
+            idx[s_, : len(r_)] = r_
+        ctype = {"float32": "float", "float64": "double"}[dt]  # Intentional float64: dtype-name table of the kernel source rendering: float64 data maps to the C type double
+        kernel = _LEG_PRODUCT_KERNELS.get(dt)
+        if kernel is None:
+            kernel = _LEG_PRODUCT_KERNELS[dt] = cp.ElementwiseKernel(
+                "raw %s L, raw int32 idx, int32 width, int32 nrows, int32 ncols" % dt,
+                "float64 out",  # Intentional float64: CUDA signature text: the parameter is a double in the kernel source
+                "int s = i / nrows; int r = i - s * nrows; %s acc = (%s)1; bool first = true;"
+                " for (int p = 0; p < width; ++p) { int k = idx[s * width + p]; if (k < 0) break; %s v = L[(size_t)k * nrows + r]; acc = first ? v : acc * v; first = false; }"
+                " out = (double)acc;" % (ctype, ctype, ctype),
+                "mlframe_leg_products_cm_" + dt,
+            )
+        block = cp.ascontiguousarray(cp.stack(leg_cols))
+        # the kernel walks the (K, n) output with the rows fastest: a warp reads consecutive rows of one leg (coalesced) and writes consecutive words of one output column
+        out = cp.empty((len(rows), n), dtype=cp.float64)  # Intentional float64: GPU cross-basis output; kernel contract is float64
+        kernel(block, cp.asarray(idx), np.int32(width), np.int32(n), np.int32(len(rows)), out)
+        return out if column_major else cp.ascontiguousarray(out.T)
 
 
 def _resident_mi(cp, mat_gpu, y, nbins: int, column_major: bool = False) -> np.ndarray:
@@ -441,21 +445,52 @@ def crossbasis_device_chosen(n_rows: int) -> bool:
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 
-def _product_mi_blocked(cp: Any, raw_X: pd.DataFrame, specs: Sequence[dict], y: Any, nbins: int, basis: str) -> np.ndarray:
-    """Plug-in MI of every product column of ``specs`` (built by :func:`build_leg_product_matrix_gpu`) against ``y``, a column block at a time.
+def _product_mi_blocked_many(cp: Any, raw_X: pd.DataFrame, specs: Sequence[dict], ys: Sequence[Any], nbins: int, basis: str) -> np.ndarray:
+    """``(len(ys), K)`` plug-in MI of every product column of ``specs`` (built by :func:`build_leg_product_matrix_gpu`) against each target of ``ys``, a column block at a time.
 
-    The product matrix is ``n x K`` double; a block of specs is built, scored by the resident plug-in MI and released, so the working set is a block (a quarter of the room under this thread's pool
-    limit over three copies of its columns) however many candidates there are. A column's MI depends on that column alone, so the blocks give the single-matrix values."""
+    The product matrix is ``n x K`` double; a block of specs is built ONCE, scored against every target by the resident plug-in MI and released, so the working set is a block (a quarter of the room
+    under this thread pool limit over three copies of its columns) however many candidates there are. A column MI depends on that column and the target alone, so the blocks give the single-matrix
+    values and a target scored here equals the same target scored alone."""
     from .._device_sort_safe import device_room
 
     n = len(raw_X)
     block_cols = int(max(1, min(len(specs), (device_room(cp) // 4) // max(1, 3 * n * 8))))
-    parts = []
+    parts: list = [[] for _ in ys]
     for c0 in range(0, len(specs), block_cols):
         mat_gpu = build_leg_product_matrix_gpu(cp, raw_X, list(specs[c0 : c0 + block_cols]), basis=basis, column_major=True)
-        parts.append(_resident_mi(cp, mat_gpu, y, nbins, column_major=True))
+        for slot, y in zip(parts, ys):
+            slot.append(_resident_mi(cp, mat_gpu, y, nbins, column_major=True))
         del mat_gpu
-    return np.concatenate(parts) if parts else np.empty((0,), dtype=np.float64)  # Intentional float64: host cross-basis output contract
+    return np.stack([np.concatenate(p) if p else np.empty((0,), dtype=np.float64) for p in parts])  # Intentional float64: host cross-basis output contract
+
+
+def _product_mi_blocked(cp: Any, raw_X: pd.DataFrame, specs: Sequence[dict], y: Any, nbins: int, basis: str) -> np.ndarray:
+    """Plug-in MI of every product column of ``specs`` against the one target ``y`` (see :func:`_product_mi_blocked_many`)."""
+    row: np.ndarray = np.asarray(_product_mi_blocked_many(cp, raw_X, specs, [y], nbins, basis)[0])
+    return row
+
+
+def product_mi_many_targets_resident(
+    raw_X: pd.DataFrame, engineered_X: pd.DataFrame, ys: Sequence[Any], col_specs: Sequence[dict], *, nbins: int, basis: str = "auto"
+) -> Optional[np.ndarray]:
+    """``(len(ys), K)`` engineered product-matrix MI of the columns of ``engineered_X`` against each target of ``ys`` with the product matrix built once, or ``None`` when the device-born path does not apply.
+
+    The permutation-null floors score the same candidates against a handful of shuffled targets and need no raw baseline; every row equals the engineered MI of :func:`raw_and_product_mi_resident` for that
+    target. ``col_specs`` aligns 1:1 with the columns of ``engineered_X``."""
+    try:
+        import cupy as cp
+    except ImportError as e:
+        logger.debug("cupy import failed: %s", e)
+        return None
+    if engineered_X is None or engineered_X.shape[1] == 0 or len(ys) == 0 or len(col_specs) != engineered_X.shape[1]:
+        return None
+    try:
+        if not crossbasis_device_chosen(len(raw_X)):
+            return None
+        return _product_mi_blocked_many(cp, raw_X, list(col_specs), list(ys), nbins, basis)
+    except Exception as _exc:
+        logger.debug("product_mi_many_targets_resident: GPU path failed (%s); host fallback", _exc)
+        return None
 
 
 def raw_and_product_mi_resident(

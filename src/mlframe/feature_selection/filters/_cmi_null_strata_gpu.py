@@ -113,7 +113,7 @@ _LOCK = threading.Lock()
 
 
 def kernel(cp: Any, real: Any = None) -> Any:
-    """``strata_xy_entropy`` compiled once per process (counts are integers and the sums are float64, so ``real`` does not change the module)."""
+    """``strata_xy_entropy`` compiled once per process (counts are integers and the sums are double precision, so ``real`` does not change the module)."""
     with _LOCK:
         mod = _MODULES.get("acc64")
         if mod is None:
@@ -136,7 +136,7 @@ _ENT_TABLES_MAX = 4
 
 
 def _entropy_table(cp: Any, n: int) -> Any:
-    """``ent[v] = -(v / n) ln(v / n)`` for v = 0..n as a float64 device table, cached per ``n`` (a gate round asks for the same ``n`` hundreds of times).
+    """``ent[v] = -(v / n) ln(v / n)`` for v = 0..n as a double precision device table, cached per ``n`` (a gate round asks for the same ``n`` hundreds of times).
 
     A table read replaces a double-precision ``log`` per occupied cell, which runs at 1/32 of the FP32 rate on consumer cards (15.1 ms against 1.4 ms at 36698 strata)."""
     with _ENT_LOCK:
@@ -172,17 +172,42 @@ def strata_joint_entropy(cp: Any, xs: Any, ys: Any, starts: Any, kx: int, ky: in
     return h_part.sum(axis=1), k_part.sum(axis=1, dtype=cp.int64)
 
 
+# H(z), H(y, z) and their occupied-cell counts depend only on the support and the target (not on the candidate), and a gate round calls the null for every candidate with the
+# SAME device arrays. A short identity-keyed list keeps them (strong references, so an id cannot be recycled into a false match).
+_ZY_TERMS_CACHE: list[tuple[Any, Any, tuple[Any, Any, Any, Any]]] = []  # [(dz, dy, (ky, h_zy, k_z, k_yz))], newest last
+_ZY_TERMS_CACHE_MAX = 4
+
+
+def _zy_terms(cp: Any, dz: Any, dy: Any, inv_n: float) -> tuple[Any, Any, Any, Any]:
+    """``(ky, h_yz - h_z, k_z, k_yz)`` of the support ``dz`` and the target ``dy``, computed once per array pair."""
+    from ._fe_batched_mi import joint_entropy_gpu
+
+    for zk, yk, terms in _ZY_TERMS_CACHE:
+        if zk is dz and yk is dy:
+            return terms
+    ky = int(dy.max()) + 1 if dy.size else 1
+    kz = int(dz.max()) + 1
+    h_z, k_z = joint_entropy_gpu([dz], [kz], inv_n)
+    yz = dy * kz + dz
+    h_yz, k_yz = joint_entropy_gpu([yz], [int(yz.max()) + 1], inv_n)
+    terms = (ky, float(h_yz - h_z), k_z, k_yz)
+    _ZY_TERMS_CACHE.append((dz, dy, terms))
+    del _ZY_TERMS_CACHE[:-_ZY_TERMS_CACHE_MAX]
+    return terms
+
+
 def strata_null_cmi(cp: Any, shuffled_sorted: Any, y_sorted: Any, z_rank: Any, dz: Any, dy: Any, kx: int, order_d: Any, x_sorted: Any, variant: Optional[str] = None) -> Optional[Any]:
     """CMI(x_perm; y | z) of every shuffled column, as a device ``(P,)`` vector, or ``None`` when this route does not apply.
 
     ``shuffled_sorted`` ``(P, n)`` are within-stratum shuffles of ``x_sorted`` in z-sorted order, ``y_sorted`` / ``z_rank`` the target and dense stratum rank in that order, ``dz`` / ``dy`` the support and
     target in the original order (the fixed ``H(z)`` / ``H(y, z)`` terms). Applies when the stratum histogram is small, there are enough strata to fill the device, and codes fit a byte.
     """
-    from ._fe_batched_mi import _cmi_assemble, joint_entropy_gpu
+    from ._fe_batched_mi import _cmi_assemble
 
     n = int(shuffled_sorted.shape[1])
-    ky = int(dy.max()) + 1 if dy.size else 1
     S = int(z_rank[-1]) + 1
+    inv_n = 1.0 / float(max(1, n))
+    ky, h_zy, k_z, k_yz = _zy_terms(cp, dz, dy, inv_n)
     if kx * ky > MAX_CELLS or kx > 255 or ky > 255 or S < MIN_STRATA:
         return None
     try:
@@ -190,21 +215,16 @@ def strata_null_cmi(cp: Any, shuffled_sorted: Any, y_sorted: Any, z_rank: Any, d
         # run starts from the stratum sizes: no host sync (the number of strata is known)
         starts = cp.zeros(S + 1, dtype=cp.int32)
         starts[1:] = cp.cumsum(cp.bincount(srank, minlength=S)).astype(cp.int32)
-        inv_n = 1.0 / float(max(1, n))
         xs8 = shuffled_sorted.astype(cp.uint8)
         ys8 = y_sorted.astype(cp.uint8)
         use_rows = (n >= LONG_STRATUM_ROWS * S) if variant is None else (variant == "rows")
         rk = srank if use_rows else None
         h_xyz, k_xyz = strata_joint_entropy(cp, xs8, ys8, starts, kx, ky, rk)
         h_xz1, k_xz1 = strata_joint_entropy(cp, x_sorted.astype(cp.uint8)[None, :], cp.zeros(n, dtype=cp.uint8), starts, kx, 1, rk)
-        kz = int(dz.max()) + 1
-        h_z, k_z = joint_entropy_gpu([dz], [kz], inv_n)
-        yz = dy * kz + dz
-        h_yz, k_yz = joint_entropy_gpu([yz], [int(yz.max()) + 1], inv_n)
         P = int(shuffled_sorted.shape[0])
         h_xz = cp.broadcast_to(h_xz1, (P,))  # the (x, z) joint is the same for every shuffle; stays on the device
         k_xz = cp.broadcast_to(k_xz1, (P,))
-        return _cmi_assemble(h_xz, h_xyz, float(h_yz - h_z), k_xyz, k_xz, float(k_z - k_yz), 1.0 / (2.0 * float(max(1, n))))
+        return _cmi_assemble(h_xz, h_xyz, h_zy, k_xyz, k_xz, float(k_z - k_yz), 1.0 / (2.0 * float(max(1, n))))
     except Exception as exc:
         log_throttle(
             logger, "cmi_null_strata_gpu_failed", logging.WARNING,

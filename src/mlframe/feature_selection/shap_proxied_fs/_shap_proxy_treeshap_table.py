@@ -14,12 +14,13 @@ from __future__ import annotations
 from typing import Optional
 
 import numpy as np
+from mlframe.utils.array_shape import length_of
 from numba import njit, prange
 
 from ._shap_proxy_treeshap import _NO_CHILD, TreeEnsemble, _extend_path, _unwound_sum
 
 MAX_UNIQUE = 12  # a mask has 2^12 = 4096 entries per leaf at most
-MAX_TABLE_ENTRIES = 24_000_000  # float64 entries of the contribution table (192 MB); float32 tables take half
+MAX_TABLE_ENTRIES = 24_000_000  # double entries of the contribution table (192 MB); float32 tables take half
 
 
 @njit(cache=True)
@@ -409,13 +410,13 @@ def _auto_block(n_rows: int) -> int:
 
 
 def treeshap_phi_base_table(ensemble: TreeEnsemble, X: np.ndarray, tables: Optional[dict] = None, kernel: str = "blocked", block: int = 0) -> Optional[tuple]:
-    """``(phi (n, f) float64, base)`` from the contribution tables, or ``None`` when the ensemble does not fit them (the caller keeps the path kernel). ``tables`` reuses a ``build_tables`` result.
+    """``(phi (n, f) double precision, base)`` from the contribution tables, or ``None`` when the ensemble does not fit them (the caller keeps the path kernel). ``tables`` reuses a ``build_tables`` result.
 
     ``kernel`` picks the sample loop: ``"blocked"`` (default: preorder passes, row blocks, four rows abreast; ``block`` 0 = automatic), ``"linear"`` (preorder passes, one row at a time) or ``"stack"`` (the
     DFS-stack kernel); the first two fall back to ``"stack"`` when the tree node ids are not contiguous. All three agree to ~1e-14 (the order of the leaf adds differs)."""
     from mlframe._numba_parallel_guard import parallel_kernel_entry
 
-    tab = tables if tables is not None else build_tables(ensemble, int(np.asarray(X).shape[0]))
+    tab = tables if tables is not None else build_tables(ensemble, int(length_of(X)))
     if tab is None:
         return None
     Xf = ensemble.as_float32(X)

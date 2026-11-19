@@ -63,7 +63,7 @@ void cond_bin_moments(const {REAL}* __restrict__ X, const int* __restrict__ code
     }
 }
 """,
-    real=np.float64,
+    real=np.float64,  # Intentional float64: double-precision variant: the statistic needs the full mantissa
 )
 
 _KERNEL: Any = None
@@ -101,9 +101,9 @@ def bin_moments_host(codes: np.ndarray, cols: Sequence[np.ndarray], n_bins: int)
     codes64 = np.ascontiguousarray(codes, dtype=np.int64)
     for k, x in enumerate(cols):
         fin = np.isfinite(x)
-        xf = np.ascontiguousarray(x[fin], dtype=np.float64)
+        xf = np.ascontiguousarray(x[fin], dtype=np.float64)  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
         cf = codes64[fin]
-        s, c = _bin_sum_count_masked_njit(codes64, np.ascontiguousarray(x, dtype=np.float64), fin, n_bins)
+        s, c = _bin_sum_count_masked_njit(codes64, np.ascontiguousarray(x, dtype=np.float64), fin, n_bins)  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
         m = np.where(c > 0.0, s / np.maximum(c, 1.0), 0.0)
         cnt[k], mean[k] = c, m
         css[k] = _bin_css_njit(xf, cf, m, n_bins)

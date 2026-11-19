@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from mlframe.feature_selection.filters._mrmr_fe_step import _step_pairs_prevalence as spv
 from mlframe.feature_selection.filters._mrmr_fe_step import _step_pairs_rank as sp
 from mlframe.feature_selection.filters import batch_pair_usability_corr_gpu as bp
 
@@ -21,7 +22,7 @@ def test_tiled_scan_equals_one_call_over_all_pairs_with_few_calls(monkeypatch):
     """With a budget of four operand rows the winner is (3, 9), as with one call, and the dispatcher is called per tile group, not per pair."""
     ops, y, pairs = _setup()
     cached = lambda i: ops[i]
-    monkeypatch.setattr(sp, "_prescan_budget_bytes", lambda n_rows, dtype: (4 * n_rows * np.dtype(dtype).itemsize, n_rows * np.dtype(dtype).itemsize))
+    monkeypatch.setattr(spv, "_prescan_budget_bytes", lambda n_rows, dtype: (4 * n_rows * np.dtype(dtype).itemsize, n_rows * np.dtype(dtype).itemsize))
     calls = []
     real = bp.dispatch_batch_pair_usability_corr
 
@@ -45,5 +46,5 @@ def test_tie_goes_to_the_earliest_pair(monkeypatch):
     ops = [base.copy() for _ in range(6)]
     y = (base + 0.1 * r.standard_normal(n)).astype(np.float32)
     pairs = [(i, j) for i in range(6) for j in range(i + 1, 6)]
-    monkeypatch.setattr(sp, "_prescan_budget_bytes", lambda n_rows, dtype: (2 * n_rows * np.dtype(dtype).itemsize, n_rows * np.dtype(dtype).itemsize))
+    monkeypatch.setattr(spv, "_prescan_budget_bytes", lambda n_rows, dtype: (2 * n_rows * np.dtype(dtype).itemsize, n_rows * np.dtype(dtype).itemsize))
     assert sp._dominant_pair_by_linear_corr(pairs, y, lambda i: ops[i]) == pairs[0]

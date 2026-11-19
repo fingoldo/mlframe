@@ -12,7 +12,7 @@ pure form that lifts OOF R^2 without regressing the control scenario (where no w
 
 Run: PYTHONPATH=src python -m mlframe.feature_selection._benchmarks.fs_quality.qual23_pure_form_resid_corr
 """
-from typing import Any, cast
+
 import logging
 import os
 import sys
@@ -21,13 +21,13 @@ import sys
 # cupy permanently poisoned for the rest of THIS process) must happen BEFORE the numba/scipy imports below for a
 # standalone run's own segfault guard to work, but must not leak into another process that happens to import this
 # file (pyutilz's kernel-tuning registry walks every _benchmarks module looking for @kernel_tuner-decorated
-# functions - found live, GPU11-22, when a sibling script's same pattern broke a kernel-tuning-cache refresh
+# functions - found live, when a sibling script's same pattern broke a kernel-tuning-cache refresh
 # that needed real cupy for unrelated kernels). __name__ is already set correctly here, before any other import.
 if __name__ == "__main__":
     os.environ.setdefault("MLFRAME_SKIP_NUMBA_PREWARM", "1")
     os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
     os.environ.setdefault("NUMBA_DISABLE_CUDA", "1")
-    cast(Any, sys.modules).setdefault("cupy", None)
+    sys.modules.setdefault("cupy", None)  # type: ignore[arg-type]  # a None entry makes ``import cupy`` fail
 
 logger = logging.getLogger(__name__)
 

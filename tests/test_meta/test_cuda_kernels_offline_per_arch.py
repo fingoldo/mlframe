@@ -20,6 +20,7 @@ TOOLCHAIN note below, never silently.
 """
 
 from __future__ import annotations
+from tests.test_meta._scan_guard import assert_scanned_enough
 
 import os
 import re
@@ -142,7 +143,9 @@ def test_every_file_with_a_kernel_yields_a_variant():
 
     have = {v.key.split("::")[0].split("mlframe/", 1)[1] for v in _VARIANTS}
     missing = []
-    for path in ROOT.rglob("*.py"):
+    files = list(ROOT.rglob("*.py"))
+    assert_scanned_enough(len(files), "src/mlframe")
+    for path in files:
         if any(part in path.parts for part in ("_benchmarks", "kernel_prototypes")):
             continue
         if "__global__" in path.read_text(encoding="utf-8", errors="replace") and path.relative_to(ROOT).as_posix() not in have:
@@ -232,7 +235,9 @@ def test_no_kernel_hardcodes_the_min_blocks_of_launch_bounds():
     ignored with a ptxas warning. ``B`` must come from a macro derived from ``__CUDA_ARCH__`` (the host-side launch-geometry gate does not see kernel source)."""
     root = Path(__file__).resolve().parents[2] / "src" / "mlframe"
     hits = []
-    for path in root.rglob("*.py"):
+    files = list(root.rglob("*.py"))
+    assert_scanned_enough(len(files), "src/mlframe")
+    for path in files:
         if any(part in path.parts for part in ("_benchmarks", "kernel_prototypes")):
             continue
         for no, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):

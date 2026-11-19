@@ -24,6 +24,8 @@ host-or-device choice and the kernel variant are tuned by ``_mi_greedy_cmi_fe_kt
 """
 from __future__ import annotations
 
+import threading
+
 import logging
 
 from mlframe.utils.log_throttle import log_throttle
@@ -147,6 +149,7 @@ void mi_from_codes_tile(const {CT}* __restrict__ codes,  // (n, K) row-major int
 """)
 _MI_FROM_CODES_TILE_COLS = 8
 _MI_FROM_CODES_TILE_KERNELS: dict = {}
+_MI_FROM_CODES_TILE_KERNELS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 
 
 def _mi_from_codes_tile_width(cells: int) -> int:
@@ -154,19 +157,20 @@ def _mi_from_codes_tile_width(cells: int) -> int:
     return min(_MI_FROM_CODES_TILE_COLS, _MI_FROM_CODES_MAX_SHARED // (4 * max(1, cells)))
 
 
-def kernel(cp, real):
+def kernel(cp: Any, real: Any) -> Any:
     """``mi_from_codes_tile`` for codes of dtype ``real`` (uint8: byte codes, else int64); the register-pressure registry compiles it through this."""
     return _get_mi_from_codes_tile_kernel(np.dtype(real) == np.uint8)
 
 
 def _get_mi_from_codes_tile_kernel(byte_codes: bool = False):
     """Lazy-compile + cache the tiled coalesced ``mi_from_codes_tile`` RawKernel for int64 or byte codes (module-level, pickle-safe)."""
-    kern = _MI_FROM_CODES_TILE_KERNELS.get(bool(byte_codes))
-    if kern is None:
-        import cupy as cp
+    with _MI_FROM_CODES_TILE_KERNELS_LOCK:
+        kern = _MI_FROM_CODES_TILE_KERNELS.get(bool(byte_codes))
+        if kern is None:
+            import cupy as cp
 
-        kern = _MI_FROM_CODES_TILE_KERNELS[bool(byte_codes)] = cp.RawKernel(_MI_FROM_CODES_TILE_SRC.replace("{CT}", "unsigned char" if byte_codes else "long long"), "mi_from_codes_tile")
-    return kern
+            kern = _MI_FROM_CODES_TILE_KERNELS[bool(byte_codes)] = cp.RawKernel(_MI_FROM_CODES_TILE_SRC.replace("{CT}", "unsigned char" if byte_codes else "long long"), "mi_from_codes_tile")
+        return kern
 
 
 # FUSED VALUES->BIN->HIST->MI RawKernel (mega-fusion). For an (n,K) FLOAT matrix + per-column

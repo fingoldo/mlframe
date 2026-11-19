@@ -125,3 +125,22 @@ def test_blocks_of_columns_name_the_same_dominant_column(monkeypatch):
     monkeypatch.setattr(dom, "_BLOCK_BYTES", n * 4 * 2)  # two columns per block
     blocked = dom.dominant_candidate(X, y)
     assert one_call == blocked == "x2"
+
+
+def test_nonfinite_values_in_other_columns_do_not_hide_the_dominant_column():
+    """Columns with NaN and with infinities are read as 0 there (as before the matrix was built in place); the column that carries the target is still found and a noise frame has none."""
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.feature_selection.filters._fe_dominant_candidate import dominant_candidate
+
+    rng = np.random.default_rng(3)
+    n = 6000
+    X = pd.DataFrame(rng.standard_normal((n, 6)).astype(np.float32), columns=[f"x{i}" for i in range(6)])
+    y = rng.integers(0, 3, n)
+    X["carrier"] = y.astype(np.float32)
+    X.loc[X.index[::50], "x1"] = np.nan
+    X.loc[X.index[::70], "x2"] = np.inf
+    X.loc[X.index[::90], "x3"] = -np.inf
+    assert dominant_candidate(X, y) == "carrier"
+    assert dominant_candidate(X.drop(columns=["carrier"]), y) is None

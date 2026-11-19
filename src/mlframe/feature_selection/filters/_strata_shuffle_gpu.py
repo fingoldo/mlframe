@@ -17,6 +17,9 @@ from ._kernel_types import render
 #: Strata from which the kernel runs. Measured at n=100000, nperm=25 (flat sort 9.2 ms at every strata count): 300 strata 12.5 ms, 1000 strata 11.8 ms, 5000 strata 4.5 ms,
 #: 20000 strata 1.4 ms, 43000 strata 1.0 ms; the serial per-thread walk is the cost, so the kernel only wins when strata are short and many.
 MIN_STRATA = 3000
+#: Strata from which the byte-matrix variant runs by default (value codes below 256). GTX 1050 Ti, n = 100000, nperm = 25, two rounds, kernel against the flat sort (7.3 ms at every strata count):
+#: 100 strata 5.0 ms, 300 strata 8.1 ms (loses), 1000 strata 3.3 ms, 2000 strata 1.9 ms, 3000 strata 1.8 ms, 5000 strata 1.6 ms, 14980 strata 1.1 ms. The threshold is a measurement on one card; a kernel-tuning-cache sweep is the next step.
+MIN_STRATA_NARROW = 1000
 
 _SRC = r"""
 // coalescing-ok: one thread owns a whole stratum run (short by the MIN_STRATA gate), so its reads and swaps are scattered by design; 1.0-4.5 ms against the 9.2 ms flat sort at 5000-43000 strata (nvprof-timed micro-benchmark in the tracker, FC11-28)
@@ -44,6 +47,31 @@ void within_stratum_shuffle(const long long* __restrict__ x_sorted, const int* _
     }
 }
 """
+_SRC_U8 = r"""
+// coalescing-ok: one thread owns a whole stratum run (short by the MIN_STRATA gate), so its swaps are scattered by design but stay inside one or two cache lines of the byte matrix; the matrix is prefilled by a coalesced copy, not by the threads.
+extern "C" __global__
+void within_stratum_shuffle_u8(const int* __restrict__ starts, const int n_strata, const long long n, const int nperm,
+                               const unsigned long long* __restrict__ seed_p, unsigned char* __restrict__ out) {
+    const long long tid = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= (long long)nperm * n_strata) return;
+    const int p = (int)(tid / n_strata);
+    const int s = (int)(tid - (long long)p * n_strata);
+    const int lo = starts[s], hi = starts[s + 1];
+    unsigned char* dst = out + (long long)p * n;
+    unsigned long long state = seed_p[0] ^ (0x9E3779B97F4A7C15ULL * (unsigned long long)(p + 1)) ^ (0xBF58476D1CE4E5B9ULL * (unsigned long long)(s + 1));
+    for (int i = hi - lo - 1; i > 0; --i) {
+        state += 0x9E3779B97F4A7C15ULL;
+        unsigned long long z = state;
+        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+        z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+        z ^= z >> 31;
+        const int j = (int)(((z >> 32) * (unsigned long long)(i + 1)) >> 32);
+        const unsigned char t = dst[lo + i];
+        dst[lo + i] = dst[lo + j];
+        dst[lo + j] = t;
+    }
+}
+"""
 _MODULES: dict = {}
 _LOCK = threading.Lock()
 
@@ -57,14 +85,31 @@ def kernel(cp: Any, real: Any = None) -> Any:
         return mod.get_function("within_stratum_shuffle")
 
 
-def strata_shuffle(cp: Any, rs: Any, x_sorted_d: Any, z_rank_1d: Any, nperm: int, nrank: int) -> Any:
-    """``(nperm, n)`` int64 within-stratum shuffles of the z-sorted ``x_sorted_d``; ``z_rank_1d`` is the monotone dense stratum rank of the sorted rows, ``nrank`` the stratum count.
+def kernel_u8(cp: Any, real: Any = None) -> Any:
+    """``within_stratum_shuffle_u8``: the same shuffle (same generator stream) in place on a prefilled byte matrix, compiled once per process."""
+    with _LOCK:
+        mod = _MODULES.get("u8")
+        if mod is None:
+            mod = _MODULES["u8"] = cp.RawModule(code=render(_SRC_U8))
+        return mod.get_function("within_stratum_shuffle_u8")
+
+
+def strata_shuffle(cp: Any, rs: Any, x_sorted_d: Any, z_rank_1d: Any, nperm: int, nrank: int, narrow: bool = False) -> Any:
+    """``(nperm, n)`` within-stratum shuffles of the z-sorted ``x_sorted_d`` (int64, or uint8 when ``narrow``: value codes below 256); ``z_rank_1d`` is the monotone dense stratum rank of the sorted rows, ``nrank`` the stratum count.
 
     The generator seed is drawn on the device from ``rs``, so the call needs no host sync.
     """
     n = int(x_sorted_d.shape[0])
     starts = cp.searchsorted(z_rank_1d, cp.arange(nrank + 1, dtype=z_rank_1d.dtype)).astype(cp.int32)
     seed = rs.randint(0, 1 << 62, size=1, dtype=cp.int64).astype(cp.uint64)
+    if narrow:
+        # Value codes below 256: the matrix is bytes (an eighth of the int64 traffic, and the strata null reads bytes anyway). One coalesced copy fills every row, the kernel then swaps in place.
+        out8 = cp.empty((nperm, n), dtype=cp.uint8)
+        out8[:] = x_sorted_d.astype(cp.uint8, copy=False)[None, :]
+        fn8 = kernel_u8(cp)
+        grid8, block8 = launch_1d(fn8, nperm * nrank)
+        fn8(grid8, block8, (starts, np.int32(nrank), np.int64(n), np.int32(nperm), seed, out8))
+        return out8
     out = cp.empty((nperm, n), dtype=cp.int64)
     fn = kernel(cp)
     grid, block = launch_1d(fn, nperm * nrank)

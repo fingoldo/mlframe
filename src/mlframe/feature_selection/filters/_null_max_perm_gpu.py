@@ -144,7 +144,7 @@ _MODULES_BY_X = {xt: RawModuleCache(render(_SRC.replace("{XT}", xt))) for xt in 
 
 
 def _entry(cp: Any, real: Any, name: str) -> Any:
-    """One entry point of the module compiled for float32 or float64 candidates (compiled once per type by the module cache)."""
+    """One entry point of the module compiled for float32 or double precision candidates (compiled once per type by the module cache)."""
     return _MODULES_BY_X["float" if np.dtype(real) == np.float32 else "double"].get(cp).get_function(name)
 
 

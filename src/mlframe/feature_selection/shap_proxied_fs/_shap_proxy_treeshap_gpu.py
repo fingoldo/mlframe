@@ -199,9 +199,9 @@ def _block_size() -> int:
     return block_size_from_tuning_cache("shap_proxy_treeshap", "gpu_block_size", _DEFAULT_BLOCK_SIZE)
 
 
-def kernel_for_depth(cp, max_depth: int, real=np.float64):
+def kernel_for_depth(cp: Any, max_depth: int, real: Any = np.float64) -> Any:  # Intentional float64: double-precision variant: the statistic needs the full mantissa
     """``treeshap`` with the per-thread path scratch sized for one ensemble depth and the tree data, path weights and output in ``real`` (float32 or float64): compile point of ``_ensure_kernel``."""
-    from mlframe.feature_selection.filters._kernel_types import render
+    from mlframe.feature_selection.filters.shared import render
 
     import os
 
@@ -209,12 +209,12 @@ def kernel_for_depth(cp, max_depth: int, real=np.float64):
     return cp.RawKernel(render(_kernel_source(int(max_depth)), real, acc=real), "treeshap", options=("--use_fast_math",) if fast else ())
 
 
-def kernel(cp, real=np.float64):
+def kernel(cp: Any, real: Any = np.float64) -> Any:  # Intentional float64: double-precision variant: the statistic needs the full mantissa
     """``treeshap`` at depth 6 (the reference depth of the offline per-arch recipe) for tree data of dtype ``real``; the register-pressure registry compiles it through this."""
     return kernel_for_depth(cp, 6, real)
 
 
-def _ensure_kernel(max_depth: int, real=np.float64):
+def _ensure_kernel(max_depth: int, real=np.float64):  # Intentional float64: double-precision variant: the statistic needs the full mantissa
     """Compile (once per depth and type, under a module-global lock with double-checked locking) and cache the ``cp.RawKernel``
     for the TreeSHAP scan (the lookup and the compile share one lock block, so a hit costs one lock acquire). The per-thread scratch is sized by the ensemble's real depth, not the cap: at the cap's
     depth 24 the kernel reserves gigabytes of device local memory that stay allocated and starve later GPU paths."""
@@ -239,10 +239,10 @@ def _kernel_source(max_depth: int) -> str:
 
 
 def _treeshap_real():
-    """Element type of the device TreeSHAP: float32 by default (about twice as fast on a 1/32-rate FP64 card, SHAP values within ~2e-5 of the double run and the same SHAP rank), ``MLFRAME_SHAP_TREESHAP_REAL=float64`` for the exact reference."""
+    """Element type of the device TreeSHAP: float32 by default (about twice as fast on a 1/32-rate FP64 card, SHAP values within ~2e-5 of the double run and the same SHAP rank), ``MLFRAME_SHAP_TREESHAP_REAL=double precision`` for the exact reference."""
     import os
 
-    return np.float64 if os.environ.get("MLFRAME_SHAP_TREESHAP_REAL", "").strip().lower() == "float64" else np.float32
+    return np.float64 if os.environ.get("MLFRAME_SHAP_TREESHAP_REAL", "").strip().lower() == "float64" else np.float32  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
 
 
 def treeshap_phi_base_gpu(ensemble: TreeEnsemble, X: np.ndarray, use_table: bool = True) -> tuple[np.ndarray, float]:

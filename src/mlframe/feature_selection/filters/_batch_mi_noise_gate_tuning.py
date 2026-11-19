@@ -9,6 +9,7 @@ imports this module's functions at load time for re-export + ``@kernel_tuner`` r
 """
 from __future__ import annotations
 
+from mlframe.system import host_memory
 import time
 import logging
 
@@ -128,8 +129,7 @@ def _run_batch_mi_noise_gate_sweep() -> list:
     n_rows = list(_BMING_SWEEP_N_ROWS)
     n_cols = list(_BMING_SWEEP_N_COLS)
     try:
-        import psutil
-        free = int(psutil.virtual_memory().available)
+        free = host_memory()[0]
     except Exception as e:
         logger.warning("psutil.virtual_memory() probe failed, using the conservative 4GiB default: %s", e)
         free = 4 * 1024**3

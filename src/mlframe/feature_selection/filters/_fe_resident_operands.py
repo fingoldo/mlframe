@@ -168,6 +168,7 @@ def clear_hash_memo() -> None:
 # content signature (shape + dtype-str + content hash)  ->  device_array. OrderedDict gives O(1) LRU: hits
 # move-to-end (hot), overflow pops the front (coldest).
 _FE_RESIDENT_OPERANDS: "OrderedDict" = OrderedDict()
+_BIGGEST_SEEN = [0]  # the largest operand uploaded so far (an upper bound of any entry's size; only grows)
 
 # Bound: content-keyed, so entries == DISTINCT fit-constant operands live this fit. A 1M strict-resident fit
 # touched 118 distinct contents (~330 MB) over its lifetime; 192 holds that whole working set with headroom so
@@ -260,7 +261,10 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
             _FE_RESIDENT_OPERANDS.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
         # bounded in bytes as well: 192 entries were fine at 100000 rows but up to 15 GB of columns at 10 million on a 4 GB card; the coldest go first, the newest stays
         budget = _resident_bytes_budget(cp)
-        while len(_FE_RESIDENT_OPERANDS) > 1 and sum(int(getattr(v, "nbytes", 0)) for v in _FE_RESIDENT_OPERANDS.values()) > budget:
+        biggest = max(_BIGGEST_SEEN[0], int(getattr(g, "nbytes", 0)))
+        _BIGGEST_SEEN[0] = biggest
+        # the O(entries) byte sum is needed only when the table could exceed the budget at all: no entry seen so far is larger than ``biggest``
+        while len(_FE_RESIDENT_OPERANDS) * biggest > budget and len(_FE_RESIDENT_OPERANDS) > 1 and sum(int(getattr(v, "nbytes", 0)) for v in _FE_RESIDENT_OPERANDS.values()) > budget:
             _FE_RESIDENT_OPERANDS.popitem(last=False)  # evict-ok: a miss re-uploads the operand
         return g
 
@@ -301,7 +305,7 @@ def with_raised_capacity(entries: int) -> "Any":
     return decorate
 
 
-def assemble_resident_matrix(host: _np.ndarray, names: Sequence[str] | None, fallback_key: Any, *, dtype: type | None = None) -> Any:
+def assemble_resident_matrix(host: "_np.ndarray | None", names: Sequence[str] | None, fallback_key: Any, *, dtype: type | None = None, columns: "Sequence[_np.ndarray] | None" = None) -> Any:
     """Return a resident ``(n, k)`` device matrix DEVICE-ASSEMBLED from its per-column resident operands.
 
     Several FE scorers upload a fit-constant raw baseline matrix WHOLE via a single ``resident_operand`` keyed
@@ -316,10 +320,28 @@ def assemble_resident_matrix(host: _np.ndarray, names: Sequence[str] | None, fal
     selection-IDENTICAL. When ``names`` is missing / length-mismatched / STRICT-residency is off / any per-column
     upload faults, falls back to uploading the whole matrix under ``fallback_key`` (the prior behaviour, so a
     layout mismatch is a perf no-op, never a correctness change). ``dtype`` is the final kernel dtype (folded
-    into every per-column upload so all consumers of a column share one buffer)."""
+    into every per-column upload so all consumers of a column share one buffer).
+
+    ``columns``: the columns as separate 1-D host arrays, when the caller has them (``host`` may then be ``None``). They are handed to the operand cache as they are, so the host
+    matrix is neither stacked by the caller nor sliced back into contiguous columns here (1486 strided column copies in a 100000 x 100 fit); it is built only for the fallback."""
     import cupy as cp
     import numpy as np
 
+    if columns is not None and (not _disabled()) and names is not None and len(names) == len(columns) and len(columns) >= 1:
+        try:
+            # contiguous, in the requested dtype: the form the matrix route hands over, so a column hits the operand another consumer uploaded (a strided view hashes in another domain)
+            cols = [
+                resident_operand(np.ascontiguousarray(c if dtype is None or c.dtype == np.dtype(dtype) else c.astype(dtype)), ("xbasis_op", names[j]), dtype=dtype)
+                for j, c in enumerate(columns)
+            ]
+            return cp.stack(cols, axis=1) if len(cols) > 1 else cols[0][:, None]
+        except Exception as e:  # nosec B110 - best-effort path
+            logger.debug("per-column resident-operand assembly failed, falling back to whole-matrix upload: %s", e)
+    if host is None:
+        from ._fe_frame_ops import fe_stack_columns
+
+        given = [] if columns is None else list(columns)
+        host = fe_stack_columns(given, dtype if dtype is not None else np.result_type(*(given if given else [np.zeros(0)])))
     host = np.asarray(host)
     if dtype is not None:
         host = host.astype(dtype, copy=False)
@@ -327,7 +349,7 @@ def assemble_resident_matrix(host: _np.ndarray, names: Sequence[str] | None, fal
     if host.ndim == 1:
         host = host[:, None]
     _n, _k = host.shape
-    if (not _disabled()) and names is not None and len(names) == _k and _k >= 1:
+    if columns is None and (not _disabled()) and names is not None and len(names) == _k and _k >= 1:
         try:
             cols = [resident_operand(np.ascontiguousarray(host[:, j]), ("xbasis_op", names[j]), dtype=dtype) for j in range(_k)]
             return cp.stack(cols, axis=1) if _k > 1 else cols[0][:, None]

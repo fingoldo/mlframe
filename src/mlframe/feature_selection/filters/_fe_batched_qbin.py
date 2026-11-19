@@ -5,6 +5,8 @@ Carved out of ``_fe_batched_mi`` for file size; ``_fe_batched_mi`` re-exports th
 
 from __future__ import annotations
 
+import threading
+
 import logging
 from typing import Any
 
@@ -18,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 _QBIN_CODERS: dict = {}
+_QBIN_CODERS_LOCK = threading.RLock()  # serialises the get-or-build of the cache above (one build per key even with concurrent fits)
 _QBIN_TABLE_BYTES = 24 * 1024  # shared bytes of the staged edge-key table per block
 _QBIN_BLOCKS_PER_SM = 8  # grid-stride blocks per SM (interleaved sweep at 100000 x 100: 2 -> 2.3 ms, 4 -> 1.3, 8 -> 1.16, 16 -> 1.19)
 
@@ -75,15 +78,16 @@ def _get_qbin_coder_kernel(real: str = "double", out: str = "long long"):
     identically (signed compare) to key = b >= 0 ? b : b ^ 0x7FFF..F (flip magnitude bits of negatives), so convert x ONCE per element and the edges once per call, then all ne
     comparisons run on the integer pipeline. Signed zeros normalized via +0.0; non-finite values only occur in columns the caller discards wholesale. ``real`` is ``"double"`` or
     ``"float"``: a float32 column is coded without widening it (see ``batched_quantile_bin_gpu``)."""
-    kern = _QBIN_CODERS.get((real, out))
-    if kern is None:
-        import cupy as cp
+    with _QBIN_CODERS_LOCK:
+        kern = _QBIN_CODERS.get((real, out))
+        if kern is None:
+            import cupy as cp
 
-        src = _QBIN_CODER_TEMPLATE.replace("{REAL}", real).replace("{OUT}", out)
-        for key, value in _QBIN_VARIANTS[real].items():
-            src = src.replace("{" + key + "}", value)
-        kern = _QBIN_CODERS[(real, out)] = cp.RawKernel(src, "qbin_code")
-    return kern
+            src = _QBIN_CODER_TEMPLATE.replace("{REAL}", real).replace("{OUT}", out)
+            for key, value in _QBIN_VARIANTS[real].items():
+                src = src.replace("{" + key + "}", value)
+            kern = _QBIN_CODERS[(real, out)] = cp.RawKernel(src, "qbin_code")
+        return kern
 
 
 def kernel(cp: Any, real: Any) -> Any:
@@ -97,9 +101,9 @@ def _edge_keys(cp: Any, edges_all: Any, interior: Any, ndistinct: Any, real: str
     imax: Any
     kdt: Any
     if real == "float":
-        e64 = cp.ascontiguousarray(edges_all.astype(cp.float64, copy=False))
+        e64 = cp.ascontiguousarray(edges_all.astype(cp.float64, copy=False))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
         e32 = e64.astype(cp.float32)
-        e32 = cp.where(e32.astype(cp.float64) < e64, cp.nextafter(e32, cp.float32(np.inf)), e32)  # x >= edge <=> x >= the smallest float32 not below the edge
+        e32 = cp.where(e32.astype(cp.float64) < e64, cp.nextafter(e32, cp.float32(np.inf)), e32)  # x >= edge <=> x >= the smallest float32 not below the edge  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
         eb = (e32 + cp.float32(0.0)).view(cp.int32)
         sign, imax, kdt = np.int32(0x7FFFFFFF), np.int32(np.iinfo(np.int32).max), np.int32
     else:
@@ -195,9 +199,9 @@ def batched_quantile_bin_gpu(x_cols: Any, nbins: int, byte_codes: bool = False) 
     ``byte_codes``: return the codes as ``uint8`` (applies when ``nbins <= 255``; a code never exceeds ``nbins - 1``). The coder then writes one byte per value instead of eight, and the batched
     CMI / MI histogram kernels read a byte matrix with an eighth of the traffic (``batched_cmi_gpu`` keeps a uint8 matrix as bytes). Callers whose consumer does arithmetic on the codes keep the default.
 
-    The working type is the INPUT dtype: a float32 column stays float32 (no (n, K) float64 copy, half the bytes read by the edge select and the coder, and the coder compares 32-bit
-    keys against the edges rounded UP to float32: x >= edge <=> x >= ceil32(edge) for a float32 x, so the codes equal the float64 route's), every other input is binned in float64.
-    Narrowing a float64 column to the criterion dtype would change its codes for no gain, so the criterion dtype is not consulted here.
+    The working type is the INPUT dtype: a float32 column stays float32 (no (n, K) double precision copy, half the bytes read by the edge select and the coder, and the coder compares 32-bit
+    keys against the edges rounded UP to float32: x >= edge <=> x >= ceil32(edge) for a float32 x, so the codes equal the double precision route's), every other input is binned in double precision.
+    Narrowing a double precision column to the criterion dtype would change its codes for no gain, so the criterion dtype is not consulted here.
 
     When the whole matrix's working set does not fit the VRAM cushion the columns go through in column blocks (``block_cols`` wide, each binned independently and written into the
     one codes matrix): a column's codes depend on that column alone, so the blocks give the single-pass result."""

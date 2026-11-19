@@ -103,7 +103,8 @@ def fleuret_conditional_recheck(ctx: Any, X: tuple, next_best_gain: float, boots
         # confirmed at the same selected_vars depth within one greedy round drew the IDENTICAL
         # permutation stream for the Fleuret conditional recheck.
         _fleuret_base_seed = fleuret_base_seed(random_seed, len(selected_vars), X)
-        nfailed, nchecked = take_precomputed_recheck(ctx, X) or _recheck_counts(ctx, X, next_best_gain, nexisting, _fleuret_base_seed)
+        _precomputed = take_precomputed_recheck(ctx, X)  # ``None`` when the batch did not confirm this candidate ahead of time
+        nfailed, nchecked = _precomputed if _precomputed is not None else _recheck_counts(ctx, X, next_best_gain, nexisting, _fleuret_base_seed)
         if uses_worker_segments(ctx):
             # The multi-worker semantics (formerly a joblib pool, now the device launch or the sequential segments): the candidate keeps its expected gain, and the verdict is the add-one p-value of the full
             # budget, since the stop at ``max_failed`` per segment makes ``nchecked`` data-dependent and the stopped ratio would overstate the failure rate.

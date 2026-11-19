@@ -44,7 +44,7 @@ def run_groups_concurrently(
     from .._fe_stage_merge import _fe_merge_new_columns
 
     g1, g2, g3, g4 = groups
-    from ._group1 import _hybrid_orth_family_variants_group1_tail
+    from ._group1 import _hybrid_orth_family_variants_group1_tail, _stage_conditional_routing
     from ._group2 import _stage_bootstrap, _stage_ksg
 
     g1_head = functools.partial(g1, tail=False)
@@ -52,7 +52,8 @@ def run_groups_concurrently(
     base_recipes = dict(recipes)
     base_state = snapshot(self)
     base_cols = set(map(str, X.columns))
-    private_recipes = [dict(base_recipes) for _ in range(6)]  # slots 0, 1, 2: groups 1 (head), 3, 4; slot 3: the tail of group 1; slots 4, 5: the bootstrap and ksg stages of group 2
+    # slots 0, 1, 2: groups 1 (head), 3, 4; slot 3: the tail of group 1 without its routing stage; slots 4, 5: the bootstrap and ksg stages of group 2; slot 6: the routing stage of group 1's tail
+    private_recipes = [dict(base_recipes) for _ in range(7)]
     copies: "list[Any]" = []
 
     def stage(fn: Callable[..., Any], slot: int) -> Callable[[Any], Any]:
@@ -69,7 +70,16 @@ def run_groups_concurrently(
 
     def lane_with_tail(holder: Any) -> Any:
         """Group 3, then the tail of group 1 (adaptive_arity, adaptive_degree, conditional_routing) in the same device slot: group 3 is the shortest group and the tail is independent of the head."""
-        return stage(g3, 1)(holder), stage(_hybrid_orth_family_variants_group1_tail, 3)(holder)
+        return stage(g3, 1)(holder), stage(functools.partial(_hybrid_orth_family_variants_group1_tail, routing=False), 3)(holder)
+
+    def routing_stage(*, X, self, _fe_family_on, _y_np, _hybrid_orth_pre_recipes, verbose, **_rest):
+        """The conditional-routing stage of group 1's tail on the step input."""
+        return _stage_conditional_routing(self, _fe_family_on, _y_np, X, _hybrid_orth_pre_recipes, verbose)
+
+    def lane_group4_with_routing(holder: Any) -> Any:
+        """Group 4, then the routing stage of group 1's tail in the same device slot: at 100000 x 100 the lanes ended at 7.2 / 9.0 / 6.8 s with the whole tail in group 3's lane; the stage reads
+        the raw numeric columns only, like every other variant, and is folded right after the rest of the tail."""
+        return stage(g4, 2)(holder), stage(routing_stage, 6)(holder)
 
     def bootstrap_stage(*, X, self, _fe_family_on, _y_np, _hybrid_orth_pre_recipes, verbose, **_rest):
         """The bootstrap stage of group 2 on the step input."""
@@ -84,11 +94,11 @@ def run_groups_concurrently(
         columns, as in every other variant); only the three-gate stage needs group 1's columns and stays after the groups."""
         return stage(g1_head, 0)(holder), stage(bootstrap_stage, 4)(holder), stage(ksg_stage, 5)(holder)
 
-    outs = run_stages_concurrently(_Holder(), [lane_head_with_group2_stages, lane_with_tail, stage(g4, 2)], _GROUP_WEIGHTS, vram_weights=_GROUP_VRAM_WEIGHTS, n_rows=len(X))
+    outs = run_stages_concurrently(_Holder(), [lane_head_with_group2_stages, lane_with_tail, lane_group4_with_routing], _GROUP_WEIGHTS, vram_weights=_GROUP_VRAM_WEIGHTS, n_rows=len(X))
     if outs is None:
         return None
     by_slot = {slot: est for slot, est in copies}
-    (out1, out_boot, out_ksg), (out3, out_tail), out4 = outs
+    (out1, out_boot, out_ksg), (out3, out_tail), (out4, out_routing) = outs
 
     # group 1 first, onto the real estimator, then group 2 on the frame and state group 1 left, exactly as in the sequential run
     merge_stage_state(self, base_state, [by_slot[0]])
@@ -100,6 +110,8 @@ def run_groups_concurrently(
     _drop_repeated_features(self)
     _fold_recipes(recipes, base_recipes, private_recipes[3], skip=set(tail_dup))
     acc = _fe_merge_new_columns(acc, out_tail, X)
+    # the routing stage is the last family of the tail: its columns and state follow the tail's, a name an earlier owner holds stays with it
+    acc = _fold_group2_stage(self, acc, X, base_state, base_cols, by_slot[6], private_recipes[6], out_routing, recipes, base_recipes)
     # group 2 in its sequential order: diff_basis and cluster_basis, then the bootstrap result built beside group 1, then three_gate (whose support set holds the bootstrap columns, as before), then the
     # KSG result; a name an earlier owner holds stays with it
     acc = g2(X=acc, phase="pre", **kwargs)

@@ -128,6 +128,41 @@ def _su_code_column(col: np.ndarray, n_bins: int) -> tuple:
     return binned, int(binned.max()) + 1
 
 
+def _su_codes_device(X_dev, n_bins: int) -> tuple:
+    """Device twin of the SU quantiser (:func:`_su_codes_of_finite_columns`) for an all-finite ``(n, k)`` device matrix: ``(codes, nbins)`` as device arrays.
+
+    One sort per call: the sorted columns give the quantile edges (the coder's interpolation), the distinct-edge count of the SU rule, and the inner edges the codes are
+    counted against (the coder's exclusion rule, with the two-valued column set to one class where the SU rule has fewer than three distinct edges). Equal to the host
+    quantiser per column (tested); the shared device coder is not called, so its second sort is not paid.
+    """
+    import cupy as cp
+
+    n = int(X_dev.shape[0])
+    xs = cp.sort(X_dev, axis=0)
+    pos = cp.linspace(0.0, 100.0, int(n_bins) + 1) / 100.0 * (n - 1)
+    lo = cp.floor(pos).astype(cp.int64)
+    hi = cp.minimum(lo + 1, n - 1)
+    frac = pos - lo
+    diff = xs[hi] - xs[lo]
+    edges = cp.where(frac[:, None] >= 0.5, xs[hi] - diff * (1 - frac)[:, None], xs[lo] + diff * frac[:, None])
+    distinct = 1 + (edges[1:] != edges[:-1]).sum(axis=0)
+    emin = edges[0]
+    emax = edges[-1]
+    dup = cp.zeros(edges.shape, dtype=bool)
+    dup[1:] = edges[1:] == edges[:-1]
+    has_interior = cp.any((edges > emin) & (edges < emax), axis=0)
+    excl = (edges == emin) | dup | (has_interior[None, :] & (edges == emax))
+    e2 = cp.sort(cp.where(excl, cp.inf, edges), axis=0).T  # (k, n_bins + 1), ascending with the +inf tail
+    codes = cp.empty((n, int(X_dev.shape[1])), dtype=cp.int64)
+    for c in range(int(X_dev.shape[1])):
+        # side="right": the count of inner edges <= value, i.e. the coder's code (the +inf tail never counts)
+        codes[:, c] = cp.searchsorted(e2[c], X_dev[:, c], side="right")
+    one_class = distinct < 3
+    codes = cp.where(one_class[None, :], 0, codes)
+    nbins = cp.where(one_class, 1, codes.max(axis=0) + 1)
+    return codes, nbins
+
+
 def _quantize_for_su(X) -> tuple:
     """Quantize a DataFrame / ndarray into integer bin codes the same
     way the L47 calibration test does, so the resulting ``factors_data``
@@ -169,14 +204,36 @@ def _quantize_for_su(X) -> tuple:
     nbins = np.empty(p, dtype=np.int64)
     # a block of columns is binned together by the parallel block quantiser; the block holds at most 128 MB of values
     block = max(1, (128 << 20) // (np.dtype(_crit_np_dtype()).itemsize * max(n, 1)))
+    use_device = _su_device_enabled(n, p)
     for j0 in range(0, p, block):
         cols_block = [get(ci) for ci in range(j0, min(p, j0 + block))]
+        if use_device and all(np.isfinite(c).all() for c in cols_block):
+            try:
+                import cupy as cp
+
+                codes_dev, nb_dev = _su_codes_device(cp.asarray(np.column_stack(cols_block)), n_bins)
+                factors_data[:, j0 : j0 + len(cols_block)] = cp.asnumpy(codes_dev.astype(cp.int8)).astype(factors_data.dtype, copy=False)  # narrow on the device: an eighth of the copy back
+                nbins[j0 : j0 + len(cols_block)] = cp.asnumpy(nb_dev).astype(np.int64)
+                continue
+            except Exception:
+                log_throttle(logger, "su_quantise_device", logging.WARNING, "SU quantiser: device binning failed, quantising on the CPU", exc_info=True)
         pre = _su_codes_of_finite_columns(cols_block, n_bins)
         for k, col in enumerate(cols_block):
             binned, nb = pre[k] if pre[k] is not None else _su_code_column(col, n_bins)
             factors_data[:, j0 + k] = binned
             nbins[j0 + k] = nb
     return factors_data, nbins, names
+
+
+def _su_device_enabled(n: int, p: int) -> bool:
+    """Whether the SU quantiser bins on the device: only when ``MLFRAME_SU_QUANTISE_GPU=1`` is set.
+
+    Measured on the GTX 1050 Ti (one run each, same input): 100000 x 100, device 0.44 s against CPU 0.24 s; 300000 x 100, device 1.25 s against CPU 0.88 s. The host
+    quantiser wins at both shapes (the device route pays the upload and the block sort), so the default stays on the CPU and the twin is opt-in until a shape where it wins
+    is measured. The shape arguments are kept for that measurement."""
+    import os
+
+    return os.environ.get("MLFRAME_SU_QUANTISE_GPU", "0").strip() == "1" and n >= 0 and p >= 0
 
 
 def _resolve_anchor_indices(anchor_names: list, name_to_idx: dict) -> dict:

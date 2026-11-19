@@ -59,7 +59,7 @@ import threading
 from typing import Any, Optional
 
 import numpy as np
-from mlframe.feature_selection.filters._strata_shuffle_gpu import MIN_STRATA, strata_shuffle
+from mlframe.feature_selection.filters._strata_shuffle_gpu import MIN_STRATA, MIN_STRATA_NARROW, strata_shuffle
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # thrust aborts the process on a short pool
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -230,6 +230,19 @@ def _key_pack_kernel(cp: Any) -> Any:
     return _KEY_PACK_KERNEL
 
 
+_KEY_PACK_KERNEL32: Any = None
+
+
+def _key_pack_kernel32(cp: Any) -> Any:
+    """The int32 form of :func:`_key_pack_kernel`: the packed key fits 31 bits, so the radix sort that follows runs half the passes over half the memory; built once per process."""
+    global _KEY_PACK_KERNEL32
+    if _KEY_PACK_KERNEL32 is None:
+        _KEY_PACK_KERNEL32 = cp.ElementwiseKernel(
+            "int32 zr, int32 x, int32 r, int32 p, int32 a, int32 b, int32 l", "int32 key", "key = (zr << a) | (p << l) | (r << b) | x", "flat_strata_key_pack32"
+        )
+    return _KEY_PACK_KERNEL32
+
+
 class _DeviceRng:
     """The device random source of one permutation-null call: a counter-based Philox generator seeded with the call's seed, exposing the two draws the null uses (``randint`` and ``random_sample``).
 
@@ -258,14 +271,35 @@ def _flat_within_stratum_shuffle(cp: Any, rs: Any, x_sorted_d: Any, z_rank_d: An
     of those bits orders by x: a microscopically non-uniform but valid permutation, the same selection-equivalence bar as the device RNG stream itself.
     """
     n = int(x_sorted_d.shape[0])
-    if nrank >= MIN_STRATA and os.environ.get("MLFRAME_STRATA_SHUFFLE_KERNEL", "0").strip() == "1":
-        return strata_shuffle(cp, rs, x_sorted_d, z_rank_d[:, 0], nperm, nrank)
+    _switch = os.environ.get("MLFRAME_STRATA_SHUFFLE_KERNEL", "").strip()
+    if _switch != "0":
+        if kx <= 255 and nrank >= MIN_STRATA_NARROW:
+            # many short strata and byte value codes: the per-stratum kernel on a byte matrix (1.1 to 3.3 ms against the 7.3 ms flat sort at 1000 to 15000 strata; see MIN_STRATA_NARROW)
+            return strata_shuffle(cp, rs, x_sorted_d, z_rank_d[:, 0], nperm, nrank, narrow=True)
+        if _switch == "1" and nrank >= MIN_STRATA:
+            return strata_shuffle(cp, rs, x_sorted_d, z_rank_d[:, 0], nperm, nrank)
     col_bits = max(1, int(np.ceil(np.log2(max(2, nperm)))))
     rank_bits = max(1, int(np.ceil(np.log2(max(2, nrank)))))
     x_bits = max(1, int(np.ceil(np.log2(max(2, kx)))))
     rand_bits = 62 - col_bits - rank_bits - x_bits
     if rand_bits < _FLAT_SHUFFLE_MIN_RAND_BITS:
         return None
+    if col_bits + rank_bits + x_bits + _FLAT_SHUFFLE_MIN_RAND_BITS <= 31:
+        # The key fits 31 bits with at least the minimum number of random bits: sort int32 keys (half the radix passes and half the memory traffic of the int64 key; 100000 rows x 40
+        # permutations, 15 strata, two value codes: 7.4 ms -> the int32 sort, see the tracker). The random bits are what is left of the 31, the tie argument above is unchanged.
+        r32 = 31 - col_bits - rank_bits - x_bits
+        low32 = rank_bits + r32 + x_bits
+        key32 = _key_pack_kernel32(cp)(
+            z_rank_d[:, 0].astype(cp.int32)[None, :],
+            x_sorted_d.astype(cp.int32, copy=False)[None, :],
+            rs.randint(0, 1 << r32, size=(nperm, n), dtype=cp.int32),
+            cp.arange(nperm, dtype=cp.int32)[:, None],
+            r32 + x_bits,
+            x_bits,
+            low32,
+        )
+        flat32 = cp.sort(key32.ravel())
+        return (flat32 & np.int32((1 << x_bits) - 1)).reshape(nperm, n)
     low = rank_bits + rand_bits + x_bits
     # one elementwise pass writes the packed key (the stratum rank, the permutation column, the random bits and the value are OR-ed in registers) instead of seven separate passes over the
     # (nperm, n) matrix: 100000 rows x 25 permutations 9.7 -> 8.2 ms with the same keys (the sort of the keys is the rest)

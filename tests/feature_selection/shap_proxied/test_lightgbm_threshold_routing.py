@@ -23,9 +23,12 @@ def test_every_float32_value_goes_the_side_lightgbm_sends_it():
     rng = np.random.default_rng(0)
     scales = 10.0 ** rng.integers(-6, 6, size=400)
     thresholds = rng.normal(size=400) * scales
+    assert thresholds.size > 0
     for threshold in thresholds:
         t_conv = np.float32(_lightgbm_threshold_to_lt_float32(float(threshold)))
-        for x in _float32_neighbours(np.float32(threshold)):
+        neighbours = list(_float32_neighbours(np.float32(threshold)))
+        assert neighbours
+        for x in neighbours:
             assert bool(x < t_conv) == bool(float(x) <= float(threshold)), (threshold, x, t_conv)
 
 

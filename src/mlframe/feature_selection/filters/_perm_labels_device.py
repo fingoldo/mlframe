@@ -7,6 +7,8 @@ class bit sets are equal bit for bit and the host draw is not needed.
 """
 from __future__ import annotations
 
+from typing import Any
+
 import logging
 import threading
 
@@ -63,12 +65,12 @@ _KERNELS: dict = {}
 _KERNELS_LOCK = threading.Lock()
 
 
-def kernel_fy(cp, real=None):
+def kernel_fy(cp: Any, real: Any = None) -> Any:
     """``fy_permutations`` (Fisher-Yates label permutations; ``real`` unused): compile point of ``_kernels`` and of the register-pressure registry."""
     return cp.RawModule(code=_FY_SRC).get_function("fy_permutations")
 
 
-def kernel_pack(cp, real=None):
+def kernel_pack(cp: Any, real: Any = None) -> Any:
     """``pack_class_bits`` (class bit sets of the permuted labels); registry factory."""
     return cp.RawModule(code=_FY_SRC).get_function("pack_class_bits")
 

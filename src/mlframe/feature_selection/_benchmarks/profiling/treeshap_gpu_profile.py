@@ -31,11 +31,15 @@ def build_ensemble(n: int, f: int, trees: int, depth: int, seed: int = 0, with_m
 
 def best_of(fn, repeats: int = 5) -> float:
     """Smallest wall of ``repeats`` calls after one warm-up call."""
+    import cupy as cp
+
     fn()
+    cp.cuda.Device().synchronize()
     out = []
     for _ in range(repeats):
         t0 = time.perf_counter()
         fn()
+        cp.cuda.Device().synchronize()  # the timer stops at completion, not at the launch
         out.append(time.perf_counter() - t0)
     return min(out)
 

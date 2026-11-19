@@ -10,6 +10,7 @@ from __future__ import annotations
 from functools import partial
 
 import logging
+import os
 from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
@@ -56,8 +57,39 @@ def _heldout_r2(v: np.ndarray, y: np.ndarray) -> float:
     return float(np.corrcoef(a, b)[0, 1] ** 2)
 
 
-def _wavelet_legs_of_column(col, X, y_arr, allowed, max_scale, max_legs, scale_sigma, feature_dtype):
-    """Legs of one source column as ``[(name, values, meta)]`` (empty when the column is skipped), ``None`` once the wall-clock budget has passed."""
+def _prefetch_wavelet_legs(X, cols, y_arr, max_scale, max_legs, scale_sigma) -> dict:
+    """``{column: [(j, k), ...]}`` of the columns whose leg selection the device does for all of them together (``select_wavelet_legs_columns_device``); empty when the
+    device route is not the one the per-column selection would take, or the batch declines. The columns are the ones ``_wavelet_legs_of_column`` would send to the selection
+    (numeric, all finite), with the same ``lo`` / ``span``; a column missing from the result is selected on its own as before.
+    ``MLFRAME_FE_WAVELET_COLUMN_BATCH=0`` keeps the column-by-column selection for every column."""
+    from ._fe_deadline import fe_deadline_passed
+    from ._wavelet_basis_fe import _wavelet_use_device
+    from ._wavelet_basis_fe_batched import select_wavelet_legs_columns_device
+
+    if os.environ.get("MLFRAME_FE_WAVELET_COLUMN_BATCH", "1").strip() == "0" or fe_deadline_passed() or not _wavelet_use_device(None, len(X)):
+        return {}
+    names, xs, los, spans = [], [], [], []
+    for col in cols:
+        if col not in X.columns or not pd.api.types.is_numeric_dtype(X[col]):
+            continue
+        x = np.asarray(X[col].to_numpy(), dtype=_crit_np_dtype())
+        if not x.size or not np.isfinite(x).all():
+            continue
+        lo = float(x.min())
+        names.append(col)
+        xs.append(x)
+        los.append(lo)
+        spans.append(max(float(x.max()) - lo, 1e-12))
+    if len(names) < 2:
+        return {}
+    legs = select_wavelet_legs_columns_device(xs, y_arr, los, spans, max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma)
+    return {} if legs is None else dict(zip(names, legs))
+
+
+def _wavelet_legs_of_column(col, X, y_arr, allowed, max_scale, max_legs, scale_sigma, feature_dtype, prefetched=None):
+    """Legs of one source column as ``[(name, values, meta)]`` (empty when the column is skipped), ``None`` once the wall-clock budget has passed.
+
+    ``prefetched``: the legs the batched device selection already chose per column (``_prefetch_wavelet_legs``); a column found there only builds its admitted legs."""
     from ._fe_deadline import fe_deadline_passed
 
     found: list = []
@@ -84,11 +116,16 @@ def _wavelet_legs_of_column(col, X, y_arr, allowed, max_scale, max_legs, scale_s
     hi = float(xf.max())
     span = max(hi - lo, 1e-12)
     try:
-        legs = _select_wavelet_legs(
-            x, y_arr, lo, span,
-            max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma,
-            return_arrays=True,
-        )
+        if prefetched is not None and col in prefetched:
+            # Intentional float64: legs map the input onto [0, 1] in float64 so cell boundaries match the host reference (as the per-column device route rebuilds them)
+            _z = np.clip((np.asarray(x, dtype=np.float64).ravel() - lo) / span, 0.0, 1.0)
+            legs = [(j, k, _dyadic_haar_leg(_z, j, k)) for j, k in prefetched[col]]
+        else:
+            legs = _select_wavelet_legs(
+                x, y_arr, lo, span,
+                max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma,
+                return_arrays=True,
+            )
     except Exception as exc:
         log_throttle(
             logger,
@@ -191,8 +228,13 @@ def generate_wavelet_features(
     from ._edge_pool import map_on_edge_pool, until_first_none
 
     # The columns are independent (own scale selection, own legs): the scan runs on the edge-jobs pool and the legs are folded in column order, so the result is the serial one.
-    one_column = partial(_wavelet_legs_of_column, X=X, y_arr=y_arr, allowed=_allowed, max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma, feature_dtype=feature_dtype)
-    results = map_on_edge_pool(one_column, [c for c in cols if _allowed is None or c in _allowed])
+    _run_cols = [c for c in cols if _allowed is None or c in _allowed]
+    # the leg selection of all columns in one device batch when the device route is on (two MI calls per block of columns instead of two per column); the per-column scan then only builds the admitted legs
+    _prefetched = _prefetch_wavelet_legs(X, _run_cols, y_arr, max_scale, max_legs, scale_sigma)
+    one_column = partial(
+        _wavelet_legs_of_column, X=X, y_arr=y_arr, allowed=_allowed, max_scale=max_scale, max_legs=max_legs, scale_sigma=scale_sigma, feature_dtype=feature_dtype, prefetched=_prefetched
+    )
+    results = map_on_edge_pool(one_column, _run_cols)
     for found in until_first_none(results):
         for name, leg, entry in found:
             out_cols[name] = leg

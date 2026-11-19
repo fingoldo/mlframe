@@ -8,7 +8,7 @@ layers otherwise repeats the identical O(n*p) MI batch / O(p^2*n) corrcoef pass 
 ``MRMR.fit()`` call.
 
 Mirrors ``dedup_collinear_memo_scope()`` in ``_orth_dedup.py`` / ``heavy_tail_memo_scope()`` in
-``hermite_fe._hermite_robust``: a ``threading.local`` cache, OFF by default (``None``), enabled for the
+``hermite_fe._hermite_robust``: a process-wide cache behind a counted scope, OFF by default (``None``), enabled for the
 scope of one ``MRMR.fit()`` via :func:`orth_scoring_memo_scope`. Every helper here is a pure passthrough
 (identical result, same underlying call) when no scope is active, so behavior outside an active scope is
 byte-for-byte unchanged.
@@ -24,20 +24,26 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 import pandas as pd
 from numpy.typing import DTypeLike
 
-_SCORING_MEMO = threading.local()
+# One table for the process, entered by a counted scope: the families run on the stage and pool threads, where a per-thread table (as this was) is never the one the scope's
+# owner made.
+_SCORING_MEMO: dict = {"cache": None, "depth": 0}
+_SCORING_MEMO_LOCK = threading.Lock()
 
 @contextlib.contextmanager
 def orth_scoring_memo_scope() -> Iterator[None]:
     """Enable the fit-scoped raw-MI-baseline / corr-matrix memo for one ``MRMR.fit()`` call, then clear
     it. Nesting-safe: an inner scope reuses the outer cache; the outer owner clears it."""
-    if getattr(_SCORING_MEMO, "cache", None) is not None:
-        yield  # reuse outer scope; outer owner clears
-        return
-    _SCORING_MEMO.cache = {}
+    with _SCORING_MEMO_LOCK:
+        if _SCORING_MEMO["depth"] == 0:
+            _SCORING_MEMO["cache"] = {}
+        _SCORING_MEMO["depth"] += 1
     try:
         yield
     finally:
-        _SCORING_MEMO.cache = None
+        with _SCORING_MEMO_LOCK:
+            _SCORING_MEMO["depth"] -= 1
+            if _SCORING_MEMO["depth"] == 0:
+                _SCORING_MEMO["cache"] = None  # the outermost scope clears; an inner or concurrent one reuses the table
 
 def _col_hash(X: pd.DataFrame, c: str) -> tuple:
     """Content-hash key for one column, double precision-normalized so two callers casting to different dtypes
@@ -74,7 +80,7 @@ def cached_raw_mi_baseline(
     cols = list(cols)
     if not cols:
         return {}
-    _memo = getattr(_SCORING_MEMO, "cache", None)
+    _memo = _SCORING_MEMO["cache"]
     if _memo is None:
         mi = _mi_classif_batch(raw_mat, y_int, nbins=nbins)
         return {c: float(v) for c, v in zip(cols, mi.tolist())}
@@ -146,7 +152,7 @@ def cached_dense_finite_corr_matrix(
             return dense_names, np.zeros((0, 0), dtype=_crit_np_dtype())
         return dense_names, np.abs(corr)
 
-    _memo = getattr(_SCORING_MEMO, "cache", None)
+    _memo = _SCORING_MEMO["cache"]
     if _memo is None or not cols:
         return _build()
     key = ("dense_corr", tuple(_col_hash(X, c) for c in cols), str(dtype))

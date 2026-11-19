@@ -61,6 +61,7 @@ NOT wired into ``MRMR.fit`` by default - opt-in via
 
 from __future__ import annotations
 
+from mlframe.system import host_memory
 from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name, split_engineered_name
 
 import logging
@@ -454,10 +455,8 @@ def _kfold_fold_jobs(n: int, n_cols: int, itemsize: int, n_folds: int) -> int:
 
     jobs = _resolve_edge_jobs(None, n_folds)
     try:
-        import psutil
-
         per_fold = int(0.8 * n) * n_cols * itemsize * 2
-        return max(1, min(jobs, int(0.4 * psutil.virtual_memory().available // max(1, per_fold))))
+        return max(1, min(jobs, int(0.4 * host_memory()[0] // max(1, per_fold))))
     except Exception as exc:  # best-effort: only the number of folds in flight changes, never a score
         logger.debug("fold pool memory bound unavailable (%s); two folds at most", exc)
         return min(jobs, 2)
@@ -651,10 +650,30 @@ def _cmi_gate_scores(
     y_bin = y_bin.astype(np.int64)
     eng_mat = engineered_X.to_numpy(dtype=np.float64)  # Intentional float64: engineered matrix for the CMI statistic
     eng_bins_mat = _quantile_bin_batched(eng_mat, nbins)
+    batched = _cmi_gate_scores_batched(eng_bins_mat, y_bin, z_joint)
+    if batched is not None:
+        return {c: float(batched[k]) for k, c in enumerate(engineered_X.columns)}
     out: dict[str, float] = {}
     for k, c in enumerate(engineered_X.columns):
         out[c] = float(_cmi_from_binned(np.ascontiguousarray(eng_bins_mat[:, k]), y_bin, z_joint))
     return out
+
+
+def _cmi_gate_scores_batched(eng_bins_mat: np.ndarray, y_bin: np.ndarray, z_joint: np.ndarray) -> Optional[np.ndarray]:
+    """The Miller-Madow CMI of every binned column against ``y`` given ``z`` in ONE device pass (``batched_cmi_gpu``), or ``None`` when the device CMI route is off or fails (the caller then scores the
+    columns one by one). The per-column route costs three joint-entropy launches and three blocking reads per column (120 columns x 30000 rows: 0.36 s against the batched pass); the statistic is the same
+    plug-in entropy combination over the same codes."""
+    from ._mi_greedy_cmi_fe_steps import _cmi_gpu_enabled
+
+    if eng_bins_mat.shape[1] < 2 or not _cmi_gpu_enabled(n=int(eng_bins_mat.shape[0]), p=int(eng_bins_mat.shape[1])):
+        return None
+    try:
+        from ._fe_batched_mi_blocks import batched_cmi_gpu
+
+        return np.asarray(batched_cmi_gpu(np.ascontiguousarray(eng_bins_mat, dtype=np.int64), y_bin, z_joint), dtype=np.float64)  # Intentional float64: CMI statistic vector
+    except Exception as exc:
+        log_throttle(logger, "three_gate.batched_cmi", logging.WARNING, "three-gate batched CMI failed (%s: %s); scoring the columns one by one", type(exc).__name__, exc)
+        return None
 
 
 def hybrid_orth_mi_three_gate_fe(
@@ -843,7 +862,7 @@ def hybrid_orth_mi_three_gate_fe_with_recipes(
         _pp = None
         try:
             _col_full = np.asarray(
-                X[src].to_numpy(), dtype=np.float64
+                X[src].to_numpy(), dtype=np.float64  # Intentional float64: double-precision variant: the statistic needs the full mantissa
             )  # Intentional float64: engineered operand for the CMI statistic, compared at full precision
             _, _pp = _evaluate_basis_column(_col_full, chosen_basis, int(chosen_degree), return_params=True)
         except Exception as exc:

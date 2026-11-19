@@ -46,7 +46,7 @@ def _sweep_host(za: np.ndarray, zb: np.ndarray, y: np.ndarray, ca: np.ndarray, c
     from numpy.polynomial import chebyshev
 
     from ._hermite_fe_optimise import _eval_coef_pair_batch
-    from .hermite_fe import _DEFAULT_BIN_FUNCS
+    from .hermite_fe.shared import DEFAULT_BIN_FUNCS as _DEFAULT_BIN_FUNCS
 
     z_a, z_b = za.astype(np.float64), zb.astype(np.float64)  # Intentional float64: the host evaluator works in double
     B_a = chebyshev.chebvander(z_a, _DEGREE)

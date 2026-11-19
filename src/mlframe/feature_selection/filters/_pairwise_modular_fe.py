@@ -168,6 +168,40 @@ def _mi(col: np.ndarray, y: np.ndarray, nbins: int = 12) -> float:
         arr = np.asarray(col, dtype=_crit_np_dtype()).reshape(-1, 1)
     return float(_mi_classif_batch(arr, encode_y_for_classif_mi(y), nbins=nbins, rank_binning=_rb)[0])
 
+#: Host bytes of one block of columns scored together by :func:`_mi_columns`.
+_MI_COLUMNS_BLOCK_BYTES = 256 * 1024 * 1024
+
+
+def _mi_columns(X: Any, cols: Sequence[str], yi: np.ndarray, nbins: int = 12) -> dict:
+    """``{column: _mi(X[column], yi)}`` for host columns, scored in blocks by one batched MI call each.
+
+    The batch kernel bins every column on its own, so a column's value is the one its single-column call returns (equal bit for bit on the host and the STRICT-resident routes at
+    4000, 30000 and 100000 rows); one call per column was 0.44 s for 100 columns at 30000 rows, the batch 0.10 s."""
+    from ._fe_frame_ops import fe_stack_columns
+    from ._orthogonal_univariate_fe import _mi_classif_batch
+
+    cols = list(cols)
+    if not cols:
+        return {}
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+
+        _rb = fe_gpu_strict_resident_enabled()
+    except Exception as e:
+        log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
+        _rb = False
+    dt = _crit_np_dtype()
+    y_enc = encode_y_for_classif_mi(yi)
+    width = max(1, _MI_COLUMNS_BLOCK_BYTES // max(1, len(y_enc) * int(np.dtype(dt).itemsize)))
+    out: dict = {}
+    for start in range(0, len(cols), width):
+        block = cols[start : start + width]
+        mat = fe_stack_columns([np.asarray(X[c]) for c in block], dt)  # filled in row tiles
+        for c, v in zip(block, _mi_classif_batch(mat, y_enc, nbins=nbins, rank_binning=_rb)):
+            out[c] = float(v)
+    return out
+
+
 def _residue_grid_mi(c: np.ndarray, y: np.ndarray, mods: Sequence[int], nbins: int) -> np.ndarray:
     """MI of ``c mod k`` vs y for every k in ``mods``, in one batched kernel call per effective-nbins group.
 

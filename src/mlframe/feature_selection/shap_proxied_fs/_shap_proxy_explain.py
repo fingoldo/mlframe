@@ -214,7 +214,8 @@ def _n_trees(est) -> int:
         if type(est).__name__.startswith("LGBM"):
             return int(est.booster_.num_trees())
         return int(est.get_booster().num_boosted_rounds())
-    except Exception:
+    except Exception as exc:
+        logger.warning("tree count of %s could not be read (%s: %s); the TreeSHAP backend is chosen as for an empty model", type(est).__name__, type(exc).__name__, exc)
         return 0
 
 

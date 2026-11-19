@@ -49,11 +49,33 @@ def cap_batch_size(batch_size: int, free_bytes: int, n: int) -> int:
     return min(int(batch_size), safe)
 
 
+_MI_COUNTS_REDUCTIONS: dict = {}
+
+
+def _mi_counts_reduction(cp, dtype):
+    """One fused device reduction per float dtype: ``sum_cells (c/n) * log(((c/n) / outer) if c > 0 else 1)`` over the joint cells of each row."""
+    key = np.dtype(dtype).str
+    kernel = _MI_COUNTS_REDUCTIONS.get(key)
+    if kernel is None:
+        kernel = cp.ReductionKernel(
+            "S c, T outer, T n", "T out",
+            "(T(c) / n) * log((c > 0) ? (T(c) / n) / outer : T(1))",
+            "a + b", "out = a", "T(0)", "mi_counts_reduction",
+        )
+        _MI_COUNTS_REDUCTIONS[key] = kernel
+    return kernel
+
+
 def _mi_from_counts_cupy(cp, counts_2d, n, nbins_x, nbins_y, outer_safe):
-    """(b, joint_size) int counts -> (b,) MI in nats via the noise-gate reduction (masked-safe ratio; shared by both mi_direct_gpu_batched twins)."""
-    jf = (counts_2d.astype(crit_float_dtype()) / n).reshape(-1, nbins_x, nbins_y)
-    ratio = cp.where(jf > 0, jf / outer_safe, 1.0)
-    return (jf * cp.log(ratio)).sum(axis=(1, 2))
+    """(b, joint_size) int counts -> (b,) MI in nats via the noise-gate reduction (masked-safe ratio; shared by both mi_direct_gpu_batched twins).
+
+    One device reduction instead of the astype, divide, where, log, multiply and sum chain (about seven launches a batch). The summation order over the joint cells
+    differs from ``cupy.sum``, so the values agree to rounding (selection-equivalent), not bit for bit."""
+    dtype = crit_float_dtype()
+    joint = int(nbins_x) * int(nbins_y)
+    counts = counts_2d.reshape(-1, joint)
+    outer = cp.asarray(outer_safe).reshape(1, joint).astype(dtype, copy=False)
+    return _mi_counts_reduction(cp, dtype)(counts, outer, np.dtype(dtype).type(n), axis=1)
 
 
 def mi_direct_gpu_batched(

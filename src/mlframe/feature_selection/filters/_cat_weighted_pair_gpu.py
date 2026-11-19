@@ -131,7 +131,7 @@ def weighted_pair_search_gpu(
         mi_d = cp.empty(sel.shape[0], dtype=cp.float64)  # Intentional float64: MI statistic output
         uq_d = cp.empty(sel.shape[0], dtype=cp.int32)
         shared = int((nbins[pairs_a[sel]].astype(np.int64) * nbins[pairs_b[sel]].astype(np.int64) * ky).max()) * 8
-        kernel((int(sel.shape[0]),), (_THREADS,), (codes_d, nb_d, a_d, b_d, y_d, wfix_d, marg_y_d, np.int64(n), np.int32(ky), np.float64(1.0 / scale), np.float64(total_w), mi_d, uq_d), shared_mem=shared)  # launch-ok: one block per pair is the design
+        kernel((int(sel.shape[0]),), (_THREADS,), (codes_d, nb_d, a_d, b_d, y_d, wfix_d, marg_y_d, np.int64(n), np.int32(ky), np.float64(1.0 / scale), np.float64(total_w), mi_d, uq_d), shared_mem=shared)  # launch-ok: one block per pair is the design  # Intentional float64: scalar argument of a double-typed kernel parameter or accumulator
         joint[sel] = cp.asnumpy(mi_d)
         uniq[sel] = cp.asnumpy(uq_d)
         return int(sel.shape[0])

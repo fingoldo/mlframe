@@ -313,7 +313,7 @@ repos:
         # memory note for the prior (now superseded) rationale for sharing.
         # mypy_gate requires mypy's own completion line and a file floor: --min-files 1850 against the ~2000 source files mypy checks
         # (about 90%), held there by tests/test_meta/test_mypy_gate_floor.py.
-        entry: python -m py_ci_shared.mypy_gate --min-files 1850 src/mlframe --cache-dir=.mypy_cache_precommit_full
+        entry: python -m py_ci_shared.mypy_gate --min-files 2100 src/mlframe --cache-dir=.mypy_cache_precommit_full
         language: system
         types: [python]
         pass_filenames: false
@@ -678,7 +678,7 @@ repos:
   # runnable via `pre-commit run mypy-full-manual --hook-stage manual` for a quick changed-files-
   # only check without paying the whole-project scan) rather than deleting the hook entirely.
   - repo: https://github.com/fingoldo/py-ci-shared
-    rev: 5264e5d154aadc56028d46118b515166adaee7a5  # v1.23.11  # pragma: allowlist secret
+    rev: d6e76b74b2c171ad79e4afcf3263113d0843af78  # v1.23.13  # pragma: allowlist secret
     hooks:
       - id: mypy-full-manual
         pass_filenames: true

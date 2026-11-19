@@ -280,7 +280,7 @@ def _quantile_plan(cp: Any, n: int, q_fracs: Any) -> "tuple | None":
 
     The plan is a few dozen bytes of order-statistic ranks and interpolation weights that the call used to rebuild and upload (four small host-to-device copies) and to check against the
     device's shared-memory limit (an attribute query) every time; 3516 calls in a 30000 x 60 fit asked for a handful of distinct plans."""
-    key = (int(n), tuple(float(q) for q in np.asarray(q_fracs, dtype=np.float64).ravel()), int(cp.cuda.Device().id))
+    key = (int(n), tuple(float(q) for q in np.asarray(q_fracs, dtype=np.float64).ravel()), int(cp.cuda.Device().id))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     with _QUANTILE_PLANS_LOCK:
         if key in _QUANTILE_PLANS:
             plan: "tuple | None" = _QUANTILE_PLANS[key]

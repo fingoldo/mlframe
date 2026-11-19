@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+from tests.test_meta._scan_guard import assert_scanned_enough
 
 REPO = Path(__file__).resolve().parents[2]
 _WORKFLOWS = sorted((REPO / ".github" / "workflows").glob("*.yml"))
@@ -17,6 +18,7 @@ _NUMBA_CACHE_STEP = re.compile(r"actions/cache@[^\n]*\n(?:(?!- name:).*\n)*?\s+p
 
 def _numba_cache_steps() -> list[tuple[str, str]]:
     """Every actions/cache step whose path is the numba cache directory, as (workflow name, step text)."""
+    assert_scanned_enough(len(_WORKFLOWS), ".github/workflows", minimum=3)
     found = []
     for wf in _WORKFLOWS:
         text = wf.read_text(encoding="utf-8")

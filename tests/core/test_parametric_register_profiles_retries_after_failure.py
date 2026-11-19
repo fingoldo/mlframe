@@ -39,7 +39,6 @@ def test_register_profiles_retries_after_transient_failure(monkeypatch):
 def test_register_profiles_concurrent_callers_register_once(monkeypatch):
     """A second thread calling while the first is mid-registration waits instead of registering again."""
     import threading
-    import time
 
     real = settings.register_profile
     calls = {"n": 0}
@@ -60,14 +59,31 @@ def test_register_profiles_concurrent_callers_register_once(monkeypatch):
         register_profile = staticmethod(_slow)
         load_profile = staticmethod(settings.load_profile)
 
+    waiting = threading.Event()
+
+    class _WatchedLock:
+        """The registration lock, reporting a caller that arrives while it is held."""
+
+        def __init__(self):
+            self._lock = threading.Lock()
+
+        def __enter__(self):
+            if self._lock.locked():
+                waiting.set()
+            self._lock.acquire()
+
+        def __exit__(self, *exc):
+            self._lock.release()
+
     monkeypatch.setattr(par, "_PROFILES_REGISTERED", False)
+    monkeypatch.setattr(par, "_PROFILES_LOCK", _WatchedLock())
     monkeypatch.setattr(par, "settings", _Proxy)
     t1 = threading.Thread(target=par.register_profiles)
     t2 = threading.Thread(target=par.register_profiles)
     t1.start()
     assert entered.wait(timeout=3)
     t2.start()
-    time.sleep(0.2)
+    assert waiting.wait(timeout=3), "the second caller never reached the held lock"
     release.set()
     t1.join(timeout=5)
     t2.join(timeout=5)
