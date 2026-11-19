@@ -35,7 +35,7 @@ Pickle-safe: this cache is module-level and NEVER stored on an MRMR instance (mi
 import contextlib as _contextlib
 import functools
 import logging
-import os as _os
+from mlframe.utils.env_flags import env_reader
 import threading
 from collections import OrderedDict
 from typing import Any, Callable, Optional
@@ -191,11 +191,15 @@ def _resident_bytes_budget(cp: Any) -> int:
         return 1 << 30
 
 
+_read_resident_operands_switch = env_reader("MLFRAME_FE_RESIDENT_OPERANDS")  # read on every resident_operand call (about 10 000 per fit): the live reader, not os.environ.get
+
+
 def _disabled() -> bool:
     """Whether the resident-operand cache is disabled via ``MLFRAME_FE_RESIDENT_OPERANDS`` (diagnostic A/B switch, default on)."""
     # Diagnostic A/B switch only (default ON): MLFRAME_FE_RESIDENT_OPERANDS=0 forces a fresh upload every call
     # to reproduce the pre-cache H2D churn for the wall/util A/B. NOT a perf gate - always on in prod.
-    return _os.environ.get("MLFRAME_FE_RESIDENT_OPERANDS", "1").strip().lower() in ("0", "false", "off", "no")
+    raw = _read_resident_operands_switch()
+    return raw is not None and raw.strip().lower() in ("0", "false", "off", "no")
 
 
 def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool = True) -> Any:

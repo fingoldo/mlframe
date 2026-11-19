@@ -13,6 +13,7 @@ from typing import Any
 
 import logging
 import os
+from mlframe.utils.env_flags import env_reader
 from dataclasses import dataclass
 from mlframe.utils.env_flags import env_float, env_int
 
@@ -48,6 +49,9 @@ def fe_gpu_f32_enabled() -> bool:
     return os.environ.get("MLFRAME_FE_VRAM_F32", "").strip().lower() in ("1", "true", "on", "yes")
 
 
+_read_crit_relaxed = env_reader("MLFRAME_CRIT_DTYPE_RELAXED")  # read on thousands of calls of one fit: the live reader, not os.environ.get
+
+
 def crit_dtype_relaxed() -> bool:
     """Whether PRECISION-CRITICAL double-precision compute may relax to float32. Controlled by
     ``MLFRAME_CRIT_DTYPE_RELAXED`` (DEFAULT ON).
@@ -59,7 +63,8 @@ def crit_dtype_relaxed() -> bool:
     hotspots. It is applied ONLY where the FE candidate selection is unchanged by the f32 rounding (the f32
     drift is far below every FE decision margin - validated per-stage on F2 across all distributions + the
     stage's biz suites). Set ``MLFRAME_CRIT_DTYPE_RELAXED=0`` to force the strict double-precision path everywhere."""
-    return os.environ.get("MLFRAME_CRIT_DTYPE_RELAXED", "1").strip().lower() not in ("0", "false", "off", "no")
+    raw = _read_crit_relaxed()
+    return raw is None or raw.strip().lower() not in ("0", "false", "off", "no")
 
 
 def crit_float_dtype() -> Any:

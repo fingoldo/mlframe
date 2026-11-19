@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
+from mlframe.utils.env_flags import env_reader
 from typing import Any, Hashable, Literal, Mapping, Optional, TypeVar, Union, overload
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -145,6 +146,9 @@ except (ValueError, TypeError):
     _ABS_PEARSON_MAX_ROWS = 30000
 
 
+_read_crit_relaxed = env_reader("MLFRAME_CRIT_DTYPE_RELAXED")  # read on 25 000 calls of one fit: the live reader (a value set later is seen), not os.environ.get
+
+
 def _crit_np_dtype() -> type[np.floating]:
     """np.float32 when the precision-critical relaxation is on (``MLFRAME_CRIT_DTYPE_RELAXED``, DEFAULT ON),
     else the strict double branch - the HOST/numpy mirror of ``_fe_gpu_batch._devices.crit_float_dtype`` (read directly here
@@ -152,7 +156,8 @@ def _crit_np_dtype() -> type[np.floating]:
     threshold decisions (min_corr 0.6; the tail-concentration gap is ~0.99 vs ~0.06), so operand casts follow
     the SAME f32 relaxation the discretiser-input / fourier-detrend / prewarp hotspots already use; set the env
     to 0 to force strict f64 everywhere (matching the rest of MRMR)."""
-    if os.environ.get("MLFRAME_CRIT_DTYPE_RELAXED", "1").strip().lower() in ("0", "false", "off", "no"):
+    raw = _read_crit_relaxed()
+    if raw is not None and raw.strip().lower() in ("0", "false", "off", "no"):
         # Intentional float64: strict-branch definition of the policy itself, returned only when the relaxation is off
         return np.float64
     return np.float32
