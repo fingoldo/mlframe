@@ -19,6 +19,8 @@ History of the number on this development box (GTX 1050 Ti 4 GB, Pascal sm_61, 6
 - 2026-11-19, 100000 x 200 (``all_families_stage_sampler 100000 200 gpu``): WALL 65.3 s, mean CPU 53.4 %, mean GPU busy 28.3 % (median 20 %, 36 % of the time below 10 %), pool peak 3.39 GB, no OOM. Twice the columns cost 1.54 times the wall; the largest stage
   is still the FE cascade early_a part 1 (14.2 s at 200 columns against 7.8 s at 100, GPU busy 40 %), then score_prospective_pairs 2.4 s; the host side (CPU 53 %, GPU idle below 10 % for 36 % of the fit) is the bound, as at 100 columns.
 
+- 2026-11-20, 100000 x 100 after the launch-reduction commits (one-launch binagg gather, fused logistic CV, batched RFF null maxima, fused rank binning, cached |corr| candidate side, Clenshaw forward kernel; tree 645fa3d70): WALL 36.3 s (stage walls 6.3 / 7.2 / 7.3 and 8.7 / 8.2 / 8.6 s), GPU 74-76 C, SM 1708 MHz, no throttle; the same machine gave 43.6-46.8 s earlier that day. The fit makes about 127000 kernel launches and copies (nvprof, sequential stages); each launch costs 25-80 us of host time here (WDDM) and three threads launch less in total than one, so launch count is the lever.
+
 The target. 50 s was set on 2026-11-08 as a rough guide, not as a hard bar. The real goal (owner, 2026-11-10) is near-100 % CPU and GPU occupancy during the fit with every GPU kernel conforming to
 CUDA.md; once that is reached at 100000 x 100, the same work is done at 100000 x 1000. nsys on this fit: kernels busy about 15 % of the window, 133k launches, copies about 1 %: the fit is bound by the
 host and by the order of dependent stages, not by the kernels or the bus.
