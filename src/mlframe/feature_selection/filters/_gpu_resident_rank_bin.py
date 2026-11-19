@@ -127,7 +127,80 @@ def rank_bin_codes_gpu_resident(x_gpu: Any, n_bins: int) -> Any:
         return None
 
 
+_RANK_CODES_SRC = r"""
+extern "C" __global__ void rank_codes_from_sorted(const VT_* __restrict__ X, const long long* __restrict__ si, const long long n, const int k, const int nb, int* __restrict__ out) {
+    // thread (p, j): sorted position p of column j. The rank code of the row at that position is the bin of the FIRST position of its tie group (n // nb rows per bin, the first n % nb bins one more)
+    const long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (t >= n * (long long)k) return;
+    const long long p = t / k;
+    const int j = (int)(t - p * k);
+#define XS(q) X[si[(long long)(q) * k + j] * k + j]
+    const VT_ xp = XS(p);
+    long long g = p;
+    if (p > 0) {
+        const VT_ xq = XS(p - 1);
+        if (xp == xq || (isnan(xp) && isnan(xq))) {           // inside a tie group: its first position by bisection (equal values are contiguous, NaN last)
+            long long lo = 0, hi = p;
+            const bool pn = isnan(xp);
+            while (lo < hi) {
+                const long long mid = (lo + hi) >> 1;
+                const VT_ xm = XS(mid);
+                const bool before = pn ? !isnan(xm) : (xm < xp);
+                if (before) lo = mid + 1; else hi = mid;
+            }
+            g = lo;
+        }
+    }
+    const long long base = n / nb, rem = n % nb, cut = rem * (base + 1);
+    const int b = (g < cut) ? (int)(g / (base + 1)) : (int)(rem + (g - cut) / base);
+    out[si[p * k + j] * k + j] = b;
+}
+"""
+_RANK_CODES_KERNELS: dict = {}
+
+
+def kernel_rank_codes_from_sorted(cp: Any, real: Any = np.float64) -> Any:  # Intentional float64: the double-precision value matrix is the default instance
+    """``rank_codes_from_sorted`` for a float32 or float64 value matrix; compile point of :func:`rank_bin_codes_batch_gpu_resident` and of the register-pressure registry."""
+    key = np.dtype(real).name
+    with _BIN_BOUNDARIES_LOCK:
+        kern = _RANK_CODES_KERNELS.get(key)
+        if kern is None:
+            kern = _RANK_CODES_KERNELS[key] = cp.RawKernel(_RANK_CODES_SRC.replace("VT_", "float" if key == "float32" else "double"), "rank_codes_from_sorted")
+    return kern
+
+
 def rank_bin_codes_batch_gpu_resident(X_gpu: Any, n_bins: int) -> Any:
+    """:func:`rank_bin_codes_batch_gpu_resident_reference` with everything after the per-column argsort in ONE launch (``rank_codes_from_sorted``: the sorted values, the tie groups, the bin of
+    each group start and the scatter back to row order were about 40 launches); the codes are the same integers (the bin of a sorted position is computed from ``n`` and ``n_bins`` instead of
+    searching the cumulative bin sizes). Other dtypes or layouts take the reference form."""
+    try:
+        import cupy as cp
+    except ImportError as e:
+        logger.debug("cupy import failed: %s", e)
+        return None
+    try:
+        Xg = X_gpu if isinstance(X_gpu, cp.ndarray) else cp.asarray(X_gpu)
+        if Xg.ndim == 1:
+            Xg = Xg[:, None]
+        if Xg.dtype not in (cp.float32, cp.float64) or int(n_bins) <= 1 or Xg.size == 0:  # Intentional float64: the kernel reads a float32 or double matrix
+            return rank_bin_codes_batch_gpu_resident_reference(Xg, n_bins)
+        Xg = cp.ascontiguousarray(Xg)
+        n, k = int(Xg.shape[0]), int(Xg.shape[1])
+        si = cp.ascontiguousarray(device_argsort(Xg, axis=0).astype(cp.int64, copy=False))  # (n, k) stable per-column sort indices
+        out = cp.empty((n, k), dtype=cp.int32)
+        kern = kernel_rank_codes_from_sorted(cp, Xg.dtype)
+        from pyutilz.performance.gpu_hw_launch import block_size_for
+
+        total = n * k
+        threads = block_size_for(kern, work_items=total)
+        kern(((total + threads - 1) // threads,), (threads,), (Xg, si, np.int64(n), np.int32(k), np.int32(int(n_bins)), out))
+        return out
+    except Exception as _exc:
+        logger.warning("rank_bin_codes_batch_gpu_resident: fused path failed (%s); the cupy chain runs", _exc)
+        return rank_bin_codes_batch_gpu_resident_reference(X_gpu, n_bins)
+
+
+def rank_bin_codes_batch_gpu_resident_reference(X_gpu: Any, n_bins: int) -> Any:
     """Batched RANK bin codes for a RESIDENT (n, k) cupy matrix - per-column argsort equi-frequency. Returns
     an (n, k) cupy int32 code matrix, or ``None`` on any cupy failure. Each column is binned INDEPENDENTLY,
     bit-identical (per-column) to :func:`rank_bin_codes_gpu_resident`."""

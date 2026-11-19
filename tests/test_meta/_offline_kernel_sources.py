@@ -118,6 +118,7 @@ _RECIPES: dict = {
     "_order_stats_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
     "_fleuret_confirm_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{CODE}": ct, "{ACC}": "double"}), ()) for ct in ("unsigned char", "short", "int")],
     "_grouped_quantile_gpu.py::_SRC": lambda s: [("float", _fill(s, **{"{REAL}": "float", "{ACC}": "double"}), ())],
+    "_gpu_resident_rank_bin.py::_RANK_CODES_SRC": lambda s: [(r, s.replace("VT_", r), ()) for r in _REAL_TYPES],
     "_usability_greedy_clf_batched.py::_FUSED_SRC": lambda s: [(r, s.replace("VT_", r), ()) for r in _REAL_TYPES],
     "_binned_numeric_agg_resident.py::_OOF_GATHER_MULTI_SRC": lambda s: [(r, s.replace("OUT_T", r), ()) for r in _REAL_TYPES],
     "_ksg_cd_gpu.py::_SRC": lambda s: [(f"{r} {ct}", _fill(s, **{"{REAL}": r, "{ACC}": "double", "{CT}": ct}), ()) for r in _REAL_TYPES for ct in ("int", "signed char")],

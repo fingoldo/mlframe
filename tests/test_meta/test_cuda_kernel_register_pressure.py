@@ -358,6 +358,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_clenshaw",
         ("float32", "float64"),
     ),
+    "gpu_resident_rank_bin.rank_codes_from_sorted": (
+        "mlframe.feature_selection.filters._gpu_resident_rank_bin",
+        "kernel_rank_codes_from_sorted",
+        ("float32", "float64"),
+    ),
     "usability_greedy_clf_batched.logistic_cv_newton": (
         "mlframe.feature_selection.filters._usability_greedy_clf_batched",
         "kernel_logistic_cv",
