@@ -358,6 +358,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_clenshaw",
         ("float32", "float64"),
     ),
+    "bin_fingerprint_gpu.bin_fingerprints": (
+        "mlframe.feature_selection.filters._bin_fingerprint_gpu",
+        "kernel_bin_fingerprints",
+        ("int8", "int16", "int32", "int64"),
+    ),
     "gpu_resident_rank_bin.rank_codes_from_sorted": (
         "mlframe.feature_selection.filters._gpu_resident_rank_bin",
         "kernel_rank_codes_from_sorted",
