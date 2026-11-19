@@ -676,7 +676,7 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "ksg_cd_gpu.ksg_psi_m_sums": (
         "mlframe.feature_selection.filters._ksg_cd_gpu",
         "kernel",
-        ("float64",),
+        ("float32", "float64"),
     ),
     "meta_fingerprint_gpu.column_moments_blocks": (
         "mlframe.feature_selection.filters._meta_fingerprint_gpu",

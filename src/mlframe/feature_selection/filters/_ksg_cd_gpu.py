@@ -35,7 +35,7 @@ _BLOCKS_PER_COLUMN = 64
 
 _SRC = r"""
 #define POS_INF __longlong_as_double(0x7ff0000000000000LL)
-// {REAL} is instantiated at 64 bits on purpose: the host kernel works on noised 64-bit columns and the distance comparisons must match it exactly; {ACC} is the accumulator type.
+// {REAL} is the column type: 64 bits by default (the host kernel works on noised 64-bit columns and the distance comparisons must match it), 32 bits for a column block that is tie-free and finite after the cast (see mi_cd_columns_device); {ACC} is the accumulator type.
 extern "C" __global__ void ksg_psi_m_sums(const {REAL}* __restrict__ xs, const int* __restrict__ ds, const long long nk, const int* __restrict__ counts,
                                           const int nn, const {ACC}* __restrict__ psi, {ACC}* __restrict__ partial) {
     __shared__ {ACC} red[256];
@@ -76,16 +76,77 @@ extern "C" __global__ void ksg_psi_m_sums(const {REAL}* __restrict__ xs, const i
 }
 """
 
-_MODULE = RawModuleCache(render(_SRC, real=np.float64))  # Intentional float64: the data type is 64-bit on purpose (see the comment in the kernel); {ACC} is the 64-bit accumulator
+_MODULES = {
+    np.dtype(np.float64): RawModuleCache(render(_SRC, real=np.float64)),  # Intentional float64: the default column type (see the comment in the kernel); {ACC} is the 64-bit accumulator
+    np.dtype(np.float32): RawModuleCache(render(_SRC, real=np.float32)),
+}
 
 
 def kernel(cp: Any, real: Any = np.float64) -> Any:  # Intentional float64: selectable double-precision variant of the kernel (default and environment switch)
-    """``ksg_psi_m_sums`` for 64-bit columns (the only instantiation: ``real`` is accepted for the registry's factory protocol); compile point of :func:`mi_cd_columns_device` and of the register-pressure registry."""
-    if np.dtype(real) != np.float64:  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
-        raise ValueError("ksg_psi_m_sums is instantiated for 64-bit columns only")
-    return _MODULE.get(cp).get_function("ksg_psi_m_sums")
+    """``ksg_psi_m_sums`` for 64-bit (default) or 32-bit columns; compile point of :func:`mi_cd_columns_device` and of the register-pressure registry."""
+    module = _MODULES.get(np.dtype(real))
+    if module is None:
+        raise ValueError("ksg_psi_m_sums is instantiated for float32 and float64 columns only")
+    return module.get(cp).get_function("ksg_psi_m_sums")
 
 _THREADS = 256
+
+
+def _f32_enabled() -> bool:
+    """Whether tie-free, finite column blocks are scored in float32 (``MLFRAME_KSG_F32=0`` turns it off). Float32 halves the upload and the sort of a block; it cannot hold the 1e-10 Kraskov noise, so a column whose
+    float32 values contain equal neighbours (or a non-finite value) is scored in float64 instead (see :func:`_block_sums`)."""
+    import os
+
+    return os.environ.get("MLFRAME_KSG_F32", "1").strip().lower() not in ("0", "false", "off", "no")
+
+
+def _tie_pair_bound(n_rows: int) -> int:
+    """Largest number of equal neighbours a column may have after the float32 cast and still be scored in float32. A continuous column has about ``1e-8 * n^2`` chance collisions of the 24-bit mantissa (measured:
+    rate 1.1e-8 * n at 30000 rows, 0.85e-8 * n at 100000, at most 2 pairs at 5000) which move the MI by about 1e-4; a discretised column has a tie rate of 0.67 to 0.97. The bound is four times the chance level, with a floor of 8."""
+    return max(8, int(4e-8 * float(n_rows) * float(n_rows)))
+
+
+def _packed_f32_order(cp: Any, xd: Any) -> Any:
+    """``(width, rows)`` int64 row order that sorts every row of the float32 matrix ``xd`` ascending, from ONE radix sort: each value becomes the 64-bit key ``column | order-preserving float bits | row``, so the
+    columns stay in contiguous segments and the low bits of the sorted keys are the row ids. A per-column ``argsort`` of 100 columns x 30000 rows took 28 ms, this 10 ms (equal sorted values). ``None`` when the
+    three fields do not fit 64 bits (rows beyond 2^22 with 1000 columns), and the caller sorts per column."""
+    width, rows = int(xd.shape[0]), int(xd.shape[1])
+    row_bits = max(1, (rows - 1).bit_length())
+    col_bits = max(1, (width - 1).bit_length())
+    if 32 + row_bits + col_bits > 64:
+        return None
+    bits = xd.view(cp.uint32)
+    flip = cp.where((bits >> 31) != 0, cp.uint32(0xFFFFFFFF), cp.uint32(0x80000000))
+    key = (bits ^ flip).astype(cp.uint64)
+    cols = (cp.arange(width, dtype=cp.uint64) << cp.uint64(32 + row_bits))[:, None]
+    packed = (cols | (key << cp.uint64(row_bits)) | cp.arange(rows, dtype=cp.uint64)[None, :]).ravel()
+    packed = cp.sort(packed)
+    return (packed & cp.uint64((1 << row_bits) - 1)).astype(cp.int64).reshape(width, rows)
+
+
+def _block_sums(cp: Any, host_block: np.ndarray, real: Any, d_dev: Any, counts_dev: Any, psi_dev: Any, n_kept: int, n_neighbors: int, partial_buf: Any) -> "tuple[Any, Any]":
+    """``(sum psi(m) per column, columns to redo)`` of one ``(rows, width)`` host block scored with columns of type ``real``: uploaded, transposed on the device, sorted and run through the kernel.
+
+    For float32 the second value is a device boolean per column that is True where the cast column has more equal neighbours than :func:`_tie_pair_bound` or a non-finite entry (the noise that breaks ties is lost in
+    float32), and such a column's sum is not valid; for float64 it is ``None``."""
+    # one host copy of the block's columns (a plain row-wise copy, none when the block is the whole array), one upload, then the (rows, columns) to (columns, rows) transpose on the device with the coalesced tiled kernel;
+    # the host transpose of this block took 180 ms of a 308 ms call at 100 columns x 100000 rows
+    xd = _transpose_to_cm(cp.asarray(np.ascontiguousarray(host_block, dtype=real)))
+    order = _packed_f32_order(cp, xd) if np.dtype(real) == np.float32 else None
+    if order is None:
+        order = device_argsort(xd, axis=1)
+    xs = cp.take_along_axis(xd, order, axis=1)  # already C-contiguous (checked directly); the extra ascontiguousarray was a redundant copy
+    ds = d_dev[order]
+    del xd
+    width = xs.shape[0]
+    redo = None
+    if np.dtype(real) == np.float32:
+        redo = ((xs[:, 1:] == xs[:, :-1]).sum(axis=1) > _tie_pair_bound(n_kept)) | ~cp.isfinite(xs).all(axis=1)
+    partial = partial_buf[:width]
+    kernel(cp, real)(  # launch-ok: _THREADS=256 is the compile-time size of the kernel's `__shared__ double red[256]` reduction buffer, not a tuned size
+        (_BLOCKS_PER_COLUMN, width), (_THREADS,), (xs, ds, np.int64(n_kept), counts_dev, np.int32(n_neighbors), psi_dev, partial)
+    )
+    return partial.sum(axis=1), redo
 
 
 def mi_cd_columns_device(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbors: int) -> Optional[np.ndarray]:
@@ -112,7 +173,7 @@ def mi_cd_columns_device(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbo
         d_dev = cp.asarray(np.ascontiguousarray(d[keep], dtype=np.int32))
         counts_dev = cp.asarray(counts.astype(np.int32))
         psi_dev = cp.asarray(psi)
-        ksg_kernel = kernel(cp)
+        f32 = _f32_enabled()
         free = device_room(cp)
         per_col = n_kept * (8 + 8 + 8 + 8 + 4)  # row-major upload, transposed values, sort order, sorted values, sorted labels
         block = int(max(1, min(n_cols, (_BUDGET_FRACTION * free) // per_col)))
@@ -120,20 +181,15 @@ def mi_cd_columns_device(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbo
         partial_buf = cp.empty((block, _BLOCKS_PER_COLUMN), dtype=cp.float64)  # one reusable kernel-output buffer for every chunk, not one per chunk  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
         sum_m_dev = cp.empty(n_cols, dtype=cp.float64)  # one resident accumulator; one D2H after the loop instead of one per chunk
         for c0 in range(0, n_cols, block):
-            # one host copy of the block's columns (a plain row-wise copy, none when the block is the whole array), one upload, then the (rows, columns) to (columns, rows) transpose on the device with the coalesced tiled kernel;
-            # the host transpose of this block took 180 ms of a 308 ms call at 100 columns x 100000 rows. Intentional float64: the kernel signature is double*
-            xd = _transpose_to_cm(cp.asarray(np.ascontiguousarray(X_kept[:, c0 : c0 + block], dtype=np.float64)))
-            order = device_argsort(xd, axis=1)
-            xs = cp.take_along_axis(xd, order, axis=1)  # already C-contiguous (checked directly); the extra ascontiguousarray was a redundant copy
-            ds = d_dev[order]
-            del xd
-            width = xs.shape[0]
-            partial = partial_buf[:width]
-            ksg_kernel(  # launch-ok: _THREADS=256 is the compile-time size of the kernel's `__shared__ double red[256]` reduction buffer, not a tuned size
-                (_BLOCKS_PER_COLUMN, width), (_THREADS,), (xs, ds, np.int64(n_kept), counts_dev, np.int32(n_neighbors), psi_dev, partial)
-            )
-            sum_m_dev[c0 : c0 + width] = partial.sum(axis=1)
-            del xs, ds, order, partial
+            host_block = X_kept[:, c0 : c0 + block]
+            width = host_block.shape[1]
+            sums, redo = _block_sums(cp, host_block, np.float32 if f32 else np.float64, d_dev, counts_dev, psi_dev, n_kept, n_neighbors, partial_buf)
+            sum_m_dev[c0 : c0 + width] = sums
+            if redo is not None:
+                redo_idx = np.flatnonzero(cp.asnumpy(redo))  # one small read per block: the columns float32 cannot hold are scored again in float64
+                if redo_idx.size:
+                    sums64, _ = _block_sums(cp, host_block[:, redo_idx], np.float64, d_dev, counts_dev, psi_dev, n_kept, n_neighbors, partial_buf)
+                    sum_m_dev[c0 + cp.asarray(redo_idx)] = sums64
         sum_m = cp.asnumpy(sum_m_dev)
         return np.asarray(np.maximum(psi[n_kept] + (sum_k - sum_cnt - sum_m) / n_kept, 0.0), dtype=np.float64)  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
     except Exception as exc:
@@ -166,7 +222,7 @@ def _device(X: np.ndarray, d: np.ndarray) -> np.ndarray:
     return out
 
 
-_run_sweep = host_device_sweep(__name__, _host, _device, repeats=3, rtol=1e-9)
+_run_sweep = host_device_sweep(__name__, _host, _device, repeats=3, rtol=1e-3, atol=5e-4)  # the sweep block is tie-free, so the device runs float32 columns: the MI agrees to the rounding of the data (measured 1.3e-4)
 
 
 _SWEEP_ROWS = [5_000, 30_000, 100_000]
