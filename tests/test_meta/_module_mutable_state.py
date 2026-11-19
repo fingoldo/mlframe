@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import ast
 
+from py_ci_shared._core import walk
+
 MUTATING_METHODS = frozenset({"pop", "clear", "setdefault", "update", "popitem", "move_to_end"})
 
 
@@ -27,7 +29,7 @@ def is_dict_like_value(value: ast.AST) -> bool:
 
 def module_has_lock_construction(tree: ast.Module) -> bool:
     """True if the module constructs a ``Lock()``/``RLock()`` anywhere."""
-    for node in ast.walk(tree):
+    for node in walk(tree):
         if isinstance(node, ast.Call):
             func = node.func
             name = func.id if isinstance(func, ast.Name) else (func.attr if isinstance(func, ast.Attribute) else "")
@@ -57,7 +59,7 @@ def module_level_dicts(tree: ast.Module) -> dict[str, int]:
 def aliases_in(func: ast.AST, names: set[str]) -> dict[str, str]:
     """``{local: module_name}`` for plain local aliases ``local = MODULE_NAME`` inside ``func``."""
     out: dict[str, str] = {}
-    for node in ast.walk(func):
+    for node in walk(func):
         if isinstance(node, ast.Assign) and isinstance(node.value, ast.Name) and node.value.id in names:
             for t in node.targets:
                 if isinstance(t, ast.Name):
@@ -87,7 +89,7 @@ def mutations_of(func: ast.AST, names: set[str]) -> set[str]:
         return b if b in names else ""
 
     hit: set[str] = set()
-    for node in ast.walk(func):
+    for node in walk(func):
         targets: list = []
         if isinstance(node, ast.Assign):
             targets = [t for t in node.targets if isinstance(t, ast.Subscript)]
@@ -108,7 +110,7 @@ def mutations_of(func: ast.AST, names: set[str]) -> set[str]:
 
 def function_defs(tree: ast.Module) -> list:
     """Every function definition in the module, nested ones included."""
-    return [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    return [n for n in walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
 
 
 def mutable_module_dicts(tree: ast.Module) -> dict[str, int]:
@@ -156,7 +158,7 @@ def imported_module_dicts(
     qual = module_qualname(rel_posix)
     is_pkg = rel_posix.endswith("__init__.py")
     out: dict[str, str] = {}
-    for node in ast.walk(tree):
+    for node in walk(tree):
         if isinstance(node, ast.ImportFrom):
             src = _resolve_from(node, qual, is_pkg)
             names = dict_index.get(src) or set()

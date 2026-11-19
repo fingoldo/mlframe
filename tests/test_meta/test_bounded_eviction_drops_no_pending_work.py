@@ -23,6 +23,8 @@ from __future__ import annotations
 from tests.test_meta._scan_guard import assert_scanned_enough
 
 import ast
+
+from py_ci_shared._core import walk
 from pathlib import Path
 
 import pytest
@@ -67,7 +69,7 @@ def _evicts_at_all(tree: ast.Module, name: str) -> bool:
     names = set(module_level_dicts(tree))
     for fn in function_defs(tree):
         alias = aliases_in(fn, names)
-        for node in ast.walk(fn):
+        for node in walk(fn):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "popitem":
                 b = base_name(node.func.value)
                 if alias.get(b, b) == name:
@@ -121,8 +123,8 @@ def test_overflow_tests_exist_and_name_their_registry():
         test_path = REPO_ROOT / test_rel
         assert test_path.exists(), f"overflow test {test_rel} for {key} is missing"
         test_tree = parsed_ast(test_path)
-        referenced = {n.id for n in ast.walk(test_tree) if isinstance(n, ast.Name)} | {n.attr for n in ast.walk(test_tree) if isinstance(n, ast.Attribute)}
-        referenced |= {n.value for n in ast.walk(test_tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+        referenced = {n.id for n in walk(test_tree) if isinstance(n, ast.Name)} | {n.attr for n in walk(test_tree) if isinstance(n, ast.Attribute)}
+        referenced |= {n.value for n in walk(test_tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
         # The registry itself, or one of its own constants (``<NAME>_MAX`` sizes the overflow the test drives).
         assert any(r == name or r.startswith(name + "_") for r in referenced), f"{test_rel} never refers to {name}"
         tree = parsed_ast(MLFRAME_DIR / rel)
