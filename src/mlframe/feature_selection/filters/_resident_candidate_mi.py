@@ -496,9 +496,14 @@ def gate_grid_mi_resident(
         grid_off = 0
         if cm:
             grid_out = cp.empty((int(sum(len(t) for (_m, _c, _o, t) in specs)), int(length_of(specs[0][2][0]))), dtype=_gdt)
-        for mode, ctup, cols, taus in specs:
-            taus_g = cp.asarray(np.ascontiguousarray(np.asarray(taus, dtype=np.float64)))  # (k,)  # Intentional float64: gate threshold grid; compared at full precision
-            k_combo = int(taus_g.shape[0])
+        # the threshold grids of all combos cross the bus in ONE copy (one upload per combo before: 800 small copies a fit); each combo reads its slice of the device vector
+        _taus_host = [np.asarray(t, dtype=np.float64) for (_m, _c, _o, t) in specs]  # Intentional float64: gate threshold grids; compared at full precision
+        _taus_all = cp.asarray(np.ascontiguousarray(np.concatenate(_taus_host)))
+        _taus_off = 0
+        for (mode, ctup, cols, _taus), _th in zip(specs, _taus_host):
+            k_combo = int(_th.shape[0])
+            taus_g = _taus_all[_taus_off : _taus_off + k_combo]  # (k,)
+            _taus_off += k_combo
             blk = _tau_grid_block(cp, mode, ctup, cols, taus_g, out_ctype, grid_out[grid_off : grid_off + k_combo] if cm else None)
             if blk is None:
                 return None  # unknown mode -> host fallback
