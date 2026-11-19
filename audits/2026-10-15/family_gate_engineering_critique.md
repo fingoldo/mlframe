@@ -10,12 +10,12 @@ Source: read-only critique agent, 2026-10-15. Measurements are marked "measured"
 - Must be reproduced and traced before the strict default can be claimed for every fit.
 
 ### F02 - Family gate is a small share of fit time on that run
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED (2026-11-18: informational measurement of one run, superseded by the whole-fit nvprofs of the 2026-11-09 tracker)
 - Measured: 25.2 s total fit; `family_null_max_njit` 0.47-0.48 s over 4 calls (about 2%). Top items: llvmlite ffi 3.77 s, lock acquire 1.95 s, `hermite_fe/__init__.py:75` 1.04 s, io.open 0.99 s, `_usability_njit_pool.py:447` 0.65 s.
 - The 2.2 s family share reported earlier was on a different fit (larger K); cost depends on the data.
 
 ### F03 - Per-permutation kernel cost
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED (2026-11-18: informational; the permutation kernel was replaced by the bit-set null kernels, tracker FC11-04 to FC11-06)
 - Measured with K=1734 quantile columns, 10 bins: 2.27 ms per permutation at n=2000 (22.7 s per 1e4 permutations); 18.7 ms at n=20000 (187 s per 1e4). Shuffled-label null exceedance fraction 0.40 (n=2000) and 0.44 (n=20000).
 
 ### F04 - Resolution of the quantile threshold at 999 permutations
@@ -23,16 +23,16 @@ Source: read-only critique agent, 2026-10-15. Measurements are marked "measured"
 - Quantile index with `method="higher"` at alpha <= 1e-3 selects the maximum of the null with B=999. Replaced by `exact_pvalue_pass` in `_family_maxt_gate.py`.
 
 ### F05 - Sequential stopping cost estimate
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED (2026-11-18: see the statistics report F03, exact early stop in place)
 - Estimate: Besag-Clifford style stopping after h=10 exceedances takes about h/q, roughly 25 permutations for noise families (q around 0.4 measured), about 57 ms at n=2000 versus 2.3 s for 999. Plans: 0.7 s and 4.5 s per noise/near-threshold family at n=2000; 5.6 s and 37 s at n=20000 (estimate).
 - Implementation pending (statistics file F03).
 
 ### F06 - Reaching alpha = 1e-4 needs 1e4 permutations or an extreme-value approximation
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED (2026-11-18: premise removed by F15 option B; the EVT fit was not adopted, the analytic tail of the triage is labelled approximate)
 - Exact certification at 1e-4 costs 23 s per family at n=2000 and 187 s at n=20000 (estimate from F03), only for passing families. Alternative: GPD/EVT fit to the null maxima, labelled as an approximation.
 
 ### F07 - Narrow the family to configurations above the table floor
-- **Disposition**: OPEN
+- **Disposition**: WON'T FIX (2026-11-18: superseded. The cost it was meant to cut was about 2 percent of a fit (F02) and the analytic triage plus the bit-set kernels removed it further; narrowing K before the family test is not implemented as described)
 - The table cascade currently checks only the best configuration (`_pairs_emit.py` cascade around the family call). Filtering K to configurations whose observed MI is above the floor before the family test would shrink the kernel cost (estimate: proportional to K).
 
 ### F08 - Shared permutations across pairs of the same n
@@ -44,7 +44,7 @@ Source: read-only critique agent, 2026-10-15. Measurements are marked "measured"
 - Discretised codes are reused from the pair search (`_pairs_score_steps.py`, codes stored per configuration; `_pairs_chunks.py` passes the chunk codes).
 
 ### F10 - cupy path for the family kernel
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED (2026-11-18: the device path exists, `_family_maxt_cuda_bits.py` with the family_null_bits kernels, tracker FC11-04 to FC11-07)
 - Not measured. Estimate 3-10x, but the GTX 1050 Ti has 4 GB and contention with other jobs; not a priority until the CPU design is fixed.
 
 ### F11 - Bit-identity across thread counts
@@ -52,7 +52,7 @@ Source: read-only critique agent, 2026-10-15. Measurements are marked "measured"
 - Permutations are drawn serially from one rng; each parallel task writes its own element; the maximum does not depend on order. Checked: block kernel vs per-permutation loop gives maximum absolute difference 0.0.
 
 ### F12 - Strict default hook
-- **Disposition**: OPEN
+- **Disposition**: WON'T FIX (2026-11-18: the MRMR constructor is frozen by the permanent owner decision FL11-01; the screen level is a parameter of `screen_predictors`, the pair level is `0.001 / len(prospective_pairs)`, the fallback uses `FAMILY_ALPHA`)
 - The alpha must become a constructor parameter in `filters/mrmr/_mrmr_class.py` (`__init__` near line 364), stored on the instance and passed to the pair gate in `_pairs_core.py` (currently `0.01 / len(prospective_pairs)` near line 903). The same parameter must be generated into `training/fs_params/mrmr.py` (generator `fs_params/_spec.py`, `_generate.py`), with the sync test `tests/training/test_fs_params_in_sync.py`.
 - The hook covers only the pair path. The raw screen (`_screen_predictors_prescreen.py`) and the fallback need the same parameter; that is where F01 was observed.
 
@@ -68,7 +68,7 @@ Source: read-only critique agent, 2026-10-15. Measurements are marked "measured"
 5. Keep the EVT approximation (F06) as an option, labelled approximate.
 
 ### F14 - Raw screen floor at the 0.975 level admits noise (root cause of F01)
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED (2026-11-18: superseded: the screen default is quantile 0.998 since level_strictness F01 and the honest MDLP null (F18 to F21) removed the in-sample bias; pure-noise suite 90/90)
 - Measured on the reproduction data (n=2000, 30 features, seed 0): the first raw confirmation step accepts `f24` with gain 0.00539; the maxT screen floor (`compute_fdr_gain_floor`, quantile 0.975, 999 permutations, pool of 30 features) is 0.003788, so the gate passes (`_screen_predictors_prescreen.py`, `_screen_predictors.py:285` default `screen_fdr_null_quantile = 0.975`).
 - The exact rule with the same level gives the same threshold: 0.975 with B=999 selects the 25th largest null maximum, which corresponds to alpha = 0.025 family-wise. So the screen is calibrated at 2.5%, not at a strict level. This is the level decision, not a rule bug.
 - Consequence: a pure-noise fit selects something with probability about 2.5% from the screen alone, which matches the three noise failures in the suite.
@@ -85,14 +85,14 @@ Source: read-only critique agent, 2026-10-15. Measurements are marked "measured"
 - Two defensible directions: (A) strict default (1e-4) with the weak dense test reframed to an explicit lower-power level; (B) a compromise level (e.g. 0.025 as before) and accept a documented noise-selection rate of about 2.5% per fit. The choice is a product decision, not a code fix.
 
 ### F16 - False-selection rate is far above the designed level for a binary target
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED (2026-11-18: root cause F18, fixed by F20 and F21; pure-noise suite 90/90, binary/normal 0/20 with quantile bins)
 - Measured (20 seeds per case, n=2000, 8 features, current defaults: screen 0.975 with 999 permutations, pairs Bonferroni, fallback exact test at 1%): normal/binary 5/20, normal/continuous 1/20, uniform/binary 6/20 (uniform/continuous was still running at the time of writing).
 - Binary target: about 25-30% of fits select a feature on pure noise, against the designed 2.5% for the screen. Continuous target: about 5%. So a leak exists outside the screen level for binary targets.
 - Consequence: rewriting the noise test to a rate contract now would hide a real defect. The contract change (F16 decision) waits until the rate is explained.
 - Next: trace which gate admits the features on the binary-target false cases (`D:/Temp/mypyrepro/prof/binary_fp_trace.py`).
 
 ### F17 - Screen gain and its null floor are on different statistics (binary target)
-- **Disposition**: OPEN (root cause of the binary-target false selections, F16)
+- **Disposition**: COMPLETED (2026-11-18: same root cause and fix as F16, F18 to F21)
 - Measured on seed 0 of the pure-noise binary case (normal features, n=2000, 8 columns): the library's gain for the selected column `c6` is 0.005668, the screen floor is 0.002864, so the gate passes (`_screen_predictors_gate.py`, `compute_selection_gate`, trace `D:/Temp/mypyrepro/prof/binary_floor_trace.py`).
 - Independent check on the same data (plug-in MI, 10 quantile bins, 999 label permutations, `_family_maxt_gate.family_maxt_threshold`): `c6` MI = 0.00365, null 97.5% of the family maximum = 0.00624, and 58.6% of null maxima are at or above the observed value. The column is pure noise.
 - So the gain fed to the gate is about 0.0020 higher than the plug-in MI of the same column, roughly the size of the Miller-Madow term for this table, and the floor is calibrated on a different quantity. The gate therefore compares unlike statistics.
@@ -100,7 +100,7 @@ Source: read-only critique agent, 2026-10-15. Measurements are marked "measured"
 - Consequence for F16: the rate contract change must wait until F17 is fixed; otherwise the test would accept a 25% false-selection rate.
 
 ### F17 (correction) - the gain differs from the plug-in MI of the same binned column
-- **Disposition**: OPEN
+- **Disposition**: COMPLETED (2026-11-18: same root cause and fix as F16, F18 to F21)
 - The earlier independent check used 10 bins for `c6`; the screen uses 6 bins for that column (adaptive nbins, measured with `binary_floor_trace.py`). Redone with 6 bins: plug-in MI 0.00282, null 97.5% = 0.00436, 32.6% of null maxima at or above the observed value. The column is noise.
 - The gain the gate compares is 0.00567 for the same column, about twice its plug-in MI on the same bins; the floor (0.00286) is on the plug-in scale. So the gate compares gain against a null on a different statistic. The inflation is in the gain path, not in the null.
 - Next: trace how `best_gain` is computed for order-1 candidates (mi_direct, null-mean subtraction, debiasing branch in `filters/evaluation.py` around the relevance screen) on this column, and make the gate compare the same quantity the null is built on.

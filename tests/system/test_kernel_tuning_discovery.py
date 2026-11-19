@@ -51,7 +51,8 @@ def test_a_benchmark_script_is_never_run_so_the_process_keeps_its_gpu(package, m
     monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
     _discovery.discover_specs(package)
     assert "ktcpkg.bench_poison" not in sys.modules
-    assert "CUDA_VISIBLE_DEVICES" not in os.environ
+    env_unset = "CUDA_VISIBLE_DEVICES" not in os.environ
+    assert env_unset
     assert sys.modules["cupy"] is fake_cupy
     assert sys.modules["ktcpkg.reg_a"].SEEN_CUPY is fake_cupy
 

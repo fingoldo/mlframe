@@ -112,10 +112,23 @@ def _bin_held_block(blk, meta, pending, st, need_recompute_map, config_by_i, qua
     _n_held = len(meta)
     _vals = rows_to_columns(blk[:_n_held])  # ``blk`` holds one candidate per row
     scrub_nonfinite(_vals)
+    _codes = None
     try:
-        from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
+        from ._pairs_core import _fe_gpu_binning_enabled
 
-        _codes = discretize_2d_quantile_batch(_vals, n_bins=quantization_nbins, dtype=quantization_dtype, parallel=True)
+        if _fe_gpu_binning_enabled(_vals.shape[0], _n_held):
+            from .._gpu_resident_fe import gpu_discretize_codes_host
+
+            # Same GPU binning as the other pair-scoring sites (bit-identical codes); a failure keeps the CPU batch below.
+            _codes = gpu_discretize_codes_host(_vals, int(quantization_nbins), dtype=quantization_dtype)
+    except Exception:
+        log_throttle(logger, "pairs_recompute_gpu_binning", logging.WARNING, "pair recompute: GPU binning failed, discretising on the CPU", exc_info=True)
+        _codes = None
+    try:
+        if _codes is None:
+            from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch
+
+            _codes = discretize_2d_quantile_batch(_vals, n_bins=quantization_nbins, dtype=quantization_dtype, parallel=True)
     except Exception as _exc:
         logger.warning("pair-step: blocked binning failed, falling back to per-column binning: %s", _exc)
         _codes = np.stack(

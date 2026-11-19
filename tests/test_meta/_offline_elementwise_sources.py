@@ -60,8 +60,26 @@ class Site:
 
     def evaluate(self, env: dict) -> dict:
         """``{parameter name: value}`` of the code-bearing arguments evaluated under ``env`` (and the module's string constants)."""
-        scope = {**self.constants, **env}
+        scope = _ModuleScope({**self.constants, **env}, self.rel)
         return {n: _eval(self.args[n], scope) for n in self.names}
+
+
+class _ModuleScope(dict):
+    """The site's scope: literal constants first; a name that is not a literal (a body built at import time, e.g. ``_BODY = re.sub(...)``) is read from the imported module, so the test sees the text production compiles."""
+
+    def __init__(self, base: dict, rel: str) -> None:
+        """Keep the base names and the module path (``feature_selection/filters/x.py`` -> ``mlframe.feature_selection.filters.x``)."""
+        super().__init__(base)
+        self._module = "mlframe." + rel[: -len(".py")].replace("/", ".")
+
+    def __missing__(self, name: str) -> object:
+        """Import the module once and return the attribute; a name the module does not define still raises ``KeyError``."""
+        import importlib
+
+        module = importlib.import_module(self._module)
+        if not hasattr(module, name):
+            raise KeyError(name)
+        return getattr(module, name)
 
 
 def _eval(node: ast.AST, scope: dict) -> object:

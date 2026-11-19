@@ -447,21 +447,52 @@ def crossbasis_device_chosen(n_rows: int) -> bool:
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 
-def _product_mi_blocked(cp: Any, raw_X: pd.DataFrame, specs: Sequence[dict], y: Any, nbins: int, basis: str) -> np.ndarray:
-    """Plug-in MI of every product column of ``specs`` (built by :func:`build_leg_product_matrix_gpu`) against ``y``, a column block at a time.
+def _product_mi_blocked_many(cp: Any, raw_X: pd.DataFrame, specs: Sequence[dict], ys: Sequence[Any], nbins: int, basis: str) -> np.ndarray:
+    """``(len(ys), K)`` plug-in MI of every product column of ``specs`` (built by :func:`build_leg_product_matrix_gpu`) against each target of ``ys``, a column block at a time.
 
-    The product matrix is ``n x K`` double; a block of specs is built, scored by the resident plug-in MI and released, so the working set is a block (a quarter of the room under this thread's pool
-    limit over three copies of its columns) however many candidates there are. A column's MI depends on that column alone, so the blocks give the single-matrix values."""
+    The product matrix is ``n x K`` double; a block of specs is built ONCE, scored against every target by the resident plug-in MI and released, so the working set is a block (a quarter of the room
+    under this thread pool limit over three copies of its columns) however many candidates there are. A column MI depends on that column and the target alone, so the blocks give the single-matrix
+    values and a target scored here equals the same target scored alone."""
     from .._device_sort_safe import device_room
 
     n = len(raw_X)
     block_cols = int(max(1, min(len(specs), (device_room(cp) // 4) // max(1, 3 * n * 8))))
-    parts = []
+    parts: list = [[] for _ in ys]
     for c0 in range(0, len(specs), block_cols):
         mat_gpu = build_leg_product_matrix_gpu(cp, raw_X, list(specs[c0 : c0 + block_cols]), basis=basis, column_major=True)
-        parts.append(_resident_mi(cp, mat_gpu, y, nbins, column_major=True))
+        for slot, y in zip(parts, ys):
+            slot.append(_resident_mi(cp, mat_gpu, y, nbins, column_major=True))
         del mat_gpu
-    return np.concatenate(parts) if parts else np.empty((0,), dtype=np.float64)  # Intentional float64: host cross-basis output contract
+    return np.stack([np.concatenate(p) if p else np.empty((0,), dtype=np.float64) for p in parts])  # Intentional float64: host cross-basis output contract
+
+
+def _product_mi_blocked(cp: Any, raw_X: pd.DataFrame, specs: Sequence[dict], y: Any, nbins: int, basis: str) -> np.ndarray:
+    """Plug-in MI of every product column of ``specs`` against the one target ``y`` (see :func:`_product_mi_blocked_many`)."""
+    row: np.ndarray = np.asarray(_product_mi_blocked_many(cp, raw_X, specs, [y], nbins, basis)[0])
+    return row
+
+
+def product_mi_many_targets_resident(
+    raw_X: pd.DataFrame, engineered_X: pd.DataFrame, ys: Sequence[Any], col_specs: Sequence[dict], *, nbins: int, basis: str = "auto"
+) -> Optional[np.ndarray]:
+    """``(len(ys), K)`` engineered product-matrix MI of the columns of ``engineered_X`` against each target of ``ys`` with the product matrix built once, or ``None`` when the device-born path does not apply.
+
+    The permutation-null floors score the same candidates against a handful of shuffled targets and need no raw baseline; every row equals the engineered MI of :func:`raw_and_product_mi_resident` for that
+    target. ``col_specs`` aligns 1:1 with the columns of ``engineered_X``."""
+    try:
+        import cupy as cp
+    except ImportError as e:
+        logger.debug("cupy import failed: %s", e)
+        return None
+    if engineered_X is None or engineered_X.shape[1] == 0 or len(ys) == 0 or len(col_specs) != engineered_X.shape[1]:
+        return None
+    try:
+        if not crossbasis_device_chosen(len(raw_X)):
+            return None
+        return _product_mi_blocked_many(cp, raw_X, list(col_specs), list(ys), nbins, basis)
+    except Exception as _exc:
+        logger.debug("product_mi_many_targets_resident: GPU path failed (%s); host fallback", _exc)
+        return None
 
 
 def raw_and_product_mi_resident(

@@ -22,6 +22,7 @@ pytestmark = pytest.mark.skipif(not _device_ok(), reason="no CUDA device")
 def test_cache_bytes_stay_under_the_budget(monkeypatch):
     """With a budget of three 8 KB operands, uploading six keeps at most three, the newest last."""
     R._FE_RESIDENT_OPERANDS.clear()
+    R._BIGGEST_SEEN[0] = 0  # the size bound that lets an upload skip the byte sum starts from nothing
     monkeypatch.setattr(R, "_resident_bytes_budget", lambda _cp: 3 * 1000 * 8)
     arrays = [np.full(1000, float(i)) for i in range(6)]
     got = [R.resident_operand(a, ("t", i)) for i, a in enumerate(arrays)]
@@ -31,3 +32,16 @@ def test_cache_bytes_stay_under_the_budget(monkeypatch):
     np.testing.assert_array_equal(cp.asnumpy(got[-1]), arrays[-1])
     assert R.resident_operand(arrays[-1], ("t", 5)) is got[-1]
     R._FE_RESIDENT_OPERANDS.clear()
+    R._BIGGEST_SEEN[0] = 0
+
+
+def test_a_table_that_cannot_exceed_the_budget_is_not_summed(monkeypatch):
+    """With room for far more than the entries held, an upload evicts nothing and never walks the table for its byte total."""
+    R._FE_RESIDENT_OPERANDS.clear()
+    R._BIGGEST_SEEN[0] = 0
+    monkeypatch.setattr(R, "_resident_bytes_budget", lambda _cp: 10**9)
+    got = [R.resident_operand(np.full(1000, float(i)), ("bound", i)) for i in range(5)]
+    assert len(R._FE_RESIDENT_OPERANDS) == 5 and R._BIGGEST_SEEN[0] == 1000 * 8
+    assert all(R.resident_operand(np.full(1000, float(i)), ("bound", i)) is got[i] for i in range(5))
+    R._FE_RESIDENT_OPERANDS.clear()
+    R._BIGGEST_SEEN[0] = 0

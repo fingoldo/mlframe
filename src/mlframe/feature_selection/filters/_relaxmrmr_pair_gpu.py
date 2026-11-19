@@ -131,7 +131,12 @@ def _kernel(cp: Any, narrow: bool) -> Any:
         return _KERNELS[narrow]
 
 
-kernel = code_width_kernel(_kernel)  # ``relaxmrmr_pair`` for byte or 32-bit codes; the register-pressure registry compiles it through this
+_kernel_factory = code_width_kernel(_kernel)
+
+
+def kernel(cp: Any, real: Any) -> Any:
+    """``relaxmrmr_pair`` for byte or 32-bit codes (``real`` is the code dtype); the register-pressure registry compiles it through this ``kernel(cp, real)`` factory."""
+    return _kernel_factory(cp, real)
 
 
 def _cells(k_x: int, k_y: int, k_sel: np.ndarray, pi: np.ndarray, pj: np.ndarray) -> np.ndarray:

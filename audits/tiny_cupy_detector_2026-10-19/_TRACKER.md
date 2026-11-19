@@ -4,14 +4,14 @@ Procedure per row (owner instruction, no stopping for questions): capture the re
 
 | Status | # | Site | Measured / note |
 |---|------|--------|-----------------|
-| **TODO** | A2 | `_batch_mi_noise_gate_screen_v1.py::batch_mi_with_noise_gate_cupy_v1` loop at 139 | per permutation H2D, bincount, D2H |
+| **CLOSED** (sweep 2026-11-18, was TODO: LEGACY in the triage table: no caller beyond a re-export, a host loop over permutations off the fit path) | A2 | `_batch_mi_noise_gate_screen_v1.py::batch_mi_with_noise_gate_cupy_v1` loop at 139 | per permutation H2D, bincount, D2H |
 | **DONE** | A4 | `_binned_numeric_agg_resident.py::_binagg_null_calibrated_floor` 435 | target-free candidate preparation (radix edges, casts, transpose) hoisted out of the permutation loop through `candidate_cache`; 1.5x to 2.0x isolated, floors bit-equal |
-| **TODO** | A10 | `_cupy_polynom_optimizer.py::run_cupy_kernel_search` 240 | generations are dependent; only uploads can merge |
+| **CLOSED** (sweep 2026-11-18, was TODO: FALSE POSITIVE in the triage table: sequential generations, each one batched generation) | A10 | `_cupy_polynom_optimizer.py::run_cupy_kernel_search` 240 | generations are dependent; only uploads can merge |
 | A16 | `_fe_additive_fusion_gpu_resident.py::_gpu_relevant_halves` 195 | TODO | |
 | A17 | `_fe_additive_fusion_gpu_resident.py::_subsumed_raw_operand_check_gpu` 429 | TODO | |
-| **TODO** | A18 | `_fe_additive_fusion_gpu_resident.py::propose_additive_fusions_gpu` 390 | 0.59 s cum in f2 |
+| **SUPERSEDED** (sweep 2026-11-18, was TODO: tracked by the REAL rows of tiny_cupy_high_triage.md (GPU11-72), one list instead of two) | A18 | `_fe_additive_fusion_gpu_resident.py::propose_additive_fusions_gpu` 390 | 0.59 s cum in f2 |
 | A24 | `_fe_cmi_redundancy_gate.py::_apply_cmi_redundan_partition_collapses_same_key` 740 | TODO | |
-| **TODO** | A25 | `_fe_cmi_redundancy_gate.py::_gate_round` 479 | batched path exists, default off |
+| **SUPERSEDED** (sweep 2026-11-18, was TODO: tracked by the REAL rows of tiny_cupy_high_triage.md (GPU11-72), one list instead of two) | A25 | `_fe_cmi_redundancy_gate.py::_gate_round` 479 | batched path exists, default off |
 | A40 | `_hinge_detect_gpu_resident_batch.py::detect_hinge_breakpoints_gpu_batch` 145 | TODO | |
 | B1 | `_mi_greedy_cmi_fe_steps.py::_renumber_joint_gpu` 277 | TODO | |
 | B4 | `_mrmr_fe_step/_step_score.py::_score_candidates_one_by_one` 59 | TODO | |
@@ -24,10 +24,10 @@ Procedure per row (owner instruction, no stopping for questions): capture the re
 | B20 | `_unified_fe_gate.py::unified_second_pass_gate` 475 | TODO | |
 | B25 | `_usability_greedy_clf_gpu_resident.py::_usability_greedy_c_range_min` 462 | TODO | |
 | B26 | `_usability_greedy_clf_gpu_resident.py::_shortlist` 446 | TODO | |
-| **TODO** | B28 | `_usability_greedy_gpu_resident.py::_usability_greedy_g_range_min` 410 | 1.04 s cum (`_cv_candidates`) |
+| **SUPERSEDED** (sweep 2026-11-18, was TODO: the g_range_min loop is a sequential-rounds false positive; the _cv_candidates REAL row is tracked by the REAL rows of tiny_cupy_high_triage.md (GPU11-72), one list instead of two) | B28 | `_usability_greedy_gpu_resident.py::_usability_greedy_g_range_min` 410 | 1.04 s cum (`_cv_candidates`) |
 | B29 | `_usability_greedy_gpu_resident.py::_shortlist` 269 | TODO | |
-| **PARTIAL** | B31 | `_usability_pool_resident.py::score_pair_combos_table_resident` 244 | profiled: bound by radix select 50% and Miller-Madow MI 28%; unary stack kernel + operand cache 1.6-3.3% faster; shared-memory sort prototype rejected (slower at n=3000) |
-| **DEFERRED** | B35 | `_wavelet_basis_fe_batched.py::_per_leg_matrices` 131 | reached only when the fused leg kernels do not apply |
-| **TODO** | B38 | `hermite_fe/_als_fused_gpu.py::als_sweep_fused` 209 | 0.70 s cum, 542 calls, dependent sweeps |
+| **SUPERSEDED** (sweep 2026-11-18, was PARTIAL: profiled and the prototype rejected; REAL row tracked by the REAL rows of tiny_cupy_high_triage.md (GPU11-72), one list instead of two) | B31 | `_usability_pool_resident.py::score_pair_combos_table_resident` 244 | profiled: bound by radix select 50% and Miller-Madow MI 28%; unary stack kernel + operand cache 1.6-3.3% faster; shared-memory sort prototype rejected (slower at n=3000) |
+| **CLOSED** (sweep 2026-11-18, was DEFERRED: FALLBACK in the triage table: reached only when the fused leg kernels do not apply) | B35 | `_wavelet_basis_fe_batched.py::_per_leg_matrices` 131 | reached only when the fused leg kernels do not apply |
+| **CLOSED** (sweep 2026-11-18, was TODO: FALSE POSITIVE in the triage table: sequential ALS iterations, each a few fused kernels) | B38 | `hermite_fe/_als_fused_gpu.py::als_sweep_fused` 209 | 0.70 s cum, 542 calls, dependent sweeps |
 
 Related fixes made on the way (not from this list, found by profiling the pillar fits): `family_null_bits_v2` (3.6x), noise gate on bit sets (7.2x), content memos for an FE-step retry, adjacent-column transpose, narrow label gathers.

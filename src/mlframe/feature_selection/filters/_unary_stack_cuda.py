@@ -10,42 +10,46 @@ A small per-call cache keyed by the operand's device buffer lets an operand that
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from typing import Any, Optional
 
 import numpy as np
 
-from mlframe.utils.log_throttle import log_throttle
+from ._unary_op_table import UNARY_OP_CODES
 
 logger = logging.getLogger(__name__)
 
-_BODY = r"""
+_BODY_TEMPLATE = r"""
     long long c = i / n;
     long long j = i - c * n;
     T v = x[j];
     int code = codes[c];
     T r;
     switch (code) {
-        case 0: r = v; break;
-        case 1: r = -v; break;
-        case 2: r = fabs(v); break;
-        case 3: r = v * v; break;
-        case 4: r = v == T(0) ? T(1e9) : T(1.0) / v; break;
-        case 5: r = sqrt(fabs(v)); break;
-        case 6: r = pos ? log(v) : log(v + shift); break;
-        case 7: r = sin(v); break;
-        case 8: r = isnan(v) ? v : (T)((v > T(0)) - (v < T(0))); break;   // NaN stays NaN, as np.sign and the njit twins give
-        case 9: r = rint(v); break;
-        case 10: r = v * v * v; break;
-        case 11: r = v == T(0) ? T(1e9) : T(1.0) / (v * v); break;
-        case 12: r = v == T(0) ? T(1e9) : T(1.0) / (v * v * v); break;
-        case 13: r = cbrt(v); break;
-        case 14: r = v == T(0) ? T(1e9) : pow(v, T(-1.0 / 3.0)); break;
-        case 15: r = v == T(0) ? T(1e9) : pow(v, T(-0.5)); break;
+        case @identity@: r = v; break;
+        case @neg@: r = -v; break;
+        case @abs@: r = fabs(v); break;
+        case @sqr@: r = v * v; break;
+        case @reciproc@: r = v == T(0) ? T(1e9) : T(1.0) / v; break;
+        case @sqrt@: r = sqrt(fabs(v)); break;
+        case @log@: r = pos ? log(v) : log(v + shift); break;
+        case @sin@: r = sin(v); break;
+        case @sign@: r = isnan(v) ? v : (T)((v > T(0)) - (v < T(0))); break;   // NaN stays NaN, as np.sign and the njit twins give
+        case @rint@: r = rint(v); break;
+        case @qubed@: r = v * v * v; break;
+        case @invsquared@: r = v == T(0) ? T(1e9) : T(1.0) / (v * v); break;
+        case @invqubed@: r = v == T(0) ? T(1e9) : T(1.0) / (v * v * v); break;
+        case @cbrt@: r = cbrt(v); break;
+        case @invcbrt@: r = v == T(0) ? T(1e9) : pow(v, T(-1.0 / 3.0)); break;
+        case @invsqrt@: r = v == T(0) ? T(1e9) : pow(v, T(-0.5)); break;
         default: r = exp(v); break;
     }
     out = r;
 """
+
+# The case labels are written by name and filled from the shared table, so the kernel and the numba ladder cannot disagree about a code (``exp`` is the default branch, as in the ladder).
+_BODY = re.sub(r"@(\w+)@", lambda m: str(UNARY_OP_CODES[m.group(1)]), _BODY_TEMPLATE)
 
 _KERNEL: Optional[Any] = None
 _KERNEL_LOCK = threading.Lock()
@@ -80,14 +84,13 @@ def unary_stack_cuda(d_x: Any, codes_d: Any, xmin: float) -> Optional[Any]:
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
 
         if not fe_gpu_has_vram_cushion(nu * n * d_x.dtype.itemsize):
-            log_throttle(logger, "unary_stack_cuda.no_vram_cushion", logging.WARNING, "unary_stack_cuda: no VRAM cushion for a (%d, %d) stack; using the per-unary path", nu, n)
             return None
         out = cp.empty((nu, n), dtype=d_x.dtype)
         shift = float(1e-5 - xmin) if xmin <= 0.0 else 0.0
         _kernel(cp)(d_x, codes_d, np.int64(n), d_x.dtype.type(shift), bool(xmin > 0.0), out)
         return out
     except Exception as exc:  # nosec B110 - any device or compile failure falls back to the per-unary cupy path
-        log_throttle(logger, "unary_stack_cuda.unavailable", logging.WARNING, "unary_stack_cuda unavailable (%s: %s); using the per-unary path", type(exc).__name__, exc)
+        logger.debug("unary_stack_cuda unavailable (%s: %s); using the per-unary path", type(exc).__name__, exc)
         try:
             import cupy as _cp
 

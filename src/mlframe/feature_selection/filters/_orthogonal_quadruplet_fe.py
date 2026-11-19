@@ -378,11 +378,39 @@ def _quadruplet_null_engineered_mi_floor(
     """
     rng = np.random.default_rng(_QUADRUPLET_NULL_SEED)  # seed-ok: raw_X_seed is the raw-column frame, not an RNG seed; the chance ceiling is deliberately one fixed, reproducible draw
     y_arr = np.asarray(y)
-    maxima = []
-    for _ in range(int(n_perm)):
-        null_df = score_quadruplet_cross_basis_by_mi_uplift(raw_X_seed, quad_eng, rng.permutation(y_arr), nbins=nbins, basis=basis)
-        maxima.append(float(null_df["engineered_mi"].max()) if not null_df.empty else 0.0)
+    perms = [rng.permutation(y_arr) for _ in range(int(n_perm))]  # the draws of the per-permutation loop, in the same order
+    maxima = _null_maxima_device(raw_X_seed, quad_eng, perms, nbins, basis)
+    if maxima is None:
+        maxima = []
+        for perm in perms:
+            null_df = score_quadruplet_cross_basis_by_mi_uplift(raw_X_seed, quad_eng, perm, nbins=nbins, basis=basis)
+            maxima.append(float(null_df["engineered_mi"].max()) if not null_df.empty else 0.0)
     return float(np.quantile(maxima, float(quantile)))
+
+
+def _null_maxima_device(raw_X_seed: pd.DataFrame, quad_eng: pd.DataFrame, perms: list, nbins: int, basis: str) -> "list | None":
+    """Per-permutation best engineered MI of the quadruplet columns, the product matrix built once on the device and scored against every shuffled target (``None``: the host loop runs).
+
+    Equals the loop over :func:`score_quadruplet_cross_basis_by_mi_uplift` on the device-born path: the same product columns, the same resident plug-in MI per target; only the four-leg columns count,
+    as that scorer skips the rest, and no raw baseline is computed because the floor never reads it."""
+    if quad_eng.empty or not perms:
+        return None
+    specs = _quadruplet_device_col_specs(quad_eng.columns, list(raw_X_seed.columns))
+    if specs is None:
+        return None
+    from ._orthogonal_univariate_fe._orth_pair_cross_fe import _crossbasis_device_born_on
+
+    if not _crossbasis_device_born_on():
+        return None
+    from ._orthogonal_univariate_fe._gpu_resident_cross_basis import product_mi_many_targets_resident
+
+    mi = product_mi_many_targets_resident(raw_X_seed, quad_eng, [coerce_y_classif(p) for p in perms], specs, nbins=nbins, basis=basis)
+    if mi is None:
+        return None
+    four_leg = np.array([len((c.rsplit("__", 1)[0] if "__" in c else c).split("*")) == 4 for c in quad_eng.columns])
+    if not four_leg.any():
+        return [0.0] * len(perms)
+    return [float(np.max(row[four_leg])) for row in mi]
 
 
 def hybrid_orth_mi_quadruplet_fe(

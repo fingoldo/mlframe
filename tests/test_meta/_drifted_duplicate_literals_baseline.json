@@ -87,10 +87,6 @@
     "literal-set::(8000, 32000)::feature_selection/filters/_fe_interaction_prerank_kernels.py feature_selection/filters/_pair_mi_perm_cuda.py": {
       "count": 1,
       "note": "Sample-size sweep for two separate tuning passes (the GBM cost sweep and the pair-floor sweep), each sized to its own kernel's crossover."
-    },
-    "literal-set::(9, 11, 13, 14, 15)::feature_selection/filters/_gpu_resident_operand_build.py feature_selection/filters/_numba_utils_usability.py feature_selection/filters/_unary_stack_cuda.py": {
-      "count": 1,
-      "note": "Unary op-code ids shared by the numba ladder, the CUDA source and the CPU dispatch that map an integer code to the same operation; a renumbering must change every site together, so the list is kept in step by hand (a single source of truth is the follow-up)."
     }
   },
   "gate": "drifted-duplicate-literals",

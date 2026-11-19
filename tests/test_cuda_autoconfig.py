@@ -46,7 +46,8 @@ def test_skips_when_cuda_path_already_set(monkeypatch, tmp_path):
     monkeypatch.setattr(sysconfig, "get_paths", lambda *a, **k: {"purelib": str(tmp_path), "platlib": str(tmp_path)})
     mlframe._autoconfigure_cuda_home()
     assert os.environ.get("CUDA_PATH") == real_install  # untouched
-    assert "CUDA_HOME" not in os.environ
+    env_unset = "CUDA_HOME" not in os.environ
+    assert env_unset
 
 
 def test_skips_when_versioned_system_installer_var_present(monkeypatch, tmp_path):
@@ -57,8 +58,10 @@ def test_skips_when_versioned_system_installer_var_present(monkeypatch, tmp_path
     _make_fake_pip_nvvm(tmp_path)
     monkeypatch.setattr(sysconfig, "get_paths", lambda *a, **k: {"purelib": str(tmp_path), "platlib": str(tmp_path)})
     mlframe._autoconfigure_cuda_home()
-    assert "CUDA_HOME" not in os.environ
-    assert "CUDA_PATH" not in os.environ
+    env_unset = "CUDA_HOME" not in os.environ
+    assert env_unset
+    env_unset = "CUDA_PATH" not in os.environ
+    assert env_unset
 
 
 def test_skips_on_opt_out(monkeypatch, tmp_path):
@@ -68,7 +71,8 @@ def test_skips_on_opt_out(monkeypatch, tmp_path):
     _make_fake_pip_nvvm(tmp_path)
     monkeypatch.setattr(sysconfig, "get_paths", lambda *a, **k: {"purelib": str(tmp_path), "platlib": str(tmp_path)})
     mlframe._autoconfigure_cuda_home()
-    assert "CUDA_HOME" not in os.environ
+    env_unset = "CUDA_HOME" not in os.environ
+    assert env_unset
 
 
 def test_no_op_when_no_pip_nvvm(monkeypatch, tmp_path):
@@ -76,7 +80,8 @@ def test_no_op_when_no_pip_nvvm(monkeypatch, tmp_path):
     _clear_cuda_env(monkeypatch)
     monkeypatch.setattr(sysconfig, "get_paths", lambda *a, **k: {"purelib": str(tmp_path), "platlib": str(tmp_path)})
     mlframe._autoconfigure_cuda_home()  # tmp_path has no nvidia/ tree
-    assert "CUDA_HOME" not in os.environ
+    env_unset = "CUDA_HOME" not in os.environ
+    assert env_unset
 
 
 def _make_fake_complete_toolkit(root):
@@ -109,4 +114,5 @@ def test_no_repair_when_cuda_path_already_complete(monkeypatch, tmp_path):
     monkeypatch.setenv("CUDA_PATH", complete)
     mlframe._autoconfigure_cuda_home()
     assert os.environ.get("CUDA_PATH") == complete  # untouched
-    assert "CUDA_HOME" not in os.environ
+    env_unset = "CUDA_HOME" not in os.environ
+    assert env_unset

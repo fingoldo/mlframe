@@ -305,13 +305,15 @@ class TestInlineDisplayOptOut:
         assert detect_interactive_session() is True
         assert get_inline_display_mode() is True
         # The override must NOT leak into the process-wide env (isolates concurrent suites).
-        assert "MLFRAME_PLOT_INLINE_DISPLAY" not in os.environ
+        env_unset = "MLFRAME_PLOT_INLINE_DISPLAY" not in os.environ
+        assert env_unset
 
         # Force False
         set_inline_display_mode(False)
         assert detect_interactive_session() is False
         assert get_inline_display_mode() is False
-        assert "MLFRAME_PLOT_INLINE_DISPLAY" not in os.environ
+        env_unset = "MLFRAME_PLOT_INLINE_DISPLAY" not in os.environ
+        assert env_unset
 
         # Clear → falls back to auto-detect (False with no kernel)
         set_inline_display_mode(None)

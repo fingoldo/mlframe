@@ -50,6 +50,30 @@ from ._step_score_parts import (  # noqa: F401  -- carved helpers
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 
+def _batched_resident_codes(self, tvals, n_cols: int, gate_stride: int):
+    """Resident int64 codes ``(rows, n_cols)`` of the admitted columns ``tvals[:, :n_cols]`` (subsampled by ``gate_stride``), or ``None``.
+
+    ``None`` when a column is not finite (the per-column path decides those), when the matrix is narrower than ``n_cols``, or on any cupy failure. The codes are
+    those of ``_quantile_bin_gpu_resident`` column for column (``_sync_free_qbin_codes_matrix`` is tested equal to ``_sync_free_qbin_codes``)."""
+    try:
+        import cupy as cp
+
+        from .._mi_greedy_cmi_fe_binning import _sync_free_qbin_codes_matrix
+
+        width = min(int(n_cols), int(tvals.shape[1]))
+        if width < 2:
+            return None
+        mat = np.asarray(tvals[:, :width], dtype=_crit_np_dtype())
+        if gate_stride > 1:
+            mat = mat[::gate_stride]
+        if not np.isfinite(mat).all():
+            return None
+        return _sync_free_qbin_codes_matrix(cp, cp.asarray(mat), int(self.quantization_nbins))
+    except Exception as e:  # best-effort: the per-column path yields the same codes
+        logger.debug("batched resident binning failed, per-column fallback: %s", e)
+        return None
+
+
 def _score_candidates_one_by_one(self, st, prospective_additions, _gate_stride, _y_dense_g) -> None:
     """Per-candidate device-or-host quantile binning and marginal MI of the CMI-gate pool, written into ``st._cmi_cands``."""
     from .._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
@@ -57,6 +81,9 @@ def _score_candidates_one_by_one(self, st, prospective_additions, _gate_stride, 
     for _tpf, _tvals, _ncols, _nnb, _msgs in prospective_additions.values():
         if not _tpf or _tvals is None or not _ncols:
             continue
+        # Resident codes of every admitted column in one batched binning (one upload, one sort, one comparison), equal column for column to the per-column
+        # resident binner it replaces; None falls back to the per-column path below.
+        _batch_codes = _batched_resident_codes(self, _tvals, len(_ncols), _gate_stride) if st._gate_resident else None
         for _jc, _cname in enumerate(_ncols):
             if _tvals.shape[1] <= _jc:
                 continue
@@ -64,7 +91,9 @@ def _score_candidates_one_by_one(self, st, prospective_additions, _gate_stride, 
             if _gate_stride > 1:
                 _vals = _vals[::_gate_stride]
             _vb = None
-            if st._gate_resident and np.isfinite(_vals).all():
+            if _batch_codes is not None:
+                _vb = _batch_codes[:, _jc]
+            elif st._gate_resident and np.isfinite(_vals).all():
                 try:
                     from .._mi_greedy_cmi_fe import _quantile_bin_gpu_resident
                     _vb = _quantile_bin_gpu_resident(_vals, int(self.quantization_nbins))

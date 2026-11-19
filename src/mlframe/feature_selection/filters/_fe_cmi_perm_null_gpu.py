@@ -59,17 +59,10 @@ import threading
 from typing import Any, Optional
 
 import numpy as np
-from mlframe.utils.log_throttle import log_throttle
-from mlframe.feature_selection.filters._strata_shuffle_gpu import MIN_STRATA, strata_shuffle
+from mlframe.feature_selection.filters._strata_shuffle_gpu import MIN_STRATA, MIN_STRATA_NARROW, strata_shuffle
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # thrust aborts the process on a short pool
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
-
-
-def _device_seed(seed: int, salt: int) -> int:
-    """63-bit device RNG seed of ``(seed, salt)`` from a ``SeedSequence`` over both words, so distinct pairs do not collide the way an XOR fold of the two words does (seed 2 / salt 0 against seed 0 / salt 1)."""
-    state = np.random.SeedSequence([int(seed) & 0xFFFFFFFF, int(salt) & 0xFFFFFFFF]).generate_state(2, dtype=np.uint32)
-    return (int(state[0]) << 31) | (int(state[1]) & 0x7FFFFFFF)
 
 
 def _floor_mean_from_nulls_dev(cp, nulls_dev, quantile: float) -> tuple[float, float]:
@@ -113,7 +106,8 @@ def perm_null_gpu_resident_enabled() -> bool:
 
         return bool(fe_gpu_strict_resident_enabled())
     except Exception as e:
-        log_throttle(logger, "perm_null_gpu.gate_probe", logging.WARNING, "perm-null GPU gate: fe_gpu_strict_resident_enabled() check failed, defaulting to the CPU path: %s", e)
+        # fallback: the GPU residency gate is an optional probe; any failure keeps the CPU permutation-null path.
+        logger.debug("perm-null GPU gate: fe_gpu_strict_resident_enabled() check failed, defaulting to CPU path: %s", e)
         return False
 
 
@@ -150,8 +144,8 @@ def _sparse_perm_null(
             h_yz, k_yz = _sparse_batched_entropy_k(cp, (zr * np.int64(Ky) + ys)[:, None], inv_n)
             cmi = cp.maximum((h_xz + float(h_yz[0]) - float(h_z[0]) - h_xyz) - (k_xyz + float(k_z[0]) - k_xz - float(k_yz[0])) * (0.5 * inv_n), 0.0)
             return _floor_mean_from_nulls_dev(cp, cmi, quantile)  # cmi stays resident
-    except Exception as exc:
-        log_throttle(logger, "perm_null_gpu.sparse", logging.WARNING, "sparse perm-null CMI failed (%s: %s); the dense chunked path runs", type(exc).__name__, exc)
+    except Exception:
+        logger.debug("sparse perm-null CMI failed; dense chunked path", exc_info=True)
     return None
 
 
@@ -236,6 +230,19 @@ def _key_pack_kernel(cp: Any) -> Any:
     return _KEY_PACK_KERNEL
 
 
+_KEY_PACK_KERNEL32: Any = None
+
+
+def _key_pack_kernel32(cp: Any) -> Any:
+    """The int32 form of :func:`_key_pack_kernel`: the packed key fits 31 bits, so the radix sort that follows runs half the passes over half the memory; built once per process."""
+    global _KEY_PACK_KERNEL32
+    if _KEY_PACK_KERNEL32 is None:
+        _KEY_PACK_KERNEL32 = cp.ElementwiseKernel(
+            "int32 zr, int32 x, int32 r, int32 p, int32 a, int32 b, int32 l", "int32 key", "key = (zr << a) | (p << l) | (r << b) | x", "flat_strata_key_pack32"
+        )
+    return _KEY_PACK_KERNEL32
+
+
 class _DeviceRng:
     """The device random source of one permutation-null call: a counter-based Philox generator seeded with the call's seed, exposing the two draws the null uses (``randint`` and ``random_sample``).
 
@@ -264,14 +271,35 @@ def _flat_within_stratum_shuffle(cp: Any, rs: Any, x_sorted_d: Any, z_rank_d: An
     of those bits orders by x: a microscopically non-uniform but valid permutation, the same selection-equivalence bar as the device RNG stream itself.
     """
     n = int(x_sorted_d.shape[0])
-    if nrank >= MIN_STRATA and os.environ.get("MLFRAME_STRATA_SHUFFLE_KERNEL", "0").strip() == "1":
-        return strata_shuffle(cp, rs, x_sorted_d, z_rank_d[:, 0], nperm, nrank)
+    _switch = os.environ.get("MLFRAME_STRATA_SHUFFLE_KERNEL", "").strip()
+    if _switch != "0":
+        if kx <= 255 and nrank >= MIN_STRATA_NARROW:
+            # many short strata and byte value codes: the per-stratum kernel on a byte matrix (1.1 to 3.3 ms against the 7.3 ms flat sort at 1000 to 15000 strata; see MIN_STRATA_NARROW)
+            return strata_shuffle(cp, rs, x_sorted_d, z_rank_d[:, 0], nperm, nrank, narrow=True)
+        if _switch == "1" and nrank >= MIN_STRATA:
+            return strata_shuffle(cp, rs, x_sorted_d, z_rank_d[:, 0], nperm, nrank)
     col_bits = max(1, int(np.ceil(np.log2(max(2, nperm)))))
     rank_bits = max(1, int(np.ceil(np.log2(max(2, nrank)))))
     x_bits = max(1, int(np.ceil(np.log2(max(2, kx)))))
     rand_bits = 62 - col_bits - rank_bits - x_bits
     if rand_bits < _FLAT_SHUFFLE_MIN_RAND_BITS:
         return None
+    if col_bits + rank_bits + x_bits + _FLAT_SHUFFLE_MIN_RAND_BITS <= 31:
+        # The key fits 31 bits with at least the minimum number of random bits: sort int32 keys (half the radix passes and half the memory traffic of the int64 key; 100000 rows x 40
+        # permutations, 15 strata, two value codes: 7.4 ms -> the int32 sort, see the tracker). The random bits are what is left of the 31, the tie argument above is unchanged.
+        r32 = 31 - col_bits - rank_bits - x_bits
+        low32 = rank_bits + r32 + x_bits
+        key32 = _key_pack_kernel32(cp)(
+            z_rank_d[:, 0].astype(cp.int32)[None, :],
+            x_sorted_d.astype(cp.int32, copy=False)[None, :],
+            rs.randint(0, 1 << r32, size=(nperm, n), dtype=cp.int32),
+            cp.arange(nperm, dtype=cp.int32)[:, None],
+            r32 + x_bits,
+            x_bits,
+            low32,
+        )
+        flat32 = cp.sort(key32.ravel())
+        return (flat32 & np.int32((1 << x_bits) - 1)).reshape(nperm, n)
     low = rank_bits + rand_bits + x_bits
     # one elementwise pass writes the packed key (the stratum rank, the permutation column, the random bits and the value are OR-ed in registers) instead of seven separate passes over the
     # (nperm, n) matrix: 100000 rows x 25 permutations 9.7 -> 8.2 ms with the same keys (the sort of the keys is the rest)
@@ -352,7 +380,7 @@ def conditional_perm_null_gpu(
     # Device RNG seeded from the SAME (seed, salt) the CPU path mixes -> reproducible per-candidate stream. The
     # XOR-fold keeps the two 32-bit components distinct as a single 64-bit seed (cupy RandomState takes one seed);
     # the exact stream differs from numpy's SeedSequence (acceptable: selection-equivalence, not byte-identity).
-    dev_seed = _device_seed(seed, salt)
+    dev_seed = (int(seed) & 0xFFFFFFFF) ^ ((int(salt) & 0xFFFFFFFF) << 1)
     rs = _DeviceRng(cp, dev_seed & 0x7FFFFFFFFFFFFFFF)
 
     # x is held resident on device; y/z stay host (``batched_cmi_gpu`` consumes the (n,nperm) candidate matrix

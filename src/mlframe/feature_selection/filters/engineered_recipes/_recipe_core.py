@@ -80,6 +80,7 @@ def _extra_equal(a: dict, b: dict) -> bool:
 
 
 _ATOMIC_TYPES = (int, float, complex, bool, str, bytes, type(None))
+_ATOMIC_SET = frozenset(_ATOMIC_TYPES) | {np.float64, np.float32, np.int64, np.int32, np.int16, np.int8, np.uint8, np.bool_}  # the immutable numpy scalars are shared, as ``_copy_plain`` shares them
 
 
 def _copy_plain(obj, memo):
@@ -100,11 +101,18 @@ def _copy_plain(obj, memo):
             copied_dict[key] = _copy_plain(value, memo)
         return copied_dict
     if t is list:
-        copied_list: list = []
+        if _ATOMIC_SET.issuperset(map(type, obj)):  # a list of plain numbers or strings (the per-group edges): one C-level copy
+            copied_list = obj[:]
+            memo[id(obj)] = copied_list
+            return copied_list
+        copied_list = []
         memo[id(obj)] = copied_list
         copied_list.extend(_copy_plain(value, memo) for value in obj)
         return copied_list
     if t is tuple:
+        if _ATOMIC_SET.issuperset(map(type, obj)):  # an immutable tuple of atoms is shared, as ``copy.deepcopy`` does
+            memo[id(obj)] = obj
+            return obj
         copied_tuple = tuple(_copy_plain(value, memo) for value in obj)
         memo[id(obj)] = copied_tuple
         return copied_tuple

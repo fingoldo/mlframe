@@ -213,6 +213,22 @@ def _classify(names):
     return full, frag_ab, frag_cd
 
 
+# Profiles whose recovery may be TWO columns when nothing is lost downstream (owner decision 2026-11-18, the same reading as the private-term control of the canonical file): under [1,5]-scaling the
+# weak c/d half is outranked at the second FE step, so the compound fuses ``sin(d)`` without the ``log(c)`` factor and the weak half arrives as its own column that the additive fusion cannot
+# take (the raw-token sets overlap). The pair then carries the whole deterministic signal: held-out ridge R^2 0.9961 against 0.9962 for the two ideal halves (MR11-70). The strict contract
+# (exactly one compound) stays in force for every other profile and for the scale guards.
+_TWO_COLUMN_RECOVERY_PROFILES = frozenset({"scaled_1_5"})
+_TWO_COLUMN_R2_SLACK = 0.01  # held-out ridge R^2 the two-column recovery may trail the ideal two halves by
+
+
+def _heldout_ridge_r2(M, y):
+    """Mean 3-fold ridge R^2 of the columns of ``M`` against ``y``."""
+    from sklearn.linear_model import Ridge
+    from sklearn.model_selection import cross_val_score
+
+    return float(cross_val_score(Ridge(alpha=1e-6), np.asarray(M, dtype=float), y, cv=3, scoring="r2").mean())
+
+
 @pytest.mark.parametrize("profile", _PROFILES)
 def test_f2_one_compound_under_distribution(profile):
     """F2 one compound under distribution."""
@@ -223,6 +239,15 @@ def test_f2_one_compound_under_distribution(profile):
     names = [str(s) for s in fs.get_feature_names_out()]
     full, frag_ab, frag_cd = _classify(names)
     assert all("e" not in _cols(nm) for nm in names), f"[{profile}] noise 'e' referenced: {names}"
+    if profile in _TWO_COLUMN_RECOVERY_PROFILES and not (len(full) == 1 and not frag_ab and not frag_cd):
+        # accepted alternative: both halves present (a/b side and c/d side) and nothing lost for a linear consumer
+        cols = set().union(*(_cols(nm) for nm in names))
+        assert {"a", "b"} & cols and {"c", "d"} & cols and "c" in cols, f"[{profile}] a half of the signal is missing: {names}"
+        ideal = np.column_stack([df["a"] ** 2 / df["b"], np.log(df["c"]) * np.sin(df["d"])])
+        r2_selected = _heldout_ridge_r2(fs.transform(df), y)
+        r2_ideal = _heldout_ridge_r2(ideal, y)
+        assert r2_selected >= r2_ideal - _TWO_COLUMN_R2_SLACK, f"[{profile}] the selection loses signal: ridge R^2 {r2_selected:.4f} against {r2_ideal:.4f} for the two ideal halves: {names}"
+        return
     assert len(full) >= 1, f"[{profile}] no feature fuses both a/b and c/d halves: {names}"
     assert not frag_cd, f"[{profile}] redundant c/d-only fragment(s) alongside the compound: {frag_cd} :: {names}"
     assert not frag_ab, f"[{profile}] redundant a/b-only fragment(s) alongside the compound: {frag_ab} :: {names}"

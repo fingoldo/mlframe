@@ -20,14 +20,15 @@ from mlframe.reporting.spec import (
     ScatterPanelSpec, ViolinPanelSpec,
 )
 
+from mlframe.utils.log_throttle import log_throttle
 from ._shared_helpers import (  # noqa: F401 -- _HEATMAP_MAX_TICKS re-exported for callers importing the tick-thinning constant from this module
-    _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, heatmap_value_to_index,
+    _HEATMAP_CELL_TEXT_MAX, _HEATMAP_MAX_TICKS, _HIST_PREBIN_THRESHOLD, _SCATTER_MAX_POINTS, MIN_CATEGORY_SLOTS, heatmap_value_to_index,
     CAPTION_FONTSIZE, CAPTION_WRAP_CHARS, PANEL_TITLE_FONTSIZE, SUPTITLE_WRAP_CHARS,
     _finite_range, _per_series_flags, _thin_tick_positions, epoch_ns_ticks,
     _TITLE_REF_WIDTH_IN, histogram_bar_extent, label_width_pitch_in, log_axis_dropped_note, network_label_indices, low_evidence_mask, non_colliding_label_indices,
     panel_title_wrap_chars,
     rotated_tick_pitch_in, select_per_point, ticks_that_fit, truncate_bar_label,
-    wrap_annotation_text, wrap_text_to_width, wrap_title_lines,
+    TITLE_MAX_LINES, fit_title_lines, sparse_category_limits, wrap_annotation_text, wrap_text_to_width, wrap_title_lines,
 )
 
 from mlframe.reporting.colors import BAR_PRIMARY, resolve_heatmap_cmap
@@ -125,15 +126,15 @@ def _bar_colors(colors, values):
 # two levels) can land on one or two bars. Matplotlib sizes bars in category units and autoscales the axis to
 # the categories present, so a lone 0.8-wide bar covers 80% of the panel and reads as a filled background
 # rather than as a measurement. Padding the category axis out to a few slots restores a bar's proportions.
-_MIN_CATEGORY_SLOTS = 4
+_MIN_CATEGORY_SLOTS = MIN_CATEGORY_SLOTS  # kept as a name of this module; the value and the limits live in _shared_helpers
 
 
 def _pad_sparse_category_axis(ax, n_categories: int, *, horizontal: bool) -> None:
     """Widen the category axis when too few categories would let the bars swell to fill the panel."""
-    if not 0 < n_categories < _MIN_CATEGORY_SLOTS:
+    limits = sparse_category_limits(n_categories)
+    if limits is None:
         return
-    centre = (n_categories - 1) / 2.0
-    lo, hi = centre - _MIN_CATEGORY_SLOTS / 2.0, centre + _MIN_CATEGORY_SLOTS / 2.0
+    lo, hi = limits
     if horizontal:
         # The y axis is already inverted here, so the limits go back in descending order to keep it that way.
         ax.set_ylim(hi, lo)
@@ -178,8 +179,10 @@ def _set_panel_title(ax, title) -> None:
     # Explicit rather than ``panel_w or REF``: a measured width of exactly 0 is a degenerate axes, not a
     # missing measurement, and the two deserve the same fallback for DIFFERENT reasons -- said once, here.
     width_in = panel_w if (panel_w is not None and panel_w > 0.0) else _TITLE_REF_WIDTH_IN
-    lines = wrap_text_to_width(title, fontsize=_TITLE_FONTSIZE, width_in=width_in, fallback_chars=fallback)
-    ax.set_title("\n".join(lines), fontsize=_TITLE_FONTSIZE)
+    lines, size = fit_title_lines(title, fontsize=_TITLE_FONTSIZE, width_in=width_in, fallback_chars=fallback)
+    if len(lines) > TITLE_MAX_LINES:
+        log_throttle(logger, "matplotlib_title_over_budget", logging.WARNING, "panel title needs %d lines at the smallest font (budget %d): %.80r", len(lines), TITLE_MAX_LINES, str(title))
+    ax.set_title("\n".join(lines), fontsize=size)
     ax._mlframe_raw_title = title  # kept so the post-layout pass can rewrap against the width the panel really got
 
 
@@ -209,8 +212,8 @@ def _rewrap_panel_titles_after_layout(fig) -> None:
                     centre = float(pos.x0 + pos.width / 2.0)
                     width_in = max(width_in, 2.0 * min(centre, 1.0 - centre) * fig_w)
                 if width_in > 0.0:
-                    lines = wrap_text_to_width(raw, fontsize=_TITLE_FONTSIZE, width_in=width_in, fallback_chars=panel_title_wrap_chars((width_in, 0), 1))
-                    ax.set_title("\n".join(lines), fontsize=_TITLE_FONTSIZE)
+                    lines, size = fit_title_lines(raw, fontsize=_TITLE_FONTSIZE, width_in=width_in, fallback_chars=panel_title_wrap_chars((width_in, 0), 1))
+                    ax.set_title("\n".join(lines), fontsize=size)
     except Exception:
         logger.debug("post-layout title rewrap failed; keeping the pre-layout wrap", exc_info=True)
 

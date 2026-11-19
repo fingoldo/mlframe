@@ -864,6 +864,7 @@ def hybrid_composite_group_agg_fe(
     n_bins: int = 10,
     min_cmi: float = 1e-4,
     min_uplift: float = 0.0,
+    heldout_uplift: bool = False,
 ) -> tuple[pd.DataFrame, list[str], list[EngineeredRecipe], pd.DataFrame]:
     """End-to-end composite-group-agg FE pipeline.
 
@@ -924,7 +925,7 @@ def hybrid_composite_group_agg_fe(
     n_keys_max = max((n_d for n_d in (int(_key_cache[g][3]) if _key_cache and g in _key_cache else 0 for g in group_col_sets)), default=0)
     if n_keys_max and _composite_full_matrix_bytes(len(X), n_keys_max, len(num_cols), len(stats)) > _composite_block_budget_bytes():
         winners_frame, scores, recipes_of = composite_group_agg_top_blockwise(
-            X, y, group_col_sets, num_cols, base_cols=base_cols, top_k=top_k, n_bins=n_bins, min_cmi=min_cmi, min_uplift=min_uplift,
+            X, y, group_col_sets, num_cols, base_cols=base_cols, top_k=top_k, n_bins=n_bins, min_cmi=min_cmi, min_uplift=min_uplift, heldout_uplift=heldout_uplift,
             eng_to_source={}, stats=stats, max_card_frac=max_card_frac, _precomputed_keys=_key_cache,
         )
         if winners_frame.shape[1] == 0:
@@ -945,7 +946,7 @@ def hybrid_composite_group_agg_fe(
 
     eng_to_source = {name: raw_recipes[name]["num_col"] for name in enc_df.columns}
     scores = score_grouped_agg_by_cmi_uplift(
-        X, enc_df, y, base_cols, n_bins=n_bins, eng_to_source=eng_to_source, support_cache=support_cache,
+        X, enc_df, y, base_cols, n_bins=n_bins, eng_to_source=eng_to_source, support_cache=support_cache, heldout_uplift=heldout_uplift,
     )
     keep = scores[(scores["cmi"] >= float(min_cmi)) & (scores["uplift"] >= float(min_uplift))]
     winners = list(keep["engineered_col"].head(int(top_k)))

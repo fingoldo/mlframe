@@ -2,7 +2,7 @@
 
 The detector's `low` hits in the current source, one row per function; the same dispositions as the high table (FALSE POSITIVE, FALLBACK, REAL, LEGACY).
 
-Rows: 71.
+Rows: 79.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -65,7 +65,6 @@ Rows: 71.
 | feature_selection/filters/batch_pair_mi_gpu.py | batch_pair_mi_cupy | 147 | FALSE POSITIVE: a blocked loop (`for p0 in range(0, n_pairs, block)`), each trip one gather, one bincount over offset flat indices and one reduction for a block of pairs (the per-pair loop it replaced: 559 ms, the block form 77 ms for 300 pairs x 100000 rows, 7.3x, results identical) |
 | feature_selection/filters/_extra_fe_families_dispersion_resident.py | _mi_by_column_blocks | 280 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, len(col_specs), block_cols)`), each trip one candidate-block build and one resident MI batch over the block; one trip when the candidates fit a quarter of the pool room |
 | feature_selection/filters/_fe_pure_form_retention_gpu_resident.py | _device_verdicts | 385 | FALSE POSITIVE: a blocked loop (`for p0 in range(0, P, block)`), each trip one form-column upload and one batched gate for a block of pairs (two kernel launches per block); one trip when the pool fits a quarter of the pool room |
-| feature_selection/filters/_orthogonal_univariate_fe/_gpu_resident_cross_basis.py | _product_mi_blocked | 458 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, len(specs), block_cols)`), each trip one product-block build (one fused leg-product launch) and one resident MI batch over the block; one trip when the candidates fit a quarter of the pool room |
 | feature_selection/filters/_orthogonal_univariate_fe/_extra_basis_resident.py | _mi_by_name_blocks | 305 | FALSE POSITIVE: a blocked loop (`for c0 in range(0, len(names), block_cols)`), each trip one block build (one spline launch, one Fourier launch) and one resident MI batch; one trip when the candidates fit a quarter of the pool room |
 | feature_selection/filters/_cmim_min_gpu.py | cmim_min_scores | 328 | FALSE POSITIVE: a blocked loop (`for a in range(0, rows, width)`), each trip one fused kernel launch over a column block bounded by the VRAM cushion |
 | feature_selection/filters/_feature_engineering_pairs/_pairs_score_steps.py | _batched_abs_corr | 181 | FALSE POSITIVE: a blocked loop (`for lo in range(0, len(buf_cols), _ABS_CORR_BLOCK)`), each trip one batched correlation over its block |
@@ -83,5 +82,7 @@ Rows: 71.
 | feature_selection/filters/_orthogonal_univariate_fe/_orth_mi_backends.py | _mi_classif_batch_chunked_body | 682 | FALSE POSITIVE: the block loop of `mi_classif_batch_chunked` (`for j0 in range(0, p, chunk_cols)`), each trip one batched MI of a column chunk |
 | feature_selection/shap_proxied_fs/_shap_proxy_treeshap_interactions_table_gpu.py | interaction_tensor_table_gpu | 199 | FALSE POSITIVE: the row-chunk loop (`for s in range(0, n, chunk)`), the chunk sized from the free device memory so the pair tensor of a chunk fits; each trip is one device kernel launch plus a few array ops over the whole chunk (one trip at the sizes the table form is chosen for), not per-element work |
 | feature_selection/filters/_hinge_basis_fe.py | _precheck_survivors | 540 | FALSE POSITIVE: a column-block loop (`for a in range(0, len(cols_x), width)`), each trip one batched precheck over a block of columns whose width is bounded by the host-memory budget |
-| feature_selection/shap_proxied_fs/_shap_proxy_treeshap_interactions_gpu.py | interaction_tensor_gpu_path | 365 | FALSE POSITIVE: a row-block loop (`for start in range(0, n, rows)`) sized from the free VRAM, each trip one interaction-kernel launch over its block of rows |
-| feature_selection/shap_proxied_fs/_shap_proxy_treeshap_table_gpu.py | treeshap_phi_base_table_gpu | 247 | FALSE POSITIVE: a row-block loop (`for start in range(0, n, rows)`), each trip one TreeSHAP-table kernel launch over its block of rows |
+| feature_selection/filters/_gain_stats_codes_gpu.py | plugin_mi_columns_device | 256 | FALSE POSITIVE: the column-block loop, the block width sized from the free device memory (:func:`_block_width`); each trip codes a whole block in one launch and takes its plug-in MI from one bincount over the block; one trip at the sizes of the row-statistic pool |
+| feature_selection/filters/_pairwise_modular_fe.py | _mi_columns | 197 | FALSE POSITIVE: the column-block loop, each trip one batched MI call over a block of columns (the per-column calls were 0.44 s for 100 columns at 30000 rows, the batch 0.10 s) |
+| feature_selection/shap_proxied_fs/_shap_proxy_treeshap_interactions_gpu.py | interaction_tensor_gpu_path | 365 | FALSE POSITIVE: the row-block loop, the block sized from the free device memory (:func:`_row_block`) so the pair tensor of a block fits; each trip is one kernel launch over the block, one trip at the sizes the path is chosen for |
+| feature_selection/shap_proxied_fs/_shap_proxy_treeshap_table_gpu.py | treeshap_phi_base_table_gpu | 255 | FALSE POSITIVE: the row-block loop, the block sized from the free device memory (:func:`_row_block`); the node arrays and the table stay resident, each trip is one kernel launch over the block |

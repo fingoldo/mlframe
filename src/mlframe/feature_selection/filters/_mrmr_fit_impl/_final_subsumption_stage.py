@@ -139,7 +139,7 @@ def _without_linearly_useful(self: "MRMR", dropped: list, candidates: dict, anch
     from scipy.stats import norm
 
     from .._pair_residual_screen import FAMILY_ALPHA
-    from .._residual_rescue_fe import MIN_ROWS, linear_oos_gain
+    from .._residual_rescue_fe import MIN_ROWS, _standardised, linear_oos_gain
 
     y_arr = np.asarray(y).ravel()
     if not dropped or len(y_arr) < MIN_ROWS:
@@ -147,13 +147,26 @@ def _without_linearly_useful(self: "MRMR", dropped: list, candidates: dict, anch
     z = float(norm.isf(FAMILY_ALPHA))
     floor = float(getattr(self, "fe_residual_rescue_operand_min_linear_gain", 0.0))
     rest = {a: candidates[a] for a in (*anchors, *standing) if a in candidates}
+    # Each column is standardised once here, not on every gain call (the call re-standardised every column of ``rest``, about 34 ms of a 64 ms call on 100000 rows).
+    std_cache: dict = {}
+
+    def _std(name):
+        """The standardised column of ``name``, computed once per call of this function."""
+        if name not in std_cache:
+            std_cache[name] = _standardised(candidates[name])
+        return std_cache[name]
+
+    def _gain(name):
+        """``linear_oos_gain`` of ``candidates[name]`` on the current ``rest``, reusing the standardised columns."""
+        return linear_oos_gain(rest, candidates[name], y_arr, std_full={k: _std(k) for k in rest})
+
     gains = {}
     for name in dropped:
         if name in candidates and name not in rest:
-            gains[name] = linear_oos_gain(rest, candidates[name], y_arr)
+            gains[name] = _gain(name)
     kept: list = []
     for name in sorted(gains, key=lambda n: -gains[n][0]):
-        t_stat, rel = linear_oos_gain(rest, candidates[name], y_arr) if kept else gains[name]
+        t_stat, rel = _gain(name) if kept else gains[name]
         if t_stat > z and rel >= floor:
             kept.append(name)
             rest[name] = candidates[name]
