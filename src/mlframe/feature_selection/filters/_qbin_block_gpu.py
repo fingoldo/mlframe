@@ -150,12 +150,20 @@ def resident_qbin_codes_block(columns: Sequence[np.ndarray], nbins: int, dtype: 
     n = int(hosts[0].shape[0])
     sigs = [(h.shape, h.dtype.str, ro._content_hash_memoized(h), int(nbins), str(dtype)) for h in hosts]
     codes: list = [None] * len(hosts)
+    hit_at: list = []
+    hit_dev: list = []
     with ro._FE_RESIDENT_OPERANDS_LOCK:
         for i, sig in enumerate(sigs):
             dev = ro._FE_RESIDENT_QBIN_CODES.get(sig)
             if dev is not None:
                 ro._FE_RESIDENT_QBIN_CODES.move_to_end(sig)
-                codes[i] = dev.astype(cp.int64)
+                hit_at.append(i)
+                hit_dev.append(dev)
+    if hit_dev:
+        # the cached narrow codes of every hit widen in one stack + one cast (a cast launch per column before); each hit is a row of the widened block
+        widened = cp.stack(hit_dev).astype(cp.int64) if len(hit_dev) > 1 else hit_dev[0].astype(cp.int64)[None, :]
+        for r, i in enumerate(hit_at):
+            codes[i] = widened[r]
     miss = [i for i, c in enumerate(codes) if c is None]
     if not miss:
         return codes
@@ -171,12 +179,14 @@ def resident_qbin_codes_block(columns: Sequence[np.ndarray], nbins: int, dtype: 
                 del xd
             narrow = block.astype(cp.int16) if int(nbins) <= 32767 else block
             with ro._FE_RESIDENT_OPERANDS_LOCK:
+                # rows of the blocks, not per-column copies (two copy launches a column before): the caller keeps every column of the block for the whole step, and the narrow block is a quarter of the
+                # width of the int64 one
                 for j, i in enumerate(part):
-                    codes[i] = block[j].copy()
-                    ro._FE_RESIDENT_QBIN_CODES[sigs[i]] = narrow[j].copy()
+                    codes[i] = block[j]
+                    ro._FE_RESIDENT_QBIN_CODES[sigs[i]] = narrow[j]
                     if len(ro._FE_RESIDENT_QBIN_CODES) > ro._MAX_QBIN_CODE_ENTRIES:
                         ro._FE_RESIDENT_QBIN_CODES.popitem(last=False)
-            del block, narrow
+            del block, narrow  # the rows above keep their blocks alive
     except Exception:
         log_throttle(logger, "_qbin_block_gpu.except_179", logging.WARNING, "batched device quantile binning failed; per-column path", exc_info=True)
         return None
