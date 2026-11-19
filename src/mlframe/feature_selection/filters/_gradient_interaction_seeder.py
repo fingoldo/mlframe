@@ -274,6 +274,11 @@ def _rff_analytic_mixed_partial_energy_gram(rbf, ridge, Xs: np.ndarray, pairs, c
     """The same energy through the Gram matrix of the cosine features: E[(Mcos @ coef_k)^2] = coef_k' G coef_k with ``G = Mcos' Mcos / n`` (D x D), so a chunk of pairs costs
     ``D x D x k`` instead of ``n x D x k`` plus the ``n x k`` square-and-sum (n = 2000 rows, D = 400 features: five times fewer multiply-adds, and the ``n x k`` intermediate is gone).
     Equal to the batched kernel up to float rounding (the products are summed in another order)."""
+    from ._rff_gram_energy_gpu import rff_gram_energies_device
+
+    on_device = rff_gram_energies_device(rbf, ridge, Xs, pairs, chunk)
+    if on_device is not None:
+        return on_device
     W = rbf.random_weights_
     b = rbf.random_offset_
     D = W.shape[1]
