@@ -104,3 +104,16 @@ def test_packed_float32_order_sorts_every_row_like_argsort():
     assert sorted(order[3].get().tolist()) == list(range(513))
     got = cp.take_along_axis(x, order, axis=1)
     np.testing.assert_array_equal(got.get(), np.sort(x.get(), axis=1))
+
+
+def test_one_byte_class_labels_give_the_four_byte_values(monkeypatch):
+    """The ``int8`` instance of the kernel (labels read as one byte) returns exactly the values of the ``int32`` instance, in both column types."""
+    for f32 in ("0", "1"):
+        monkeypatch.setenv("MLFRAME_KSG_F32", f32)
+        X, d = _block(9000, 3, 8, 2)
+        monkeypatch.setenv("MLFRAME_KSG_I8", "0")
+        want = gpu.mi_cd_columns_device(X, d, int(d.max()) + 1, 3)
+        monkeypatch.setenv("MLFRAME_KSG_I8", "1")
+        got = gpu.mi_cd_columns_device(X, d, int(d.max()) + 1, 3)
+        assert want is not None and got is not None
+        np.testing.assert_array_equal(got, want)

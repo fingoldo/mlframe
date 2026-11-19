@@ -36,12 +36,12 @@ _BLOCKS_PER_COLUMN = 64
 _SRC = r"""
 #define POS_INF __longlong_as_double(0x7ff0000000000000LL)
 // {REAL} is the column type: 64 bits by default (the host kernel works on noised 64-bit columns and the distance comparisons must match it), 32 bits for a column block that is tie-free and finite after the cast (see mi_cd_columns_device); {ACC} is the accumulator type.
-extern "C" __global__ void ksg_psi_m_sums(const {REAL}* __restrict__ xs, const int* __restrict__ ds, const long long nk, const int* __restrict__ counts,
+extern "C" __global__ void ksg_psi_m_sums(const {REAL}* __restrict__ xs, const {CT}* __restrict__ ds, const long long nk, const int* __restrict__ counts,
                                           const int nn, const {ACC}* __restrict__ psi, {ACC}* __restrict__ partial) {
     __shared__ {ACC} red[256];
     const int col = blockIdx.y;
     const {REAL}* x = xs + (long long)col * nk;
-    const int* d = ds + (long long)col * nk;
+    const {CT}* d = ds + (long long)col * nk;
     {ACC} acc = 0.0;
     for (long long j = (long long)blockIdx.x * blockDim.x + threadIdx.x; j < nk; j += (long long)gridDim.x * blockDim.x) {
         const int c = d[j];
@@ -76,18 +76,34 @@ extern "C" __global__ void ksg_psi_m_sums(const {REAL}* __restrict__ xs, const i
 }
 """
 
+# {CT} is the type of the class labels of the sorted rows: ``int`` (the original) or ``signed char`` (1 byte per row instead of 4: the neighbour walks compare a label per step, and the labels are the second
+# stream the kernel reads; the classes of a screening target are a handful). Both are compiled for both column types; the ``int`` instances are the ones the kernel always had.
+_C_TYPES = {np.dtype(np.int32): "int", np.dtype(np.int8): "signed char"}
 _MODULES = {
-    np.dtype(np.float64): RawModuleCache(render(_SRC, real=np.float64)),  # Intentional float64: the default column type (see the comment in the kernel); {ACC} is the 64-bit accumulator
-    np.dtype(np.float32): RawModuleCache(render(_SRC, real=np.float32)),
+    (np.dtype(real), np.dtype(ct)): RawModuleCache(render(_SRC, real=real).replace("{CT}", c_name))  # Intentional float64: the default column type (see the comment in the kernel); {ACC} is the 64-bit accumulator
+    for real in (np.float64, np.float32)  # Intentional float64: both column types are compiled
+    for ct, c_name in _C_TYPES.items()
 }
 
 
-def kernel(cp: Any, real: Any = np.float64) -> Any:  # Intentional float64: selectable double-precision variant of the kernel (default and environment switch)
-    """``ksg_psi_m_sums`` for 64-bit (default) or 32-bit columns; compile point of :func:`mi_cd_columns_device` and of the register-pressure registry."""
-    module = _MODULES.get(np.dtype(real))
+def kernel(cp: Any, real: Any = np.float64, classes: Any = np.int32) -> Any:  # Intentional float64: selectable double-precision variant of the kernel (default and environment switch)
+    """``ksg_psi_m_sums`` for 64-bit (default) or 32-bit columns and ``int32`` (default) or ``int8`` class labels; compile point of :func:`mi_cd_columns_device` and of the register-pressure registry."""
+    module = _MODULES.get((np.dtype(real), np.dtype(classes)))
     if module is None:
-        raise ValueError("ksg_psi_m_sums is instantiated for float32 and float64 columns only")
+        raise ValueError("ksg_psi_m_sums is instantiated for float32 / float64 columns and int32 / int8 class labels only")
     return module.get(cp).get_function("ksg_psi_m_sums")
+
+
+def kernel_small_classes(cp: Any, real: Any = np.float64) -> Any:  # Intentional float64: selectable double-precision variant of the kernel
+    """The ``int8``-label instance of :func:`kernel` (a factory of its own for the register-pressure registry, which compiles one entry per factory)."""
+    return kernel(cp, real, np.int8)
+
+
+def _i8_enabled() -> bool:
+    """Whether the class labels of the sorted rows are read as one byte (``MLFRAME_KSG_I8=0`` keeps the four-byte ``int`` labels of the original kernel instance)."""
+    import os
+
+    return os.environ.get("MLFRAME_KSG_I8", "1").strip().lower() not in ("0", "false", "off", "no")
 
 _THREADS = 256
 
@@ -143,7 +159,7 @@ def _block_sums(cp: Any, host_block: np.ndarray, real: Any, d_dev: Any, counts_d
     if np.dtype(real) == np.float32:
         redo = ((xs[:, 1:] == xs[:, :-1]).sum(axis=1) > _tie_pair_bound(n_kept)) | ~cp.isfinite(xs).all(axis=1)
     partial = partial_buf[:width]
-    kernel(cp, real)(  # launch-ok: _THREADS=256 is the compile-time size of the kernel's `__shared__ double red[256]` reduction buffer, not a tuned size
+    kernel(cp, real, d_dev.dtype)(  # launch-ok: _THREADS=256 is the compile-time size of the kernel's `__shared__ double red[256]` reduction buffer, not a tuned size
         (_BLOCKS_PER_COLUMN, width), (_THREADS,), (xs, ds, np.int64(n_kept), counts_dev, np.int32(n_neighbors), psi_dev, partial)
     )
     return partial.sum(axis=1), redo
@@ -170,7 +186,7 @@ def mi_cd_columns_device(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbo
         k_c = np.minimum(n_neighbors, counts - 1)
         sum_k = float((counts[multi] * psi[k_c[multi]]).sum())
         sum_cnt = float((counts[multi] * psi[counts[multi]]).sum())
-        d_dev = cp.asarray(np.ascontiguousarray(d[keep], dtype=np.int32))
+        d_dev = cp.asarray(np.ascontiguousarray(d[keep], dtype=np.int8 if (_i8_enabled() and int(n_classes) <= 127) else np.int32))
         counts_dev = cp.asarray(counts.astype(np.int32))
         psi_dev = cp.asarray(psi)
         f32 = _f32_enabled()
