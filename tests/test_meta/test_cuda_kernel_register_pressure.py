@@ -358,6 +358,11 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_clenshaw",
         ("float32", "float64"),
     ),
+    "usability_greedy_clf_batched.logistic_cv_newton": (
+        "mlframe.feature_selection.filters._usability_greedy_clf_batched",
+        "kernel_logistic_cv",
+        ("float32", "float64"),
+    ),
     "binned_numeric_agg_resident.binagg_oof_gather_multi": (
         "mlframe.feature_selection.filters._binned_numeric_agg_resident",
         "kernel_oof_gather_multi",
