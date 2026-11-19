@@ -119,10 +119,34 @@ _BUILD_OPCANDS_CM_KERNELS: dict = {}
 _BUILD_OPCANDS_CM_KERNELS_LOCK = threading.Lock()
 
 
-def _pair_index_arrays(cp, pairs: list):
+def _pair_index_arrays_upload(cp, pairs: list):
     """Device int32 first/second operand indices of ``pairs``; a single zero entry stands in for an empty list so the kernel still gets valid pointers."""
     idx = np.asarray(pairs, dtype=np.int32).reshape(-1, 2) if pairs else np.zeros((1, 2), dtype=np.int32)
     return cp.asarray(np.ascontiguousarray(idx[:, 0])), cp.asarray(np.ascontiguousarray(idx[:, 1]))
+
+
+_PAIR_INDEX_CACHE: dict = {}
+_PAIR_INDEX_LOCK = threading.Lock()
+_PAIR_INDEX_CACHE_MAX = 64
+
+
+def _pair_index_arrays(cp, pairs: list):
+    """:func:`_pair_index_arrays_upload` memoized per (device, pairs): the pairs depend only on the operand count, so a fit asks for the same two tiny arrays hundreds of times (two host-to-device uploads each);
+    the kernels only read them. ``MLFRAME_PAIR_INDEX_CACHE=0`` uploads every time."""
+    import os
+
+    if os.environ.get("MLFRAME_PAIR_INDEX_CACHE", "1").strip().lower() in ("0", "false", "off", "no"):
+        return _pair_index_arrays_upload(cp, pairs)
+    key = (int(cp.cuda.Device().id), tuple(tuple(p) for p in pairs))
+    with _PAIR_INDEX_LOCK:
+        got = _PAIR_INDEX_CACHE.get(key)
+    if got is None:
+        got = _pair_index_arrays_upload(cp, pairs)
+        with _PAIR_INDEX_LOCK:
+            if len(_PAIR_INDEX_CACHE) >= _PAIR_INDEX_CACHE_MAX:
+                _PAIR_INDEX_CACHE.clear()
+            _PAIR_INDEX_CACHE[key] = got
+    return got
 
 
 def _get_build_opcands_cm_kernel(cp, real_t: str = "double"):
