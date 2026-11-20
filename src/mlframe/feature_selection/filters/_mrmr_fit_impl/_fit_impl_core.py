@@ -61,7 +61,9 @@ def _fit_impl(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Series | 
 
     # the source-column dedup, the per-column spike-contamination verdicts and the raw-column MI baselines / correlation matrices of the FE families are shared by the
     # whole fit, worker threads of the stage cascades included
-    with dedup_collinear_memo_scope(), heavy_tail_memo_scope(), orth_scoring_memo_scope():
+    from .._gpu_alloc_trace import gpu_alloc_trace_scope
+
+    with dedup_collinear_memo_scope(), heavy_tail_memo_scope(), orth_scoring_memo_scope(), gpu_alloc_trace_scope(self):
         return _fit_impl_scoped(self, X, y, groups, **fit_params)
 
 
