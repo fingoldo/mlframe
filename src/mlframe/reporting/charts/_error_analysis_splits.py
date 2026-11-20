@@ -240,6 +240,7 @@ def _target_drift_verdict(
         return "Distribution-shift check: train split empty -> cannot compare drift."
     tr_mean = float(tr.mean())
     is_clf = task == "classification"
+    multiclass = is_clf and np.unique(tr).size > 2
     tr_var = float(tr.var(ddof=1)) if tr.size > 1 else 0.0
     tr_std = float(np.sqrt(tr_var))
     # Regression "materiality" floor: a quarter of a ROBUST train spread. A quarter of the std let a heavy tail hide real
@@ -264,6 +265,10 @@ def _target_drift_verdict(
             continue
         shift = float(a.mean()) - tr_mean
         parts.append(f"{lab} {shift:+.3g} (n={a.size:,})")
+        if is_clf and multiclass:
+            # The class-1 proportion test treats labels as binary: with K > 2 the pooled "rate" can exceed 1 and the SE clips to 0, so nothing
+            # was ever flagged. Mean shift is still reported; no drift claim is made.
+            continue
         if is_clf:
             # Two-proportion SE under the pooled rate; a 30-row split needs a far bigger move than a 200k-row one.
             pooled = (tr.sum() + a.sum()) / float(tr.size + a.size)
@@ -285,6 +290,8 @@ def _target_drift_verdict(
         else f" (vs train, in target units; flagged when it clears both 1.96 SE and {effect_thr:.3g} = 0.25 x robust train spread)"
     )
     head = f"Mean shift{scale}: " + ", ".join(parts) + f"; train mean={tr_mean:.3g}.{excluded_note}"
+    if multiclass:
+        return head + " Multiclass target: the class-1 drift test does not apply, so no drift flag is raised."
     if flagged:
         return head + f" WARNING: {', '.join(flagged)} drift materially from train -> distribution-shift risk; holdout metrics may not transfer."
     return head + " No material drift from train."
