@@ -674,3 +674,4 @@
 | 40-F11 | FIXED | The precomputed pair cache is capped per query like the loss (_cap_pair_indices, deterministic). Tests tests/training/neural/test_cluster40_ranker_pairs_are_capped.py; related existing ranker tests pass (5 run, 37 skipped). |
 | 25-F2 | FIXED | Monotonicity is checked by comparison, not np.diff (which wraps on unsigned ids). Test tests/metrics/test_cluster25_unsigned_group_ids_unsorted.py. |
 | 26-F4 | FIXED | Expanding mean and std use the observed count per feature. The earlier test only checked finiteness; a strict test now pins the value (tests/preprocessing/test_cluster26_expanding_uses_observed_count.py). |
+| 28-F12 | FIXED | A class_weight key absent from the training labels is skipped at fit. Test tests/training/test_cluster28_class_weight_absent_key_skipped.py. |
