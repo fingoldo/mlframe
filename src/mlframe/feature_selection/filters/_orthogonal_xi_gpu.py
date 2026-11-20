@@ -24,7 +24,7 @@ import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
-from ._device_sort_safe import device_argsort, device_room
+from ._device_sort_safe import device_argsort, device_room, device_exclusive
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._raw_module_cache import RawModuleCache
 from mlframe.utils.log_throttle import log_throttle
@@ -143,6 +143,7 @@ def _order_wide(cp: Any, ordk: Any, tk: Any) -> Any:
     return cp.take_along_axis(p1, p2, axis=1)
 
 
+@device_exclusive
 def xi_columns_device(cols: Any, seeds: np.ndarray, r_row: np.ndarray, l_row: np.ndarray, y_side: "YSide | None" = None, *, allow_wide: bool = False) -> Optional[np.ndarray]:
     """Xi of each row of ``cols`` (columns, n; float32, numpy or a resident cupy array) with the column tie seeds ``seeds``; ``None`` when the device cannot take it (the caller runs the host kernel)."""
     kk, n = cols.shape

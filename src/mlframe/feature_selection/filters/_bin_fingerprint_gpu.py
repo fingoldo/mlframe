@@ -45,8 +45,11 @@ def kernel_bin_fingerprints(cp: Any, real: Any = np.int32) -> Any:
     return kern
 
 
-def pool_fingerprints(cp: Any, columns: Sequence[Any]) -> "list[int]":
-    """The fingerprint of every device code column of ``columns`` (all the same length), as Python ints, with one stack, one launch and one host read."""
+_STACK_BLOCK_BYTES = 256 * 1024 * 1024  # the most one stacked block of code columns may take; a fraction of the room below it still applies
+
+
+def _block_fingerprints(cp: Any, columns: Sequence[Any]) -> "list[int]":
+    """The fingerprints of ``columns`` (all the same length) from one stack, one launch and one host read."""
     block = cp.stack(list(columns)) if len(columns) > 1 else columns[0][None, :]
     if block.dtype.name not in _C_TYPES:
         block = block.astype(cp.int64)
@@ -55,3 +58,24 @@ def pool_fingerprints(cp: Any, columns: Sequence[Any]) -> "list[int]":
     out = cp.empty(k, dtype=cp.uint64)
     kernel_bin_fingerprints(cp, block.dtype)((k,), (256,), (block, np.int64(n), out))  # launch-ok: the block width is the compile-time size of the kernel's shared reduction buffer
     return [int(v) for v in cp.asnumpy(out.view(cp.int64)).tolist()]
+
+
+def pool_fingerprints(cp: Any, columns: Sequence[Any]) -> "list[int]":
+    """The fingerprint of every device code column of ``columns`` (all the same length), as Python ints.
+
+    The columns are stacked in blocks of at most ``_STACK_BLOCK_BYTES`` (and a quarter of the room under the pool limit), one launch and one host read per block. The columns are independent
+    (one kernel block each), so a column's fingerprint is the one a single stack of the whole pool gives. One stack of a 3871-column pool at 500000 rows was a second 1.9 GB copy of codes
+    that were already resident, which ran the pool out of memory and sent the fit to the host path."""
+    cols = list(columns)
+    if len(cols) <= 1:
+        return _block_fingerprints(cp, cols)
+    from ._device_sort_safe import device_room
+
+    n = int(cols[0].shape[0])
+    per_col = max(1, n * max(8 if c.dtype.name not in _C_TYPES else int(c.dtype.itemsize) for c in cols))
+    budget = max(per_col, min(_STACK_BLOCK_BYTES, int(device_room(cp)) // 4))
+    step = max(1, budget // per_col)
+    fps: "list[int]" = []
+    for c0 in range(0, len(cols), step):
+        fps.extend(_block_fingerprints(cp, cols[c0 : c0 + step]))
+    return fps

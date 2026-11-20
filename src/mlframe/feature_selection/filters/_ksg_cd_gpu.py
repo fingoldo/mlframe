@@ -20,7 +20,7 @@ from typing import Any, Optional
 import numpy as np
 
 
-from ._device_sort_safe import device_argsort, device_room
+from ._device_sort_safe import device_argsort, device_room, device_exclusive
 from ._gpu_resident_select_kernels import _transpose_to_cm
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._kernel_types import render
@@ -166,6 +166,7 @@ def _block_sums(cp: Any, host_block: np.ndarray, real: Any, d_dev: Any, counts_d
     return partial.sum(axis=1), redo
 
 
+@device_exclusive
 def mi_cd_columns_device(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbors: int) -> Optional[np.ndarray]:
     """Ross MI (nats) per column of the noised, scaled ``X`` (rows, columns) with integer labels ``d``; ``None`` when the device cannot take it (the caller runs the host kernel)."""
     n, n_cols = X.shape
