@@ -64,6 +64,23 @@ def downstream(Xtr, Xte, ytr, yte, cols):
     return out
 
 
+def score_selection(row, cols, t, Xtr, Xte, ytr, yte, all_columns):
+    """Fill ``row`` with the recall / noise / AUC of one RFECV selection.
+
+    An empty selection is a result, not a feature set: scoring a fallback column as the selection put it into the win counts (12-F20).
+    It is recorded as ``empty_selection`` and the downstream fit is skipped.
+    """
+    cols = [c for c in cols if c in all_columns]
+    if not cols:
+        row.update(n_feat=0, empty_selection=True)
+        return row
+    base = set(t["base"])
+    noise = set(t["noise"])
+    row.update(n_feat=len(cols), base_recall=round(len(set(cols) & base) / max(1, len(base)), 3), noise_sel=len(set(cols) & noise), auc=downstream(Xtr, Xte, ytr, yte, cols))
+    row["auc_mean"] = compute_auc_mean(row["auc"])
+    return row
+
+
 def log(msg):
     with open(PROG, "a", encoding="utf-8") as f:
         f.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
@@ -93,17 +110,8 @@ def main():
             r.fit(Xtr, ytr)
             row["fit_s"] = round(time.time() - t0, 1)
             cols = [c for c in r.get_feature_names_out() if c in X.columns]
-            if not cols:
-                # An empty RFECV selection is a result, not a feature set: scoring the first column as the selection put a fallback
-                # into the win counts (12-F20). Record it as empty and skip the downstream fit.
-                row.update(n_feat=0, empty_selection=True)
-                log(f"[{i}/{len(cells)}] {sc}/{sd}/{ig}: EMPTY selection")
-            else:
-                base = set(t["base"])
-                noise = set(t["noise"])
-                row.update(n_feat=len(cols), base_recall=round(len(set(cols) & base) / max(1, len(base)), 3), noise_sel=len(set(cols) & noise), auc=downstream(Xtr, Xte, ytr, yte, cols))
-                row["auc_mean"] = compute_auc_mean(row["auc"])
-                log(f"[{i}/{len(cells)}] {sc}/{sd}/{ig}: n={row['n_feat']} rec={row['base_recall']} noise={row['noise_sel']} " f"fit={row['fit_s']}s auc={row['auc']}")
+            score_selection(row, cols, t, Xtr, Xte, ytr, yte, X.columns)
+            log(f"[{i}/{len(cells)}] {sc}/{sd}/{ig}: " + ("EMPTY selection" if row.get("empty_selection") else f"n={row['n_feat']} rec={row['base_recall']} noise={row['noise_sel']} fit={row['fit_s']}s auc={row['auc']}"))
         except Exception as e:
             logger.debug("cell %s/%s/%s failed: %s: %s", sc, sd, ig, type(e).__name__, e)
             row["error"] = f"{type(e).__name__}: {e}"

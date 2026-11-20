@@ -79,5 +79,5 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |
 | 12-F38 | 12_feature_selection-3.md | FIXED | downstream returns NaN for an empty selection. Test test_fs_hybrid_empty_selection_downstream.py. |
 | 12-F31 | 12_feature_selection-3.md | PARTIAL | Two named benches narrowed; 61 other fs_hybrid benches still use a catch-all ignore (open). Test test_fs_hybrid_warning_filter_keeps_degraded_warning.py. |
-| 12-F20 | 12_feature_selection-3.md | FIXED (test pending) | Empty RFECV selection recorded as empty, not scored as the first column. No dedicated test yet. |
+| 12-F20 | 12_feature_selection-3.md | FIXED | Empty RFECV selection recorded as empty via score_selection, not scored. Test test_fs_hybrid_empty_rfecv_selection_not_scored.py. |
 | 35-F5 | 35_training-4.md | FIXED | Every fold keeps a slot (NaN when unusable). Test test_cluster35_stepwise_fold_slots.py. |
