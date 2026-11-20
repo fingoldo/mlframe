@@ -59,7 +59,7 @@ Scope: the 42 files in `audits/2026-11-20/manifests/04_data.txt`, all read in fu
 ## Dispositions
 
 - 04-F1: RESOLVED. count branch uses count_mean(scale*unit_score), intercept no longer added twice. Test tests/data/datasets/test_count_target_intercept_once.py. Commit below.
-- 04-F11: DEFERRED. Published Friedman-2 is sqrt(x0^2 + (x1*x2 - 1/(x1*x3))^2) and Friedman-3 is atan((x1*x2 - 1/(x1*x3))/x0). The link vocabulary (BasisTerm kinds) has no 1/(a*b) term and no compound sqrt/atan form, so neither can be written exactly. Needs new basis kinds and a decision on the provenance text.
+- 04-F11: FIXED (honest provenance; exact forms need new basis kinds, not done). Test tests/data/test_cluster04_friedman_provenance_is_honest.py. Earlier note: Published Friedman-2 is sqrt(x0^2 + (x1*x2 - 1/(x1*x3))^2) and Friedman-3 is atan((x1*x2 - 1/(x1*x3))/x0). The link vocabulary (BasisTerm kinds) has no 1/(a*b) term and no compound sqrt/atan form, so neither can be written exactly. Needs new basis kinds and a decision on the provenance text.
 - 04-F2: RESOLVED. TargetSpec rejects a logloss or accuracy ceiling on a binary target (was silently ignored). Tests tests/data/datasets/test_binary_ceiling_metric_rejected.py. Commit below.
 - 04-F7: RESOLVED. realize_latent refuses an unknown family instead of drawing Student-t(4). Tests tests/data/datasets/test_latent_unknown_family_rejected.py. Commit below.
 - 04-F12: RESOLVED. Simpson group is a fair sign (new rademacher family, -1/+1), so the interaction reverses sign between subgroups as documented. Tests tests/data/datasets/test_simpson_group_is_a_sign.py; existing simpson bed test passes. Commit below.
@@ -84,3 +84,4 @@ Scope: the 42 files in `audits/2026-11-20/manifests/04_data.txt`, all read in fu
 - 04-F22: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
 - 04-F24: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
 - 04-F26: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
+- 04-F11: FIXED. Decision (default taken): the beds are approximations, not published functions; provenance now says so instead of claiming the published formula. Tests tests/data/test_cluster04_friedman_provenance_is_honest.py. Exact Friedman forms need new basis kinds (separate work).
