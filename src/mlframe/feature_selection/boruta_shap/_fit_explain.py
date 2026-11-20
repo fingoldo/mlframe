@@ -596,6 +596,7 @@ def fit(self, X: pd.DataFrame | pl.DataFrame, y: pd.Series | pl.Series | np.ndar
     self._premerge_active_ = bool(getattr(self, "premerge_clusters", False)) and getattr(X, "shape", (0, 0))[1] >= 2
     if self._premerge_active_:
         self._premerge_original_cols_ = list(X.columns)
+        self._premerge_original_frame_ = X  # the pre-collapse frame: Subset() must index it, not the representative-only frame
         X, self._premerge_members_ = _premerge_collapse(X, float(getattr(self, "premerge_corr_thr", 0.92)))
 
     # Cross-subsample stability gate (opt-in). See BorutaShap class docstring: a single-sample shadow
