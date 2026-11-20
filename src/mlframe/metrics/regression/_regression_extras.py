@@ -657,7 +657,7 @@ def _fused_regression_ext_pass1_seq(y_true: np.ndarray, y_pred: np.ndarray):
         abs_err = err if err >= 0.0 else -err
         sum_abs += abs_err
         sum_sqr += err * err
-        if abs_err > max_abs:
+        if abs_err > max_abs or abs_err != abs_err:  # a NaN residual makes the maximum NaN, as it does for MAE/MSE
             max_abs = abs_err
         sum_y += yt
         sum_p += yp

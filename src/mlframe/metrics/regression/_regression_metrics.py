@@ -107,7 +107,7 @@ def _fast_max_error_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     m = 0.0
     for i in range(n):
         d = abs(y_true[i] - y_pred[i])
-        if d > m:
+        if d > m or d != d:  # a NaN residual makes the maximum NaN, as it does for MAE/MSE
             m = d
     return m
 
@@ -605,7 +605,7 @@ def _fused_regression_pass1_seq(y_true: np.ndarray, y_pred: np.ndarray):
         abs_err = err if err >= 0.0 else -err
         sum_abs += abs_err
         sum_sqr += err * err
-        if abs_err > max_abs:
+        if abs_err > max_abs or abs_err != abs_err:  # a NaN residual makes the maximum NaN, as it does for MAE/MSE
             max_abs = abs_err
         sum_y += y_true[i]
     return sum_abs, sum_sqr, max_abs, sum_y
@@ -654,7 +654,7 @@ def _fused_regression_pass1_par(y_true: np.ndarray, y_pred: np.ndarray, n_thread
     for tid in range(n_threads):
         sum_abs += local_sum_abs[tid]
         sum_sqr += local_sum_sqr[tid]
-        if local_max_abs[tid] > max_abs:
+        if local_max_abs[tid] > max_abs or local_max_abs[tid] != local_max_abs[tid]:  # propagate a NaN thread maximum
             max_abs = local_max_abs[tid]
         sum_y += local_sum_y[tid]
     return sum_abs, sum_sqr, max_abs, sum_y
@@ -683,7 +683,7 @@ def _fused_regression_welford_seq(y_true: np.ndarray, y_pred: np.ndarray):
         abs_err = err if err >= 0.0 else -err
         sum_abs += abs_err
         sum_sqr += err * err
-        if abs_err > max_abs:
+        if abs_err > max_abs or abs_err != abs_err:  # a NaN residual makes the maximum NaN, as it does for MAE/MSE
             max_abs = abs_err
         v = y_true[i]
         delta = v - mean
@@ -745,7 +745,7 @@ def _fused_regression_welford_par(y_true: np.ndarray, y_pred: np.ndarray, n_thre
     for tid in range(n_threads):
         sum_abs += local_sum_abs[tid]
         sum_sqr += local_sum_sqr[tid]
-        if local_max_abs[tid] > max_abs:
+        if local_max_abs[tid] > max_abs or local_max_abs[tid] != local_max_abs[tid]:  # propagate a NaN thread maximum
             max_abs = local_max_abs[tid]
         cb = local_count[tid]
         if cb > 0.0:
