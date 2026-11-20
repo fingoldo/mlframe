@@ -164,6 +164,31 @@ _DEFERRED_HOST_FILL_MAX = 8
 _DEFERRED_HOST_FILL_LOCK = threading.Lock()
 
 
+#: Share of the memory pool's limit the device codes parked in the two registries may hold together (an entry count of 8 is 724 MB at 30000 rows x 3018 columns, a third of a 2.58 GB pool).
+_STASH_POOL_FRACTION = 0.10
+
+
+def _stash_byte_budget() -> int:
+    """Bytes the parked device codes may take: ``_STASH_POOL_FRACTION`` of the pool limit (256 MB without a limit or without cupy)."""
+    try:
+        import cupy as cp
+
+        limit = int(cp.get_default_memory_pool().get_limit())
+        return max(1, int(limit * _STASH_POOL_FRACTION)) if limit > 0 else 256 * 1024 * 1024
+    except Exception:
+        return 256 * 1024 * 1024
+
+
+def _parked_device_bytes() -> int:
+    """Bytes of the distinct device arrays held by the handoff and the deferred-fill registries (the caller holds the lock)."""
+    seen: "dict[int, int]" = {}
+    for entry in _RESIDENT_CODES_HANDOFF.values():
+        seen[id(entry[0])] = int(getattr(entry[0], "nbytes", 0))
+    for entry in _DEFERRED_HOST_FILL.values():
+        seen[id(entry[1])] = int(getattr(entry[1], "nbytes", 0))
+    return sum(seen.values())
+
+
 def _fill_deferred(entry) -> None:
     """D2H one registry entry's device codes into its host buffer, once. An entry whose host buffer has been garbage-collected has no reader left
     and is skipped: filling it would copy the whole (n, K) codes matrix to a buffer nobody can read."""
@@ -180,7 +205,7 @@ def _stash_resident_codes(host_codes, device_codes) -> None:
         c = _RESIDENT_CODES_HANDOFF
         c[id(host_codes)] = (device_codes, tuple(host_codes.shape), np.dtype(host_codes.dtype), weakref.ref(host_codes))
         c.move_to_end(id(host_codes))
-        while len(c) > _RESIDENT_CODES_HANDOFF_MAX:
+        while len(c) > _RESIDENT_CODES_HANDOFF_MAX or (len(c) > 1 and _parked_device_bytes() > _stash_byte_budget()):
             # evict-ok: a miss routes to the host codes, which ensure_host_codes_filled always delivers
             c.popitem(last=False)
 
@@ -198,7 +223,7 @@ def _stash_deferred_host_fill(host_codes, device_codes) -> None:
             del c[_dead]
         c[id(host_codes)] = (weakref.ref(host_codes), device_codes, tuple(host_codes.shape), np.dtype(host_codes.dtype), [False])
         c.move_to_end(id(host_codes))
-        while len(c) > _DEFERRED_HOST_FILL_MAX:
+        while len(c) > _DEFERRED_HOST_FILL_MAX or (len(c) > 1 and _parked_device_bytes() > _stash_byte_budget()):
             # A buffer whose owner is alive is never dropped unfilled: the owner may still be waiting to read it.
             _fill_deferred(c.popitem(last=False)[1])
 
