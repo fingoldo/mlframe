@@ -39,14 +39,16 @@ SCENARIOS = [
 SEEDS = (0, 1, 2)
 
 
-def _fit_holdout_auc(X, y, cols, seed):
-    """Honest held-out AUC of an xgboost refit on ``cols`` (test split selector never saw)."""
+def _fit_holdout_auc(Xfit, yfit, Xhold, yhold, cols, seed):
+    """Held-out AUC of an xgboost refit on the selector's training rows, scored on the holdout the selector never saw.
+
+    The earlier version re-split the concatenated frame, so the refit was scored partly on rows the selector had been fit on.
+    """
     import xgboost as xgb
 
-    Xtr, Xte, ytr, yte = train_test_split(X[cols], y, test_size=0.3, random_state=seed, stratify=y)
     m = xgb.XGBClassifier(n_estimators=120, max_depth=4, n_jobs=1, random_state=seed, tree_method="hist", verbosity=0)
-    m.fit(Xtr, ytr)
-    return float(roc_auc_score(yte, m.predict_proba(Xte)[:, 1]))
+    m.fit(Xfit[cols], yfit)
+    return float(roc_auc_score(yhold, m.predict_proba(Xhold[cols])[:, 1]))
 
 
 def _run_selector(X, y, seed, *, n_anchors, ladder, width):
@@ -85,17 +87,15 @@ def main():
             Xfit, Xhold, yfit, yhold = train_test_split(X, y, test_size=0.3, random_state=seed + 100, stratify=y)
             Xfit = Xfit.reset_index(drop=True)
             yfit = yfit.reset_index(drop=True)
-            Xfull = pd.concat([Xfit, Xhold]).reset_index(drop=True)
-            yfull = pd.concat([yfit, yhold]).reset_index(drop=True)
 
             # Lever 1: anchors auto vs fixed-30 (fidelity on this frame).
             a_auto = _run_selector(Xfit, yfit, seed, n_anchors="auto", ladder="knee", width=width)
             a_fix = _run_selector(Xfit, yfit, seed, n_anchors=30, ladder="knee", width=width)
 
             # Lever 2: knee vs off ladder. Honest held-out AUC of refit on selected features.
-            auc_knee = _fit_holdout_auc(Xfull, yfull, a_auto["selected"], seed)
+            auc_knee = _fit_holdout_auc(Xfit, yfit, Xhold, yhold, a_auto["selected"], seed)
             sel_off = _run_selector(Xfit, yfit, seed, n_anchors="auto", ladder="off", width=width)
-            auc_off = _fit_holdout_auc(Xfull, yfull, sel_off["selected"], seed)
+            auc_off = _fit_holdout_auc(Xfit, yfit, Xhold, yhold, sel_off["selected"], seed)
 
             rows.append(dict(
                 scenario=label, width=width, seed=seed,
