@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 _DIR = Path(__file__).resolve().parents[2] / "src/mlframe/feature_selection/_benchmarks/fs_hybrid"
-_FILES = ["round2_rfecv_nrepeats.py", "round2_rfecv_cv_sensitivity.py", "round3_rfecv_bench.py", "round2_rfecv_crossseed_bench.py", "round3_rfecv_levers_bench.py"]
+_FILES = ["round2_rfecv_nrepeats.py", "round2_rfecv_cv_sensitivity.py", "round3_rfecv_bench.py", "round2_rfecv_crossseed_bench.py", "round3_rfecv_levers_bench.py", "round4_prior_protected_rfecv_bench.py"]
 
 
 @pytest.mark.parametrize("name", _FILES)

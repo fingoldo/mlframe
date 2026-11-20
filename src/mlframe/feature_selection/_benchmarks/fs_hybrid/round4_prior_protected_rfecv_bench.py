@@ -84,7 +84,7 @@ def agreed_core(columns, boruta_set, mrmr_set) -> list:
 def protected_rfecv(Xtr, ytr, core):
     from mlframe.feature_selection.wrappers import RFECV, FIConfig, SearchConfig
     fi = FIConfig(importance_getter="auto", n_features_selection_rule="one_se_min")
-    sc = SearchConfig(max_refits=18, max_runtime_mins=3)
+    sc = SearchConfig(max_refits=18, max_runtime_mins=None)
     est = lgb.LGBMClassifier(n_estimators=150, num_leaves=31, learning_rate=0.06, n_jobs=4, verbose=-1)
     r = RFECV(estimator=est, cv=3, scoring=None, verbose=0, fi_config=fi, search_config=sc, random_state=0, must_include=list(core))
     r.fit(Xtr, ytr)

@@ -638,3 +638,4 @@
 | 12-F37 | FIXED | Failed runs are excluded from the selection sizes (kept share). Test tests/feature_selection/test_fs_hybrid_ablation_failed_runs_excluded.py. |
 | 12-F39 | FIXED | Errored rows are logged at WARNING and the per-config completed and failed counts print next to the means (run_counts_by_key in _downstream_shared). Tests tests/feature_selection/test_fs_hybrid_run_counts_by_key.py. |
 | 12-F23 | FIXED (test pending) | The baseline and relay now use h.transform output, so engineered columns in raw_selected_ are kept as the sibling bench does. No dedicated test: a regression test needs a full HybridSelector fit on a bed with selected engineered columns. |
+| 12-F25 | FIXED | The prior-protected RFECV bench budgets by refits only (max_runtime_mins=None), like the other RFECV benches (12-F35). Test extended in tests/feature_selection/test_fs_hybrid_rfecv_benches_have_no_wall_clock_cap.py. |
