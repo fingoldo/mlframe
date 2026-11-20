@@ -88,3 +88,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 12-F30 | 12_feature_selection-3.md | FIXED | run_bed uses a fixed-seed split shared by all presets. Test test_fs_hybrid_cost_split_is_fixed.py. |
 | 12-F32 | 12_feature_selection-3.md | FIXED | Failures at WARNING; per-config completed/failed counts printed with the means. Test test_fs_hybrid_shap_run_counts.py. |
 | 12-F33 | 12_feature_selection-3.md | FIXED | Flip verdict on paired deltas over 5 splits with a 95% bound (flip_verdict). Test test_fs_hybrid_flip_verdict_paired.py. |
+| 12-F34 | 12_feature_selection-3.md | DEFERRED | H35/H32 pick configs on rows their members were fit on. Fix needs an inner-split refit and held-out feature transform the bench's HybridSelector lacks. Benchmark-only. |
