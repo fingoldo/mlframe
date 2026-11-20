@@ -122,7 +122,7 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F37: DEFERRED. not changed: NaN input to PolynomialFeatures needs a NaN policy decision (refuse, or NaN-propagate per row)
 - 39-F38: DEFERRED. not changed: hgb_max_features_cap is exported with no caller; wire in or remove, an owner decision
 - 39-F53: FIXED. multilabel heads use per-label sigmoid; tests/training/test_cluster39_encoders_and_casts.py
-- 39-F54: FIXED. orthogonal_ and sparse_ fall back on 1-D tensors instead of raising; no separate test
+- 39-F54: FIXED. orthogonal_ and sparse_ fall back on 1-D tensors instead of raising; test tests/training/test_cluster39_orthogonal_init_on_batchnorm.py
 - 39-F67: FIXED. the L1 exclusion ids are computed per step, not cached and pickled; no separate test
 - 39-F2: FIXED. A batch missing an ensemble key raises instead of concatenating misaligned rows. Test tests/training/test_cluster39_run_batched_alignment.py.
 - 39-F3: FIXED. A failed concatenate raises with the shapes instead of truncating. Test tests/training/test_cluster39_run_batched_alignment.py.
@@ -131,3 +131,4 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F17: FIXED. fit_transform applies the binary {0,1} check for woe, as fit does. Test tests/training/test_cluster39_woe_fit_transform_binary_check.py.
 - 39-F18: FIXED. A float NaN text is embedded as the empty string, as the docstring says. Test tests/training/test_cluster39_hf_nan_text_is_empty.py.
 - 39-F35: FIXED. 'No terms remain' after min_df pruning is handled like empty vocabulary (zero-width matrix). Test tests/training/test_cluster39_tfidf_no_terms_remain.py.
+- 39-F54: FIXED. orthogonal_ and sparse_ fall back on 1-D tensors (BatchNorm gamma -> 1.0, bias -> 0). Test tests/training/test_cluster39_orthogonal_init_on_batchnorm.py.
