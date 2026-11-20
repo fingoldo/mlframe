@@ -29,3 +29,9 @@ Scope: 63 files from `audits/2026-11-20/manifests/14_feature_selection-5.txt` (s
 - `_shap_proxy_treeshap.py:638-657` LightGBM unmodelled-split gate (linear_tree, categorical, missing_type Zero) routes to the shap fallback correctly.
 - `_shap_proxy_prefilter.py:183-245` `gpu_model_available` does not latch on transient probe errors, which is the intended behaviour.
 - `_shap_proxy_heuristics.py:107-206` memoised loss/margin paths: empty subset is scored +inf consistently and child keys stay sorted.
+
+
+## Dispositions
+
+- 14-F2: RESOLVED. Target imbalance of a float target counts labelled rows only; NaN is no longer a class. Test tests/feature_selection/test_auto_tune_imbalance_ignores_missing_labels.py; 22 existing auto-tune tests pass. Commit below.
+- 14-F1: DEFERRED. The auto tightening compares the value to its default (3.0), so an explicit 3.0 is overridden. Telling explicit from default needs a None sentinel in the public signature, and the training config (training/fs_params/shap_proxied_fs.py:56) always passes 3.0, so the sentinel would never reach the tightening. That is a config-design change: deferred.

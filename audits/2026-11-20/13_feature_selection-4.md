@@ -61,3 +61,9 @@ Scope: 142 files from `audits/2026-11-20/manifests/13_feature_selection-4.txt`, 
 
 - Benchmark and profiling findings (F5-F14, F28-F36) come from delegated agents. Only F5 and F8 were re-checked by the auditor. Callee contracts that those scripts rely on were not all verified.
 - The test-reference grep timed out after the first few names, so the coverage section is partial.
+
+
+## Dispositions
+
+- 13-F2: RESOLVED. The stability path builds the shared fit state before returning, so Subset, results_to_csv and plot read set attributes. Test tests/feature_selection/test_boruta_stability_path_has_fit_state.py; existing stability tests (6) pass. Commit below.
+- 13-F1: RESOLVED. Under premerge, Subset() expands accepted representatives back to their cluster members and indexes the pre-collapse frame. Test tests/feature_selection/test_boruta_subset_keeps_premerge_members.py; existing premerge tests (3) pass. Commit below.
