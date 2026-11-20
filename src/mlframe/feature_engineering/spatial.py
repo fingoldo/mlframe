@@ -557,6 +557,7 @@ def local_density_features(
         from sklearn.neighbors import KDTree
     except Exception as e:
         raise ImportError("local_density_features requires scikit-learn") from e
+    query_is_ref = q_coords is ref_coords  # read before any copy (audit 24-F23)
     ref = np.ascontiguousarray(ref_coords, dtype=np.float64)
     q = np.ascontiguousarray(q_coords, dtype=np.float64)
     if q.ndim != 2 or ref.ndim != 2 or q.shape[1] != ref.shape[1]:
@@ -583,6 +584,9 @@ def local_density_features(
         order = np.argsort(sorted_mask, axis=1)
         keep_idx = order[:, :k]
         compact_dist = np.take_along_axis(distances, keep_idx, axis=1)
+    elif query_is_ref:
+        # The self distance 0 is one of the k distances: drop it, so dist_to_kth is the k-th OTHER point (audit 24-F23).
+        _, compact_dist = _drop_self_match(indices, distances, k)
     else:
         compact_dist = distances[:, :k]
 

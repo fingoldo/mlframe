@@ -57,7 +57,8 @@ def rolling_target_correlation_tracker(
     cols = list(feature_columns) if feature_columns is not None else list(X.select_dtypes(include=[np.number]).columns)
     if not cols:
         raise ValueError("rolling_target_correlation_tracker: no numeric feature_columns found/given.")
-    min_periods = min_periods if min_periods is not None else max(10, window // 10)
+    # min_periods above the window made pandas raise for a window under 10 (audit 24-F26): clamp it to the window.
+    min_periods = min(min_periods if min_periods is not None else max(10, window // 10), window)
 
     y_series = pd.Series(np.asarray(y, dtype=np.float64), index=X.index).shift(1)
     corr = pd.DataFrame({c: X[c].shift(1).rolling(window, min_periods=min_periods).corr(y_series) for c in cols}, index=X.index)

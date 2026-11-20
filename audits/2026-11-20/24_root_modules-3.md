@@ -176,3 +176,9 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F34: DEFERRED. not reviewed in this pass; P2 still open
 - 24-F35: DEFERRED. not reviewed in this pass; P2 still open
 - 24-F31: FIXED. empty parallel chunks are skipped and an all-empty run returns (None, None); tests/feature_engineering/test_timeseries.py expectation updated to the corrected cumsum end contract; 129 related tests pass
+- 24-F23: FIXED. local density drops the self-match when the query is the reference, so dist_to_kth is the k-th other point; tests/feature_engineering/test_cluster24_min_periods_and_self_match.py; 57 related tests pass
+- 24-F26: FIXED. rolling min_periods is clamped to the window; same test file
+- 24-F24: DEFERRED. read this pass; judgement or performance item deferred (see cluster report)
+- 24-F27: DEFERRED. read this pass; judgement or performance item deferred (see cluster report)
+- 24-F28: DEFERRED. read this pass; judgement or performance item deferred (see cluster report)
+- 24-F29: DEFERRED. read this pass; judgement or performance item deferred (see cluster report)
