@@ -418,16 +418,15 @@ def _full_array_digest(a: np.ndarray) -> int:
 
 
 def _holdout_x_digest(X: Any) -> int:
-    """Content digest of the external holdout frame (0 when absent): the key must tell two holdouts of equal length apart (audit 35-F9)."""
+    """Content digest of the external holdout frame (0 when absent), so equal-length holdouts get distinct keys (audit 35-F9)."""
     if X is None:
         return 0
     if hasattr(X, "hash_rows"):  # polars
         rows = np.asarray(X.hash_rows().to_numpy())
     else:  # pandas or array-like
         import pandas as pd
-
         rows = pd.util.hash_pandas_object(pd.DataFrame(X), index=False).to_numpy()
-    return _full_array_digest(rows) ^ _full_array_digest(np.asarray(getattr(X, "shape", (0,)), dtype=np.int64))
+    return _full_array_digest(rows) ^ _full_array_digest(np.asarray(np.shape(X), dtype=np.int64))
 
 
 def _oof_full_cache_key(cache_key, kfold, random_state, holdout_frac, time_ordering, external_holdout_X, external_holdout_y, group_ids) -> tuple:

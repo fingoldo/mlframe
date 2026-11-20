@@ -79,3 +79,15 @@ Severity counts: P0 0, P1 8, P2 21, P3 23, total 52.
 - Subagent findings spot-checked against code by me: 37-F1 area (own read), 37-F5, 37-F6, 37-F7, 37-F8, 37-F9, 37-F10, 37-F11, 37-F49, and the C3 constant in `_prescreen.py:114-126`. C3 is not in the table as P1: the constant is a single scalar fitted on the same OOF labels it is scored on, so bias is about 1/n. Downgraded and dropped unless someone wants the oracle concern tracked.
 - Only grepped, not fully read: callers of `_entry_metric`, `unpack_ctx_configs_to_locals`, `refit_capped_stack`, `same_split_dummy_rmse`, `_fit_data_signature_seed`. Test coverage was not checked systematically. Subagents flagged likely gaps for the `check_precomputed_fingerprint` exception path (37-F8), the binary class-indexed branch of `_entry_metric` (37-F49), and the `compute_oof_holdout_predictions` survivor order (`__init__.py:182-184`, unverified).
 - Unverified and left out: whether `compute_oof_holdout_predictions` reorders survivors relative to `_oof_components` / `_oof_names` (would misalign weights). Whether the id-keyed categorical-drift cache (`_phase_drift_snapshot.py:45-54`) can return stale data after id reuse.
+
+
+## Dispositions
+
+- 37-F1: DEFERRED. not changed in this pass: masking the fabricated median in composite_t_full is a labelling-policy decision (what a training row with an out-of-domain base should carry). Needs owner decision
+- 37-F2: DEFERRED. not changed in this pass: offering supplied lag values as a candidate base changes which bases the ceiling considers; needs a design decision on the candidate set
+- 37-F3: FIXED. NaN scores get NaN intervals instead of the top bin; tests/training/composite/test_cluster37_venn_refit.py
+- 37-F4: DEFERRED. not changed in this pass: the scale mismatch between roc_auc and negated log-loss needs a decision on a common score; needs owner decision
+- 37-F5: FIXED. per-row sample weights are passed regardless of column pruning; no separate test beyond the suite run
+- 37-F6: FIXED. refit_capped_stack takes and uses sample_weight, and the call site passes the OOF weights; tests/training/composite/test_cluster37_venn_refit.py
+- 37-F7: FIXED. group sizes come from one np.unique pass; no separate test
+- 37-F8: FIXED. a failed fingerprint cross-check distrusts the precomputed bundle and logs at WARNING; no separate test

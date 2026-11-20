@@ -158,7 +158,9 @@ def check_precomputed_fingerprint(
                 )
                 _precomp_fp_ok = False
         except Exception as _fp_err:
-            logger.debug("precompute fingerprint cross-check skipped (%s)", _fp_err)
+            # The precomputed stats, specs and baselines were trusted without any check here; an unverifiable bundle is not trusted (audit 37-F8).
+            logger.warning("precompute fingerprint cross-check failed (%s); ignoring the precomputed bundle and recomputing inline", _fp_err)
+            _precomp_fp_ok = False
     return _precomp_fp_ok
 
 

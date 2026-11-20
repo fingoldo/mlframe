@@ -64,7 +64,7 @@ def cross_fitted_stack_rmse(ens_cls: Any, strategy: str, components: Sequence[An
     return weighted_rmse(pred, y, sample_weight)
 
 
-def refit_capped_stack(ens_cls: Any, strategy: str, capped: Any, oof_names: Sequence[str], P: Any, y: Any) -> Any:
+def refit_capped_stack(ens_cls: Any, strategy: str, capped: Any, oof_names: Sequence[str], P: Any, y: Any, sample_weight: Any = None) -> Any:
     """Refit a capped non-convex stack on the OOF columns it kept, so its weights describe the predictor that ships.
 
     Capping kept the top components with their raw stack weights; the served blend lost the dropped weight mass on every
@@ -78,7 +78,8 @@ def refit_capped_stack(ens_cls: Any, strategy: str, capped: Any, oof_names: Sequ
         return capped
     build = ens_cls.from_linear_stack if strategy == "linear_stack" else ens_cls.from_nnls_stack
     return build(component_models=list(capped.component_models), component_names=names,
-                 component_predictions=np.asarray(P, dtype=np.float64)[:, pos], y_train=np.asarray(y, dtype=np.float64))
+                 component_predictions=np.asarray(P, dtype=np.float64)[:, pos], y_train=np.asarray(y, dtype=np.float64),
+                 sample_weight=None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64))
 
 
 def gate_stack_rmse(ens_cls: Any, strategy: str, components: Sequence[Any], names: Sequence[str], P: Any, y: Any, in_sample_pred: Any,
