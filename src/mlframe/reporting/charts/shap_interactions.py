@@ -31,6 +31,7 @@ from mlframe.reporting.charts._sampling import subsample_preserving_extremes
 from mlframe.reporting.charts._layout import base_for as _base_for
 from mlframe.reporting.charts.shap_panels import (
     _close_figs,
+    _is_multi_output_catboost,
     _save_figure,
     _as_frame_and_names,
     _row_subset,
@@ -135,6 +136,9 @@ def shap_interaction_summary(
             "non-tree model; interaction values need TreeExplainer (KernelExplainer interactions are too slow)",
             plot_file, plot_outputs,
         )
+    if _is_multi_output_catboost(model):
+        # The multi-output CatBoost leaf layout crashes shap's TreeExplainer natively (see shap_panels._catboost_unsupported_skip).
+        return _skipped_interactions("multi-output CatBoost: shap's TreeExplainer cannot parse its leaf layout", plot_file, plot_outputs)
 
     cap = min(int(max_rows), n)
     proxy = _score_proxy(model, carrier, n)

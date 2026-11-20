@@ -40,6 +40,7 @@ from mlframe.reporting.charts.shap_panels import (
     _row_subset,
     _save_figure,
     _shap_values_2d,
+    _is_multi_output_catboost,
     is_tree_model,
 )
 
@@ -135,6 +136,9 @@ def shap_worst_errors_explanation(
 
     if not is_tree_model(model):
         return _skip("non-tree model; per-instance KernelExplainer is too slow -- skipped")
+    if _is_multi_output_catboost(model):
+        # The multi-output CatBoost leaf layout crashes shap's TreeExplainer natively (see shap_panels._catboost_unsupported_skip).
+        return _skip("multi-output CatBoost: shap's TreeExplainer cannot parse its leaf layout")
 
     yt = np.asarray(y_true).ravel()
     ys = np.asarray(y_score, dtype=np.float64).ravel()
