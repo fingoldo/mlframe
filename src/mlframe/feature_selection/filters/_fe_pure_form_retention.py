@@ -79,7 +79,7 @@ def _finite_std_kernel(v: np.ndarray) -> float:
         if np.isfinite(x):
             d = x - mean
             sq += d * d
-    return np.sqrt(sq / count)
+    return float(np.sqrt(sq / count))
 
 
 def _finite_std(values: np.ndarray) -> float:
