@@ -65,6 +65,7 @@ discipline this repository holds itself to).
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, Optional, Tuple, cast
@@ -366,7 +367,13 @@ class GroundTruth:
         Returns:
             Column name to :class:`MIBundle`, memoised on the column set it was computed for.
         """
-        key = f"mi::{','.join(sorted(columns))}"
+        # The key covers the data as well as the column names: the same columns with other rows or labels must not reuse a stale estimate.
+        digest = hashlib.blake2b(digest_size=16)
+        for name in sorted(columns):
+            digest.update(name.encode("utf-8"))
+            digest.update(np.ascontiguousarray(columns[name]).tobytes())
+        digest.update(np.ascontiguousarray(labels).tobytes())
+        key = f"mi::{','.join(sorted(columns))}::{digest.hexdigest()}"
         if key not in self._memo:
             from mlframe.data.datasets._oracle import reference_mi
 
