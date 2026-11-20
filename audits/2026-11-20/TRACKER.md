@@ -64,3 +64,9 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F2 | 35_training-4.md | RESOLVED | CRPS weights are cell widths (helper _crps_cell_weights); reduces to 2/K on midpoint grids. Also fixed sibling in qrf.py (new). Tests test_crps_cell_weights.py. Commit bd2709ef9. |
 | 40-F1 | 40_training-9.md | RESOLVED | save/load store classes and the multilabel flag; model rebuilt with task_type. Tests test_recurrent_classifier_save_keeps_classes_and_multilabel.py. Commit 7e0cd9b40. |
 | 40-F2 | 40_training-9.md | RESOLVED | Unweighted score() returns accuracy in both branches. Tests test_classifier_score_is_accuracy.py. Commit 2798b5a6c. |
+
+## Dispositions after the P0 pass
+
+| ID | Report | Disposition | Note |
+|---|---|---|---|
+| 01-F3 | 01_calibration.md | WON'T FIX | Rejected by the in-code bench (probabilities.py:292-298): the argsort variant is 0.43x at n=1e6. Not ported. |

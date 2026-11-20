@@ -44,3 +44,4 @@ Scope: the 25 `.py` files plus `__init__.py` in `src/mlframe/calibration/_benchm
 - 01-F10: DEFERRED. not changed in the P2/P3 pass yet; benchmark-only, low impact
 - 01-F11: DEFERRED. not changed in the P2/P3 pass yet; benchmark-only, low impact
 - 01-F13: DEFERRED. not changed in the P2/P3 pass yet; benchmark-only, low impact
+- 01-F3: WON'T FIX. Production keeps the np.unique + per-bin scan. probabilities.py:292-298 records a bench of this exact argsort/contiguous variant: bit-identical but 0.43x (n=1e6, n_bins=10: 96ms old vs 220-223ms). Porting it would slow the default path.
