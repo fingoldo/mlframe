@@ -21,7 +21,7 @@ import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd
 from sklearn.model_selection import train_test_split
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _downstream_shared import downstream_on_matrix
+from _downstream_shared import downstream_on_matrix, run_counts_by_key
 from synth import make_dataset
 from mlframe.feature_selection.filters import MRMR
 
@@ -64,13 +64,15 @@ def main():
                            base=len(set(raw_sel) & base), base_recall=round(len(set(raw_sel) & base) / len(base), 3),
                            noise=len(set(raw_sel) & noise), fit_s=round(dt, 1), auc=a, auc_mean=am)
             except Exception as e:
-                logger.debug("seed=%s config=%s failed: %s: %s", sd, name, type(e).__name__, e)
+                logger.warning("seed=%s config=%s failed: %s: %s", sd, name, type(e).__name__, e)
                 row = dict(seed=sd, config=name, error=f"{type(e).__name__}: {e}")
             rows.append(row)
             print(f"sd{sd} {name:14s} " + (str(row.get("error")) if row.get("error") else
                   f"n={row['n']:2d} eng={row['n_eng']:2d} spur={row['spurious_eng']:2d} base={row['base']}/{len(base)} "
                   f"rec={row['base_recall']} noise={row['noise']} {row['fit_s']:5.1f}s mean={row['auc_mean']}"), flush=True)
     df = pd.DataFrame([r for r in rows if not r.get("error")])
+    print("\ncompleted and failed runs per config (means below use completed runs only)")
+    print(run_counts_by_key(rows).to_string())
     print("\n=== mean over seeds ===")
     print(df.groupby("config").agg(auc_mean=("auc_mean", "mean"), base_recall=("base_recall", "mean"),
                                    noise=("noise", "mean"), n_eng=("n_eng", "mean"), spurious_eng=("spurious_eng", "mean"),
