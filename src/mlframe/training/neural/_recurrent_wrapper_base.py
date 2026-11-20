@@ -692,7 +692,9 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
             aux_categorical_embed_dim=wrapper.categorical_embed_dim,
             task_type="multilabel" if wrapper._is_multilabel else None,
         )
-        wrapper.model.load_state_dict(state["model_state_dict"])
+        # Checkpoints written before class_weight became non-persistent carry that key; the rebuilt model has no such buffer (40-F8).
+        _model_sd = {k: v for k, v in state["model_state_dict"].items() if k != "class_weight"}
+        wrapper.model.load_state_dict(_model_sd)
         wrapper.model.eval()
 
         return wrapper
