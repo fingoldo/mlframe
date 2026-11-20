@@ -16,10 +16,32 @@ from typing import Any, Literal, Optional
 
 import numpy as np
 import polars as pl
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import dijkstra
 
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
+
+
+_SOURCE_EDGE = 1e-12
+
+
+def _min_geodesic_from_sources(graph: csr_matrix, sources: np.ndarray) -> np.ndarray:
+    """Return, for each node of ``graph``, its shortest-path distance to the nearest of ``sources``.
+
+    A virtual node is joined to every source by ``_SOURCE_EDGE`` and one Dijkstra run from it gives all the minima at once, so the
+    cost is O(nodes) rather than the O(sources x nodes) matrix a per-source run would return. ``inf`` stays ``inf`` for nodes no
+    source reaches.
+    """
+    n = graph.shape[0]
+    coo = graph.tocoo()
+    rows = np.concatenate([coo.row.astype(np.int64), np.full(sources.size, n, dtype=np.int64)])
+    cols = np.concatenate([coo.col.astype(np.int64), sources.astype(np.int64)])
+    data = np.concatenate([coo.data.astype(np.float64), np.full(sources.size, _SOURCE_EDGE)])
+    augmented = csr_matrix((data, (rows, cols)), shape=(n + 1, n + 1))
+    distances = dijkstra(augmented, indices=n, directed=True, limit=np.inf)[:n]
+    return np.where(np.isfinite(distances), distances - _SOURCE_EDGE, np.inf)
 
 
 def compute_geodesic_kgraph_features(
@@ -42,7 +64,6 @@ def compute_geodesic_kgraph_features(
     """
     from sklearn.neighbors import NearestNeighbors
     from scipy.sparse import csr_matrix
-    from scipy.sparse.csgraph import dijkstra
 
     seed = require_seed(seed)
     validate_numeric_input(X_train, name="X_train", allow_fp16=False)
@@ -90,9 +111,9 @@ def compute_geodesic_kgraph_features(
 
         # Multi-source Dijkstra from target_indices.
         if target_indices.size > 0:
-            geo_dist_train = dijkstra(graph, indices=target_indices, return_predecessors=False, directed=False, limit=np.inf)
-            # Take min over sources for each row.
-            min_geo_per_train = geo_dist_train.min(axis=0)
+            # One multi-source search, not a dense (sources x rows) matrix: a virtual node joined to every source by a tiny edge gives the minimum
+            # geodesic distance from any source directly, in O(rows) memory.
+            min_geo_per_train = _min_geodesic_from_sources(graph, target_indices)
             # Replace inf with max non-inf value
             finite_max = float(min_geo_per_train[np.isfinite(min_geo_per_train)].max()) if np.any(np.isfinite(min_geo_per_train)) else 1.0
             min_geo_per_train = np.where(np.isfinite(min_geo_per_train), min_geo_per_train, finite_max).astype(np.float32)
