@@ -191,3 +191,5 @@ Counts: P0 0, P1 22, P2 57, P3 22 (101 rows). The rows marked [v] are the ones I
 - 12-F80: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F81: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F84: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
+- 12-F38: FIXED. downstream returns NaN for an empty selection, as downstream_on_cols does, instead of crashing the run. Test tests/feature_selection/test_fs_hybrid_empty_selection_downstream.py.
+- 12-F38: FIXED. see the dispositions log.
