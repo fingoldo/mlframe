@@ -36,6 +36,7 @@ from mlframe.data.datasets._columns import draw_features, standardize
 from mlframe.data.datasets._derived import derived_order, realize_derived
 from mlframe.data.datasets._latent import realize_latents
 from mlframe.data.datasets._links import apply_heteroscedasticity, link_score
+from mlframe.data.datasets._targets_nonbinary import rotate_weights
 from mlframe.data.datasets._missing import apply_missingness
 from mlframe.data.datasets._noise import apply_corruption
 from mlframe.data.datasets._rng import stream_for
@@ -291,6 +292,21 @@ def _probability_only(spec: DatasetSpec, target: TargetSpec, columns: Dict[str, 
     return probability_from_score(score, target.link.kind)
 
 
+def multiclass_class_scores(link: Any, columns: Dict[str, np.ndarray], n: int, n_classes: int, scale: float, knob_rng: Any = None) -> np.ndarray:
+    """Return the ``(n, n_classes)`` class-score matrix of a multiclass link.
+
+    Each class uses its own rotation of the declared additive weights, while the interactions and basis terms of the link apply to every
+    class unchanged. Before this, the class scores came from the rotated additive weights alone, so a multiclass target silently dropped
+    its interaction and nonlinear terms.
+    """
+    per_class = rotate_weights(link.coefficients, n_classes)
+    columns_out = []
+    for weights in per_class:
+        class_link = link.model_copy(update={"coefficients": dict(weights), "intercept": 0.0})
+        columns_out.append(scale * link_score(class_link, columns, n, knob_rng=knob_rng, scale_override=1.0))
+    return np.column_stack(columns_out)
+
+
 def _generate_non_binary(
     spec: DatasetSpec,
     target: TargetSpec,
@@ -338,7 +354,6 @@ def _generate_non_binary(
         count_mean,
         multiclass_probabilities,
         ordinal_probabilities,
-        rotate_weights,
         sample_categorical,
         sample_count,
     )
@@ -350,10 +365,7 @@ def _generate_non_binary(
     caveats: List[str] = []
 
     if target.kind == "multiclass":
-        from mlframe.data.datasets._links import additive_score
-
-        per_class = rotate_weights(target.link.coefficients, int(target.n_classes))
-        class_scores = np.column_stack([scale * additive_score(weights, columns, n) if weights else np.zeros(n) for weights in per_class])
+        class_scores = multiclass_class_scores(target.link, columns, n, int(target.n_classes), scale, knob_rng)
         law = multiclass_probabilities(class_scores)
         labels = sample_categorical(law, labels_stream)
         calibration.update(categorical_ceiling(law))
