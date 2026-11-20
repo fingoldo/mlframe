@@ -53,3 +53,29 @@ def test_memo_hit_extracts_no_column(monkeypatch):
     monkeypatch.setattr(fp, "_column_values", lambda *a, **k: (calls.append(1) if len(a) < 3 and "rows" not in k else None) or real(*a, **k))
     assert fp._full_x_content_hash(X) == first
     assert calls == []
+
+
+def test_memo_slot_of_another_object_with_the_exact_key_is_a_miss():
+    """A recycled address reproduces the whole key (id, shape and the strided sample all equal): only the weak reference tells the freed frame's slot from the live one, so a slot holding another object's
+    digest under B's exact key must not be served for B (arrays and frames)."""
+    import weakref
+
+    import pandas as pd
+
+    A = np.arange(100, dtype=np.float64).reshape(10, 10)
+    B = (np.arange(100, dtype=np.float64) + 1000.0).reshape(10, 10)
+    hB = fp._full_x_content_hash(B)
+    hA = fp._full_x_content_hash(A)
+    assert hA != hB
+    key_b = (id(B), B.shape, fp._content_array_signature(B))
+    fp._MRMR_LAST_X_HASH_CACHE.update({"hash": hA, "ref": weakref.ref(A), "id_shape": key_b})
+    assert fp._full_x_content_hash(B) == hB, "the slot of a different object was served"
+
+    F = pd.DataFrame({"a": np.arange(50.0), "b": np.arange(50.0)[::-1]})
+    G = F.copy()
+    G.iloc[3, 0] = -5.0
+    hF = fp._full_named_frame_hash(F, F.shape)
+    hG_true = fp._full_named_frame_hash(G, G.shape)
+    assert hF != hG_true
+    fp._MRMR_LAST_X_HASH_CACHE.update({"hash": hF, "ref": weakref.ref(F), "id_shape": (id(G), G.shape, fp._content_array_signature(G))})
+    assert fp._full_named_frame_hash(G, G.shape) == hG_true

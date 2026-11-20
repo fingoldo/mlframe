@@ -21,7 +21,7 @@ def _codes(rng, n, k):
     return rng.integers(0, k, n).astype(np.int64)
 
 
-def test_excess_and_floor_subsample_keeps_drop_decision():
+def test_excess_and_floor_subsample_keeps_drop_decision(monkeypatch):
     """A genuinely REDUNDANT raw (cand independent of y given z) stays below its floor, and a genuinely
     RELEVANT raw (cand carries private signal) clears it -- under BOTH the default cap and full-n."""
     m = importlib.import_module(MOD)
@@ -31,52 +31,37 @@ def test_excess_and_floor_subsample_keeps_drop_decision():
     z = _codes(rng, n, 4)
     redundant = _codes(rng, n, 4)  # independent of y -> excess ~ 0, below floor
     relevant = y.copy()  # perfectly informative -> excess >> floor
-    _orig_dict = dict(m.__dict__)
-    for max_rows in ("250000", "0"):  # capped, then full-n
-        import os
-
-        os.environ["MLFRAME_CMI_NULL_MAX_ROWS"] = max_rows
-        mm = importlib.reload(m)
-        try:
-            _cmi_r, _fl_r, exc_r = mm._excess_and_floor(redundant, y, z, seed=1)
-            _cmi_g, _fl_g, exc_g = mm._excess_and_floor(relevant, y, z, seed=1)
-            assert exc_g > exc_r, f"[cap={max_rows}] relevant excess {exc_g:.4f} !> redundant {exc_r:.4f}"
-            assert _cmi_g > _fl_g, f"[cap={max_rows}] relevant CMI did not clear its floor"
-        finally:
-            os.environ.pop("MLFRAME_CMI_NULL_MAX_ROWS", None)
-            m.__dict__.clear()
-            m.__dict__.update(_orig_dict)
+    for max_rows in ("250000", "0"):  # capped, then full-n; the module reads the cap into one constant at import, so the knob is set on it (no reload)
+        monkeypatch.setattr(m, "_CMI_NULL_MAX_ROWS", int(max_rows))
+        _cmi_r, _fl_r, exc_r = m._excess_and_floor(redundant, y, z, seed=1)
+        _cmi_g, _fl_g, exc_g = m._excess_and_floor(relevant, y, z, seed=1)
+        assert exc_g > exc_r, f"[cap={max_rows}] relevant excess {exc_g:.4f} !> redundant {exc_r:.4f}"
+        assert _cmi_g > _fl_g, f"[cap={max_rows}] relevant CMI did not clear its floor"
 
 
 def test_excess_and_floor_cap_actually_subsamples(monkeypatch):
     """With the cap set below n, the perm-null path must see the reduced row count (proven by capturing the
     array length _conditional_perm_null receives)."""
     m = importlib.import_module(MOD)
-    monkeypatch.setenv("MLFRAME_CMI_NULL_MAX_ROWS", "50000")
-    _orig_dict = dict(m.__dict__)
-    mm = importlib.reload(m)
-    try:
-        seen = {}
-        import mlframe.feature_selection.filters._fe_cmi_redundancy_gate as G
+    monkeypatch.setattr(m, "_CMI_NULL_MAX_ROWS", 50000)  # the module reads the cap into one constant at import: set it there, no reload
+    seen = {}
+    import mlframe.feature_selection.filters._fe_cmi_redundancy_gate as G
 
-        orig = G._conditional_perm_null
+    orig = G._conditional_perm_null
 
-        def spy(cand_bin, y_bin, z_support, **k):
-            """Wrap _conditional_perm_null to record the row count it actually receives, proving the subsample cap took effect."""
-            seen["n"] = int(cand_bin.shape[0])  # host array or resident device codes
-            return orig(cand_bin, y_bin, z_support, **k)
+    def spy(cand_bin, y_bin, z_support, **k):
+        """Wrap _conditional_perm_null to record the row count it actually receives, proving the subsample cap took effect."""
+        seen["n"] = int(cand_bin.shape[0])  # host array or resident device codes
+        return orig(cand_bin, y_bin, z_support, **k)
 
-        monkeypatch.setattr(G, "_conditional_perm_null", spy)
-        rng = np.random.default_rng(0)
-        n = 400_000
-        y = _codes(rng, n, 3)
-        z = _codes(rng, n, 3)
-        cand = _codes(rng, n, 3)
-        mm._excess_and_floor(cand, y, z, seed=0)
-        assert seen.get("n", n) <= 50_000 + 8, f"perm-null saw {seen.get('n')} rows, expected <= cap"
-    finally:
-        m.__dict__.clear()
-        m.__dict__.update(_orig_dict)
+    monkeypatch.setattr(G, "_conditional_perm_null", spy)
+    rng = np.random.default_rng(0)
+    n = 400_000
+    y = _codes(rng, n, 3)
+    z = _codes(rng, n, 3)
+    cand = _codes(rng, n, 3)
+    m._excess_and_floor(cand, y, z, seed=0)
+    assert seen.get("n", n) <= 50_000 + 8, f"perm-null saw {seen.get('n')} rows, expected <= cap"
 
 
 def test_batched_device_null_refused_by_the_vram_cushion_returns_none(monkeypatch):

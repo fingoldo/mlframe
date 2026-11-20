@@ -41,7 +41,7 @@ from __future__ import annotations
 from ._grouped_coerce_shared import coerce_X_for_grouped
 
 import logging
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 from ._ratio_delta_screen import LOG_RATIO, RATIO, ratio_pair_screen
@@ -101,7 +101,7 @@ def engineered_name_lagged_diff(value_col: str, period: int) -> str:
     return f"lagged_diff_{value_col}__period{int(period)}"
 
 def _map_group_keys(
-    keys, lookup: dict, global_value: float,
+    keys, lookup: dict, global_value: float, dtype: Any = None,
 ) -> np.ndarray:
     """Map each row key through ``lookup`` (str-keyed), unseen -> ``global_value``.
 
@@ -128,7 +128,7 @@ def _map_group_keys(
     # copy=True: some pandas versions return a read-only view from to_numpy() when the
     # requested dtype already matches the mapped Series' dtype (no-op astype short-circuit),
     # which then raises "assignment destination is read-only" on the absent-key fill below.
-    out = s.map(lookup).to_numpy(dtype=_crit_np_dtype(), copy=True)
+    out = s.map(lookup).to_numpy(dtype=_crit_np_dtype() if dtype is None else dtype, copy=True)
     absent = ~s.isin(lookup.keys()).to_numpy()
     if absent.any():
         out[absent] = global_value
@@ -265,7 +265,7 @@ def grouped_delta_features(
     # The grouper (hash of the group key) depends only on group_col, not num_col: build ONE frame holding every
     # num_col's crit-dtype values alongside "_g" and group it ONCE, instead of rebuilding a fresh 2-column temp
     # frame + re-hashing the identical "_g" key on every num_col iteration (num_cols is uncapped by the caller).
-    x_by_col = {c: np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype()) for c in num_cols}
+    x_by_col = {c: np.asarray(X[c].to_numpy(), dtype=np.float64) for c in num_cols}  # Intentional float64: the deviation from a group mean / the lag difference is a subtraction of nearly equal numbers, float32 operands lose it for a column with a large offset
     df_aux = pd.DataFrame({"_g": g.values, **x_by_col})
     gb = df_aux.groupby("_g")
     row_codes, uniq_keys = pd.factorize(g.values)
@@ -274,7 +274,7 @@ def grouped_delta_features(
         # Per-group mean / std (sample std for unbiased; treat NaNs sanely).
         agg = gb[num_col].agg(["mean", "std"])
         # NaN std (single-row group) -> 1.0 fallback; std == 0 also -> 1.0.
-        agg_std = agg["std"].fillna(0.0).to_numpy(dtype=_crit_np_dtype())
+        agg_std = agg["std"].fillna(0.0).to_numpy(dtype=np.float64)  # Intentional float64: same operands as the deviation below
         agg_std = np.where(agg_std > 0.0, agg_std, 1.0)
         lookup_mean = {str(k): float(v) for k, v in agg["mean"].items()}
         lookup_std = {str(k): float(s) for k, s in zip(agg.index.astype(str), agg_std)}
@@ -285,12 +285,12 @@ def grouped_delta_features(
         # Build the engineered columns.
         # Every training row's group is in the aggregate, so the per-row statistics are a gather of the per-group values by the once-factorised row codes (no per-column hash join of the n key strings).
         slot = pd.Index(agg.index).get_indexer(uniq_keys)
-        per_row_mean = np.asarray(agg["mean"].to_numpy(dtype=_crit_np_dtype())[slot][row_codes])
+        per_row_mean = np.asarray(agg["mean"].to_numpy(dtype=np.float64)[slot][row_codes])  # Intentional float64: same operands as the deviation below
         per_row_std = np.asarray(agg_std[slot][row_codes])
         delta = x - per_row_mean
         zscore = delta / per_row_std
-        delta = np.nan_to_num(delta, nan=0.0, posinf=0.0, neginf=0.0)
-        zscore = np.nan_to_num(zscore, nan=0.0, posinf=0.0, neginf=0.0)
+        delta = np.nan_to_num(delta, nan=0.0, posinf=0.0, neginf=0.0).astype(_crit_np_dtype(), copy=False)  # the stored column is narrowed AFTER the float64 subtraction
+        zscore = np.nan_to_num(zscore, nan=0.0, posinf=0.0, neginf=0.0).astype(_crit_np_dtype(), copy=False)
         name_delta = engineered_name_grouped_delta_mean(num_col, group_col)
         name_z = engineered_name_grouped_delta_std(num_col, group_col)
         encoded[name_delta] = delta
@@ -334,18 +334,18 @@ def apply_grouped_delta(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     if group_col not in X_test.columns or num_col not in X_test.columns:
         raise KeyError(f"apply_grouped_delta: missing column(s) {group_col!r}/{num_col!r} " f"from X_test")
     g_vals = group_key_strings(X_test[group_col])
-    x = np.asarray(X_test[num_col].to_numpy(), dtype=_crit_np_dtype())
-    per_row_mean = _map_group_keys(g_vals, lookup_mean, global_mean)
+    x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)  # Intentional float64: the deviation from a group mean / the lag difference is a subtraction of nearly equal numbers, float32 operands lose it for a column with a large offset
+    per_row_mean = _map_group_keys(g_vals, lookup_mean, global_mean, np.float64)  # Intentional float64: subtracted from the float64 column
     delta = x - per_row_mean
     if op == "minus_mean":
         out = delta
     elif op == "div_std":
-        per_row_std = _map_group_keys(g_vals, lookup_std, global_std)
+        per_row_std = _map_group_keys(g_vals, lookup_std, global_std, np.float64)  # Intentional float64: divides the float64 deviation
         per_row_std = np.where(per_row_std > 0.0, per_row_std, 1.0)
         out = delta / per_row_std
     else:
         raise ValueError(f"apply_grouped_delta: unknown op {op!r}")
-    return np.asarray(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0))
+    return np.asarray(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)).astype(_crit_np_dtype(), copy=False)
 
 # ---------------------------------------------------------------------------
 # Lagged diff: sort by time_col, compute x - x.shift(period)
@@ -406,8 +406,13 @@ def lagged_diff_features(
     encoded: dict[str, np.ndarray] = {}
     recipes: dict[str, dict] = {}
     for value_col in value_cols:
-        x = np.asarray(X[value_col].to_numpy(), dtype=_crit_np_dtype())
+        x = np.asarray(X[value_col].to_numpy(), dtype=np.float64)  # Intentional float64: the deviation from a group mean / the lag difference is a subtraction of nearly equal numbers, float32 operands lose it for a column with a large offset
         x_sorted = x[sort_idx]
+        try:
+            _time_num, _time_kind = _numeric_time(X[time_col].to_numpy())
+            time_sorted = _time_num[sort_idx]
+        except TypeError:
+            time_sorted, _time_kind = None, ""
         for p in periods:
             diff_sorted = np.empty_like(x_sorted)
             diff_sorted[:p] = 0.0
@@ -417,7 +422,7 @@ def lagged_diff_features(
                 cross_boundary = entity_sorted[p:] != entity_sorted[:-p]
                 diff_sorted[p:][cross_boundary] = 0.0
             diff = diff_sorted[inv_perm]
-            diff = np.nan_to_num(diff, nan=0.0, posinf=0.0, neginf=0.0)
+            diff = np.nan_to_num(diff, nan=0.0, posinf=0.0, neginf=0.0).astype(_crit_np_dtype(), copy=False)  # narrowed AFTER the float64 difference
             name = engineered_name_lagged_diff(value_col, p)
             encoded[name] = diff
             recipes[name] = {
@@ -425,9 +430,72 @@ def lagged_diff_features(
                 "value_col": value_col,
                 "period": int(p),
                 "entity_cols": tuple(entity_cols) if entity_cols else None,
+                "history": None if time_sorted is None else lag_history(time_sorted, _time_kind, x_sorted, entity_sorted, int(p)),
             }
     enc_df = pd.DataFrame(encoded, index=X.index)
     return enc_df, recipes
+
+#: Entities whose last observations the lagged-diff recipe keeps: beyond this many the recipe carries no history (the replay then starts every frame at 0 as before) so a panel with a huge entity count does not bloat it.
+_LAG_HISTORY_MAX_ENTITIES = 20000
+
+
+def _numeric_time(values: np.ndarray) -> "tuple[np.ndarray, str]":
+    """``values`` of a time column as numbers (datetimes as int64 nanoseconds) and the kind tag (``'M'`` or ``'f'``) that turns them back; a column that is not numeric or datetime raises ``TypeError``."""
+    values = np.asarray(values)
+    if values.dtype.kind == "M":
+        return values.astype("datetime64[ns]").astype(np.int64), "M"
+    if values.dtype.kind in "iufb":
+        return values.astype(np.float64), "f"
+    raise TypeError(f"time column of dtype {values.dtype} has no numeric form")
+
+
+def lag_history(time_sorted: np.ndarray, kind: str, x_sorted: np.ndarray, entity_sorted: "np.ndarray | None", period: int) -> "dict | None":
+    """The last ``period`` observations of every entity (of the whole series without entities) of a fit frame already sorted by (entity, time), the time as numbers of ``kind`` (see ``_numeric_time``): ``{"kind", "keys", "times", "values"}`` with plain lists, or
+    ``None`` when the time column is not numeric / datetime or there are more than ``_LAG_HISTORY_MAX_ENTITIES`` entities. A replay frame that starts after these observations takes its first lags from them."""
+    n = len(x_sorted)
+    if n == 0:
+        return None
+    if entity_sorted is None:
+        starts, ends = [0], [n]
+        keys = [""]
+    else:
+        change = np.flatnonzero(entity_sorted[1:] != entity_sorted[:-1]) + 1
+        starts = [0, *change.tolist()]
+        ends = [*change.tolist(), n]
+        if len(starts) > _LAG_HISTORY_MAX_ENTITIES:
+            return None
+        keys = [str(entity_sorted[s]) for s in starts]
+    out_keys: list = []
+    out_times: list = []
+    out_values: list = []
+    for key, s, e in zip(keys, starts, ends):
+        lo = max(s, e - period)
+        out_keys.extend([key] * (e - lo))
+        out_times.extend(np.asarray(time_sorted[lo:e]).tolist())
+        out_values.extend(np.asarray(x_sorted[lo:e]).tolist())
+    return {"kind": kind, "keys": out_keys, "times": out_times, "values": out_values}
+
+
+def _with_history(time_vals: np.ndarray, x: np.ndarray, entity_key: "np.ndarray | None", history: "dict | None") -> "tuple[np.ndarray, np.ndarray, np.ndarray | None, int]":
+    """The replay arrays extended by the fit-time observations that precede each entity's first replay row (strictly earlier time); returns ``(time, x, entity, n_replay_rows)`` with the replay rows first."""
+    n = len(x)
+    if not history or not history.get("keys"):
+        return time_vals, x, entity_key, n
+    h_keys = np.asarray(history["keys"], dtype=object)
+    h_times = np.asarray(history["times"], dtype=np.float64) if time_vals.dtype.kind == "f" else np.asarray(history["times"], dtype=np.int64)
+    h_vals = np.asarray(history["values"], dtype=np.float64)
+    if entity_key is None:
+        first = time_vals.min() if n else None
+        keep = (h_times < first) if first is not None else np.zeros(len(h_times), dtype=bool)
+    else:
+        first_by_entity = pd.Series(time_vals).groupby(np.asarray([str(k) for k in entity_key], dtype=object)).min()
+        limit = pd.Series(h_keys).map(first_by_entity)
+        keep = (h_times < limit.to_numpy(dtype=time_vals.dtype, na_value=time_vals.dtype.type(0))) & limit.notna().to_numpy()
+    if not keep.any():
+        return time_vals, x, entity_key, n
+    ent_ext = None if entity_key is None else np.concatenate([np.asarray([str(k) for k in entity_key], dtype=object), h_keys[keep]])  # one key type: the fit-time keys are strings
+    return np.concatenate([time_vals, h_times[keep]]), np.concatenate([x, h_vals[keep]]), ent_ext, n
+
 
 def apply_lagged_diff(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Replay a fitted lagged-diff recipe on new data: resort ``X_test`` by ``time_col`` (or ``(entity_cols,
@@ -446,18 +514,31 @@ def apply_lagged_diff(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
         missing_entity = [c for c in entity_cols if c not in X_test.columns]
         if missing_entity:
             raise KeyError(f"apply_lagged_diff: missing entity column(s) {missing_entity!r} from X_test; a global-order diff would cross entity boundaries")
+    time_vals = X_test[time_col].to_numpy()
+    entity_key = None
     if entity_cols:
         from ._temporal_agg_fe import _entity_key_series
 
         entity_key = _entity_key_series(X_test, entity_cols).to_numpy()
-        sort_idx = np.lexsort((X_test[time_col].to_numpy(), entity_key))
+    x = np.asarray(X_test[value_col].to_numpy(), dtype=np.float64)  # Intentional float64: the deviation from a group mean / the lag difference is a subtraction of nearly equal numbers, float32 operands lose it for a column with a large offset
+    n_rows = len(x)
+    history = recipe.get("history")
+    if history:
+        # the fit-time observations that precede the first replay row of each entity serve as its first lags (a live batch of one row would otherwise be 0 in every lag column)
+        try:
+            time_num, kind = _numeric_time(time_vals)
+        except TypeError:
+            time_num, kind = None, ""
+        if time_num is not None and kind == history.get("kind"):
+            time_vals, x, entity_key, n_rows = _with_history(time_num, x, entity_key, history)
+    if entity_key is not None:
+        sort_idx = np.lexsort((time_vals, entity_key))
         entity_sorted = entity_key[sort_idx]
     else:
-        sort_idx = np.argsort(X_test[time_col].to_numpy(), kind="mergesort")
+        sort_idx = np.argsort(time_vals, kind="mergesort")
         entity_sorted = None
     inv_perm = np.empty_like(sort_idx)
-    inv_perm[sort_idx] = np.arange(len(X_test))
-    x = np.asarray(X_test[value_col].to_numpy(), dtype=_crit_np_dtype())
+    inv_perm[sort_idx] = np.arange(len(x))
     x_sorted = x[sort_idx]
     diff_sorted = np.empty_like(x_sorted)
     diff_sorted[:period] = 0.0
@@ -465,8 +546,8 @@ def apply_lagged_diff(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     if entity_sorted is not None:
         cross_boundary = entity_sorted[period:] != entity_sorted[:-period]
         diff_sorted[period:][cross_boundary] = 0.0
-    out = diff_sorted[inv_perm]
-    return np.asarray(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0))
+    out = diff_sorted[inv_perm][:n_rows]
+    return np.asarray(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)).astype(_crit_np_dtype(), copy=False)
 
 # ---------------------------------------------------------------------------
 # End-to-end wrappers for MRMR.fit auto-wiring
@@ -739,5 +820,5 @@ def _apply_lagged_diff_recipe(recipe, X) -> np.ndarray:
     entity_cols = recipe.extra.get("entity_cols") or None
     X_view = _coerce_X_for_lagged_diff(X, time_col, value_col, recipe.name, entity_cols=entity_cols)
     return apply_lagged_diff(
-        X_view, {"time_col": time_col, "value_col": value_col, "period": period, "entity_cols": entity_cols},
+        X_view, {"time_col": time_col, "value_col": value_col, "period": period, "entity_cols": entity_cols, "history": recipe.extra.get("history")},
     )

@@ -40,6 +40,19 @@ from timeit import default_timer as timer
 _state = threading.local()
 
 
+def warn_deadline_truncation(stage: str, skipped: int, total: int) -> None:
+    """Say that an enrichment sweep stopped at the wall-clock deadline with ``skipped`` of its ``total`` units (group columns, gate columns, pair shuffles) not visited: the engineered set then depends on the machine
+    speed, and two fits of the same data can differ with nothing else in the log. One throttled WARNING per stage."""
+    import logging
+
+    from mlframe.utils.log_throttle import log_throttle
+
+    log_throttle(
+        logging.getLogger(__name__), f"fe_deadline.truncated.{stage}", logging.WARNING,
+        "%s stopped at the fit's wall-clock deadline with %d of %d units not visited; the engineered features of this stage depend on how fast the machine ran", stage, int(skipped), int(total),
+    )
+
+
 def set_fe_deadline(deadline: float | None) -> None:
     """Set (or clear with ``None``) the thread-local absolute deadline - a ``timer()`` value past which the optional
     enrichment FE generators should stop and return their partial output."""

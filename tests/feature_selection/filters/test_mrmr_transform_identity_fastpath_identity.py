@@ -19,10 +19,10 @@ from mlframe.feature_selection.filters._mrmr_validate_transform import _identity
 class _FittedStub:
     """The minimal fitted surface ``transform`` reads on the identity fast-path."""
 
-    def __init__(self, names):
+    def __init__(self, names, support=None):
         self.feature_names_in_ = np.asarray(list(names), dtype=object)
         self.n_features_in_ = len(names)
-        self.support_ = np.arange(len(names))  # every input column selected
+        self.support_ = np.arange(len(names)) if support is None else np.asarray(support)  # every input column selected (in selection order)
         self._engineered_recipes_ = []  # no recipes -> fast-path is eligible
 
     def _append_engineered(self, base_out, X, recipes):
@@ -47,9 +47,10 @@ def test_identity_fastpath_returns_the_frame_when_columns_match_exactly(frame):
 def test_renamed_columns_do_not_slip_through_the_identity_fastpath(frame):
     """Same width, one column renamed: must NOT be handed back as if it were the fitted frame."""
     renamed = frame.rename(columns={"a": "zzz"})
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(RuntimeError) as excinfo:
         transform(_FittedStub(["a", "b", "c"]), renamed)
-    assert "zzz" not in str(excinfo.value) or "a" in str(excinfo.value)
+    message = str(excinfo.value)
+    assert "missing" in message.lower() and "'a'" in message, message
 
 
 def test_reordered_columns_do_not_slip_through_the_identity_fastpath(frame):
@@ -82,3 +83,16 @@ def test_polars_reorder_is_rejected_too(frame):
     stub = _FittedStub(["a", "b", "c"])
     assert _identity_fastpath_is_safe(stub, pf) is True
     assert _identity_fastpath_is_safe(stub, pf.select(["c", "b", "a"])) is False
+
+
+def test_permuted_support_is_not_returned_as_the_identity(frame):
+    """Every column selected but in selection order ``[2, 0, 1]``: the output follows ``support_`` (c, a, b), as ``get_feature_names_out`` does, not the input order."""
+    out = transform(_FittedStub(["a", "b", "c"], support=[2, 0, 1]), frame)
+    assert out is not frame
+    assert list(out.columns) == ["c", "a", "b"]
+
+
+def test_boolean_full_mask_keeps_the_identity_fastpath(frame):
+    """A boolean mask with every column set is the sorted identity: the frame still comes back unchanged."""
+    out = transform(_FittedStub(["a", "b", "c"], support=np.array([True, True, True])), frame)
+    assert out is frame

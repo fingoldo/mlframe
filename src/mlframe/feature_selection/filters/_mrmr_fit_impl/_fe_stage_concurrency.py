@@ -155,9 +155,12 @@ def _stages_fit_device(vram_weights: "Sequence[float]", n_rows: int) -> bool:
         if limit > 0:
             # the fit caps the pool (``fe_gpu_pool``): memory above the cap is not usable by the stages even when the device has it free
             avail = min(avail, max(0, limit - int(pool.used_bytes())))  # the cap less what is in use: the pool's cached blocks are reusable inside it
+    except ImportError:
+        return True  # no cupy: the stages are host stages, there is no device memory to protect
     except Exception as exc:
-        log_throttle(logger, "_fe_stage_concurrency.except_152", logging.WARNING, "stage concurrency: device memory unreadable (%r); stages run concurrently", exc)
-        return True
+        # an unreadable device is not a roomy one: the check exists to keep concurrent stages from overrunning the card, and running the cascades one by one is always correct
+        log_throttle(logger, "_fe_stage_concurrency.except_152", logging.WARNING, "stage concurrency: device memory unreadable (%r); the cascades run one by one", exc)
+        return False
     if need > avail:
         logger.info("FE stage concurrency: the stages' scaled peak VRAM (%.1f GB at %d rows) exceeds the %.1f GB available; running the cascades one by one", need / 2**30, n_rows, avail / 2**30)
         return False
@@ -194,15 +197,26 @@ def run_stages_concurrently(
     def _run(i: int) -> Any:
         """One stage on its copy, in its device slot, with the fit's deadline and scoring settings published to this worker thread."""
         t0 = time.perf_counter()
+        stage_failed = True
         try:
             with fe_deadline_scope(deadline), fit_context_scope(context), stage_device_slot(slots[i], i):
-                return stages[i](copies[i])
+                out = stages[i](copies[i])
+            stage_failed = False
+            return out
         finally:
-            close_thread_laps()  # the stage's last family lap ends with the stage, on this worker thread
-            _synchronize_device(slots[i].device_id)  # the wall is the stage's work, not the launch of its last kernel
-            walls[i] = time.perf_counter() - t0
+            try:
+                close_thread_laps()  # the stage's last family lap ends with the stage, on this worker thread
+                _synchronize_device(slots[i].device_id)  # the wall is the stage's work, not the launch of its last kernel
+            except Exception as cleanup_exc:
+                if not stage_failed:
+                    raise
+                # the stage's own exception (it names the failing family) must reach the caller, not the sticky device error the cleanup then hits
+                log_throttle(logger, "_fe_stage_concurrency.cleanup_after_failure", logging.WARNING, "stage %d: cleanup after the stage's own failure also failed (%r)", i, cleanup_exc)
+            finally:
+                walls[i] = time.perf_counter() - t0
+                stage_finished()  # the cascades still running take over this one's share of the edge workers
 
-    from .._edge_pool import concurrent_stages
+    from .._edge_pool import concurrent_stages, stage_finished
 
     with concurrent_stages(len(stages)), ThreadPoolExecutor(max_workers=len(stages)) as pool:
         futures = [pool.submit(_run, i) for i in range(len(stages))]

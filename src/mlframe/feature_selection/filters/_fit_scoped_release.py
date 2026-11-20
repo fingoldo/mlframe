@@ -18,6 +18,7 @@ _RELEASERS = (
     # the codes handoff and its deferred host fill still held 226 + 55 MB of device codes after a warm 100k fit, the FE operand caches 18 MB
     (f"{_PKG}._gpu_resident_fe", "clear_resident_codes_handoff"),
     (f"{_PKG}._fe_resident_operands", "clear_fe_resident_operands"),
+    (f"{_PKG}._null_max_perm_gpu", "clear_label_bits_cache"),
 )
 
 

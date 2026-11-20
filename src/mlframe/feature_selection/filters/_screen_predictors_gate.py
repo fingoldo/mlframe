@@ -15,6 +15,9 @@ from collections.abc import Sequence
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+from .info_theory import use_su_normalization
+
 if TYPE_CHECKING:
     from ._dynamic_cluster_discovery import DCDState
 
@@ -33,6 +36,19 @@ def _occupied_levels(codes: np.ndarray) -> int:
     if codes.dtype.kind in "iu" and codes.size and int(codes.min()) >= 0 and int(codes.max()) < (1 << 20):
         return int(np.count_nonzero(np.bincount(codes.astype(np.intp, copy=False))))
     return int(np.unique(codes).shape[0])
+
+
+def _code_entropy(codes: np.ndarray) -> float:
+    """Plug-in entropy in nats of an integer code column (0.0 for a constant or empty column)."""
+    codes = np.asarray(codes)
+    if codes.size == 0:
+        return 0.0
+    if codes.dtype.kind in "iu" and int(codes.min()) >= 0 and int(codes.max()) < (1 << 20):
+        counts = np.bincount(codes.astype(np.intp, copy=False))
+    else:
+        _, counts = np.unique(codes, return_counts=True)
+    p = counts[counts > 0] / float(codes.size)
+    return float(-(p * np.log(p)).sum())
 
 
 def build_dcd_state(
@@ -199,6 +215,14 @@ def compute_selection_gate(
         _cand_marg_raw = cached_MIs.get(best_candidate, None)
         if _cand_marg_raw is not None:
             _cand_marg_corr = float(_cand_marg_raw)
+            _x_codes_su = np.asarray(factors_data[:, int(best_candidate[0])])
+            _y_codes_su = np.asarray(factors_data[:, _single_int(y)])
+            if use_su_normalization():
+                # under ``mi_normalization='su'`` the cached marginal is the SU-scaled relevance 2 MI / (H(X) + H(Y)) while the maxT floor and the Miller-Madow term below are raw MI in nats: bring the
+                # statistic back to nats (a zero denominator keeps the cached value, as the scaling did) before comparing
+                _denom_su = _code_entropy(_x_codes_su) + _code_entropy(_y_codes_su)
+                if _denom_su > 1e-12:
+                    _cand_marg_corr *= _denom_su / 2.0
             if cardinality_bias_correction:
                 # Miller-Madow with the EFFECTIVE occupied bin counts, the same correction the maxT null floor subtracts from every shuffle
                 # (``pooled_permutation_null_gain_floor``). A nominal-bin correction here compared a differently corrected statistic
@@ -210,4 +234,11 @@ def compute_selection_gate(
                 _k_eff_y = _occupied_levels(_y_codes_fdr)
                 _cand_marg_corr -= (_k_eff_x - 1) * (_k_eff_y - 1) / (2.0 * int(factors_data.shape[0]))
             _fdr_pass = _cand_marg_corr >= _fdr_floor_eff
+        else:
+            # the maxT floor is active but this candidate has no cached marginal MI to compare: the floor cannot be applied, so the candidate passes it; say so (a silent bypass of the chance ceiling on a wide
+            # pool is how a pure-noise column gets accepted)
+            log_throttle(
+                logger, "screen_predictors_gate.fdr_marginal_missing", logging.WARNING,
+                "screen_predictors gate: no cached marginal MI for candidate %r while the maxT floor %.5f is active; the floor is not applied to it", best_candidate, _fdr_floor_eff,
+            )
     return (_best_gain_for_gate >= _abs_floor and _best_gain_for_gate >= _rel_floor and _fdr_pass), _best_gain_for_gate

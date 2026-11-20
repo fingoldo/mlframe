@@ -49,7 +49,7 @@ def clear_key_prep_cache() -> None:
         _KEY_PREP.clear()
 
 
-def broadcast_lookup(g_keys: np.ndarray, lookup: dict, glob: float) -> np.ndarray:
+def broadcast_lookup(g_keys: np.ndarray, lookup: dict, glob: float, dtype: Any = None) -> np.ndarray:
     """Map each row's group key through ``lookup`` (str-keyed), unseen -> ``glob``; the result is NaN-scrubbed to ``glob``.
 
     Group columns are low-cardinality, so the ``str(key)`` + ``dict.get`` is resolved once per DISTINCT key and broadcast back by code, not once per row (the per-row listcomp
@@ -57,16 +57,17 @@ def broadcast_lookup(g_keys: np.ndarray, lookup: dict, glob: float) -> np.ndarra
     sorted all n string keys on every one of the (group, column, stat) calls (7.6 ms each at n=20000) and refuses unorderable mixed-type keys. NaN and None factorize into one
     category but ``str()`` tells them apart ('nan' vs 'None'), so missing rows are mapped one by one; there are few. Shared by grouped_agg_fe, grouped_quantile_fe and group_distance_fe."""
     g_keys = np.asarray(g_keys)
+    dtype = _crit_np_dtype() if dtype is None else dtype  # a caller subtracting the broadcast from a float64 column asks for float64 (a float32 group mean of a large-offset column is off by an ulp of the offset)
     missing, present, codes, uniq = _prepared_keys(g_keys)
     # the non-finite replacement is elementwise, so it is applied to the few distinct values and the gather carries it to every row (no full-length pass)
-    uniq_vals = np.nan_to_num(np.array([lookup.get(str(_k), glob) for _k in uniq], dtype=_crit_np_dtype()), nan=glob, posinf=glob, neginf=glob) if present.any() else None
+    uniq_vals = np.nan_to_num(np.array([lookup.get(str(_k), glob) for _k in uniq], dtype=dtype), nan=glob, posinf=glob, neginf=glob) if present.any() else None
     if not missing.any() and uniq_vals is not None:
         return cast("np.ndarray", uniq_vals[codes])
-    out = np.empty(g_keys.shape[0], dtype=_crit_np_dtype())
+    out = np.empty(g_keys.shape[0], dtype=dtype)
     if uniq_vals is not None:
         out[present] = uniq_vals[codes]
     for i in np.flatnonzero(missing):
-        out[i] = np.nan_to_num(np.array([lookup.get(str(g_keys[i]), glob)], dtype=_crit_np_dtype()), nan=glob, posinf=glob, neginf=glob)[0]
+        out[i] = np.nan_to_num(np.array([lookup.get(str(g_keys[i]), glob)], dtype=dtype), nan=glob, posinf=glob, neginf=glob)[0]
     return out
 
 

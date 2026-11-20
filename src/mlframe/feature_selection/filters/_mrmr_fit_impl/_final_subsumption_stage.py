@@ -203,6 +203,10 @@ def run_final_subsumption_prune(
                 candidates[name] = _column_values(X, name)
         candidates.update(eng_values)
         multi = [name for name in eng_values if len(_raw_sources(name, raw_set)) >= 2]
+        # Two compounds that carry the same information subsume each other, and the one judged first is the one dropped. The columns the screening scored (the predictors of the fit) are judged last,
+        # so of an equivalent pair the screened column stays and the one a later stage added unscored goes; the order inside each group is unchanged.
+        scored = {str(p.get("name", "")) for p in (getattr(self, "_predictors_log_", None) or ()) if isinstance(p, dict)}
+        multi = sorted(multi, key=lambda name: name in scored)
         y_continuous = getattr(self, "_fe_prewarp_y_continuous_", None)
         seed = int(getattr(self, "random_seed", 0) or 0)
         # A multi-source column is a compound only if the other compounds do not already carry its information: a three-operand

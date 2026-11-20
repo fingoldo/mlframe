@@ -509,7 +509,34 @@ def _target_name_signature(y) -> tuple:
 # cache_key memo: id() + shape discriminate against GC-recycled-id
 # collisions, the two calls happen microseconds apart within MRMR.fit
 # so the input is guaranteed unchanged.
-_MRMR_LAST_X_HASH_CACHE: dict = {"id_shape": None, "hash": None}
+_MRMR_LAST_X_HASH_CACHE: dict = {"id_shape": None, "hash": None, "ref": None}
+
+
+def _x_hash_memo_hit(X: Any, key: tuple) -> "str | None":
+    """The memoised digest when the single slot holds THIS object under ``key``, else ``None``. The key carries ``id(X)`` and a strided content sample, neither of which tells a recycled address from the same
+    object (a freed frame's id reused by a same-shape frame that differs only outside the sampled cells), so the slot also holds a weak reference and a hit needs it to resolve to ``X`` itself. A frame that
+    cannot be weakly referenced never hits."""
+    with _MRMR_LAST_X_HASH_LOCK:
+        if _MRMR_LAST_X_HASH_CACHE["id_shape"] != key:
+            return None
+        ref = _MRMR_LAST_X_HASH_CACHE.get("ref")
+        if ref is None or ref() is not X:
+            return None
+        return str(_MRMR_LAST_X_HASH_CACHE["hash"])
+
+
+def _x_hash_memo_store(X: Any, key: tuple, digest: str) -> None:
+    """Publish ``digest`` for ``X`` under ``key`` (value, then the weak reference, then the key, under the slot's lock); a frame that cannot be weakly referenced leaves the slot empty."""
+    import weakref
+
+    try:
+        ref = weakref.ref(X)
+    except TypeError:
+        ref = None
+    with _MRMR_LAST_X_HASH_LOCK:
+        _MRMR_LAST_X_HASH_CACHE["hash"] = digest
+        _MRMR_LAST_X_HASH_CACHE["ref"] = ref
+        _MRMR_LAST_X_HASH_CACHE["id_shape"] = key if ref is not None else None
 # Guards BOTH the read and the write of the memo above. Dedicated rather than the identity-cache lock so a caller already holding that
 # lock cannot deadlock here; re-entrant so a nested call on the same thread cannot either.
 _MRMR_LAST_X_HASH_LOCK = _threading.RLock()
@@ -579,9 +606,9 @@ def _full_x_content_hash(X) -> str:
         id_shape = (id(X), sh if sh is not None else (None,), _content_array_signature(arr))
         # Compare the key and fetch the value under one lock. As two unlocked reads, a concurrent writer could publish another frame's
         # digest between them, and this would return that digest for this frame whichever field the writer set first.
-        with _MRMR_LAST_X_HASH_LOCK:
-            if _MRMR_LAST_X_HASH_CACHE["id_shape"] == id_shape:
-                return str(_MRMR_LAST_X_HASH_CACHE["hash"])
+        hit = _x_hash_memo_hit(X, id_shape)
+        if hit is not None:
+            return hit
         # blake2b reads the contiguous array via the buffer protocol directly
         # (no .tobytes() copy); bit-identical to hashing tobytes() bytes.
         from mlframe._array_buffer import array_buffer
@@ -598,9 +625,7 @@ def _full_x_content_hash(X) -> str:
                 pass
         result = str(h.hexdigest())
         # Same lock as the read above, so a reader never observes a half-written (key, value) pair.
-        with _MRMR_LAST_X_HASH_LOCK:
-            _MRMR_LAST_X_HASH_CACHE["hash"] = result
-            _MRMR_LAST_X_HASH_CACHE["id_shape"] = id_shape
+        _x_hash_memo_store(X, id_shape, result)
         return result
     except Exception as e:
         log_throttle(logger, "_mrmr_fingerprints._full_x_content_hash", logging.WARNING, "_full_x_content_hash: full-content hash failed, skipping the full-content cache disambiguator: %s", e)
@@ -613,9 +638,9 @@ def _full_named_frame_hash(X, sh) -> str:
     # The memo key needs only the cheap strided signature, so a hit returns before any column is extracted and copied (the extraction was paid on every call,
     # hit or miss).
     id_shape = (id(X), sh if sh is not None else (None,), _content_array_signature(X))
-    with _MRMR_LAST_X_HASH_LOCK:
-        if _MRMR_LAST_X_HASH_CACHE["id_shape"] == id_shape:
-            return str(_MRMR_LAST_X_HASH_CACHE["hash"])
+    hit = _x_hash_memo_hit(X, id_shape)
+    if hit is not None:
+        return hit
     buffers = []
     for name in columns:
         vals = _column_values(X, name)
@@ -631,9 +656,7 @@ def _full_named_frame_hash(X, sh) -> str:
     h.update(str(tuple(str(d) for d in X.dtypes)).encode())
     h.update(",".join(str(c) for c in columns).encode())
     result = str(h.hexdigest())
-    with _MRMR_LAST_X_HASH_LOCK:
-        _MRMR_LAST_X_HASH_CACHE["hash"] = result
-        _MRMR_LAST_X_HASH_CACHE["id_shape"] = id_shape
+    _x_hash_memo_store(X, id_shape, result)
     return result
 
 

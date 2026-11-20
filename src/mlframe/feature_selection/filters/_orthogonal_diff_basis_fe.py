@@ -175,20 +175,13 @@ def detect_correlated_pairs(
     dense_names, abs_corr = cached_dense_finite_corr_matrix(X, cols, dtype=_dt)
     if len(dense_names) < 2 or abs_corr.size == 0:
         return []
-    out: list[tuple[str, str, float]] = []
     p = len(dense_names)
-    for i in range(p):
-        for j in range(i + 1, p):
-            c_ij = float(abs_corr[i, j])
-            if not np.isfinite(c_ij):
-                continue
-            if c_ij >= corr_threshold:
-                # ``< 1 - 1e-12`` guards against literal duplicates (corr = 1.0)
-                # where the diff is identically zero; the basis_d(0) value is
-                # also a constant and would be dropped downstream, so save the
-                # cycles up front.
-                if c_ij < 1.0 - 1e-12:
-                    out.append((dense_names[i], dense_names[j], c_ij))
+    # one vectorised pass over the upper triangle (row-major, the order of the former double loop); ``< 1 - 1e-12`` guards against literal duplicates (corr = 1.0) where the diff is identically
+    # zero, the basis_d(0) value is also a constant and would be dropped downstream
+    iu, ju = np.triu_indices(p, 1)
+    c_tri = np.asarray(abs_corr, dtype=np.float64)[iu, ju]  # Intentional float64: the correlation threshold comparison of the former loop (float(abs_corr[i, j]))
+    keep = np.isfinite(c_tri) & (c_tri >= corr_threshold) & (c_tri < 1.0 - 1e-12)
+    out: list[tuple[str, str, float]] = [(dense_names[i], dense_names[j], c) for i, j, c in zip(iu[keep].tolist(), ju[keep].tolist(), c_tri[keep].tolist())]
     out.sort(key=lambda t: t[2], reverse=True)
     if len(out) > int(max_pairs):
         out = out[: int(max_pairs)]

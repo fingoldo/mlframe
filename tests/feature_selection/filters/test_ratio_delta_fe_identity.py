@@ -110,9 +110,9 @@ def test_grouped_delta_and_apply_identity():
     from mlframe.feature_selection.filters._internals import group_key_strings
 
     g_vals = group_key_strings(X_test["grp"])
-    x = np.asarray(X_test["x0"].to_numpy(), dtype=_crit_np_dtype())
-    pm = _ref_map(g_vals, dict(rec["lookup_mean"]), float(rec["global_mean"]))
-    ps = _ref_map(g_vals, dict(rec["lookup_std"]), float(rec["global_std"]) or 1.0)
+    x = np.asarray(X_test["x0"].to_numpy(), dtype=np.float64)  # the deviation is computed in float64 (audit 2026-11-20 B-F01) and the stored column narrowed after
+    pm = np.array([dict(rec["lookup_mean"]).get(str(_k), float(rec["global_mean"])) for _k in g_vals], dtype=np.float64)
+    ps = np.array([dict(rec["lookup_std"]).get(str(_k), float(rec["global_std"]) or 1.0) for _k in g_vals], dtype=np.float64)
     ps = np.where(ps > 0.0, ps, 1.0)
-    ref = np.nan_to_num((x - pm) / ps, nan=0.0, posinf=0.0, neginf=0.0)
+    ref = np.nan_to_num((x - pm) / ps, nan=0.0, posinf=0.0, neginf=0.0).astype(_crit_np_dtype())
     assert np.array_equal(out, ref)

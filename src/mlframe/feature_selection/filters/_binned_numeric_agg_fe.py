@@ -437,13 +437,15 @@ def fit_binned_numeric_agg(
     # recomputed ``np.where(fold_ids == f)`` every pair*fold. Precompute it ONCE per call (bit-identical -
     # same indices, just hoisted out of the pair loops).
     _fold_test = None if recipe_only else [np.where(fold_ids == f)[0] for f in range(int(n_folds))]
-    from ._fe_deadline import fe_deadline_passed
+    from ._fe_deadline import fe_deadline_passed, warn_deadline_truncation
 
-    for gcol in _visited_group_cols(group_num_cols, pairs):
+    _visited = list(_visited_group_cols(group_num_cols, pairs))
+    for _gi, gcol in enumerate(_visited):
         # Optional-enrichment wall-clock budget: stop the (group_col, agg_col) sweep once MRMR.fit's
         # deadline passes; return whatever columns/recipes were engineered so far. No-op without a budget
         # (mirrors the orth-univariate/pair-cross/extra-basis generators' internal deadline check).
         if fe_deadline_passed():
+            warn_deadline_truncation("binned_numeric_agg", len(_visited) - _gi, len(_visited))
             break
         # Float64 for binning: the device path bins at float64, and float32 collapses nearby group values onto one edge.
         gvals = np.asarray(X[gcol].to_numpy(), dtype=np.float64)  # Intentional float64: the group and aggregated columns keep the float64 the host binner reads
