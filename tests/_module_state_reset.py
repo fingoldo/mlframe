@@ -9,7 +9,6 @@ bodies.
 
 from __future__ import annotations
 
-import importlib
 import sys
 from collections.abc import Iterator, MutableMapping, MutableSequence, MutableSet
 from typing import Any
@@ -111,23 +110,21 @@ _MODULE_STATE = (
 )
 
 
-def _load(dotted: str) -> Any:
-    """The imported module, or None when it cannot be imported (an optional GPU or extra dependency)."""
-    if dotted in sys.modules:
-        return sys.modules[dotted]
-    if "._benchmarks." in dotted:
-        return None
-    try:
-        return importlib.import_module(dotted)
-    except Exception:
-        return None
+def _loaded(dotted: str) -> Any:
+    """The module when it is already imported, else None.
+
+    Importing every listed module at the first test cost ~40 s of session start-up (the neural and training stacks), most of
+    it for tests that never touch that state. A module imported later by a test has its state created inside the test, so
+    it is not snapshotted and not restored.
+    """
+    return sys.modules.get(dotted)
 
 
 def _snapshot() -> list[tuple[Any, str, Any, Any]]:
-    """Record the current contents of every listed name that resolves to a module attribute."""
+    """Record the current contents of every listed name whose module is already imported and that has the attribute."""
     out: list[tuple[Any, str, Any, Any]] = []
     for dotted, name in _MODULE_STATE:
-        mod = _load(dotted)
+        mod = _loaded(dotted)
         if mod is None or not hasattr(mod, name):
             continue
         value = getattr(mod, name)
