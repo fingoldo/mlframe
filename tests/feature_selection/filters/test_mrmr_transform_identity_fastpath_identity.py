@@ -47,9 +47,10 @@ def test_identity_fastpath_returns_the_frame_when_columns_match_exactly(frame):
 def test_renamed_columns_do_not_slip_through_the_identity_fastpath(frame):
     """Same width, one column renamed: must NOT be handed back as if it were the fitted frame."""
     renamed = frame.rename(columns={"a": "zzz"})
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(RuntimeError) as excinfo:
         transform(_FittedStub(["a", "b", "c"]), renamed)
-    assert "zzz" not in str(excinfo.value) or "a" in str(excinfo.value)
+    message = str(excinfo.value)
+    assert "missing" in message.lower() and "'a'" in message, message
 
 
 def test_reordered_columns_do_not_slip_through_the_identity_fastpath(frame):

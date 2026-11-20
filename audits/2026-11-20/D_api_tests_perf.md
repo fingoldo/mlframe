@@ -34,7 +34,7 @@ Checked and dropped (no defect found):
 - **Problem**: `assert "zzz" not in str(excinfo.value) or "a" in str(excinfo.value)` is satisfied by any message that contains the letter "a" (for example "expected", "column", "missing"), and the `pytest.raises(Exception)` above is broad. The test does not check that the error names the missing fitted column `a`, and it would also pass if the error were unrelated.
 - **Failure scenario**: If the fast path were broken so that the renamed frame returned without error, the code path would raise nothing and the test would still fail with `excinfo` unset. The real weakness is the other direction: a RuntimeError about an unrelated problem (for example a dtype message containing "a") satisfies the assertion, so the test passes without verifying the column-drift diagnostic.
 - **Suggested fix**: Assert on the specific diagnostic, for example `"a" in str(excinfo.value)` and `"missing" in str(excinfo.value)`, and narrow `pytest.raises` to `RuntimeError`.
-- **Disposition**: OPEN
+- **Disposition**: FIXED 2026-11-20 - the renamed-column test asserts a `RuntimeError` naming the missing column `'a'`.
 
 ### F04 - Fitted getattr fallback for fe_optimizer disagrees with the constructor default
 - **Severity**: Low
@@ -42,7 +42,7 @@ Checked and dropped (no defect found):
 - **Problem**: The reader's fallback names a different optimizer from the constructor default. In normal use the attribute always exists (the constructor sets it, and `__setstate__` re-sources ctor keys from `_ctor_defaults()`), so the fallback is reached only on an instance created without `__init__` (for example `object.__new__`, or a subclass that bypasses the constructor). In that case the fit silently runs the CMA-batch optimizer rather than the documented default.
 - **Failure scenario**: `m = MRMR.__new__(MRMR); m.fit(X, y)` (attributes unset) runs `fe_optimizer="cma_batch"`, while `MRMR().fit(X, y)` runs `"cupy_kernel"`. The two fits can select different engineered features with no log line.
 - **Suggested fix**: Read the default from the single source (`_ctor_defaults()["fe_optimizer"]`) or make the reader use the same literal as the constructor. Add a meta test that every `getattr(self, "<ctor param>", <default>)` fallback equals the constructor default.
-- **Disposition**: OPEN
+- **Disposition**: FIXED 2026-11-20 - the reader's fallback is the constructor default `cupy_kernel` (`_step_core_parts.py`); sensor `test_fe_optimizer_fallback_equals_the_constructor_default`.
 
 ### F05 - Test fixtures change environment and reload a module without a full restore
 - **Severity**: Low
@@ -50,7 +50,7 @@ Checked and dropped (no defect found):
 - **Problem**: The first test sets `MLFRAME_CMI_NULL_MAX_ROWS` and removes it with `pop` in `finally`, so a value that was already set in the environment (for example by CI) is lost for the rest of the session instead of restored. The reload-based tests rebuild the module in place and restore only `m.__dict__`. Other objects that imported names from this module keep the pre-reload classes, which breaks identity checks and violates the repository rule against reloading modules in tests.
 - **Failure scenario**: CI exports `MLFRAME_CMI_NULL_MAX_ROWS=250000`. After the first test runs, the variable is gone for later tests in the same process, so any test that depends on it silently takes the full-n path. A later test that imports `_excess_and_floor` by name gets the pre-reload function object and tests a different implementation than the one it reads from the module.
 - **Suggested fix**: Use `monkeypatch.setenv` / `monkeypatch.delenv` (as the second test already does for the env var) and replace `importlib.reload` with `monkeypatch.setattr` on the single knob the test needs.
-- **Disposition**: OPEN
+- **Disposition**: FIXED 2026-11-20 - `test_cmi_null_subsample.py` uses `monkeypatch.setattr` on the module constant `_CMI_NULL_MAX_ROWS` instead of the env pop and `importlib.reload`.
 
 ### F06 - ndarray replay wrap-failure warning claims wrong columns, but the code path raises a RuntimeError
 - **Severity**: Low
@@ -58,4 +58,4 @@ Checked and dropped (no defect found):
 - **Problem**: When wrapping an ndarray with `feature_names_in_` fails, the code logs "engineered-recipe replay will run on an unnamed frame and may produce wrong columns" and keeps the unnamed ndarray. `_replay_recipes_single_pass` then reads `columns` from that ndarray (none), so every recipe with non-empty `src_names` fails the missing-source check and raises `RuntimeError`. The warning therefore describes a silent wrong-column outcome that does not occur, and the actual failure is an error that names every recipe source as missing.
 - **Failure scenario**: `transform(X_ndarray)` with the wrong width for `feature_names_in_` (passing the shape check but not the wrap) produces the warning, then `RuntimeError: ... references source column(s) [...] missing from input X` for each recipe. An operator reading the warning looks for a silent corruption that is not there, and the real cause (the array does not match the fitted names) is not stated.
 - **Suggested fix**: Raise the wrap error directly with the fit-time column count and the input shape, instead of falling through to the unnamed path. Correct the warning text to match the behaviour, and add a test that a mismatched ndarray raises with the shape in the message.
-- **Disposition**: OPEN
+- **Disposition**: FIXED 2026-11-20 - the warning now names the input shape, the fit-time column count and the real consequence (recipe sources cannot be resolved by name); the call still ends in the `RuntimeError` the test pins (`test_mrmr_append_engineered_warns_on_name_mismatch.py` updated).

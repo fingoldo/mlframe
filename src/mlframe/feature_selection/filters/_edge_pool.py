@@ -30,6 +30,31 @@ def concurrent_stages(n: int) -> "Iterator[None]":
             _ACTIVE_STAGES[0] = prev
 
 
+def _capture_device_scope() -> "Callable[[], Any]":
+    """A context-manager factory that re-enters the CUDA device and the memory allocator the CALLING thread uses (both are thread-local: a worker thread starts on device 0 with the default allocator, so a
+    stage placed on another device slot, or under a slot's pool, would hand its device arrays to kernels of the wrong device or bypass the slot's budget). A no-op scope without a usable CUDA device."""
+    from contextlib import nullcontext
+
+    try:
+        import cupy as cp
+
+        device_id = int(cp.cuda.Device().id)
+        allocator = cp.cuda.get_allocator()
+    except Exception:  # no cupy / no device: the workers are host-only
+        return nullcontext
+
+    from contextlib import ExitStack
+
+    def _scope() -> "ExitStack":
+        """Enter the captured device and allocator on this (worker) thread."""
+        stack = ExitStack()
+        stack.enter_context(cp.cuda.Device(device_id))
+        stack.enter_context(cp.cuda.using_allocator(allocator))
+        return stack
+
+    return _scope
+
+
 def map_on_edge_pool(fn: Callable[[Any], Any], items: Sequence[Any], *, min_items: int = 4) -> "list[Any]":
     """``[fn(item) for item in items]``, on the edge-jobs pool when there are at least ``min_items`` items and more than one job."""
     from . import _adaptive_nbins
@@ -39,10 +64,11 @@ def map_on_edge_pool(fn: Callable[[Any], Any], items: Sequence[Any], *, min_item
     todo = list(items)
     deadline = getattr(_deadline_state, "deadline", None)
     context = capture_fit_context()
+    device_scope = _capture_device_scope()
 
     def _run(item: Any) -> Any:
-        """``fn(item)`` with the fit's wall-clock budget and per-fit scoring settings published to the worker thread."""
-        with fe_deadline_scope(deadline), fit_context_scope(context):
+        """``fn(item)`` with the fit's wall-clock budget, per-fit scoring settings and the caller's CUDA device and allocator published to the worker thread."""
+        with fe_deadline_scope(deadline), fit_context_scope(context), device_scope():
             return fn(item)
 
     jobs = _adaptive_nbins._resolve_edge_jobs(None, len(todo))

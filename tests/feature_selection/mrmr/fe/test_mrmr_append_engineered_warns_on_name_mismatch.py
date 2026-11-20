@@ -27,5 +27,5 @@ def test_name_mismatch_warns_not_silent(caplog):
         with pytest.raises(RuntimeError, match="references source column"):
             _append_engineered(self, base_out, X, recipes=recipes)
     msgs = " ".join(r.getMessage() for r in caplog.records)
-    assert "could not wrap input ndarray in fit-time feature_names_in_" in msgs
-    assert "engineered-recipe replay will run on an unnamed frame" in msgs
+    assert "could not wrap input ndarray of shape (5, 2) in the 3 fit-time feature_names_in_" in msgs
+    assert "engineered-recipe replay will fail to resolve its source columns by name" in msgs

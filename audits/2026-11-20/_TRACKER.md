@@ -17,7 +17,18 @@ Statuses: FIXED (code changed, sensor named), WONT-FIX (reason given), TODO (ope
 | A-F05 nominal vs occupied bins in the abs/rel floors | Low | WON'T FIX | reason in the report |
 | B-F02 lagged diff replay without history | Medium | FIXED | `_ratio_delta_fe.py` `lag_history`, recipe `history`; `test_float64_deviation_for_offset_columns.py` |
 | B-F03 modular product wraps int64 | Medium | FIXED | `_pairwise_modular_fe.py`; same test file |
-| B-F04, B-F05, B-F06 | Medium / Low | TODO | |
+| B-F04 deadline truncation silent | Medium | FIXED (warning) | `_fe_deadline.warn_deadline_truncation`; `test_fe_deadline_truncation_warns.py` |
+| B-F05 lagged diff NaN -> 0 | Low | WON'T FIX | finite-output contract, reason in the report |
+| B-F06 integer cache keyed on 64 rows | Low | FIXED | `_integer_columns._column_checksum`; same test file |
+| C-F01 edge pool drops device / allocator | Medium | FIXED | `_edge_pool._capture_device_scope`; `test_gpu_resource_audit_c.py` |
+| C-F02 shared-memory limit | Low | FIXED | `_null_max_perm_gpu.py` |
+| C-F03 label cache | Low | FIXED | two keys + fit-end releaser |
+| C-F04 unreadable device = fits | Low | FIXED | `_fe_stage_concurrency._stages_fit_device` |
+| C-F05 cleanup error hides stage error | Low | FIXED | `_fe_stage_concurrency._run` |
+| D-F03 vacuous assertion | Low | FIXED | `test_mrmr_transform_identity_fastpath_identity.py` |
+| D-F04 fe_optimizer fallback | Low | FIXED | `_step_core_parts.py`; `test_fe_optimizer_reader_default.py` |
+| D-F05 env / reload in test | Low | FIXED | `test_cmi_null_subsample.py` |
+| D-F06 wrap warning text | Low | FIXED | `_mrmr_validate_transform._recipe_replay_frame` |
 | final subsumption order (found by the survival test, not by an agent) | Medium | FIXED | `_final_subsumption_stage.py`: screened compounds are judged last; `test_family_column_is_created_and_survives_selection[pairwise_ratio]` failed before, passes |
-| C-F01 .. C-F05 | Medium / Low | TODO | |
-| D-F03 .. D-F06 | Low | TODO | |
+
+Result: 22 findings, 20 FIXED (two of them made visible only: A-F04, B-F04), 2 WON'T FIX (A-F05, B-F05) with the reasons in the reports. A survival test that failed in a local run (`pairwise_ratio`) led to one more fix, the final-subsumption order, recorded above.

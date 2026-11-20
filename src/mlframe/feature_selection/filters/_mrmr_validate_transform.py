@@ -827,13 +827,13 @@ def _recipe_replay_frame(self: Any, X: Any) -> Any:
         try:
             _X_for_recipes = pd.DataFrame(X, columns=list(self.feature_names_in_))
         except (ValueError, TypeError) as _wrap_err:
-            # A length/shape mismatch means X does not match fit-time feature_names_in_. Falling back
-            # to the nameless ndarray makes every src-names-by-name recipe resolve against an unnamed
-            # frame -> wrong engineered columns. Surface it at WARNING instead of masking it silently.
+            # A length/shape mismatch means X does not match fit-time feature_names_in_. The nameless ndarray
+            # then has no column index, so every recipe that resolves its sources by name fails its
+            # missing-source check with a RuntimeError; the warning states the real cause (the shapes) first.
             logger.warning(
-                "MRMR.transform: could not wrap input ndarray in fit-time feature_names_in_ (%s: %s); "
-                "engineered-recipe replay will run on an unnamed frame and may produce wrong columns.",
-                type(_wrap_err).__name__, _wrap_err,
+                "MRMR.transform: could not wrap input ndarray of shape %s in the %d fit-time feature_names_in_ (%s: %s); "
+                "engineered-recipe replay will fail to resolve its source columns by name.",
+                getattr(X, "shape", None), len(self.feature_names_in_), type(_wrap_err).__name__, _wrap_err,
             )
             _X_for_recipes = X
     else:
