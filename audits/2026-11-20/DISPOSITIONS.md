@@ -647,3 +647,4 @@
 | 39-F18 | FIXED | A float NaN text is embedded as the empty string, as the docstring says. Test tests/training/test_cluster39_hf_nan_text_is_empty.py. |
 | 39-F35 | FIXED | 'No terms remain' after min_df pruning is handled like empty vocabulary (zero-width matrix). Test tests/training/test_cluster39_tfidf_no_terms_remain.py. |
 | 39-F54 | FIXED | orthogonal_ and sparse_ fall back on 1-D tensors (BatchNorm gamma -> 1.0, bias -> 0). Test tests/training/test_cluster39_orthogonal_init_on_batchnorm.py. |
+| 39-F67 | FIXED | Correction: the earlier 'computed per step' claim was incomplete. The id set was still stored on self (and so pickled); it is now a local of training_step and never stored. Test tests/training/neural/test_cluster39_l1_exclusion_not_pickled.py. |

@@ -123,7 +123,7 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F38: DEFERRED. not changed: hgb_max_features_cap is exported with no caller; wire in or remove, an owner decision
 - 39-F53: FIXED. multilabel heads use per-label sigmoid; tests/training/test_cluster39_encoders_and_casts.py
 - 39-F54: FIXED. orthogonal_ and sparse_ fall back on 1-D tensors instead of raising; test tests/training/test_cluster39_orthogonal_init_on_batchnorm.py
-- 39-F67: FIXED. the L1 exclusion ids are computed per step, not cached and pickled; no separate test
+- 39-F67: FIXED. the L1 exclusion ids are a local of training_step and never stored on the module (the earlier per-step fix still stored them on self); test tests/training/neural/test_cluster39_l1_exclusion_not_pickled.py
 - 39-F2: FIXED. A batch missing an ensemble key raises instead of concatenating misaligned rows. Test tests/training/test_cluster39_run_batched_alignment.py.
 - 39-F3: FIXED. A failed concatenate raises with the shapes instead of truncating. Test tests/training/test_cluster39_run_batched_alignment.py.
 - 39-F4: FIXED. The named-target lookup no longer borrows another target's params: the single-entry fallback and the suite-wide fallback apply only when no target was asked for. Test tests/training/test_cluster39_chosen_params_target_isolation.py.
@@ -132,3 +132,4 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F18: FIXED. A float NaN text is embedded as the empty string, as the docstring says. Test tests/training/test_cluster39_hf_nan_text_is_empty.py.
 - 39-F35: FIXED. 'No terms remain' after min_df pruning is handled like empty vocabulary (zero-width matrix). Test tests/training/test_cluster39_tfidf_no_terms_remain.py.
 - 39-F54: FIXED. orthogonal_ and sparse_ fall back on 1-D tensors (BatchNorm gamma -> 1.0, bias -> 0). Test tests/training/test_cluster39_orthogonal_init_on_batchnorm.py.
+- 39-F67: FIXED. Correction: the earlier 'computed per step' claim was incomplete. The id set was still stored on self (and so pickled); it is now a local of training_step and never stored. Test tests/training/neural/test_cluster39_l1_exclusion_not_pickled.py.
