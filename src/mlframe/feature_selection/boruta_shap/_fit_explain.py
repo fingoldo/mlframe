@@ -602,6 +602,12 @@ def fit(self, X: pd.DataFrame | pl.DataFrame, y: pd.Series | pl.Series | np.ndar
     # comparison leaks the top finite-sample-spurious real-noise column; majority vote across distinct
     # row-subsamples (WITHOUT replacement) removes it. >1 guards against a degenerate single-subsample.
     if int(getattr(self, "stability_subsamples", 0) or 0) > 1:
+        # The stability path returns before the shared fit state is built, so Subset(), results_to_csv() and plot() read attributes that
+        # were never set. Build the state first; the stability gate then sets the decisions on top of it.
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
+            warnings.filterwarnings("ignore", category=DeprecationWarning, module="sklearn")
+            _prepare_fit_state(self, X, y)
         return _fit_with_subsample_stability(self, X, y)
 
     with warnings.catch_warnings():
