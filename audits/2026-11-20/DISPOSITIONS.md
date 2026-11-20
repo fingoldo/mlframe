@@ -642,3 +642,4 @@
 | 39-F2 | FIXED | A batch missing an ensemble key raises instead of concatenating misaligned rows. Test tests/training/test_cluster39_run_batched_alignment.py. |
 | 39-F3 | FIXED | A failed concatenate raises with the shapes instead of truncating. Test tests/training/test_cluster39_run_batched_alignment.py. |
 | 39-F4 | FIXED | The named-target lookup no longer borrows another target's params: the single-entry fallback and the suite-wide fallback apply only when no target was asked for. Test tests/training/test_cluster39_chosen_params_target_isolation.py. |
+| 39-F5 | FIXED | A configured group column missing from the frame logs a WARNING. Test tests/training/test_cluster39_missing_group_column_logged.py. |
