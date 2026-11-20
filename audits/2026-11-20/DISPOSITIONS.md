@@ -324,3 +324,21 @@
 | 08-F15 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F16 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F17 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
+| 09-F15 | DEFERRED | tried an early return in the underdetermined branch; it broke the contract that the linear column stays finite. The real defect is the per-row exception path zeroing whole rows; needs a column-aware fix |
+| 09-F24 | FIXED | binary local-lift labels are normalised to {0,1} for both the global mean and the neighbour sums; tests/feature_engineering/transformer/test_cluster09_edges.py covers the KMeans path only, lift path covered by existing lift tests |
+| 09-F26 | FIXED | anchor count is capped by the row count, so a one-row fold yields one anchor; tests/feature_engineering/transformer/test_cluster09_edges.py |
+| 09-F14 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
+| 09-F16 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
+| 09-F17 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
+| 09-F18 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
+| 09-F19 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
+| 09-F20 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
+| 09-F21 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
+| 09-F22 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
+| 09-F23 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
+| 09-F25 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
+| 09-F27 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
+| 09-F28 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
+| 09-F29 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
+| 09-F30 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
+| 09-F31 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |

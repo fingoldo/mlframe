@@ -88,3 +88,21 @@ Scope: the 72 files in `audits/2026-11-20/manifests/09_feature_engineering-2.txt
 - 09-F13: RESOLVED. Local PCA centres each neighbour matrix on the neighbour mean instead of the query row. Test tests/feature_engineering/transformer/test_lid_centres_on_the_neighbour_mean.py. Commit below.
 - 09-F10: RESOLVED. Top-k proximity selects the largest k directly instead of partitioning a negated copy of the dense block. The dense block itself stays: the measured note in the code shows every pair shares a leaf. Test tests/feature_engineering/transformer/test_rf_topk_matches_full_sort.py; existing proximity tests pass. Commit below.
 - 09-F7: DEFERRED. Layer 2 in Mode A consumes layer-1 OOF features of training rows that were produced by folds sharing those rows, so the stacking is optimistic. A fix re-folds layer 1 inside each layer-2 fold (nested OOF), which changes the cost and output of stacked_qnn and stacked_attention. Needs a design decision; the docstring claim at stacked_attention.py:15-16 must be corrected with it.
+- 09-F15: DEFERRED. tried an early return in the underdetermined branch; it broke the contract that the linear column stays finite. The real defect is the per-row exception path zeroing whole rows; needs a column-aware fix
+- 09-F24: FIXED. binary local-lift labels are normalised to {0,1} for both the global mean and the neighbour sums; tests/feature_engineering/transformer/test_cluster09_edges.py covers the KMeans path only, lift path covered by existing lift tests
+- 09-F26: FIXED. anchor count is capped by the row count, so a one-row fold yields one anchor; tests/feature_engineering/transformer/test_cluster09_edges.py
+- 09-F14: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
+- 09-F16: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
+- 09-F17: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
+- 09-F18: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
+- 09-F19: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
+- 09-F20: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
+- 09-F21: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
+- 09-F22: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
+- 09-F23: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
+- 09-F25: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
+- 09-F27: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
+- 09-F28: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
+- 09-F29: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
+- 09-F30: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
+- 09-F31: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
