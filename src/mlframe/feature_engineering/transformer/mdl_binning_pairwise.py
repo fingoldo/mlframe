@@ -190,6 +190,9 @@ def compute_mdl_binning_pairwise_features(
             # array under real JIT (no bounds check) or raises IndexError with JIT disabled. Map to
             # {0,1} via the sorted unique values rather than casting the raw codes.
             uniq = np.unique(y_t)
+            if uniq.size > 2:
+                # The binary MDL kernels count exactly two classes; a third label would index past their count arrays. Refuse rather than mis-count.
+                raise ValueError(f"task='binary' needs at most two distinct labels; got {uniq.size}. Use task='regression' to bin a multi-class target.")
             y_class = np.searchsorted(uniq, y_t).astype(np.int32)
             n_classes = 2
         else:
