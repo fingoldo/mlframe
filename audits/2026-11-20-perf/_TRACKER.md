@@ -11,3 +11,8 @@ Four read-only agents (E CPU / GIL, F GPU / kernels, G overlap / scheduling, H r
 | E-F03..F07, F-F01..F06, H-F01..F05 | 0.02-0.5 s each | TODO | |
 | F-F05 `Device().attributes` per call | 0.05-0.3 s | REJECTED (measured) | 3.1 us a call, 30 ms for 10000 calls |
 | G-F01 honest null on the idle slot | 1.0-1.4 s | DEFERRED | the permuted labels are drawn from one rng stream in call order (`_permuted_labels_cached`): a worker that fills the cache earlier changes the draws and the floors, so it is not selection-equivalent without restructuring the stream; the gain is also inside the noise |
+| E-F03 honest spec serial prep | 0.1-0.3 s | REJECTED (measured) | 0.032 s for 100 columns |
+| E-F05 frame fingerprint on the main thread | 0.2-0.4 s | REJECTED (measured) | 0.039 s a miss, two calls a fit |
+| H-F04 repeated column hashes | up to 0.5 s | REJECTED (measured) | 22 us a column hash |
+| E-F04 replay pool share | 0.2-0.5 s | IMPLEMENTED | `_fe_stability_vote._host_replays` |
+Lesson: measure the cost of the operation in a micro-benchmark before implementing; four estimates by reading were 3 to 10 times too high.

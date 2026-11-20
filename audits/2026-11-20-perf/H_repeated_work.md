@@ -46,7 +46,7 @@ Findings, largest expected saving first.
 - **Problem**: the memo is keyed by object identity, so each family's fresh `to_numpy()` / cast view of the same column misses and is hashed again. The owner's policy asks for keys by content or by column number within one fit; the id key is neither for rebuilt views.
 - **Proposed change**: a fit-scoped `(column name, dtype.str, n_rows) -> content hash` table, filled by the first caller and read by the others, with the key the column name (column number within the fit's frame) and a cheap strided signature (`_content_array_signature`) as the guard. Memory: one 8-byte hash per column per dtype. Selection-equivalent when the strided guard matches and the full hash is taken on a guard hit only once per fit. Note the guard is not a proof of equality; the full hash must remain the key, and the saving is only the hashing pass of rebuilt views, so measure before building it.
 - **Risk**: a hash is only a proof of equality when computed over the full bytes; a column-name key with a strided guard can return a stale hash if a column is changed in place. Keep the full hash on every miss and do not key on the strided signature alone.
-- **Disposition**: OPEN
+- **Disposition**: REJECTED 2026-11-20 (measured) - `_content_hash` of a 100000-row column costs 22 us; the 8793 calls of the old profile are 0.2 s of thread time, not a wall item.
 
 ### F05 - The orthogonal families each re-draw and re-gather the decision subsample, bypassing the fit's shared index
 

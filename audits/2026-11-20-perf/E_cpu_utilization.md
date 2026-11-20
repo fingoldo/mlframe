@@ -35,7 +35,7 @@ Ranking is by estimated seconds on the benchmark. The per-finding figures are no
 - **Problem**: the per-column preparation (pandas column access, a float64 copy, two reductions) is pure per-column work that holds the GIL in the main thread while the eight pool workers sit idle. The edge computation after it is already on the pool.
 - **Proposed change**: move the per-column block of the loop (everything after the `continue` checks, including `_median_filled_column(X[c])`) into the pool task together with `_edges_of`, and collect `nan_by_col`, `filled` and `numeric_js` in column order from the results. The `None` return (an infinite column) becomes a per-column result that the caller checks before the fold. Output identical; order preserved by index.
 - **Risk**: low. `X[c]` on a pandas frame from several threads is read-only; check that the pandas getitem cache is not mutated. The early `return None` must still cancel the rest (run the preparation for all columns, then return None if any was None, which is what the serial code effectively does).
-- **Disposition**: OPEN
+- **Disposition**: REJECTED 2026-11-20 (measured) - the serial per-column preparation of `build_honest_spec` for 100 columns of 100000 rows takes 0.032 s, not the 0.1-0.3 s estimated by reading.
 
 ### F04 - `_host_replays` sizes an 8-thread pool per fold without the cascade share
 
@@ -44,7 +44,7 @@ Ranking is by estimated seconds on the benchmark. The per-finding figures are no
 - **Problem**: this pool ignores `_ACTIVE_STAGES`. When the stability vote runs inside a wave, three cascades can each open an 8-thread pool, so about 24 threads compete for eight logical cores and the GIL; the pool is also created and joined once per fold. The replays are numpy ufuncs, which release the GIL only on large arrays, so the extra threads mostly add switching.
 - **Proposed change**: size the pool with `_resolve_edge_jobs(None, len(recipes))` (the same share rule as every other edge pool), and create it once per vote call rather than once per fold (pass the executor in from the caller). Results are folded in recipe order, so output is unchanged.
 - **Risk**: low. If the vote is run with no wave active the share is the full core count, so the single-stage case is unchanged.
-- **Disposition**: OPEN
+- **Disposition**: IMPLEMENTED 2026-11-20 - `_host_replays` takes the cascade share of the cores (`_resolve_edge_jobs`) instead of eight threads per call; effect not separable on the benchmark (host replay is the fallback path); folded in the batch A/B.
 
 ### F05 - The frame fingerprint copies and hashes every column on the main thread on a memo miss
 
@@ -53,7 +53,7 @@ Ranking is by estimated seconds on the benchmark. The per-finding figures are no
 - **Problem**: the column extraction and copy are GIL-held numpy/pandas work done serially, and the copy exists only to feed the hasher. The memo short-circuits repeated calls but the first call of a fit always pays it on the main thread.
 - **Proposed change**: hash per column in a pool (each column's digest is independent; `blake2b` releases the GIL on large buffers), then combine the per-column digests in column order with the same name / dtype / categories suffixes into the outer hasher. Pass a `memoryview` of the column instead of a contiguous copy when the column is already contiguous. The combined digest changes its value, so the memo key semantics stay the same but the stored fingerprint strings change: this needs a one-time migration note for any on-disk cache keyed by it.
 - **Risk**: medium. The fingerprint is a cache key; a change to its value invalidates persisted caches. Keep the old function as `_full_named_frame_hash_reference` and add an equality test before switching.
-- **Disposition**: OPEN
+- **Disposition**: REJECTED 2026-11-20 (measured) - `_full_named_frame_hash` is 0.039 s on a miss and called twice a fit (0.21 s in the fit including cold caches); a parallel digest would change the fingerprint value for at most 0.15 s.
 
 ### F06 - Per-call thread pools bypass the cascade share and are created and joined on every call
 

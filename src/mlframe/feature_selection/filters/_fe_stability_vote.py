@@ -325,10 +325,12 @@ def _host_replays(recipes: list, X_fold: Any, n_rows: int) -> "list[Optional[np.
     """:func:`_host_replay` of every recipe of ``recipes`` in order, on a thread pool when there are several."""
     if len(recipes) < 2:
         return [_host_replay(r, X_fold, n_rows) for r in recipes]
-    import os
     from concurrent.futures import ThreadPoolExecutor
 
-    workers = max(1, min(_REPLAY_THREADS, len(recipes), os.cpu_count() or 1))
+    from ._adaptive_nbins import _resolve_edge_jobs
+
+    # the pool takes this cascade's share of the cores (the same rule as every edge pool): three cascades running together each opened a pool of eight on eight logical cores
+    workers = max(1, min(_REPLAY_THREADS, _resolve_edge_jobs(None, len(recipes))))
     with ThreadPoolExecutor(max_workers=workers) as pool:
         return list(pool.map(lambda r: _host_replay(r, X_fold, n_rows), recipes))
 
