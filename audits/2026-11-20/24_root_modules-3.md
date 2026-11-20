@@ -96,3 +96,5 @@ Module-level scan only: count of test files importing or naming each module (not
 ## Dispositions
 
 - 24-F1: RESOLVED. Per-column finite-row AUC when a cell is non-finite; single-class columns are kept. Test test_drop_near_noise_handles_nan.py. Commit 2171ff34e. Siblings drop_raw_after_embedding.py:53,142 still open.
+- 24-F2: FIXED. timeseries walk kernels now return exclusive end including the crossing element (forward) and inclusive start for the backward walk; regression tests in tests/feature_engineering/test_cumsum_walk_window_bounds.py; test_coverage_fill end-index expectation updated to the corrected contract
+- 24-F3: FIXED. backward walk now visits index 0 (range covers right_index-1..0); covered by test_backward_walk_reaches_index_zero

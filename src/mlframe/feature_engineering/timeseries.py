@@ -87,15 +87,18 @@ def _find_next_cumsum_left_index_njit(
         right_index = len(window_var_values)
     if right_index <= 0:
         return 0, total
-    for i in range(1, right_index):
-        if not np.isnan(window_var_values[right_index - i]):
-            total += window_var_values[right_index - i]
+    # Element ``k`` is summed on step ``right_index - k``; the returned start is the inclusive
+    # index of the last summed element, so ``arr[start:right_index]`` holds exactly ``total``.
+    for k in range(right_index - 1, -1, -1):
+        if not np.isnan(window_var_values[k]):
+            total += window_var_values[k]
+            steps = right_index - k
             if use_abs:
-                if np.abs(total) >= amount and i >= min_samples:
-                    return right_index - i, total
+                if np.abs(total) >= amount and steps >= min_samples:
+                    return k, total
             else:
-                if total >= amount and i >= min_samples:
-                    return right_index - i, total
+                if total >= amount and steps >= min_samples:
+                    return k, total
     return 0, total
 
 
@@ -126,18 +129,22 @@ def _find_next_cumsum_right_index_njit(
     """Numba kernel: walk right from ``left_index`` accumulating (NaN-skipping) cumulative sum until it reaches ``amount`` (or ``|cumsum|`` when ``use_abs``) after at least ``min_samples`` steps; returns ``(length-1, total)`` when the threshold is never reached."""
     total = 0.0
     length = len(window_var_values)
-    if left_index >= length - 1:
-        return length - 1, total
-    for i in range(1, (length - left_index)):
-        if not np.isnan(window_var_values[left_index + i]):
-            total += window_var_values[left_index + i]
+    if left_index >= length:
+        return length, total
+    # Element ``k`` (starting at ``left_index`` itself) is summed on step ``k - left_index + 1``;
+    # the returned end is exclusive and includes the crossing element, so ``arr[left:end]`` holds
+    # exactly ``total``.
+    for k in range(left_index, length):
+        if not np.isnan(window_var_values[k]):
+            total += window_var_values[k]
+            steps = k - left_index + 1
             if use_abs:
-                if np.abs(total) >= amount and i >= min_samples:
-                    return left_index + i, total
+                if np.abs(total) >= amount and steps >= min_samples:
+                    return k + 1, total
             else:
-                if total >= amount and i >= min_samples:
-                    return left_index + i, total
-    return length - 1, total
+                if total >= amount and steps >= min_samples:
+                    return k + 1, total
+    return length, total
 
 
 def find_next_cumsum_right_index(

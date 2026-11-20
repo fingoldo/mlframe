@@ -2022,12 +2022,12 @@ class TestTimeseriesFinalGaps:
         assert idx == 0 and total == 0.0
 
     def test_find_next_cumsum_right_index_at_end(self):
-        """left_index >= length - 1 -> early return."""
+        """The element at left_index is summed too (24-F2): a walk from the last element covers just that element, exclusive end = length."""
         from mlframe.feature_engineering.timeseries import find_next_cumsum_right_index
 
         arr = np.array([1.0, 2.0, 3.0], dtype=np.float64)
         idx, total = find_next_cumsum_right_index(arr, amount=10.0, left_index=2)
-        assert idx == len(arr) - 1 and total == 0.0
+        assert idx == len(arr) and total == 3.0
 
     def test_find_next_cumsum_left_index_with_nans_in_path(self):
         """NaN values in window_var_values should be skipped silently."""
