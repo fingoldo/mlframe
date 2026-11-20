@@ -74,8 +74,9 @@ def compute_local_intrinsic_dim_features(
         nn = NearestNeighbors(n_neighbors=k_eff, n_jobs=-1).fit(Xt_s)
         _, idx = nn.kneighbors(Xq_s)  # (n_q, k_eff)
         neighbor_X = Xt_s[idx]  # (n_q, k_eff, d)
-        # Center neighbor matrix on query row.
-        deviations = neighbor_X - Xq_s[:, None, :]  # (n_q, k_eff, d)
+        # Center the neighbour matrix on the neighbour mean, the local PCA centre. Centring on the query row added a constant offset from the
+        # query to every neighbour, so a query off the local manifold reported extra dimensions it does not have.
+        deviations = neighbor_X - neighbor_X.mean(axis=1, keepdims=True)  # (n_q, k_eff, d)
         # Per-row covariance stack (n_q, d, d) built in one batched matmul (BLAS gemm
         # batched path), then a single batched eigvalsh over the leading axis -- both run
         # in C with no Python per-row frame. The spectrum math is vectorized over rows.
