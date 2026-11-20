@@ -42,6 +42,7 @@ frame_mb = X.memory_usage(deep=False).sum() / 1e6
 import tracemalloc
 
 TRACE = os.environ.get("RSS_TRACEMALLOC") == "1"
+CENSUS_AT = float(os.environ.get("RSS_CENSUS_AT_S", "0") or 0)  # print the heaviest live containers at this second and exit
 STOP_AFTER = float(os.environ.get("RSS_STOP_AFTER_S", "0") or 0)  # with RSS_TRACEMALLOC=1: print the live allocations at this second and exit
 if TRACE:
     tracemalloc.start(6)
@@ -99,6 +100,12 @@ def sampler():
                 for when_t, mb_t, where_t in ticks:
                     print(f"  tick t={when_t:7.1f}s +{mb_t:7.0f} MB  {where_t}", flush=True)
             os._exit(3)  # exit-ok: a script run as a process; only os._exit ends the main thread stuck inside the fit, SystemExit here would end this thread alone
+        if CENSUS_AT and time.perf_counter() - t0 >= CENSUS_AT:
+            from mlframe.feature_selection._benchmarks.profiling import mem_census
+
+            print(f"--- container census at t={time.perf_counter() - t0:.0f}s, RSS growth {(rss - base) / 1e6:.0f} MB (X itself is {frame_mb:.0f} MB)", flush=True)
+            print(mem_census.render(mem_census.name_owners(mem_census.census(30))), flush=True)
+            os._exit(0)  # exit-ok: a script run as a process; the main thread is inside the fit
         if STOP_AFTER and time.perf_counter() - t0 >= STOP_AFTER and TRACE:  # a snapshot of the plateau: who holds the live memory
             snap = tracemalloc.take_snapshot()
             print(f"--- tracemalloc at t={time.perf_counter() - t0:.0f}s, RSS growth {(rss - base) / 1e6:.0f} MB: the largest live allocations", flush=True)
