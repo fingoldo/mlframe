@@ -164,7 +164,8 @@ def test_f4_gridsearch_dump_round_trips_through_replay(tmp_path):
     # X_SECURITY_ROBUSTNESS-3: trusted_root is now required (no silent narrow-to-dirname default, which
     # made the containment check a no-op) -- pass it explicitly.
     out = replay_cv_results(str(fname), trusted_root=str(tmp_path))
-    assert "results" in out
+    # The loaded mapping is {title: {"": {"results": ...}}}; the function used to return the last inner run, which happened to have "results".
+    assert set(out) == {"audit_t"} and "results" in out["audit_t"][""]
 
 
 def test_f4c_replay_cv_results_requires_explicit_trusted_root(tmp_path):
@@ -203,7 +204,8 @@ def test_f4b_replay_cv_results_explicit_trusted_root_blocks_escape(tmp_path):
 
     # And the positive case: a trusted_root that DOES contain fname still loads fine.
     out = replay_cv_results(str(fname), trusted_root=str(real_dir))
-    assert "results" in out
+    # The loaded mapping is {title: {"": {"results": ...}}}; the function used to return the last inner run, which happened to have "results".
+    assert set(out) == {"audit_t2"} and "results" in out["audit_t2"][""]
 
 
 # ----------------------------------------------------------------------
