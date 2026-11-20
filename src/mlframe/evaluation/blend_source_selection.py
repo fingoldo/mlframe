@@ -99,9 +99,13 @@ def check_pairwise_score_correlation(
         stop = min(n, start + block)
         rows = np.arange(start, stop)
         a_gt = rank_a[start:stop, None] > rank_a[None, :]
+        a_lt = rank_a[start:stop, None] < rank_a[None, :]
         b_gt = rank_b[start:stop, None] > rank_b[None, :]
+        b_lt = rank_b[start:stop, None] < rank_b[None, :]
         upper = col[None, :] > rows[:, None]
-        agree += int(np.count_nonzero((a_gt == b_gt) & upper))
+        # Concordant pairs only: the two members order the pair the same way. A tie in either ranking is not agreement; comparing booleans
+        # counted two tied members as agreeing, so an all-tied member read as perfectly concordant.
+        agree += int(np.count_nonzero(((a_gt & b_gt) | (a_lt & b_lt)) & upper))
     rank_agreement = float(agree) / total if total > 0 else 1.0
 
     result: dict[str, Any] = {
