@@ -117,3 +117,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 40-F18 | 40_training-9.md | FIXED | Unaligned split with group ids refused. Test test_cluster40_ma_crossover_refuses_unaligned_groups.py. |
 | 40-F3 | 40_training-9.md | FIXED | Multi-target regression monitors RMSE, not ICE. Test test_cluster40_multitarget_regression_uses_rmse.py. |
 | 40-F4 | 40_training-9.md | FIXED | Multilabel predict returns indicators. Test test_cluster40_multilabel_predict_returns_indicators.py. |
+| 40-F5 | 40_training-9.md | FIXED | Class weights follow original labels via classes_. Test test_cluster40_class_weight_follows_original_labels.py. |

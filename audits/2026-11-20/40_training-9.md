@@ -77,7 +77,7 @@ Severity: P0 = crash or wrong result on the default path; P1 = wrong result on a
 - 40-F19: FIXED. array-valued parameters are keyed by shape, dtype and content digest; tests/training/test_cluster40_pipeline_fixes.py
 - 40-F3: FIXED. multi-target regression monitors RMSE, not ICE (test tests/training/neural/test_cluster40_multitarget_regression_uses_rmse.py). Earlier note: not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
 - 40-F4: FIXED. multilabel predict returns the indicator matrix (test tests/training/neural/test_cluster40_multilabel_predict_returns_indicators.py). Earlier note: not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
-- 40-F5: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
+- 40-F5: FIXED. class weights follow original labels via classes_ (test tests/training/neural/test_cluster40_class_weight_follows_original_labels.py). Earlier note: not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
 - 40-F7: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
 - 40-F8: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
 - 40-F9: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
@@ -92,3 +92,4 @@ Severity: P0 = crash or wrong result on the default path; P1 = wrong result on a
 - 40-F18: FIXED. A split with group ids but no aligned row index is refused (ValueError naming the split) instead of averaged across entities. Test tests/training/test_cluster40_ma_crossover_refuses_unaligned_groups.py; existing ma_crossover tests (40) pass.
 - 40-F3: FIXED. Multi-target regression no longer takes the ICE branch: _metric_branch_for returns RMSE unless num_classes>1 and not multi-target regression. Tests tests/training/neural/test_cluster40_multitarget_regression_uses_rmse.py; existing multi-target tests (6) pass.
 - 40-F4: FIXED. Multilabel predict returns the thresholded indicator matrix instead of argmax over classes_ (which multilabel fits never set). Test tests/training/neural/test_cluster40_multilabel_predict_returns_indicators.py.
+- 40-F5: FIXED. class_weight is read through classes_ (original labels), so each label gets its own weight (_class_weight_vector). Test tests/training/neural/test_cluster40_class_weight_follows_original_labels.py.

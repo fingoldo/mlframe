@@ -85,6 +85,16 @@ def _monitor_mode(monitor: str) -> str:
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
+def _class_weight_vector(class_weight: dict, classes, num_classes: int) -> list:
+    """Per-POSITION weights for the model's output head, from a dict keyed by ORIGINAL labels (40-F5).
+
+    Labels are encoded to positions 0..k-1 via ``classes`` (the sorted unique labels), so position i is the class ``classes[i]``.
+    Keying the lookup by position read the weight of the wrong label. Without ``classes`` the positions are the labels.
+    """
+    order = list(classes) if classes is not None else list(range(num_classes))
+    return [float(class_weight.get(label, 1.0)) for label in order]
+
+
 class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
     """
     Base class for sklearn-compatible recurrent model wrappers.
@@ -384,7 +394,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         weight_tensor = None
         if class_weight and not self._is_regression:
             weight_tensor = torch.tensor(
-                [class_weight.get(i, 1.0) for i in range(self._cfg.num_classes)],
+                _class_weight_vector(class_weight, getattr(self, "classes_", None), self._cfg.num_classes),
                 dtype=torch.float32,
             )
 
