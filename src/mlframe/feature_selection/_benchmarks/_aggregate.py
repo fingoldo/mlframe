@@ -40,6 +40,12 @@ def _check_versions(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
     after_key = f"{after['tag']}_{after['git_sha']}"
     bef = captures.get(before_key)
     aft = captures.get(after_key)
+    if not (bef and aft):
+        # A capture missing one side used to return no verdict and no message; say that the comparison was skipped (audit 10-F5).
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning("version check skipped: manifest has %s", "no before capture" if not bef else "no after capture")
+        return []
     if bef and aft:
         for lib in ("numpy", "numba", "cupy", "sklearn"):
             if bef["versions"].get(lib) != aft["versions"].get(lib):

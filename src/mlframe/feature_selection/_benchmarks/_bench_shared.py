@@ -268,8 +268,11 @@ def make_tee_print(orig: Callable, fp: TextIO) -> Callable:
             kw2["file"] = fp
             kw2["flush"] = True
             orig(*a, **kw2)
-        except (OSError, ValueError):
-            pass
+        except (OSError, ValueError) as _log_exc:
+            # The console keeps printing while the log stops: say so once on stderr (audit 10-F9).
+            import sys as _sys
+
+            print(f"log file write failed ({_log_exc}); further output goes to the console only", file=_sys.stderr)
 
     return _tee_print
 

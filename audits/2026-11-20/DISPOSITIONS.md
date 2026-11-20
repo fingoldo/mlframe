@@ -342,3 +342,9 @@
 | 09-F29 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F30 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F31 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
+| 10-F5 | FIXED | a version check with one missing capture logs that the comparison was skipped; benchmark utility, no test |
+| 10-F8 | FIXED | redundant columns without informative ones raise a clear ValueError; benchmark utility, no test |
+| 10-F9 | FIXED | a failed log-file write is reported once on stderr; benchmark utility, no test |
+| 10-F4 | DEFERRED | not changed in this pass; benchmark-script cleanup or a policy decision (MAX_VERSION_AGE_DAYS enforcement) |
+| 10-F6 | DEFERRED | not changed in this pass; benchmark-script cleanup or a policy decision (MAX_VERSION_AGE_DAYS enforcement) |
+| 10-F7 | DEFERRED | not changed in this pass; benchmark-script cleanup or a policy decision (MAX_VERSION_AGE_DAYS enforcement) |
