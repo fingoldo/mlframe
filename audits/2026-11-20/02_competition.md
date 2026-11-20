@@ -25,3 +25,13 @@ Scope: 18 files listed in `audits/2026-11-20/manifests/02_competition.txt`, all 
 ## Totals
 
 P0: 0. P1: 0. P2: 3 (02-F1, 02-F2, 02-F3). P3: 3 (02-F4, 02-F5, 02-F6).
+
+
+## Dispositions
+
+- 02-F1: FIXED. wall time measured on an un-profiled call; benchmark-only
+- 02-F2: DEFERRED. benchmark-script cleanup not done in this pass; low impact
+- 02-F3: DEFERRED. benchmark-script cleanup not done in this pass; low impact
+- 02-F4: DEFERRED. benchmark-script cleanup not done in this pass; low impact
+- 02-F5: DEFERRED. benchmark-script cleanup not done in this pass; low impact
+- 02-F6: DEFERRED. benchmark-script cleanup not done in this pass; low impact

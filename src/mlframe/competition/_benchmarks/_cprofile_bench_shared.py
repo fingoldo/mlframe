@@ -13,12 +13,14 @@ from typing import Callable
 
 def cprofile_main(run_once: Callable[[], None]) -> None:
     """Profile a single call to ``run_once`` with cProfile, print wall time + top-30 cumulative stats."""
-    profiler = cProfile.Profile()
+    # Wall time comes from an un-profiled call: the profiled run carries cProfile's instrumentation overhead (audit 02-F1).
     t0 = time.perf_counter()
+    run_once()
+    wall = time.perf_counter() - t0
+    profiler = cProfile.Profile()
     profiler.enable()
     run_once()
     profiler.disable()
-    wall = time.perf_counter() - t0
 
     stats = pstats.Stats(profiler).sort_stats("cumulative")
     print(f"wall time: {wall:.4f}s")

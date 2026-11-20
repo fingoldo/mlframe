@@ -259,3 +259,9 @@
 | 01-F10 | DEFERRED | not changed in the P2/P3 pass yet; benchmark-only, low impact |
 | 01-F11 | DEFERRED | not changed in the P2/P3 pass yet; benchmark-only, low impact |
 | 01-F13 | DEFERRED | not changed in the P2/P3 pass yet; benchmark-only, low impact |
+| 02-F1 | FIXED | wall time measured on an un-profiled call; benchmark-only |
+| 02-F2 | DEFERRED | benchmark-script cleanup not done in this pass; low impact |
+| 02-F3 | DEFERRED | benchmark-script cleanup not done in this pass; low impact |
+| 02-F4 | DEFERRED | benchmark-script cleanup not done in this pass; low impact |
+| 02-F5 | DEFERRED | benchmark-script cleanup not done in this pass; low impact |
+| 02-F6 | DEFERRED | benchmark-script cleanup not done in this pass; low impact |
