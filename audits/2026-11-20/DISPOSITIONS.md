@@ -221,3 +221,20 @@
 | 39-F53 | FIXED | multilabel heads use per-label sigmoid; tests/training/test_cluster39_encoders_and_casts.py |
 | 39-F54 | FIXED | orthogonal_ and sparse_ fall back on 1-D tensors instead of raising; no separate test |
 | 39-F67 | FIXED | the L1 exclusion ids are computed per step, not cached and pickled; no separate test |
+| 40-F6 | FIXED | unseen validation labels raise instead of mapping to a neighbouring class; no separate test beyond the suite run |
+| 40-F12 | FIXED | kwargs are filtered by signature and the fit is called once, so a TypeError inside a fit propagates; tests/training/test_cluster40_pipeline_fixes.py |
+| 40-F14 | FIXED | duplicated index labels no longer multiply rows: both FE joins are positional; tests/training/test_cluster40_pipeline_fixes.py |
+| 40-F19 | FIXED | array-valued parameters are keyed by shape, dtype and content digest; tests/training/test_cluster40_pipeline_fixes.py |
+| 40-F3 | DEFERRED | not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet |
+| 40-F4 | DEFERRED | not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet |
+| 40-F5 | DEFERRED | not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet |
+| 40-F7 | DEFERRED | not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet |
+| 40-F8 | DEFERRED | not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet |
+| 40-F9 | DEFERRED | not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet |
+| 40-F10 | DEFERRED | not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet |
+| 40-F11 | DEFERRED | not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet |
+| 40-F13 | DEFERRED | not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet |
+| 40-F15 | DEFERRED | not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet |
+| 40-F16 | DEFERRED | not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet |
+| 40-F17 | DEFERRED | not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet |
+| 40-F18 | DEFERRED | not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet |

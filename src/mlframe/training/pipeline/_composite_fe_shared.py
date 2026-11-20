@@ -35,6 +35,10 @@ def attach_new_columns(df: Any, new_cols: "pd.DataFrame") -> Any:
     # LABEL, not row position, so a mismatched index here silently produces NaN or cross-row-
     # misattributed values for most rows. Align new_cols' index to df's own index (positional, by the
     # same-row-order contract) before either alignment path runs.
-    if not new_cols.index.equals(df.index):
-        new_cols = new_cols.set_axis(df.index, axis=0)
-    return df.join(new_cols) if hasattr(df, "join") else pd.concat([df, new_cols], axis=1)
+    # A duplicated index label made df.join() multiply rows (audit 40-F14): the row-order contract is positional, so join by
+    # position and restore df's own index.
+    if not hasattr(df, "join"):
+        return pd.concat([df, new_cols], axis=1)
+    out = pd.concat([df.reset_index(drop=True), new_cols.reset_index(drop=True)], axis=1)
+    out.index = df.index
+    return out

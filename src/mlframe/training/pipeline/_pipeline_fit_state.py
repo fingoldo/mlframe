@@ -244,6 +244,17 @@ def _check_row_preserving(out, held) -> None:
         _raise_pre_pipeline_rowcount_change(held_n, out_n)
 
 
+def _accepts_kwarg(fn, name: str) -> bool:
+    """True when ``fn``'s signature names ``name`` or takes ``**kwargs``; an uninspectable callable is assumed to accept it."""
+    import inspect
+
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return True
+    return name in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+
 def _fit_with_optional_kwargs(_fn, _arg, _target_arg, *, groups, sample_weight, wants_sw, sw_kwarg):
     """Invoke fit/fit_transform with ``groups`` / ``sample_weight`` when supported.
 
@@ -267,18 +278,11 @@ def _fit_with_optional_kwargs(_fn, _arg, _target_arg, *, groups, sample_weight, 
         _kwargs[sw_kwarg] = sample_weight
     if not _kwargs:
         return _fn(_arg, _target_arg)
+    # Pass only the kwargs the selector's signature accepts. A TypeError raised INSIDE the fit used to be read as "kwarg not
+    # supported" and the fit re-ran silently without groups / sample_weight (audit 40-F12).
+    _accepted = {k: v for k, v in _kwargs.items() if _accepts_kwarg(_fn, k)}
     try:
-        return _fn(_arg, _target_arg, **_kwargs)
-    except TypeError:
-        # Drop sample_weight first (more selectors accept groups than sw); then drop groups.
-        if sw_kwarg in _kwargs:
-            _kwargs.pop(sw_kwarg)
-            if _kwargs:
-                try:
-                    return _fn(_arg, _target_arg, **_kwargs)
-                except TypeError:
-                    pass
-        return _fn(_arg, _target_arg)
+        return _fn(_arg, _target_arg, **_accepted)
     except ValueError as _exc:
         _msg = str(_exc)
         if (

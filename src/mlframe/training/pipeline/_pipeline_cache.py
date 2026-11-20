@@ -565,6 +565,18 @@ def _full_target_content_hash(arr) -> str:
         return ""
 
 
+def _param_key_repr(value) -> str:
+    """A cache-key form of one ``get_params`` value. numpy's repr elides arrays over 1000 elements with '...', so two different
+    array parameters used to share a key and replay the wrong fit; arrays are keyed by shape, dtype and a content digest (audit 40-F19)."""
+    import hashlib
+
+    import numpy as np
+
+    if isinstance(value, np.ndarray):
+        return f"ndarray{value.shape}:{value.dtype}:{hashlib.blake2b(np.ascontiguousarray(value).tobytes(), digest_size=16).hexdigest()}"
+    return repr(value)
+
+
 def _pipeline_signature_for_cache(pipeline) -> str:
     """Stable signature for the pipeline structure + per-step shallow params.
 
@@ -587,7 +599,7 @@ def _pipeline_signature_for_cache(pipeline) -> str:
         kls = type(step).__name__
         try:
             params = step.get_params(deep=False)
-            kw = ",".join(f"{k}={params[k]!r}" for k in sorted(params))
+            kw = ",".join(f"{k}={_param_key_repr(params[k])}" for k in sorted(params))
         except Exception as e:
             log_throttle(logger, "_pipeline_cache._pipeline_signature_for_cache", logging.WARNING, "get_params(deep=False) failed for cache-key computation on %s: %s", type(step).__name__, e)
             kw = "?"

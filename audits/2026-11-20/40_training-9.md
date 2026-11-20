@@ -71,3 +71,20 @@ Severity: P0 = crash or wrong result on the default path; P1 = wrong result on a
 
 - 40-F1: RESOLVED. save/load store classes and the multilabel flag; model rebuilt with task_type. Tests test_recurrent_classifier_save_keeps_classes_and_multilabel.py. Commit 7e0cd9b40.
 - 40-F2: RESOLVED. Unweighted score() returns accuracy in both branches. Tests test_classifier_score_is_accuracy.py. Commit 2798b5a6c.
+- 40-F6: FIXED. unseen validation labels raise instead of mapping to a neighbouring class; no separate test beyond the suite run
+- 40-F12: FIXED. kwargs are filtered by signature and the fit is called once, so a TypeError inside a fit propagates; tests/training/test_cluster40_pipeline_fixes.py
+- 40-F14: FIXED. duplicated index labels no longer multiply rows: both FE joins are positional; tests/training/test_cluster40_pipeline_fixes.py
+- 40-F19: FIXED. array-valued parameters are keyed by shape, dtype and content digest; tests/training/test_cluster40_pipeline_fixes.py
+- 40-F3: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
+- 40-F4: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
+- 40-F5: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
+- 40-F7: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
+- 40-F8: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
+- 40-F9: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
+- 40-F10: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
+- 40-F11: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
+- 40-F13: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
+- 40-F15: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
+- 40-F16: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
+- 40-F17: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
+- 40-F18: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
