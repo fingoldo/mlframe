@@ -265,7 +265,9 @@ class CompositeDistributionEstimator(RegressorMixin, BaseEstimator):
         row), so the returned rows are valid CDFs.
         """
         self._check_fitted()
-        qmat = np.ascontiguousarray(self._quantile_matrix(X))  # (n, K), ascending per row
+        # The binary search below needs ascending rows. Sorting here makes predict_cdf correct whatever enforce_non_crossing
+        # was (audit 35-F14); the sort is a no-op on rows that are already ordered.
+        qmat = np.ascontiguousarray(np.sort(np.asarray(self._quantile_matrix(X), dtype=np.float64), axis=1))  # (n, K), ascending per row
         levels = np.ascontiguousarray(self.quantiles_, dtype=np.float64)  # (K,), ascending
         t = np.ascontiguousarray(np.asarray(y_grid, dtype=np.float64).reshape(-1))  # (G,)
         # For each (row i, query j): count fitted quantiles with value <= t_j (binary search on the

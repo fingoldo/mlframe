@@ -87,3 +87,15 @@ Coverage and method:
 
 - 35-F1: DEFERRED. from_fitted_inner has no features or transformed target, so it cannot compute residual smearing like fit(). Fix belongs in _wrap_fitted_inner (call sites ensemble/__init__.py:642,885 and _oof_external.py:83 have X) and changes predict output for smeared transforms. Needs validation.
 - 35-F2: RESOLVED. CRPS weights are cell widths (helper _crps_cell_weights); reduces to 2/K on midpoint grids. Also fixed sibling in qrf.py (new). Tests test_crps_cell_weights.py. Commit bd2709ef9.
+- 35-F3: FIXED. a base must take more than one value to set the early time-aware flag; tests/training/composite/test_cluster35_digest_and_flags.py
+- 35-F4: FIXED. a non-finite raw baseline fails closed (empty result) when require_beats_raw_baseline is set, with a WARNING; no separate test
+- 35-F5: FIXED. each fold keeps one slot (NaN when unusable); the paired test already skips non-finite pairs; no separate test
+- 35-F6: FIXED. the stacked target is float64 before the residual; no separate test
+- 35-F7: FIXED. time_aware with groups raises instead of silently dropping time order; no separate test
+- 35-F8: FIXED. string digest length-prefixes each element; tests/training/composite/test_cluster35_digest_and_flags.py
+- 35-F9: FIXED. external holdout key includes a frame content digest and a target digest; no separate test
+- 35-F10: FIXED. meta model copied by the no-op cap and dropped explicitly on a trim; no separate test
+- 35-F11: FIXED. the early logratio raise is removed so the domain mask routes base<=0 rows to the fallback, as the docstring says; no separate test
+- 35-F12: FIXED. point-mass match uses rtol=0; no separate test
+- 35-F13: FIXED. per-fold catch removed; a failing fold raises instead of NaN-filling; no separate test
+- 35-F14: FIXED. predict_cdf sorts quantile rows before the binary search; no separate test

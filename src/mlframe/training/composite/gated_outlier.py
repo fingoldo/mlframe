@@ -112,7 +112,8 @@ class GatedOutlierEstimator(RegressorMixin, BaseEstimator):
 
     def _is_point_mass(self, y: np.ndarray) -> np.ndarray:
         """Return a boolean mask of ``y`` entries close to ``point_mass_value``."""
-        return np.asarray(np.isclose(y, self.point_mass_value, atol=self.point_mass_atol))
+        # rtol=0: the default relative tolerance scales with point_mass_value, so a large mass matched far-away targets (audit 35-F12).
+        return np.asarray(np.isclose(y, self.point_mass_value, rtol=0.0, atol=self.point_mass_atol))
 
     def fit(self, X: Any, y: Any, sample_weight: Optional[np.ndarray] = None) -> "GatedOutlierEstimator":
         """Fit a point-mass classifier gate and a regressor on the non-point-mass rows."""

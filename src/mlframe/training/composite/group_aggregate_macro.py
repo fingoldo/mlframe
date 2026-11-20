@@ -23,7 +23,6 @@ import pandas as pd
 import polars as pl
 
 from .ensemble.feature_stacking import composite_oof_predictions
-from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -60,21 +59,14 @@ def _oof_multi_target_predictions(
     for train_idx, val_idx in kf.split(indices):
         X_train = X_group.iloc[train_idx].reset_index(drop=True)
         X_val = X_group.iloc[val_idx].reset_index(drop=True)
-        try:
-            w = wrapper_factory()
-            w.fit(X_train, Y_group[train_idx])
-            fold_preds = np.asarray(w.predict(X_val), dtype=np.float64)
-            if fold_preds.ndim == 1:
-                fold_preds = fold_preds.reshape(-1, 1)
-            out[val_idx] = fold_preds
-        except Exception as fold_err:
-            log_throttle(
-                logger,
-                "oof_multi_target_predictions_fold_failed",
-                logging.WARNING,
-                "[_oof_multi_target_predictions] fold failed (val rows %d-%d): %s. NaN-filled.",
-                int(val_idx.min()), int(val_idx.max()), fold_err,
-            )
+        # No per-fold catch: a failing fold NaN-filled its rows and the aggregate statistic was then computed on a hole, silently.
+        # An unsupported multi-output wrapper now raises here (audit 35-F13).
+        w = wrapper_factory()
+        w.fit(X_train, Y_group[train_idx])
+        fold_preds = np.asarray(w.predict(X_val), dtype=np.float64)
+        if fold_preds.ndim == 1:
+            fold_preds = fold_preds.reshape(-1, 1)
+        out[val_idx] = fold_preds
     return out
 
 

@@ -461,13 +461,7 @@ def _quantile_base_array(self: Any, X: Any, transform: Any) -> np.ndarray | None
 
         # logratio domain check: base must be > 0 (already required at
         # fit time, but predict-time inputs may differ).
-        if self.transform_name == "logratio":
-            if np.any(base_arr <= 0):
-                raise NotImplementedError(
-                    "predict_quantile for transform 'logratio' requires "
-                    "base > 0 on every row. Filter the input or use "
-                    "predict() with the wrapper's domain fallback."
-                )
+        # base <= 0 rows are not refused here: the domain mask below routes them to the fallback, as the docstring promises (audit 35-F11).
 
         # reciprocal_residual: y = 1/(T + 1/base) is DECREASING in T, so the
         # inverse swaps the quantile order (the alpha-quantile of T maps to the

@@ -134,6 +134,9 @@ def composite_oof_predictions(
         _sw_arr = np.asarray(_sw)
         if _sw_arr.reshape(-1).shape[0] == n:
             _sw_full = _sw_arr.reshape(-1)
+    if cv_splitter is None and groups_arr is not None and time_aware:
+        # GroupKFold would silently drop the time order that time_aware asked for; refuse the combination (audit 35-F7).
+        raise ValueError("feature stacking: time_aware and groups cannot both be set; GroupKFold would drop the time order")
     if cv_splitter is not None:
         kf = cv_splitter
     elif groups_arr is not None:

@@ -720,9 +720,10 @@ class CompositeCrossTargetEnsemble:
                 "_linear_stack_intercept", "_linear_stack_train_preds",
                 "_linear_stack_train_y", "_linear_stack_ridge_alpha",
                 "_nnls_stack_train_preds", "_nnls_stack_train_y",
+                "_meta_model", "_meta_col_means", "_meta_stack_kind", "_component_col_means",
             ):
                 if hasattr(self, _attr):
-                    setattr(copy_inst, _attr, getattr(self, _attr))
+                    setattr(copy_inst, _attr, getattr(self, _attr))  # the meta model must survive a no-op cap too (audit 35-F10)
             # No trim: the blend is unchanged, so the output calibrator (fit on that blend) is
             # still valid and carries over.
             copy_inst._output_calibrator = getattr(self, "_output_calibrator", None)
@@ -761,6 +762,9 @@ class CompositeCrossTargetEnsemble:
         # assertion, which expects the train-matrix columns to match the component ordering.
         if self.strategy == "linear_stack" and hasattr(self, "_linear_stack_intercept"):
             new._linear_stack_intercept = self._linear_stack_intercept
+        # The meta model was fit on the FULL component set; after a trim its input width no longer matches, so it is dropped
+        # explicitly (predict then uses the blend), rather than silently routed to a mismatched model (audit 35-F10).
+        new._meta_model = None
         for _attr in (
             "_linear_stack_train_preds", "_linear_stack_train_y", "_linear_stack_ridge_alpha",
             "_nnls_stack_train_preds", "_nnls_stack_train_y",

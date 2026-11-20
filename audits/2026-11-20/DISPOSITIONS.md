@@ -174,3 +174,15 @@
 | 34-F2 | FIXED | hints dropped by the finite-cell filter are removed from the hint slots on both paths; no separate test |
 | 34-F3 | FIXED | demoted candidates are kept out of the MRMR relevance scale and ranked after the MRMR pass; no separate test |
 | 34-F4 | FIXED | once any borderline column exists the collinear replay re-checks every column exactly. Cost: exact replay is O(n_cols * kept) in that case; no separate test |
+| 35-F3 | FIXED | a base must take more than one value to set the early time-aware flag; tests/training/composite/test_cluster35_digest_and_flags.py |
+| 35-F4 | FIXED | a non-finite raw baseline fails closed (empty result) when require_beats_raw_baseline is set, with a WARNING; no separate test |
+| 35-F5 | FIXED | each fold keeps one slot (NaN when unusable); the paired test already skips non-finite pairs; no separate test |
+| 35-F6 | FIXED | the stacked target is float64 before the residual; no separate test |
+| 35-F7 | FIXED | time_aware with groups raises instead of silently dropping time order; no separate test |
+| 35-F8 | FIXED | string digest length-prefixes each element; tests/training/composite/test_cluster35_digest_and_flags.py |
+| 35-F9 | FIXED | external holdout key includes a frame content digest and a target digest; no separate test |
+| 35-F10 | FIXED | meta model copied by the no-op cap and dropped explicitly on a trim; no separate test |
+| 35-F11 | FIXED | the early logratio raise is removed so the domain mask routes base<=0 rows to the fallback, as the docstring says; no separate test |
+| 35-F12 | FIXED | point-mass match uses rtol=0; no separate test |
+| 35-F13 | FIXED | per-fold catch removed; a failing fold raises instead of NaN-filling; no separate test |
+| 35-F14 | FIXED | predict_cdf sorts quantile rows before the binary search; no separate test |
