@@ -31,3 +31,16 @@ No P0 or P1 findings. Every file in scope is a benchmark or profiling harness, s
 - Tests for these public functions were not audited. Test-coverage gaps were not assessed, so this report makes no claim about them.
 - The benchmark scripts were not executed (read-only, no pytest, no runs).
 - Numerical behaviour of the production modules under `preprocessing/` (outside the `_benchmarks` manifest) was not audited. Only the call sites and signatures the benches depend on were checked.
+
+
+## Dispositions
+
+- 19-F1: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 19-F2: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 19-F3: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 19-F4: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 19-F5: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 19-F6: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 19-F7: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 19-F8: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 19-F9: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule

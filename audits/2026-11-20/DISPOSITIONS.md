@@ -474,3 +474,12 @@
 | 18-F12 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 18-F13 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 18-F14 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
+| 19-F1 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 19-F2 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 19-F3 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 19-F4 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 19-F5 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 19-F6 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 19-F7 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 19-F8 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 19-F9 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
