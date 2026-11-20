@@ -121,6 +121,17 @@ logger = logging.getLogger(__name__)
 _DEFAULT_DENSE_QUANTILES: tuple[float, ...] = tuple(round(0.05 * k, 2) for k in range(1, 20))
 
 
+def _crps_cell_weights(levels: np.ndarray) -> np.ndarray:
+    """Riemann weights ``2 * (cell width)`` of an ascending quantile-level grid for the CRPS quantile decomposition.
+
+    Cells are bounded by the midpoints between neighbouring levels and by 0 and 1. For a midpoint grid ``(k - 0.5) / K`` every cell is
+    ``1 / K``, so the weights reduce to ``2 / K``; an uneven grid (for example ``0.1 .. 0.9``) gets its own widths instead of the wrong ``2 / K``.
+    """
+    levels = np.asarray(levels, dtype=np.float64)
+    edges = np.concatenate(([0.0], 0.5 * (levels[:-1] + levels[1:]), [1.0]))
+    return 2.0 * np.diff(edges)
+
+
 class CompositeDistributionEstimator(RegressorMixin, BaseEstimator):
     """Full predictive distribution via a dense quantile composite + CRPS.
 
@@ -305,11 +316,11 @@ class CompositeDistributionEstimator(RegressorMixin, BaseEstimator):
 
         Uses the quantile decomposition of the CRPS (Gneiting & Raftery 2007):
 
-        ``CRPS(F_i, y_i) = (2 / K) * sum_k rho_{q_k}(y_i - Q_i(q_k))``
+        ``CRPS(F_i, y_i) = sum_k w_k * rho_{q_k}(y_i - Q_i(q_k))`` with ``w_k = 2 * (cell width of q_k)``
 
         where ``rho_q(u) = u * (q - 1{u < 0})`` is the pinball (quantile) loss and
-        ``{q_k}`` is the fitted dense level grid. As the grid densifies this
-        converges to the integral form ``2 * integral_0^1 pinball_q dq`` = the CRPS.
+        ``{q_k}`` is the fitted level grid. The cell width comes from the midpoints between neighbouring levels (see
+        ``_crps_cell_weights``), so the sum converges to the integral form ``2 * integral_0^1 pinball_q dq`` = the CRPS on any grid.
         Lower is better; the score is strictly proper, so a calibrated SHARP
         distribution scores below a wider one on the same data.
 
@@ -328,7 +339,7 @@ class CompositeDistributionEstimator(RegressorMixin, BaseEstimator):
         # Pinball loss per (row, level): u = y - Q ; rho = u*(q - 1{u<0}).
         u = y[:, None] - qmat  # (n, K)
         rho = u * (levels[None, :] - (u < 0.0).astype(np.float64))  # (n, K)
-        per_row = (2.0 / levels.shape[0]) * rho.sum(axis=1)  # (n,)
+        per_row = (rho * _crps_cell_weights(levels)[None, :]).sum(axis=1)  # (n,)
         if reduce == "none":
             return per_row
         if reduce == "mean":
