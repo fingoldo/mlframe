@@ -305,7 +305,9 @@ def _generate_informative_features(
                 span = pred_max - pred_min
                 predictors[:, j] = np.where(span == 0, 0.0, (predictors[:, j] - pred_min) / (span if span != 0 else 1.0))
 
-                fnames.append(f"prob_{dist_name}_{j}")
+                # Only the first n_informative probability columns reach X; naming all n_classes made the name list longer than the matrix.
+                if j < n_informative:
+                    fnames.append(f"prob_{dist_name}_{j}")
             pred_sums = predictors.sum(axis=1)
 
             for j in range(n_classes):
