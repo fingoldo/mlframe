@@ -24,7 +24,7 @@ def fit_rfecv(X, y, n_repeats):
     r = RFECV(estimator=lgb.LGBMClassifier(n_estimators=150, num_leaves=31, learning_rate=0.06, n_jobs=-1, verbose=-1),
               cv=3, scoring=None, verbose=0, n_repeats=n_repeats,
               fi_config=FIConfig(importance_getter="permutation", n_features_selection_rule="one_se_min"),
-              search_config=SearchConfig(max_refits=16, max_runtime_mins=3), random_state=0)
+              search_config=SearchConfig(max_refits=16, max_runtime_mins=None), random_state=0)
     r.fit(X, y)
     return [c for c in r.get_feature_names_out() if c in X.columns]
 
