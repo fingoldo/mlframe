@@ -12,7 +12,7 @@ from typing import Tuple
 import numpy as np
 import numba
 
-from .._numba_params import NUMBA_NJIT_PARAMS
+from .._numba_params import NUMBA_NJIT_PARAMS, _check_equal_length
 
 # ============================================================================
 # Tweedie / Poisson / Gamma deviances (Tier 2)
@@ -213,6 +213,10 @@ def fast_tweedie_deviance(
     if yt.shape[0] == 0:
         return np.nan
     if power == 0.0:
+        # A (N,) against (N,1) broadcast to an (N, N) difference and averaged N^2 pairs: check the lengths first.
+        _check_equal_length(yt, yp)
+        if yt.shape != yp.shape:
+            raise ValueError(f"fast_tweedie_deviance: y_true shape {yt.shape} != y_pred shape {yp.shape}; a column prediction would broadcast.")
         d = yt - yp
         return float(np.mean(d * d))
     if power == 1.0:
