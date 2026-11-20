@@ -172,17 +172,12 @@ def detect_clusters_by_correlation(
     if len(dense_names) < min_cluster_size or abs_corr.size == 0:
         return {}
     p = len(dense_names)
-    edges: list[tuple[int, int]] = []
-    for i in range(p):
-        for j in range(i + 1, p):
-            c_ij = float(abs_corr[i, j])
-            if not np.isfinite(c_ij):
-                continue
-            # Guard against literal duplicates - their aggregate equals
-            # any member, so He_n(aggregate) collides with He_n(member)
-            # already emitted by Layer 21 (when enabled).
-            if c_ij >= corr_threshold and c_ij < 1.0 - 1e-12:
-                edges.append((i, j))
+    # the pair filter on the upper triangle in one vectorised pass (row-major, the order of the former double loop); literal duplicates (corr 1.0) are excluded - their aggregate equals any member,
+    # so He_n(aggregate) collides with He_n(member) already emitted by Layer 21 (when enabled)
+    iu, ju = np.triu_indices(p, 1)
+    c_tri = np.asarray(abs_corr, dtype=np.float64)[iu, ju]  # Intentional float64: the correlation threshold comparison of the former loop (float(abs_corr[i, j]))
+    keep = np.isfinite(c_tri) & (c_tri >= corr_threshold) & (c_tri < 1.0 - 1e-12)
+    edges: list[tuple[int, int]] = list(zip(iu[keep].tolist(), ju[keep].tolist()))
     comps = _connected_components(p, edges)
     out: dict[str, list[str]] = {}
     for comp in comps:

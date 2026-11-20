@@ -18,3 +18,5 @@ Four read-only agents (E CPU / GIL, F GPU / kernels, G overlap / scheduling, H r
 Lesson: measure the cost of the operation in a micro-benchmark before implementing; four estimates by reading were 3 to 10 times too high.
 
 Noise floor (2026-11-20, unchanged tree at 5a8519ed1, GPU 72-77 C, 1695-1708 MHz, 6 runs back to back): 41.3 / 40.9 / 38.9 / 39.3 / 40.0 / 40.4 s, mean 40.13 s, sd 0.92 s, range 2.4 s. A paired difference has sd about 1.3 s, so four alternating pairs resolve a gain of roughly 1.3 s or more; items estimated below that are judged by an isolated micro-benchmark of their own cost, not by the wall.
+
+Implementation pass (the owner asked for the E-H findings to be implemented before free optimisation): IMPLEMENTED E-F01, E-F02, E-F04, E-F07, F-F03, F-F04, F-F06; REJECTED by measurement E-F03, E-F05, F-F05, H-F04; DEFERRED with a stated blocker E-F06, F-F01, F-F02, G-F01, G-F02, G-F03, H-F01, H-F02, H-F03, H-F05 (see each report). The implemented items together are well under 1 s and are not separable on the benchmark (noise sd 0.92 s); each carries a sensor.

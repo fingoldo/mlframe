@@ -15,7 +15,7 @@ Stage timeline used for the estimates (stage_sampler_1120, WALL 41.1 s): early_a
 - **Problem**: the honest maxT null of the screen is computed on the main thread after the cascades, although its per-column part (the permuted-target binning of a column) depends only on the column's values, the target and the fit's permutation seed. The fit already keeps a per-column cache across screens (MR11-08: the second screen computes only its 6 new columns), so the raw-column part can be filled earlier. The screen's evaluation rows and target codes are created before the first screen, so a worker started at the cascade call can build the same per-column entries. Meanwhile the wave-2 slot that finishes first sits idle while the other two stages run.
 - **Proposed change**: in `_fit_impl_core_parts.py` next to `start_discretization_warmup` (line 739), start a worker that calls the honest null builder for the raw columns (the set known before the cascades, `_raw_input_cols_pre_fe`) with the same seed, rows and target codes the screen will use, and writes into the same per-column cache; `honest_fdr_floor` then reads from the cache, and columns not in the cache are computed as now. Only the cache fill moves; the gain floor, the permutation draws and the selection are unchanged. Keep the worker on the device slot of the finished stage (`stage_device_slot`) or on the main thread after `run_stages_concurrently` returns if the slot is not free.
 - **Risk**: the permutation RNG must be drawn in the same order as the serial path, or the floor changes; the rows used by the screen must be known before the screen (check `honest_eval_rows`). A second worker can contend for the GIL with the three stages (the MR11-11 lesson: an extra pool on the same cores gave no net gain), so the saving is only as big as the idle slot. Check the honest null count (999 permutations at 184 columns) on 4 GB VRAM against the stage slots.
-- **Disposition**: OPEN
+- **Disposition**: DEFERRED 2026-11-20 - the permuted labels come from one rng stream consumed in call order (`_permuted_labels_cached`), so a worker that fills the per-column cache before the screen changes the draws and the floors; it needs the stream split per column first. Estimated 1.0-1.4 s, inside the noise (sd 0.92 s).
 
 ### F02 - Per-column inputs of the cross-stage dedup computed inside each stage thread at its end
 
@@ -24,7 +24,7 @@ Stage timeline used for the estimates (stage_sampler_1120, WALL 41.1 s): early_a
 - **Problem**: the MI and rank of a column are per-column work, but they run on the main thread after the whole wave, so the wave's stage threads are idle during them. Only the pairwise |rank correlation| comparison truly needs every column.
 - **Proposed change**: when a stage returns, compute its appended columns' MI and full ranks on the same thread (stage-local memo keyed by column name, the same bin edges that `_engineered_mi_scores` would use), and let `_dedup_engineered_across_stages` read the memo, computing only missing names. The pairwise loop and the drop order (stage order, first appended kept) stay as they are.
 - **Risk**: the MI must use the same binning as the main-thread call (the stage-local binning must not depend on what other stages produced); the memo must be keyed by name AND content (a stage-merged column of the same name must not hit). MR11-11 found that moving an edge search into a background pool slowed the dedup scan on the same cores, so the net gain is uncertain.
-- **Disposition**: OPEN
+- **Disposition**: DEFERRED 2026-11-20 - the cross-stage dedup is 1.0 s isolated (finite_sort_order 0.55 thread-s already on the pool, GPU spearman init 0.22, full ranks 0.22); MR11-11 measured that moving such work into the stage threads slows it on the same cores, so the estimated 0.5-0.8 s is not expected to survive.
 
 ### F03 - Engineered-accuracy gate run per stage instead of once after the wave
 
@@ -33,7 +33,7 @@ Stage timeline used for the estimates (stage_sampler_1120, WALL 41.1 s): early_a
 - **Problem**: the gate runs on the main thread between the wave and the cross-stage dedup, so the stage threads are idle for its 0.6 s; the verdict is computed for every column at once even though each stage produces its own.
 - **Proposed change**: run the per-family scoring at the end of each stage (inside `run_stages_concurrently`'s `_run`, after the stage's own columns are final), store the per-column verdicts on the stage copy, and merge them with the stage state (the existing `merge_stage_state` already carries new dict entries); `_apply_gate_drops` stays on the main thread in stage order.
 - **Risk**: the gate's `surviving_by_src` input and its CV seed must match the serial order; `_gate_fourier_columns` uses the `groups` argument, which the stage copies must receive. Modest code change for under a second.
-- **Disposition**: OPEN
+- **Disposition**: DEFERRED 2026-11-20 - the engineered-accuracy gate depends on the columns every stage of the wave produced; moving it after the wave changes the order of acceptance and so the selection. Estimated 0.3-0.6 s.
 
 ---
 

@@ -221,3 +221,28 @@ def test_early_stop_is_withheld_when_the_residual_holds_a_balanced_product():
     )
     assert not verdict.reached, verdict.reason
     assert verdict.blocking_pair is not None and set(verdict.blocking_pair) == {1, 2}, verdict.reason
+
+
+def test_gpu_fused_pair_loop_uploads_each_block_once(monkeypatch):
+    """Audit 2026-11-20-perf F-F03: 40 columns in blocks of 16 (3 blocks) send each int8 block to the device once, not once per pair of blocks; the best pair is the one the streamed CPU kernel finds."""
+    cp = pytest.importorskip("cupy")
+    if not sp._fused_gpu_available():
+        pytest.skip("fused GPU kernel not available")
+    rng = np.random.default_rng(3)
+    n, p = 2000, 40
+    codes = rng.integers(0, K, size=(p, n)).astype(np.int8)
+    r = rng.integers(0, KR, size=n).astype(np.int64)
+    uploads = []
+    real_asarray = cp.asarray
+
+    def counting_asarray(a, *args, **kwargs):
+        """Count the int8 block uploads of the pair loop."""
+        if isinstance(a, np.ndarray) and a.dtype == np.int8:
+            uploads.append(a.shape[0])
+        return real_asarray(a, *args, **kwargs)
+
+    monkeypatch.setattr(cp, "asarray", counting_asarray)
+    gpu = sp.best_pair_streamed(lambda c0, c1: codes[c0:c1], p, r, K, KR, "gpu_fused", 16, real=sp.gpu_real_type())
+    cpu = sp.best_pair_streamed(lambda c0, c1: codes[c0:c1], p, r, K, KR, "njit", 16)
+    assert len(uploads) == 3, uploads
+    assert gpu[1] == cpu[1]

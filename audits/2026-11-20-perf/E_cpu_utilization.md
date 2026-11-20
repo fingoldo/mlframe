@@ -62,7 +62,7 @@ Ranking is by estimated seconds on the benchmark. The per-finding figures are no
 - **Problem**: the three sites that open a pool per call do not reuse the process pool that F02 discusses, so each wave can run up to three independent sets of short-lived threads on top of the stage pool. No measured cost; a cleanup rather than a speed-up.
 - **Proposed change**: once F02 is applied, route these through one helper (`_edge_pool(share).map(...)`), so there is a single pool and a single share rule.
 - **Risk**: low; depends on F02.
-- **Disposition**: OPEN
+- **Disposition**: DEFERRED 2026-11-20 - no measured cost (thread start-up 50-100 us, a few dozen calls); routing the three per-call pools through the shared edge pool is allowed only for leaf tasks (the shared pool must never wait on itself), which has to be checked per site; it brings no wall change.
 
 ### F07 - Python double loops over the p x p correlation matrix in the orthogonal cluster and diff-basis families
 
@@ -71,4 +71,4 @@ Ranking is by estimated seconds on the benchmark. The per-finding figures are no
 - **Problem**: the pair filter `np.isfinite(c) and c >= threshold` is computed element by element in Python on a matrix that is already a numpy array.
 - **Proposed change**: `iu, ju = np.triu_indices(p, 1)`; `c = abs_corr[iu, ju]`; `keep = np.isfinite(c) & (c >= thr)` (the exact threshold expression of the loop); build the edge list from `iu[keep]`, `ju[keep]` in the same row-major order that `triu_indices` produces, which is the loop's order. Identical output.
 - **Risk**: very low; the ordering must match the loop, which `triu_indices` does (row-major upper triangle).
-- **Disposition**: OPEN
+- **Disposition**: IMPLEMENTED 2026-11-20 - both pair filters take the upper triangle in one vectorised pass (`np.triu_indices`, the row-major order of the loop); sensor `test_orthogonal_pair_filter_vectorised.py` equals the loop's pairs and order; the cluster and aggregate tests (40) pass.

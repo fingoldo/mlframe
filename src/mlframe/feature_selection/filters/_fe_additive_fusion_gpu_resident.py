@@ -85,9 +85,16 @@ def _pair_multiple_r_gpu(cp, ca, cb, fused, yv_dev, y_std: float) -> tuple:
 def _raw_half_scales(cp: Any, vals_cols: list) -> np.ndarray:
     """Per-half scale for the weighted sum, from the halves' values BEFORE non-finite entries are zeroed: ``nanstd`` ignores a NaN row and falls back to 1.0 for a non-finite or zero spread, as the host ``_half_scale`` does."""
     out = np.ones(len(vals_cols), dtype=np.float64)  # Intentional float64: scale statistics
+    sds = np.full(len(vals_cols), np.nan, dtype=np.float64)  # Intentional float64: scale statistics
+    on_device = [j for j, c in enumerate(vals_cols) if hasattr(c, "dev")]
+    if on_device:
+        # the reductions are queued one after another and read back with ONE copy (a blocking read per column drained the queue H times)
+        sds[on_device] = cp.asnumpy(cp.stack([cp.nanstd(vals_cols[j].dev.astype(cp.float64, copy=False).ravel()) for j in on_device]))
     for j, c in enumerate(vals_cols):
-        sd = float(cp.nanstd(c.dev.astype(cp.float64, copy=False).ravel())) if hasattr(c, "dev") else float(np.nanstd(np.asarray(c, dtype=np.float64)))
-        out[j] = sd if np.isfinite(sd) and sd > 0.0 else 1.0
+        if not hasattr(c, "dev"):
+            sds[j] = float(np.nanstd(np.asarray(c, dtype=np.float64)))
+    ok = np.isfinite(sds) & (sds > 0.0)
+    out[ok] = sds[ok]
     return out
 
 

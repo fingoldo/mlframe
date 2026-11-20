@@ -70,10 +70,14 @@ def _rank_device(x_i: np.ndarray, x_j_bins: np.ndarray, with_sorted_bins: bool) 
         ranks = cp.asnumpy(out)
         if not with_sorted_bins:
             return ranks, []
-        host_sorted = cp.asnumpy(sv[int(counts[0]) :])
-        per_bin = np.split(host_sorted, np.cumsum(cp.asnumpy(counts[1:]))[:-1]) if counts.size > 1 else []
-        first = int(cmin)
-        top = int(codes.max())
+        # the bin counts come back in one read, the sorted values in another, and the code range is taken from the host input (``int(counts[0])``, ``int(cmin)`` and ``int(codes.max())`` were three more
+        # blocking scalar reads of values the host already holds)
+        counts_h = cp.asnumpy(counts)
+        host_sorted = cp.asnumpy(sv)[int(counts_h[0]) :]
+        per_bin = np.split(host_sorted, np.cumsum(counts_h[1:])[:-1]) if counts_h.size > 1 else []
+        codes_h = np.asarray(x_j_bins).astype(np.int64)
+        first = int(codes_h.min())
+        top = int(codes_h.max())
         sorted_bins = [per_bin[c - first] if 0 <= c - first < len(per_bin) else host_sorted[:0] for c in range(top + 1)]
         return ranks, sorted_bins
     except Exception as exc:
