@@ -62,6 +62,17 @@ from ._ranker_sampler import GroupBatchSampler  # re-exported for existing calle
 from sklearn.utils.validation import check_is_fitted
 
 
+def _cap_pair_indices(i_idx, j_idx, cap: int | None = None):
+    """Uniformly subsample ``(i_idx, j_idx)`` down to ``cap`` pairs (deterministic seed), as the loss does per query (40-F11)."""
+    limit = int(_RANKNET_MAX_PAIRS_PER_QUERY if cap is None else cap)
+    n_pairs = int(i_idx.numel())
+    if n_pairs <= limit:
+        return i_idx, j_idx
+    gen = torch.Generator().manual_seed(0)
+    keep = torch.randperm(n_pairs, generator=gen)[:limit].sort().values
+    return i_idx[keep], j_idx[keep]
+
+
 class _RankerDataset(Dataset):
     """Row-level dataset for (X, y); the GroupBatchSampler controls query grouping."""
 
@@ -168,6 +179,9 @@ class _RankerDataset(Dataset):
                 cache[key] = (None, None)
                 batch_cache[key] = (x_slice, rel)
                 continue
+            # The loss caps a query's pairs at _RANKNET_MAX_PAIRS_PER_QUERY; the precomputed path must cap the same way, or a large query stores
+            # every pair in the cache (40-F11).
+            i_idx, j_idx = _cap_pair_indices(i_idx, j_idx)
             i_long = i_idx.to(torch.long)
             j_long = j_idx.to(torch.long)
             cache[key] = (i_long, j_long)

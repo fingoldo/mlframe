@@ -125,3 +125,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 40-F15 | 40_training-9.md | FIXED | Entity-time module refuses an unaligned split (test test_cluster40_entity_time_refuses_unaligned_split.py). Latent-SVD, MA no-group path and nearest-past-join still open. |
 | 40-F16 | 40_training-9.md | FIXED | Powerset composites attached to every split or none. Test test_cluster40_powerset_all_or_nothing.py. |
 | 40-F17 | 40_training-9.md | FIXED | Replay uses the fitted effective_k. Test test_cluster40_replay_uses_fitted_effective_k.py. |
+| 40-F11 | 40_training-9.md | FIXED | Precomputed ranking pairs capped per query like the loss. Test test_cluster40_ranker_pairs_are_capped.py. |
