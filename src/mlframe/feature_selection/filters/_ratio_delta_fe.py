@@ -41,7 +41,7 @@ from __future__ import annotations
 from ._grouped_coerce_shared import coerce_X_for_grouped
 
 import logging
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 from ._ratio_delta_screen import LOG_RATIO, RATIO, ratio_pair_screen
@@ -101,7 +101,7 @@ def engineered_name_lagged_diff(value_col: str, period: int) -> str:
     return f"lagged_diff_{value_col}__period{int(period)}"
 
 def _map_group_keys(
-    keys, lookup: dict, global_value: float,
+    keys, lookup: dict, global_value: float, dtype: Any = None,
 ) -> np.ndarray:
     """Map each row key through ``lookup`` (str-keyed), unseen -> ``global_value``.
 
@@ -128,7 +128,7 @@ def _map_group_keys(
     # copy=True: some pandas versions return a read-only view from to_numpy() when the
     # requested dtype already matches the mapped Series' dtype (no-op astype short-circuit),
     # which then raises "assignment destination is read-only" on the absent-key fill below.
-    out = s.map(lookup).to_numpy(dtype=_crit_np_dtype(), copy=True)
+    out = s.map(lookup).to_numpy(dtype=_crit_np_dtype() if dtype is None else dtype, copy=True)
     absent = ~s.isin(lookup.keys()).to_numpy()
     if absent.any():
         out[absent] = global_value
@@ -265,7 +265,7 @@ def grouped_delta_features(
     # The grouper (hash of the group key) depends only on group_col, not num_col: build ONE frame holding every
     # num_col's crit-dtype values alongside "_g" and group it ONCE, instead of rebuilding a fresh 2-column temp
     # frame + re-hashing the identical "_g" key on every num_col iteration (num_cols is uncapped by the caller).
-    x_by_col = {c: np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype()) for c in num_cols}
+    x_by_col = {c: np.asarray(X[c].to_numpy(), dtype=np.float64) for c in num_cols}  # Intentional float64: the deviation from a group mean / the lag difference is a subtraction of nearly equal numbers, float32 operands lose it for a column with a large offset
     df_aux = pd.DataFrame({"_g": g.values, **x_by_col})
     gb = df_aux.groupby("_g")
     row_codes, uniq_keys = pd.factorize(g.values)
@@ -274,7 +274,7 @@ def grouped_delta_features(
         # Per-group mean / std (sample std for unbiased; treat NaNs sanely).
         agg = gb[num_col].agg(["mean", "std"])
         # NaN std (single-row group) -> 1.0 fallback; std == 0 also -> 1.0.
-        agg_std = agg["std"].fillna(0.0).to_numpy(dtype=_crit_np_dtype())
+        agg_std = agg["std"].fillna(0.0).to_numpy(dtype=np.float64)  # Intentional float64: same operands as the deviation below
         agg_std = np.where(agg_std > 0.0, agg_std, 1.0)
         lookup_mean = {str(k): float(v) for k, v in agg["mean"].items()}
         lookup_std = {str(k): float(s) for k, s in zip(agg.index.astype(str), agg_std)}
@@ -285,12 +285,12 @@ def grouped_delta_features(
         # Build the engineered columns.
         # Every training row's group is in the aggregate, so the per-row statistics are a gather of the per-group values by the once-factorised row codes (no per-column hash join of the n key strings).
         slot = pd.Index(agg.index).get_indexer(uniq_keys)
-        per_row_mean = np.asarray(agg["mean"].to_numpy(dtype=_crit_np_dtype())[slot][row_codes])
+        per_row_mean = np.asarray(agg["mean"].to_numpy(dtype=np.float64)[slot][row_codes])  # Intentional float64: same operands as the deviation below
         per_row_std = np.asarray(agg_std[slot][row_codes])
         delta = x - per_row_mean
         zscore = delta / per_row_std
-        delta = np.nan_to_num(delta, nan=0.0, posinf=0.0, neginf=0.0)
-        zscore = np.nan_to_num(zscore, nan=0.0, posinf=0.0, neginf=0.0)
+        delta = np.nan_to_num(delta, nan=0.0, posinf=0.0, neginf=0.0).astype(_crit_np_dtype(), copy=False)  # the stored column is narrowed AFTER the float64 subtraction
+        zscore = np.nan_to_num(zscore, nan=0.0, posinf=0.0, neginf=0.0).astype(_crit_np_dtype(), copy=False)
         name_delta = engineered_name_grouped_delta_mean(num_col, group_col)
         name_z = engineered_name_grouped_delta_std(num_col, group_col)
         encoded[name_delta] = delta
@@ -334,18 +334,18 @@ def apply_grouped_delta(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     if group_col not in X_test.columns or num_col not in X_test.columns:
         raise KeyError(f"apply_grouped_delta: missing column(s) {group_col!r}/{num_col!r} " f"from X_test")
     g_vals = group_key_strings(X_test[group_col])
-    x = np.asarray(X_test[num_col].to_numpy(), dtype=_crit_np_dtype())
-    per_row_mean = _map_group_keys(g_vals, lookup_mean, global_mean)
+    x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)  # Intentional float64: the deviation from a group mean / the lag difference is a subtraction of nearly equal numbers, float32 operands lose it for a column with a large offset
+    per_row_mean = _map_group_keys(g_vals, lookup_mean, global_mean, np.float64)  # Intentional float64: subtracted from the float64 column
     delta = x - per_row_mean
     if op == "minus_mean":
         out = delta
     elif op == "div_std":
-        per_row_std = _map_group_keys(g_vals, lookup_std, global_std)
+        per_row_std = _map_group_keys(g_vals, lookup_std, global_std, np.float64)  # Intentional float64: divides the float64 deviation
         per_row_std = np.where(per_row_std > 0.0, per_row_std, 1.0)
         out = delta / per_row_std
     else:
         raise ValueError(f"apply_grouped_delta: unknown op {op!r}")
-    return np.asarray(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0))
+    return np.asarray(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)).astype(_crit_np_dtype(), copy=False)
 
 # ---------------------------------------------------------------------------
 # Lagged diff: sort by time_col, compute x - x.shift(period)
@@ -406,7 +406,7 @@ def lagged_diff_features(
     encoded: dict[str, np.ndarray] = {}
     recipes: dict[str, dict] = {}
     for value_col in value_cols:
-        x = np.asarray(X[value_col].to_numpy(), dtype=_crit_np_dtype())
+        x = np.asarray(X[value_col].to_numpy(), dtype=np.float64)  # Intentional float64: the deviation from a group mean / the lag difference is a subtraction of nearly equal numbers, float32 operands lose it for a column with a large offset
         x_sorted = x[sort_idx]
         for p in periods:
             diff_sorted = np.empty_like(x_sorted)
@@ -417,7 +417,7 @@ def lagged_diff_features(
                 cross_boundary = entity_sorted[p:] != entity_sorted[:-p]
                 diff_sorted[p:][cross_boundary] = 0.0
             diff = diff_sorted[inv_perm]
-            diff = np.nan_to_num(diff, nan=0.0, posinf=0.0, neginf=0.0)
+            diff = np.nan_to_num(diff, nan=0.0, posinf=0.0, neginf=0.0).astype(_crit_np_dtype(), copy=False)  # narrowed AFTER the float64 difference
             name = engineered_name_lagged_diff(value_col, p)
             encoded[name] = diff
             recipes[name] = {
@@ -457,7 +457,7 @@ def apply_lagged_diff(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
         entity_sorted = None
     inv_perm = np.empty_like(sort_idx)
     inv_perm[sort_idx] = np.arange(len(X_test))
-    x = np.asarray(X_test[value_col].to_numpy(), dtype=_crit_np_dtype())
+    x = np.asarray(X_test[value_col].to_numpy(), dtype=np.float64)  # Intentional float64: the deviation from a group mean / the lag difference is a subtraction of nearly equal numbers, float32 operands lose it for a column with a large offset
     x_sorted = x[sort_idx]
     diff_sorted = np.empty_like(x_sorted)
     diff_sorted[:period] = 0.0
@@ -466,7 +466,7 @@ def apply_lagged_diff(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
         cross_boundary = entity_sorted[period:] != entity_sorted[:-period]
         diff_sorted[period:][cross_boundary] = 0.0
     out = diff_sorted[inv_perm]
-    return np.asarray(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0))
+    return np.asarray(np.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)).astype(_crit_np_dtype(), copy=False)
 
 # ---------------------------------------------------------------------------
 # End-to-end wrappers for MRMR.fit auto-wiring

@@ -44,7 +44,7 @@ from __future__ import annotations
 from ._grouped_coerce_shared import auto_detect_group_cols, coerce_X_for_grouped, auto_detect_num_cols_skip_grp as _auto_detect_num_cols
 
 import logging
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 from ._agg_stat_helpers import agg_func_for_stat
@@ -99,7 +99,7 @@ def _global_value_for_stat(x: np.ndarray, stat: str) -> float:
     return global_value_for_stat(stat, x, "grouped_agg")
 
 def _broadcast_lookup(
-    group_keys: np.ndarray, lookup: dict, global_value: float,
+    group_keys: np.ndarray, lookup: dict, global_value: float, dtype: Any = None,
 ) -> np.ndarray:
     """Map each row's group key through ``lookup`` (str-keyed), unseen ->
     global. Result NaN-scrubbed to ``global_value`` then to 0 as last resort.
@@ -113,7 +113,7 @@ def _broadcast_lookup(
     """
     from ._grouped_coerce_shared import broadcast_lookup
 
-    return broadcast_lookup(group_keys, lookup, global_value)
+    return broadcast_lookup(group_keys, lookup, global_value, dtype)
 
 @fe_timed("grouped_agg")
 def generate_grouped_agg_features(
@@ -150,6 +150,7 @@ def generate_grouped_agg_features(
         cur_num_cols = [c for c in num_cols if c in X.columns and c != group_col and pd.api.types.is_numeric_dtype(X[c])]
         for num_col in cur_num_cols:
             x = np.asarray(X[num_col].to_numpy(), dtype=_crit_np_dtype())
+            x64 = np.asarray(X[num_col].to_numpy(), dtype=np.float64)  # Intentional float64: subtracted from / divided by float64 group statistics
             grouped = gb[num_col]
             # Mean / std lookups are always needed for the residual variants
             # even if the user didn't request them as broadcast stats.
@@ -203,12 +204,12 @@ def generate_grouped_agg_features(
                 }
 
             # ---- z-within-group residual ----
-            per_row_mean = _broadcast_lookup(g_keys, lookup_mean, global_mean)
-            per_row_std = _broadcast_lookup(g_keys, lookup_std, global_std)
+            per_row_mean = _broadcast_lookup(g_keys, lookup_mean, global_mean, np.float64)
+            per_row_std = _broadcast_lookup(g_keys, lookup_std, global_std, np.float64)
             per_row_std = np.where(per_row_std > 0.0, per_row_std, 1.0)
             zscore = np.nan_to_num(
-                (x - per_row_mean) / per_row_std, nan=0.0, posinf=0.0, neginf=0.0,
-            )
+                (x64 - per_row_mean) / per_row_std, nan=0.0, posinf=0.0, neginf=0.0,
+            ).astype(_crit_np_dtype(), copy=False)  # narrowed AFTER the float64 arithmetic
             z_name = engineered_name_grouped_z(num_col, group_col)
             encoded[z_name] = zscore
             raw_recipes[z_name] = {
@@ -226,7 +227,7 @@ def generate_grouped_agg_features(
 
             # ---- ratio-to-group residual ----
             denom = np.where(np.abs(per_row_mean) > 1e-12, per_row_mean, np.nan)
-            ratio = np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0)
+            ratio = np.nan_to_num(x64 / denom, nan=1.0, posinf=1.0, neginf=1.0).astype(_crit_np_dtype(), copy=False)
             r_name = engineered_name_grouped_ratio(num_col, group_col)
             encoded[r_name] = ratio
             raw_recipes[r_name] = {
@@ -258,7 +259,7 @@ def apply_grouped_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     if group_col not in X_test.columns or num_col not in X_test.columns:
         raise KeyError(f"apply_grouped_agg: missing column(s) {group_col!r}/{num_col!r} " f"from X_test")
     g_keys = group_key_strings(X_test[group_col])
-    x = np.asarray(X_test[num_col].to_numpy(), dtype=_crit_np_dtype())
+    x = np.asarray(X_test[num_col].to_numpy(), dtype=np.float64)  # Intentional float64: the deviation from a group mean / the lag difference is a subtraction of nearly equal numbers, float32 operands lose it for a column with a large offset
 
     if op == "broadcast":
         lookup = dict(recipe["group_lookup_dict"])
@@ -267,19 +268,19 @@ def apply_grouped_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
 
     lookup_mean = dict(recipe["lookup_mean"])
     global_mean = float(recipe["global_mean"])
-    per_row_mean = _broadcast_lookup(g_keys, lookup_mean, global_mean)
+    per_row_mean = _broadcast_lookup(g_keys, lookup_mean, global_mean, np.float64)  # Intentional float64: subtracted from the float64 column
 
     if op == "z_within":
         lookup_std = dict(recipe["lookup_std"])
         global_std = float(recipe.get("global_std", 1.0)) or 1.0
-        per_row_std = _broadcast_lookup(g_keys, lookup_std, global_std)
+        per_row_std = _broadcast_lookup(g_keys, lookup_std, global_std, np.float64)
         per_row_std = np.where(per_row_std > 0.0, per_row_std, 1.0)
         return np.asarray(np.nan_to_num(
             (x - per_row_mean) / per_row_std, nan=0.0, posinf=0.0, neginf=0.0,
-        ))
+        )).astype(_crit_np_dtype(), copy=False)
     if op == "ratio":
         denom = np.where(np.abs(per_row_mean) > 1e-12, per_row_mean, np.nan)
-        return np.asarray(np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0))
+        return np.asarray(np.nan_to_num(x / denom, nan=1.0, posinf=1.0, neginf=1.0)).astype(_crit_np_dtype(), copy=False)
     raise ValueError(f"apply_grouped_agg: unknown op {op!r}")
 
 def _apply_grouped_agg_recipe(recipe, X) -> np.ndarray:

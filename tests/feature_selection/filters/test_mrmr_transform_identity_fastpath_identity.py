@@ -19,10 +19,10 @@ from mlframe.feature_selection.filters._mrmr_validate_transform import _identity
 class _FittedStub:
     """The minimal fitted surface ``transform`` reads on the identity fast-path."""
 
-    def __init__(self, names):
+    def __init__(self, names, support=None):
         self.feature_names_in_ = np.asarray(list(names), dtype=object)
         self.n_features_in_ = len(names)
-        self.support_ = np.arange(len(names))  # every input column selected
+        self.support_ = np.arange(len(names)) if support is None else np.asarray(support)  # every input column selected (in selection order)
         self._engineered_recipes_ = []  # no recipes -> fast-path is eligible
 
     def _append_engineered(self, base_out, X, recipes):
@@ -82,3 +82,16 @@ def test_polars_reorder_is_rejected_too(frame):
     stub = _FittedStub(["a", "b", "c"])
     assert _identity_fastpath_is_safe(stub, pf) is True
     assert _identity_fastpath_is_safe(stub, pf.select(["c", "b", "a"])) is False
+
+
+def test_permuted_support_is_not_returned_as_the_identity(frame):
+    """Every column selected but in selection order ``[2, 0, 1]``: the output follows ``support_`` (c, a, b), as ``get_feature_names_out`` does, not the input order."""
+    out = transform(_FittedStub(["a", "b", "c"], support=[2, 0, 1]), frame)
+    assert out is not frame
+    assert list(out.columns) == ["c", "a", "b"]
+
+
+def test_boolean_full_mask_keeps_the_identity_fastpath(frame):
+    """A boolean mask with every column set is the sorted identity: the frame still comes back unchanged."""
+    out = transform(_FittedStub(["a", "b", "c"], support=np.array([True, True, True])), frame)
+    assert out is frame
