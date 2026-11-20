@@ -182,3 +182,4 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F27: DEFERRED. read this pass; judgement or performance item deferred (see cluster report)
 - 24-F28: DEFERRED. read this pass; judgement or performance item deferred (see cluster report)
 - 24-F29: DEFERRED. read this pass; judgement or performance item deferred (see cluster report)
+- 24-F30: DOCUMENTED. The complement fallback is pinned by tests/feature_engineering/test_aggregated_view_based.py; the subset_direct feature flags it in the feature names. No behaviour change.
