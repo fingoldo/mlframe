@@ -95,7 +95,7 @@ Coverage and method:
 - 35-F8: FIXED. string digest length-prefixes each element; tests/training/composite/test_cluster35_digest_and_flags.py
 - 35-F9: FIXED. external holdout key includes a frame content digest and a target digest; no separate test
 - 35-F10: FIXED. meta model copied by the no-op cap and dropped explicitly on a trim; no separate test
-- 35-F11: FIXED. the early logratio raise is removed so the domain mask routes base<=0 rows to the fallback, as the docstring says; no separate test
+- 35-F11: FIXED. the early logratio raise is removed so the domain mask routes base<=0 rows to the fallback, as the docstring says; test tests/training/composite/test_cluster35_quantile_logratio_nonpositive_base.py
 - 35-F12: FIXED. point-mass match uses rtol=0; test tests/training/composite/test_cluster35_point_mass_tolerance.py
 - 35-F13: FIXED. per-fold catch removed; a failing fold raises instead of NaN-filling; test tests/training/composite/test_cluster35_group_oof_no_silent_fold_nan.py
 - 35-F14: FIXED. predict_cdf sorts quantile rows before the binary search; test tests/training/composite/test_cluster35_cdf_unsorted_quantile_rows.py
@@ -104,3 +104,4 @@ Coverage and method:
 - 35-F12: FIXED. _is_point_mass uses rtol=0. Test tests/training/composite/test_cluster35_point_mass_tolerance.py.
 - 35-F13: FIXED. Per-fold catch removed; a failing fold raises. Test tests/training/composite/test_cluster35_group_oof_no_silent_fold_nan.py.
 - 35-F14: FIXED. predict_cdf sorts each quantile row before the binary search. Test tests/training/composite/test_cluster35_cdf_unsorted_quantile_rows.py.
+- 35-F11: FIXED. The early logratio raise is removed; the domain mask routes base<=0 rows to the fallback. Test tests/training/composite/test_cluster35_quantile_logratio_nonpositive_base.py.
