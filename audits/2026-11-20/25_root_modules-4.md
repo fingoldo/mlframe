@@ -101,3 +101,11 @@ Method: four parallel sub-audits read every listed file fully and grepped caller
 - Read fully: all 62 listed files, via four sub-audits (feature_selection + inspection + integrations; inference + models; metrics first half; metrics second half).
 - Grep or targeted read only: `evaluation/bootstrap.py` (150-220, 340-430), `filters/_pairwise_modular_fe.py`, `filters/shared.py`, `general.py`, `training/honest_diagnostics.py`, `tests/integrations/test_mlflow.py`, and sklearn `_ranking.py` (reference for LRAP and ranking-loss conventions).
 - Uncertain: 25-F11 (`_auc_labels.py`) was not spot-checked; `_core_numba_warmup.py:85-88` nogil canary may never fire if numba's `fndesc` lacks `release_gil` (unconfirmed).
+
+
+## Dispositions
+
+- 25-F1: FIXED. weighted quantile above the last midpoint returns the group max; tests/inference/test_entity_collapse_quantile_above_last_midpoint.py
+- 25-F2: FIXED. monotonicity check compares gids[1:] >= gids[:-1], safe for unsigned ids
+- 25-F3: FIXED. label_ranking_average_precision scores degenerate rows 1.0 and keeps them in the mean (sklearn); tests/metrics/test_multilabel_extras.py compares full arrays
+- 25-F4: FIXED. label_ranking_loss keeps degenerate rows with loss 0 in the mean (sklearn)

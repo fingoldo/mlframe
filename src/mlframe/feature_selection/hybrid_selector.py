@@ -146,7 +146,9 @@ def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = COR
         centred = blk - blk.mean(axis=0)
         centred /= np.where(sd_b > 0, sd_b, 1.0)
         Z[:, c0:c1] = centred
-    denom = float(n - 1) if n > 1 else 1.0
+    # Columns were standardised with the POPULATION sd (ddof=0), so Z.T @ Z / n is the exact correlation; dividing by n-1
+    # inflated every |corr| by n/(n-1) and shifted the cluster threshold (audit 24-F21).
+    denom = float(n) if n > 0 else 1.0
     bs = 512
     reps, members, assigned = [], {}, np.zeros(p, dtype=bool)
     for start in range(0, p, bs):
@@ -802,7 +804,12 @@ class HybridSelector:
         # RAM-tight ~8GB footprint + risks RNG non-determinism (re-seeded children break the bit-identical combine).
         # So the members stay SEQUENTIAL: the wall is irreducible sub-selector compute (already optimized upstream),
         # not glue. The hybrid's OWN glue is ~0.05s (<0.15% of wall); see corr_clusters for the one glue micro-opt.
-        member_sel = self._run_members(X_aug, y, relevant, cols, engineered)
+        # With fit_on_train_only the members must see the same train partition as MRMR; passing the full frame leaked
+        # held-out rows into member selection (audit 24-F20).
+        if self.fit_on_train_only:
+            member_sel = self._run_members(X_aug.iloc[_split[0]], y_fit, relevant, cols, engineered)
+        else:
+            member_sel = self._run_members(X_aug, y, relevant, cols, engineered)
         self.member_selections_ = member_sel
 
         # STAGE 3 - cluster-aware vote over the shared clusters (pure, deterministic; extracted for unit testing)

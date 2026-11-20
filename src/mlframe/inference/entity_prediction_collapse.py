@@ -56,6 +56,11 @@ def _weighted_quantile_by_group_numba(
             prev_val[g] = sorted_val[i]
             prev_pos[g] = pos
 
+    # q above the last midpoint: the quantile is the largest value of the group (25-F1). Without this the slot kept
+    # np.empty garbage.
+    for g in range(n_groups):
+        if not found[g]:
+            result[g] = prev_val[g]
     return result
 
 

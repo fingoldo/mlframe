@@ -38,7 +38,8 @@ def _noninformative_columns_vs_one_reference(
     # ks_stability_filter's "stable" flag is p_value > threshold - exactly the "does NOT differ" condition
     # this entry wants to drop, just under the opposite name (there, "stable" means "safe to keep because it
     # didn't drift"; here the same condition means "no signal, drop it").
-    return [str(c) for c in report.loc[report["stable"], "column"].tolist()]
+    # Raw labels, not str(): the cohort intersection below tests membership against df.columns labels (audit 24-F22).
+    return report.loc[report["stable"], "column"].tolist()
 
 
 def _summ_drop_noninformative_vs_reference(res, b):
@@ -101,7 +102,7 @@ def drop_noninformative_vs_reference(
         common &= candidates
 
     # preserve df column order in the output for readability/determinism.
-    return [str(c) for c in df.columns if c in common]
+    return [c for c in df.columns if c in common]
 
 
 __all__ = ["drop_noninformative_vs_reference"]

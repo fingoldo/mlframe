@@ -34,7 +34,7 @@ def _lrap_kernel(y_true: np.ndarray, scores: np.ndarray) -> float:
     where rank is by descending score.
 
     Equivalent to sklearn's implementation; rows with zero or all-true
-    labels are skipped from the denominator (sklearn convention).
+    labels score 1.0 and stay in the mean (sklearn convention, audit 25-F3).
 
     NOTE: a presort (O(n*K log K)) variant was prototyped (bench
     ``_benchmarks/bench_multilabel_ranking_presort_cpx20.py``).
@@ -55,6 +55,9 @@ def _lrap_kernel(y_true: np.ndarray, scores: np.ndarray) -> float:
             if y_true[i, k] != 0:
                 n_true += 1
         if n_true == 0 or n_true == K:
+            # sklearn scores a degenerate row 1.0 and keeps it in the mean (audit 25-F3).
+            total += 1.0
+            counted += 1
             continue
         counted += 1
         # For each true label, count how many labels (true OR false) have
@@ -176,6 +179,8 @@ def _ranking_loss_kernel_pairs(y_true: np.ndarray, scores: np.ndarray) -> float:
                 n_true += 1
         n_false = K - n_true
         if n_true == 0 or n_false == 0:
+            # loss 0 for a degenerate row, still averaged over all rows (sklearn; audit 25-F4)
+            counted += 1
             continue
         counted += 1
         # Count (true, false) pairs where the false label scores >= true.
@@ -221,6 +226,8 @@ def _ranking_loss_kernel_sorted(y_true: np.ndarray, scores: np.ndarray) -> float
                 n_true += 1
         n_false = K - n_true
         if n_true == 0 or n_false == 0:
+            # loss 0 for a degenerate row, still averaged over all rows (sklearn; audit 25-F4)
+            counted += 1
             continue
         counted += 1
         order = np.argsort(scores[i])[::-1]  # descending score

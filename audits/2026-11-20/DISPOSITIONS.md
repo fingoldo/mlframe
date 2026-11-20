@@ -97,3 +97,14 @@
 | 24-F13 | FIXED | nearest_past_join indexes unresolved rows through the positional copy; same test file |
 | 24-F14 | FIXED | create_ts_features_parallel returns (None, None) for an empty span before dividing; same test file |
 | 24-F15 | FIXED | mps shift fills the vacated tail from the last shifted position; same test file |
+| 24-F16 | DEFERRED | causal per-row prefix weights for scheme 0 depend on the prefix length m, so a cumsum rewrite needs a per-scheme derivation; output is correct, only O(m^2) cost. Needs a design decision |
+| 24-F17 | DEFERRED | causal KDE re-runs the grid per prefix; the fix needs incremental KDE, a design change beyond a local patch. Output is correct, only cost |
+| 24-F18 | FIXED | NaN entity kept as its own group (dropna=False); test_tfidf_entity_nan_and_case.py |
+| 24-F19 | FIXED | OOV check compares lowercased tokens when the vectorizer lowercases; same test file |
+| 24-F20 | FIXED | with fit_on_train_only the member stage receives the train partition, matching MRMR |
+| 24-F21 | FIXED | corr_clusters divides Z.T@Z by n (population sd); test_hybrid_ddof_and_raw_labels.py |
+| 24-F22 | FIXED | cohort helper returns raw column labels, so non-string labels match; same test file |
+| 25-F1 | FIXED | weighted quantile above the last midpoint returns the group max; tests/inference/test_entity_collapse_quantile_above_last_midpoint.py |
+| 25-F2 | FIXED | monotonicity check compares gids[1:] >= gids[:-1], safe for unsigned ids |
+| 25-F3 | FIXED | label_ranking_average_precision scores degenerate rows 1.0 and keeps them in the mean (sklearn); tests/metrics/test_multilabel_extras.py compares full arrays |
+| 25-F4 | FIXED | label_ranking_loss keeps degenerate rows with loss 0 in the mean (sklearn) |
