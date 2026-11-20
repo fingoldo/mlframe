@@ -263,7 +263,7 @@ class AutoMLConfig(InertFieldsWarningMixin, BaseConfig):
     # Common settings
     automl_verbose: int = 1
     automl_show_fi: bool = True
-    automl_target_label: str = "target"
+    automl_target_label: Optional[str] = None  # None -> use the target_name passed to the run (audit 28-F10)
     time_limit: Optional[int] = Field(default=None, ge=1)  # seconds; forwarded to both libraries (see _with_time_budget)
 
 

@@ -330,7 +330,12 @@ class _DatasetReuseMixin:
         if no Dataset has been built yet (call ``.fit()`` first)."""
         if self._cached_train_dataset is None:
             raise RuntimeError("no cached Dataset -- call .fit() first to build one")
-        self._cached_train_dataset.set_label(np.asarray(y))
+        y_arr = np.asarray(y)
+        # A classifier was fit on label-encoded y; the cached Dataset must hold the same encoding (audit 28-F17).
+        le = getattr(self, "_le", None)
+        if le is not None:
+            y_arr = le.transform(y_arr)
+        self._cached_train_dataset.set_label(y_arr)
 
     def set_weight(self, w) -> None:
         """Swap sample weights on the cached training Dataset in place.
@@ -536,6 +541,8 @@ class _DatasetReuseMixin:
                         _val_source = "module"
                 if dval is not None:
                     dval.set_label(np.asarray(y_val))
+                    # Re-apply init_score on every hit, as the train side does; a hit used to keep a stale or absent one (audit 28-F16).
+                    dval.set_init_score(None if init_val is None else np.asarray(init_val))
                     if w_val is not None:
                         dval.set_weight(np.asarray(w_val))
                     else:
@@ -728,7 +735,8 @@ if _LGB_AVAILABLE:
             # branches; mirror LGBMModel.fit's default.
             class_weight = getattr(self, "class_weight", None)
             if isinstance(class_weight, dict):
-                self._class_weight = {self._class_map[k]: v for k, v in class_weight.items()}
+                # A class_weight key absent from the training labels has no class index to map to; skip it rather than KeyError (audit 28-F12).
+                self._class_weight = {self._class_map[k]: v for k, v in class_weight.items() if k in self._class_map}
             else:
                 self._class_weight = class_weight
             return y_encoded

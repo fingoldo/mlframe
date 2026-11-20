@@ -454,7 +454,7 @@ def preprocess_dataframe(
         df = _process_special_values(df, fill_value=config.fillna_value, verbose=verbose)
     elif not _use_batched and config.fix_infinities:
         df = process_infinities(df, fill_value=float("nan"), verbose=verbose)
-    elif not _use_batched and _frame_contains_inf(df):
+    elif not config.fix_infinities and _frame_contains_inf(df):  # also on the batched path: its scan skips inf when fix_infinities is False (audit 28-F6)
         logger.error(
             "fix_infinities=False but data contains np.inf in numeric "
             "columns. Auto-fixing to NaN to avoid an opaque XGB / HGB / "
@@ -522,7 +522,8 @@ def save_split_artifacts(
         # Single listdir instead of per-file exists() — avoids N×17ms os.stat on Windows
         # where antivirus scanning makes each stat call ~17ms.
         try:
-            _existing = set(os.listdir(split_dir))
+            # Artifacts are always rewritten: keeping a same-named file from an earlier run with a different split left stale data (audit 28-F7).
+            _existing: set = set()
         except OSError:
             _existing = set()
 

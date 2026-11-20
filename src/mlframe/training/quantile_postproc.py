@@ -96,7 +96,15 @@ def fix_quantile_crossing(
         # np.sort along the alpha-axis is the dominant production fix
         # (Park & Ho 2020, sklearn QuantileRegressor docs). Idempotent
         # and O(N K log K).
-        return np.sort(preds_NK, axis=1)
+        # NaN sorts to the end, shifting a row's real quantiles; leave NaN rows verbatim, as the isotonic branch does (audit 28-F4).
+        out = np.sort(preds_NK, axis=1)
+        nan_rows = np.isnan(preds_NK).any(axis=1)
+        if nan_rows.any():
+            import warnings
+
+            warnings.warn(f"quantile sort: {int(nan_rows.sum())} row(s) contain NaN and are returned unsorted", RuntimeWarning, stacklevel=2)
+            out[nan_rows] = preds_NK[nan_rows]
+        return out
 
     if mode == "isotonic":
         # Functional ``isotonic_regression`` skips the IsotonicRegression

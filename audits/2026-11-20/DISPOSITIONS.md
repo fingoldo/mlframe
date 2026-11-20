@@ -135,3 +135,21 @@
 | 27-F4 | FIXED | positive class is the larger label (y == max) in _counts_at and the minority count; same file |
 | 27-F5 | FIXED | duplicated buckets read member slices from one stable argsort; covered by test_biz_val_training_pseudo_group_reconstruction.py |
 | 27-F6 | FIXED | cb/lgb RFECV built only when the class is installed and the backend is requested, else None; same file tests the helper |
+| 28-F1 | FIXED | NaT rows dropped before binning, order maps back to original rows; tests/training/test_cluster28_suite_fixes.py |
+| 28-F2 | FIXED | multilabel decision from ndim==2 only (object dtype no longer implies multilabel); no separate test, covered by the multi-output suite run |
+| 28-F3 | FIXED | single-class y_true uses label 1 as the positive class, matching probs column 1; no separate test (internal branch of the exploss metric) |
+| 28-F4 | FIXED | sort mode returns NaN rows verbatim with a RuntimeWarning; same test file |
+| 28-F5 | FIXED | TTA jitter uses nanstd (NaN-safe) at all three sites; same test file |
+| 28-F6 | FIXED | the fail-loud inf check runs on the batched path when fix_infinities is False; no separate test (guard branch in preprocess) |
+| 28-F7 | FIXED | split artifacts are always rewritten, not skipped when the name exists; no separate test |
+| 28-F8 | FIXED | dotted components checked against denylist prefixes in the older loader; same test file |
+| 28-F9 | FIXED | write_ added to denied prefixes; same test file |
+| 28-F10 | FIXED | automl_target_label defaults to None and the run target name is used; same test file |
+| 28-F11 | FIXED | behaviour flag threaded from the suite into control config and read there; no separate test |
+| 28-F12 | FIXED | class_weight keys absent from the training labels are skipped; no separate test |
+| 28-F13 | FIXED | fallback retry goes through _train_model_with_f_phase; no separate test |
+| 28-F14 | FIXED | an existing bundle that cannot be read raises instead of an unverified reopen; no separate test |
+| 28-F15 | FIXED | drift cache key digests the full content (blake2b over row hashes); same test file |
+| 28-F16 | FIXED | validation cache hit re-applies init_score; no separate test |
+| 28-F17 | FIXED | set_label encodes through the fitted label encoder; no separate test |
+| 28-F18 | FIXED | the unimplemented carrier stamp is replaced by a logged warning; no separate test |

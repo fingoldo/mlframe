@@ -456,7 +456,9 @@ def _register_builtin_classification():
             # broad-except tuple) instead of letting a raw IndexError escape and crash the whole metrics pass.
             raise ValueError("exploss: y_true is empty, cannot determine a positive class")
         # Positive class = sklearn column-1 convention (second sorted label); probs[:, 1] aligns with it.
-        pos_label = uniq[1] if uniq.shape[0] > 1 else uniq[-1]
+        # One class in y_true: the positive class is still column 1 of probs, so label 1 (not the lone label, which could be 0)
+        # keeps the binarisation aligned with it (audit 28-F3).
+        pos_label = uniq[1] if uniq.shape[0] > 1 else 1
         y_bin = (yt == pos_label).astype(_np.int64)
         return _exploss_fn(y_bin, pos)
 

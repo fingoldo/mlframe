@@ -210,6 +210,8 @@ class TrainingConfig(BaseConfig):
 
     # Slice-stable early stopping (opt-in; default disabled keeps current behaviour bit-identical).
     slice_stable_es: SliceStableESConfig = Field(default_factory=SliceStableESConfig)
+    # Gates the sklearn partial_fit early-stopping wrap; carried here from TrainingBehaviorConfig (audit 28-F11).
+    auto_wrap_partial_fit_es: bool = True
 
     # Misc
     verbose: int = 1

@@ -702,7 +702,7 @@ def _col_to_numpy(df: Any, col: str) -> Optional[np.ndarray]:
 # threshold -- NOT on feature_importance / target_type / linear_shape. The drift
 # sensor runs once per target on the SAME filtered frames, so this artefact is
 # recomputed identically per target. We cache the cheap-to-rebuild stats keyed on
-# a content signature (point-sampled, O(n_cols), no whole-frame copy) and recompute
+# a content signature and recompute
 # only the per-target FI-weighted aggregate. Bounded FIFO so it never grows on a
 # 100 GB workload; a single suite's targets share one signature -> one live entry.
 _DRIFT_INVARIANT_CACHE: dict[Any, dict[str, Any]] = {}
@@ -711,6 +711,30 @@ _DRIFT_INVARIANT_CACHE_MAX: int = 8
 # fits racing on the compound "len() >= MAX -> pop(next(iter(...))) -> insert" sequence could
 # double-evict, or hit StopIteration from ``next(iter(...))`` on an already-emptied dict.
 _DRIFT_INVARIANT_CACHE_LOCK = threading.Lock()
+
+
+def _full_content_key(df: Any) -> Any:
+    """Digest of every value of ``df`` plus its shape, columns and dtypes (audit 28-F15).
+
+    The former 4-row point sample let two same-shape frames with different interior values share one cached drift result
+    for the life of the process.
+    """
+    if df is None:
+        return None
+    import hashlib
+
+    if hasattr(df, "hash_rows"):  # polars
+        row_hashes = np.asarray(df.hash_rows().to_numpy())
+        dtypes = tuple(str(t) for t in df.dtypes)
+        columns = tuple(df.columns)
+    else:  # pandas
+        import pandas as pd
+
+        row_hashes = pd.util.hash_pandas_object(df, index=False).to_numpy()
+        dtypes = tuple(str(t) for t in df.dtypes)
+        columns = tuple(map(str, df.columns))
+    digest = hashlib.blake2b(np.ascontiguousarray(row_hashes).tobytes(), digest_size=16).hexdigest()
+    return (tuple(df.shape), columns, dtypes, digest)
 
 
 def _drift_invariant_cache_key(
@@ -724,15 +748,10 @@ def _drift_invariant_cache_key(
     ids; the per-target loop persists the same frame object across targets).
     """
     try:
-        from mlframe.training.pipeline.shared import content_fingerprint_for_cache as _content_fingerprint_for_cache
-    except Exception as exc:
-        logger.debug("drift: content-fingerprint helper import failed; drift cache disabled: %r", exc, exc_info=True)
-        return None
-    try:
         key = (
-            _content_fingerprint_for_cache(train_df),
-            _content_fingerprint_for_cache(val_df),
-            _content_fingerprint_for_cache(test_df),
+            _full_content_key(train_df),
+            _full_content_key(val_df),
+            _full_content_key(test_df),
             tuple(feature_names) if feature_names is not None else None,
             float(warn_threshold_z),
         )

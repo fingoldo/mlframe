@@ -317,6 +317,8 @@ def _build_common_params_for_target(
         val_od_idx=val_od_idx,
         **filtered_params,
     )
+    # The suite's TrainingBehaviorConfig flag must reach the control config; reading it from ``control`` was always the default (audit 28-F11).
+    od_common_params["auto_wrap_partial_fit_es"] = bool(getattr(behavior_config, "auto_wrap_partial_fit_es", True))
 
     # With OD applied, pass targets directly to avoid re-subsetting.
     if outlier_detector is not None:

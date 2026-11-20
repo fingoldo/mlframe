@@ -95,7 +95,7 @@ def _build_data_config(df, train_df, val_df, test_df, target, train_target, val_
     return data_config
 
 
-def _build_control_config(verbose, use_cache, just_evaluate, compute_trainset_metrics, compute_valset_metrics, compute_testset_metrics, pre_pipeline, skip_pre_pipeline_transform, skip_preprocessing, fit_params, callback_params, model_category, slice_stable_es, row_wise_extensions_config):
+def _build_control_config(verbose, use_cache, just_evaluate, compute_trainset_metrics, compute_valset_metrics, compute_testset_metrics, pre_pipeline, skip_pre_pipeline_transform, skip_preprocessing, fit_params, callback_params, model_category, slice_stable_es, row_wise_extensions_config, auto_wrap_partial_fit_es=True):
     """Stage of ``_build_configs_from_params``."""
     control_config = TrainingControlConfig(
         verbose=verbose,
@@ -112,6 +112,7 @@ def _build_control_config(verbose, use_cache, just_evaluate, compute_trainset_me
         model_category=model_category,
         slice_stable_es=slice_stable_es,
         row_wise_extensions_config=row_wise_extensions_config,
+        auto_wrap_partial_fit_es=auto_wrap_partial_fit_es,
     )
     return control_config
 

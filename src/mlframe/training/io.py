@@ -45,6 +45,7 @@ from mlframe._optional_imports import import_optional
 from mlframe.training._bounded_zstd import BoundedReader, max_decompressed_bytes
 from mlframe.training._unpickle_policy import (
     _DENIED_MODULE_PREFIXES,
+    _DENIED_NAME_PREFIXES,
     _DENIED_NAMES,
     _DENIED_SPECIFIC,
     _DENIED_TYPES_NAMES,
@@ -226,7 +227,8 @@ def _resolve_denylisted_class(module: str, name: str, real_find_class: Callable)
         return _safe_setattr
     if module == "types" and name in _DENIED_TYPES_NAMES:
         raise dill.UnpicklingError(f"Unsafe types constructor blocked by denylist: {module}.{name}")
-    if (module, name) in _DENIED_SPECIFIC or any(part in _DENIED_NAMES for part in name.split(".")):
+    # Every dotted component is checked against the name denylist AND its prefixes, as the newer _unpickle_policy path does (audit 28-F8).
+    if (module, name) in _DENIED_SPECIFIC or any(part in _DENIED_NAMES or part.startswith(_DENIED_NAME_PREFIXES) for part in name.split(".")):
         raise dill.UnpicklingError(f"Unsafe reference blocked by denylist: {module}.{name}")
     for prefix in (*_DENYLISTED_MODULE_PREFIXES, *_DENIED_MODULE_PREFIXES):
         if module == prefix or module.startswith(prefix + "."):
@@ -593,8 +595,13 @@ def _open_verified_bundle(file: str):
         with open(file, "rb") as src:  # audit-exempt: resource_handle_safety -- the bytes are read and the handle closed here; only the in-memory buffer is returned
             buf = _io.BytesIO(src.read())
     except OSError as exc:
-        logger.debug("bundle %s unreadable here, the load below reports it: %s", file, type(exc).__name__)
-        return None  # a missing or unreadable bundle fails in the load below, as before
+        import os as _os
+
+        if _os.path.exists(file):
+            # An existing bundle that cannot be read must not fall back to an unverified open of the same file (audit 28-F14).
+            raise
+        logger.debug("bundle %s is absent, the load below reports it: %s", file, type(exc).__name__)
+        return None  # a missing bundle fails in the load below
     _verify_bundle_digest(file, buf)
     return buf
 

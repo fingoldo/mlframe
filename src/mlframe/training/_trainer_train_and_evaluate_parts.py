@@ -302,13 +302,8 @@ def _train_and_evaluate_val_df_none(val_df, val_target, control, model_category,
         # pass through untouched -- no ES is structurally possible there.
         from mlframe.training._data_helpers import maybe_wrap_for_partial_fit_es
         _behavior_kwargs: dict[str, Any] = {}
-        _beh = getattr(getattr(control, "behavior", None), "__dict__", None)
-        if _beh is None:
-            # ``control`` is a TrainingControlConfig; suite-level TrainingBehaviorConfig may
-            # live a level up.
-            _auto_wrap = getattr(control, "auto_wrap_partial_fit_es", True)
-        else:
-            _auto_wrap = _beh.get("auto_wrap_partial_fit_es", True)
+        # Read from the control config the suite populates; ``control`` has no ``behavior`` field (audit 28-F11).
+        _auto_wrap = getattr(control, "auto_wrap_partial_fit_es", True)
         # ``auto_wrap_partial_fit_es`` (TrainingBehaviorConfig field, default True)
         # gates the wrap entirely. False reaches the underlying estimator unchanged
         # -- intended for parity bench / off-switch use, not perf.
@@ -421,8 +416,9 @@ def _train_and_evaluate_score_ensemble_can_pick(oof_n_splits, just_evaluate, mod
                     # block (wrong under shuffled / group-aware splits).
                     model.oof_target = _y_arr
             except AttributeError:
-                # Some frozen-attribute estimators (sklearn 1.4+ slots) refuse new attrs; stamp on the wrapper carrier instead.
-                pass
+                # Frozen-attribute estimators (sklearn 1.4+ slots) refuse new attrs. The wrapper-carrier stamp this
+                # comment promised is not implemented, so the OOF arrays are not attached: say so (audit 28-F18).
+                logger.warning("OOF stamp skipped: %s refuses new attributes; oof_preds/oof_target are not attached", type(model).__name__)
 
 
 def _train_and_evaluate_train_runs_sequentially_may(splits_config, metrics_out, has_val, has_test, common_metrics_params, columns, train_preds, train_probs):
