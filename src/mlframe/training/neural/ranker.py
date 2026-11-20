@@ -535,6 +535,10 @@ class MLPRanker(RegressorMixin, BaseEstimator):
         self.n_estimators = n_estimators
         self.n_epochs = n_epochs
         self.learning_rate = learning_rate
+        # The network builder takes one width for every layer, so differing sizes would be silently flattened to the first (40-F10).
+        # Refuse here rather than train an architecture other than the one asked for.
+        if hidden_layers and len(set(int(h) for h in hidden_layers)) > 1:
+            raise ValueError(f"MLPRanker: hidden_layers={tuple(hidden_layers)} has differing sizes, but the network uses one width for every layer; pass equal sizes, e.g. (64, 64)")
         self.hidden_layers = hidden_layers
         self.dropout = dropout
         self.early_stopping_patience = early_stopping_patience

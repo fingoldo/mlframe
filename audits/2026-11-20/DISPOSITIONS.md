@@ -666,3 +666,4 @@
 | 40-F8 | FIXED | class_weight is a non-persistent buffer (no state_dict key); load drops a stale key from older checkpoints. Test tests/training/neural/test_cluster40_class_weight_not_persisted.py; existing save/load tests (4) pass. |
 | 40-F7 | FIXED | Feature scaling copies the array before the block write; the caller's array is no longer scaled in place. Test tests/training/neural/test_cluster40_scaling_does_not_mutate_input.py. |
 | 40-F9 | FIXED | A categorical that was all-null at fit maps predict rows to the reserved unknown code instead of indexing an empty code array. Test tests/training/neural/test_cluster40_all_null_categorical_predicts.py. |
+| 40-F10 | FIXED | Decision (default taken): MLPRanker refuses hidden_layers with differing sizes at construction, since the builder uses one width for every layer; equal sizes are unchanged. Test tests/training/neural/test_cluster40_ranker_refuses_unequal_hidden_layers.py. |
