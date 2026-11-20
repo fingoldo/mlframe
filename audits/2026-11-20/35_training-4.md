@@ -91,7 +91,7 @@ Coverage and method:
 - 35-F4: FIXED. a non-finite raw baseline fails closed (empty result) when require_beats_raw_baseline is set, with a WARNING; test tests/training/composite/test_cluster35_raw_baseline_fail_closed.py
 - 35-F5: FIXED. each fold keeps one slot (NaN when unusable); the paired test already skips non-finite pairs; no separate test
 - 35-F6: FIXED. the stacked target is float64 before the residual; no separate test
-- 35-F7: FIXED. time_aware with groups raises instead of silently dropping time order; no separate test
+- 35-F7: FIXED. time_aware with groups raises instead of silently dropping time order; test tests/training/composite/test_cluster35_stacking_time_and_groups_refused.py
 - 35-F8: FIXED. string digest length-prefixes each element; tests/training/composite/test_cluster35_digest_and_flags.py
 - 35-F9: FIXED. external holdout key includes a frame content digest and a target digest; no separate test
 - 35-F10: FIXED. meta model copied by the no-op cap and dropped explicitly on a trim; no separate test
@@ -105,3 +105,4 @@ Coverage and method:
 - 35-F13: FIXED. Per-fold catch removed; a failing fold raises. Test tests/training/composite/test_cluster35_group_oof_no_silent_fold_nan.py.
 - 35-F14: FIXED. predict_cdf sorts each quantile row before the binary search. Test tests/training/composite/test_cluster35_cdf_unsorted_quantile_rows.py.
 - 35-F11: FIXED. The early logratio raise is removed; the domain mask routes base<=0 rows to the fallback. Test tests/training/composite/test_cluster35_quantile_logratio_nonpositive_base.py.
+- 35-F7: FIXED. time_aware with groups raises. Test tests/training/composite/test_cluster35_stacking_time_and_groups_refused.py.
