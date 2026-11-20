@@ -11,7 +11,7 @@ from typing import Tuple
 from numba import get_num_threads, get_thread_id, njit, prange  # numba ships no type stubs for its dynamic exports
 import numpy as np
 
-from ._numba_params import NUMBA_NJIT_PARAMS
+from ._numba_params import NUMBA_NJIT_PARAMS, _check_equal_length
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +217,7 @@ def maximum_absolute_percentage_error(y_true: np.ndarray, y_pred: np.ndarray) ->
     row is non-finite; warns (once per shape) when ``y_true`` contains zeros, since the epsilon
     fallback then dominates and the percentage becomes unreliable.
     """
+    _check_equal_length(y_true, y_pred)  # the kernels index y_pred[i] unchecked (audit 25-F13)
     if len(y_true) == 0:
         # np.nanmax on the empty `mape` array inside the kernel raises ValueError
         # ("zero-size array to reduction operation fmax"); match every sibling

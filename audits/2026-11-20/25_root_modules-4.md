@@ -109,3 +109,19 @@ Method: four parallel sub-audits read every listed file fully and grepped caller
 - 25-F2: FIXED. monotonicity check compares gids[1:] >= gids[:-1], safe for unsigned ids
 - 25-F3: FIXED. label_ranking_average_precision scores degenerate rows 1.0 and keeps them in the mean (sklearn); tests/metrics/test_multilabel_extras.py compares full arrays
 - 25-F4: FIXED. label_ranking_loss keeps degenerate rows with loss 0 in the mean (sklearn)
+- 25-F5: FIXED. multilabel inference remap also for two columns (len(probs) >= 2); tests/metrics/test_multiclass_labels_fairness_bins.py
+- 25-F6: FIXED. isinstance(str) before the special-name membership test; same test file
+- 25-F7: FIXED. excluded rare bins become NaN in bins; same test file
+- 25-F8: FIXED. bootstrap distribution and resampler factory check length and return NaN for NaN scores (sibling convention); tests/metrics/test_auc_entry_checks_and_thread_safe_resampler.py
+- 25-F9: FIXED. resampler scratch buffers are thread-local; concurrency regression in the same file
+- 25-F10: FIXED. fast_aucs_per_group_optimized checks length, refuses NaN with ValueError and normalises labels; same file
+- 25-F11: FIXED. binary label normaliser raises for more than two distinct labels; same file
+- 25-F12: FIXED. non-finite values are still dropped, now logged with counts (warn option of the finding); tests/metrics/test_cluster25_entry_checks_and_fold_fits.py
+- 25-F13: FIXED. MAPE checks length before the kernels; same test file
+- 25-F14: FIXED. XGBoost interaction path uses native_contrib_kwargs for DMatrix and predict; same test file
+- 25-F15: FIXED. eval_fraction splits within the training fold; the test fold never reaches fit; same test file
+- 25-F16: FIXED. ETR no longer receives the CatBoost iterations key; same test file
+- 25-F17: FIXED. isotonic refit slices sorted contiguous group segments (one sort); same test file checks per-group monotonicity
+- 25-F18: FIXED. a column is a drop candidate only if unimportant in every training fold, importances on training rows only. Residual: the fold's held-out rows still shape the other folds' masks; a fully nested variant is a design option. Test: same test file
+- 25-F19: FIXED. NaN epochs are skipped before the baseline and weights; a RuntimeWarning fires when no epoch is finite; same test file
+- 25-F18: FIXED. correction: the drop mask is the mean of per-training-fold importances (each computed on training rows only) at or below the threshold; an all-folds AND broke biz_val pruning (26 of 43 survivors). Residual: held-out rows of one fold still shape other folds' masks

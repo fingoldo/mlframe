@@ -29,6 +29,8 @@ from ._numba_params import NUMBA_NJIT_PARAMS
 # its module, so we must not import core eagerly.
 
 from ._core_auc_brier import _argsort_desc_for_metrics, fast_numba_aucs as fast_numba_aucs_simple  # iter338 dispatcher
+from ._auc_labels import _binary_labels_01, _has_nan_score
+from ._numba_params import _check_equal_length
 
 
 def fast_aucs_per_group(y_true: np.ndarray, y_score: np.ndarray, group_ids: np.ndarray) -> Tuple[float, float, Dict[int, Tuple[float, float]]]:
@@ -75,6 +77,12 @@ def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group
     from .core import fast_numba_aucs as _fast_numba_aucs
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
+    # Same entry checks as fast_aucs (audit 25-F10): a length mismatch reached the kernel unchecked, NaN ranked as the top score,
+    # and labels were not normalised to {0, 1}.
+    _check_equal_length(y_true, y_score)
+    if _has_nan_score(y_score):
+        raise ValueError("fast_aucs_per_group_optimized: y_score contains NaN; AUC is undefined (sklearn raises too)")
+    y_true = _binary_labels_01(y_true)
 
     # Overall AUCs
     desc_score_indices = _argsort_desc_for_metrics(y_score)  # iter338 dispatcher

@@ -84,6 +84,9 @@ def _stochastic_bandit_selection_core(
 
         subset_cols = [columns[i] for i in subset_idx]
         score = _cv_score(estimator, X[subset_cols], y, cv, scoring)
+        if not np.isfinite(score):
+            # A NaN epoch carries no information: it must not enter the baseline window or the weights (audit 25-F19).
+            continue
 
         baseline = float(np.mean(recent_scores[-moving_average_window:])) if recent_scores else score
         if score >= baseline:
@@ -98,6 +101,10 @@ def _stochastic_bandit_selection_core(
             best_score = score
             best_subset = subset_cols
 
+    if not recent_scores:
+        import warnings
+
+        warnings.warn("stochastic_bandit_selection: no epoch produced a finite CV score; the returned subset is the arbitrary default (audit 25-F19)", RuntimeWarning, stacklevel=2)
     locked_in_feats = [columns[i] for i in np.flatnonzero(locked_in)]
     return best_subset, locked_in_feats
 
