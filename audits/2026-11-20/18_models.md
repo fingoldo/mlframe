@@ -50,3 +50,9 @@ No P0 found on the default path. Findings below were verified by reading the cit
 - `compute_member_quality_gate` with all-zero `sample_weight` (18-F9): not covered.
 - `ensure_per_member_tuning` (18-F13): 2 test files, all for a function with no in-src caller.
 - `combine_float_predictions` with flavour "robust": 2 test files; consumers are in training/core.
+
+
+## Dispositions
+
+- 18-F1: RESOLVED. Confidence threshold uses the finite uncertainties only; a NaN row is never confident, so one missing member no longer empties the confident set (on by default). Test tests/models/test_confidence_estimates_ignore_nan_rows.py; 238 existing ensembling/predict tests pass. Commit below.
+- 18-F2: DEFERRED. Multiclass (N, K) member predictions are flattened to N*K and skipped by the length gate, so their NNLS/Caruana weights never get fitted. A fix needs a scoring choice for a multiclass member (true-class probability or multiclass log-loss) and a test through run_stacking_aware_gate, which takes a dozen arguments. Deferred for that design decision.
