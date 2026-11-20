@@ -616,3 +616,4 @@
 | 35-F10 | FIXED | The copy branch already carried the meta state. The trim branch now carries the kept components' col means (so a capped linear_stack keeps its dropout stand-in) and logs a WARNING when a meta model is dropped. Test tests/training/composite/ensemble/test_cluster35_cap_keeps_component_means.py. |
 | 35-F12 | FIXED | _is_point_mass uses rtol=0. Test tests/training/composite/test_cluster35_point_mass_tolerance.py. |
 | 35-F13 | FIXED | Per-fold catch removed; a failing fold raises. Test tests/training/composite/test_cluster35_group_oof_no_silent_fold_nan.py. |
+| 35-F14 | FIXED | predict_cdf sorts each quantile row before the binary search. Test tests/training/composite/test_cluster35_cdf_unsorted_quantile_rows.py. |
