@@ -46,6 +46,52 @@ __all__ = [
 ]
 
 
+def _project(Xc: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """``(n, k)`` projections of the centred columns on the columns of ``v``, one matrix-vector product per direction: the single-direction recipe replay is the same product, so fit and replay agree to the bit."""
+    cols = [Xc @ np.ascontiguousarray(v[:, i]) for i in range(v.shape[1])]
+    return np.column_stack(cols) if cols else np.empty((Xc.shape[0], 0), dtype=Xc.dtype)
+
+
+def _sir_fit(X: np.ndarray, y: np.ndarray, n_slices: int, n_directions: int, caller: str) -> "Optional[tuple[np.ndarray, np.ndarray]]":
+    """Frozen ``(x_mean, directions)`` of the top SIR eigendirections of ``X`` (``(n, p)``, finite) against ``y``, in the criterion dtype; ``None`` for degenerate input.
+
+    The covariance, the between-slice covariance and the generalized eigenproblem are formed in double precision: a float32 ``Sigma`` of correlated columns cannot carry the
+    ``1e-8`` trace-scaled ridge (below float32 resolution), so the solve ran on a matrix that was neither regularised nor accurate."""
+    n, p = X.shape
+    slice_ids = _quantile_bin(y, nbins=n_slices)
+    uniq_slices = np.unique(slice_ids)
+    if uniq_slices.size < 2:
+        return None
+    X64 = np.asarray(X, dtype=np.float64)  # Intentional float64: the generalized eigenproblem of a covariance needs double precision
+    x_mean = X64.mean(axis=0)
+    Xc = X64 - x_mean
+    Sigma = (Xc.T @ Xc) / n
+    # Between-slice-mean covariance M = sum_h (n_h/n) * (mean_h - x_mean) @ (mean_h - x_mean)^T.
+    M = np.zeros((p, p), dtype=np.float64)  # Intentional float64: see above
+    for s in uniq_slices:
+        mask = slice_ids == s
+        n_h = int(mask.sum())
+        if n_h < 1:
+            continue
+        slice_mean_dev = X64[mask].mean(axis=0) - x_mean
+        M += (n_h / n) * np.outer(slice_mean_dev, slice_mean_dev)
+    # Ridge-stabilize Sigma so the generalized eigenproblem stays solvable even when X's columns are exactly collinear: a tiny trace-scaled shift that does not move a
+    # well-conditioned Sigma's eigenvectors materially.
+    trace = float(np.trace(Sigma))
+    if trace <= 1e-12:
+        return None
+    Sigma_ridge = Sigma + (1e-8 * trace / p) * np.eye(p)
+    try:
+        eigvals, eigvecs = scipy.linalg.eigh(M, Sigma_ridge)
+    except (scipy.linalg.LinAlgError, ValueError) as _exc:
+        logger.warning("%s fell back to its default after %s", caller, type(_exc).__name__)
+        return None
+    # scipy.linalg.eigh returns ascending eigenvalues; SIR wants the LARGEST (most y-variation).
+    order = np.argsort(eigvals)[::-1]
+    k = min(int(n_directions), p)
+    return x_mean.astype(_crit_np_dtype()), eigvecs[:, order[:k]].astype(_crit_np_dtype())
+
+
 def sir_direction_features(
     X: np.ndarray,
     y: np.ndarray,
@@ -90,45 +136,11 @@ def sir_direction_features(
     if not (np.isfinite(X).all() and np.isfinite(y).all()):
         return np.empty((n, 0), dtype=_crit_np_dtype())
 
-    slice_ids = _quantile_bin(y, nbins=n_slices)
-    uniq_slices = np.unique(slice_ids)
-    if uniq_slices.size < 2:
+    fitted = _sir_fit(X, y, n_slices, n_directions, "sir_direction_features")
+    if fitted is None:
         return np.empty((n, 0), dtype=_crit_np_dtype())
-
-    x_mean = X.mean(axis=0)
-    Xc = X - x_mean
-    Sigma = (Xc.T @ Xc) / n
-
-    # Between-slice-mean covariance M = sum_h (n_h/n) * (mean_h - x_mean) @ (mean_h - x_mean)^T.
-    M = np.zeros((p, p), dtype=_crit_np_dtype())
-    for s in uniq_slices:
-        mask = slice_ids == s
-        n_h = int(mask.sum())
-        if n_h < 1:
-            continue
-        slice_mean_dev = X[mask].mean(axis=0) - x_mean
-        M += (n_h / n) * np.outer(slice_mean_dev, slice_mean_dev)
-
-    # Ridge-stabilize Sigma so the generalized eigenproblem stays solvable even when X's columns
-    # are exactly collinear (a genuinely singular Sigma) - a tiny trace-scaled shift that does not
-    # move a well-conditioned Sigma's eigenvectors materially, mirroring the same trace-scaled-ridge
-    # convention used elsewhere in this codebase (e.g. _fe_pure_form_retention_gpu_resident.py).
-    trace = float(np.trace(Sigma))
-    if trace <= 1e-12:
-        return np.empty((n, 0), dtype=_crit_np_dtype())
-    Sigma_ridge = Sigma + (1e-8 * trace / p) * np.eye(p)
-
-    try:
-        eigvals, eigvecs = scipy.linalg.eigh(M, Sigma_ridge)
-    except (scipy.linalg.LinAlgError, ValueError) as _exc:
-        logger.warning("sir_direction_features fell back to its default after %s", type(_exc).__name__)
-        return np.empty((n, 0), dtype=_crit_np_dtype())
-
-    # scipy.linalg.eigh returns ascending eigenvalues; SIR wants the LARGEST (most y-variation).
-    order = np.argsort(eigvals)[::-1]
-    k = min(n_directions, p)
-    top_dirs = eigvecs[:, order[:k]]
-    return np.asarray(Xc @ top_dirs)
+    x_mean, top_dirs = fitted
+    return np.asarray(_project(X - x_mean, top_dirs))
 
 
 def engineered_name_sir_direction(cols: Sequence[str], idx: int) -> str:
@@ -154,39 +166,12 @@ def generate_sir_direction_features(
     if n < 2 or p < 1 or y_arr.size != n or not np.isfinite(X_cols).all() or not np.isfinite(y_arr).all():
         return pd.DataFrame(index=X.index), {}
 
-    slice_ids = _quantile_bin(y_arr, nbins=n_slices)
-    uniq_slices = np.unique(slice_ids)
-    if uniq_slices.size < 2:
+    fitted = _sir_fit(X_cols, y_arr, n_slices, n_directions, "generate_sir_direction_features")
+    if fitted is None:
         return pd.DataFrame(index=X.index), {}
-
-    x_mean = X_cols.mean(axis=0)
-    Xc = X_cols - x_mean
-    Sigma = (Xc.T @ Xc) / n
-
-    M = np.zeros((p, p), dtype=_crit_np_dtype())
-    for s in uniq_slices:
-        mask = slice_ids == s
-        n_h = int(mask.sum())
-        if n_h < 1:
-            continue
-        slice_mean_dev = X_cols[mask].mean(axis=0) - x_mean
-        M += (n_h / n) * np.outer(slice_mean_dev, slice_mean_dev)
-
-    trace = float(np.trace(Sigma))
-    if trace <= 1e-12:
-        return pd.DataFrame(index=X.index), {}
-    Sigma_ridge = Sigma + (1e-8 * trace / p) * np.eye(p)
-
-    try:
-        eigvals, eigvecs = scipy.linalg.eigh(M, Sigma_ridge)
-    except (scipy.linalg.LinAlgError, ValueError) as _exc:
-        logger.warning("generate_sir_direction_features fell back to its default after %s", type(_exc).__name__)
-        return pd.DataFrame(index=X.index), {}
-
-    order = np.argsort(eigvals)[::-1]
-    k = min(int(n_directions), p)
-    top_dirs = eigvecs[:, order[:k]]
-    Z = Xc @ top_dirs
+    x_mean, top_dirs = fitted
+    k = top_dirs.shape[1]
+    Z = _project(X_cols - x_mean, top_dirs)
     names = [engineered_name_sir_direction(cols, i) for i in range(k)]
     enc = pd.DataFrame(Z, columns=names, index=X.index)
     payload = {"cols": tuple(cols), "x_mean": x_mean.copy(), "v": top_dirs.copy()}
@@ -202,7 +187,7 @@ def apply_sir_direction(X_test: "pd.DataFrame", payload: dict) -> "pd.DataFrame"
         raise KeyError(f"apply_sir_direction: missing column(s) {missing} from X_test")
     X_cols = X_test[cols].to_numpy(dtype=_crit_np_dtype())
     Xc = X_cols - payload["x_mean"]
-    Z = Xc @ payload["v"]
+    Z = _project(Xc, payload["v"])
     names = [engineered_name_sir_direction(cols, i) for i in range(Z.shape[1])]
     return pd.DataFrame(Z, columns=names, index=X_test.index)
 

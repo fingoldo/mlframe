@@ -17,6 +17,8 @@ import logging
 from typing import Optional, cast
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters.info_theory._reject_count import reject_count
 from numba import njit, prange
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
@@ -190,6 +192,8 @@ def parallel_mi_besag_clifford(
     min_perms: int = 30,
     dtype: type = np.int32,
     use_su: bool = False,  # SU normalization toggle threaded from mi_direct.
+    use_mm: bool = False,
+    use_cs: bool = False,
 ) -> tuple:
     """Besag-Clifford sequential permutation test with early stopping.
 
@@ -223,7 +227,7 @@ def parallel_mi_besag_clifford(
             local[k] = tmp
 
         mi_perm = compute_relevance_score(
-            use_su, classes_x, freqs_x, local, freqs_y, dtype=dtype,
+            use_su, classes_x, freqs_x, local, freqs_y, dtype=dtype, use_mm=use_mm, use_cs=use_cs,
         )
         if mi_perm >= original_mi:
             nfailed += 1
@@ -259,6 +263,8 @@ def parallel_mi_besag_clifford_with_null(
     min_perms: int = 30,
     dtype: type = np.int32,
     use_su: bool = False,
+    use_mm: bool = False,
+    use_cs: bool = False,
 ) -> tuple:
     """Null-mean-accumulating twin of :func:`parallel_mi_besag_clifford`.
 
@@ -287,7 +293,7 @@ def parallel_mi_besag_clifford_with_null(
             local[k] = tmp
 
         mi_perm = compute_relevance_score(
-            use_su, classes_x, freqs_x, local, freqs_y, dtype=dtype,
+            use_su, classes_x, freqs_x, local, freqs_y, dtype=dtype, use_mm=use_mm, use_cs=use_cs,
         )
         sum_perm_mi += mi_perm
         if mi_perm >= original_mi:
@@ -581,7 +587,15 @@ def mi_direct(
     # ``return_null_mean=True`` is forced onto the CPU permutation kernels (the only ones that accumulate the per-permutation MI sum). The GPU permutation path does not
     # surface the empirical null, and the screen's relevance-baseline budget (``npermutations<32``) never reaches the GPU branch anyway, so routing-to-CPU here costs nothing
     # in practice; it only guards the unusual case of a caller asking for the null mean with a large budget on a CUDA host.
-    if prefer_gpu and npermutations >= 32 and parallelism in ("outer", "none") and not return_null_mean and not _MI_DIRECT_GPU_FAILED:
+    _gpu_route = prefer_gpu and npermutations >= 32 and parallelism in ("outer", "none") and not return_null_mean and not _MI_DIRECT_GPU_FAILED
+    if _gpu_route and (use_mi_miller_madow() or use_mi_chao_shen()):
+        # The device permutation test scores plug-in MI only, so it would report a different relevance value and confidence than the active bias correction defines.
+        log_throttle(
+            logger, "mi_direct.gpu_skipped_for_mi_correction", logging.INFO,
+            "mi_direct: GPU permutation path skipped because a Miller-Madow/Chao-Shen correction is active (the device path has no correction); using the CPU path",
+        )
+        _gpu_route = False
+    if _gpu_route:
         _gpu_result = _mi_direct_try_gpu(
             factors_data, x, y, factors_nbins, min_occupancy, dtype, npermutations, max_failed, min_nonzero_confidence, classes_y, freqs_y, base_seed,
         )
@@ -765,8 +779,10 @@ def _mi_direct_null_mean_path(
 def _permutation_test_mi(original_mi, npermutations, max_failed, min_nonzero_confidence, parallelism, classes_x, freqs_x, classes_y_safe, classes_y, freqs_y, base_seed, dtype, _use_su, confidence):
     """Run the permutation test of the original MI."""
     if original_mi > 0 and npermutations > 0:
+        _use_mm = use_mi_miller_madow() and not _use_su
+        _use_cs = use_mi_chao_shen() and not _use_su
         if max_failed is None or max_failed <= 0:  # a feature is rejected at nfailed >= max_failed, so 0 would reject every one
-            max_failed = int(npermutations * (1 - min_nonzero_confidence))
+            max_failed = reject_count(npermutations, min_nonzero_confidence)
             if max_failed <= 1:
                 max_failed = 1
 
@@ -782,6 +798,8 @@ def _permutation_test_mi(original_mi, npermutations, max_failed, min_nonzero_con
                 base_seed=np.uint64(base_seed),
                 dtype=dtype,
                 use_su=_use_su,
+                use_mm=_use_mm,
+                use_cs=_use_cs,
             )
             i = n_checked - 1
             # Use RATE-based check
@@ -813,6 +831,8 @@ def _permutation_test_mi(original_mi, npermutations, max_failed, min_nonzero_con
                 base_seed=np.uint64(base_seed),
                 dtype=dtype,
                 use_su=_use_su,
+                use_mm=_use_mm,
+                use_cs=_use_cs,
             )
             i = n_checked - 1
             if nfailed >= max_failed:
@@ -888,6 +908,8 @@ def _permutation_test_mi(original_mi, npermutations, max_failed, min_nonzero_con
                 base_seed=np.uint64(base_seed),
                 dtype=dtype,
                 use_su=_use_su,
+                use_mm=_use_mm,
+                use_cs=_use_cs,
             )
             i = n_checked - 1
             if nfailed >= max_failed:

@@ -15,7 +15,7 @@ import pandas as pd
 
 from mlframe.utils.log_throttle import log_throttle
 from .hermite_fe import basis_route_by_moments
-from ._orthogonal_shared import parse_code_deg_with_basis
+from ._orthogonal_shared import mean_fill_nonfinite, parse_code_deg_with_basis
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
 )
@@ -85,9 +85,10 @@ def _triplet_recipe_for_name(name: str, X: pd.DataFrame, basis: str) -> Optional
         col_i, col_j, col_k = legs
         # Value-construction (recovers the basis preprocess params for recipe replay): always
         # float64, matching the fresh-path's own dtype (see generate_triplet_cross_basis_features).
-        x_i = X[col_i].to_numpy(dtype=np.float64)  # Intentional float64: value construction of the triplet product (see above)
-        x_j = X[col_j].to_numpy(dtype=np.float64)  # Intentional float64: value construction of the triplet product (see above)
-        x_k = X[col_k].to_numpy(dtype=np.float64)  # Intentional float64: value construction of the triplet product (see above)
+        # The generator mean-fills non-finite entries before routing and fitting the axis; the frozen params and the routing must see the same filled column.
+        x_i, x_j, x_k = (np.array(X[c].to_numpy(), dtype=np.float64) for c in (col_i, col_j, col_k))  # Intentional float64: value construction of the triplet product (see above)
+        for _leg in (x_i, x_j, x_k):
+            mean_fill_nonfinite(_leg)
         if basis == "auto":
             try:
                 basis_a = basis_route_by_moments(x_i)

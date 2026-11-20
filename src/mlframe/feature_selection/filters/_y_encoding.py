@@ -53,7 +53,10 @@ def _resolve_content_hash() -> Callable[[memoryview], int]:
 
         return cast(Callable[[memoryview], int], _xxhash.xxh3_64_intdigest)
     except Exception as e:
-        logger.debug("encode_y memo: xxhash unavailable (%s), hashing targets with blake2b", e)
+        if isinstance(e, ImportError):
+            logger.debug("encode_y memo: xxhash unavailable (%s), hashing targets with blake2b", e)
+        else:
+            logger.warning("encode_y memo: xxhash is installed but unusable (%s: %s), hashing targets with blake2b", type(e).__name__, e)
 
         def _blake(buf: memoryview) -> int:
             """64-bit blake2b digest of ``buf`` as an int."""

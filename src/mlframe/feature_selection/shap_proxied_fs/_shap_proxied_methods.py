@@ -224,6 +224,8 @@ class ShapProxiedMethodsMixin:
         if y.ndim > 1:
             extra = "" if y.ndim != 2 or y.shape[1] != 1 else " (pass y.ravel() for a single-column 2D target)."
             raise ValueError(f"ShapProxiedFS supports a single-output 1D target only; got y with shape {y.shape}." + extra)
+        if y.dtype.kind in "fc" and not np.isfinite(y).all():
+            raise ValueError(f"ShapProxiedFS: y contains {int((~np.isfinite(y)).sum())} NaN/inf value(s); drop or impute those rows before fit.")
         if self.classification:
             classes = np.unique(y)
             if len(classes) != 2:

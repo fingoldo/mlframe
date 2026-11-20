@@ -277,7 +277,7 @@ def _apply_orth_pair_cross(
     def _eval_side(name: str, basis: str, degree: int, pp: Optional[dict]) -> np.ndarray:
         """Evaluate (or fetch from ``basis_cache``) one operand's raw polynomial-basis column."""
         if basis_cache is not None:
-            _key = _basis_cache_key(name, basis, degree, "raw", pp)
+            _key = _basis_cache_key(name, basis, degree, "raw@crit", pp)
             _cached = basis_cache.get(_key)
             if _cached is not None:
                 return _cached

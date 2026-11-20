@@ -169,50 +169,40 @@ def _truncated_nucleolus(
     nucleolus needs up to k-1 such rounds with a full re-derivation of the active constraint lattice,
     which is O(2^k) worst case - we deliberately truncate as a cheap "sharpen" pass, not an exact solve.
     """
-    x, eps = x0, eps0
-    frozen = np.zeros(len(coalitions), dtype=bool)
+    x = x0
+    n_c = len(coalitions)
+    member = np.zeros((n_c, k))
+    for row, c in enumerate(coalitions):
+        member[row, list(c)] = 1.0
+    v = np.array([v_vals[c] for c in coalitions])
+    frozen = np.zeros(n_c, dtype=bool)
+    frozen_excess = np.zeros(n_c)
+    n_vars = k + 1
+    c_obj = np.zeros(n_vars)
+    c_obj[-1] = 1.0
+    bounds = [(0.0, None)] * k + [(None, None)]
     for _ in range(max_iters):
-        excess = np.array([v_vals[c] - sum(x[j] for j in c) for c in coalitions])
-        tight = np.abs(excess - excess.max()) < 1e-7
-        newly_frozen = tight & ~frozen
-        if not newly_frozen.any():
+        active = ~frozen
+        if not active.any():
             break
+        excess = v - member @ x
+        emax = float(excess[active].max())
+        tight = active & (np.abs(excess - emax) < 1e-7)
+        # Constraints at the current largest excess are pinned there for the rest of the lexicographic descent.
+        frozen_excess[tight] = emax
         frozen |= tight
-        active = [c for c, f in zip(coalitions, frozen) if not f]
-        if not active:
+        active = ~frozen
+        if not active.any():
             break
-        n_vars = k + 1
-        c_obj = np.zeros(n_vars)
-        c_obj[-1] = 1.0
-        A_ub = np.zeros((len(active), n_vars))
-        b_ub = np.zeros(len(active))
-        for row, c in enumerate(active):
-            for j in c:
-                A_ub[row, j] = -1.0
-            A_ub[row, -1] = -1.0
-            b_ub[row] = -v_vals[c]
-        # Frozen constraints stay pinned at their already-achieved excess via equality rows appended below.
-        frozen_c = [c for c, f in zip(coalitions, frozen) if f]
-        if frozen_c:
-            A_eq_extra = np.zeros((len(frozen_c) + 1, n_vars))
-            b_eq_extra = np.zeros(len(frozen_c) + 1)
-            for row, c in enumerate(frozen_c):
-                for j in c:
-                    A_eq_extra[row, j] = 1.0
-                A_eq_extra[row, -1] = 1.0
-                b_eq_extra[row] = v_vals[c] - float(excess.max())
-            A_eq_extra[-1, :k] = 1.0
-            b_eq_extra[-1] = v_grand
-        else:
-            A_eq_extra = np.zeros((1, n_vars))
-            A_eq_extra[0, :k] = 1.0
-            b_eq_extra = np.array([v_grand])
-        bounds = [(0.0, None)] * k + [(None, None)]
-        res = linprog(c_obj, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq_extra, b_eq=b_eq_extra, bounds=bounds, method="highs")
+        A_ub = np.hstack([-member[active], -np.ones((int(active.sum()), 1))])
+        b_ub = -v[active]
+        A_eq = np.vstack([np.hstack([member[frozen], np.zeros((int(frozen.sum()), 1))]), np.append(np.ones(k), 0.0)[None, :]])
+        b_eq = np.append(v[frozen] - frozen_excess[frozen], v_grand)
+        res = linprog(c_obj, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method="highs")
         if not res.success:
             break
-        x, eps = res.x[:k].copy(), float(res.x[-1])
-    return x, eps
+        x = res.x[:k].copy()
+    return x, eps0
 
 
 def core_refine(

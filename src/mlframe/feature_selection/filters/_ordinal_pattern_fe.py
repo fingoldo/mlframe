@@ -396,12 +396,11 @@ def hybrid_ordinal_pattern_te_fe(
     if len(num_cols) < int(k):
         return X, [], [], pd.DataFrame()
 
-    if y is not None:
-        from ._extra_fe_families import _top_mi_num_cols  # lazy: break parent<->sibling cycle
+    if y is None:
+        return X, [], [], pd.DataFrame()  # the out-of-fold target encoding needs y
+    from ._extra_fe_families import _top_mi_num_cols  # lazy: break parent<->sibling cycle
 
-        num_cols = _top_mi_num_cols(X, num_cols, y, max_cols_for_tuples)
-    else:
-        num_cols = list(num_cols)[: int(max_cols_for_tuples)]
+    num_cols = _top_mi_num_cols(X, num_cols, y, max_cols_for_tuples)
     if len(num_cols) < int(k):
         return X, [], [], pd.DataFrame()
 
@@ -411,7 +410,7 @@ def hybrid_ordinal_pattern_te_fe(
         return X, [], [], pd.DataFrame()
 
     winners = list(enc_df.columns)
-    if mi_gate and y is not None:
+    if mi_gate:
         from ._unified_fe_gate import local_mi_gate
 
         _gate_top_k = int(mi_gate_top_k) if mi_gate_top_k is not None and mi_gate_top_k > 0 else int(top_k)

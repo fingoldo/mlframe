@@ -512,7 +512,7 @@ def fit_binned_numeric_agg(
 def apply_binned_numeric_agg(X: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Leak-free replay: bin the raw group column through the stored quantile edges and gather the per-cell
     statistic; unseen / out-of-range / non-finite group values fall back to the global statistic."""
-    gv = np.asarray(X[recipe["group_col"]].to_numpy(), dtype=_crit_np_dtype())
+    gv = np.asarray(X[recipe["group_col"]].to_numpy(), dtype=np.float64)  # Intentional float64: the fit binned the float64 values, a float32 cast moves values near an edge to the other cell
     # Intentional float64: stored recipe edges/lookup keep their f64 contract (persisted payload).
     edges = np.asarray(recipe["edges"], dtype=np.float64)
     # Intentional float64: stored recipe edges/lookup keep their f64 contract (persisted payload).
@@ -572,8 +572,22 @@ def _top_agg_by_variance(X, acands, max_agg_cols):
     noise that only feeds a descending sort. A whole-frame copy of the candidates would be p x n x 8 bytes (5.96 GiB at 10M x 80), so blocks."""
     _var_blocks = [np.var(X[acands[i : i + _AGG_VAR_BLOCK_COLS]].to_numpy(), axis=0) for i in range(0, len(acands), _AGG_VAR_BLOCK_COLS)]
     _a_var_vals = np.concatenate(_var_blocks) if _var_blocks else np.zeros(0)
+    for _i in np.flatnonzero(~np.isfinite(_a_var_vals)):
+        # a column with NaN/inf values has a non-finite variance, which breaks the sort order: rank it by the variance of its finite values
+        _col = np.asarray(X[acands[int(_i)]].to_numpy(), dtype=np.float64)  # Intentional float64: variance of the finite part
+        _fin = _col[np.isfinite(_col)]
+        _a_var_vals[_i] = float(np.var(_fin)) if _fin.size else 0.0
     a_var = dict(zip(acands, _a_var_vals.tolist()))
     return sorted(acands, key=lambda a: a_var.get(a, 0.0), reverse=True)[: max(1, int(max_agg_cols))], a_var
+
+
+def _group_selection_y_codes(y: Any) -> np.ndarray:
+    """Integer codes of ``y`` for the group relevance proxy: its classes when it has few distinct values, else its deciles; computed in float64 so large integer labels stay distinct."""
+    y_arr = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).ravel()  # Intentional float64: float32 merges integer labels above 2**24
+    if not _has_more_distinct_than(y_arr, FEW_CLASSES_MAX):  # already categorical / few classes
+        _, y_codes = np.unique(y_arr, return_inverse=True)
+        return np.asarray(y_codes).ravel()
+    return np.asarray(np.searchsorted(quantile_edges(y_arr, 10), y_arr, side="right"))
 
 
 def _redundancy_gate_binagg(
@@ -672,6 +686,7 @@ def _redundancy_gate_binagg(
         cands = HostCandidates(feat_df, _quantile_bin, _candidate_codes)
         _dev_cands = None
         kept_cols = []
+        _rng = np.random.default_rng(int(random_state))  # the failed device pass advanced it; the host redo must draw the same permutation seeds as a clean host run
         _build_binned_agg_recipes(cands, raw, X, _src_bins, nbins_base, y_cls, min_cmi_gain, _rng, _n_perm, _NULL_Z, kept_cols, reject_sink, linear_usability)
     if _dev_cands is not None:
         # Host out-of-fold columns for the KEPT pairs only (usually none): same values the all-survivors fit would have produced for them.
@@ -750,11 +765,7 @@ def binned_numeric_agg_with_recipes(
         return X, [], []
 
     # GROUP pre-selection by cheap MI(qbin(g); y). y discretised once (deciles) for the relevance proxy.
-    y_arr = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=_crit_np_dtype()).ravel()
-    if not _has_more_distinct_than(y_arr, FEW_CLASSES_MAX):  # already categorical / few classes
-        _, y_codes = np.unique(y_arr, return_inverse=True)
-    else:
-        y_codes = np.searchsorted(quantile_edges(y_arr, 10), y_arr, side="right")
+    y_codes = _group_selection_y_codes(y)
     g_mi = _cheap_mi_group_selection(X, gcands, y_codes)
     gsel = sorted([g for g in gcands if g_mi[g] > 0.0], key=lambda g: g_mi[g], reverse=True)[: max(1, int(max_group_cols))]
     asel, a_var = _top_agg_by_variance(X, acands, max_agg_cols)

@@ -69,15 +69,23 @@ def _uf_labels(n: int, ei: np.ndarray, ej: np.ndarray) -> np.ndarray:
     return labels
 
 
-def _standardize_columns(X: np.ndarray) -> np.ndarray:
-    """Z-score columns (float32); constant columns map to all-zero (excluded from any edge)."""
-    X = np.ascontiguousarray(X, dtype=np.float32)
-    mean = X.mean(axis=0)
-    std = X.std(axis=0)
-    std_safe = np.where(std > 0.0, std, 1.0).astype(np.float32)
-    Z = (X - mean) / std_safe
-    Z[:, std == 0.0] = 0.0  # constant columns: no correlation with anything
-    return np.ascontiguousarray(Z, dtype=np.float32)
+def _standardize_columns(X: np.ndarray, max_block_cells: int = 1 << 24) -> np.ndarray:
+    """Z-score columns into float32, computing the statistics in float64 per column block; non-finite cells and constant columns map to 0 (no edge)."""
+    X = np.asarray(X)
+    n, f = X.shape
+    Z = np.zeros((n, f), dtype=np.float32)
+    block = max(1, max_block_cells // max(n, 1))
+    for b0 in range(0, f, block):
+        B = np.asarray(X[:, b0 : b0 + block], dtype=np.float64)
+        finite = np.isfinite(B)
+        cnt = np.maximum(finite.sum(axis=0), 1)
+        B = np.where(finite, B, 0.0)
+        mean = B.sum(axis=0) / cnt
+        D = np.where(finite, B - mean, 0.0)
+        std = np.sqrt((D * D).sum(axis=0) / cnt)
+        live = std > 1e-12 * np.maximum(np.abs(mean), 1.0)
+        Z[:, b0 : b0 + block] = np.where(live, D / np.where(live, std, 1.0), 0.0)
+    return Z
 
 
 def _edges_dense_gpu(Z, threshold, edge_cap):
@@ -160,8 +168,7 @@ def cluster_correlated_features(
     kernel_tuning_cache sweep (``shap_proxy_cluster_dense_gpu``, CPU vs GPU timed over the (features, samples) grid), falling back to ``GPU_MIN_FEATURES``
     before a sweep has run. An explicit value (``0`` = always GPU when present) overrides the measurement.
     """
-    X = np.asarray(X, dtype=np.float32)
-    X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+    X = np.asarray(X)
     n, f = X.shape
     if f == 0:
         return np.empty(0, dtype=np.int64)

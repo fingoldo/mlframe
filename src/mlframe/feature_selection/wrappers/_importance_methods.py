@@ -134,7 +134,7 @@ def _drop_column(model: object, data: Any, target: Any, train_data: Any, **_: An
     return _scores
 
 
-def _boruta(model: object, data: Any, target: Any, train_data: Any, **_: Any) -> Any:
+def _boruta(model: object, data: Any, target: Any, train_data: Any, *, random_state: int = 0, **_: Any) -> Any:
     """Classical Boruta shadow-feature importance (Pure-Gini variant), refitting ``model`` on ``[X, X_shadow]``."""
     # Classical Boruta (Kursa & Rudnicki 2010, JSS-36): pair each real
     # feature with a SHADOW (shuffled copy) and judge importance vs
@@ -146,7 +146,7 @@ def _boruta(model: object, data: Any, target: Any, train_data: Any, **_: Any) ->
     if data is None or target is None:
         raise ValueError("importance_getter='boruta' requires data (X) and target (y) at the call site.")
     from sklearn.base import clone as _clone
-    rng = np.random.default_rng(0)
+    rng = np.random.default_rng(random_state)
     _Xnp = data.to_numpy(copy=False) if hasattr(data, "to_numpy") else np.asarray(data)
     _p = _Xnp.shape[1]
     # Shadow = column-wise shuffled copy.
@@ -178,7 +178,7 @@ def _boruta(model: object, data: Any, target: Any, train_data: Any, **_: Any) ->
     return _real - _shadow_max
 
 
-def _boruta_shap(model: object, data: Any, target: Any, train_data: Any, *, current_features: list, **_: Any) -> Any:
+def _boruta_shap(model: object, data: Any, target: Any, train_data: Any, *, current_features: list, random_state: int = 0, **_: Any) -> Any:
     """L1: Boruta-SHAP via the optional ``BorutaShap`` package: 1.0 accepted, 0.5 tentative, 0.0 rejected per current feature."""
     # L1: Boruta-SHAP via the optional
     # ``BorutaShap`` package. Returns per-feature shadow-relative
@@ -202,7 +202,7 @@ def _boruta_shap(model: object, data: Any, target: Any, train_data: Any, *, curr
         raise ImportError("importance_getter='boruta_shap' requires the optional ``BorutaShap`` package. " "Install via ``pip install BorutaShap``.") from _exc2
     try:
         _bs = _BorutaShap(model=model, importance_measure="shap", classification=hasattr(model, "classes_"))
-        _bs.fit(X=data, y=target, n_trials=15, random_state=0, verbose=False)
+        _bs.fit(X=data, y=target, n_trials=15, random_state=random_state, verbose=False)
         # Output: BorutaShap stores accepted/rejected lists; build dense importance with shadow-relative scores.
         _accepted = set(getattr(_bs, "accepted", []) or [])
         _tentative = set(getattr(_bs, "tentative", []) or [])

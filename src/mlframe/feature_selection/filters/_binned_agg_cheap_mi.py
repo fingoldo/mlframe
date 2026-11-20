@@ -11,6 +11,7 @@ import logging
 from collections.abc import Sequence
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 from ._fe_gpu_batch._devices import crit_float_dtype
 import pandas as pd
 from numba import njit, prange
@@ -81,7 +82,7 @@ def device_quantile_chosen(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("binagg_quantile_edges_backend: KTC choose() failed, using the row threshold: %s", exc)
+        log_throttle(logger, "binagg_quantile_backend_choose_failed", logging.WARNING, "binagg_quantile_edges_backend: KTC choose() failed (%s: %s), using the row threshold.", type(exc).__name__, exc)
         return int(n_rows) >= _DEVICE_QUANTILE_MIN_N
 
 
@@ -102,7 +103,7 @@ def quantile_edges(x: np.ndarray, nbins: int) -> np.ndarray:
                 if dev is not None:
                     return cast("np.ndarray", np.unique(dev))
         except Exception as e:
-            logger.debug("device quantile edges failed, using the host np.quantile: %s", e)
+            log_throttle(logger, "binagg_device_quantile_failed", logging.WARNING, "device quantile edges failed (%s: %s), using the host np.quantile (slower).", type(e).__name__, e)
     return cast("np.ndarray", np.unique(np.quantile(x, qs)))
 
 
@@ -160,9 +161,8 @@ def _cheap_mi_with_y(col: np.ndarray, y_codes: np.ndarray, nbins: int = 10) -> f
             pb = pj.sum(axis=0, keepdims=True)
             term = cp.where(pj > 0, pj * cp.log(pj / (pa * pb)), 0.0)
             return float(cp.nansum(term))
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
+    except Exception as e:
+        log_throttle(logger, "binagg_cheap_mi_device_failed", logging.WARNING, "device cheap-MI failed (%s: %s), scoring the column on the host (slower).", type(e).__name__, e)
     edges = quantile_edges(cv, nbins)
     if edges.size == 0:
         return 0.0
@@ -219,7 +219,10 @@ def _cheap_mi_group_selection(X: pd.DataFrame, gcands: Sequence[str], y_codes: n
         if fe_gpu_strict_resident_enabled():
             return _cheap_mi_group_selection_device(X, gcands, y_codes, nbins)
     except Exception as e:
-        logger.debug("_cheap_mi_group_selection: GPU-strict-resident probe failed, using the batched CPU path: %s", e)
+        log_throttle(
+            logger, "binagg_group_selection_probe_failed", logging.WARNING,
+            "_cheap_mi_group_selection: GPU-strict-resident path failed (%s: %s), using the batched CPU path.", type(e).__name__, e,
+        )
     out: dict = {}
     valid_names: list = []
     valid_cols: list = []

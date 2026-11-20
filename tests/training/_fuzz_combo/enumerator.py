@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
 import random
 from itertools import combinations as iter_combinations
 from typing import Any
 
+import numpy as np
+
+from ._pair_coverage import PairSpace, count_uncovered, mark_covered
 from .axes import AXES, MODELS
 from .combo import FuzzCombo
 
@@ -15,8 +19,9 @@ from .combo import FuzzCombo
 # ---------------------------------------------------------------------------
 
 
+@functools.cache
 def _powerset_nonempty(items: tuple[str, ...]) -> list[tuple[str, ...]]:
-    """Powerset nonempty."""
+    """Powerset nonempty. Memoised: callers only draw from the list (``rng.choice``) and never mutate it, and it was rebuilt on every draw."""
     out: list[tuple[str, ...]] = []
     for r in range(1, len(items) + 1):
         for sub in iter_combinations(items, r):
@@ -669,6 +674,16 @@ def _combo_pairs(combo: FuzzCombo) -> set[tuple[str, Any, str, Any]]:
     return out
 
 
+def _axes_with_models() -> dict[str, tuple[Any, ...]]:
+    """Every axis plus the ``n_models`` pseudo-axis, in the order the pair universe is laid out."""
+    return {**AXES, "n_models": (1, 2, 3, 4, 5)}
+
+
+def _combo_key_values(combo: FuzzCombo, names: list[str]) -> list[Any]:
+    """Hashable value of each named axis for *combo*, aligned with *names* (``n_models`` is the model count)."""
+    return [len(combo.models) if name == "n_models" else _hashable(getattr(combo, name)) for name in names]
+
+
 def enumerate_combos(
     target: int = 150,
     master_seed: int = 2026_04_22,
@@ -707,18 +722,27 @@ def enumerate_combos(
         seen.add(key)
         combos.append(combo)
 
-    # Phase B — pairwise coverage
-    required = _all_axis_pairs()
-    covered: set[tuple[str, Any, str, Any]] = set()
+    # Phase B — pairwise coverage. Pair ids are integers (see _pair_coverage); one step's candidates are scored in parallel.
+    # ``spill`` is set once a combo realises a value outside the axis universe; the set-based version then never reached
+    # ``covered < required`` (a strict superset is never a proper subset), so the loop is skipped from that point on.
+    space = PairSpace(_axes_with_models(), _hashable)
+    covered = np.zeros(space.size, dtype=bool)
+    spill = False
+
+    def _mark(combo: FuzzCombo) -> bool:
+        """Mark every pair of *combo* covered; True when it realises a value outside the axis universe."""
+        codes = space.codes(_combo_key_values(combo, space.names))
+        mark_covered(codes, space.nv, space.offset, covered)
+        return bool((codes < 0).any())
+
     for c in combos:
-        covered.update(_combo_pairs(c))
+        spill |= _mark(c)
 
     tries = 0
     max_tries = 10_000
-    while covered < required and tries < max_tries and len(combos) < target:
-        uncovered = required - covered
-        best_combo = None
-        best_new = 0
+    while not spill and int(np.count_nonzero(covered)) < space.size and tries < max_tries and len(combos) < target:
+        uncovered = ~covered
+        candidates: list[FuzzCombo] = []
         for _ in range(50):
             subset = rng.choice(_powerset_nonempty(model_universe))
             axes = _sample_axes(rng)
@@ -727,20 +751,23 @@ def enumerate_combos(
             candidate = _build_combo(subset, axes, len(combos))
             if candidate.canonical_key() in seen:
                 continue
-            cand_pairs = _combo_pairs(candidate)
-            new = len(cand_pairs & uncovered)
-            if new > best_new:
-                best_new = new
-                best_combo = candidate
-        if best_combo is None:
+            candidates.append(candidate)
+        if not candidates:
             break
+        codes_matrix = np.stack([space.codes(_combo_key_values(c, space.names)) for c in candidates])
+        scores = count_uncovered(codes_matrix, space.nv, space.offset, uncovered)
+        best = int(np.argmax(scores))
+        if int(scores[best]) <= 0:
+            break
+        best_combo = candidates[best]
         seen.add(best_combo.canonical_key())
         combos.append(best_combo)
-        covered.update(_combo_pairs(best_combo))
+        spill |= _mark(best_combo)
         tries += 1
 
     # Phase B2 — targeted search for the few pairs the greedy pass could not reach by chance.
-    for pair in sorted(required - covered, key=str):
+    uncovered_pairs = {space.decode(int(pid)) for pid in np.flatnonzero(~covered)}
+    for pair in sorted(uncovered_pairs, key=str):
         for _ in range(2000):
             subset = rng.choice(_powerset_nonempty(model_universe))
             axes = _sample_axes(rng)
@@ -755,7 +782,6 @@ def enumerate_combos(
                 continue
             seen.add(key)
             combos.append(candidate)
-            covered.update(_combo_pairs(candidate))
             break
 
     # Phase C — random fill until target

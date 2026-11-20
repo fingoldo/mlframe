@@ -18,6 +18,7 @@ import os
 from typing import Any, Protocol, cast
 
 from mlframe.utils.env_flags import env_float
+from mlframe.utils.log_throttle import log_throttle
 import logging
 
 logger = logging.getLogger(__name__)
@@ -61,7 +62,7 @@ def _cpsat_pack(works: list[int], speeds: list[float]) -> list[int] | None:
     try:
         from ortools.sat.python import cp_model
     except ImportError as _exc:
-        logger.debug("_cpsat_pack fell back to its default after %s", type(_exc).__name__)
+        log_throttle(logger, "fe_packer.cpsat_unavailable", logging.WARNING, "ortools CP-SAT unavailable (%s); blocks are packed by the suboptimal greedy LPT fallback", type(_exc).__name__)
         return None
     B, D = len(works), len(speeds)
     mn = min(speeds)
@@ -84,6 +85,7 @@ def _cpsat_pack(works: list[int], speeds: list[float]) -> list[int] | None:
     solver.parameters.num_search_workers = 1  # deterministic, reproducible
     status = solver.Solve(model)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        log_throttle(logger, "fe_packer.cpsat_no_solution", logging.WARNING, "CP-SAT found no assignment (status %s); blocks are packed by the suboptimal greedy LPT fallback", status)
         return None
     return [next(d for d in range(D) if solver.Value(x[b][d]) == 1) for b in range(B)]
 

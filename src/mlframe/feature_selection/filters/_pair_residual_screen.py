@@ -110,7 +110,11 @@ def pair_interaction_screen(
     if n < _MIN_ROWS or len(cand) < 2 or y is None:
         return []
     rows = np.arange(n) if n <= scan_rows else np.linspace(0, n - 1, int(scan_rows)).astype(np.int64)
-    yr = _winsorised(np.asarray(y, dtype=_crit_np_dtype()).ravel()[rows])
+    y_all = np.asarray(y, dtype=_crit_np_dtype()).ravel()
+    rows = rows[np.isfinite(y_all[rows])]  # a non-finite target row would turn the winsorised target, the residual and every t statistic into NaN
+    if rows.shape[0] < _MIN_ROWS:
+        return []
+    yr = _winsorised(y_all[rows])
     names, kept = [], []
     for c in cand:
         x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows]
@@ -123,11 +127,13 @@ def pair_interaction_screen(
         return []
     # both bin counts of every kept column from one sort of the block (the device), or the host form per column
     Q, Qm = (np.ascontiguousarray(a) for a in quantile_codes_columns(kept, [N_BINS, main_effect_bins((len(rows) + 1) // 2)]))
+    even = np.arange(len(rows)) % 2 == 0
     if len(names) > max_cols:
-        mean_by_bin = [np.bincount(Q[j], weights=yr, minlength=N_BINS) / np.maximum(np.bincount(Q[j], minlength=N_BINS), 1) for j in range(len(names))]
+        # the odd rows score the pairs, so the columns are chosen on the even rows alone
+        yr_even = yr[even]
+        mean_by_bin = [np.bincount(Q[j][even], weights=yr_even, minlength=N_BINS) / np.maximum(np.bincount(Q[j][even], minlength=N_BINS), 1) for j in range(len(names))]
         keep = np.argsort([-float(np.var(m)) for m in mean_by_bin], kind="stable")[:max_cols]
         Q, Qm, names = np.ascontiguousarray(Q[keep]), np.ascontiguousarray(Qm[keep]), [names[j] for j in keep]
-    even = np.arange(len(rows)) % 2 == 0
     n_main = main_effect_bins((len(rows) + 1) // 2)
     f, mu = _backfit(Qm, yr, even, n_main, BACKFIT_SWEEPS)
     pred = np.zeros(len(rows))

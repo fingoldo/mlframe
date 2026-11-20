@@ -185,6 +185,12 @@ def pair_joint_mi_dispatch(codes: np.ndarray, radix: np.ndarray, first: np.ndarr
                 out = pair_joint_mi_gpu(codes, radix, first, second, y_b, k_y)
                 todo = np.nonzero(np.isnan(out))[0]
                 if todo.size:
+                    from mlframe.utils.log_throttle import log_throttle
+
+                    log_throttle(
+                        logger, "cat_pair_joint.table_too_big", logging.INFO,
+                        "categorical pair joint MI: %d of %d pairs exceed the %d-cell shared table and are scored by the numba pass", int(todo.size), int(first.shape[0]), _MAX_CELLS,
+                    )
                     out[todo] = pair_joint_mi(codes, radix, first[todo], second[todo], y_b, k_y)
                 return out
         except Exception as exc:  # a device fault must not lose the stage

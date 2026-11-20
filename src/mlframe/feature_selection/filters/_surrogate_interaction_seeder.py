@@ -37,6 +37,8 @@ from typing import Sequence
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
@@ -107,7 +109,7 @@ def _fit_surrogate_and_oof(
     try:
         import lightgbm as lgb
     except ImportError as _exc:
-        logger.debug("_fit_surrogate_and_oof fell back to its default after %s", type(_exc).__name__)
+        log_throttle(logger, "surrogate_seeder_lightgbm_missing", logging.WARNING, "GBM surrogate seeder: lightgbm is unavailable (%s); emitting no seeds.", _exc)
         return None, float("nan")
 
     n = disc_X.shape[0]
@@ -175,7 +177,7 @@ def _fit_surrogate_and_oof(
             score = 1.0 - ss_res / ss_tot
         return booster, score
     except Exception:
-        logger.warning("GBM surrogate seeder: LightGBM fit failed; emitting nothing.", exc_info=True)
+        log_throttle(logger, "surrogate_seeder_fit_failed", logging.WARNING, "GBM surrogate seeder: LightGBM fit failed; emitting nothing.", exc_info=True)
         return None, float("nan")
 
 

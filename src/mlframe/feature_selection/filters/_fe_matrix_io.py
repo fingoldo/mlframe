@@ -20,7 +20,7 @@ Design (corrections folded in from the architecture/correctness review):
   categories. Numeric and categorical columns are tracked by position so the frame round-trips.
 
 * Nulls: polars via ``Series.is_null()`` (NOT a -1 sentinel code - a real -1 category would clash);
-  pandas via ``isna``; numpy via ``~isfinite``. A per-column boolean null mask is preserved so
+  pandas via ``isna``; numpy via ``isnan`` (an infinity is a value, not missingness, and must survive the round trip). A per-column boolean null mask is preserved so
   ``from_feature_matrix`` can restore missingness exactly.
 
 * Output routes back to the SOURCE framework (pandas in -> pandas out, polars in -> polars out,
@@ -201,7 +201,7 @@ def to_feature_matrix(X: Any, *, dtype: Any = np.float32) -> FeatureMatrix:
         return FeatureMatrix(
             numeric=numeric, categorical=np.empty((n, 0), dtype=np.int64),
             columns=cols, col_kind=["numeric"] * p, col_index=list(range(p)),
-            n_rows=n, framework="numpy", null_mask=~np.isfinite(numeric),
+            n_rows=n, framework="numpy", null_mask=np.isnan(numeric),
             dtype=dtype,
         )
 

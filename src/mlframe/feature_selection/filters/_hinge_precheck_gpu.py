@@ -24,13 +24,12 @@ import numpy as np
 from numba import njit, prange
 
 from mlframe._numerical_floors import VARIANCE_FLOOR
+from mlframe.utils.log_throttle import log_throttle
 
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._device_blocks import double_block_width_of
 from ._raw_module_cache import RawModuleCache
-
-from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +205,7 @@ def _drops_device(xs: np.ndarray, y: np.ndarray, qs: Sequence[float], min_seg: i
         # the three cuts are order statistics: the sort-free radix select gives them (bit-identical to cp.percentile) without sorting the columns (the sort was 43 % of the device call)
         got_q = _radix_quantiles(cp.ascontiguousarray(xd.T), np.asarray(qs, dtype=np.float64))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
         if got_q is None:
+            log_throttle(logger, "hinge_precheck_radix_declined", logging.WARNING, "hinge precheck: the device radix select declined (%d columns x %d rows); the host kernel runs", k, n)
             return None
         cuts = got_q.T
         yc = np.empty(n + 1, dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
@@ -290,7 +290,7 @@ def hinge_precheck_on_device(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("hinge_precheck_backend: KTC choose() failed, using the row-count fallback: %s", exc)
+        log_throttle(logger, "hinge_precheck_backend.ktc_choose", logging.WARNING, "hinge_precheck_backend: KTC choose() failed (%s: %s); using the row-count fallback", type(exc).__name__, exc)
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 

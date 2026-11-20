@@ -382,6 +382,10 @@ class ShapProxiedFitStepsMixin:
                     importance = beta - beta.min()
                     banzhaf_stderr_max = float(np.max(banzhaf_info["beta_stderr"])) if len(beta) else None
                 else:
+                    if prescreen_ranking == "banzhaf":
+                        log_throttle(logger, "shap_proxy.banzhaf_ignored_by_residual_blend", logging.WARNING,
+                                     "ShapProxiedFS: prescreen_ranking='banzhaf' is not applied when residual_merge='blend' supplies the prescreen importance; ranking by the residual blend.")
+                        prescreen_ranking = "residual_blend"
                     importance = np.abs(phi).mean(axis=0) if residual_blend_importance is None else residual_blend_importance
                 top_keep = np.argsort(-importance)[:prescreen_top]
                 # Noise-floor rescue (bug fix, iter-): a flat top-K cut by mean|phi| alone

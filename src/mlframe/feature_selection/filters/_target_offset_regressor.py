@@ -22,13 +22,15 @@ logger = logging.getLogger(__name__)
 __all__ = ["TargetOffsetRegressor"]
 
 
-def _replay_base(recipe: Any, X: pd.DataFrame) -> np.ndarray:
-    """Values of the base column on ``X``: a raw column by name, or an engineered recipe replayed from ``X`` (no target)."""
+def _replay_base(recipe: Any, X: pd.DataFrame, *, fill_nonfinite: bool = True) -> np.ndarray:
+    """Values of the base column on ``X``: a raw column by name, or an engineered recipe replayed from ``X`` (no target); non-finite values become 0 unless ``fill_nonfinite`` is False."""
     if isinstance(recipe, dict) and "raw" in recipe:
-        return cast(np.ndarray, np.nan_to_num(np.asarray(X[recipe["raw"]].to_numpy()), nan=0.0, posinf=0.0, neginf=0.0))
+        raw = np.asarray(X[recipe["raw"]].to_numpy())
+        return cast(np.ndarray, np.nan_to_num(raw, nan=0.0, posinf=0.0, neginf=0.0) if fill_nonfinite else raw)
     from .engineered_recipes.shared import apply_recipe
 
-    return cast(np.ndarray, np.nan_to_num(np.asarray(apply_recipe(recipe, X)).ravel(), nan=0.0, posinf=0.0, neginf=0.0))
+    rep = np.asarray(apply_recipe(recipe, X)).ravel()
+    return cast(np.ndarray, np.nan_to_num(rep, nan=0.0, posinf=0.0, neginf=0.0) if fill_nonfinite else rep)
 
 
 class TargetOffsetRegressor(RegressorMixin, BaseEstimator):
@@ -85,7 +87,7 @@ class TargetOffsetRegressor(RegressorMixin, BaseEstimator):
         self.offset_base_ = provenance[0]["recipe"] if provenance else None
         self.offset_beta_ = float(provenance[0]["beta"]) if provenance else 0.0
         Z = self.selector_.transform(X)
-        if self.offset_base_ is not None and not (self._offset_helps_held_out(Z, y, X, even) or self._offset_helps_forward(Z, y, X)):
+        if self.offset_base_ is not None and not (self._offset_helps_held_out(Z, y, X, even) or self._offset_helps_forward(Z, y, X, even)):
             self.offset_base_ = None
             self.offset_beta_ = 0.0
         return self
@@ -109,19 +111,21 @@ class TargetOffsetRegressor(RegressorMixin, BaseEstimator):
             return bool(d.mean() < 0.0)
         return bool(d.mean() / se < -float(norm.isf(self.offset_alpha)))
 
-    def _offset_helps_forward(self, Z, y, X) -> bool:
-        """The same paired test on a FORWARD block: both models are fitted on the first 70% of the rows and compared on the last 30%.
+    def _offset_helps_forward(self, Z, y, X, even) -> bool:
+        """The same paired test on a FORWARD block of the odd rows (the rows neither the selector nor beta has seen): both models are fitted on the first 70% of them and compared on the last 30%.
 
         The interleaved odd rows cannot show what a drifting target does to a model that must extrapolate: every odd row has its neighbours in the even rows, so a tree model that has memorised
         the level looks as good as the offset one. With time-ordered rows the last block lies beyond the range the models were fitted on, which is where the offset (a linear term, which
         extrapolates) wins. On shuffled rows the block is one more random hold-out, so it is run at ``offset_alpha / 2``: the two tests together stay under 1.5 ``offset_alpha``."""
         from scipy.stats import norm
 
+        held = ~np.asarray(even, dtype=bool)
+        Z, y = Z[held], y[held]
         n = len(y)
         cut = int(0.7 * n)
         if cut < 50 or n - cut < 50:
             return False
-        off = self._offset(X)
+        off = self._offset(X)[held]
         with_off = clone(self.regressor).fit(Z[:cut], y[:cut] - off[:cut]).predict(Z[cut:]) + off[cut:]
         plain = clone(self.regressor).fit(Z[:cut], y[:cut]).predict(Z[cut:])
         d = (with_off - y[cut:]) ** 2 - (plain - y[cut:]) ** 2

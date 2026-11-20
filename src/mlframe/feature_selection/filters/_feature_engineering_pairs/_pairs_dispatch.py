@@ -144,7 +144,7 @@ def _tuned_noise_gate_backend(n: int, K: int) -> str:
             _fb = _batch_mi_noise_gate_fallback_choice(n, K)
             backend = str(_fb.get("backend_choice", "cpu")) if isinstance(_fb, dict) else "cpu"
         except Exception as e:  # best-effort: the fallback backend choice only routes between bit-identical CPU and GPU kernels
-            _module_logger.debug("budgeted-run fallback backend choice failed, defaulting to cpu: %s", e)
+            log_throttle(_module_logger, "pairs_dispatch_budget_fallback_choice", logging.WARNING, "budgeted-run fallback backend choice failed, defaulting to cpu: %s", e)
             backend = "cpu"
     else:
         try:
@@ -173,7 +173,7 @@ def _tuned_noise_gate_backend(n: int, K: int) -> str:
             elif _res:
                 backend = str(_res.get("backend_choice", "cpu"))
         except Exception as e:  # best-effort: a tuning-cache failure only routes between bit-identical CPU and GPU kernels; CPU is the reference
-            _module_logger.debug("kernel_tuning_cache get_or_tune failed, defaulting to cpu: %s", e)
+            log_throttle(_module_logger, "pairs_dispatch_ktc_get_or_tune", logging.WARNING, "kernel_tuning_cache get_or_tune failed, defaulting to cpu: %s", e)
             backend = "cpu"
     return backend
 
@@ -421,8 +421,9 @@ def _dispatch_batch_mi_with_noise_gate_impl_part1(
             if _res is not None:
                 return True, (np.asarray(_res))
         except Exception as _exc:  # pragma: no cover - GPU optional
-            _module_logger.debug(
-                "batch_mi_with_noise_gate GPU path failed (%s: %s); CPU fallback",
+            log_throttle(
+                _module_logger, "pairs_dispatch_gpu_noise_gate_failed", logging.WARNING,
+                "batch_mi_with_noise_gate GPU path failed (%s: %s); falling back to the slower CPU kernel",
                 type(_exc).__name__, _exc,
             )
     return False, None
@@ -486,14 +487,17 @@ def _batch_mi_with_noise_gate_gpu(
                     use_su=False, d_disc_resident=device_codes,
                 )
         except Exception as _exc:
-            _module_logger.debug("resident gate failed (%s: %s); standard GPU path", type(_exc).__name__, _exc)
+            log_throttle(
+                _module_logger, "pairs_dispatch_resident_gate_failed", logging.WARNING,
+                "resident gate failed (%s: %s); using the standard GPU path", type(_exc).__name__, _exc,
+            )
     # Standard (non-resident) GPU path H2Ds host ``disc_2d`` -> materialise the deferred host buffer first.
     if ensure_host_codes is not None:
         ensure_host_codes()
     try:
         from ..batch_mi_noise_gate_gpu import dispatch_batch_mi_with_noise_gate_gpu
     except Exception as e:
-        _module_logger.debug("batch_mi_noise_gate_gpu import failed, GPU dispatch unavailable: %s", e)
+        log_throttle(_module_logger, "pairs_dispatch_gpu_import_failed", logging.WARNING, "batch_mi_noise_gate_gpu import failed, GPU dispatch unavailable: %s", e)
         return None
     _out = dispatch_batch_mi_with_noise_gate_gpu(
         disc_2d=disc_2d,

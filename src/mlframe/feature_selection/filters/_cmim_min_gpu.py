@@ -21,11 +21,11 @@ from typing import Any, Optional, Sequence
 import numpy as np
 from numba import njit, prange
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._raw_module_cache import RawModuleCache
-
-from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 

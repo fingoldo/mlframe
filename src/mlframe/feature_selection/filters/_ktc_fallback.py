@@ -8,6 +8,8 @@ from typing import Any, Callable
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 def device_from_rows(n_samples: int, min_rows: int) -> str:
     """``"device"`` when ``n_samples`` reaches ``min_rows`` (the measured crossover of the kernel), else ``"host"``."""
     return "device" if int(n_samples) >= int(min_rows) else "host"
@@ -29,7 +31,7 @@ def ktc_device_chooser(owner: str, label: str, *, env: "str | None" = None, pair
 
     The returned function takes the row count (``pairs=True``: the row count and the pair count, the work being their product) and answers whether the device runs: never when the GPU is
     globally disabled; ``env`` (``0`` / ``1``) forces a side; else the per-host tuning cache; else the owner's ``DEVICE_FALLBACK_ROWS`` floor. ``_SPEC`` and the floor are read from the
-    owner at call time, so a test or an operator replacing them takes effect. A failing ``choose`` is logged at DEBUG under ``label`` and the floor decides."""
+    owner at call time, so a test or an operator replacing them takes effect. A failing ``choose`` is logged once per owner (throttled WARNING, with ``label``) and the floor decides."""
     import os
 
     logger = logging.getLogger(owner)
@@ -44,7 +46,7 @@ def ktc_device_chooser(owner: str, label: str, *, env: "str | None" = None, pair
         try:
             return bool(str(spec.choose(n_samples=work)) == "device")
         except Exception as exc:
-            logger.debug("%s: KTC choose() failed, using the fallback: %s", label, exc)
+            log_throttle(logger, f"{owner}.ktc_choose_failed", logging.WARNING, "%s: KTC choose() failed (%s: %s); the %d-row floor decides", label, type(exc).__name__, exc, floor)
             return bool(work >= floor)
 
     if pairs:

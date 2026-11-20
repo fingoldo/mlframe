@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import ast
 
+from py_ci_shared._core import walk
+
 from tests.test_meta._module_mutable_state import aliases_in, base_name, function_defs, module_level_dicts
 
 EVICT_OK_MARKER = "evict-ok:"
@@ -50,7 +52,7 @@ def discarded_evictions(tree: ast.Module, imported: dict[str, str] | None = None
             b = alias.get(b, b)
             return b if b in names else ""
 
-        for node in ast.walk(fn):
+        for node in walk(fn):
             if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Attribute):
                 call, f = node.value, node.value.func
                 target = resolve(f.value)
@@ -81,11 +83,11 @@ def silent_miss_readers(tree: ast.Module) -> dict[str, list[str]]:
     names = set(module_level_dicts(tree))
     out: dict[str, list[str]] = {}
     for fn in function_defs(tree):
-        if any(isinstance(n, ast.Return) and not _is_bare_none_return(n) for n in ast.walk(fn)):
+        if any(isinstance(n, ast.Return) and not _is_bare_none_return(n) for n in walk(fn)):
             continue
         alias = aliases_in(fn, names)
         looked_up: dict[str, str] = {}
-        for node in ast.walk(fn):
+        for node in walk(fn):
             if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
                 v = node.value
                 if isinstance(v, ast.Call) and isinstance(v.func, ast.Attribute) and v.func.attr in ("get", "pop"):
@@ -93,7 +95,7 @@ def silent_miss_readers(tree: ast.Module) -> dict[str, list[str]]:
                     b = alias.get(b, b)
                     if b in names:
                         looked_up[node.targets[0].id] = b
-        for node in ast.walk(fn):
+        for node in walk(fn):
             if (
                 isinstance(node, ast.If)
                 and isinstance(node.test, ast.Compare)

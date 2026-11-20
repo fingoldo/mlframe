@@ -306,9 +306,6 @@ def _rank_transform(a: np.ndarray) -> np.ndarray:
     target the same as a plain linear one, while a non-monotone subsumed operand
     (``a`` in even ``a**2/b``) stays ~uncorrelated."""
     a = np.asarray(a, dtype=_crit_np_dtype()).ravel()
-    order = np.argsort(a, kind="mergesort")
-    ranks = np.empty(a.shape[0], dtype=_crit_np_dtype())
-    ranks[order] = np.arange(1, a.shape[0] + 1, dtype=_crit_np_dtype())
     # average tied ranks so duplicate bin codes do not bias the correlation.
     _, inv, counts = np.unique(a, return_inverse=True, return_counts=True)
     csum = np.cumsum(counts)
@@ -462,7 +459,7 @@ def _heldout_ridge_r2(X: np.ndarray, y: np.ndarray, frac: float = 0.7) -> Option
         from sklearn.pipeline import make_pipeline
         from mlframe.metrics.core import fast_r2_score
     except ImportError as e:
-        logger.debug("sklearn/mlframe metric imports failed: %s", e)
+        log_throttle(logger, "_fe_raw_redundancy_helpers.ridge_import", logging.WARNING, "sklearn/mlframe metric imports failed, the held-out Ridge probe is skipped: %s", e)
         return None
     X = np.nan_to_num(np.asarray(X, dtype=_crit_np_dtype()), nan=0.0, posinf=0.0, neginf=0.0)
     y = np.nan_to_num(np.asarray(y, dtype=_crit_np_dtype()).ravel(), nan=0.0, posinf=0.0, neginf=0.0)

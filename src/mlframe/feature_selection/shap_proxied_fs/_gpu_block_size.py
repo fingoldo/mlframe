@@ -13,6 +13,8 @@ from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
+_MAX_CUDA_BLOCK_SIZE = 1024
+
 
 def block_size_from_tuning_cache(kernel_key: str, entry_field: str, default: int) -> int:
     """Hardware-tuned CUDA block size for ``kernel_key``, or ``default``.
@@ -27,7 +29,9 @@ def block_size_from_tuning_cache(kernel_key: str, entry_field: str, default: int
         if ktc is not None:
             entry = cast(Any, ktc).lookup(kernel_key)  # may be absent -> fall through to the default
             if isinstance(entry, dict) and entry.get(entry_field):
-                return int(entry[entry_field])
+                tuned = int(entry[entry_field])
+                if 0 < tuned <= _MAX_CUDA_BLOCK_SIZE:  # a launch config outside the hardware limit would fail the kernel, not size it
+                    return tuned
     except (ImportError, KeyError, ValueError, TypeError) as exc:
         logger.debug("block-size tuning-cache lookup failed for %s/%s, using default %d: %s", kernel_key, entry_field, default, exc)
     return int(default)

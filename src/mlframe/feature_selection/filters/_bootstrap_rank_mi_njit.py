@@ -119,8 +119,6 @@ def _walk_sorted(
     sv: np.ndarray,
     y_codes: np.ndarray,
     counts_t: np.ndarray,
-    rowptr: np.ndarray,
-    poslist: np.ndarray,
     idx: np.ndarray,
     cum: np.ndarray,
     n_classes: int,
@@ -130,7 +128,7 @@ def _walk_sorted(
     """``out[b, col]`` for a column with few repeated values: walk the rows in sorted order, a row emitted ``counts_t[row, b]`` times into replicate ``b``.
 
     ``cum[b, s]`` is the end position of equi-frequency slice ``s`` of replicate ``b`` (slices of ``m // n_bins`` rows, the first ``m % n_bins`` one longer, as ``_quantile_bin_njit`` cuts them).
-    A block of equal values is emitted in the order of its draws (the stable argsort of the resample), found through ``rowptr`` / ``poslist``: the draw positions of every row, per replicate."""
+    A run of equal values takes the bin of its first sorted position in every replicate, so the draw order inside it does not matter."""
     n = ord_rows.shape[0]
     n_rep = counts_t.shape[1]
     n_bins = cum.shape[1]
@@ -200,8 +198,6 @@ def _bootstrap_rank_mi_f32(
     lens: np.ndarray,
     binpos: np.ndarray,
     counts_t: np.ndarray,
-    rowptr: np.ndarray,
-    poslist: np.ndarray,
     cum: np.ndarray,
     n_bins: int,
     tile_width: int = 16,
@@ -240,7 +236,7 @@ def _bootstrap_rank_mi_f32(
                 if va[pp] != va[pp - 1]:
                     distinct += 1
             if n - distinct <= max_ties:
-                _walk_sorted(ra, va, y_codes, counts_t, rowptr, poslist, idx, cum, n_classes, out, j0 + t)
+                _walk_sorted(ra, va, y_codes, counts_t, idx, cum, n_classes, out, j0 + t)
             else:
                 blk = _rank_blocks(va, ra, rk)
                 _replicate_mis(rk, blk + 1, y_codes, n_classes, idx, lens, binpos, n_bins, out, j0 + t)
@@ -331,7 +327,7 @@ register_cache_releaser(_release_prep_cache)
 
 def _resample_tables(rep_rows: "list[np.ndarray]", y_arr: np.ndarray, n: int, n_bins: int, with_walk_tables: bool) -> dict:
     """The tables of a set of resamples that every column block shares: label codes, resample lengths, the padded index matrix, the bin position of each draw and, for the float32 walk, the per-row multiplicities,
-    row pointers, draw positions and cumulative bin sizes."""
+    and cumulative bin sizes."""
     y_codes = (y_arr.astype(np.int64) - int(y_arr.min())).astype(np.int64)
     n_classes = int(y_codes.max()) + 1
     n_rep = len(rep_rows)
@@ -347,18 +343,13 @@ def _resample_tables(rep_rows: "list[np.ndarray]", y_arr: np.ndarray, n: int, n_
     prep = {"y_codes": y_codes, "n_classes": n_classes, "lens": lens, "idx": idx, "binpos": binpos}
     if with_walk_tables:
         counts_t = np.empty((n, n_rep), dtype=np.int32)
-        rowptr = np.zeros((n_rep, n + 1), dtype=np.int32)
-        poslist = np.zeros((n_rep, m_max), dtype=np.int32)
         for b, rows in enumerate(rep_rows):
-            cnt = np.bincount(rows, minlength=n)
-            counts_t[:, b] = cnt
-            np.cumsum(cnt, out=rowptr[b, 1:])
-            poslist[b, : len(rows)] = np.argsort(rows, kind="stable")
+            counts_t[:, b] = np.bincount(rows, minlength=n)
         cum = np.zeros((n_rep, n_bins), dtype=np.int64)
         for b, rows in enumerate(rep_rows):
             base, rem = divmod(len(rows), n_bins)
             cum[b] = np.cumsum([base + (1 if t < rem else 0) for t in range(n_bins)])
-        prep.update({"counts_t": counts_t, "rowptr": rowptr, "poslist": poslist, "cum": cum})
+        prep.update({"counts_t": counts_t, "cum": cum})
     return prep
 
 
@@ -452,16 +443,16 @@ def bootstrap_rank_mi(arr: np.ndarray, y: np.ndarray, rep_rows: "list[np.ndarray
                 if done.all():
                     return mi_dev, done
                 rest = np.flatnonzero(~done)
-                counts_t, rowptr, poslist, cum = prep["counts_t"], prep["rowptr"], prep["poslist"], prep["cum"]
+                counts_t, cum = prep["counts_t"], prep["cum"]
                 with parallel_kernel_entry(), _memory_capped_threads(n):
-                    mi_rest, ok_rest = _bootstrap_rank_mi_f32(np.ascontiguousarray(arr[:, rest]).view(np.uint32), y_codes, n_classes, idx, lens, binpos, counts_t, rowptr, poslist, cum, int(n_bins), _tile_for(int(rest.size), n))
+                    mi_rest, ok_rest = _bootstrap_rank_mi_f32(np.ascontiguousarray(arr[:, rest]).view(np.uint32), y_codes, n_classes, idx, lens, binpos, counts_t, cum, int(n_bins), _tile_for(int(rest.size), n))
                 mi_dev[:, rest] = mi_rest
                 done[rest] = np.asarray(ok_rest)
                 return mi_dev, done
     if arr.dtype == np.float32:
-        counts_t, rowptr, poslist, cum = prep["counts_t"], prep["rowptr"], prep["poslist"], prep["cum"]
+        counts_t, cum = prep["counts_t"], prep["cum"]
         with parallel_kernel_entry(), _memory_capped_threads(n):
-            mi, ok = _bootstrap_rank_mi_f32(np.ascontiguousarray(arr).view(np.uint32), y_codes, n_classes, idx, lens, binpos, counts_t, rowptr, poslist, cum, int(n_bins), _tile_for(int(arr.shape[1]), n))
+            mi, ok = _bootstrap_rank_mi_f32(np.ascontiguousarray(arr).view(np.uint32), y_codes, n_classes, idx, lens, binpos, counts_t, cum, int(n_bins), _tile_for(int(arr.shape[1]), n))
     else:
         with parallel_kernel_entry():
             mi, ok = _bootstrap_rank_mi_generic(np.ascontiguousarray(arr), y_codes, n_classes, idx, lens, binpos, int(n_bins))

@@ -108,6 +108,10 @@ def run_confidence_analysis(
         return None
 
     confidence_model = _fit_confidence_model(confidence_model, confidence_task_type, confidence_model_kwargs, test_df, confidence_targets, fit_params_copy)
+    # The categoricals were passed to ``fit``, not the constructor, so the SHAP pool would otherwise see them as numbers.
+    _fitted_cat = fit_params_copy.get("cat_features")
+    if _fitted_cat:
+        confidence_model._shap_proxy_cat_features = list(_fitted_cat)
 
     _shap_confidence_plot(use_shap, test_df, confidence_model, max_features, cmap, alpha, ylabel, title, plot_file, figsize)
 

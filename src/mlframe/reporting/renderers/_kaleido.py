@@ -246,8 +246,8 @@ def _oneshot_write_static(fig: Any, path: str, fmt: str) -> None:
         import kaleido
         data = kaleido.calc_fig_sync(fig, opts={"format": fmt})
         ensure_parent_dir(path)
-        with open(path, "wb") as fh:
-            fh.write(data)
+        from mlframe.training.io import atomic_write_bytes
+        atomic_write_bytes(path, lambda fh: fh.write(data))
 
 
 def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:

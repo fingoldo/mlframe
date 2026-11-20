@@ -57,7 +57,7 @@ replay path.
 from __future__ import annotations
 
 from typing import cast
-from ._orthogonal_shared import parse_code_deg_with_basis
+from ._orthogonal_shared import fit_axis_column as _fit_axis_column, parse_code_deg_with_basis
 
 import logging
 from itertools import combinations
@@ -309,7 +309,7 @@ def generate_adaptive_arity_cross_basis(
     _emit_arity_winners(winners, eclipsed)
 
     # Emit kept winners.
-    _emit_kept_arity_winners(winners, eclipsed, valid_src, tuple_best, out_cols, rows)
+    _emit_kept_arity_winners(winners, eclipsed, valid_src, tuple_best, out_cols, rows, X, basis_per_col)
 
     eng_X = pd.DataFrame(out_cols, index=X.index)
     score_df = pd.DataFrame(rows)
@@ -367,9 +367,19 @@ def _prepare_source_columns(src, X, _dt, basis, basis_per_col, max_d, leg_cache)
         for d in range(1, max_d + 1):
             leg_cache[(col, d)] = _evaluate_basis_column(x, chosen, d)
 
-def _emit_kept_arity_winners(winners, eclipsed, valid_src, tuple_best, out_cols, rows):
+
+def _winner_product_f64(X: pd.DataFrame, tup: tuple, degs: tuple, basis_per_col: dict) -> np.ndarray:
+    """The product of the winner's legs on the float64 axis the recipe freezes (the scoring ran on the criterion dtype)."""
+    prod = None
+    for col, d in zip(tup, degs):
+        leg = _evaluate_basis_column(_fit_axis_column(X, col), basis_per_col[col], int(d))
+        prod = leg if prod is None else prod * leg
+    return cast("np.ndarray", prod)
+
+
+def _emit_kept_arity_winners(winners, eclipsed, valid_src, tuple_best, out_cols, rows, X, basis_per_col):
     """Emit the kept arity winners that no other winner eclipses."""
-    for key, (k, mi_val, _degs, name, prod) in winners.items():
+    for key, (k, mi_val, degs, name, _prod) in winners.items():
         if key in eclipsed:
             continue
         # Recover the original tuple ORDER (sorted by valid_src order so
@@ -381,7 +391,7 @@ def _emit_kept_arity_winners(winners, eclipsed, valid_src, tuple_best, out_cols,
                 sb = tuple_best[sub_k].get(frozenset(sub))
                 if sb is not None and sb[0] > baseline_mi:
                     baseline_mi = sb[0]
-        out_cols[name] = prod
+        out_cols[name] = _winner_product_f64(X, tup, degs, basis_per_col)
         rows.append({
             "engineered_col": name,
             "source_cols": tup,
@@ -439,7 +449,7 @@ def _adaptive_arity_mi_resident_block(X, y_arr, eval_results_k, *, basis: str, n
         specs = [{"legs": [(tup[i], int(degs[i])) for i in range(len(tup))]} for (tup, degs, _name, _prod) in eval_results_k]
         return _product_mi_blocked(cp, X, specs, y_arr, nbins, basis)
     except Exception as _gpu_exc:
-        logger.debug("_adaptive_arity_mi_resident_block: GPU-resident path failed (%s); caller falls back to the host _mi_classif_batch.", _gpu_exc)
+        log_throttle(logger, "adaptive_arity_resident_block_failed", logging.WARNING, "adaptive-arity GPU-resident MI failed (%s: %s); the host _mi_classif_batch scores the cells", type(_gpu_exc).__name__, _gpu_exc)
         return None
 
 def score_adaptive_arity_cross_basis(
@@ -820,7 +830,7 @@ def hybrid_orth_mi_adaptive_arity_fe_with_recipes(
             return _pp_cache[_key]
         _pp = None
         try:
-            _col_full = np.asarray(X[leg_name].to_numpy(), dtype=np.float64)  # Intentional float64: the params the replay applies must be the ones the fit-time values used (float64 basis axis)
+            _col_full = _fit_axis_column(X, leg_name)
             _, _pp = _evaluate_basis_column(_col_full, str(basis), int(deg), return_params=True)
         except Exception as exc:
             logger.warning("adaptive-arity: failed to freeze preprocess_params for leg %r (refit-at-replay fallback): %r", leg_name, exc)

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 # --- imports (managed) ---
+import logging
+
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
 from pyutilz.performance.gpu_hw_launch import block_size_for
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 from mlframe.feature_selection.filters._honest_null_device import XLOGX_TABLE_SIZE
@@ -19,6 +22,8 @@ from time import perf_counter
 
 from ._fe_family_timing import record_fe_family_wall
 # --- end imports ---
+
+logger = logging.getLogger(__name__)
 
 
 def _int_to_host(cp, dev, bound: int) -> np.ndarray:
@@ -40,12 +45,13 @@ def _bitset_accept(cp, order, tie, y_raw_perm, n, n_perm, kc, min_split_size, al
     try:
         from mlframe.feature_selection.filters._honest_null_accept_bits import root_split_accept_gpu
 
-        return bool(root_split_accept_gpu(cp, order, tie, y_raw_perm, n, n_perm, kc, min_split_size, alpha, h_full, cp.asarray(tab_full), d_gain, d_ncand, d_idx))
+        applied = bool(root_split_accept_gpu(cp, order, tie, y_raw_perm, n, n_perm, kc, min_split_size, alpha, h_full, cp.asarray(tab_full), d_gain, d_ncand, d_idx))
     except Exception as exc:
-        import logging
-
-        logging.getLogger(__name__).warning("bitset honest-null acceptance failed (%s: %s); using the per-step kernel", type(exc).__name__, exc)
+        logger.warning("bitset honest-null acceptance failed (%s: %s); using the per-step kernel", type(exc).__name__, exc)
         return False
+    if not applied:
+        log_throttle(logger, "honest_null_bitset_accept_declined", logging.INFO, "honest null: the bitset acceptance scan does not apply (n=%d, permutations=%d); the per-step kernel runs", n, n_perm)
+    return applied
 
 
 def _root_split_kernel(cp):

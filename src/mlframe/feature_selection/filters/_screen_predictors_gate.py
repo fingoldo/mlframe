@@ -91,16 +91,8 @@ def build_dcd_state(
             existing_state=existing_dcd_state,
         )
     except Exception as _dcd_init_exc:
-        # Always log at debug level (was silent at the
-        # library's own verbose=0 default), promoting to warning only when verbose - a DCD-init failure
-        # should never be completely invisible.
-        if verbose:
-            logger.warning(
-                "DCD init failed silently; falling back to legacy path: %r",
-                _dcd_init_exc,
-            )
-        else:
-            logger.debug("DCD init failed; falling back to legacy path: %r", _dcd_init_exc, exc_info=True)
+        # The caller asked for DCD (enable=True); losing it must be visible at every verbosity.
+        logger.warning("DCD init failed; falling back to legacy path: %r", _dcd_init_exc, exc_info=bool(verbose))
         return None
 
 

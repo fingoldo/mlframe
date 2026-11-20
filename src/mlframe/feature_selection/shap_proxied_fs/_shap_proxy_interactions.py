@@ -30,6 +30,7 @@ import pandas as pd
 from numba import njit
 
 from mlframe.feature_selection.filters.info_theory import compute_su_from_classes
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _maybe_patch_shap_xgb_base_score, _unwrap_estimator, _fit_one
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import proxy_loss, resolve_metric
 
@@ -168,7 +169,7 @@ def compute_interaction_tensor(
             if out is not None:
                 return out
         except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
-            logger.debug("GPU interaction tensor path failed, falling back to numba: %s", e)  # device/cupy/cap hiccup -> numba then shap (never lose the result)
+            log_throttle(logger, "shap_proxy.interaction_gpu_failed", logging.WARNING, "GPU interaction tensor path failed (%s), falling back to numba", e)  # device/cupy/cap hiccup -> numba then shap (never lose the result)
         out = _interaction_tensor_numba(est, X, classification=classification)
         if out is not None:
             return out
@@ -329,6 +330,14 @@ def _su_bin(col: np.ndarray, n_bins: int) -> np.ndarray:
         uniq, inv = np.unique(col, return_inverse=True)
         if uniq.size <= 1:
             return np.zeros(n, dtype=np.int64)
+        if uniq.size > n_bins:
+            # a zero-inflated continuous column has <=2 distinct quantile edges but ~n distinct values: one bin per value would make the joint table ~n^2 cells
+            from scipy.stats import rankdata
+
+            ranks = rankdata(col, method="average")
+            coarse = np.minimum(((ranks - 1.0) * n_bins / n).astype(np.int64), n_bins - 1)
+            _, dense = np.unique(coarse, return_inverse=True)
+            return np.asarray(dense, dtype=np.int64).reshape(-1)
         return np.asarray(inv, dtype=np.int64)
     ids = np.clip(np.digitize(col, edges[1:-1]), 0, edges.size - 2).astype(np.int64)
     # densify in case some interior bins are empty

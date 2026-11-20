@@ -68,7 +68,6 @@ from typing import Optional, Sequence
 
 from numba import njit
 import numpy as np
-from ._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -262,7 +261,7 @@ def _dcor_batch(
     caller already built it for an identical ``(y, n_sample, random_state)``. ``None`` (default) preserves
     the exact self-contained behavior.
     """
-    X_arr = np.asarray(X, dtype=_crit_np_dtype())
+    X_arr = np.asarray(X, dtype=np.float64)  # Intentional float64: a float32 cast quantises columns with a large offset before the distances are taken
     if X_arr.ndim == 1:
         X_arr = X_arr.reshape(-1, 1)
     n = X_arr.shape[0]
@@ -354,12 +353,12 @@ def score_features_by_dcor_uplift(
     # batch right after it. Build it ONCE and thread it into both _dcor_batch calls.
     _y_side = _dcor_y_side_prep(y_arr, len(raw_X), n_sample=int(n_sample), random_state=int(random_state))
     raw_mi = _dcor_batch(
-        raw_X.to_numpy(dtype=_crit_np_dtype()), y_arr,
+        raw_X.to_numpy(dtype=np.float64), y_arr,
         n_sample=int(n_sample), random_state=int(random_state), y_side=_y_side,
     )
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
     eng_mi = _dcor_batch(
-        engineered_X.to_numpy(dtype=_crit_np_dtype()), y_arr,
+        engineered_X.to_numpy(dtype=np.float64), y_arr,
         n_sample=int(n_sample), random_state=int(random_state), y_side=_y_side,
     )
     rows = []

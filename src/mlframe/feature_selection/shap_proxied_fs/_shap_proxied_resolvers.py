@@ -7,9 +7,14 @@ boundaries without code changes. No back-import to the selector parent.
 
 from __future__ import annotations
 
+import logging
 from typing import Optional, Sequence, Union
 
 import numpy as np
+
+from mlframe.utils.log_throttle import log_throttle
+
+logger = logging.getLogger(__name__)
 
 _EXACT_OPTIMIZERS = {"bruteforce", "bruteforce_gpu"}
 _HEURISTIC_OPTIMIZERS = {"beam", "greedy_forward", "greedy_backward", "multistart", "genetic", "annealing", "gradient"}
@@ -258,7 +263,8 @@ def _resolve_brute_force_work_budget(default: int = _DEFAULT_BRUTE_FORCE_WORK_BU
         try:
             return int(float(raw))
         except ValueError:
-            pass
+            log_throttle(logger, "shap_proxy.bad_work_budget_env", logging.WARNING,
+                         "MLFRAME_SHAP_BRUTE_FORCE_WORK_BUDGET=%r is not a number; using the default %d.", raw, default)
     return default
 
 

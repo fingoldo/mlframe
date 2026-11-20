@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 import numpy as np
 from .._kernel_types import render
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -320,15 +321,17 @@ def resident_observed_mi_and_bins(device_codes: Any, classes_y: np.ndarray, by: 
     An int8 matrix goes through the fused single-pass kernel; anything else (or a histogram too large for shared memory) takes the generic block-wise path.
     Both return host ``(K,)`` double / int64 arrays - the same quantities the CPU ``npermutations=0`` kernel and ``_occupied_bins_per_col`` give.
     """
+    yc = np.ascontiguousarray(classes_y, dtype=np.int64).ravel()
+    if int(yc.shape[0]) != int(device_codes.shape[0]):
+        raise ValueError(f"resident_observed_mi_and_bins: the codes have {int(device_codes.shape[0])} rows, the target {int(yc.shape[0])}")
     import cupy as cp
 
     from mlframe.feature_selection.filters._fe_batched_mi import binned_mi_from_codes_gpu
 
-    yc = np.ascontiguousarray(classes_y, dtype=np.int64).ravel()
     try:
         fused = _fused_observed_mi_and_bins(device_codes, yc, int(by), code_bound)
     except Exception as e:  # best-effort: the generic block-wise path computes the same observed MI and occupied bins
-        logger.debug("fused observed-MI kernel failed, using the generic path: %s", e)
+        log_throttle(logger, "analytic_fused_obs_mi_failed", logging.WARNING, "fused observed-MI kernel failed (%s: %s); the generic block-wise path serves", type(e).__name__, e)
         fused = None
     if fused is not None:
         return fused

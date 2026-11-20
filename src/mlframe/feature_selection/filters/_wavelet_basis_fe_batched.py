@@ -27,9 +27,10 @@ import logging
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._fe_env_switch import fused_switch_enabled
 from ._fe_frame_ops import fe_std_below
-from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -244,7 +245,7 @@ def _select_wavelet_legs_batched_device(x, y, lo, span, *, max_scale, max_legs, 
         mi_tr = np.concatenate([pc[1] for pc in pieces])
         mi_va = np.concatenate([pc[2] for pc in pieces])
     except Exception as e:
-        logger.debug("_select_wavelet_legs_batched_device: device batched-MI path failed, caller falls back to the host leg selection: %s", e)
+        log_throttle(logger, "_wavelet_basis_fe_batched.device_path", logging.WARNING, "_select_wavelet_legs_batched_device: device batched-MI path failed, caller falls back to the host leg selection: %s", e)
         return None
 
     return _admitted_legs(metas, mi_tr, mi_va, max_legs, scale_sigma, _WAVELET_MIN_HELDOUT_MI)
@@ -376,7 +377,7 @@ def select_wavelet_legs_batched(x: np.ndarray, y: np.ndarray, lo: float, span: f
             if _dev is not None:
                 return list(_dev)
     except Exception as e:  # nosec B110 - best-effort path
-        logger.debug("resident wavelet-leg computation failed, falling back to the host path: %s", e)
+        log_throttle(logger, "_wavelet_basis_fe_batched.resident", logging.WARNING, "resident wavelet-leg computation failed, falling back to the host path: %s", e)
 
     from ._wavelet_basis_fe import (
         _WAVELET_MIN_HALF_ROWS,

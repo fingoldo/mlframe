@@ -11,6 +11,8 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.feature_selection.filters.discretization")
 
 
@@ -117,10 +119,15 @@ def try_discretize_2d_cuda(
                         dtype=dtype,
                     )
                 except Exception as exc:
-                    logger.debug(
-                        "discretize_2d_array: CUDA fastpath failed (%s: %s); " "falling back to CPU prange",
+                    log_throttle(
+                        logger,
+                        "discretize_2d_cuda_fastpath_failed",
+                        logging.WARNING,
+                        "discretize_2d_array: CUDA fastpath failed (%s: %s); falling back to CPU prange (n_rows=%d, n_cols=%d)",
                         type(exc).__name__,
                         exc,
+                        arr.shape[0],
+                        arr.shape[1],
                     )
     except ImportError:
         pass

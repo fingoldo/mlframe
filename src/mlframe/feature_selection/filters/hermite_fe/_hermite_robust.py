@@ -141,13 +141,14 @@ _DETECT_HEAVY_TAIL_NJIT_MAX_N = env_int("MLFRAME_DETECT_HEAVY_TAIL_NJIT_MAX_N", 
 import threading as _threading
 import contextlib as _contextlib
 import logging
-from typing import Iterator
+from typing import Any, Callable, Iterator, Optional
 
 logger = logging.getLogger(__name__)
 # One table for the process, entered by a counted scope: the column sweeps run on pool threads, and a per-thread table (as this was) is empty in every worker, so each column
 # was examined again by every caller (715 examinations of about 105 columns in a 100000 x 100 fit).
 _HEAVY_TAIL_MEMO: dict = {"cache": None, "depth": 0}
 _HEAVY_TAIL_MEMO_LOCK = _threading.Lock()
+_heavy_tail_hash: Optional[Callable[[Any], int]]
 try:
     import xxhash as _xxhash
 

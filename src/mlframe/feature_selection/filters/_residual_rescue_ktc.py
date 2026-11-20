@@ -12,6 +12,8 @@ from typing import Any
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._ktc_fallback import host_device_sweep, rows_fallback, selection_view
 
 logger = logging.getLogger(__name__)
@@ -79,7 +81,7 @@ def score_device_chosen(n: int, p: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=work)) == "device"
     except Exception as exc:
-        logger.debug("residual_rescue_score_backend: KTC choose() failed, using the floor: %s", exc)
+        log_throttle(logger, "residual_rescue.score_choose_failed", logging.WARNING, "residual_rescue_score_backend: KTC choose() failed, using the floor: %s", exc)
         return work >= DEVICE_FALLBACK_ROWS
 
 
@@ -184,7 +186,7 @@ def codes_device_chosen(n: int, p: int) -> bool:
     try:
         return str(_CODES_SPEC.choose(n_samples=work)) == "device"
     except Exception as exc:
-        logger.debug("residual_rescue_codes_backend: KTC choose() failed, using the floor: %s", exc)
+        log_throttle(logger, "residual_rescue.codes_choose_failed", logging.WARNING, "residual_rescue_codes_backend: KTC choose() failed, using the floor: %s", exc)
         return work >= CODES_DEVICE_FALLBACK_ROWS
 
 

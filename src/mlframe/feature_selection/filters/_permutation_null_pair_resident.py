@@ -203,8 +203,8 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
         # invisible). Trip on the first fault so subsequent calls skip straight to the exact CPU njit floor.
         import logging
 
-        logging.getLogger("mlframe.feature_selection.filters.mrmr").debug(
-            "resident order-2 pair-maxT floor faulted; tripping GPU circuit breaker", exc_info=True,
+        logging.getLogger("mlframe.feature_selection.filters.mrmr").warning(
+            "resident order-2 pair-maxT floor faulted; tripping the GPU circuit breaker and using the CPU njit floor for the rest of this process", exc_info=True,
         )
         trip_pair_maxt_gpu_circuit_breaker()
         return None
@@ -258,6 +258,9 @@ def pair_maxt_perm_null_gpu_enabled(n: int, n_pairs: int) -> bool:
     try:
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
         if not fe_gpu_has_vram_cushion(int(n) * max(int(n_pairs), 1) * 8):
+            import logging
+            from mlframe.utils.log_throttle import log_throttle
+            log_throttle(logging.getLogger(__name__), "pair_maxt_resident.vram_cushion", logging.WARNING, "order-2 pair-maxT resident floor declined: no VRAM cushion for %d bytes, using the CPU njit floor", int(n) * max(int(n_pairs), 1) * 8)
             return False
     except Exception as e:  # nosec B110 - best-effort/optional path
         import logging

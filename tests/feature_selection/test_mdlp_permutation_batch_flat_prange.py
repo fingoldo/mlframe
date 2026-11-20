@@ -14,7 +14,7 @@ import pytest
 from mlframe.feature_selection.filters._benchmarks.bench_mdlp_permutation_batch_flat_prange import _batch_prange_over_nodes, _level
 from mlframe.feature_selection.filters._mdlp_validated_split import _mdlp_permutation_batch_njit
 from tests._perf_paired import assert_paired_speedup
-from tests.conftest import skip_under_numba_disabled_jit
+from tests.conftest import skip_if_host_contended, skip_under_numba_disabled_jit
 
 
 @pytest.mark.parametrize("n_nodes", [1, 2, 7, 32])
@@ -31,6 +31,9 @@ def test_flat_prange_accepts_match_per_node_layout(n_nodes):
 @pytest.mark.skipif(numba.get_num_threads() < 2, reason="needs >= 2 numba threads to parallelise anything")
 def test_single_node_level_uses_more_than_one_thread():
     """biz_value: a single-node level is parallelised over permutations, beating the per-node prange layout."""
+    # The gain is the extra threads the flat layout can use. Under xdist every core already runs a worker, so the extra threads only oversubscribe the host and the flat layout measures slower
+    # (0.41x, 0 of 5 rounds, on a runner with ``-n auto``): the ratio then says nothing about the kernel.
+    skip_if_host_contended("the speedup of a parallel layout cannot be measured while every core runs a test worker")
     x, y, sizes, gains, ncls, seeds = _level(1, 20_000, 10, np.random.default_rng(0))
     call = (x, y, sizes, gains, ncls, 5, 30, seeds, 0.05)
     assert_paired_speedup(

@@ -191,7 +191,7 @@ def analytic_mi_null(original_mi: float, n_rows: int, n_bins_x: int, n_bins_y: i
     if df <= 0 or n_rows <= 0:
         return 0.0, 1.0
     null_mean = df / (2.0 * float(n_rows))
-    if not _HAVE_CHI2 or original_mi <= 0.0:
+    if not _HAVE_CHI2 or not np.isfinite(original_mi) or original_mi <= 0.0:
         # no observed signal -> sits at/below its null -> non-significant.
         return null_mean, 1.0
     g_stat = 2.0 * float(n_rows) * float(original_mi)
@@ -356,7 +356,7 @@ def analytic_batch_noise_gate(
         _g = 2.0 * float(n_rows) * fe_mi[_use_chi2]
         _p[_use_chi2] = np.clip(_chi2_sf(_g, _df[_use_chi2]), 0.0, 1.0)
     _reject = (fe_mi > 0.0) & _applicable & (_p >= alpha_reject)
-    fe_mi[fe_mi <= 0.0] = 0.0
+    fe_mi[~(fe_mi > 0.0)] = 0.0
     fe_mi[_reject] = 0.0
     return np.asarray(fe_mi)
 

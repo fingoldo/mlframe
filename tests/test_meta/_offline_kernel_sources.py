@@ -85,6 +85,9 @@ _RECIPES: dict = {
         (r, _fill(s, **{"{REAL}": r, "{ACC}": "double", "__MAXK__": "8", "__WARPS__": "8", "__MAXVA__": "8", "__BLOCK__": "256"}), ("-std=c++11",))
         for r in _REAL_TYPES
     ],
+    "_gpu_resident_fe.py::_PREWARP_TRANSFORM_SRC": lambda s: [
+        (f"{x}->{r}", _fill(s, **{"{REAL}": r, "{XREAL}": x, "{ACC}": "double"}), ()) for x in _REAL_TYPES for r in _REAL_TYPES
+    ],
     "_fe_batched_mi_mm_values.py::_MI_MM_FROM_VALUES_TEMPLATE": lambda s: [
         (f"{r}/{e}", _fill(s, **{"{REAL}": r, "{ACC}": "double", "{EDGE}": e}), ()) for r in _REAL_TYPES for e in _REAL_TYPES
     ],
@@ -112,7 +115,7 @@ _RECIPES: dict = {
     "_fe_batched_mi.py::_MI_FROM_CODES_TILE_SRC": lambda s: [(ct, _fill(s, **{"{ACC}": "double", "{CT}": ct}), ()) for ct in ("long long", "unsigned char")],
     "_extra_fe_families_dispersion_resident.py::_COLUMN_SRC": lambda s: [(f"{r}->{e}", _fill(s, **{"{REAL}": r, "{EDGE}": e, "{FABS}": "fabsf" if r == "float" else "fabs"}), ()) for r in _REAL_TYPES for e in _REAL_TYPES],
     "_fe_pure_form_retention_gpu_resident.py::_GRAM_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
-    "_extra_fe_families_dispersion_resident.py::_CODES_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r}), ()) for r in _REAL_TYPES],
+    "_extra_fe_families_dispersion_resident.py::_CODES_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "{EDGE}": "double"}), ()) for r in _REAL_TYPES],
     "_gpu_resident_operand_build.py::_BATCH_UNARY_TEMPLATE": lambda s: [(r, _fill(s, **{"{REAL}": r, "{EDGE}": "float"}), ()) for r in _REAL_TYPES],
     "_extra_basis_resident.py::_BSPLINE_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "{ACC}": "double"}), ("--fmad=false",)) for r in _REAL_TYPES],
     "_order_stats_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],

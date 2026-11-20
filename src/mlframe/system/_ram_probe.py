@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import sys
 from typing import Any, Optional
+from typing import cast as typing_cast
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ def _status_type() -> Any:
                 for name in ("ullTotalPhys", "ullAvailPhys", "ullTotalPageFile", "ullAvailPageFile", "ullTotalVirtual", "ullAvailVirtual", "ullAvailExtendedVirtual")
             ]
 
-        _STATUS_TYPE = (_Status, ctypes.sizeof(_Status), ctypes.byref, ctypes.windll.kernel32.GlobalMemoryStatusEx)
+        _STATUS_TYPE = (_Status, ctypes.sizeof(_Status), ctypes.byref, typing_cast(Any, ctypes).windll.kernel32.GlobalMemoryStatusEx)  # windll exists on Windows only, which is the only caller
     return _STATUS_TYPE
 
 

@@ -11,8 +11,9 @@ from __future__ import annotations
 from tests.test_meta._scan_guard import assert_scanned_enough
 
 import ast
-import json
 from pathlib import Path
+
+import orjson
 
 SRC = Path(__file__).resolve().parents[2] / "src"
 BASELINE = Path(__file__).with_name("_kernel_tuning_unwritten_keys_baseline.json")
@@ -68,14 +69,14 @@ def _unwritten() -> dict[str, list[str]]:
 
 def test_no_new_cache_key_is_read_without_a_writer():
     """A dispatcher may not read a tuning-cache key nothing writes (a permanent silent miss), except the ratcheted debt."""
-    known = set(json.loads(BASELINE.read_text(encoding="utf-8"))["keys"])
+    known = set(orjson.loads(BASELINE.read_bytes())["keys"])
     new = {key: sites for key, sites in _unwritten().items() if key not in known}
     assert not new, f"cache keys read by production code that no kernel_tuner / cache write / sweep produces: {new}"
 
 
 def test_baseline_only_shrinks():
     """A baseline key that is now written, or no longer read, must be removed; the list never grows by hand."""
-    known = set(json.loads(BASELINE.read_text(encoding="utf-8"))["keys"])
+    known = set(orjson.loads(BASELINE.read_bytes())["keys"])
     still = set(_unwritten())
     stale = sorted(known - still)
     assert not stale, f"baseline keys that are written or no longer read (remove them): {stale}"

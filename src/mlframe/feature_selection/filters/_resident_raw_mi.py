@@ -33,6 +33,7 @@ import logging
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
@@ -68,7 +69,7 @@ def resident_raw_baseline_mi(
         if not fe_gpu_resident_raw_baseline_enabled():
             return None
     except Exception as e:
-        logger.debug("resident_raw_baseline_mi: fe_gpu_resident_raw_baseline_enabled() check failed, caller falls back to the exact host _mi_classif_batch: %s", e)
+        log_throttle(logger, "_resident_raw_mi.enabled_check", logging.WARNING, "resident_raw_baseline_mi: fe_gpu_resident_raw_baseline_enabled() check failed, caller falls back to the exact host _mi_classif_batch: %s", e)
         return None
     try:
         import cupy  # noqa: F401 - availability probe; crit_float_dtype() imports cupy lazily
@@ -114,5 +115,5 @@ def resident_raw_baseline_mi(
             dtype=_crit_np_dtype(),
         )
     except Exception as _exc:
-        logger.debug("resident_raw_baseline_mi: GPU path failed (%s); host fallback", _exc)
+        log_throttle(logger, "_resident_raw_mi.gpu_failed", logging.WARNING, "resident_raw_baseline_mi: GPU path failed (%s); host fallback", _exc)
         return None

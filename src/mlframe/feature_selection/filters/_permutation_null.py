@@ -43,6 +43,7 @@ import numba
 import numpy as np
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+from mlframe.utils.log_throttle import log_throttle
 
 from ._content_memo import ContentMemo
 from numba import prange
@@ -210,6 +211,7 @@ def _resident_floor_maxes(
 
     _upload_bytes = int(scaled_flat.nbytes) + (0 if y_perms_dev is not None or y_perms is None else int(y_perms.nbytes))
     if not fe_gpu_has_vram_cushion(2 * _upload_bytes):
+        log_throttle(logger, "permnull_order1.vram_cushion", logging.WARNING, "order-1 maxT permutation null: no VRAM cushion for %d upload bytes, using the CPU njit kernel", _upload_bytes)
         return None
     try:
         from ._permutation_null_resident import pooled_gain_floor_perms_cupy
@@ -288,6 +290,8 @@ def _order1_candidate_stats(
         if nb < 2:
             continue
         xc = np.ascontiguousarray(factors_data[:, ci]).astype(np.int64)
+        if xc.size and (int(xc.min()) < 0 or int(xc.max()) >= nb):
+            raise ValueError(f"candidate column {ci} holds codes in [{int(xc.min())}, {int(xc.max())}] outside [0, {nb}) of its nbins: the joint-count kernel indexes its table by them")
         # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         xcounts = np.bincount(xc, minlength=nb).astype(np.float64)
         px = xcounts[xcounts > 0] * inv_n
@@ -354,6 +358,8 @@ def pooled_permutation_null_gain_floor(
 
     inv_n = 1.0 / n
     y_codes = np.ascontiguousarray(factors_data[:, y_idx]).astype(np.int64)
+    if int(y_codes.min()) < 0 or int(y_codes.max()) >= nbins_y:
+        raise ValueError(f"target codes in [{int(y_codes.min())}, {int(y_codes.max())}] lie outside [0, {nbins_y}) of its nbins: the joint-count kernel indexes its table by them")
 
     # H(y) is invariant under permutation (relabelling only); H(x) too. Only the
     # joint H(x, y_perm) changes per shuffle, so precompute the invariants once.
@@ -500,6 +506,43 @@ def _pairwise_occupied_joint_k(
     return np.asarray(_pairwise_occupied_joint_k_njit(factors_data, pa, pb, nb))
 
 
+def _validate_code_ranges(data: np.ndarray, nbins: np.ndarray, columns: np.ndarray) -> None:
+    """Reject a used column holding a code outside ``[0, nbins[col])``: the joint-count kernels index their tables by the codes without bounds checks."""
+    if data.shape[0] == 0:
+        return
+    for c in np.unique(columns):
+        col = data[:, int(c)]
+        lo, hi = int(col.min()), int(col.max())
+        if lo < 0 or hi >= int(nbins[int(c)]):
+            raise ValueError(f"column {int(c)} holds codes in [{lo}, {hi}] outside [0, {int(nbins[int(c)])}) of its nbins entry: the joint-count kernel indexes its table by them")
+
+
+def _validate_pair_columns(factors_data, nbins, pair_a, pair_b) -> None:
+    """Reject pair index and code-range shapes the njit occupied-joint-K kernel would index out of bounds."""
+    data = np.asarray(factors_data)
+    if data.ndim != 2:
+        raise ValueError(f"factors_data must be a 2-D (rows, columns) array, got shape {data.shape}")
+    p = int(data.shape[1])
+    nb = np.asarray(nbins)
+    if nb.ndim != 1 or nb.shape[0] != p:
+        raise ValueError(f"nbins must be a 1-D vector with one entry per column of factors_data ({p}), got shape {nb.shape}")
+    pa, pb = np.asarray(pair_a), np.asarray(pair_b)
+    if pa.shape != pb.shape or pa.ndim != 1:
+        raise ValueError(f"pair_a and pair_b must be 1-D and the same length, got {pa.shape} and {pb.shape}")
+    if pa.size and (int(min(pa.min(), pb.min())) < 0 or int(max(pa.max(), pb.max())) >= p):
+        raise ValueError(f"pair indices must lie in [0, {p}), got range [{int(min(pa.min(), pb.min()))}, {int(max(pa.max(), pb.max()))}]")
+    _validate_code_ranges(data, nb, np.concatenate([pa, pb]))
+
+
+def _validate_triple_floor_inputs(factors_data, nbins, triple_a, triple_b, triple_c, classes_y, freqs_y) -> None:
+    """Reject triple-pool shapes and codes the njit 3-way joint-MI kernel would index out of bounds (it segfaults instead of raising)."""
+    _validate_pair_floor_inputs(factors_data, nbins, triple_a, triple_b, classes_y, freqs_y)
+    ta, tc = np.asarray(triple_a), np.asarray(triple_c)
+    if tc.shape != ta.shape:
+        raise ValueError(f"triple_a, triple_b and triple_c must be 1-D and the same length, got {ta.shape} and {tc.shape}")
+    _validate_pair_columns(factors_data, nbins, tc, tc)
+
+
 def _validate_pair_floor_inputs(factors_data, nbins, pair_a, pair_b, classes_y, freqs_y) -> None:
     """Reject input shapes the njit joint-MI kernel would index out of bounds (it segfaults instead of raising).
 
@@ -524,6 +567,7 @@ def _validate_pair_floor_inputs(factors_data, nbins, pair_a, pair_b, classes_y, 
     k_y = int(shape_of(freqs_y)[0])
     if y.size and (int(y.min()) < 0 or int(y.max()) >= k_y):
         raise ValueError(f"classes_y codes must lie in [0, {k_y}) to match freqs_y, got range [{int(y.min())}, {int(y.max())}]")
+    _validate_code_ranges(data, nb, np.concatenate([pa, pb]))
 
 
 _PAIR_FLOOR_MEMO = ContentMemo(max_entries=4)  # K per-shuffle maxima of a pool, by input content
@@ -737,6 +781,7 @@ def pooled_triple_permutation_null_joint_mi_floor(
     C(p, 3) - tighter multiple-comparison correction, the architectural through-line).
     """
     n = int(factors_data.shape[0])
+    _validate_triple_floor_inputs(factors_data, nbins, triple_a, triple_b, triple_c, classes_y, freqs_y)
     n_triples = int(triple_a.shape[0])
     if n < 8 or n_permutations < 1 or n_triples < 2:
         return 0.0
@@ -791,6 +836,7 @@ def pairwise_mm_joint_bias(
     from its per-shuffle joint MIs (IRON RULE: consistent debias on both sides).
     Returns an all-zero vector when ``k_y <= 1`` (degenerate target)."""
     n = int(factors_data.shape[0])
+    _validate_pair_columns(factors_data, nbins, pair_a, pair_b)
     pa = np.ascontiguousarray(pair_a, dtype=np.int64)
     pb = np.ascontiguousarray(pair_b, dtype=np.int64)
     nb = np.ascontiguousarray(nbins)

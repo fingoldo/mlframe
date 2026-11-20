@@ -220,7 +220,7 @@ void mm_nek_tile(const {REAL}* __restrict__ X, const {ACC}* __restrict__ edges,
     extern __shared__ char smem[];
     int M = nbins * Ky;
     int* sh = (int*)smem;                        // (G, M) joint histograms
-    {ACC}* se = ({ACC}*)(smem + G * M * 4);    // (G, 256) cached interior edges of each column
+    {ACC}* se = ({ACC}*)(smem + ((G * M * 4 + 7) & ~7));    // (G, 256) cached interior edges of each column, 8-byte aligned for the {ACC} reads
     int c0 = blockIdx.x * G;
     int g = min(G, K - c0);
     int tid = threadIdx.x, nt = blockDim.x;
@@ -281,6 +281,7 @@ def _launch_mm_nek_tile(Xc: Any, Ec: Any, yv: Any, n: int, K: int, nbins: int, K
     G = min(_MM_NEK_TILE_COLS, 44000 // (4 * M + 256 * 8))  # the same 44 KB shared budget as the other MI kernels
     if G < 1:
         return False
+    shared_bytes = ((G * M * 4 + 7) & ~7) + G * 256 * 8  # histograms padded to an 8-byte boundary, then the double edge cache
     try:
         with _KERNEL_CACHE_LOCK:
             kern = _MM_NEK_TILE_KERNELS.get(bool(is_f32))
@@ -288,8 +289,8 @@ def _launch_mm_nek_tile(Xc: Any, Ec: Any, yv: Any, n: int, K: int, nbins: int, K
                 kern = kernel_tile(cp, np.float32 if is_f32 else np.float64)  # Intentional float64: the device kernel is built in the data's own precision: float64 data keeps double
                 _MM_NEK_TILE_KERNELS[bool(is_f32)] = kern
         kern(((K + G - 1) // G,), (_MM_NEK_TILE_THREADS,), (Xc, Ec, yv, np.int64(n), np.int32(K), np.int32(nbins), np.int32(Ky), np.int32(G),  # launch-ok: the tile's edge cache and per-column reduction are written for a fixed 256-lane block (the loader strides by blockDim / G)
-                                                             np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)), ne_k, mi_out),  # Intentional float64: scalar argument of a double-typed kernel parameter or accumulator
-             shared_mem=G * (4 * M + 256 * 8))
+                                                             np.float64(1.0 / float(max(1, n))), np.float64(float(h_y)), np.int32(int(k_y)), ne_k, mi_out),  # Intentional float64: scalar argument of a double-typed kernel parameter
+             shared_mem=shared_bytes)
     except Exception as exc:
         log_throttle(
             logger, "mm_nek_tile_launch_failed", logging.WARNING,
@@ -354,8 +355,8 @@ def _column_min_max(Xc: Any, n: int, K: int, is_f32: bool) -> tuple:
         cmax = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI edge bounds; compared at full precision
         kern(((K + 7) // 8,), (_COL_MINMAX_THREADS,), (Xc, np.int64(n), np.int32(K), cmin, cmax))  # launch-ok: 8 columns per block with the per-thread column index tid % 8: the shared min and max arrays are sized for 256 threads
         return cmin, cmax
-    except Exception:
-        logger.debug("col_minmax launch failed; cupy axis-0 reductions", exc_info=True)
+    except Exception as exc:
+        log_throttle(logger, "col_minmax_launch_failed", logging.WARNING, "col_minmax launch failed (%s: %s); using cupy axis-0 reductions", type(exc).__name__, exc)
         return (cp.ascontiguousarray(Xc.min(axis=0).astype(cp.float64, copy=False)),  # Intentional float64: GPU MI edge bounds; compared at full precision
                 cp.ascontiguousarray(Xc.max(axis=0).astype(cp.float64, copy=False)))  # Intentional float64: GPU MI edge bounds; compared at full precision
 
@@ -389,6 +390,10 @@ def binned_mm_mi_from_values_gpu(x_vals: Any, interior_edges: Any, y_codes: Any,
     else:
         from ._fe_resident_operands import resident_operand
         yv = resident_operand(np.asarray(y_codes).ravel(), "binned_mm_ycodes", dtype=np.int64)
+    if int(yv.size) != n:
+        raise ValueError("binned_mm_mi_from_values_gpu: y_codes has %d rows but x_vals has %d" % (int(yv.size), n))
+    if E.ndim != 2 or int(E.shape[1]) != K or int(E.shape[0]) > int(nbins) - 1:
+        raise ValueError("binned_mm_mi_from_values_gpu: interior_edges shape %r does not fit (nbins-1=%d, K=%d)" % (tuple(E.shape), int(nbins) - 1, K))
     _assert_codes_in_range(yv, Ky, "binned_mm_mi_from_values_gpu y codes", codes_trusted)
     mi_out = cp.empty(K, dtype=cp.float64)  # Intentional float64: GPU MI output accumulator
     Xc = cp.ascontiguousarray(Xd)

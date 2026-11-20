@@ -368,7 +368,7 @@ def infonet_mi(x: np.ndarray, y: np.ndarray, *, point_cloud_size: int = 4781, de
         y: 1-D array of equal length to ``x``, the second variable.
         point_cloud_size: training-time fixed sequence length is 4781; smaller
             inputs are padded, larger sub-sampled. Default matches paper.
-        device: ``'auto'``, ``'cuda'``, or ``'cpu'``.
+        device: only keys the model cache; the vendored runner places the model and batch on CUDA when available, else the CPU, whatever is passed.
         seed: sub-sample RNG seed (used only when N > point_cloud_size).
 
     Returns:
@@ -500,7 +500,7 @@ def _get_mist_hf_model(loss: str = "mse", device: str = "auto"):
 _MIST_CALIBRATION_CACHE: dict = {}
 
 
-def _calibrate_mist(device: str = "auto", N: int = 2000, seed: int = 42, n_calibration_per_rho: int = 3, y_kind: str = "continuous") -> tuple:
+def _calibrate_mist(device: str = "auto", N: int = 2000, seed: int = 42, n_calibration_per_rho: int = 3, y_kind: str = "continuous", loss: str = "mse") -> tuple:
     """Fit empirical lookup-table calibration from MIST raw output to nats.
 
     The raw MIST output saturates differently per y-type. We maintain SEPARATE
@@ -519,21 +519,23 @@ def _calibrate_mist(device: str = "auto", N: int = 2000, seed: int = 42, n_calib
       2. Run MIST raw, sort by raw, build monotonic lookup ``raw -> nats``.
       3. ``np.interp`` at inference clips outside-range raw values.
 
-    Returns ``(raw_grid, nats_grid)`` - the lookup table for the (device, y_kind).
+    The raw output scale is model-specific, so the table is built from the ``loss`` model ('mse' or 'qr') that will be calibrated with it.
+
+    Returns ``(raw_grid, nats_grid)`` - the lookup table for the (device, y_kind, loss).
     """
-    cache_key = (device, y_kind)
+    cache_key = (device, y_kind, loss)
     if cache_key in _MIST_CALIBRATION_CACHE:
         return tuple(_MIST_CALIBRATION_CACHE[cache_key])
     with _NEURAL_MI_CACHE_LOCK:
         if cache_key in _MIST_CALIBRATION_CACHE:
             return tuple(_MIST_CALIBRATION_CACHE[cache_key])
-        return tuple(_compute_mist_calibration(cache_key, device, N, seed, n_calibration_per_rho, y_kind))
+        return tuple(_compute_mist_calibration(cache_key, device, N, seed, n_calibration_per_rho, y_kind, loss))
 
 
-def _compute_mist_calibration(cache_key, device, N, seed, n_calibration_per_rho, y_kind) -> tuple:
+def _compute_mist_calibration(cache_key, device, N, seed, n_calibration_per_rho, y_kind, loss: str = "mse") -> tuple:
     """Heavy calibration body for ``_calibrate_mist``; called under ``_NEURAL_MI_CACHE_LOCK`` on a cache miss
-    (double-checked), so it runs exactly once per (device, y_kind) even under concurrent first-callers."""
-    model = _get_mist_hf_model(loss="mse", device=device)
+    (double-checked), so it runs exactly once per (device, y_kind, loss) even under concurrent first-callers."""
+    model = _get_mist_hf_model(loss=loss, device=device)
     rng = np.random.default_rng(int(seed))
     raw_truth_pairs: list = []
     if y_kind == "continuous":
@@ -662,7 +664,7 @@ def mist_mi(x: np.ndarray, y: np.ndarray, *, loss: str = "mse", calibrated: bool
         max_input_n: inputs larger than this are subsampled before inference (the model was trained
             at a fixed point-cloud size).
         device: ``'auto'``, ``'cuda'``, or ``'cpu'``.
-        seed: ignored; feed-forward inference is deterministic.
+        seed: seeds the subsample drawn when the input exceeds ``max_input_n``; the inference itself is deterministic.
 
     Returns:
         Estimated MI from the pre-trained model: calibrated to nats when ``calibrated`` is True, else the raw model output.
@@ -699,7 +701,7 @@ def mist_mi(x: np.ndarray, y: np.ndarray, *, loss: str = "mse", calibrated: bool
         # continuous) y. Pre-fix had a single Gaussian-copula table that
         # over-estimated by 90-200% on binary y.
         y_kind = _classify_y_kind(y)
-        raw_grid, nats_grid = _calibrate_mist(device=device, y_kind=y_kind)
+        raw_grid, nats_grid = _calibrate_mist(device=device, y_kind=y_kind, loss=loss)
         mi = float(np.interp(raw, raw_grid, nats_grid))
     else:
         mi = raw
@@ -820,6 +822,8 @@ def dpmine_mi(
 
     Reference: arxiv.org/abs/2503.08902.
     """
+    if int(n_iter) < 1:
+        raise ValueError(f"dpmine_mi: n_iter must be >= 1; got {n_iter}")
     import torch
     import torch.nn as nn
     import torch.optim as optim

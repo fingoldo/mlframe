@@ -16,6 +16,8 @@ from typing import Any, cast
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._ktc_fallback import device_from_rows
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
@@ -130,28 +132,29 @@ def lof_transform_gpu(X_new: np.ndarray, X_ref: np.ndarray, lrd_ref: np.ndarray,
         return None
     try:
         import cupy as cp
+
+        # Intentional float64: output keeps the input width (float32 or float64)
+        dt = np.float32 if X_new.dtype.itemsize == 4 else np.float64
+        ref = cp.asarray(np.ascontiguousarray(X_ref, dtype=dt))
+        kd = cp.asarray(np.ascontiguousarray(k_distance_ref, dtype=dt))
+        lrd = cp.asarray(np.ascontiguousarray(lrd_ref, dtype=dt))
+        krn = kernel(cp, dt, int(k_eff), p)
+        out = np.empty(n, dtype=dt)
+        block = max(1, min(n, int(rows_per_launch)))
+        for s in range(0, n, block):
+            part = cp.asarray(np.ascontiguousarray(X_new[s : s + block], dtype=dt))
+            res = cp.empty(part.shape[0], dtype=dt)
+            threads = block_size_for(krn, work_items=part.shape[0])
+            shared = 0
+            if int(k_eff) > _REG_TOPK_MAX:
+                threads = min(threads, _SHARED_TOPK_THREADS_CAP[int(k_eff)])
+                shared = int(k_eff) * threads * 12
+            krn(((part.shape[0] + threads - 1) // threads,), (threads,), (part, ref, kd, lrd, np.int64(part.shape[0]), np.int32(ref.shape[0]), np.int32(int(k_eff)), res), shared_mem=shared)
+            out[s : s + block] = cp.asnumpy(res)
+        return cast(np.ndarray, out)
     except Exception as exc:
-        logger.debug("device LOF unavailable (%s)", exc)
+        log_throttle(logger, "_lof_gpu.device_failed", logging.WARNING, "device LOF failed (%s: %s); the host scorer runs", type(exc).__name__, exc)
         return None
-    # Intentional float64: output keeps the input width (float32 or float64)
-    dt = np.float32 if X_new.dtype.itemsize == 4 else np.float64
-    ref = cp.asarray(np.ascontiguousarray(X_ref, dtype=dt))
-    kd = cp.asarray(np.ascontiguousarray(k_distance_ref, dtype=dt))
-    lrd = cp.asarray(np.ascontiguousarray(lrd_ref, dtype=dt))
-    krn = kernel(cp, dt, int(k_eff), p)
-    out = np.empty(n, dtype=dt)
-    block = max(1, min(n, int(rows_per_launch)))
-    for s in range(0, n, block):
-        part = cp.asarray(np.ascontiguousarray(X_new[s : s + block], dtype=dt))
-        res = cp.empty(part.shape[0], dtype=dt)
-        threads = block_size_for(krn, work_items=part.shape[0])
-        shared = 0
-        if int(k_eff) > _REG_TOPK_MAX:
-            threads = min(threads, _SHARED_TOPK_THREADS_CAP[int(k_eff)])
-            shared = int(k_eff) * threads * 12
-        krn(((part.shape[0] + threads - 1) // threads,), (threads,), (part, ref, kd, lrd, np.int64(part.shape[0]), np.int32(ref.shape[0]), np.int32(int(k_eff)), res), shared_mem=shared)
-        out[s : s + block] = cp.asnumpy(res)
-    return cast(np.ndarray, out)
 
 
 def use_device_lof(n_rows: int) -> bool:
@@ -164,7 +167,7 @@ def use_device_lof(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("fe_lof_device: KTC choose() failed, using the fallback: %s", exc)
+        log_throttle(logger, "_lof_gpu.ktc_choose", logging.WARNING, "fe_lof_device: KTC choose() failed (%s: %s); using the row-count fallback", type(exc).__name__, exc)
         return n_rows >= LOF_DEVICE_FALLBACK_ROWS
 
 

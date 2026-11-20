@@ -27,6 +27,7 @@ import logging
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 from mlframe.feature_selection.filters._permutation_null_joint_kernel import perm_joint_counts
 
@@ -186,5 +187,5 @@ def gen_target_shuffles_cupy(y_codes: np.ndarray, nperm: int, dtype: type, rando
         del order
         return out
     except Exception as e:
-        logger.debug("device-resident shuffle-gen failed (cupy error / OOM), caller falls back to the host gen: %s", e)
+        log_throttle(logger, "permnull_resident.shufflegen_failed", logging.WARNING, "device-resident shuffle-gen failed (%s), using the host shuffle-gen", e)
         return None

@@ -556,7 +556,7 @@ def _cmi_gpu_enabled(*, n: Optional[int] = None, p: Optional[int] = None, min_p:
         return bool(fe_gpu_strict_enabled(n=n, p=p, min_p=min_p))
     except Exception as e:
         # fallback: the strict-GPU gate is an optional probe; any failure keeps the CPU host path.
-        logger.debug("fe_gpu_strict_enabled probe failed (%s: %s) -- defaulting to CPU host path", type(e).__name__, e)
+        log_throttle(logger, "cmi_gpu_strict_probe", logging.WARNING, "fe_gpu_strict_enabled probe failed (%s: %s); the CMI entropies run on the CPU host path", type(e).__name__, e)
         return False
 
 
@@ -642,6 +642,15 @@ def _cmi_from_binned_fixed_yz_cupy(x, y_i, z_i, h_yz, h_z, k_yz, k_z, n) -> floa
     return float(max(0.0, cmi_plugin - cmi_bias))
 
 
+def _fingerprint_weights(xp, n: int):
+    """Per-row int64 weights for the weighted-sum candidate fingerprint: a splitmix64 mix of the row index, so no small integer change pattern of the codes cancels (an arithmetic-progression weight let ``+2`` at one row and ``-1`` at the next collide)."""
+    z = xp.arange(1, int(n) + 1, dtype=xp.uint64) * xp.uint64(0x9E3779B97F4A7C15)
+    z = (z ^ (z >> xp.uint64(30))) * xp.uint64(0xBF58476D1CE4E5B9)
+    z = (z ^ (z >> xp.uint64(27))) * xp.uint64(0x94D049BB133111EB)
+    z = z ^ (z >> xp.uint64(31))
+    return z.view(xp.int64)
+
+
 def _greedy_cmi_fe_constr_step1_content_hash_already(cand_names, engineered, nbins, st, _bin_fingerprint, seed, cand_bins_dev):
     """Step 1 of greedy_cmi_fe_construct: lines starting at ``try:``."""
     try:
@@ -714,10 +723,15 @@ def _greedy_cmi_fe_constr_step1_content_hash_already(cand_names, engineered, nbi
 
 def _greedy_cmi_fe_constr_step2_rng_raw_small(cand_names, rng_floor, y_bin, z_joint_dev, z_joint, cand_bins_dev, _host_bins, st):
     """Step 2 of greedy_cmi_fe_construct: lines starting at ``def _noise_floor_for_current_z() -> float:``."""
+    st.z_joint_dev = z_joint_dev
+    st.z_joint = z_joint
+
     def _noise_floor_for_current_z() -> float:
         """Permutation-based CMI noise floor for the CURRENT conditioning Z: shuffles y once, samples up to 24 candidates' CMI against the shuffled target, and returns the 95th percentile as the floor a real candidate must clear (combined with the user's ``min_cmi_gain`` via ``max()``). Recomputed as Z grows so the floor tracks the conditioning's fragmentation."""
         if not cand_names:
             return 0.0
+        z_joint_dev = st.z_joint_dev  # the step-3 loop rebinds Z as winners fold in; read the live support, not the one at closure creation
+        z_joint = st.z_joint
         idx = rng_floor.permutation(y_bin.size)
         y_shuf = y_bin[idx]
         sample_size = min(24, len(cand_names))
@@ -967,5 +981,7 @@ def _greedy_cmi_fe_constr_step3_while_st_remaining(st, top_k, _noise_floor_for_c
                     z_joint = candidate_joint
                     st.z_card = cand_card
             # else: leave z_joint unchanged; subsequent CMI uses prev Z.
+        st.z_joint_dev = z_joint_dev
+        st.z_joint = z_joint
         st.remaining.discard(best_name)
         st.step += 1

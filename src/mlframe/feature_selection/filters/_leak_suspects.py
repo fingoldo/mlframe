@@ -11,6 +11,7 @@ import warnings
 from typing import Any
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,8 @@ def _rank(values: np.ndarray) -> np.ndarray:
 def leak_score(column: np.ndarray, y: np.ndarray) -> float:
     """How close ``column`` alone is to determining ``y``: ``max(AUC, 1 - AUC)`` for a two-class ``y``, ``|Spearman|`` for a continuous one, 0.0 when it cannot be judged."""
     mask = np.isfinite(column)
+    if y.dtype.kind == "f":
+        mask &= np.isfinite(y)  # a NaN target row would rank as the largest value and skew both the AUC and the Spearman score
     column, y = column[mask], y[mask]
     if len(column) < _MIN_ROWS or np.ptp(column) == 0:
         return 0.0
@@ -70,7 +73,7 @@ def record_leak_suspects(estimator: Any, X: Any, y: Any) -> list:
             if score >= SUSPECT_SCORE:
                 suspects.append((name, round(score, 4)))
     except Exception as e:  # nosec B110 - a diagnostic must never break a fit
-        logger.debug("leak suspect check skipped: %s", e)
+        log_throttle(logger, "_leak_suspects.check_failed", logging.WARNING, "leak suspect check skipped (%s: %s)", type(e).__name__, e)
     estimator.leak_suspects_ = suspects
     if suspects:
         shown = ", ".join(f"{n} ({s})" for n, s in suspects[:5])

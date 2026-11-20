@@ -12,6 +12,10 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+import logging
+
+from mlframe.utils.log_throttle import log_throttle
+
 from .._fe_usability_signal import _crit_np_dtype
 
 from ._recipe_core import EngineeredRecipe
@@ -19,6 +23,8 @@ from ._recipe_extract import _coerce_to_int_with_nan_handling, _extract_column
 
 if TYPE_CHECKING:
     from ..hermite_fe import HermiteResult
+
+logger = logging.getLogger(__name__)
 
 
 def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, np.ndarray] | None" = None) -> np.ndarray:
@@ -62,6 +68,10 @@ def _apply_hermite_pair(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
         # validate-transform contract NaN-degrades chained-capable kinds (hermite_pair references engineered cols)
         # rather than crash the whole transform; mirror that here for the same missing-source class, re-raise else.
         if isinstance(_src_err, (KeyError, IndexError)) or "ColumnNotFound" in type(_src_err).__name__:
+            log_throttle(
+                logger, "recipe_hermite_pair_missing_source", logging.WARNING,
+                "hermite_pair recipe %r: source column missing at replay (%s: %s); emitting an all-NaN column.", recipe.name, type(_src_err).__name__, _src_err,
+            )
             return np.full(len(X), np.nan, dtype=_crit_np_dtype())
         raise
 

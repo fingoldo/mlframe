@@ -9,6 +9,8 @@ import logging
 import numpy as np
 from numba import njit, prange
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # OPT-A: per-host serial-vs-parallel crossover for the FE materialise /
@@ -358,7 +360,7 @@ def _fe_use_parallel_kernels(n_cols: int, serial_main_thread: bool) -> bool:
     try:
         return bool(_FE_PARALLELISM_SPEC.choose(n_cols=int(n_cols)) == "parallel")
     except Exception as e:
-        logger.debug("kernel_tuning_cache serial-vs-parallel choice failed, using heuristic fallback: %s", e)
+        log_throttle(logger, "pairs_materialise_ktc_parallelism", logging.WARNING, "kernel_tuning_cache serial-vs-parallel choice failed, using heuristic fallback: %s", e)
         # Cache/pyutilz failure -> heuristic fallback (still gated on serial_main_thread).
         return _fe_parallelism_fallback_choice(int(n_cols)) == "parallel"
 

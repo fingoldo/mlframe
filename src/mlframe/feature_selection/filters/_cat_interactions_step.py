@@ -543,12 +543,12 @@ def _gpu_pair_search_or_none(cfg, gpu_fn, data, pairs_a, pairs_b, nbins, classes
         return False, None, None, None
     # Intentional float64: interaction-information output accumulator returned to the MI ranking (output contract).
     ii_arr = np.zeros(len(pairs_a), dtype=np.float64)
-    n_uniq_arr = np.zeros(len(pairs_a), dtype=np.int64)
+    # The device kernels do not count occupied cells; -1 marks "unknown" and the diagnostics count them for the selected pairs only.
+    n_uniq_arr = np.full(len(pairs_a), -1, dtype=np.int64)
     for k in range(len(pairs_a)):
         i = int(pairs_a[k])
         j = int(pairs_b[k])
         ii_arr[k] = joint_mi_arr[k] - marginal_mi_full[i] - marginal_mi_full[j]
-        n_uniq_arr[k] = int(nbins[i]) * int(nbins[j])
     return True, ii_arr, joint_mi_arr, n_uniq_arr
 
 
@@ -615,12 +615,20 @@ def _run_cat_interactio_phase_top_seeds_cheap(kway_results, pairs_a, selected_id
         _expand_seeds(range(len(pairs_a)))
 
 
-def _run_cat_interactio_diagnostics_always_cheap_gated(cfg, selected_idx, pairs_a, pairs_b, ii_arr, joint_mi_arr, marginal_mi_full, n_uniq_arr, cols, n_samples, confidence_dict, bootstrap_ci_dict, state, new_names):
+def _occupied_pair_cells(data, nbins, i, j):
+    """Number of occupied joint cells of columns ``i`` and ``j``, the value the host pair kernel reports as ``n_uniq``."""
+    code = data[:, i].astype(np.int64) + data[:, j].astype(np.int64) * int(nbins[i])
+    return int(np.count_nonzero(np.bincount(code, minlength=1)))
+
+
+def _run_cat_interactio_diagnostics_always_cheap_gated(cfg, selected_idx, pairs_a, pairs_b, ii_arr, joint_mi_arr, marginal_mi_full, n_uniq_arr, cols, n_samples, confidence_dict, bootstrap_ci_dict, state, new_names, data=None, nbins=None):
     """Block of run_cat_interaction_step starting at ``if cfg.emit_diagnostics:``."""
     if cfg.emit_diagnostics:
         for k_out, k_in in enumerate(selected_idx):
             i = int(pairs_a[k_in])
             j = int(pairs_b[k_in])
+            if n_uniq_arr[k_in] < 0 and data is not None:
+                n_uniq_arr[k_in] = _occupied_pair_cells(data, nbins, i, j)
             state.diagnostics[new_names[k_out]] = {
                 "II": float(ii_arr[k_in]),
                 "joint_MI": float(joint_mi_arr[k_in]),

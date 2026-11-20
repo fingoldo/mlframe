@@ -53,7 +53,7 @@ from __future__ import annotations
 import logging
 
 import numpy as np
-from .._fe_gpu_batch._devices import crit_float_dtype
+from .._cupy_solve_checked import cupy_solve_checked
 from .._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._safe_scale import guarded_scale
@@ -88,7 +88,8 @@ def _build_basis_matrix_gpu(cp, basis: str, z_gpu, max_degree: int):
     # not affect the H2D residency win - only the recurrence stability - so it stays f64. (The relaxed prewarp
     # path still halves the H2D by uploading the standardised COLUMN za/zb as f32; only this on-device recurrence
     # keeps f64.) A f32 input column is widened here.
-    x = cp.ascontiguousarray(cp.asarray(z_gpu, dtype=crit_float_dtype())).reshape(-1)
+    # Intentional float64: the design recurrence is kept double regardless of the crit dtype (see the note above)
+    x = cp.ascontiguousarray(cp.asarray(z_gpu, dtype=cp.float64)).reshape(-1)
     n = x.shape[0]
     nc = int(max_degree) + 1
     if _fused_basis_enabled():
@@ -104,7 +105,7 @@ def _build_basis_matrix_gpu(cp, basis: str, z_gpu, max_degree: int):
 def _build_basis_matrix_loop(cp, basis: str, x, nc: int):
     """The cupy-op-per-degree recurrence for the resident column ``x`` (``nc`` columns): the reference the single-kernel build is tested and swept against."""
     n = x.shape[0]
-    B = cp.empty((n, nc), dtype=crit_float_dtype())
+    B = cp.empty((n, nc), dtype=x.dtype)
     B[:, 0] = 1.0
     if nc <= 1:
         return B
@@ -148,7 +149,7 @@ def _als_solve_weighted_gpu(cp, B, w, b):
 
     AtA, Atb = weighted_gram(cp, B, w, b)
     try:
-        return cp.linalg.solve(AtA, Atb)
+        return cupy_solve_checked(cp, AtA, Atb)
     except Exception as e:
         logger.debug("cp.linalg.solve failed (likely singular), falling back to lstsq: %s", e)
         return cp.linalg.lstsq(B if w is None else B * w[:, None], b, rcond=None)[0]

@@ -304,9 +304,9 @@ def _batched_quantiles(cp, M, q_fracs):
         out = _radix_quantiles(M, q_fracs)
         if out is not None:
             return out
-    except Exception as e:  # nosec B110 - best-effort/optional path, no module logger
+    except Exception as e:
         import logging
-        logging.getLogger(__name__).debug("_radix_quantiles failed, falling back to cp.percentile: %s", e)
+        log_throttle(logging.getLogger(__name__), "gpu_resident_basis.radix_quantiles", logging.WARNING, "radix-select quantiles failed, falling back to the sorting cp.percentile: %s", e)
     return device_percentile(M, cp.asarray([float(q) * 100.0 for q in q_fracs]), axis=0)
 
 
@@ -842,9 +842,9 @@ def _gpu_basis_preprocess_batched(cp, M, basis, *, robust):
     if basis in _BASIS_PREPROCESS_CODE:
         try:
             return _gpu_basis_preprocess_robust_fused(cp, M, basis) if robust else _gpu_basis_preprocess_nonrobust_fused(cp, M, basis)
-        except Exception as e:  # nosec B110 - non-trivial body; best-effort/optional path, no module logger
+        except Exception as e:
             import logging
-            logging.getLogger(__name__).debug("fused basis-preprocess kernel failed, falling back to the exact cupy chain: %s", e)
+            log_throttle(logging.getLogger(__name__), "gpu_resident_basis.fused_preprocess", logging.WARNING, "fused basis-preprocess kernel failed, falling back to the exact cupy chain: %s", e)
     if basis == "hermite":  # z-score
         if robust:
             center = _batched_quantiles(cp, M, [0.5])[0]
@@ -966,6 +966,8 @@ def _gpu_batched_abs_corr(cp, cand, y_cont, mu=None):
         import logging
         log_throttle(logging.getLogger(__name__), "gpu_resident_basis.abs_corr_kernel", logging.WARNING,
                      "abs-corr RawKernel failed, falling back to the cupy chain: %s", e)
+        cand = cand if cand.ndim == 2 else cand[:, None]
+        y_cont = y_cont.ravel()
         yc = y_cont - y_cont.mean()
         yn = cp.sqrt((yc * yc).sum())
         cc = cand - cand.mean(axis=0)

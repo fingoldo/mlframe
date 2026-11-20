@@ -239,6 +239,7 @@ def validate_pair_fe_cv(
 
     x_a = np.asarray(x_a, dtype=_crit_np_dtype())
     x_b = np.asarray(x_b, dtype=_crit_np_dtype())
+    y = np.asarray(y)
     cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed) if discrete_target else KFold(n_splits=n_splits, shuffle=True, random_state=seed)
 
     # In-sample reference (full data).

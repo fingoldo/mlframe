@@ -63,3 +63,19 @@ def test_iterative_zero_importance_pruning_accepts_polars_frame():
     assert isinstance(survivors, list)
     assert set(survivors).issubset(set(X.columns))
     assert len(survivors) >= 1
+
+
+def test_zero_importance_pruning_rejects_wrong_length_importance_fn():
+    """An importance_fn returning too few values raises instead of silently dropping the tail columns."""
+    import numpy as np
+    import pandas as pd
+    import pytest
+    from sklearn.ensemble import RandomForestRegressor
+    from mlframe.feature_selection.zero_importance_pruning import iterative_zero_importance_pruning
+
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame(rng.normal(size=(60, 4)), columns=list("abcd"))
+    y = X["a"].to_numpy() + 0.1 * rng.normal(size=60)
+    with pytest.raises(ValueError):
+        iterative_zero_importance_pruning(RandomForestRegressor(n_estimators=3, random_state=0), X, y, lambda t, p: -float(np.mean((t - p) ** 2)),
+                                          importance_fn=lambda m, Xr, yy: np.array([1.0, 0.0]))

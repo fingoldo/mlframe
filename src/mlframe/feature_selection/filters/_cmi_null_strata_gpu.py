@@ -235,6 +235,10 @@ def strata_null_cmi(cp: Any, shuffled_sorted: Any, y_sorted: Any, z_rank: Any, d
     inv_n = 1.0 / float(max(1, n))
     ky, h_zy, k_z, k_yz = _zy_terms(cp, dz, dy, inv_n)
     if kx * ky > MAX_CELLS or kx > 255 or ky > 255 or S < MIN_STRATA:
+        log_throttle(
+            logger, "cmi_null_strata_gpu_declined", logging.INFO,
+            "per-stratum null CMI declined (kx=%d, ky=%d, strata=%d; needs kx*ky<=%d, codes<=255, strata>=%d); the dense route runs for this call", kx, ky, S, MAX_CELLS, MIN_STRATA,
+        )
         return None
     try:
         # run starts from the stratum sizes: no host sync (the number of strata is known); built once per stratum layout

@@ -45,7 +45,9 @@ import threading
 from typing import Optional, Any
 
 import numpy as np
+from numba import njit, prange
 from pyutilz.performance.gpu_hw_launch import block_size_for
+from mlframe.utils.log_throttle import log_throttle
 from ._kernel_types import render
 
 # Guards the max_dynamic_shared_size_bytes property-set +
@@ -147,24 +149,157 @@ void pair_mi_shared_fused(
 """)
 
 
-def validate_pair_codes(factors_data: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, nbins: np.ndarray, classes_y: np.ndarray, n_classes_y: int) -> None:
+@njit(parallel=True, cache=True)
+def _col_min_max_pass(factors_data: np.ndarray, lo: np.ndarray, hi: np.ndarray) -> None:
+    """Fill ``lo`` / ``hi`` with the per-column minimum / maximum of ``factors_data``: one row-major sweep, row blocks reduced in parallel."""
+    n, k = factors_data.shape
+    n_blocks = min(64, max(1, n // 4096))
+    blk_lo = np.empty((n_blocks, k), dtype=np.int64)
+    blk_hi = np.empty((n_blocks, k), dtype=np.int64)
+    step = (n + n_blocks - 1) // n_blocks
+    for b in prange(n_blocks):
+        r0 = b * step
+        r1 = min(n, r0 + step)
+        for j in range(k):
+            blk_lo[b, j] = factors_data[r0, j]
+            blk_hi[b, j] = factors_data[r0, j]
+        for r in range(r0 + 1, r1):
+            for j in range(k):
+                v = factors_data[r, j]
+                blk_lo[b, j] = min(blk_lo[b, j], v)
+                blk_hi[b, j] = max(blk_hi[b, j], v)
+    for j in range(k):
+        lo[j] = blk_lo[:, j].min()
+        hi[j] = blk_hi[:, j].max()
+
+
+def column_code_bounds(factors_data: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Per-column ``(min, max)`` int64 vectors of a non-empty 2-D integer code matrix, from one parallel pass."""
+    lo = np.empty(factors_data.shape[1], dtype=np.int64)
+    hi = np.empty(factors_data.shape[1], dtype=np.int64)
+    _col_min_max_pass(factors_data, lo, hi)
+    return lo, hi
+
+
+def _raise_on_code_bounds(
+    col_lo: "np.ndarray | None",
+    col_hi: "np.ndarray | None",
+    y_lo: int,
+    y_hi: int,
+    pair_a: np.ndarray,
+    pair_b: np.ndarray,
+    nbins: np.ndarray,
+    n_classes_y: int,
+    require_nonneg_all: bool,
+) -> None:
+    """Raise ``ValueError`` from per-column code bounds (``None`` when the matrix is empty) and the ``classes_y`` bounds (``y_lo > y_hi`` when it is empty).
+
+    With ``require_nonneg_all`` every column, referenced or not, must also be non-negative (the contract of the kernels that read the whole matrix).
+    """
+    if y_lo <= y_hi and (y_hi >= n_classes_y or y_lo < 0):
+        raise ValueError(f"classes_y values must be in [0, n_classes_y={n_classes_y}); got [min={y_lo}, max={y_hi}]")
+    if col_lo is None or col_hi is None:
+        return
+    if require_nonneg_all and int(col_lo.min()) < 0:
+        raise ValueError(f"factors_data must be non-negative; got min={int(col_lo.min())} (merge_vars output should be >= 0 by contract)")
+    for col in np.unique(np.concatenate([np.asarray(pair_a), np.asarray(pair_b)])):
+        c = int(col)
+        lo, hi = int(col_lo[c]), int(col_hi[c])
+        if lo < 0 or hi >= int(nbins[c]):
+            raise ValueError(f"factors_data[:, {c}] holds codes in [{lo}, {hi}] outside [0, nbins={int(nbins[c])})")
+
+
+def validate_pair_codes(
+    factors_data: np.ndarray,
+    pair_a: np.ndarray,
+    pair_b: np.ndarray,
+    nbins: np.ndarray,
+    classes_y: np.ndarray,
+    n_classes_y: int,
+    bounds: "tuple[np.ndarray, np.ndarray] | None" = None,
+) -> None:
     """Raise ``ValueError`` unless every referenced column holds codes in ``[0, nbins[col])`` and ``classes_y`` lies in ``[0, n_classes_y)``.
 
     The kernel indexes a shared-memory histogram with the raw codes, so a stray code is an out-of-bounds shared write that poisons the CUDA context.
+    ``bounds`` is an optional precomputed :func:`column_code_bounds` result, so a caller that already swept the matrix does not sweep it again.
+    This is the host check, for data that never reaches a device whole; :func:`check_codes_on_device` is the device twin.
     """
+    col_lo = col_hi = None
     if factors_data.shape[0]:
-        # one contiguous pass per bound over the row-major matrix; reducing each referenced column on its own walked the whole matrix with a stride of n_features
-        # (121 columns of 100000 rows: 0.28 s against 0.05 s)
-        col_lo, col_hi = factors_data.min(axis=0), factors_data.max(axis=0)
-        for col in np.unique(np.concatenate([np.asarray(pair_a), np.asarray(pair_b)])):
-            c = int(col)
-            lo, hi = int(col_lo[c]), int(col_hi[c])
-            if lo < 0 or hi >= int(nbins[c]):
-                raise ValueError(f"factors_data[:, {c}] holds codes in [{lo}, {hi}] outside [0, nbins={int(nbins[c])})")
-    if classes_y.size:
-        lo, hi = int(classes_y.min()), int(classes_y.max())
-        if lo < 0 or hi >= n_classes_y:
-            raise ValueError(f"classes_y values must be in [0, n_classes_y={n_classes_y}); got [min={lo}, max={hi}]")
+        col_lo, col_hi = bounds if bounds is not None else column_code_bounds(factors_data)
+    y_lo, y_hi = (int(classes_y.min()), int(classes_y.max())) if classes_y.size else (1, 0)
+    _raise_on_code_bounds(col_lo, col_hi, y_lo, y_hi, pair_a, pair_b, nbins, n_classes_y, False)
+
+
+_COL_MIN_MAX_SRC = r"""
+extern "C" __global__
+void col_min_max(const int* __restrict__ x, long long n, int k, long long stride, int* lo, int* hi) {
+    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long r0 = t / k;
+    if (r0 >= stride) return;
+    int col = (int)(t - r0 * k);
+    int mn = 2147483647, mx = -2147483647 - 1;
+    for (long long r = r0; r < n; r += stride) {
+        int v = x[r * k + col];
+        mn = min(mn, v);
+        mx = max(mx, v);
+    }
+    atomicMin(lo + col, mn);
+    atomicMax(hi + col, mx);
+}
+"""
+_COL_MIN_MAX_KERNEL: Any = None
+
+
+def _device_code_bounds(d_data: Any, d_cy: Any) -> "tuple[np.ndarray, np.ndarray, int, int]":
+    """``(col_lo, col_hi, y_lo, y_hi)`` of a resident C-contiguous int32 ``(n, k)`` matrix and class vector: one RawKernel sweep, one small readback."""
+    global _COL_MIN_MAX_KERNEL
+    if _COL_MIN_MAX_KERNEL is None:
+        _COL_MIN_MAX_KERNEL = _cp.RawKernel(_COL_MIN_MAX_SRC, "col_min_max")
+    n, k = int(d_data.shape[0]), int(d_data.shape[1])
+    out = _cp.empty(2 * k + 2, dtype=_cp.int32)
+    out[:k] = 2147483647
+    out[k : 2 * k] = -2147483647 - 1
+    if n and k:
+        stride = min(n, max(64, 32768 // k))
+        threads = block_size_for(_COL_MIN_MAX_KERNEL, work_items=stride * k)
+        _COL_MIN_MAX_KERNEL(((stride * k + threads - 1) // threads,), (threads,), (d_data, np.int64(n), np.int32(k), np.int64(stride), out[:k], out[k : 2 * k]))
+    if d_cy.size:
+        out[2 * k] = d_cy.min()
+        out[2 * k + 1] = d_cy.max()
+    host = _cp.asnumpy(out).astype(np.int64)
+    return host[:k], host[k : 2 * k], int(host[2 * k]), int(host[2 * k + 1])
+
+
+def check_codes_on_device(
+    d_data: Any,
+    d_cy: Any,
+    factors_data: np.ndarray,
+    classes_y: np.ndarray,
+    pair_a: np.ndarray,
+    pair_b: np.ndarray,
+    nbins: np.ndarray,
+    n_classes_y: int,
+) -> None:
+    """Raise the :func:`validate_pair_codes` ``ValueError`` (plus the whole-matrix non-negative one) from a device reduction over the resident operands.
+
+    One kernel sweep and one small readback replace a host pass over the matrix. If the device reduction itself fails (OOM, fault) a WARNING is logged and the host check runs instead, so the screen is never skipped.
+    """
+    col_lo: "np.ndarray | None"
+    col_hi: "np.ndarray | None"
+    try:
+        col_lo, col_hi, y_lo, y_hi = _device_code_bounds(d_data, d_cy)
+        if not factors_data.size:
+            col_lo = col_hi = None
+        if not classes_y.size:
+            y_lo, y_hi = 1, 0
+    except Exception as e:
+        log_throttle(logger, "pair_codes_device_check_failed", logging.WARNING, "device code-range check failed (%s: %s); running the host check", type(e).__name__, e)
+        col_lo = col_hi = None
+        if factors_data.size:
+            col_lo, col_hi = column_code_bounds(factors_data)
+        y_lo, y_hi = (int(classes_y.min()), int(classes_y.max())) if classes_y.size else (1, 0)
+    _raise_on_code_bounds(col_lo, col_hi, y_lo, y_hi, pair_a, pair_b, nbins, n_classes_y, True)
 
 
 def _opt_in_shared_mem_budget() -> int:

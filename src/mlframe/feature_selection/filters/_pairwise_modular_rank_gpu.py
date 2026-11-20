@@ -18,6 +18,7 @@ from ._device_sort_safe import device_room
 from ._kernel_arch_macros import ARCH_THREADS_HEADER
 
 from ._kernel_types import render
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 _DEVICE_BUDGET_FRACTION = 0.25  # share of the free device memory the column matrix and the residue table may take
@@ -254,6 +255,7 @@ _KERNEL_V8_TEMPLATE = _KERNEL_V7_TEMPLATE.replace(
 _KERNEL_COPIES = {6: 4}  # versions that keep several count-matrix copies in shared memory
 _TABLE_VERSIONS = {7, 8}  # versions that read the int8 residue table instead of the columns
 _TABLE_MAX_BYTES = 1 << 30  # the residue table is refused above this size and the caller falls back to the CPU kernel
+_TABLE_MAX_MODULUS = 127  # the residue table holds signed bytes: a larger modulus would wrap its residues negative and index the shared count matrix out of bounds
 
 _KERNEL_SOURCES = {
     1: _KERNEL_TEMPLATE.replace("__BOUNDS__", "").replace("__REDUCE__", _REDUCE_V1),
@@ -337,9 +339,16 @@ def residue_rank_scores_gpu(
         shared = _KERNEL_COPIES.get(version, 1) * (max_k * int(n_cls) + max_k) * 4
         if version in _TABLE_VERSIONS:
             shared += ((max_k * max_k + 3) // 4) * 4  # the k x k product table
-        if shared > _SHARED_LIMIT_BYTES or ia.shape[0] == 0 or cols.size >= 2**31:  # the v4 kernel addresses rows with 32-bit offsets
+        if version in _TABLE_VERSIONS and max_k > _TABLE_MAX_MODULUS:
+            log_throttle(logger, "modular_rank_gpu.table_modulus", logging.WARNING, "modular rank GPU kernel: modulus %d exceeds the int8 residue table limit %d, using the CPU kernel", max_k, _TABLE_MAX_MODULUS)
+            return None
+        if ia.shape[0] == 0:
+            return None
+        if shared > _SHARED_LIMIT_BYTES or cols.size >= 2**31:  # the v4 kernel addresses rows with 32-bit offsets
+            log_throttle(logger, "modular_rank_gpu.shape", logging.WARNING, "modular rank GPU kernel: count matrix %d bytes (limit %d) or %d column elements do not fit, using the CPU kernel", shared, _SHARED_LIMIT_BYTES, cols.size)
             return None
         if version in _TABLE_VERSIONS and cols.shape[0] * mods.shape[0] * n > _TABLE_MAX_BYTES:
+            log_throttle(logger, "modular_rank_gpu.table_bytes", logging.WARNING, "modular rank GPU kernel: residue table %d bytes exceeds %d, using the CPU kernel", cols.shape[0] * mods.shape[0] * n, _TABLE_MAX_BYTES)
             return None
         n_ops = 1 if ic is not None else 3
         # 32-bit values when no pair product or triple sum can overflow an int: the modulo in the inner loop is then a 32-bit operation.

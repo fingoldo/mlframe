@@ -15,6 +15,7 @@ import os
 import numpy as np
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # thrust aborts the process on a short pool
 from ._fe_gpu_vram import pool_column_block
+from mlframe.utils.log_throttle import log_throttle
 from ._gpu_resident_select_kernels import _transpose_to_cm
 
 logger = logging.getLogger(__name__)
@@ -88,12 +89,15 @@ def _presort_column_block_bytes(cp, n_rows: int, bytes_per_column_row: int) -> i
 def presort_and_ties_gpu(raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray] | None":
     """``(order (columns, n) int32, tie (columns, n) uint8)`` of the columns of ``raw_cont`` ``(n, columns)`` as ``_presort_columns`` and ``_tie_flags`` give them, or ``None`` when the device path does not apply or fails."""
     n, k = int(raw_cont.shape[0]), int(raw_cont.shape[1])
-    if k == 0 or n < 2 or raw_cont.dtype not in (np.float32, np.float64) or not np.isfinite(raw_cont).all():  # Intentional float64: the dtypes the block sort accepts
+    if k == 0 or n < 2:
+        return None
+    if raw_cont.dtype not in (np.float32, np.float64) or not np.isfinite(raw_cont).all():  # Intentional float64: the dtypes the block sort accepts
+        log_throttle(logger, "_honest_null_presort_gpu.not_finite", logging.WARNING, "device presort skipped: the columns are not all finite float32 / float64 (dtype %s); sorting on the host", raw_cont.dtype)
         return None
     try:
         import cupy as cp
     except Exception as exc:
-        logger.debug("device presort unavailable (%s)", exc)
+        log_throttle(logger, "_honest_null_presort_gpu.cupy_unavailable", logging.WARNING, "device presort unavailable (%s: %s); sorting on the host", type(exc).__name__, exc)
         return None
     try:
         got = _presort_by_keys(cp, raw_cont)

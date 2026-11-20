@@ -217,6 +217,13 @@ def weighted_pair_search_dispatch(
                 joint, ii, uniq, fits = weighted_pair_search_gpu(factors_data, pairs_a, pairs_b, marginal_mi, nbins, classes_y, weights)
                 rest = np.nonzero(~fits)[0]
                 if rest.size:
+                    from mlframe.utils.log_throttle import log_throttle
+
+                    log_throttle(
+                        logger, "cat_weighted_pair.table_too_big", logging.INFO,
+                        "weighted categorical pair search: %d of %d pairs exceed the %d-entry shared table (or have no positive weight) and run on the numba kernel",
+                        int(rest.size), int(pairs_a.shape[0]), _MAX_CELLS,
+                    )
                     j2, i2, u2 = host(factors_data, pairs_a[rest], pairs_b[rest], marginal_mi, nbins, classes_y, weights, dtype)
                     joint[rest], ii[rest], uniq[rest] = j2, i2, u2
                 return joint, ii, uniq

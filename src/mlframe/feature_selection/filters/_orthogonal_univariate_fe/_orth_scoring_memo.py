@@ -52,8 +52,8 @@ def _col_hash(X: pd.DataFrame, c: str) -> tuple:
     from .._fe_resident_operands import _content_hash
 
     # Intentional float64: the content-hash key must be identical for every caller dtype, so the key is normalised to f64 here.
-    arr = np.ascontiguousarray(np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype()))
-    return (arr.shape, _content_hash(arr))
+    arr = np.ascontiguousarray(np.asarray(X[c].to_numpy(), dtype=np.float64))  # Intentional float64: the content key must not collapse columns that differ below float32 precision
+    return (str(c), arr.shape, _content_hash(arr))
 
 def cached_raw_mi_baseline(
     cols: Sequence[str], raw_mat: np.ndarray, y_int: np.ndarray, *, nbins: int,

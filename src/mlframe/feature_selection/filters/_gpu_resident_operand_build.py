@@ -433,5 +433,13 @@ def operand_table_device_chosen(n_rows: int, n_operands: int = 0) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("operand_table_backend: KTC choose() failed, using the floor: %s", exc)
+        log_throttle(
+            logger,
+            "gpu_materialise.operand_backend_choose",
+            logging.WARNING,
+            "operand_table_backend: KTC choose() failed (%s: %s), using the %d-row floor",
+            type(exc).__name__,
+            exc,
+            DEVICE_FALLBACK_ROWS,
+        )
         return int(n_rows) >= DEVICE_FALLBACK_ROWS

@@ -182,6 +182,7 @@ class TimestampOrderedSplit:
     # Folds depend only on the row order, never on a seed, so a caller that would otherwise repeat the CV under different seeds can skip that.
     deterministic_folds = True
     _timestamps_dropped = False
+    _groups_dropped = False
 
     def get_n_splits(self, X: Any = None, y: Any = None, groups: Any = None) -> int:
         """Number of folds this splitter yields (sklearn CV-splitter protocol)."""
@@ -216,6 +217,10 @@ class TimestampOrderedSplit:
         order = self._order(n)
         if groups is None and self.groups is not None and len(self.groups) == n:
             groups = self.groups
+        if groups is None and getattr(self, "_groups_dropped", False):
+            logger.warning(
+                "TimestampOrderedSplit: its bound groups were not pickled; splitting without group isolation. Rebuild the splitter with groups to refit.",
+            )
         if groups is None:
             inner = TimeSeriesSplit(n_splits=self.n_splits, gap=self.gap, max_train_size=self.max_train_size, test_size=self.test_size)
             for tr, te in inner.split(order):
@@ -245,6 +250,7 @@ class TimestampOrderedSplit:
     def __getstate__(self) -> dict:
         state = self.__dict__.copy()
         state["_timestamps_dropped"] = self.timestamps is not None
+        state["_groups_dropped"] = self.groups is not None
         state["timestamps"] = None
         state["groups"] = None
         return state

@@ -37,6 +37,8 @@ class ColumnArena:
         self._memmap_dir = memmap_dir
         self._chunks: list[np.ndarray] = []
         self._slot: dict[str, int] = {}
+        self._next_slot = 0
+        self._pending: dict[str, threading.Event] = {}
         self._lock = threading.Lock()
         self._files: list[str] = []
 
@@ -73,14 +75,34 @@ class ColumnArena:
             raise ValueError(f"column {name!r} has shape {arr.shape}, the arena holds columns of {self.n_rows} rows")
         with self._lock:
             slot = self._slot.get(name)
+            writer: "threading.Event | None" = None
             if slot is not None:
-                return slot
-            slot = len(self._slot)
-            if slot // self.chunk_columns >= len(self._chunks):
-                self._chunks.append(self._new_chunk())
-            self._slot[name] = slot
-            target = self._chunks[slot // self.chunk_columns][slot % self.chunk_columns]
-        target[:] = arr  # outside the lock: the slot is this call's alone
+                ready = self._pending.get(name)
+            else:
+                ready = None
+                slot = self._next_slot
+                self._next_slot += 1
+                if slot // self.chunk_columns >= len(self._chunks):
+                    self._chunks.append(self._new_chunk())
+                self._slot[name] = slot
+                writer = self._pending[name] = threading.Event()
+                target = self._chunks[slot // self.chunk_columns][slot % self.chunk_columns]
+        if writer is None:
+            if ready is not None:
+                ready.wait()  # another thread is still writing this column: return only once it is readable
+                if name not in self._slot:
+                    return self.append(name, arr)  # that write failed and the name was released
+            return slot
+        try:
+            target[:] = arr  # outside the lock: the slot is this call's alone
+        except BaseException:
+            with self._lock:
+                self._slot.pop(name, None)  # never expose a slot whose column was not written
+            raise
+        finally:
+            with self._lock:
+                self._pending.pop(name, None)
+            writer.set()
         return slot
 
     def extend(self, columns: "dict[str, np.ndarray]") -> list[str]:

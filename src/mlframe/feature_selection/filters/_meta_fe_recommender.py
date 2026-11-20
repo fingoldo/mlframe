@@ -266,7 +266,7 @@ def _skew_kurt(x):
     m = x.mean()
     d = x - m
     var = float((d**2).mean())
-    if var <= 1e-12:
+    if var <= (1e-12 * abs(float(m))) ** 2:
         return 0.0, 0.0
     sd = var**0.5
     z = d / sd

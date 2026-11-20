@@ -196,7 +196,9 @@ def entropy_device_chosen(n: int, k: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=work)) == "device"
     except Exception as exc:
-        logger.debug("dcd_pair_entropy_backend: KTC choose() failed, using the floor: %s", exc)
+        from mlframe.utils.log_throttle import log_throttle
+
+        log_throttle(logger, "dcd_pair_entropy.choose_failed", logging.WARNING, "dcd_pair_entropy_backend: KTC choose() failed (%s: %s); using the %d-row floor", type(exc).__name__, exc, DEVICE_FALLBACK_ROWS)
         return work >= DEVICE_FALLBACK_ROWS
 
 

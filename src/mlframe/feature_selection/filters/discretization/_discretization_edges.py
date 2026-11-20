@@ -422,5 +422,8 @@ def discretize_sklearn(
 ) -> np.ndarray:
     """Lightweight numpy port of sklearn's ``KBinsDiscretizer``.
     ``np.searchsorted`` is faster un-jitted on contemporary numpy."""
+    from ._code_dtype import _safe_code_dtype
+
+    dtype = _safe_code_dtype(n_bins, dtype)
     bins_edges = get_binning_edges(arr=arr, n_bins=n_bins, method=method, min_value=min_value, max_value=max_value)
     return np.searchsorted(bins_edges[1:-1], arr, side="right").astype(dtype)

@@ -34,6 +34,7 @@ import math
 
 import numpy as np
 from numba import njit
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
 logger = logging.getLogger(__name__)
@@ -457,10 +458,11 @@ def ksg_lnc_mi(
         if uniq_y_count / n < float(min_y_unique_frac):
             # Use mixed-KSG (Gao 2017) which is calibrated for discrete-mixed
             # data; LNC adds no benefit and inflates the floor on such inputs.
-            return mixed_ksg_mi(x, y, k=int(k))
+            return mixed_ksg_mi(x, y, k=int(k), intens=intens, seed=seed)
     # Tie-breaking noise (NPEET_LNC line 47).
-    x = x + intens * rng.standard_normal(n)
-    y = y + intens * rng.standard_normal(n)
+    # Centred first (MI is shift-invariant): an absolute 1e-10 vanishes next to values above ~1e6, leaving the ties in place.
+    x = (x - float(np.mean(x))) + intens * rng.standard_normal(n)
+    y = (y - float(np.mean(y))) + intens * rng.standard_normal(n)
     # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     xy = np.column_stack([x, y]).astype(np.float64)
     tree_xy = KDTree(xy, metric="chebyshev")
@@ -542,9 +544,9 @@ def mixed_ksg_mi_gpu(x: np.ndarray, y: np.ndarray, k: int = 5, intens: float = 1
         y_np = y_np[idx]
         n = int(max_input_n)
     if np.unique(x_np).size < n:
-        x_np = x_np + intens * rng.standard_normal(n)
+        x_np = _jitter_ties(x_np, intens, rng)
     if np.unique(y_np).size < n:
-        y_np = y_np + intens * rng.standard_normal(n)
+        y_np = _jitter_ties(y_np, intens, rng)
     # Intentional float64: KSG estimator: kNN distances and digamma sums need f64 accuracy (accumulator)
     xy = np.column_stack([x_np, y_np]).astype(np.float64)
     tree = KDTree(xy, metric="chebyshev")
@@ -584,8 +586,8 @@ def ksg_mi_dispatch(x: np.ndarray, y: np.ndarray, *, k: int = 5, estimator: str 
             import cupy  # noqa: F401
 
             return mixed_ksg_mi_gpu(x, y, k=k)
-        except ImportError:
-            pass
+        except ImportError as _imp:
+            log_throttle(logger, "_ksg.dispatch_no_cupy", logging.WARNING, "ksg_mi_dispatch: cupy unavailable (%s); CPU mixed-KSG", _imp)
         except Exception as _exc:
             # A real runtime/driver fault (CUDA OOM, context corruption) rather than "cupy absent" -
             # trip the circuit breaker so every subsequent call in this process goes straight to CPU

@@ -23,7 +23,7 @@ import pandas as pd
 
 from ..hermite_fe import basis_route_by_moments
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
-from .._orthogonal_shared import parse_code_deg_with_basis
+from .._orthogonal_shared import coerce_y_classif, parse_code_deg_with_basis
 from ._orth_mi_backends import _mi_classif_batch, mi_classif_batch_chunked
 from mlframe.utils.log_throttle import log_throttle
 
@@ -236,7 +236,7 @@ def _crossbasis_device_born_on() -> bool:
         from .._gpu_strict_fe import fe_gpu_device_born_crossbasis_enabled
         return bool(fe_gpu_device_born_crossbasis_enabled())
     except Exception as e:  # fallback: the device-born probe failed, the host cross-basis path runs
-        logger.debug("_crossbasis_device_born_on: fe_gpu_device_born_crossbasis_enabled() check failed, staying on the host path: %s", e)
+        log_throttle(logger, "pair_cross_device_born_probe_failed", logging.WARNING, "_crossbasis_device_born_on: fe_gpu_device_born_crossbasis_enabled() check failed, staying on the host path: %s", e)
         return False
 
 def _pair_device_col_specs(eng_columns, raw_cols, *, nbins: int):
@@ -303,7 +303,7 @@ def score_pair_cross_basis_by_mi_uplift(
     baseline_mi_j)`` - the cross-basis term must beat the BETTER individual
     leg, not just the worse one, to count as genuine interaction signal.
     """
-    y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
+    y_arr = coerce_y_classif(y)
     raw_cols = list(raw_X.columns)
     if engineered_X.empty:
         return pd.DataFrame(columns=[
@@ -317,11 +317,16 @@ def score_pair_cross_basis_by_mi_uplift(
     # non-strict / any cupy failure / unsupported basis. Selection-equivalent (device Clenshaw vs host forward
     # recurrence ~1e-12, same estimator for numerator + baseline so the uplift ratio cannot flip).
     raw_mi_map = eng_mi = None
-    _specs = _pair_device_col_specs(engineered_X.columns, raw_cols, nbins=nbins)
-    if _specs is not None and _crossbasis_device_born_on():
-        _res = _resident_pair_cross_mi(raw_X, engineered_X, y_arr, _specs, nbins=nbins, basis=basis)
-        if _res is not None:
-            raw_mi_map, eng_mi = _res
+    if _crossbasis_device_born_on():
+        _specs = _pair_device_col_specs(engineered_X.columns, raw_cols, nbins=nbins)
+        if _specs is None:
+            log_throttle(logger, "pair_cross_device_specs_unresolved", logging.INFO, "pair-cross device-born scoring skipped: an engineered column does not resolve to two legs; the host scorer runs")
+        else:
+            _res = _resident_pair_cross_mi(raw_X, engineered_X, y_arr, _specs, nbins=nbins, basis=basis)
+            if _res is None:
+                log_throttle(logger, "pair_cross_device_born_declined", logging.INFO, "pair-cross device-born scoring declined or failed; the host scorer runs")
+            else:
+                raw_mi_map, eng_mi = _res
     if eng_mi is None:
         from .._fe_usability_signal import _crit_np_dtype
         raw_mi = _mi_classif_batch(raw_X.to_numpy(dtype=_crit_np_dtype()), y_arr, nbins=nbins)
@@ -423,7 +428,7 @@ def _pair_seed_sources(X: pd.DataFrame, y: np.ndarray, cols: Optional[Sequence[s
         # Fallback: rank raw columns by MI(x; y), take top N. Required for
         # pure-XOR targets where no univariate basis term uplifts (all
         # univariate MIs are near-zero for y = sign(x_i * x_j)).
-        y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
+        y_arr = coerce_y_classif(y)
         raw_X_all = X[raw_cols_all]
         from .._fe_usability_signal import _crit_np_dtype
         raw_mi_arr = _mi_classif_batch(raw_X_all.to_numpy(dtype=_crit_np_dtype()), y_arr, nbins=nbins)
@@ -585,6 +590,7 @@ def hybrid_orth_mi_pair_fe_with_recipes(
     recipes = []
     from .._fe_usability_signal import _crit_np_dtype
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); recipe-replay axis matches the fit-time f32 operands
+    leg_cache: dict = {}
     for name in appended:
         _pair_ci, _pair_cj = _pair_sources_from_engineered_name(name, _raw_src_cols)
         if _pair_ci is not None and _pair_cj is not None:
@@ -620,27 +626,21 @@ def hybrid_orth_mi_pair_fe_with_recipes(
             # ACTUAL leg-2 evaluation used basis_j. Re-route per-column at
             # recipe-build time and prefer the moment-routed basis when in
             # auto mode so replay matches fit-time evaluation.
+            # the generator routed and fitted on the mean-filled operand (``_pair_leg``); the recipe must freeze params from that same operand
+            _xi, _route_i = _pair_leg(leg_cache, X, col_i, _dt, basis)
+            _xj, _route_j = _pair_leg(leg_cache, X, col_j, _dt, basis)
             if basis == "auto":
-                try:
-                    x_i = X[col_i].to_numpy(dtype=_dt)
-                    x_j = X[col_j].to_numpy(dtype=_dt)
-                    basis_a = basis_route_by_moments(x_i)
-                    basis_b = basis_route_by_moments(x_j)
-                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed: %s", e)
-                    pass
+                basis_a, basis_b = _route_i, _route_j
             # BUG2 FIX: freeze each operand's fit-time preprocess
             # params from the FULL fit column so replay is byte-exact on a slice.
             from . import _evaluate_basis_column as _ebc
             _ppi = _ppj = None
             try:
-                _xi = X[col_i].to_numpy(dtype=_dt)
                 _, _ppi = _ebc(_xi, basis_a, int(deg_a), return_params=True)
             except Exception as e:
                 log_throttle(logger, "orth_pair_param_extract_i", logging.WARNING, "basis param extraction for column i failed: %s", e)
                 _ppi = None
             try:
-                _xj = X[col_j].to_numpy(dtype=_dt)
                 _, _ppj = _ebc(_xj, basis_b, int(deg_b), return_params=True)
             except Exception as e:
                 log_throttle(logger, "orth_pair_param_extract_j", logging.WARNING, "basis param extraction for column j failed: %s", e)

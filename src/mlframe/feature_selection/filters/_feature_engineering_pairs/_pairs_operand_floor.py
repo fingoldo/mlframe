@@ -41,9 +41,13 @@ def operand_uplift_null_bar(codes_a: np.ndarray | None, codes_b: np.ndarray | No
         return 1.0
     codes_a = np.asarray(codes_a, dtype=np.int64)
     codes_b = np.asarray(codes_b, dtype=np.int64)
+    y_codes = np.unique(np.asarray(codes_y), return_inverse=True)[1].astype(np.int64).ravel()
+    if codes_a.shape != codes_b.shape or codes_a.ndim != 1 or codes_a.shape[0] != y_codes.shape[0]:
+        raise ValueError(f"operand codes and target must be equal-length 1-D vectors, got {codes_a.shape}, {codes_b.shape}, {y_codes.shape}")
+    if codes_a.size and (int(codes_a.min()) < 0 or int(codes_b.min()) < 0):
+        raise ValueError("operand codes must be non-negative ordinals (a negative code indexes outside the joint table)")
     n_b = int(codes_b.max()) + 1 if codes_b.size else 1
     n_joint = (int(codes_a.max()) + 1) * n_b if codes_a.size else 1
-    y_codes = np.unique(np.asarray(codes_y), return_inverse=True)[1].astype(np.int64).ravel()
     n_y = int(y_codes.max()) + 1 if y_codes.size else 1
     rng = np.random.default_rng(seed)
     null = np.empty(n_perm, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties

@@ -87,6 +87,9 @@ def bur_term(x_cand: np.ndarray, selected_cols: list[np.ndarray], y: np.ndarray,
         _assert_codes_in_range(_c, int(nbins_selected[_j]), "bur_term selected_col")
     from mlframe.feature_selection.filters.info_theory.shared import check_joint_cardinality
 
+    n_rows = int(x_cand.shape[0])
+    if int(y.shape[0]) != n_rows or any(int(_c.shape[0]) != n_rows for _c in selected_cols):
+        raise ValueError("bur_term: x_cand, y and every selected column must have the same number of rows")
     x_int = x_cand.astype(np.int64)
     y_int = y.astype(np.int64)
     K_x = int(nbins_x)

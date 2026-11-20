@@ -410,7 +410,7 @@ def _exact_integer_columns(df, numerical_cols: list, dt, is_polars: bool):
             if not (is_int or col.dtype == np.float64):
                 continue
             lo, hi = col.min(), col.max()
-        if lo is None or hi is None or (isinstance(lo, float) and not np.isfinite(lo)) or (isinstance(hi, float) and not np.isfinite(hi)):
+        if lo is None or hi is None or pd.isna(lo) or pd.isna(hi) or (isinstance(lo, float) and not np.isfinite(lo)) or (isinstance(hi, float) and not np.isfinite(hi)):
             continue
         if max(abs(float(lo)), abs(float(hi))) <= _FLOAT32_EXACT_INT:
             continue
@@ -571,11 +571,11 @@ def _factorize_categorical_columns(_is_polars, categorical_cols_detected, df, pl
             for c in categorical_cols_detected:
                 dt = df.schema[c]
                 if dt == pl.Boolean:
-                    cast_exprs.append(pl.col(c).cast(pl.UInt32))
+                    cast_exprs.append(pl.col(c).cast(pl.Int64).fill_null(-1))
                 elif dt in (pl.Utf8, pl.String):
-                    cast_exprs.append(pl.col(c).cast(pl.Categorical).to_physical())
+                    cast_exprs.append(pl.col(c).cast(pl.Categorical).to_physical().cast(pl.Int64).fill_null(-1))
                 else:
-                    cast_exprs.append(pl.col(c).to_physical())
+                    cast_exprs.append(pl.col(c).to_physical().cast(pl.Int64).fill_null(-1))
             _coded = df.select(cast_exprs)
             categorical_cols = categorical_cols_detected
             new_vals = _coded.to_numpy()

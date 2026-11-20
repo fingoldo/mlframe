@@ -11,6 +11,8 @@ import logging
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
@@ -26,8 +28,7 @@ def _prescreen_mrmr(self, X, y, candidate_features, verbose):
     try:
         from mlframe.feature_selection.filters.mrmr import MRMR
     except ImportError as exc:
-        if verbose:
-            logger.warning("prescreen='mrmr' could not import MRMR (%s); skipping.", exc)
+        log_throttle(logger, "rfecv_prescreen_mrmr_import_failed", logging.WARNING, "prescreen='mrmr' could not import MRMR (%s); skipping.", exc)
         return candidate_features
     try:
         _Xsub = X[candidate_features] if isinstance(X, pd.DataFrame) else X
@@ -43,10 +44,7 @@ def _prescreen_mrmr(self, X, y, candidate_features, verbose):
         if _topk_arg and len(_kept) > _topk_arg:
             _kept = _kept[:_topk_arg]
     except Exception as exc:
-        if verbose:
-            logger.warning("mRMR prescreen failed (%s); skipping.", exc)
-        else:
-            logger.debug("mRMR prescreen failed (%s); skipping.", exc)
+        log_throttle(logger, "rfecv_prescreen_mrmr_failed", logging.WARNING, "mRMR prescreen failed (%s); skipping.", exc)
         return candidate_features
     _kept_set = set(_kept)
     return [c for c in candidate_features if c in _kept_set]
@@ -64,8 +62,7 @@ def _prescreen_univariate_ht(self, X, y, candidate_features, verbose):
     # Numba-compiled rank / U / H / tau kernels (cache=True). No external
     # dependencies.
     if not isinstance(X, pd.DataFrame):
-        if verbose:
-            logger.warning("Prescreen='univariate_ht' needs pandas DataFrame; skipping.")
+        log_throttle(logger, "rfecv_prescreen_univariate_needs_frame", logging.WARNING, "Prescreen='univariate_ht' needs pandas DataFrame; skipping.")
         return candidate_features
     from .._univariate_ht import calculate_relevance_table as _crt
     try:
@@ -74,10 +71,7 @@ def _prescreen_univariate_ht(self, X, y, candidate_features, verbose):
         _rel = _rel[_rel["relevant"]].sort_values("p_value", ascending=True)
         _kept = list(_rel["feature"])
     except Exception as exc:
-        if verbose:
-            logger.warning("univariate_ht prescreen failed (%s); skipping.", exc)
-        else:
-            logger.debug("univariate_ht prescreen failed (%s); skipping.", exc)
+        log_throttle(logger, "rfecv_prescreen_univariate_failed", logging.WARNING, "univariate_ht prescreen failed (%s); skipping.", exc)
         return candidate_features
     if _topk is not None and len(_kept) > _topk:
         _kept = _kept[: int(_topk)]
@@ -98,10 +92,7 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
         try:
             _kept = list(_p(X[candidate_features] if isinstance(X, pd.DataFrame) else X, y))
         except Exception as exc:
-            if verbose:
-                logger.warning("Prescreen callable failed (%s); skipping prescreen.", exc)
-            else:
-                logger.debug("Prescreen callable failed (%s); skipping prescreen.", exc)
+            log_throttle(logger, "rfecv_prescreen_callable_failed", logging.WARNING, "Prescreen callable failed (%s); skipping prescreen.", exc)
             return candidate_features
         if _topk is not None and len(_kept) > _topk:
             _kept = _kept[: int(_topk)]
@@ -110,8 +101,7 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
         return _prescreen_mrmr(self, X, y, candidate_features, verbose)
     if isinstance(_p, str) and _p.lower() == "univariate_ht":
         return _prescreen_univariate_ht(self, X, y, candidate_features, verbose)
-    if verbose:
-        logger.warning("Unknown prescreen=%r; skipping.", _p)
+    log_throttle(logger, "rfecv_prescreen_unknown", logging.WARNING, "Unknown prescreen=%r; skipping.", _p)
     return candidate_features
 
 def _fold_universe_key(train_index) -> int:
@@ -138,10 +128,7 @@ def _precompute_prescreen_fold_universes(self, *, X, y, groups, cv, full_feature
             kept = _apply_prescreen(self, X=X_tr, y=y_tr, candidate_features=full_features, verbose=False)
             universes[key] = frozenset(kept)
     except Exception as exc:
-        if verbose:
-            logger.warning("Nested prescreen precompute failed (%s); using the global in-universe estimate.", exc)
-        else:
-            logger.debug("Nested prescreen precompute failed (%s); using the global in-universe estimate.", exc)
+        log_throttle(logger, "rfecv_prescreen_nested_failed", logging.WARNING, "Nested prescreen precompute failed (%s); using the global in-universe estimate.", exc)
         return None
     if verbose:
         logger.info("RFECV nested prescreen: precomputed train-only universes for %d fold(s).", len(universes))

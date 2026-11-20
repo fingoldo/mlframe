@@ -2,12 +2,40 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import threading
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 _FUSED_ENTROPY_MIN_M = 300  # joint cells from which the fused kernel wins without a tuning-cache measurement (crossover between M=40 and M=400 above)
 _FUSED_ENTROPY_CODE_VERSION = "cmi_fused_entropy_backend-v1"
+_FORCE_ENV = "MLFRAME_FE_GPU_FUSE_CMI_ENTROPY"
+_FORCE_LOCK = threading.Lock()
+_FORCE_STATE: dict = {"depth": 0, "prev": None}
+
+
+def _force_fused_enter() -> None:
+    """Force the fused entropy kernel through the environment switch; overlapping sweeps share one saved value, so the last one out restores it."""
+    with _FORCE_LOCK:
+        if _FORCE_STATE["depth"] == 0:
+            _FORCE_STATE["prev"] = os.environ.get(_FORCE_ENV)
+        _FORCE_STATE["depth"] += 1
+        os.environ[_FORCE_ENV] = "1"
+
+
+def _force_fused_exit() -> None:
+    """Undo one :func:`_force_fused_enter`; the switch returns to its original value when the last overlapping sweep leaves."""
+    with _FORCE_LOCK:
+        _FORCE_STATE["depth"] -= 1
+        if _FORCE_STATE["depth"] == 0:
+            prev = _FORCE_STATE["prev"]
+            if prev is None:
+                os.environ.pop(_FORCE_ENV, None)
+            else:
+                os.environ[_FORCE_ENV] = prev
 
 
 def fused_entropy_backend(n: int, m: int) -> str:
@@ -30,9 +58,9 @@ def fused_entropy_backend(n: int, m: int) -> str:
         if res:
             return str(res.get("kernel_choice", fallback))
     except Exception as exc:
-        import logging
-
-        logging.getLogger(__name__).debug("fused entropy backend selection failed: %r", exc)
+        log_throttle(
+            logging.getLogger(__name__), "fused_entropy_backend.select", logging.WARNING, "fused entropy backend selection failed (%r); using the cell-crossover choice %r", exc, fallback
+        )
     return fallback
 
 
@@ -57,15 +85,11 @@ def _run_fused_entropy_sweep():
 
     def _fused(X, b, kx, kb, inv_n):
         """One fused launch (forced, so the sweep measures it at every size)."""
-        prev = os.environ.get("MLFRAME_FE_GPU_FUSE_CMI_ENTROPY")
-        os.environ["MLFRAME_FE_GPU_FUSE_CMI_ENTROPY"] = "1"
+        _force_fused_enter()
         try:
             r = _batched_joint_entropy_and_k2(X, b, kx, kb, inv_n)
         finally:
-            if prev is None:
-                os.environ.pop("MLFRAME_FE_GPU_FUSE_CMI_ENTROPY", None)
-            else:
-                os.environ["MLFRAME_FE_GPU_FUSE_CMI_ENTROPY"] = prev
+            _force_fused_exit()
         return None if r is None else np.concatenate([cp.asnumpy(r[0]), cp.asnumpy(r[1]).astype(np.float64)])  # Intentional float64: as above
 
     def _make_inputs(dims):

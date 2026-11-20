@@ -390,7 +390,10 @@ def _materialise_candidate(
         else:
             return None
     except Exception as exc:
-        logger.warning(
+        log_throttle(
+            logger,
+            "mi_greedy_materialise_failed",
+            logging.WARNING,
             "mi_greedy: materialising %r(%r) raised %r; skipping.",
             tname, src_cols, exc,
         )
@@ -568,8 +571,7 @@ def _greedy_score_and_select(
                     reason="mi_greedy abs-MAD floor: engineered_mi below med+k*MAD noise floor",
                 )
             except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-                logger.debug("suppressed: %s", e)
-                pass
+                log_throttle(logger, "mi_greedy_reject_sink_failed", logging.WARNING, "mi_greedy: reject_sink raised %s: %s; the rejection ledger misses this candidate", type(e).__name__, e)
     winners = qualified.head(int(top_k))
     keep = list(winners["engineered_col"])
     # parsed list aligned with the winners (in winner order).
@@ -610,7 +612,7 @@ def greedy_mi_fe_construct(
     from ._orthogonal_univariate_fe import _mi_classif_batch
 
     # 1. Seed pool.
-    candidates_pool = [c for c in (cols or X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
+    candidates_pool = [c for c in (cols if cols is not None else X.columns) if c in X.columns and pd.api.types.is_numeric_dtype(X[c])]
     if not candidates_pool:
         return X, pd.DataFrame(columns=[
             "engineered_col", "transform", "source_cols",

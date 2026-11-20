@@ -809,7 +809,7 @@ def local_mi_gate_binagg_resident(
         if null_vec is not None:
             floor = max(float(floor), float(np.quantile(null_vec, 0.95)))
     except Exception as _exc:
-        logger.debug("local_mi_gate_binagg_resident: GPU path failed (%s); host fallback", _exc)
+        log_throttle(logger, "binagg_resident_gate_fallback", logging.WARNING, "device-born binned-aggregate gate failed (%s: %s); using the host gate", type(_exc).__name__, _exc)
         return None
 
     # Keep/rank IDENTICAL to local_mi_gate: floor -> survivors -> sort by MI desc -> top_k.

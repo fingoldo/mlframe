@@ -8,6 +8,8 @@ from typing import Any, Sequence
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from .._ktc_fallback import host_device_sweep, rows_fallback
 
 logger = logging.getLogger(__name__)
@@ -149,8 +151,14 @@ def detect_fourier_freqs_batch(
                     return detect_fourier_freqs_batch_gpu(
                         jobs, min_val_corr=min_val_corr, min_rows=min_rows, max_freqs=max_freqs, fourier_detect_max_n=get_fourier_detect_max_n(), single=single
                     )
-        except _device_errors():
-            pass  # a genuine device fault: the single-column path below (its own CPU fallback) takes over
-        except ImportError:
-            pass
+        except _device_errors() as exc:
+            log_throttle(
+                logger, "fourier_batch_device_fault", logging.WARNING,
+                "detect_fourier_freqs_batch: device fault (%s: %s) on %d columns; running the single-column detector per column", type(exc).__name__, exc, len(jobs),
+            )
+        except ImportError as exc:
+            log_throttle(
+                logger, "fourier_batch_device_import", logging.WARNING,
+                "detect_fourier_freqs_batch: the device batch is unavailable (%s); running the single-column detector per column", exc,
+            )
     return [single(z01, y, f_grid) for z01, y, f_grid in jobs]

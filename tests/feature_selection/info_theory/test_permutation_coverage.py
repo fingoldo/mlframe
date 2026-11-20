@@ -379,7 +379,11 @@ def test_mi_direct_outer_parallelism_never_builds_joblib_pool(monkeypatch):
     factors, nbins = _build_signal_factors()
     cy, fy, _ = merge_vars(factors, (1,), None, nbins, dtype=np.int32)
 
-    monkeypatch.setattr(_perm_mod, "Parallel", _boom)
+    import joblib
+
+    # the module no longer imports Parallel, so the sensor also replaces joblib's own class: re-enabling the pool through either name trips it
+    monkeypatch.setattr(joblib, "Parallel", _boom)
+    monkeypatch.setattr(_perm_mod, "Parallel", _boom, raising=False)
     for npermutations in (10, 100, 1000):
         bg, conf = mi_direct(
             factors_data=factors,

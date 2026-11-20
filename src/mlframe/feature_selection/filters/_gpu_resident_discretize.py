@@ -287,6 +287,8 @@ def _searchsorted_codes(cand_gpu, interior_edges, out_dtype=None, out=None):
     import cupy as cp
 
     n, K = cand_gpu.shape
+    if interior_edges.ndim != 2 or int(interior_edges.shape[1]) != K:
+        raise ValueError(f"_searchsorted_codes: interior_edges must be (n_edges, {K}), got {tuple(interior_edges.shape)}")
     try:
         # cand_gpu is already C-contiguous f32 on the production path (RawKernel cp.empty output / cp.asarray
         # of a C-contiguous host slice); cp.ascontiguousarray would still alloc+copy the whole (n,K) matrix

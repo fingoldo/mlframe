@@ -10,11 +10,13 @@ See `src/mlframe/feature_selection/filters/_mi_greedy_cmi_fe.py` for the surroun
 from __future__ import annotations
 
 import functools
+import logging
 import threading
 import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 from typing import Any
+from mlframe.utils.log_throttle import log_throttle
 from ._fe_resident_operands import _content_hash_memoized
 from ._kernel_types import render
 from ._mi_greedy_cmi_fe_steps import (  # noqa: F401  -- carved helpers
@@ -117,7 +119,7 @@ def _ent_from_counts(c, inv_n: float):
         h_k = cp.asnumpy(out)
         return float(-h_k[0]), round(h_k[1])
     except Exception as e:
-        logger.warning("fused entropy-nnz kernel failed, falling back to the reduction kernel path: %s", e)
+        log_throttle(logger, "cmi_fe_gpu.ent_nnz_fallback", logging.WARNING, "fused entropy-nnz kernel failed (%s: %s); using the two-reduction-kernel path", type(e).__name__, e)
         if _ENT_RK is None:
             # Intentional float64: ReductionKernel signature contract (float64)
             _ENT_RK = cp.ReductionKernel("int64 c, float64 inv_n", "float64 h",

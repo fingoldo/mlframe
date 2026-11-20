@@ -106,7 +106,9 @@ def _restore_cached_marginal_mis(
         sig = _column_signature(factors_data[:, col_int], int(nbins[col_int]))
         new_signatures[col_int] = sig
         if target_matches and col_int in cached_sigs and col_int in cached_mis:
-            kl = _kl_divergence(sig, cached_sigs[col_int])
+            cached_sig = cached_sigs[col_int]
+            width = max(sig.shape[0], cached_sig.shape[0])
+            kl = _kl_divergence(np.pad(sig, (0, width - sig.shape[0])), np.pad(cached_sig, (0, width - cached_sig.shape[0])))
             if kl < kl_threshold:
                 reusable_mask[k] = True
                 marginal_mi_reused[k] = cached_mis[col_int]
@@ -318,6 +320,9 @@ def _pair_search_kernel_njit(
     ii_out = np.zeros(n_pairs, dtype=np.float64)  # Intentional float64: numba kernel body buffer or scalar (crit helper cannot run inside njit)
     n_uniq_out = np.zeros(n_pairs, dtype=np.int64)
     inv_n = 1.0 / float(n_samples)
+    if nbins_y > freqs_y.shape[0]:
+        raise ValueError("classes_y holds a code beyond freqs_y")
+    out_of_range = np.zeros(n_pairs, dtype=np.int64)
 
     for k in prange(n_pairs):
         i = pairs_a[k]
@@ -333,10 +338,15 @@ def _pair_search_kernel_njit(
         for row in range(n_samples):
             va = factors_data[row, i]
             vb = factors_data[row, j]
-            code = va + vb * nba
             cy = classes_y[row]
+            if va < 0 or va >= nba or vb < 0 or vb >= nbb or cy < 0:
+                out_of_range[k] = 1
+                break
+            code = va + vb * nba
             joint_hist[code * nbins_y + cy] += 1
             m_merged[code] += 1
+        if out_of_range[k] == 1:
+            continue
 
         # Compute MI: I(merged; Y) = H(merged) + H(Y) - H(merged, Y). Direct formula sum jc/n * log(jc * n / (m_m * m_y)); m_y is freqs_y * n_samples.
         mi = 0.0
@@ -360,6 +370,8 @@ def _pair_search_kernel_njit(
         joint_mi_out[k] = mi
         ii_out[k] = mi - marginal_mi[i] - marginal_mi[j]
         n_uniq_out[k] = n_uniq
+    if out_of_range.sum() > 0:
+        raise ValueError("factors_data holds a code outside [0, nbins) for a pair column, or classes_y a negative code")
     return joint_mi_out, ii_out, n_uniq_out
 
 

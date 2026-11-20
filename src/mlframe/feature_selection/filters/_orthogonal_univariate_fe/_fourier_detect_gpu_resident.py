@@ -38,9 +38,11 @@ import threading
 from typing import Sequence
 
 import numpy as np
+from .._cupy_solve_checked import cupy_solve_checked
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 from mlframe._numerical_floors import VARIANCE_FLOOR
+from mlframe.utils.log_throttle import log_throttle
 from .._fe_env_switch import fused_switch_enabled
 from .._fe_frame_ops import fe_std_below
 from ._fourier_core_cycles import core_span, freq_is_tail_aliased
@@ -207,7 +209,7 @@ def _deflate_sincos_gpu(cp, z, y, freq: float):
         AtA = A.T @ A
         Aty = A.T @ y
         try:
-            coef = cp.linalg.solve(AtA, Aty)
+            coef = cupy_solve_checked(cp, AtA, Aty)
         except np.linalg.LinAlgError:
             coef = cp.linalg.lstsq(A, y, rcond=None)[0]
         return y - A @ coef
@@ -215,7 +217,7 @@ def _deflate_sincos_gpu(cp, z, y, freq: float):
         # Degenerate [1,sin,cos] design (singular even for lstsq) -> no deflation this freq (graceful).
         # Narrowed from bare Exception: a device fault now propagates to the dispatch-site CPU fallback and a
         # logic bug surfaces, instead of silently returning an UN-DEFLATED y (which would diverge from CPU).
-        logger.warning("_deflate_sincos_gpu fell back to its default after %s", type(_exc).__name__)
+        log_throttle(logger, "_fourier_detect_gpu_resident._deflate_sincos_gpu", logging.WARNING, "_deflate_sincos_gpu fell back to its default after %s", type(_exc).__name__)
         return y
 
 
@@ -223,6 +225,15 @@ def _vander4_gpu(cp, z):
     """[z^3, z^2, z, 1] resident, matching np.vander(z, 4) column order."""
     z2 = z * z
     return cp.stack([z2 * z, z2, z, cp.ones_like(z)], axis=1)
+
+
+def _resolve_detect_dtype(cp):
+    """Device dtype of the detector operands: the criterion dtype, or float64 when its lookup fails."""
+    try:
+        return crit_float_dtype()
+    except Exception as e:
+        log_throttle(logger, "_fourier_detect_gpu_resident._resolve_detect_dtype", logging.WARNING, "crit_float_dtype() resolution failed, defaulting to cp.double precision: %s", e)
+        return cp.float64  # Intentional float64: fallback when the crit-dtype lookup itself fails; the strict default is f64.
 
 
 _TARGET_SIDE_LOCK = threading.Lock()
@@ -341,13 +352,7 @@ def detect_fourier_freqs_for_col_gpu(
     # peak-pick compute in f32 (faster, no widening). The f32 rounding (~1e-6) is far below the FE decision
     # margin so the detected frequencies + the downstream FE selection are unchanged (validated on F2 across all
     # distributions + the extra-basis / robust-basis biz suites). MLFRAME_CRIT_DTYPE_RELAXED=0 restores strict f64.
-    try:
-        from .._fe_gpu_batch._devices import crit_float_dtype
-        _zdt = crit_float_dtype()
-    except Exception as e:
-        logger.warning("crit_float_dtype() resolution failed, defaulting to cp.double precision: %s", e)
-        # Intentional float64: fallback when the crit-dtype lookup itself fails; the strict default is f64.
-    _zdt = cp.float64
+    _zdt = _resolve_detect_dtype(cp)
     z_tr = cp.asarray(np.ascontiguousarray(np.asarray(z_tr_h, dtype=_zdt)))
     z_va = cp.asarray(np.ascontiguousarray(np.asarray(z_va_h, dtype=_zdt)))
     y_tr = resident_operand(y_tr_h, "fourier_y_tr", dtype=_zdt)
@@ -357,7 +362,7 @@ def detect_fourier_freqs_for_col_gpu(
     _V_tr = _vander4_gpu(cp, z_tr)
     try:
         try:
-            _poly_coef = cp.linalg.solve(_V_tr.T @ _V_tr, _V_tr.T @ y_tr)
+            _poly_coef = cupy_solve_checked(cp, _V_tr.T @ _V_tr, _V_tr.T @ y_tr)
         except np.linalg.LinAlgError:
             _poly_coef = cp.linalg.lstsq(_V_tr, y_tr, rcond=None)[0]
         y_tr = y_tr - _V_tr @ _poly_coef

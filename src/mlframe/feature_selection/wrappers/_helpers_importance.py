@@ -201,9 +201,10 @@ def _is_discrete_v2(col: np.ndarray) -> bool:
     try:
         mask = ~np.isnan(col.astype(float, copy=False))
         uniq = np.unique(col[mask])
+        _n = max(int(mask.sum()), 1)
     except (TypeError, ValueError):
         uniq = np.unique(col)
-    _n = max(int(mask.sum()) if hasattr(mask, "sum") else len(col), 1)
+        _n = max(len(col), 1)
     return cast("bool", uniq.size <= max(5, int(np.sqrt(_n))) and uniq.size <= 0.5 * _n)
 
 
@@ -235,7 +236,7 @@ def _cpi_single_feature_importance(
             try:
                 score_losses.append(baseline - float(model.score(X_for_score, y)))
             except Exception as e:
-                logger.debug("permutation-importance score() failed (single-feature branch), recording NaN: %s", e)
+                log_throttle(logger, "_helpers_importance._cpi_single_feature_importance", logging.WARNING, "conditional permutation importance: model.score() failed on permuted X (single-feature branch), recording NaN: %s", e)
                 score_losses.append(np.nan)
     finally:
         X_perm[:, j] = orig_col
@@ -367,7 +368,7 @@ def _cpi_conditioning_leaves(Xj, Xnotj, max_depth, min_samples_leaf, random_stat
         tree.fit(Xnotj, Xj)
         return tree.apply(Xnotj)
     except (ValueError, TypeError, MemoryError, RuntimeError) as exc:
-        logger.debug("conditioning-leaf tree fit failed (%s); no conditioning leaves", exc)
+        log_throttle(logger, "_helpers_importance._cpi_conditioning_leaves", logging.WARNING, "conditional permutation importance: conditioning tree fit failed, feature importance will be NaN: %s", exc)
         return None
 
 
@@ -391,7 +392,7 @@ def _cpi_leaf_permutation_score(model, y, X_arr, X_perm, j, leaves, n_repeats, r
             try:
                 score_losses.append(baseline - float(model.score(X_for_score, y)))
             except Exception as e:
-                logger.debug("permutation-importance score() failed, recording NaN: %s", e)
+                log_throttle(logger, "_helpers_importance._cpi_leaf_permutation_score", logging.WARNING, "conditional permutation importance: model.score() failed on permuted X, recording NaN: %s", e)
                 score_losses.append(np.nan)
     finally:
         X_perm[:, j] = orig_col
@@ -597,6 +598,13 @@ def _impute_ragged_fi_table(table: pd.DataFrame, policy: str) -> pd.DataFrame:
     raise ValueError(f"_impute_ragged_fi_table: unknown policy={policy!r}")
 
 
+def _rank_sort_key(score: float) -> float:
+    """Ascending sort key for a best-first ranking by ``score``: NaN and -inf rank last, +inf first, never as if they were 0.0."""
+    if score != score:
+        return float("inf")
+    return -score
+
+
 def get_actual_features_ranking(feature_importances: dict, votes_aggregation_method: VotesAggregation, fi_missing_policy: str = "worst", run_weights: Union[dict, None] = None) -> list:
     """Vote-based rank of features given per-run importances.
 
@@ -662,5 +670,5 @@ def get_actual_features_ranking(feature_importances: dict, votes_aggregation_met
     # the order of the original dict keys -> different runs of the SAME
     # input pick different "top N" features on tie-clusters.
     _scores = ranks.to_dict()
-    out = sorted(_scores.keys(), key=lambda k: (-float(_scores[k]) if np.isfinite(_scores[k]) else 0.0, str(k)))
+    out = sorted(_scores.keys(), key=lambda k: (_rank_sort_key(float(_scores[k])), str(k)))
     return out

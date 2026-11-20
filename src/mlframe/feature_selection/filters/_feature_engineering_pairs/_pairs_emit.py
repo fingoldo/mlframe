@@ -23,6 +23,8 @@ import numpy as np
 
 from pyutilz.pythonlib import sort_dict_by_value
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._pairs_gates import _PREWARP_UNARY, _select_single_best
 from types import SimpleNamespace as _SimpleNamespace
 
@@ -36,6 +38,11 @@ def _survivor_device_column(resolve_col, buf_col):
     """The survivor column ``buf_col`` as a scrubbed float32 DEVICE array when the deferred-float path can produce it there, else ``None`` (the caller then
     takes the host column from ``resolve_col``)."""
     return getattr(resolve_col, "device", lambda *_: None)(buf_col)
+
+
+def _is_dead_column(std: float, col) -> bool:
+    """Whether ``std`` is rounding noise for ``col``: the absolute 1e-9 floor, tightened to 1e-6 of the largest |value| so a tiny-scale column is not called dead."""
+    return bool(std <= min(1e-9, 1e-6 * float(abs(col).max())))
 
 
 def _survivor_std(col) -> float:
@@ -604,7 +611,7 @@ def _batched_leader_usability(resolve_col: Any, leading_features: Any, y: Any, y
     try:
         got = many([c[2] for c in leading_features], y, y_finite)
     except Exception as e:  # nosec B110 - best-effort, the per-leader path is the reference
-        logger.debug("batched leader |corr| failed: %s", e)
+        log_throttle(logger, "pairs_emit_batched_leader_corr", logging.WARNING, "batched leader |corr| failed, using the per-leader path: %s", e)
         return None
     return dict(zip(leading_features, got)) if got is not None and len(got) == len(leading_features) else None
 
@@ -710,7 +717,7 @@ def _emit_pair_features_step1_st_simplenamespace_long(
                 if _lvals is not None:
                     st._leader_usability[_lc] = _safe_abs_corr(_lvals)
             except Exception as e:  # nosec B112 - best-effort path
-                logger.debug("leader usability computation for %r failed, skipping: %s", _lc, e)
+                log_throttle(logger, "pairs_emit_leader_usability", logging.WARNING, "leader usability computation for %r failed, the leader is scored without it: %s", _lc, e)
                 continue
     return _cached_name, _name_cache, leading_features, st
 
@@ -743,7 +750,7 @@ def _emit_pair_features_step2_than_single_best(
                 # Intentional float64: emitted-column contract: survivor columns are an f64 matrix (see the notes on the div/ratio upcast in the caller).
                 _emitted_cols.append(np.asarray(_resolve_col(_c[2]), dtype=np.float64))
             except Exception as e:  # noqa: PERF203 -- per-iteration fault isolation is intentional
-                logger.debug("resolving already-emitted column %r failed, skipping: %s", _c, e)
+                log_throttle(logger, "pairs_emit_resolve_emitted", logging.WARNING, "resolving already-emitted column %r failed, diversity check skips it: %s", _c, e)
         for _cfg, _cfg_mi in sort_dict_by_value(var_pairs_perf).items():
             if len(this_pair_features) >= int(fe_multi_emit_max_per_pair):
                 break
@@ -755,17 +762,17 @@ def _emit_pair_features_step2_than_single_best(
                 # Intentional float64: emitted-column contract: survivor columns are an f64 matrix (see the notes on the div/ratio upcast in the caller).
                 st._col = np.asarray(_resolve_col(_cfg[2]), dtype=np.float64)
             except Exception as e:  # nosec B112 - best-effort path
-                logger.debug("resolving column %r failed, skipping: %s", _cfg, e)
+                log_throttle(logger, "pairs_emit_resolve_column", logging.WARNING, "resolving column %r failed, candidate not emitted: %s", _cfg, e)
                 continue
             st._col = np.nan_to_num(st._col, nan=0.0, posinf=0.0, neginf=0.0)
-            if float(np.std(st._col)) <= 1e-9:
+            if _is_dead_column(float(np.std(st._col)), st._col):
                 continue
             # DIVERSITY: skip a near-duplicate of any already-emitted column.
             _dup = False
             from mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core import _abs_corr_zerofill_njit
 
             for _ec in _emitted_cols:
-                if float(np.std(_ec)) <= 1e-9:
+                if _is_dead_column(float(np.std(_ec)), _ec):
                     continue
                 # One-pass njit correlation (bit-equivalent to the previous np.corrcoef on
                 # nan_to_num'd inputs - both _col and _ec are already finite by contract via
@@ -904,7 +911,7 @@ def _emit_pair_features_step3_pair_features_part1(
             # codes and the recipe pin correct edges.
             _col_arr = _finalize_survivor_column(_col_full)
             _col_std = _survivor_std(_col_arr)
-            if _col_std <= 1e-9:
+            if _is_dead_column(_col_std, _col_arr):
                 if verbose:
                     messages.append(f"{new_feature_name} dropped at materialisation: dead column " f"(std={_col_std:.2e}, non-constant guard).")
                 continue

@@ -231,7 +231,8 @@ def build_count_encoded_recipe(
     fit-time category (as str) to its observed count; unseen categories at
     replay map to ``default`` (default 0). No y reference at any stage."""
     from . import EngineeredRecipe
-    lookup_clean = {str(k): int(v) for k, v in lookup.items()}
+    from .._internals import canonical_group_token
+    lookup_clean = {canonical_group_token(k): int(v) for k, v in lookup.items()}
     return EngineeredRecipe(
         name=name,
         kind="count_encoded",
@@ -249,7 +250,8 @@ def build_frequency_encoded_recipe(
     """Frozen recipe for a frequency-encoded column (count / n_samples).
     Unseen categories at replay map to ``default`` (default 0.0)."""
     from . import EngineeredRecipe
-    lookup_clean = {str(k): float(v) for k, v in lookup.items()}
+    from .._internals import canonical_group_token
+    lookup_clean = {canonical_group_token(k): float(v) for k, v in lookup.items()}
     return EngineeredRecipe(
         name=name,
         kind="frequency_encoded",
@@ -271,7 +273,8 @@ def build_cat_num_residual_recipe(
     categories fall back to ``global_mean`` (subtracting the unconditional
     mean is the natural fallback)."""
     from . import EngineeredRecipe
-    lookup_clean = {str(k): float(v) for k, v in lookup.items()}
+    from .._internals import canonical_group_token
+    lookup_clean = {canonical_group_token(k): float(v) for k, v in lookup.items()}
     return EngineeredRecipe(
         name=name,
         kind="cat_num_residual",

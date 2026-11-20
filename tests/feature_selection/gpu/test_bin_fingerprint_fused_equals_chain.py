@@ -6,12 +6,13 @@ import pytest
 cp = pytest.importorskip("cupy")
 
 from mlframe.feature_selection.filters import _bin_fingerprint_gpu as fp
+from mlframe.feature_selection.filters._mi_greedy_cmi_fe_steps import _fingerprint_weights
 
 
 def _chain(cols):
     """The per-candidate reference: weighted wrap-around int64 sum of the codes plus one."""
     n = cols[0].size
-    w = cp.arange(1, n + 1, dtype=cp.int64) * cp.int64(2654435761)
+    w = _fingerprint_weights(cp, n)
     return [int(v) for v in cp.asnumpy(cp.stack([cp.sum((c.astype(cp.int64, copy=False) + 1) * w, dtype=cp.int64) for c in cols])).tolist()]
 
 

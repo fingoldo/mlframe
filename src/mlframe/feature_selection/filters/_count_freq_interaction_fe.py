@@ -205,13 +205,13 @@ def apply_frequency_encoding(
     lookup: dict = recipe["lookup"]
     default: float = float(recipe.get("default", 0.0))
     if cats.size == 0:
-        return np.empty(0, dtype=_crit_np_dtype())
+        return np.empty(0, dtype=np.float64)  # Intentional float64: the fit column is float64, replay must match it
     # Vectorized replay: pd.factorize (O(n) hashtable, no sort) + one
     # float(lookup.get(...)) per distinct category, gathered by code. ~6-8x over
     # the per-row loop; bit-identical. See apply_count_encoding for why factorize
     # beats both an np.unique(sort) map on string columns and an njit gather.
     codes, uniques = pd.factorize(cats)
-    vals = np.array([float(lookup.get(u, default)) for u in uniques], dtype=_crit_np_dtype())
+    vals = np.array([float(lookup.get(u, default)) for u in uniques], dtype=np.float64)  # Intentional float64: replay equals the float64 fit column
     return np.asarray(vals[codes])
 
 # ---------------------------------------------------------------------------

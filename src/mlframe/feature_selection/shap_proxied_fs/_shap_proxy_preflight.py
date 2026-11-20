@@ -26,17 +26,26 @@ from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_d
 import pandas as pd
 from sklearn.model_selection import cross_val_score
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
 def _cv_score(estimator, X, y, classification):
     """3-fold CV score of ``estimator`` (ROC-AUC for classification, R2 for regression); returns NaN
     on any fit/scoring failure so a single degenerate fold can't crash the whole preflight gate."""
-    scoring = "roc_auc" if classification else "r2"
+    if not classification:
+        scoring = "r2"
+    else:
+        scoring = "roc_auc" if np.unique(y).size <= 2 else "roc_auc_ovr"
     try:
         return float(np.mean(cross_val_score(estimator, X, y, cv=3, scoring=scoring)))
     except Exception as e:
-        logger.debug("_cv_score: CV fit/scoring failed, returning NaN so a degenerate fold can't crash the preflight gate: %s", e)
+        log_throttle(
+            logger, "shap_proxy_preflight_cv_score_failed", logging.WARNING,
+            "preflight _cv_score: CV fit/scoring failed (%s: %s); the score is NaN, which makes the gate recommend 'fallback'.",
+            type(e).__name__, e,
+        )
         return float("nan")
 
 

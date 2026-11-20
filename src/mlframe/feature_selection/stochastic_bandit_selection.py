@@ -23,6 +23,7 @@ from ._selection_log import logs_selection
 def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[np.ndarray, np.ndarray], float]) -> float:
     """Mean CV score of a fresh clone of ``estimator`` fit/scored over ``cv``'s folds."""
     scores = []
+    y = np.asarray(y)
     # `y` is passed for the stratified splitters that require it; KFold ignores it.
     for train_idx, test_idx in cv.split(X, np.asarray(y)):
         model = clone(estimator)

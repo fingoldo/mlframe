@@ -337,10 +337,13 @@ def interaction_tensor_reference(ensemble: TreeEnsemble, X: np.ndarray) -> tuple
 
     tree_feat_ptr, tree_feat_idx = _per_tree_split_features(ensemble)
 
-    _interaction_batch(
-        Xf, Phi, phi_main,
-        ensemble.children_left, ensemble.children_right, ensemble.children_default,
-        ensemble.features, ensemble.thresholds, ensemble.values, ensemble.node_sample_weight,
-        ensemble.tree_roots, ensemble.max_depth, tree_feat_ptr, tree_feat_idx,
-    )
+    from mlframe._numba_parallel_guard import parallel_kernel_entry
+
+    with parallel_kernel_entry():
+        _interaction_batch(
+            Xf, Phi, phi_main,
+            ensemble.children_left, ensemble.children_right, ensemble.children_default,
+            ensemble.features, ensemble.thresholds, ensemble.values, ensemble.node_sample_weight,
+            ensemble.tree_roots, ensemble.max_depth, tree_feat_ptr, tree_feat_idx,
+        )
     return Phi, phi_main, float(ensemble.base_offset)

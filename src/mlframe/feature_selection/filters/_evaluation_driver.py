@@ -421,7 +421,7 @@ def _evaluate_candidates_inner(
         dtype=dtype,
     )
 
-    classes_y_safe = classes_y.copy()
+    classes_y_safe = classes_y.copy() if classes_y is not None else None
 
     # RelaxMRMR: y_col/k_y and every already-selected column's materialize_var
     # result depend only on (y, factors_data, factors_nbins, dtype, selected_vars), none of which

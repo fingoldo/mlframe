@@ -37,6 +37,8 @@ import time
 from collections import OrderedDict
 from typing import Any, Callable, Optional
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 _BIG_STACK_BYTES = 8 * 1024 * 1024
@@ -199,9 +201,9 @@ def run_in_big_stack_thread(
         try:
             t = threading.Thread(target=_target, daemon=True)
             t.start()
-            t.join()
         finally:
             threading.stack_size(old_size)
+    t.join()  # outside the lock: the setting only matters while the thread is created, and holding the lock here serialised every concurrent caller
 
     if exc_holder[0] is not None:
         raise exc_holder[0]
@@ -369,7 +371,7 @@ def fit_constant_memmap(arr: "Any") -> "Any":
             _sweep_retired_locked()
         return ro
     except Exception as e:
-        logger.debug("fit_constant_memmap: memmap dump/cache failed, returning the original array (dump-dedup lost, correctness unaffected): %s", e)
+        log_throttle(logger, "_joblib_safe.fit_constant_memmap_failed", logging.WARNING, "fit_constant_memmap: memmap dump/cache failed (%s: %s); the original array is shipped and re-dumped on every Parallel call", type(e).__name__, e)
         return arr
 
 

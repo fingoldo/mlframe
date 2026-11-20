@@ -330,10 +330,17 @@ def _bin_y_for_class_mi_uncached(y: np.ndarray, nbins: int) -> np.ndarray:
             # ``ValueError: invalid literal for int() with base 10``. Factorize to dense 0..k-1 integer
             # codes instead. Numeric/bool classification labels keep the direct cast unchanged.
             return np.asarray(np.unique(arr, return_inverse=True)[1]).astype(np.int64)
+        if arr.dtype.kind == "f" and not bool(np.all(np.isfinite(arr) & (arr == np.floor(np.where(np.isfinite(arr), arr, 0.0))))):
+            # fractional or NaN labels: the integer cast would merge distinct classes (0.2 and 0.7 both to 0) or turn NaN into the int64 minimum
+            return np.asarray(np.unique(arr, return_inverse=True)[1]).astype(np.int64).ravel()
         return arr.astype(np.int64)
     try:
-        binned = pd.qcut(arr, q=int(nbins), labels=False, duplicates="drop")
-        return np.asarray(binned).astype(np.int64)
+        binned = np.asarray(pd.qcut(arr, q=int(nbins), labels=False, duplicates="drop"), dtype=np.float64)
+        nan_rows = np.isnan(binned)
+        if nan_rows.any():
+            # a NaN target row has no quantile bin: it gets its own class after the last bin instead of the int64 minimum
+            binned = np.where(nan_rows, (np.nanmax(binned) + 1.0) if not nan_rows.all() else 0.0, binned)
+        return binned.astype(np.int64)
     except Exception as exc:  # pragma: no cover - degenerate continuous y (heavy ties / NaN)
         logger.debug("bin_y_for_class_mi: qcut failed (%s); falling back to int64 cast", exc)
         return arr.astype(np.int64)

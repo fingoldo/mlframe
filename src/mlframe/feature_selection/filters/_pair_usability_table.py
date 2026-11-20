@@ -12,10 +12,15 @@ not seen. Only values produced by the warp kernel are stored (the CPU kernel is 
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Callable, Optional
 
 import numpy as np
+
+from mlframe.utils.log_throttle import log_throttle
+
+logger = logging.getLogger(__name__)
 
 #: Pairs one table may hold (a 1000-column fit asks for 513591 pairs x 5 forms; the float32 table of that is 10 MB).
 _MAX_PAIRS_PER_TABLE = 4_000_000
@@ -99,6 +104,10 @@ def _store(tkey: tuple, codes: np.ndarray, values: np.ndarray) -> None:
             merged_u, idx = np.unique(merged, return_index=True)  # the stored value wins over an equal new code
             uniq, values = merged_u, vals[idx]
         if uniq.shape[0] > _MAX_PAIRS_PER_TABLE:
+            log_throttle(
+                logger, "pair_usability_table.over_cap", logging.INFO,
+                "pair usability table not stored: %d pairs exceed the cap of %d; a later call re-scores them", int(uniq.shape[0]), _MAX_PAIRS_PER_TABLE,
+            )
             return
         if tkey not in _TABLES and len(_TABLES) >= _MAX_TABLES:
             _TABLES.pop(next(iter(_TABLES)))  # evict-ok: memo; a miss re-scores the pairs

@@ -1,7 +1,7 @@
 """Content fingerprints of the binned candidate columns of the greedy CMI construction, the whole pool in one launch.
 
-``fp[c] = sum_i (code[c, i] + 1) * ((i + 1) * 2654435761)`` over int64 with wrap-around: the sum is taken modulo 2**64, so the order of the additions does not matter and the value equals the one the
-per-candidate chain (``astype``, ``+ 1``, ``* weights``, ``sum``: four to five launches a candidate) gave.
+``fp[c] = sum_i (code[c, i] + 1) * w(i)`` over int64 with wrap-around, ``w(i)`` the splitmix64 mix of ``i + 1`` (``_mi_greedy_cmi_fe_steps._fingerprint_weights``): the sum is taken modulo 2**64, so the order of
+the additions does not matter and the value equals the one the per-candidate chain (``astype``, ``+ 1``, ``* weights``, ``sum``: four to five launches a candidate) gives.
 """
 
 from __future__ import annotations
@@ -17,7 +17,13 @@ extern "C" __global__ void bin_fingerprints(const CT_* __restrict__ codes, const
     const CT_* row = codes + (long long)blockIdx.x * n;
     unsigned long long acc = 0ULL;
     for (long long i = threadIdx.x; i < n; i += blockDim.x)
-        acc += ((unsigned long long)((long long)row[i] + 1LL)) * (((unsigned long long)(i + 1LL)) * 2654435761ULL);
+    {
+        unsigned long long z = ((unsigned long long)(i + 1LL)) * 0x9E3779B97F4A7C15ULL;
+        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+        z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+        z = z ^ (z >> 31);
+        acc += ((unsigned long long)((long long)row[i] + 1LL)) * z;
+    }
     red[threadIdx.x] = acc;
     __syncthreads();
     for (int st = blockDim.x >> 1; st > 0; st >>= 1) { if ((int)threadIdx.x < st) red[threadIdx.x] += red[threadIdx.x + st]; __syncthreads(); }

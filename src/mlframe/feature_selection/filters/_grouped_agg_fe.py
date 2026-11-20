@@ -54,6 +54,7 @@ import pandas as pd
 from ._internals import canonical_group_token, group_key_strings
 from typing import TYPE_CHECKING
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
+from mlframe.utils.log_throttle import log_throttle
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
 
@@ -413,14 +414,7 @@ def score_grouped_agg_by_cmi_uplift(
         return pd.DataFrame(columns=["engineered_col", "source_col", "cmi", "source_mi", "uplift"])
     y_arr = np.asarray(y)
     if not np.issubdtype(y_arr.dtype, np.integer):
-        # Continuous y must be quantile-binned, never int-truncated: astype(int64) collapses 0.7->0 and destroys the CMI gate for regression targets.
-        if y_arr.dtype.kind in "fc" and int(np.unique(y_arr).size) > 32:
-            try:
-                y_arr = pd.qcut(y_arr, q=10, labels=False, duplicates="drop").to_numpy()
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
-        _, y_arr = np.unique(y_arr, return_inverse=True)
+        y_arr = _dense_target_codes(y_arr)
     y_bin = y_arr.astype(np.int64)
 
     base_cols = [c for c in base_cols if c in raw_X.columns]
@@ -475,6 +469,17 @@ def score_grouped_agg_by_cmi_uplift(
 # End-to-end pipeline with auto-detection
 # ---------------------------------------------------------------------------
 
+def _dense_target_codes(y) -> np.ndarray:
+    """Dense int64 class codes of ``y``; a continuous target with more than 32 distinct values is decile-binned first, never int-truncated."""
+    y_arr = np.asarray(y)
+    if y_arr.dtype.kind in "fc" and int(np.unique(y_arr).size) > 32:
+        try:
+            y_arr = np.asarray(pd.qcut(y_arr, q=10, labels=False, duplicates="drop"))
+        except Exception as e:
+            log_throttle(logger, "grouped_agg_target_qcut_failed", logging.WARNING, "grouped_agg: decile-binning the continuous target failed (%s: %s); one class per distinct value", type(e).__name__, e)
+    _, codes = np.unique(y_arr, return_inverse=True)
+    return codes.astype(np.int64)
+
 def _filter_num_cols_by_relevance(
     X: pd.DataFrame, y, num_cols: Sequence[str], *, n_bins: int = 10,
     rel_ratio: float = 0.10, abs_floor: float = 0.01,
@@ -491,11 +496,7 @@ def _filter_num_cols_by_relevance(
         return cols
     try:
         from ._mi_greedy_cmi_fe import _cmi_from_binned, quantile_bin_columns
-        y_arr = np.asarray(y)
-        if not np.issubdtype(y_arr.dtype, np.integer):
-            y_arr = y_arr.astype(np.int64)
-        _, y_bin = np.unique(y_arr, return_inverse=True)
-        y_bin = y_bin.astype(np.int64)
+        y_bin = _dense_target_codes(y)
         mis = {}
         for c, xb in zip(cols, quantile_bin_columns(X[cols].to_numpy(), n_bins)):
             mis[c] = float(_cmi_from_binned(xb, y_bin, None))

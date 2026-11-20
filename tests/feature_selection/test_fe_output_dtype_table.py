@@ -12,6 +12,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 
 GOLDEN = {
     "grouped_quantile": {"float32"},
+    "mi_greedy_transform": {"float32"},
     "orth_univariate": {"float32"},
     "unary_binary": {"float32"},
 }

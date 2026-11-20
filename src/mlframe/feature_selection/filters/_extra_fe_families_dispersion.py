@@ -382,7 +382,7 @@ def apply_conditional_dispersion(X_test: pd.DataFrame, recipe: dict) -> np.ndarr
     x_j = recipe["x_j"]
     if x_i not in X_test.columns or x_j not in X_test.columns:
         raise KeyError(f"apply_conditional_dispersion: missing column(s) {x_i!r}/{x_j!r} " f"from X_test")
-    edges = np.asarray(recipe["edges"], dtype=_crit_np_dtype())
+    edges = np.asarray(recipe["edges"], dtype=np.float64)  # Intentional float64: fit digitised against float64 edges; a float32 edge moves a value sitting on it
     bin_mean = np.asarray(recipe["bin_mean"], dtype=_crit_np_dtype())
     bin_std = np.asarray(recipe["bin_std"], dtype=_crit_np_dtype())
     kind = str(recipe.get("kind", "absz"))
@@ -414,7 +414,7 @@ def build_conditional_dispersion_recipe(
         extra={
             "x_i": str(x_i),
             "x_j": str(x_j),
-            "edges": np.asarray(edges, dtype=_crit_np_dtype()).copy(),
+            "edges": np.asarray(edges, dtype=np.float64).copy(),  # Intentional float64: exact replay of the fit bin codes
             "bin_mean": np.asarray(bin_mean, dtype=_crit_np_dtype()).copy(),
             "bin_std": np.asarray(bin_std, dtype=_crit_np_dtype()).copy(),
             "global_mean": float(global_mean),
@@ -447,7 +447,7 @@ def _apply_conditional_dispersion_recipe(recipe, X) -> np.ndarray:
         {
             "x_i": x_i,
             "x_j": x_j,
-            "edges": np.asarray(recipe.extra["edges"], dtype=_crit_np_dtype()),
+            "edges": np.asarray(recipe.extra["edges"], dtype=np.float64),  # Intentional float64: exact replay of the fit bin codes
             "bin_mean": np.asarray(recipe.extra["bin_mean"], dtype=_crit_np_dtype()),
             "bin_std": np.asarray(recipe.extra["bin_std"], dtype=_crit_np_dtype()),
             "kind": str(recipe.extra.get("disp_kind", "absz")),

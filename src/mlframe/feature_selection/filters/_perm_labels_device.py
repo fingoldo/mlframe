@@ -15,6 +15,8 @@ import threading
 import numpy as np
 from pyutilz.performance.gpu_hw_launch import launch_1d
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 _FY_SRC = r"""
@@ -103,6 +105,9 @@ def device_label_bits(y: np.ndarray, m: int, base_seed: int, n_y: int, words: in
         pack_grid, pack_block = launch_1d(pack, total)
         pack(pack_grid, pack_block, (idx, y_d, out, np.int64(n), np.int32(m), np.int32(n_y), np.int32(words)))
         return np.asarray(cp.asnumpy(out))
-    except Exception as exc:  # best-effort: no device / out of memory / compile failure: the host draw gives the same bits
-        logger.debug("device permutation draw failed (%r); using the host draw", exc)
+    except ImportError as exc:  # no cupy: the host draw is the normal path
+        logger.debug("device permutation draw unavailable (%r); using the host draw", exc)
+        return None
+    except Exception as exc:  # best-effort: device fault / out of memory / compile failure: the host draw gives the same bits, slower
+        log_throttle(logger, "perm_labels_device.failed", logging.WARNING, "device permutation draw failed (%r), using the host draw", exc)
         return None

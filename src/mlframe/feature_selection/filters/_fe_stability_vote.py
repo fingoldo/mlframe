@@ -98,6 +98,11 @@ def resolve_adaptive_vote_k(k_param: Any, n_rows: int, *, min_rows_per_fold: int
     return int(k_param)
 
 
+def _quorum_folds(quorum: float, n_folds: int) -> int:
+    """Folds a recipe must clear: ``ceil(quorum * n_folds)`` with the product's float representation error (0.7 * 10 is 7.000000000000001) removed."""
+    return math.ceil(float(quorum) * int(n_folds) - 1e-9)
+
+
 def _fold_indices(n: int, k: int, rng: np.random.Generator) -> list[np.ndarray]:
     """K disjoint held-out fold index arrays (shuffled, near-equal sizes).
 
@@ -416,7 +421,8 @@ def _vote_recipe_over_folds(
                 # A recipe that cannot replay on a fold is not penalised here -
                 # transform()-time replay safety is a separate concern. Skip the
                 # fold; if every fold fails to replay the recipe is left admitted.
-                logger.debug(
+                log_throttle(
+                    logger, "_fe_stability_vote.fold_replay", logging.WARNING,
                     "Stability vote: recipe '%s' failed to replay on a fold (%s: %s); skipping fold.",
                     eng_name, type(exc).__name__, exc,
                 )
@@ -541,7 +547,7 @@ def confirm_recipes_cross_fold(
     if rng is None:
         rng = np.random.default_rng(0)  # fixed default seed: the stability-vote folds must not change run to run
     folds = _vote_folds(cv_policy, n, k, rng)
-    need = math.ceil(q * k)
+    need = _quorum_folds(q, k)
 
     raw_set = set(feature_names_in or [])
 
@@ -576,7 +582,7 @@ def confirm_recipes_cross_fold(
             continue
         # Scale the quorum to the number of folds actually evaluated so a recipe
         # that could not replay on a fold is not unfairly penalised.
-        need_eff = need if evaluated == k else math.ceil(q * evaluated)
+        need_eff = need if evaluated == k else _quorum_folds(q, evaluated)
         _reject_recipe_below_quorum(passes, need_eff, failed, eng_name, diagnostics_out, evaluated, src, verbose)
 
     if failed and verbose:

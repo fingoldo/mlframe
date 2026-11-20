@@ -32,6 +32,7 @@ from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_d
 import pandas as pd
 
 from mlframe.feature_selection._selection_log import logs_fit
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.utils.misc import rng_hygienic_fit
 
 logger = logging.getLogger(__name__)
@@ -127,18 +128,24 @@ def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = COR
     # never the full p x p. The greedy reads each rep's slab row exactly as it would the dense matrix row, so the
     # assignment is identical to the full-matrix path. bs trades speed (bigger = fewer, larger matmuls) vs the slab's
     # memory (bs*p*8 bytes); 512 keeps the slab modest (e.g. 512*10000*8 ~= 41 MB) while recovering near-BLAS speed.
-    M = np.asarray(X.values, dtype=_crit_np_dtype())
-    n = M.shape[0]
-    mu = M.mean(axis=0)
-    sd = M.std(axis=0)
-    Z = M - mu
-    del M  # only mu and sd are needed from here; M may be a private float copy of X
-    # zero-variance columns -> corr undefined; np.corrcoef yields nan there (nan_to_num -> 0). Mirror that by leaving
-    # their standardized column at 0, so every correlation INVOLVING them is 0 (< thr) -> they stay singletons, exactly
-    # as nan_to_num(corrcoef) produced. Non-constant columns are divided by their std as usual; a constant column is divided by 1, which leaves it as it
-    # is. In place: the former ``Z[:, nz] = Z[:, nz] / sd[nz]`` built two more full-size temporaries.
-    nz = sd > 0
-    np.divide(Z, np.where(nz, sd, 1.0).astype(Z.dtype, copy=False), out=Z)
+    V = X.values
+    n = V.shape[0]
+    zdt = _crit_np_dtype()
+    Z = np.empty(V.shape, dtype=zdt)
+    nz = np.zeros(p, dtype=bool)
+    # Centre and scale each column block in float64 and narrow to the working dtype only afterwards: casting first would round a large-offset column to
+    # the float32 grid before the mean is removed, and the correlations of such columns would differ from the dense path.
+    # Zero-variance columns -> corr undefined; np.corrcoef yields nan there (nan_to_num -> 0). Mirror that by leaving their standardized column at 0, so every
+    # correlation INVOLVING them is 0 (< thr) -> they stay singletons. A constant column is divided by 1, which leaves it as it is.
+    step = max(1, min(512, (1 << 18) // (8 * max(n, 1))))  # keeps the float64 transients to about 256 KiB per block
+    for c0 in range(0, p, step):
+        c1 = min(c0 + step, p)
+        blk = np.asarray(V[:, c0:c1], dtype=np.float64)  # Intentional float64: centring/scaling before the narrowing to the working dtype
+        sd_b = blk.std(axis=0)
+        nz[c0:c1] = sd_b > 0
+        centred = blk - blk.mean(axis=0)
+        centred /= np.where(sd_b > 0, sd_b, 1.0)
+        Z[:, c0:c1] = centred
     denom = float(n - 1) if n > 1 else 1.0
     bs = 512
     reps, members, assigned = [], {}, np.zeros(p, dtype=bool)
@@ -228,7 +235,8 @@ class HybridSelector:
                  mrmr_synergy_cap: int = 250,
                  hybrid_corr_max_features: int = 2000,
                  random_state: int = 42, classification: "Optional[bool]" = None, name: str = "hybrid",
-                 keep_augmented_data: bool = True, twin_corr: "Optional[float]" = None):
+                 keep_augmented_data: bool = True, twin_corr: "Optional[float]" = None,
+                 fit_on_train_only: bool = True):
         # cooccur_weight (default "gain" - MEASURED win on interaction beds): how the tree member ranks candidate
         # co-occurrence PAIRS proposed from GBM split co-occurrence. "count" weights a pair by raw frequency (how many
         # trees split on both a and b); "gain" weights it by the summed split GAIN the two features contribute within
@@ -254,6 +262,11 @@ class HybridSelector:
         # ADDITIVE to the tree member), byte-identical no-op on narrow frames (synth 52<=cap, bootstrap already ran)
         # AND on very-wide frames (madelon 500>250, bootstrap still skipped -> avoids its O(p^2) cost where it finds
         # nothing: madelon's 5-dim XOR is not bilinear). 250 is the cost/benefit sweet spot. (round4_hybrid_mrmrcap_bench)
+        # fit_on_train_only (default True - MEASURED, see audits/2026-11-17/full_read/bias_B.md): MRMR's engineered columns and the tree
+        # co-occurrence products are SELECTED with the labels of the rows the shared permutation-FI later scores them on, so noise
+        # products/transforms that happened to fit the holdout rows look important there. True fits both stages on the train
+        # partition only (the holdout stays unseen until the FI pass); False restores the legacy fit-on-all-rows behaviour.
+        self.fit_on_train_only = fit_on_train_only
         self.mrmr_synergy_cap = mrmr_synergy_cap
         # hybrid_corr_max_features (default 2000 - the wide-data clustering guard): corr_clusters is the one uncapped
         # super-linear-in-p hotspot (a full p x p Pearson matrix; ~800 MB float64 at p=10k). BEFORE clustering, X_aug is
@@ -344,27 +357,32 @@ class HybridSelector:
         self.keep_augmented_data = keep_augmented_data
 
     # ------------------------------------------------------------------ shared-once artifacts
-    def _shared_perm_fi(self, X, y):
-        """One honest held-out permutation-importance pass (the shared FI). Mirrors RFECV's permutation driver:
-        fit a single LightGBM on a train split, permute on the held-out split, return col -> mean importance."""
+    def _holdout_split(self, n, y):
+        """Positional ``(train_idx, holdout_idx)`` of the shared 30% holdout. Newest rows / whole groups are held out on temporal /
+        grouped data (the shared suite policy); i.i.d. keeps the stratified shuffle (stratified only when every class has >=2 rows,
+        so a rare class cannot crash train_test_split)."""
         from sklearn.model_selection import train_test_split
-        from sklearn.inspection import permutation_importance
-        import lightgbm as lgb
-        # Stratify only when every class has >=2 members; a rare class (high-cardinality multiclass, count-like target)
-        # would otherwise crash train_test_split with an opaque "least populated class has 1 member" error.
-        _yv = np.asarray(y)
-        _, _counts = np.unique(_yv, return_counts=True)
-        _strat = y if _counts.min() >= 2 else None
         from mlframe.feature_selection.cv_policy import get_cv_policy, holdout_indices
 
-        # The shared suite split policy: newest rows / whole groups are held out on temporal / grouped data; i.i.d. keeps the stratified shuffle.
-        _policy_split = holdout_indices(get_cv_policy(self), len(X), 0.3, random_state=_seed_int(self.random_state))
+        _policy_split = holdout_indices(get_cv_policy(self), n, 0.3, random_state=_seed_int(self.random_state))
         if _policy_split is not None:
-            _rows = (lambda a, i: a.iloc[i]) if hasattr(X, "iloc") else (lambda a, i: np.asarray(a)[i])
-            _ytake = (lambda i: y.iloc[i]) if hasattr(y, "iloc") else (lambda i: np.asarray(y)[i])
-            Xtr, Xva, ytr, yva = _rows(X, _policy_split[0]), _rows(X, _policy_split[1]), _ytake(_policy_split[0]), _ytake(_policy_split[1])
-        else:
-            Xtr, Xva, ytr, yva = train_test_split(X, y, test_size=0.3, random_state=self.random_state, stratify=_strat)
+            return np.asarray(_policy_split[0]), np.asarray(_policy_split[1])
+        _, _counts = np.unique(np.asarray(y), return_counts=True)
+        _strat = np.asarray(y) if _counts.min() >= 2 else None
+        tr, va = train_test_split(np.arange(n), test_size=0.3, random_state=self.random_state, stratify=_strat)
+        return tr, va
+
+    def _shared_perm_fi(self, X, y, split=None):
+        """One honest held-out permutation-importance pass (the shared FI). Mirrors RFECV's permutation driver:
+        fit a single LightGBM on a train split, permute on the held-out split, return col -> mean importance.
+        ``split`` is the precomputed ``(train_idx, holdout_idx)`` (fit() passes the one its MRMR / tree stages were restricted to)."""
+        from sklearn.inspection import permutation_importance
+        import lightgbm as lgb
+
+        tr_idx, va_idx = split if split is not None else self._holdout_split(len(X), y)
+        _rows = (lambda a, i: a.iloc[i]) if hasattr(X, "iloc") else (lambda a, i: np.asarray(a)[i])
+        _ytake = (lambda i: y.iloc[i]) if hasattr(y, "iloc") else (lambda i: np.asarray(y)[i])
+        Xtr, Xva, ytr, yva = _rows(X, tr_idx), _rows(X, va_idx), _ytake(tr_idx), _ytake(va_idx)
         m = lgb.LGBMClassifier(n_estimators=200, num_leaves=31, learning_rate=0.06, n_jobs=-1, verbose=-1, random_state=self.random_state)
         m.fit(Xtr, ytr)
         # permutation_importance's n_jobs=-1 spins up a loky PROCESS pool per call; on the small/medium beds most
@@ -499,7 +517,8 @@ class HybridSelector:
             floor = max(float(np.median([fi.get(c, 0.0) for c in raw_cols])) if raw_cols else 0.0, 1e-12)
             return [nm for nm in prods if fi.get(nm, 0.0) >= floor]
         if gate == "relevant_median":
-            rfis = [fi.get(c, 0.0) for c in relevant if c not in set(prods)]  # bar = survivors, excluding products
+            _prod_set = set(prods)
+            rfis = [fi.get(c, 0.0) for c in relevant if c not in _prod_set]  # bar = survivors, excluding products
             floor = max(float(np.median(rfis)) if rfis else 0.0, 1e-12)
             return [nm for nm in prods if fi.get(nm, 0.0) >= floor]
         # default "synergy": a product earns its place only if it is more informative than BOTH operands alone
@@ -551,6 +570,7 @@ class HybridSelector:
         base = X.reset_index(drop=True)
         extra = pd.DataFrame({**eng_cols, **tprod_cols}, index=base.index)
         aug = pd.concat([base, extra], axis=1)
+        aug.index = X.index  # the caller's row labels: the unaugmented path returns X itself, and y keeps its own labels
         return aug.loc[:, ~aug.columns.duplicated()]
 
     # ------------------------------------------------------------------ reused members on the shared narrowed space
@@ -713,7 +733,13 @@ class HybridSelector:
         self._validate_fit_inputs(X, y)
         # STAGE 0 - MRMR FIRST (it engineers the shared FE columns), then build the augmented frame X_aug once;
         # every downstream shared artifact + member then operates on raw+engineered features.
-        self.mrmr_selected_, self.artifacts_ = self._run_mrmr(X, y) if self.use_mrmr else ([], None)
+        _split = self._holdout_split(len(X), y)
+        if self.fit_on_train_only:
+            _y_arr = y.iloc[_split[0]] if hasattr(y, "iloc") else np.asarray(y)[_split[0]]
+            X_fit, y_fit = X.iloc[_split[0]], _y_arr
+        else:
+            X_fit, y_fit = X, y
+        self.mrmr_selected_, self.artifacts_ = self._run_mrmr(X_fit, y_fit) if self.use_mrmr else ([], None)
         if not self.use_mrmr:
             self._mrmr_member, self._eng_names, self._eng_rename = None, [], {}
         # tree signals on RAW X (importance ranking + co-occurrence product pairs). The candidate product columns are
@@ -722,9 +748,9 @@ class HybridSelector:
         # members, vote, or transform. This makes tree_prod_gate actually BIND (it is the regime self-regulator: on
         # interaction-heavy data the true products clear synergy/FI; on FE-saturated data the redundant raw products do
         # not, so they are dropped and MRMR's engineered transforms win unchallenged - no dilution of that regime).
-        self._tree_signals(X, y)
+        self._tree_signals(X_fit, y_fit)
         X_aug = self._augment(X)  # all candidate products present, for honest FI scoring
-        fi_full = self._shared_perm_fi(X_aug, y)  # the single (expensive) shared FI pass
+        fi_full = self._shared_perm_fi(X_aug, y, _split)  # the single (expensive) shared FI pass
         X_aug = self._gate_tree_products(X, X_aug, fi_full)
         cols = list(X_aug.columns)
         # engineered = MRMR-engineered + the ADMITTED tree products (rejected ones are already pruned). Both are
@@ -785,7 +811,8 @@ class HybridSelector:
             from mlframe.feature_selection._hybrid_twin_prune import prune_conditional_twins
 
             selected = prune_conditional_twins(X_aug, y, selected, self.fi_, twin_corr=float(self.twin_corr), classification=self.classification, seed=_seed_int(self.random_state))
-        self.raw_selected_ = [c for c in cols if c in set(selected)] or cols[:1]  # zero-vote degenerate case -> keep one column rather than an empty selector output, not a caller-supplied-empty trap
+        _selected_set = set(selected)
+        self.raw_selected_ = [c for c in cols if c in _selected_set] or cols[:1]  # zero-vote degenerate case -> keep one column rather than an empty selector output, not a caller-supplied-empty trap
         self.n_engineered_ = sum(1 for c in self.raw_selected_ if c in engineered)
         # sklearn-style fitted attributes (raw_selected_ may include engineered eng_N names from X_aug)
         self.feature_names_in_ = list(X.columns)
@@ -809,7 +836,8 @@ class HybridSelector:
             # depending on the input order - otherwise two equal-FI columns at the cap boundary could be kept
             # or dropped non-reproducibly across runs / platforms.
             rest = sorted(rest, key=lambda c: (-self.fi_.get(c, 0.0), c))[: max(cap - len(must), 0)]
-            cluster_cols = [c for c in cols if c in set(must) | set(rest)]  # preserve original column order
+            _keep_set = set(must) | set(rest)
+            cluster_cols = [c for c in cols if c in _keep_set]  # preserve original column order
         return cluster_cols
 
     def _run_members(self, X_aug, y, relevant, cols, engineered):
@@ -881,6 +909,11 @@ class HybridSelector:
             elif s >= self.vote and _rep_fi(r) >= floor:  # single-member -> must clear the credibility floor
                 chosen.append(r)
         if not chosen:  # guard/vote too strict for this dataset -> fall back to any-member union of clusters
+            log_throttle(
+                logger, "hybrid_selector.combine_union_fallback", logging.WARNING,
+                "HybridSelector: no cluster reached vote=%s (members voting: %s, fi_guard=%s); falling back to the union of every cluster any member selected.",
+                self.vote, len(member_sel), self.fi_guard,
+            )
             chosen = list(cluster_votes.keys())
         selected = []
         for r in chosen:
@@ -954,7 +987,8 @@ class HybridSelector:
         Engineered (eng_N) selections are not original columns, so they are excluded from the mask; use
         get_feature_names_out() / selected_features_ to see engineered survivors too."""
         names = list(self.feature_names_in_)
-        mask = np.array([c in set(self.raw_selected_) for c in names], dtype=bool)
+        selected = set(self.raw_selected_)
+        mask = np.array([c in selected for c in names], dtype=bool)
         return np.flatnonzero(mask) if indices else mask
 
     def __getstate__(self):

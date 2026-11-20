@@ -92,6 +92,8 @@ def masked_cell_moments(cp: ModuleType, codes_g: Any, v_safe: Any, w: Any, n_cel
     fused kernels cannot be used (too many cells for shared memory, or no support) and the caller should take the scatter-add form."""
     nc = int(n_cells)
     if nc > MAX_CELLS or nc < 1:
+        if nc > MAX_CELLS:
+            log_throttle(logger, "cell_moments.masked_too_many_cells", logging.INFO, "cell moments: %d cells exceed the fused kernels' shared-memory limit of %d; the scatter-add form is used", nc, MAX_CELLS)
         return None
     kernels = _kernels(cp)
     if kernels is None:
@@ -189,9 +191,10 @@ def _fold_kernels(cp) -> Optional[tuple]:
         _FOLD_KERNELS = (cp.RawKernel(_FOLDS_PASS1_SRC, "fold_cell_sums"), cp.RawKernel(_FOLDS_PASS2_SRC, "fold_cell_centred"))
         _FOLD_KERNELS[0].compile()
         _FOLD_KERNELS[1].compile()
-    except ImportError:
+    except ImportError as exc:
         _FOLD_KERNELS = None
         _FOLD_UNAVAILABLE = True  # a missing toolkit stays missing for the process
+        logger.warning("cell moments: the all-folds kernels are unavailable (%s: %s); the per-fold form is used for this process", type(exc).__name__, exc)
     except Exception as exc:
         # A transient failure must not pin the per-fold form for the process: warn and re-probe on the next call.
         _FOLD_KERNELS = None
@@ -208,6 +211,11 @@ def fold_cell_moments(cp: ModuleType, codes_g: Any, v_safe: Any, finite_f: Any, 
     #   of the (folds x cells) tables, not by occupancy: more blocks add contention and no throughput. Keep 4 x SM count.
     nf, nc = int(n_folds), int(n_cells)
     if nf < 1 or nc < 1 or 3 * nf * nc > _SHARED_DOUBLES:
+        if nf >= 1 and nc >= 1:
+            log_throttle(
+                logger, "cell_moments.fold_too_many_cells", logging.INFO,
+                "cell moments: %d folds x %d cells need %d shared doubles, over the limit of %d; the per-fold form is used", nf, nc, 3 * nf * nc, _SHARED_DOUBLES,
+            )
         return None
     kernels = _fold_kernels(cp)
     if kernels is None:

@@ -22,6 +22,7 @@ from numba import NumbaDeprecationWarning, NumbaPendingDeprecationWarning
 from contextlib import contextmanager as _contextmanager
 
 from mlframe.utils.warning_filters import install_filter_once
+from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import pandas as pd
@@ -196,7 +197,7 @@ def unique_inverse_dense(values: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
     if values.ndim == 1 and values.size and values.dtype.kind in "iu":
         lo = int(values.min())
         span = int(values.max()) - lo + 1
-        if span <= 4 * values.size + 1024:
+        if span <= 4 * values.size + 1024 and int(values.max()) <= _INT64_MAX:
             shifted = (values.astype(np.int64) - lo) if lo else values.astype(np.int64)
             occupied = np.bincount(shifted, minlength=span) > 0
             rank = np.cumsum(occupied, dtype=np.int64) - 1
@@ -204,6 +205,7 @@ def unique_inverse_dense(values: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
     uniq, inverse = np.unique(values, return_inverse=True)
     return uniq, inverse.reshape(-1)
 
+_INT64_MAX = (1 << 63) - 1  # a uint64 value above this cannot be shifted in int64 arithmetic
 _DENSE_LUT_MAX = 1 << 20  # largest code range renumbered through a lookup table (a bincount) instead of a sort
 
 
@@ -213,7 +215,7 @@ def dense_codes(codes: Any) -> np.ndarray:
     c = np.asarray(codes).ravel()
     if c.dtype.kind in "iu" and c.size:
         lo, hi = int(c.min()), int(c.max())
-        if hi - lo < _DENSE_LUT_MAX:
+        if hi - lo < _DENSE_LUT_MAX and hi <= _INT64_MAX:
             shifted = c.astype(np.int64, copy=False) - lo
             lut = np.cumsum(np.bincount(shifted, minlength=hi - lo + 1) > 0, dtype=np.int64) - 1
             return np.ascontiguousarray(lut[shifted], dtype=np.int64)
@@ -387,7 +389,7 @@ def njit_functions_dict(
                 else:
                     dict_[key] = njit(cache=True)(func)
             except Exception as e:  # nosec B110 - best-effort path
-                logger.debug("njit-wrapping %r failed, leaving it un-cached: %s", key, e)
+                log_throttle(logger, "_internals.njit_wrap_failed", logging.WARNING, "njit-wrapping %r failed (%s: %s); the pure-Python function stays in the registry", key, type(e).__name__, e)
 
 def sanitize(obj: Any) -> Any:
     """Recursively convert ``numba.typed.Dict`` and friends back to plain Python / NumPy so the result can be pickled by joblib / cloudpickle."""

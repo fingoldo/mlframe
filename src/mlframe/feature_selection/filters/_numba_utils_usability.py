@@ -33,7 +33,7 @@ def _apply_unary_low(v, code, xmin):
     elif code == 3:  # sqr = np.power(x, 2)
         return v * v
     elif code == 4:  # reciproc = np.power(x, -1)
-        return 1.0 / v
+        return 1e9 if v == 0.0 else 1.0 / v
     elif code == 5:  # sqrt = np.sqrt(np.abs(x))
         return np.sqrt(abs(v))
     elif code == 6:  # log = smart_log
@@ -71,15 +71,15 @@ def _apply_unary_high(v, code):
     elif code == _OP_QUBED:  # np.power(x, 3)
         return v * v * v
     elif code == _OP_INVSQUARED:  # np.power(x, -2)
-        return 1.0 / (v * v)
+        return 1e9 if v == 0.0 else 1.0 / (v * v)
     elif code == _OP_INVQUBED:  # np.power(x, -3)
-        return 1.0 / (v * v * v)
+        return 1e9 if v == 0.0 else 1.0 / (v * v * v)
     elif code == _OP_CBRT:
         return np.cbrt(v)
     elif code == _OP_INVCBRT:  # np.power(x, -1/3)
-        return v ** (-1.0 / 3.0)
+        return 1e9 if v == 0.0 else v ** (-1.0 / 3.0)
     elif code == _OP_INVSQRT:  # np.power(x, -1/2)
-        return v ** (-0.5)
+        return 1e9 if v == 0.0 else v ** (-0.5)
     else:  # exp
         return np.exp(v)
 

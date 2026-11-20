@@ -221,10 +221,7 @@ def _device_regression_bins(y_arr: np.ndarray, finite: np.ndarray) -> "tuple[np.
 
 def _proportional_stratum_pick(rng, members, counts, n, size, floor):
     """Draw about ``size`` rows proportionally across strata, keeping at least ``min(floor, count)`` per stratum; returns the concatenated row indices."""
-    alloc = np.maximum(
-        np.minimum(counts, floor),
-        np.floor(counts.astype(_crit_np_dtype()) / n * size).astype(np.int64),
-    )
+    alloc = np.maximum(np.minimum(counts, floor), (counts.astype(np.int64) * int(size)) // int(n))
     alloc = np.minimum(alloc, counts)
     picked = []
     for m, k in zip(members, alloc):
@@ -250,7 +247,7 @@ def _regression_stratified_idx(rng, y_arr, size, n):
             return idx
     # Quantile bins over the FINITE values; non-finite rows form their own stratum so they
     # are still representable (and never crash the digitize).
-    yv = y_arr.copy()
+    yv = y_arr
     edges = np.quantile(yv[finite], np.linspace(0.0, 1.0, _FE_STRATIFY_REG_BINS + 1))
     edges = np.unique(edges)
     if edges.shape[0] < 2:
@@ -356,7 +353,7 @@ def stratified_subsample_idx(rng: np.random.Generator, y: np.ndarray, size: int,
             if idx is None:
                 return _uniform()
     except Exception as e:
-        _logger.debug("stratified_subsample_idx: stratified draw failed, falling back to a plain uniform draw: %s", e)
+        log_throttle(_logger, "_fe_subsample.stratified_failed", logging.WARNING, "stratified_subsample_idx: stratified draw failed, falling back to a plain uniform draw: %s", e)
         return _uniform()
 
     if idx.shape[0] == 0:

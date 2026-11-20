@@ -60,6 +60,7 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 from mlframe.feature_selection.filters._lazy_host_codes import length_of
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +125,7 @@ def _write_combo_chunk_mi(cand, live_d, col_major, nbins, ky_w, h_y, k_y, d_y, d
             mi_table_d[start:stop] = cp.where(live_d, mi_d, -1.0)
             wrote_resident = True
     except Exception as e:
-        logger.warning("resident MI-table write failed, falling back to the per-row sync path: %s", e)
+        log_throttle(logger, "_usability_pool_resident.write_combo_chunk_mi", logging.WARNING, "resident MI-table write failed, falling back to the per-row sync path: %s", e)
         wrote_resident = False
     if not wrote_resident:  # per-row sync fallback (bit-faithful)
         codes, kx = _gpu_quantile_bin_codes(cand if col_major else cp.ascontiguousarray(cand.T), d_qs)
@@ -256,5 +257,5 @@ def score_pair_combos_table_resident(
         out[:] = cp.asnumpy(mi_table_d)
         return out.reshape(npairs, nc)
     except Exception as _exc:
-        logger.debug("score_pair_combos_table_resident: GPU path failed (%s); host fallback", _exc)
+        log_throttle(logger, "_usability_pool_resident.table_resident", logging.WARNING, "score_pair_combos_table_resident: GPU path failed (%s); host fallback", _exc)
         return None

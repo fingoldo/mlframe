@@ -97,3 +97,27 @@ def test_recommend_scorer_unaffected_by_caching():
         r1 = selector.recommend_scorer(X, y)
         r2 = selector.recommend_scorer(X, y)
         assert r1 == r2
+
+
+def test_cached_read_rows_invalidates_on_a_same_mtime_rewrite_of_a_different_size(tmp_path):
+    """A rewrite inside one mtime tick must not serve the old rows: the cache key carries the file size next to the exact mtime."""
+    from mlframe.feature_selection.filters._oracle_scorer_select import _cached_read_rows, _ROWS_CACHE
+
+    path = tmp_path / "store.bin"
+
+    class _Store:
+        """Store stub whose rows are the file size."""
+
+        _path = str(path)
+
+        def read_rows(self):
+            """Rows derived from the current file."""
+            return [{"size": path.stat().st_size}]
+
+    _ROWS_CACHE.clear()
+    path.write_bytes(b"a" * 10)
+    ns = path.stat().st_mtime_ns
+    assert _cached_read_rows(_Store()) == [{"size": 10}]
+    path.write_bytes(b"a" * 25)
+    os.utime(path, ns=(ns, ns))
+    assert _cached_read_rows(_Store()) == [{"size": 25}]

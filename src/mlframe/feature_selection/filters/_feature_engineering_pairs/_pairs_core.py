@@ -64,6 +64,8 @@ def _abs_corr_zerofill_njit(a, b):
     # sums by subtraction loses the answer entirely once the data carries an offset large relative to its
     # spread, and the destroyed variance then trips the near-constant branch and returns a confident 0.0.
     n = a.shape[0]
+    if b.shape[0] != n:
+        raise ValueError("_abs_corr_zerofill_njit: a and b differ in length")
     if n == 0:
         return 0.0
     sa = 0.0

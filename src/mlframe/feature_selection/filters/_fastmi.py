@@ -156,6 +156,7 @@ def fastmi(
     grid_pad_sigma: float = 4.0,
     prefer_gpu: bool = False,
     random_seed: Optional[int] = None,
+    mise_rescale: bool = True,
 ) -> float:
     """fastMI mutual information estimator (Purkayastha-Song 2024).
 
@@ -164,16 +165,20 @@ def fastmi(
         y: 1-D array of equal length to ``x``, the second variable.
         grid_size: M, the side length of the FFT-KDE grid. Paper recommends
             M >= 64; defaults to 128. Cost grows as M^2 log M.
-        bandwidth: ``'silverman'`` (closed form; default) or ``'mise'`` (auto-
-            optimal per Purkayastha-Song eq. 8; not yet implemented in this port).
+        bandwidth: ``'mise'`` (default; leave-one-out log-likelihood grid search) or
+            ``'silverman'`` (closed form).
         grid_pad_sigma: probit-grid extent in standard deviations; default 4.0
             covers >99.99% of probit-transformed mass.
         prefer_gpu: route FFT through cupy if available AND N >= 10000.
         random_seed: seed for the MISE sub-sample draw when N > 1000; ``None`` maps to 0 so the default call
             stays deterministic while distinct seeds give independent replicates.
+        mise_rescale: when the MISE search ran on a 1000-row sub-sample (N > 1000), scale the found bandwidth by
+            ``(1000 / N) ** (1/6)`` (the 2-D KDE rate ``N**(-1/(d+4))``) before applying it to all N rows; ``False`` restores the
+            legacy un-rescaled bandwidth, which over-smooths at large N.
 
     Returns:
-        Estimated mutual information in nats; 0.0 when fewer than 16 samples are given.
+        Estimated mutual information in nats; 0.0 when fewer than 16 samples are given. Rows where either
+        variable is NaN are dropped pairwise before ranking.
 
     Reference: Purkayastha, S., Song, P.X.-K. (2024), "fastMI: a fast and
     consistent copula-based nonparametric estimator of mutual information",
@@ -183,6 +188,9 @@ def fastmi(
     y = np.asarray(y, dtype=_crit_np_dtype()).ravel()
     if x.size != y.size:
         raise ValueError(f"x ({x.size}) and y ({y.size}) size mismatch")
+    both = ~(np.isnan(x) | np.isnan(y))
+    if not both.all():
+        x, y = x[both], y[both]
     n = x.size
     if n < 16:
         return 0.0
@@ -213,6 +221,8 @@ def fastmi(
         if n > 1000:
             idx = np.random.default_rng(0 if random_seed is None else random_seed).choice(n, size=1000, replace=False)
             h = _mise_optimal_bandwidth(zx[idx], zy[idx])
+            if mise_rescale:
+                h *= (1000.0 / n) ** (1.0 / 6.0)
         else:
             h = _mise_optimal_bandwidth(zx, zy)
     else:

@@ -67,7 +67,7 @@ def scorer_device_choice(name: str, n_rows: int, n_cols: int, sweep: "Callable[[
         choice = res if isinstance(res, str) else (str(res.get("kernel_choice", fallback)) if res else fallback)
         return choice == "device"
     except Exception as exc:
-        logger.debug("scorer %s backend selection failed: %r", name, exc)
+        log_throttle(logger, "_scorer_device_dispatch.selection_failed", logging.WARNING, "scorer %s: backend selection failed (%r); work-size fallback %s", name, exc, fallback)
         return fallback == "device"
 
 

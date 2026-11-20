@@ -24,7 +24,6 @@ from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._device_blocks import double_block_width_of
 from ._raw_module_cache import RawModuleCache
-
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -198,7 +197,7 @@ def fingerprint_moments_on_device(n_rows: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("meta_fingerprint_backend: KTC choose() failed, using the row-count fallback: %s", exc)
+        log_throttle(logger, "meta_fingerprint_gpu.ktc_choose", logging.WARNING, "meta_fingerprint_backend: KTC choose() failed (%s); using the row-count fallback", exc)
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 
@@ -209,6 +208,8 @@ def column_moments(xs: np.ndarray, yc: Optional[np.ndarray] = None) -> np.ndarra
     """``(K, 5)`` moments (mean, m2, m3, m4 about the mean, cross sum with ``yc``; zero when ``yc`` is None) of the rows of the finite block ``xs`` ``(K, n)``, from the backend the kernel-tuning cache
     picks for this row count, in column blocks of :func:`column_block_width`."""
     n = int(xs.shape[1])
+    if yc is not None and int(yc.shape[0]) != n:
+        raise ValueError(f"column_moments: yc has {int(yc.shape[0])} rows, the columns have {n}")
     width = column_block_width(n)
     on_device = fingerprint_moments_on_device(n)
     parts = []

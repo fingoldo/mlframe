@@ -13,11 +13,10 @@ from typing import Any, Optional
 
 import numpy as np
 
-from ._fe_usability_signal import _crit_np_dtype
+from mlframe.utils.log_throttle import log_throttle
+
 from mlframe.feature_selection.filters._lazy_host_codes import size_of
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
-
-from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -174,8 +173,8 @@ def _analytic_cmi_null(
                 _floor = 0.0
             return float(_floor), float(_null_mean)
         # else: fall through to the permutation null (sparse cells / degenerate df).
-    except Exception:
-        logger.debug("analytic CMI null failed; using permutation null", exc_info=True)
+    except Exception as exc:
+        log_throttle(logger, "cmi_null.analytic", logging.WARNING, "analytic CMI null failed (%s: %s); the permutation null runs", type(exc).__name__, exc)
     return None
 
 
@@ -218,8 +217,8 @@ def _resident_support_null(inp: _NullInputs, z_support_dev: Any, n_permutations:
                 seed=seed,
                 salt=salt,
             )
-    except Exception:
-        logger.debug("resident-support GPU conditional perm-null failed; host order/z_rank path", exc_info=True)
+    except Exception as exc:
+        log_throttle(logger, "cmi_null.resident_support", logging.WARNING, "resident-support GPU conditional perm-null failed (%s: %s); the host order/z_rank path runs", type(exc).__name__, exc)
     return None
 
 
@@ -254,8 +253,8 @@ def _marginal_perm_null(inp: _NullInputs, n_permutations: int, quantile: float, 
                 seed=seed,
                 salt=salt,
             )
-        except Exception:
-            logger.debug("GPU-resident marginal perm-null failed; using host/CPU path", exc_info=True)
+        except Exception as exc:
+            log_throttle(logger, "cmi_null.marginal_gpu", logging.WARNING, "GPU-resident marginal perm-null failed (%s: %s); the host path runs", type(exc).__name__, exc)
     # BATCHED marginal null under STRICT (default OFF -> CPU loop): all nperm free-shuffled columns
     # into one (n, nperm) matrix (SAME rng draws) -> one batched_cmi_gpu(..., z=None) call.
     xh = inp.host_x()
@@ -271,8 +270,8 @@ def _marginal_perm_null(inp: _NullInputs, n_permutations: int, quantile: float, 
             # null CMI vector reduced on-device -> stays resident, one D2H for (floor, mean)
             nulls_dev = batched_cmi_gpu(Xp, inp.y, None, return_device=True)
             return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
+        except Exception as e:  # non-fatal by design: the host loop below gives the same null
+            log_throttle(logger, "cmi_null.marginal_batched", logging.WARNING, "batched device marginal perm-null failed (%s: %s); the host loop runs", type(e).__name__, e)
     # y is FIXED across all marginal shuffles, so H(Y) and its occupied-cell count k_y are
     # invariant - hoist the y-only block ONCE (precompute_marginal_y_terms) and reuse it per
     # perm via marginal_mi_binned_fixed_y, instead of re-binning y + recomputing H(Y) inside
@@ -358,7 +357,7 @@ class _StratifiedSupport:
         # identical ``keys`` draw the resulting order is bit-identical (verified: ``sorted_z`` after
         # both reorderings is equal element-for-element), so the RNG draw sequence and every null
         # value are unchanged - selection is bit-identical, not merely equivalent.
-        self.z_rank = np.zeros(inp.n_size, dtype=_crit_np_dtype())
+        self.z_rank = np.zeros(inp.n_size, dtype=np.float64)  # Intentional float64: stratum ranks are integers that float32 stops representing past 2**24
         if inp.n_size > 1:
             self.z_rank[1:] = np.cumsum(self.sorted_z[1:] != self.sorted_z[:-1])
 
@@ -403,8 +402,8 @@ def _conditional_gpu_resident_null(
             seed=seed,
             salt=salt,
         )
-    except Exception:
-        logger.debug("GPU-resident conditional perm-null failed; using host/CPU path", exc_info=True)
+    except Exception as exc:
+        log_throttle(logger, "cmi_null.conditional_gpu", logging.WARNING, "GPU-resident conditional perm-null failed (%s: %s); the host path runs", type(exc).__name__, exc)
     return None
 
 
@@ -441,6 +440,7 @@ def _conditional_batched_gpu_null(inp: _NullInputs, sup: _StratifiedSupport, npe
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
 
         if not fe_gpu_has_vram_cushion(3 * int(inp.n_size) * int(nperm) * 8):
+            log_throttle(logger, "cmi_null.batched_vram", logging.WARNING, "batched device conditional null refused by the VRAM cushion (n=%d, nperm=%d); the host loop runs", inp.n_size, nperm)
             return None
         z_rank_d = cp.asarray(sup.z_rank)[:, None]
         within = device_argsort(z_rank_d + cp.asarray(keys), axis=0)  # (n, nperm) within-stratum orders
@@ -453,7 +453,7 @@ def _conditional_batched_gpu_null(inp: _NullInputs, sup: _StratifiedSupport, npe
         nulls_dev = batched_cmi_gpu(Xp_d, sup.y_i, sup.z_i, return_device=True)  # stays resident
         return _floor_mean_from_nulls_dev(cp, nulls_dev, quantile)
     except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
-        logger.debug("GPU-resident CMI-null path failed (%s: %s) -- falling back to exact per-perm CPU loop", type(e).__name__, e)
+        log_throttle(logger, "cmi_null.batched_gpu", logging.WARNING, "batched device conditional null failed (%s: %s); the exact per-permutation host loop runs", type(e).__name__, e)
     return None
 
 

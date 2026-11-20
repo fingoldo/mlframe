@@ -641,7 +641,10 @@ def evaluate_gain(
 
             if k > last_checked_k:
                 if confidence_mode and count_cand_nbins(Z, factors_nbins) > max_confirmation_cand_nbins:
-                    additional_knowledge = 0.0  # this is needed to skip checking against hi cardinality approved factors
+                    # A hi-cardinality approved factor is not checked at all; letting it contribute a redundancy of 0.0 would pull the minimum to 0 and make every
+                    # permuted-null gain look like a failure to beat the observed one, so confirmation would accept by default.
+                    k += 1
+                    continue
                 else:
                     # Gated on mrmr_redundancy_algo, not mrmr_relevance_algo: the conditional-MI machinery
                     # below is the REDUNDANCY mechanism (I(X;Y|Z) checked against every already-selected Z),

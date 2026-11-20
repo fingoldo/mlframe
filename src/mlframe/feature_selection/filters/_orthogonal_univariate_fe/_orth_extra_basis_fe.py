@@ -397,9 +397,8 @@ def _polynomial_detrend(z_tr: np.ndarray, z_va: np.ndarray, y_tr: np.ndarray, y_
             _poly_coef, *_ = np.linalg.lstsq(_V_tr, y_tr, rcond=None)
         y_tr = y_tr - _V_tr @ _poly_coef
         y_va = y_va - np.vander(z_va, 4) @ _poly_coef
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
+    except np.linalg.LinAlgError as e:
+        log_throttle(logger, "_orth_extra_basis_fe._polynomial_detrend", logging.WARNING, "_polynomial_detrend: cubic fit failed (%s); detecting on the undetrended target", e)
     return y_tr, y_va
 
 
@@ -482,8 +481,8 @@ def _try_gpu_fourier_detect(z01: np.ndarray, y: np.ndarray, f_grid: Sequence[flo
                     z01, y, f_grid=f_grid, min_val_corr=min_val_corr, min_rows=min_rows,
                     max_freqs=max_freqs, fourier_detect_max_n=get_fourier_detect_max_n(),
                 )
-            except tuple(_dev_errs):
-                pass  # genuine cupy/device/linalg fault -> CPU njit path (byte-identical default); logic bugs propagate
+            except tuple(_dev_errs) as _exc:  # genuine cupy/device/linalg fault -> CPU njit path (byte-identical default); logic bugs propagate
+                log_throttle(logger, "_orth_extra_basis_fe._try_gpu_fourier_detect", logging.WARNING, "GPU-resident Fourier detector failed (%s: %s); using the CPU detector", type(_exc).__name__, _exc)
     return None
 
 
@@ -690,11 +689,9 @@ def _heldout_smooth_r2(x: np.ndarray, y: np.ndarray) -> float:
     # the whole function, 34ms/call @ n=99401) instead of a double argsort - same ranks (verified bit-
     # identical), ~1.7x faster (32.5ms -> 19.0ms @ n=99401): argsort once for the sort order, then scatter
     # 0..n-1 into that order's positions, instead of sorting the sort-order array a second time.
-    from ._orth_extra_basis_fe_helpers import cached_stable_argsort
+    from scipy.stats import rankdata
 
-    _order = cached_stable_argsort(x)  # the adaptive-column relevance score sorted the same column already
-    ranks = np.empty(x.size, dtype=_crit_np_dtype())
-    ranks[_order] = np.arange(x.size, dtype=_crit_np_dtype())
+    ranks = (rankdata(x, method="average") - 1.0).astype(_crit_np_dtype(), copy=False)
     zx = (ranks / max(n - 1, 1)) * 2.0 - 1.0
     try:
         _Vtr = np.vander(zx[tr], 4)

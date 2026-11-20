@@ -323,7 +323,7 @@ def _pp_subsample_pair_rows(raw_vars_pair: Any, vals_a_full: np.ndarray, vals_b_
             if _psi.ndim == 1 and 0 < _psi.shape[0] < len(vals_a_full) and int(_psi.max()) < len(vals_a_full):
                 _poly_shared_idx = _psi.astype(np.int64, copy=False)
         except Exception as e:
-            logger.warning("shared_subsample_idx validation failed, falling back to no shared subsample: %s", e)
+            log_throttle(logger, "polynom_pair_fe.shared_idx_invalid", logging.WARNING, "shared_subsample_idx validation failed, falling back to no shared subsample: %s", e)
             _poly_shared_idx = None
     if _poly_shared_idx is not None:
         # Reuse the fit's ONE shared draw (same rows as the pair-search / sufficiency floor).
@@ -332,7 +332,7 @@ def _pp_subsample_pair_rows(raw_vars_pair: Any, vals_a_full: np.ndarray, vals_b_
         vals_b_sub = vals_b_full[_ss_idx]
         classes_y_sub = y_arr[_ss_idx] if hasattr(y_arr, "__getitem__") else y_arr
     elif subsample_n and 0 < subsample_n < len(vals_a_full):
-        _ss_rng = np.random.default_rng(subsample_seed + int(raw_vars_pair[0]) * 1000 + int(raw_vars_pair[1]))
+        _ss_rng = _pp_pair_rng(subsample_seed, raw_vars_pair)
         if fe_subsample_stratify and hasattr(y_arr, "__getitem__"):
             # ``classes_y`` (y_arr) is the discrete target the inner MI scores against -> classification
             # stratification keeps the rare class in every per-pair subsample.
@@ -348,6 +348,14 @@ def _pp_subsample_pair_rows(raw_vars_pair: Any, vals_a_full: np.ndarray, vals_b_
         vals_b_sub = vals_b_full
         classes_y_sub = y_arr
     return vals_a_sub, vals_b_sub, classes_y_sub
+
+
+def _pp_pair_rng(subsample_seed: int, raw_vars_pair: Any) -> np.random.Generator:
+    """Per-pair subsample generator; the legacy ``seed + a*1000 + b`` stream is kept while it is collision-free (``b < 1000``), else a ``(seed, a, b)`` seed sequence."""
+    a, b = int(raw_vars_pair[0]), int(raw_vars_pair[1])
+    if 0 <= b < 1000:
+        return np.random.default_rng(subsample_seed + a * 1000 + b)
+    return np.random.default_rng(np.random.SeedSequence([int(subsample_seed) % (1 << 63), abs(a), abs(b)]))
 
 
 def _pp_trivial_baseline_once(vals_a_sub: np.ndarray, vals_b_sub: np.ndarray, classes_y_sub: Any, fe_mi_estimator: str, raw_vars_pair: Any) -> Tuple[Any, Any, Any]:
@@ -411,7 +419,7 @@ def _pp_cheap_skip_applies(raw_vars_pair: Any, _trivial_baseline: Any, _trivial_
                     if _tf.size == _yv.size and float(np.std(_tf)) > 1e-12 and float(np.std(_yv)) > 1e-12:
                         _trivial_corr = abs(float(np.corrcoef(_tf, _yv)[0, 1]))
                 except Exception as e:
-                    logger.warning("trivial-correlation pre-check failed, falling back to MI-only skip: %s", e)
+                    log_throttle(logger, "polynom_pair_fe.trivial_corr_failed", logging.WARNING, "trivial-correlation pre-check failed, falling back to MI-only skip: %s", e)
                     _trivial_corr = 1.0  # corr unavailable -> fall back to MI-only skip
             if poly_cheap_skip_min_corr <= 0.0 or _trivial_corr >= poly_cheap_skip_min_corr:
                 return True
@@ -595,18 +603,15 @@ def _pp_append_prevalence_rejection(rejection_records: list, best_res: Any, raw_
 
 
 def _pp_log_injection_failure(verbose: int, raw_vars_pair: Any, err: Exception) -> None:
-    """Report a survivor whose injection raised: a throttled warning when verbose, otherwise a debug line."""
-    if verbose:
-        log_throttle(
-            logger,
-            "polynom_pair_fe_injection_failed",
-            logging.WARNING,
-            "Polynomial-pair FE injection failed for pair=%s: %s. " "Standard FE block below still runs.",
-            raw_vars_pair,
-            err,
-        )
-    else:
-        logger.debug("Polynomial-pair FE injection failed for pair=%s: %s.", raw_vars_pair, err)
+    """Report a survivor whose injection raised as a throttled warning, whatever ``verbose`` is."""
+    log_throttle(
+        logger,
+        "polynom_pair_fe_injection_failed",
+        logging.WARNING,
+        "Polynomial-pair FE injection failed for pair=%s: %s. " "Standard FE block below still runs.",
+        raw_vars_pair,
+        err,
+    )
 
 
 def _pp_log_cheap_skips(n_skipped: int, n_pairs: int, skip_ratio: float) -> None:

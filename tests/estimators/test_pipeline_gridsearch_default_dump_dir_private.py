@@ -20,19 +20,19 @@ def _fake_cv_func(X, Y, title, **constants):
 
 def test_default_dump_is_not_at_the_predictable_shared_temp_path(monkeypatch, tmp_path):
     """Without output_dir the dump lands in a new private directory, never directly in the shared temp root."""
-    import joblib
+    from mlframe.training import io as training_io
 
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
     seen = []
-    real_dump = joblib.dump
+    real_write = training_io.atomic_write_bytes
 
-    def spy(obj, path, *a, **k):
+    def spy(target_path, writer_fn, *a, **k):
         """Record the dump path and the private directory's mode while the dump is being written."""
-        parent = Path(path).parent
-        seen.append((Path(path), parent, parent.stat().st_mode))
-        return real_dump(obj, path, *a, **k)
+        written = Path(target_path)
+        seen.append((written, written.parent, written.parent.stat().st_mode))
+        return real_write(target_path, writer_fn, *a, **k)
 
-    monkeypatch.setattr(joblib, "dump", spy)
+    monkeypatch.setattr(training_io, "atomic_write_bytes", spy)
     optimize_pipeline_by_gridsearch(X=None, Y=None, title="fs02_t", cv_func=_fake_cv_func)
     assert len(seen) == 1, seen
     path, parent, mode = seen[0]

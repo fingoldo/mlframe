@@ -110,10 +110,22 @@ def _mi_from_tables(tables: np.ndarray, total: float) -> np.ndarray:
     return np.where(mi > 0.0, mi, 0.0)
 
 
+_MAX_GRID_Y = 65535  # CUDA limit on gridDim.y: the launch uses one grid row per column of the block
+
+
+def column_block(kk: int, free: float, per_col: int) -> int:
+    """Columns per device block: what ``_BUDGET_FRACTION`` of ``free`` bytes holds at ``per_col`` bytes each, at least 1, at most ``kk`` and the CUDA grid-row limit."""
+    return int(max(1, min(kk, _MAX_GRID_Y, (_BUDGET_FRACTION * free) // per_col)))
+
+
 def copula_columns_device(cols_rows: np.ndarray, vi: np.ndarray, nb: int) -> Optional[np.ndarray]:
     """Copula MI of each row of the all-finite ``cols_rows`` (columns, n; numpy, or a resident cupy array that is used as is) against the target bin codes ``vi``; ``None`` when the device cannot take it (the caller runs the host kernel)."""
     kk, n = cols_rows.shape
     if kk == 0 or n < 2 or np.dtype(str(cols_rows.dtype)) not in _MODULES or nb > _MAX_BINS:
+        return None
+    vi_host = np.asarray(vi).ravel()
+    if vi_host.size != n or nb < 1 or int(vi_host.min()) < 0 or int(vi_host.max()) >= nb:
+        log_throttle(logger, "copula_gpu.vi_range", logging.WARNING, "device copula MI not used: target bin codes outside [0, %d) or not %d long; the host kernel scores the columns", int(nb), int(n))
         return None
     try:
         import cupy as cp
@@ -121,10 +133,10 @@ def copula_columns_device(cols_rows: np.ndarray, vi: np.ndarray, nb: int) -> Opt
         resident = isinstance(cols_rows, cp.ndarray)
 
         kernel = _MODULES[np.dtype(str(cols_rows.dtype))].get(cp).get_function("copula_joint")
-        vi_d = cp.asarray(np.ascontiguousarray(vi, dtype=np.int32))
+        vi_d = cp.asarray(np.ascontiguousarray(vi_host, dtype=np.int32))
         free = device_room(cp)
         per_col = n * (int(cols_rows.dtype.itemsize) * 2 + 8 * 4)  # values, sorted values, order and sort temporaries
-        block = int(max(1, min(kk, (_BUDGET_FRACTION * free) // per_col)))
+        block = column_block(kk, free, per_col)
         dyn_smem = _REPL * nb * nb * 4
         threads = block_size_for(kernel, dyn_smem=dyn_smem, work_items=n, pow2=True)
         grid_x = min((n + threads - 1) // threads, 64)

@@ -21,6 +21,8 @@ from typing import Any, Iterable, Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 PIN_CAP_FRAC = 0.20  # share of free host RAM that pinned staging may take
@@ -54,9 +56,11 @@ def _devices(max_devices: Optional[int] = None) -> list[tuple[int, int]]:
                 free += int(cp.get_default_memory_pool().free_bytes())
             out.append((d, int(free)))
         return out[:max_devices] if max_devices is not None else out
-    except Exception:
-        # fallback: no usable CUDA device is the expected CPU-only case; no streamed GPU devices are returned.
-        logger.debug("streamed GPU MI: no CUDA device", exc_info=True)
+    except ImportError:
+        logger.debug("streamed GPU MI: cupy is not installed", exc_info=True)
+        return []
+    except Exception as exc:
+        log_throttle(logger, "streamed_gpu_mi.devices_failed", logging.INFO, "streamed GPU MI: CUDA devices unavailable (%s: %s); the CPU path runs", type(exc).__name__, exc)
         return []
 
 
@@ -94,8 +98,7 @@ def plan_streamed_mi(n_rows: int, devices: list[tuple[int, int]], host_free: int
     width = min(width, BLOCK_BYTES_MAX // col_bytes)
     pinned_total = min(int(host_free * PIN_CAP_FRAC), PIN_CAP_MAX)
     # two buffers per device; if the cap cannot hold them at this width, shrink the width to fit
-    while width > 0 and 2 * len(devices) * width * col_bytes > pinned_total:
-        width -= 1
+    width = min(width, pinned_total // (2 * len(devices) * col_bytes))
     return {
         "width": int(width),
         "block_bytes": int(width * col_bytes),

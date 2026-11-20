@@ -80,6 +80,9 @@ class DiscoveredRelation:
         engineered-column MI matched or exceeded the observed MI, ``(1 + #ge) / (1 + n_perm)``. ``nan`` when significance testing is
         off (``significance_n_perm=0``) or unavailable (the fitted-MRMR accessor, which has no y). The detectors' own 12-perm gate
         already filtered false discovery; this is a deeper, reportable p-value for the EDA surface where the user wants a confidence.
+        Only the modular family re-runs its modulus search under each permutation; for lattice / argmax / gate hits the null is conditional on the
+        already-selected columns (and threshold ``tau``), so it does not account for the search that chose them and is anti-conservative as a
+        family-wise p-value.
     """
 
     kind: str
