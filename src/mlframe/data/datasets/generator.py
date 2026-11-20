@@ -371,7 +371,8 @@ def _generate_non_binary(
         calibration["cut_points"] = [float(value) for value in cut_points]
         caveats.append(f"ordinal target with {law.shape[1]} ordered classes on one latent axis: a method treating them as unordered discards most of the signal")
     elif target.kind == "count":
-        law = count_mean(scale * unit_score + float(target.link.intercept))
+        # unit_score already carries the link intercept (link_score adds it), so the scaled score is the whole exponent.
+        law = count_mean(scale * unit_score)
         labels = sample_count(law, labels_stream)
         calibration.update(count_ceiling(law))
         caveats.append("count target: the variance of a Poisson is its mean, so this bed is heteroscedastic by construction and a constant-variance scorer is mis-weighted on the largest rows")
