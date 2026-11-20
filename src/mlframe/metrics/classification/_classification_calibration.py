@@ -122,6 +122,10 @@ def accuracy_ratio(y_true: np.ndarray, y_score: np.ndarray) -> float:
     n_pos = int(yt.sum())
     if n_pos == 0 or n_pos == n:
         return np.nan  # CAP undefined when only one class is present
+    if not np.isfinite(ys).all():
+        # A NaN score sorts last, so each NaN row used to become its own tie block and a finite ratio came back. Undefined ranking -> NaN,
+        # like the other ranking statistics (hosmer_lemeshow_test, ks_statistic).
+        return np.nan
     # Sort by descending score. Within any block of equal scores the CAP curve
     # is order-dependent unless we tie-fold: a naive cumsum makes the area depend
     # on arbitrary intra-tie row order, so the result is NOT row-permutation-invariant
