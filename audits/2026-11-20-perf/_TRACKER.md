@@ -16,3 +16,5 @@ Four read-only agents (E CPU / GIL, F GPU / kernels, G overlap / scheduling, H r
 | H-F04 repeated column hashes | up to 0.5 s | REJECTED (measured) | 22 us a column hash |
 | E-F04 replay pool share | 0.2-0.5 s | IMPLEMENTED | `_fe_stability_vote._host_replays` |
 Lesson: measure the cost of the operation in a micro-benchmark before implementing; four estimates by reading were 3 to 10 times too high.
+
+Noise floor (2026-11-20, unchanged tree at 5a8519ed1, GPU 72-77 C, 1695-1708 MHz, 6 runs back to back): 41.3 / 40.9 / 38.9 / 39.3 / 40.0 / 40.4 s, mean 40.13 s, sd 0.92 s, range 2.4 s. A paired difference has sd about 1.3 s, so four alternating pairs resolve a gain of roughly 1.3 s or more; items estimated below that are judged by an isolated micro-benchmark of their own cost, not by the wall.
