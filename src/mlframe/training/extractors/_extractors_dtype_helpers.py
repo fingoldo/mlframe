@@ -246,4 +246,8 @@ def get_sample_weights_by_recency(
     # base folds every loop-invariant term of ``min_weight + max_drop - (log(days_from_max) - log_min_age) * wdpy``
     # so the fused kernel only does the per-element ``base - log(d) * wdpy``.
     base = min_weight + max_drop + _log_min_age * weight_drop_per_year
-    return np.asarray(_recency_weights_fused(np.ascontiguousarray(_delta_secs, dtype=np.float64), base, _log_min_age, _min_age_days, weight_drop_per_year))
+    _weights = np.asarray(_recency_weights_fused(np.ascontiguousarray(_delta_secs, dtype=np.float64), base, _log_min_age, _min_age_days, weight_drop_per_year))
+    # A row with a missing timestamp has no age: its NaN weight used to reach the training weights. It gets the floor weight (treated as
+    # the oldest row, the least influential) so every weight is finite (audit 39-F6).
+    _weights[~np.isfinite(_delta_secs)] = float(min_weight)
+    return _weights

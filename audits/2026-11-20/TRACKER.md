@@ -106,3 +106,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 39-F67 | 39_training-8.md | FIXED | L1 exclusion ids are a local, never stored on the module (the earlier fix still stored them). Test test_cluster39_l1_exclusion_not_pickled.py. |
 | 39-F36 | 39_training-8.md | FIXED | Prewarm pins the entry in the strong tier while loading. Test test_cluster39_prewarm_pins_entry_during_load.py. |
 | 39-F37 | 39_training-8.md | FIXED | NaN/inf refused with a clear message (default choice). Test test_cluster39_polynomial_refuses_nonfinite.py. |
+| 39-F6 | 39_training-8.md | FIXED | Missing timestamp gets the floor weight (default choice). Test test_cluster39_recency_missing_timestamp.py. |

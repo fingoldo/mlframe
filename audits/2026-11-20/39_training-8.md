@@ -109,7 +109,7 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F3: FIXED. a failed concatenate raises with the shapes instead of truncating to batch 0; test tests/training/test_cluster39_run_batched_alignment.py
 - 39-F4: FIXED. the single-entry fallback applies only when no target was asked for; test tests/training/test_cluster39_chosen_params_target_isolation.py
 - 39-F5: FIXED. a configured group column missing from the frame logs a WARNING; test tests/training/test_cluster39_missing_group_column_logged.py
-- 39-F6: DEFERRED. not changed: the recency weighting's NaN policy for missing timestamps needs a decision (drop, neutral, or raise)
+- 39-F6: FIXED (default choice: floor weight). Previously deferred. Test tests/training/test_cluster39_recency_missing_timestamp.py. Original note: the recency weighting's NaN policy for missing timestamps needs a decision (drop, neutral, or raise)
 - 39-F17: FIXED. fit_transform applies the binary target check for woe, as fit does; test tests/training/test_cluster39_woe_fit_transform_binary_check.py
 - 39-F18: FIXED. a float NaN text becomes the empty string, as the docstring says; test tests/training/test_cluster39_hf_nan_text_is_empty.py
 - 39-F19: DEFERRED. not changed: the memory-pressure eviction policy (what low RAM should evict and how far) needs an owner decision
@@ -135,3 +135,4 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F67: FIXED. Correction: the earlier 'computed per step' claim was incomplete. The id set was still stored on self (and so pickled); it is now a local of training_step and never stored. Test tests/training/neural/test_cluster39_l1_exclusion_not_pickled.py.
 - 39-F36: FIXED. Prewarm pins the entry in the strong tier while it loads. Test tests/training/test_cluster39_prewarm_pins_entry_during_load.py.
 - 39-F37: FIXED. Decision (default taken): NaN/inf input is refused in fit and transform with a message naming the count and the remedy, instead of sklearn's opaque error. Tests tests/training/test_cluster39_polynomial_refuses_nonfinite.py.
+- 39-F6: FIXED. Decision (default taken): a missing timestamp gets the floor weight min_weight (treated as the oldest, least influential row) so every training weight is finite. Test tests/training/test_cluster39_recency_missing_timestamp.py.
