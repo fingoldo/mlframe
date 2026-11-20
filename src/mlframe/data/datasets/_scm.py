@@ -500,8 +500,16 @@ def graph_from_spec(spec: DatasetSpec, target_name: Optional[str] = None) -> Cau
     chosen = target_name if target_name is not None else declared[0]
     if chosen not in declared:
         raise ValueError(f"target {chosen!r} is not declared by spec {spec.name!r}; declared: {declared}")
+    edges = list(edges_from_specs(spec.edges))
+    # A latent reflected into a column is an arrow from the latent to that column. Without it the graph never connects a latent to the
+    # column it generates, so an M-bias collider's arm through a reflection (u_right -> y_parent -> y) was invisible to the structure.
+    present = {(edge.source, edge.target) for edge in edges}
+    for latent in spec.latents:
+        for reflected in latent.reflections:
+            if (latent.name, reflected) not in present:
+                edges.extend([Edge(source=latent.name, target=reflected, kind="latent")])
     return CausalGraph(
-        edges=edges_from_specs(spec.edges),
+        edges=tuple(edges),
         target=chosen,
         observed=spec.feature_names(),
         latents=tuple(latent.name for latent in spec.latents),

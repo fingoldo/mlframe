@@ -113,9 +113,12 @@ def realize_latent(
         values = draw_family(latent.family, {}, n, rng)
     elif latent.family == "normal":
         values = rng.normal(0.0, 1.0, n)
+    elif latent.family == "t":
+        # Heavy-tailed Student-t with 4 degrees of freedom: an explicit name for the draw every bed already uses.
+        values = rng.standard_t(4.0, n)
     else:
         # Any other name used to fall through to a Student-t(4) draw, so a misspelt family silently changed the bed; refuse it instead.
-        raise ValueError(f"latent {latent.name!r}: unknown family {latent.family!r}; supported: normal, ar1, random_walk")
+        raise ValueError(f"latent {latent.name!r}: unknown family {latent.family!r}; supported: normal, t, ar1, random_walk")
     # Explicit emptiness rather than `or`: the spec validator already refuses a partially specified
     # loading vector, so an empty tuple means "unspecified" and any other length is exactly the
     # reflection count. A truthiness fallback would read the same today and silently swallow a
