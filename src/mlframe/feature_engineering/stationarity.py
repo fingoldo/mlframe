@@ -48,14 +48,42 @@ def _ewma_recurrence_njit(seg_f: np.ndarray, alpha: float) -> np.ndarray:
     return ewma
 
 
+_CUSUM_WARMUP_ROWS: int = 30
+
+
+def _causal_reference_mean(seg: np.ndarray) -> np.ndarray:
+    """Expanding mean of the finite values strictly before each row (audit 24-F6).
+
+    Rows with no finite predecessor reference themselves (zero deviation), so the first observation cannot trip a reset.
+    """
+    finite = np.isfinite(seg)
+    vals = np.where(finite, seg, 0.0)
+    # Exclusive cumulative sums (shift, not subtract): subtracting the inclusive sum would add rounding error.
+    prev_cnt = np.concatenate(([0], np.cumsum(finite)[:-1])).astype(np.float64)
+    prev_sum = np.concatenate(([0.0], np.cumsum(vals)[:-1]))
+    return np.where(prev_cnt > 0, prev_sum / np.maximum(prev_cnt, 1.0), seg)
+
+
 @njit(cache=True)
-def _cusum_walk_njit(seg: np.ndarray, seg_mean: float, threshold: float, drift: float):
-    """Serial Page-Hinkley CUSUM walk -- bit-identical to the Python loop.
+def _ewma_zero_seed_njit(seg_f: np.ndarray, alpha: float) -> np.ndarray:
+    """``r[i] = alpha*x[i] + (1-alpha)*r[i-1]`` with ``r[-1] = 0`` -- the un-normalised numerator of the pandas adjust form."""
+    out = np.empty_like(seg_f)
+    prev = 0.0
+    one_minus = 1.0 - alpha
+    for i in range(seg_f.size):
+        prev = alpha * seg_f[i] + one_minus * prev
+        out[i] = prev
+    return out
+
+
+@njit(cache=True)
+def _cusum_walk_njit(seg: np.ndarray, ref: np.ndarray, threshold: float, drift: float):
+    """Serial Page-Hinkley CUSUM walk.
 
     Branch-dependent state resets (pos/neg/rows_since/n_resets) make this a
     genuinely serial recurrence; njit removes the per-row Python overhead.
-    ``seg_mean`` is precomputed by the caller via ``np.nanmean`` so the
-    reduction order matches the original Python path exactly (bit-identical).
+    ``ref[i]`` is the causal reference level for row ``i`` (see ``_causal_reference_mean``), so the
+    deviation at row ``i`` never reads rows after ``i`` (audit 24-F6).
     """
     m = seg.size
     out_pos = np.zeros(m, dtype=np.float64)
@@ -78,7 +106,7 @@ def _cusum_walk_njit(seg: np.ndarray, seg_mean: float, threshold: float, drift: 
             out_count[i] = n_resets
             rows_since += 1.0
             continue
-        dev = x - seg_mean
+        dev = x - ref[i]
         pos = max(0.0, pos + dev - drift)
         neg = min(0.0, neg + dev + drift)
         if (pos > threshold) or (neg < -threshold):
@@ -274,12 +302,15 @@ def ewma_residual(
         """Compute the EWMA residual for one contiguous segment and one half-life: NaN/inf are zero-filled before the recurrence, then (optionally) bias-corrected via the pandas ``adjust`` convention before subtracting the EWMA from the raw segment."""
         alpha = 1.0 - 2.0 ** (-1.0 / hl)
         seg_f = np.where(np.isfinite(seg), seg, 0.0)
-        ewma = _ewma_recurrence_njit(seg_f, alpha)
         if adjust:
-            # Pandas-style bias correction at the start.
-            w = (1.0 - alpha) ** np.arange(seg_f.size)
-            w_cum = np.cumsum(w[::-1])
-            ewma = ewma * w[::-1] / w_cum
+            # Pandas adjust=True (audit 24-F5): ewma[t] = sum_{i<=t} (1-alpha)^i x[t-i] / sum_{i<=t} (1-alpha)^i.
+            # With r[t] = alpha * numerator[t] (zero-seed recurrence) the denominator is (1 - (1-alpha)^(t+1)) / alpha,
+            # so the result is r[t] / (1 - (1-alpha)^(t+1)). The divisor depends only on t, counted from the segment start.
+            # The former w[::-1] / cumsum(w[::-1]) indexed the weights from the segment END, so early rows depended on length.
+            numer = _ewma_zero_seed_njit(seg_f, alpha)
+            ewma = numer / (1.0 - (1.0 - alpha) ** np.arange(1, seg_f.size + 1))
+        else:
+            ewma = _ewma_recurrence_njit(seg_f, alpha)
         return np.asarray(seg - ewma)
 
     if group_ids is None:
@@ -408,8 +439,10 @@ def cusum_features(
     """Two-sided CUSUM (Page-Hinkley) features for change-point detection.
 
     Computes positive and negative cumulative deviation processes
-    relative to the running mean, with reset whenever they exceed
-    ``threshold`` (default = ``5 * mad`` of the input). Emits:
+    relative to the expanding mean of the rows seen so far, with reset whenever they exceed
+    ``threshold``. Both the reference mean and the default threshold use past rows only
+    (audit 24-F6): the default threshold is ``5 * MAD`` of the first ``_CUSUM_WARMUP_ROWS``
+    finite rows of each group, so early rows do not depend on the future. Emits:
     * ``cusum_pos`` / ``cusum_neg`` — instantaneous CUSUM values
     * ``rows_since_reset`` — rows since last threshold crossing
     * ``n_resets_in_window`` — running count of resets
@@ -450,10 +483,10 @@ def cusum_features(
         if idx_seg.size == 0:
             return
         seg = arr[idx_seg]
-        seg_mean = float(np.nanmean(seg)) if np.isfinite(seg).any() else 0.0
-        seg_threshold = _default_threshold(seg) if auto_threshold else fixed_threshold
+        ref = _causal_reference_mean(seg)
+        seg_threshold = _default_threshold(seg[:_CUSUM_WARMUP_ROWS]) if auto_threshold else fixed_threshold
         assert seg_threshold is not None
-        p, ng, sc, ct = _cusum_walk_njit(seg, seg_mean, seg_threshold, drift)
+        p, ng, sc, ct = _cusum_walk_njit(seg, ref, seg_threshold, drift)
         out_pos[idx_seg] = p
         out_neg[idx_seg] = ng
         out_since[idx_seg] = sc

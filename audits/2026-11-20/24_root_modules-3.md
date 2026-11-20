@@ -98,3 +98,8 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F1: RESOLVED. Per-column finite-row AUC when a cell is non-finite; single-class columns are kept. Test test_drop_near_noise_handles_nan.py. Commit 2171ff34e. Siblings drop_raw_after_embedding.py:53,142 still open.
 - 24-F2: FIXED. timeseries walk kernels now return exclusive end including the crossing element (forward) and inclusive start for the backward walk; regression tests in tests/feature_engineering/test_cumsum_walk_window_bounds.py; test_coverage_fill end-index expectation updated to the corrected contract
 - 24-F3: FIXED. backward walk now visits index 0 (range covers right_index-1..0); covered by test_backward_walk_reaches_index_zero
+- 24-F4: FIXED. integer input promoted to float64 in rolling_moving_average; test_rolling_moving_average_integer_input.py
+- 24-F5: FIXED. adjust=True now equals pandas ewm(adjust=True) via zero-seed numerator over 1-(1-alpha)^(t+1); test_ewma_adjust_is_causal.py; test_ewma_residual_recurrence_njit reference updated
+- 24-F6: FIXED. CUSUM reference mean is the expanding mean of prior rows; auto threshold is MAD of the first 30 rows; test_cusum_is_causal.py; test_cusum_walk_njit reference updated to causal form
+- 24-F7: FIXED. NaN/None states no longer count as possession; test_state_duration_and_sentinel_guards.py
+- 24-F8: FIXED. sentinel detection is numeric-only, non-bool, and needs at least 3 other levels; same test file

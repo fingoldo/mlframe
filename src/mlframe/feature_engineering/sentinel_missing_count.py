@@ -62,8 +62,13 @@ def detect_column_sentinel(
         The detected sentinel value, or ``None`` if no anomalous spike was found (fewer than 2 distinct
         non-null values also returns ``None`` -- there's nothing to compare against).
     """
+    # A sentinel is a numeric placeholder (e.g. -1, -999, 9999). Booleans, categoricals and strings carry real levels,
+    # and with only one or two other levels the "median of the others" is a single class count, so any imbalance
+    # (a 5:1 binary label) would be flagged as a sentinel (audit 24-F8).
+    if not pd.api.types.is_numeric_dtype(series) or pd.api.types.is_bool_dtype(series):
+        return None
     value_counts = series.value_counts(dropna=True)
-    if len(value_counts) < 2:
+    if len(value_counts) < 4:
         return None
 
     top_value = value_counts.index[0]

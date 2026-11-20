@@ -723,7 +723,8 @@ def rolling_moving_average(arr: np.ndarray, n: int = 2, compensated: bool = True
     Parameters
     ----------
     arr
-        1D numeric array. dtype is preserved on output.
+        1D numeric array. Floating input keeps its dtype on output; integer input is promoted to
+        float64 so that the means are not truncated to integers (audit 24-F4).
     n
         Window size (>= 1, <= len(arr)).
     compensated
@@ -743,6 +744,9 @@ def rolling_moving_average(arr: np.ndarray, n: int = 2, compensated: bool = True
         raise ValueError("n must be greater than 0")
     if n > len(arr):
         raise ValueError("n must be less than or equal to the length of the array")
+    arr = np.asarray(arr)
+    if not np.issubdtype(arr.dtype, np.floating):
+        arr = arr.astype(np.float64)
     if compensated:
         return cast(np.ndarray, _rolling_moving_average_compensated(arr, n))
     return cast(np.ndarray, _rolling_moving_average_fast(arr, n))

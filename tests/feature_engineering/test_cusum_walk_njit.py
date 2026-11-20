@@ -49,10 +49,12 @@ def _old_cusum(values, threshold=None, *, group_ids=None, drift=0.0):
         if m == 0:
             return
         seg = arr[idx_seg]
-        seg_mean = float(np.nanmean(seg)) if np.isfinite(seg).any() else 0.0
-        seg_threshold = threshold if threshold is not None else _default_threshold(seg)
+        # Causal (audit 24-F6): expanding mean of the finite rows before each row, and a threshold from the first 30 rows.
+        seg_threshold = threshold if threshold is not None else _default_threshold(seg[:30])
         pos = neg = rows_since = 0.0
         n_resets = 0
+        run_sum = 0.0
+        run_cnt = 0
         for i in range(m):
             x = seg[i]
             if not np.isfinite(x):
@@ -62,7 +64,10 @@ def _old_cusum(values, threshold=None, *, group_ids=None, drift=0.0):
                 out_count[idx_seg[i]] = n_resets
                 rows_since += 1
                 continue
-            dev = x - seg_mean
+            ref_level = run_sum / run_cnt if run_cnt > 0 else x
+            run_sum += x
+            run_cnt += 1
+            dev = x - ref_level
             pos = max(0.0, pos + dev - drift)
             neg = min(0.0, neg + dev + drift)
             if (pos > seg_threshold) or (neg < -seg_threshold):
