@@ -79,3 +79,4 @@ Scope: 142 files from `audits/2026-11-20/manifests/13_feature_selection-4.txt`, 
 - 13-F12: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 13-F13: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 13-F14: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 13-F3: FIXED. note: tests/feature_selection/boruta_shap/test_explain_basis_is_the_fitted_slice.py fails both before and after this change (pre-existing, verified by restoring the prior file); not caused by the fix, needs a separate look
