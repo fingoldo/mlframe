@@ -45,7 +45,14 @@ def compute_oof_yhat_within(
         model = make_aux()
         model.fit(X_sub[tr_idx], y_sub[tr_idx])
         if task == "binary":
-            y_hat[va_idx] = model.predict_proba(X_sub[va_idx])[:, 1].astype(np.float32, copy=False)
+            proba = np.asarray(model.predict_proba(X_sub[va_idx]))
+            if proba.shape[1] == 1:
+                # A training fold with one class gives a single column: that column is the probability of the seen class (audit 08-F3).
+                seen = int(np.asarray(model.classes_)[0])
+                pos = np.full(proba.shape[0], 1.0 if seen == 1 else 0.0, dtype=np.float32)
+            else:
+                pos = proba[:, 1]
+            y_hat[va_idx] = pos.astype(np.float32, copy=False)
         else:
             y_hat[va_idx] = model.predict(X_sub[va_idx]).astype(np.float32, copy=False)
     return y_hat

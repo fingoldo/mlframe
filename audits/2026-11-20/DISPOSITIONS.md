@@ -309,3 +309,18 @@
 | 07-F12 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
 | 07-F13 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
 | 07-F14 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 08-F3 | FIXED | a single-class fold's one-column proba maps to the seen class instead of crashing on column 1; tests/feature_engineering/transformer/test_cluster08_edges.py covers the sibling edges, not this path directly |
+| 08-F5 | FIXED | both SMOTE siblings return (0, d) on an empty minority; tests/feature_engineering/transformer/test_cluster08_edges.py |
+| 08-F10 | FIXED | magnitude check uses max(/min/,/max/) with Python ints, so the most negative int64 is flagged; tests/feature_engineering/transformer/test_cluster08_edges.py |
+| 08-F11 | FIXED | the silent temperature override now warns (RuntimeWarning); no separate test |
+| 08-F4 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
+| 08-F6 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
+| 08-F7 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
+| 08-F8 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
+| 08-F9 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
+| 08-F12 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
+| 08-F13 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
+| 08-F14 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
+| 08-F15 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
+| 08-F16 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
+| 08-F17 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |

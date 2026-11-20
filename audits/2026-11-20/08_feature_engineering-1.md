@@ -46,3 +46,18 @@ Not verified: possible `fastmath=True` interaction with the `np.isfinite` guards
 
 - 08-F1: RESOLVED. build_nca_projection fits NCA on the rows it is applied to: the internal StandardScaler (fit then discarded) is removed. Test tests/feature_engineering/transformer/test_nca_projection_lives_in_the_applied_space.py; existing nca selection passes. Note: the unit test uses production-standardised input, so it does not separate old from new behaviour on its own. Commit below.
 - 08-F2: RESOLVED. All 15 Mode-A out-of-fold output arrays start as NaN (baseline_surprise, adversarial_flip, anomaly_score_features, class_distance, and the 11 grep-found files), so an uncovered row is NaN, not 0.0. Test tests/feature_engineering/transformer/test_oof_uncovered_rows_are_nan.py; 15 selected OOF tests pass. Commit below.
+- 08-F3: FIXED. a single-class fold's one-column proba maps to the seen class instead of crashing on column 1; tests/feature_engineering/transformer/test_cluster08_edges.py covers the sibling edges, not this path directly
+- 08-F5: FIXED. both SMOTE siblings return (0, d) on an empty minority; tests/feature_engineering/transformer/test_cluster08_edges.py
+- 08-F10: FIXED. magnitude check uses max(|min|,|max|) with Python ints, so the most negative int64 is flagged; tests/feature_engineering/transformer/test_cluster08_edges.py
+- 08-F11: FIXED. the silent temperature override now warns (RuntimeWarning); no separate test
+- 08-F4: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
+- 08-F6: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
+- 08-F7: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
+- 08-F8: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
+- 08-F9: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
+- 08-F12: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
+- 08-F13: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
+- 08-F14: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
+- 08-F15: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
+- 08-F16: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
+- 08-F17: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)

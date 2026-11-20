@@ -36,7 +36,7 @@ def smote_synthesize_minority_rowloop(X_minority: np.ndarray, n_synthetic: int, 
     or an empty ``(0, d)`` array): the variant shared by ``multiscale_smote.py`` / ``active_virtual.py``."""
     n_min = X_minority.shape[0]
     if n_min < 2:
-        return X_minority.copy() if n_min > 0 else np.zeros((0, X_minority.shape[1] if n_min > 0 else 1), dtype=np.float32)
+        return X_minority.copy() if n_min > 0 else np.zeros((0, X_minority.shape[1]), dtype=np.float32)
     from sklearn.neighbors import NearestNeighbors
 
     k_used = min(k_neighbors + 1, n_min)
@@ -63,7 +63,7 @@ def smote_synthesize_minority_vectorized(X_minority: np.ndarray, n_synthetic: in
     The gather+lerp itself lives in ``smote_synthesize_vectorized``, which this delegates to after the fallback."""
     n_min = X_minority.shape[0]
     if n_min < 2:
-        return X_minority.copy() if n_min > 0 else np.zeros((0, 0), dtype=np.float32)
+        return X_minority.copy() if n_min > 0 else np.zeros((0, X_minority.shape[1]), dtype=np.float32)  # same empty shape as the row-loop sibling (audit 08-F5)
     return smote_synthesize_vectorized(X_minority, n_synthetic, k_neighbors, seed)
 
 
