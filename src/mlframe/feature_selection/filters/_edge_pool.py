@@ -17,6 +17,13 @@ _ACTIVE_STAGES = [1]
 _ACTIVE_LOCK = threading.Lock()
 
 
+def stage_finished() -> None:
+    """One of the concurrently running FE stage cascades has ended: the cascades still running divide the cores among themselves (``_resolve_edge_jobs`` reads the live count), instead of keeping the share they
+    had when the wave started while the cores of the finished cascade sit idle. The count never goes below 1; ``concurrent_stages`` restores the previous value when the whole wave ends."""
+    with _ACTIVE_LOCK:
+        _ACTIVE_STAGES[0] = max(1, _ACTIVE_STAGES[0] - 1)
+
+
 @contextlib.contextmanager
 def concurrent_stages(n: int) -> "Iterator[None]":
     """Mark ``n`` FE stage cascades as running together for the duration of the block."""

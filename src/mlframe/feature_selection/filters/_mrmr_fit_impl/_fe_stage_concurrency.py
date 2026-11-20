@@ -214,8 +214,9 @@ def run_stages_concurrently(
                 log_throttle(logger, "_fe_stage_concurrency.cleanup_after_failure", logging.WARNING, "stage %d: cleanup after the stage's own failure also failed (%r)", i, cleanup_exc)
             finally:
                 walls[i] = time.perf_counter() - t0
+                stage_finished()  # the cascades still running take over this one's share of the edge workers
 
-    from .._edge_pool import concurrent_stages
+    from .._edge_pool import concurrent_stages, stage_finished
 
     with concurrent_stages(len(stages)), ThreadPoolExecutor(max_workers=len(stages)) as pool:
         futures = [pool.submit(_run, i) for i in range(len(stages))]

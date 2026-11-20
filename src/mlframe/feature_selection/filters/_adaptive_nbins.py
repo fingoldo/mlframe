@@ -651,6 +651,14 @@ def _edge_pool(workers: int) -> Any:
     """The process-wide thread pool of the per-column edge computation, grown (never shrunk) to ``workers`` threads. Its tasks are leaf computations that never wait on the pool, so callers
     sharing it cannot deadlock."""
     global _EDGE_POOL, _EDGE_POOL_WORKERS
+    # the pool is sized to the logical core count whoever creates it first: a caller's share of the cores (2 of 8 inside a wave of three cascades) is the number of chunks it submits, not the capacity,
+    # so three cascades with two chunks each run on six threads instead of queueing on a pool of two that the first caller created
+    try:
+        import psutil
+
+        workers = max(int(workers), int(psutil.cpu_count(logical=True) or 1))
+    except Exception:
+        workers = max(int(workers), 1)
     with _EDGE_POOL_LOCK:
         if _EDGE_POOL is None or _EDGE_POOL_WORKERS < workers:
             from concurrent.futures import ThreadPoolExecutor
