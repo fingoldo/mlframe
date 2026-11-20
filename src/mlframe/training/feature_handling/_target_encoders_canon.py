@@ -369,3 +369,10 @@ __all__ = [
     "_coerce_y_to_float64",
     "_compute_prior",
 ]
+
+
+def _require_binary_woe_target(y_arr) -> None:
+    """Raise unless the target is binary {0, 1}; WoE is undefined for any other label set (shared by fit and fit_transform, audit 39-F17)."""
+    unique_y = np.unique(y_arr)
+    if not (set(unique_y).issubset({0.0, 1.0}) and len(unique_y) <= 2):
+        raise ValueError("method='woe' requires binary {0, 1} target; got " f"{sorted(unique_y)[:5]}")

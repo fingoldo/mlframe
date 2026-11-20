@@ -95,9 +95,12 @@ def _safe_int_cast_numpy(arr: np.ndarray, target_name: str) -> np.ndarray:
     elif np.issubdtype(arr.dtype, np.bool_):
         return arr.astype(np.int8, copy=False)
     else:
-        # Object / string -- pandas/numpy will surface an error from astype itself; let it propagate
-        # rather than introducing a separate error path here.
-        return arr.astype(np.int8, copy=False)
+        # Object targets: convert to float first (non-numeric raises here, as before) and refuse non-integer values, which the
+        # int8 cast used to truncate silently, as the float branch does (audit 39-F1).
+        as_float = arr.astype(np.float64)
+        if not np.all(np.isfinite(as_float)) or not np.all(as_float == np.floor(as_float)):
+            raise ValueError("object-dtype target has non-integer or non-finite values; cannot cast to an integer dtype")
+        return as_float.astype(np.int8)
     _dtype = _smallest_safe_int_dtype(_min, _max)
     if arr.dtype == _dtype:
         return arr

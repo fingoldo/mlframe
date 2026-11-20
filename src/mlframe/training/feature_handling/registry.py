@@ -297,6 +297,10 @@ def prewarm(provider: FrozenFeaturizerProvider) -> Future:
         # yet). Call provider.acquire() under the registry lock
         # directly.
         entry = _register_or_get(signature, lambda: provider)
+        # Pin the entry in the strong tier while it loads: the registry holds providers only weakly, so an unpinned entry
+        # could be collected between registration and acquire() (audit 39-F36).
+        with _REGISTRY_LOCK:
+            _bump_lru(signature, entry, _resolve_keep_n(None))
         try:
             with entry.lock:
                 if not entry.is_loaded:

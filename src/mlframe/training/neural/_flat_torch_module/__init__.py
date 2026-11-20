@@ -315,23 +315,19 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
             # per training_step where M is module count; for typical 3-10
             # layer MLPs the overhead is sub-microsecond per step. Cache
             # the set on first call to avoid the rebuild.
-            if not hasattr(self, "_l1_excluded_param_ids"):
-                _NORM_MODS = (
-                    torch.nn.BatchNorm1d,
-                    torch.nn.BatchNorm2d,
-                    torch.nn.BatchNorm3d,
-                    torch.nn.LayerNorm,
-                    torch.nn.GroupNorm,
-                    torch.nn.InstanceNorm1d,
-                    torch.nn.InstanceNorm2d,
-                    torch.nn.InstanceNorm3d,
-                )
-                _excluded = set()
-                for module in self.network.modules():
-                    if isinstance(module, _NORM_MODS):
-                        for p in module.parameters(recurse=False):
-                            _excluded.add(id(p))
-                self._l1_excluded_param_ids = _excluded
+            # Rebuilt per step, not cached: id() values are process-specific, and a cache pickled with the model pointed at
+            # stale ids after a load, so the norm weights were L1-penalised again (audit 39-F67). The module count is small.
+            _NORM_MODS = (
+                torch.nn.BatchNorm1d,
+                torch.nn.BatchNorm2d,
+                torch.nn.BatchNorm3d,
+                torch.nn.LayerNorm,
+                torch.nn.GroupNorm,
+                torch.nn.InstanceNorm1d,
+                torch.nn.InstanceNorm2d,
+                torch.nn.InstanceNorm3d,
+            )
+            self._l1_excluded_param_ids = {id(p) for module in self.network.modules() if isinstance(module, _NORM_MODS) for p in module.parameters(recurse=False)}
             # Python sum() forces a host-side reduction per parameter tensor,
             # so each .abs().sum() implicitly syncs the GPU. Stack the per-
             # tensor scalars first and sum once on-device to amortise the sync.

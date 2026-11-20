@@ -273,7 +273,11 @@ def _generate_mlp_weights_init_fcn(weights_init_fcn, model):
                         elif isinstance(m, nn.BatchNorm1d):
                             torch.nn.init.normal_(m.weight, mean=1.0, std=0.02)
                     else:
-                        weights_init_fcn(m.weight)
+                        try:
+                            weights_init_fcn(m.weight)
+                        except ValueError:
+                            # orthogonal_ / sparse_ refuse a 1-D tensor (BatchNorm weight): give it the BN identity, not a crash (audit 39-F54).
+                            torch.nn.init.constant_(m.weight, 1.0)
 
                 if hasattr(m, "bias") and m.bias is not None:
                     if func_to_check in (
@@ -284,7 +288,10 @@ def _generate_mlp_weights_init_fcn(weights_init_fcn, model):
                     ):
                         torch.nn.init.constant_(m.bias, 0.0)
                     else:
-                        weights_init_fcn(m.bias)
+                        try:
+                            weights_init_fcn(m.bias)
+                        except ValueError:  # orthogonal_ / sparse_ refuse 1-D biases; a zero bias is the neutral choice (audit 39-F54)
+                            torch.nn.init.constant_(m.bias, 0.0)
 
         model.apply(init_weights)
         init_name = weights_init_fcn.func.__name__ if isinstance(weights_init_fcn, partial) else weights_init_fcn.__name__

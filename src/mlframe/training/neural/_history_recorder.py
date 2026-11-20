@@ -122,6 +122,9 @@ class IterationMetricsRecorder(Callback):
         if "regression" in self.target_type:
             return logits
         a = np.asarray(logits, dtype=np.float64)
+        if "multilabel" in str(self.target_type):
+            # Each multilabel column is an independent yes/no: per-label sigmoid, not a softmax across labels (audit 39-F53).
+            return np.asarray(1.0 / (1.0 + np.exp(-np.clip(a, -500.0, 500.0))))
         if a.ndim == 2 and a.shape[1] >= 2:
             a = a - a.max(axis=1, keepdims=True)
             e = np.exp(a)

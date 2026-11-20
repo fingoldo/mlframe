@@ -50,12 +50,12 @@ def _running_category_stats(sorted_cats: np.ndarray, sorted_y: np.ndarray) -> "t
     """
     missing = np.isnan(sorted_y)
     if not missing.any():
-        grouped = pd.DataFrame({"cat": sorted_cats, "y": sorted_y}).groupby("cat", sort=False)["y"]
+        grouped = pd.DataFrame({"cat": sorted_cats, "y": sorted_y}).groupby("cat", sort=False, dropna=False)["y"]
         return grouped.cumsum() - sorted_y, grouped.cumcount()
     y0 = np.where(missing, 0.0, sorted_y)
     labelled = (~missing).astype(np.int64)
     df = pd.DataFrame({"cat": sorted_cats, "y": y0, "n": labelled})
-    grouped = df.groupby("cat", sort=False)
+    grouped = df.groupby("cat", sort=False, dropna=False)  # a null category is a group, not a source of NaN running sums (audit 39-F33)
     return grouped["y"].cumsum() - y0, grouped["n"].cumsum() - labelled
 
 
@@ -141,7 +141,9 @@ def ordered_target_encode(
     # category so row i sees only strictly-prior rows (cumsum up to and including i, minus y_i itself).
     running_sum, running_count = _running_category_stats(sorted_cats, sorted_y)
 
-    encoded_sorted = (running_sum + smoothing * global_prior_sorted) / (running_count + smoothing)
+    denom = running_count + smoothing
+    # With smoothing=0 the first occurrence of a category is 0/0; the documented fallback is the global prior (audit 39-F34).
+    encoded_sorted = ((running_sum + smoothing * global_prior_sorted) / denom.where(denom > 0)).where(denom > 0, global_prior_sorted)
 
     encoded = np.empty(n, dtype=np.float64)
     encoded[sort_idx] = encoded_sorted.to_numpy()
@@ -230,7 +232,9 @@ def ordered_target_encode_batch(
 
         running_sum, running_count = _running_category_stats(sorted_cats, sorted_y)
 
-        encoded_sorted = (running_sum + smoothing * global_prior_sorted) / (running_count + smoothing)
+        denom = running_count + smoothing
+        # With smoothing=0 the first occurrence of a category is 0/0; the documented fallback is the global prior (audit 39-F34).
+        encoded_sorted = ((running_sum + smoothing * global_prior_sorted) / denom.where(denom > 0)).where(denom > 0, global_prior_sorted)
 
         encoded = np.empty(n, dtype=np.float64)
         encoded[sort_idx] = encoded_sorted.to_numpy()

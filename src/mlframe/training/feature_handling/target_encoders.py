@@ -68,6 +68,7 @@ import numpy as np
 # for backward compatibility so existing `from target_encoders import X` call sites keep working
 # after the carve into _target_encoders_canon.py.
 from mlframe.training.feature_handling._target_encoders_canon import (
+    _require_binary_woe_target,
     _NULL_SENTINEL,  # noqa: F401 -- re-exported, see above
     _canonical_cat_token,  # noqa: F401 -- re-exported, see above
     _categorical_to_string_array,
@@ -225,9 +226,7 @@ class LeakageSafeEncoder:
         self._category_counts, self._category_means = self._compute_per_category(cats, y_arr, sw_arr)
 
         if self.method == "woe":
-            unique_y = np.unique(y_arr)
-            if not (set(unique_y).issubset({0.0, 1.0}) and len(unique_y) <= 2):
-                raise ValueError("method='woe' requires binary {0, 1} target; got " f"{sorted(unique_y)[:5]}")
+            _require_binary_woe_target(y_arr)
             self._woe_pos, self._woe_neg = self._compute_woe_per_category(cats, y_arr, sw_arr)
         elif self.method == "target_james_stein":
             self._js_sigma2, self._js_tau2 = self._fit_james_stein_variance_params(cats, y_arr, self._category_counts, self._category_means, sw_arr)
@@ -270,6 +269,8 @@ class LeakageSafeEncoder:
         if cats.shape[0] != y_arr.shape[0]:
             raise ValueError(f"X and y length mismatch: {cats.shape[0]} vs {y_arr.shape[0]}")
         sw_arr = self._coerce_sample_weight(sample_weight, len(y_arr))
+        if self.method == "woe":
+            _require_binary_woe_target(y_arr)  # fit_transform checks too (audit 39-F17)
 
         self._global_prior = _compute_prior(y_arr, self.prior, sw_arr)
 
