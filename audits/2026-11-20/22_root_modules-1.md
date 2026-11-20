@@ -73,3 +73,15 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - `IdentityClassifier` (13 refs) and `MyDecorrelator` (31 refs): no evidence of tests for label-type mixing, binary clipping, or reordered DataFrame columns (22-F19 to 22-F21).
 - `get_postcalibrators` (20 refs): no evidence of a test with an optional library missing (22-F3).
 - `replay_cv_results` (17 refs): see 22-F6; the return value is evidently not asserted.
+
+
+## Dispositions
+
+- 22-F6: RESOLVED. replay_cv_results returns the loaded mapping; the loop variable no longer shadows it. The existing replay assertions had encoded the bug (they checked for the inner run's key) and now assert the loaded structure. Tests: tests/core/test_core_infra_a_fixes.py (34 pass). Commit below.
+- 22-F7: RESOLVED. Probability generator names only the n_informative columns that reach X, so n_informative < n_classes no longer crashes. Test tests/data/test_synthetic_probability_fewer_informative_than_classes.py; 16 existing synthetic tests pass. Commit below.
+- 22-F5: RESOLVED. Band correction clips only the corrected in-band values; out-of-band predictions are unchanged, as the docstring states. Test tests/calibration/test_band_correction_leaves_out_of_band_unchanged.py; 7 existing band tests pass. Commit below.
+- 22-F4: RESOLVED. Confidence shrinkage fully shrinks an output with no confidence (weight 0), including when the confidence map is empty; the early return that gave raw predictions is removed, and a segment without a confidence is also fully shrunk. Test tests/calibration/test_confidence_shrinkage_missing_output_is_shrunk.py; 9 existing shrinkage tests pass. Commit below.
+- 22-F8: RESOLVED. Stratified bootstrap groups are keyed by the label value itself (a list of per-label index arrays), so fractional labels no longer merge. Test tests/evaluation/test_stratified_bootstrap_fractional_labels.py; 72 existing bootstrap tests pass. Commit below.
+- 22-F1: RESOLVED. Independence summary reads 1.0 (fully redundant) when every member is constant, instead of 0.0 (independent), so odds_ratio_combine warns. Test tests/calibration/test_independence_all_constant_members_is_redundant.py; 30 existing independence/odds tests pass. Commit below.
+- 22-F2: RESOLVED. A calibrator whose OOF outputs are non-finite is excluded from candidate scoring (logged), instead of being scored over its finite rows. Test tests/calibration/test_candidate_with_nan_outputs_is_excluded.py; 340 existing calibration policy tests pass. Commit below.
+- 22-F3: DEFERRED. get_postcalibrators imports netcal, pycalib, ml_insights, betacal and venn_abers unguarded, and the calibrator list references their attributes directly. Making each optional means restructuring the whole zoo list per library. The change is mechanical but touches every entry; deferred to a dedicated pass with a test that blocks each module in turn.

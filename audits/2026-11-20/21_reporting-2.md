@@ -55,3 +55,11 @@ Name-reference counts are a grep of `tests/` for each public or load-bearing nam
 - renderers/_shared_helpers.py:152-225: label de-collision and stagger keep one label per overlapping box and fall back safely. `epoch_ns_ticks` (L603-605) correctly rejects datetime64 before the float cast.
 - renderers/_trend.py:113-121: the fit cap keeps both x extremes, so endpoints span the true x range.
 - renderers/_plotly_spacing.py:99-115: the vertical gap respects plotly's `1/(rows-1)` ceiling.
+
+
+## Dispositions
+
+- 21-F1: RESOLVED. Empty label arrays map to an empty index instead of raising at classes.min(), so the designed no-data path is reached. Test tests/reporting/test_risk_coverage_empty_labels.py; 28 existing risk-coverage tests pass. Commit below.
+- 21-F4: RESOLVED. Scatter subsample past the cap slices symmetric and asymmetric per-point error arrays with the same indices (on a copy of the spec). Test tests/reporting/test_scatter_subsample_keeps_error_bars_aligned.py; 61 existing scatter tests pass. Commit below.
+- 21-F2: RESOLVED. Slice finder feeds the 3-way combo builder the feature rows that match the finite errors (mat filtered with row_mask on the NaN path). Test tests/reporting/test_slice_finder_nan_errors_arity3.py; 50 existing slice tests pass. Commit below.
+- 21-F3: RESOLVED. Per-instance and interaction SHAP builders skip a multi-output CatBoost model before shap's TreeExplainer, as shap_panels already does. Test tests/reporting/test_shap_multioutput_catboost_is_skipped.py (monkeypatched; it would not catch a renamed explainer call); 91 existing SHAP tests pass. Commit below.
