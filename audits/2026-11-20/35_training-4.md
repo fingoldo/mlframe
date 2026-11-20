@@ -88,7 +88,7 @@ Coverage and method:
 - 35-F1: RESOLVED. See the dispositions section below.
 - 35-F2: RESOLVED. CRPS weights are cell widths (helper _crps_cell_weights); reduces to 2/K on midpoint grids. Also fixed sibling in qrf.py (new). Tests test_crps_cell_weights.py. Commit bd2709ef9.
 - 35-F3: FIXED. a base must take more than one value to set the early time-aware flag; tests/training/composite/test_cluster35_digest_and_flags.py
-- 35-F4: FIXED. a non-finite raw baseline fails closed (empty result) when require_beats_raw_baseline is set, with a WARNING; no separate test
+- 35-F4: FIXED. a non-finite raw baseline fails closed (empty result) when require_beats_raw_baseline is set, with a WARNING; test tests/training/composite/test_cluster35_raw_baseline_fail_closed.py
 - 35-F5: FIXED. each fold keeps one slot (NaN when unusable); the paired test already skips non-finite pairs; no separate test
 - 35-F6: FIXED. the stacked target is float64 before the residual; no separate test
 - 35-F7: FIXED. time_aware with groups raises instead of silently dropping time order; no separate test
