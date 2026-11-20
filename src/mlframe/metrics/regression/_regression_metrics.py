@@ -59,6 +59,16 @@ _MAX_ERROR_PAR_THRESHOLD: int = env_int("MLFRAME_MAX_ERROR_PAR_THRESHOLD", 50000
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
+def _check_weights_length(w: np.ndarray, y_true) -> None:
+    """Raise when ``sample_weight`` does not have one entry per row of ``y_true``.
+
+    The kernels index the weight array with bounds checking off, so a short weight vector read past its buffer and returned garbage.
+    """
+    n = int(np.asarray(y_true).shape[0])
+    if w.shape[0] != n:
+        raise ValueError(f"sample_weight has {w.shape[0]} entries for {n} rows")
+
+
 def _fast_mae_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Sequential (single-thread) MAE kernel: mean of ``|y_true - y_pred|``. Wins over the parallel variant below ``_PARALLEL_REDUCTION_THRESHOLD``, where prange spawn overhead dominates."""
     n = len(y_true)
@@ -354,6 +364,7 @@ def fast_mean_absolute_error(
         raise ValueError(f"Found array with 0 sample(s) (shape={yt.shape}) while a minimum of 1 is required.")
     if sample_weight is not None:
         w = np.ascontiguousarray(np.asarray(sample_weight), dtype=np.float64)
+        _check_weights_length(w, y_true)
     else:
         w = None
 
@@ -396,6 +407,7 @@ def fast_mean_squared_error(
         raise ValueError(f"Found array with 0 sample(s) (shape={yt.shape}) while a minimum of 1 is required.")
     if sample_weight is not None:
         w = np.ascontiguousarray(np.asarray(sample_weight), dtype=np.float64)
+        _check_weights_length(w, y_true)
     else:
         w = None
 
@@ -501,6 +513,7 @@ def fast_r2_score(
         raise ValueError(f"Found array with 0 sample(s) (shape={yt.shape}) while a minimum of 1 is required.")
     if sample_weight is not None:
         w = np.ascontiguousarray(np.asarray(sample_weight), dtype=np.float64)
+        _check_weights_length(w, y_true)
     else:
         w = None
 
