@@ -41,6 +41,7 @@ from ._confusion_kernels import (  # the kernels live in the leaf module; re-exp
     _confusion_counts_binary,
     _confusion_counts_binary_par,
     _multiclass_confusion_kernel,
+    check_labels_in_range,
 )
 
 
@@ -593,6 +594,7 @@ def matthews_corrcoef_multiclass(
         K = int(n_classes)
     if K < 2:
         return np.nan
+    check_labels_in_range(yt, yp, K)
     C = _multiclass_confusion_kernel(yt, yp, K)
     n = int(C.sum())
     if n == 0:
