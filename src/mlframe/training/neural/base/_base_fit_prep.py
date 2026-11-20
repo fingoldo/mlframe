@@ -160,7 +160,12 @@ class _FitPrepMixin:
                 code_array = np.asarray(list(mapping.values()), dtype=np.float64)
                 raw_idx = mapping_index.get_indexer(X[col].astype(object))
                 safe_idx = np.where(raw_idx >= 0, raw_idx, 0)
-                codes = np.where(raw_idx >= 0, code_array[safe_idx], float(card))
+                # A column that was all-null at fit has no known codes: indexing the empty code_array raised IndexError on every predict (40-F9).
+                # Every row is then unknown, which maps to the reserved code.
+                if code_array.size == 0:
+                    codes = np.full(len(X), float(card))
+                else:
+                    codes = np.where(raw_idx >= 0, code_array[safe_idx], float(card))
                 encoded_cols[col] = codes.astype(np.float32)
         # A column outside the fit-time cat set was numeric (not embedded) when the network was built, so it must
         # arrive numeric here too. If a null-fill sentinel (e.g. the "__MISSING__" categorical-fill convention) or

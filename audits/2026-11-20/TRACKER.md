@@ -120,3 +120,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 40-F5 | 40_training-9.md | FIXED | Class weights follow original labels via classes_. Test test_cluster40_class_weight_follows_original_labels.py. |
 | 40-F8 | 40_training-9.md | FIXED | class_weight non-persistent; load drops stale key. Test test_cluster40_class_weight_not_persisted.py. |
 | 40-F7 | 40_training-9.md | FIXED | Scaling copies before the block write. Test test_cluster40_scaling_does_not_mutate_input.py. |
+| 40-F9 | 40_training-9.md | FIXED | All-null categorical maps to unknown code at predict. Test test_cluster40_all_null_categorical_predicts.py. |
