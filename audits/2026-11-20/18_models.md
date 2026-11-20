@@ -59,3 +59,12 @@ No P0 found on the default path. Findings below were verified by reading the cit
 - 18-F4: DEFERRED. Level-1 ensembles are appended as (entry, train_df, val_df, test_df) tuples and level 2+ reads val_probs/oof_probs from the tuple. Unwrapping at append is the natural fix, but downstream readers of the level tuple (the stacking and gate paths) assume its shape, and verifying the change needs an end-to-end score_ensemble run with max_ensembling_level=2. Deferred until that fixture exists.
 - 18-F5: RESOLVED. batch_numaggs passes whiten_means=False as the serial path does. Test tests/models/test_batch_numaggs_matches_serial_whitening.py is a source-level guard (weak: it checks the call text, not the output); 74 existing numagg tests pass. Commit below.
 - 18-F3: RESOLVED. Target-MAE gate reads a binary (n, 2) predict_proba as its positive column (_as_gate_vector), not as 2n flattened values, so the MAE is no longer NaN and the block is no longer skipped. Test tests/models/test_gate_vector_uses_positive_column.py; 82 existing gate/stacking tests pass. Commit below.
+- 18-F9: FIXED. gate weighted means return NaN when every weight is zero instead of raising; tests/models/test_cluster18_zero_weight_gate.py; existing quality-gate and ensembling tests: 231 passed
+- 18-F6: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
+- 18-F7: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
+- 18-F8: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
+- 18-F10: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
+- 18-F11: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
+- 18-F12: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
+- 18-F13: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
+- 18-F14: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)

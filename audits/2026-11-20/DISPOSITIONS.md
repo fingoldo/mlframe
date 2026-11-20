@@ -465,3 +465,12 @@
 | 17-F18 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 17-F19 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 17-F20 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
+| 18-F9 | FIXED | gate weighted means return NaN when every weight is zero instead of raising; tests/models/test_cluster18_zero_weight_gate.py; existing quality-gate and ensembling tests: 231 passed |
+| 18-F6 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
+| 18-F7 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
+| 18-F8 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
+| 18-F10 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
+| 18-F11 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
+| 18-F12 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
+| 18-F13 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
+| 18-F14 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
