@@ -232,7 +232,8 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
             n_cat = self._n_cat_features_ if self._cat_cardinalities_ else 0
             if n_cat > 0:
                 # Scale ONLY the trailing numeric block; the leading cat-code columns pass through unscaled so they stay valid embedding indices.
-                scaled_features = np.ascontiguousarray(scaled_features, dtype=np.float32)
+                # A real copy: ascontiguousarray returns the caller's own float32 array unchanged, and the block write below would scale it in place (40-F7).
+                scaled_features = np.array(scaled_features, dtype=np.float32, copy=True)
                 if scaled_features.shape[1] > n_cat:
                     scaled_features[:, n_cat:] = self._feature_scaler.transform(scaled_features[:, n_cat:]).astype(np.float32)
             else:
