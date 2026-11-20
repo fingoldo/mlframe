@@ -1,0 +1,66 @@
+# Audit 2026-11-20 - tracker
+
+Scope: all src/mlframe except feature_selection/filters/** (MRMR engine). 42 clusters, ~505k LOC.
+
+Status legend: AUDITED = report written, findings not yet verified or dispositioned; VERIFIED = cited lines read by parent; RESOLVED / WON'T FIX / DEFERRED = disposition written in the report.
+
+| # | Report | P0 | P1 | P2 | P3 | Total | Coverage | Status |
+|---|---|---|---|---|---|---|---|---|
+| 01 | 01_calibration.md | 0 | 1 | 5 | 7 | 13 | full | AUDITED |
+| 02 | 02_competition.md | 0 | 0 | 3 | 3 | 6 | full | AUDITED |
+| 03 | 03_core.md | 0 | 0 | 3 | 3 | 6 | full | AUDITED |
+| 04 | 04_data.md | 0 | 13 | 13 | 8 | 34 | full | AUDITED |
+| 05 | 05_data_valuation.md | 0 | 0 | 2 | 4 | 6 | full | AUDITED |
+| 06 | 06_estimators.md | 0 | 0 | 2 | 3 | 5 | full | AUDITED |
+| 07 | 07_evaluation.md | 0 | 0 | 6 | 8 | 14 | full | AUDITED |
+| 08 | 08_feature_engineering-1.md | 0 | 2 | 15 | 4 | 21 | partial | AUDITED |
+| 09 | 09_feature_engineering-2.md | 3 | 10 | 18 | 14 | 45 | full | AUDITED |
+| 10 | 10_feature_selection-1.md | 0 | 3 | 3 | 3 | 9 | full | AUDITED |
+| 11 | 11_feature_selection-2.md | 0 | 3 | 10 | 7 | 20 | partial | AUDITED |
+| 12 | 12_feature_selection-3.md | 0 | 22 | 57 | 22 | 101 | partial | AUDITED |
+| 13 | 13_feature_selection-4.md | 0 | 2 | 12 | 22 | 36 | partial | AUDITED |
+| 14 | 14_feature_selection-5.md | 0 | 2 | 5 | 6 | 13 | partial | AUDITED |
+| 15 | 15_feature_selection-6.md | 0 | 2 | 9 | 8 | 19 | partial | AUDITED |
+| 16 | 16_inference.md | 0 | 0 | 3 | 8 | 11 | full | AUDITED |
+| 17 | 17_metrics.md | 0 | 9 | 11 | 11 | 31 | full | AUDITED |
+| 18 | 18_models.md | 0 | 5 | 9 | 6 | 20 | full | AUDITED |
+| 19 | 19_preprocessing.md | 0 | 0 | 3 | 6 | 9 | full | AUDITED |
+| 20 | 20_reporting-1.md | 0 | 6 | 21 | 18 | 45 | full | AUDITED |
+| 21 | 21_reporting-2.md | 0 | 4 | 12 | 12 | 28 | full | AUDITED |
+| 22 | 22_root_modules-1.md | 0 | 8 | 18 | 19 | 45 | full | AUDITED |
+| 23 | 23_root_modules-2.md | 0 | 4 | 4 | 6 | 14 | partial | AUDITED |
+| 24 | 24_root_modules-3.md | 1 | 21 | 28 | 16 | 66 | full | AUDITED |
+| 25 | 25_root_modules-4.md | 0 | 19 | 35 | 17 | 71 | full | AUDITED |
+| 26 | 26_root_modules-5.md | 0 | 5 | 16 | 17 | 38 | full | AUDITED |
+| 27 | 27_root_modules-6.md | 0 | 6 | 10 | 10 | 26 | full | AUDITED |
+| 28 | 28_root_modules-7.md | 0 | 18 | 32 | 26 | 76 | full | AUDITED |
+| 29 | 29_root_modules-8.md | 0 | 6 | 20 | 15 | 41 | full | AUDITED |
+| 30 | 30_signal.md | 0 | 0 | 3 | 3 | 6 | full | AUDITED |
+| 31 | 31_system.md | 0 | 3 | 6 | 4 | 13 | full | AUDITED |
+| 32 | 32_training-1.md | 0 | 6 | 19 | 3 | 28 | full | AUDITED |
+| 33 | 33_training-2.md | 0 | 2 | 1 | 1 | 4 | partial | AUDITED |
+| 34 | 34_training-3.md | 0 | 4 | 14 | 17 | 35 | full | AUDITED |
+| 35 | 35_training-4.md | 2 | 12 | 29 | 14 | 57 | full | AUDITED |
+| 36 | 36_training-5.md | 0 | 4 | 4 | 1 | 9 | partial | AUDITED |
+| 37 | 37_training-6.md | 0 | 8 | 21 | 23 | 52 | full | AUDITED |
+| 38 | 38_training-7.md | 0 | 3 | 12 | 12 | 27 | partial | AUDITED |
+| 39 | 39_training-8.md | 0 | 20 | 26 | 26 | 72 | full | AUDITED |
+| 40 | 40_training-9.md | 2 | 17 | 12 | 3 | 34 | full | AUDITED |
+| 41 | 41_training-10.md | 0 | 6 | 21 | 17 | 44 | full | AUDITED |
+| 42 | 42_votenrank.md | 0 | 2 | 10 | 3 | 15 | full | AUDITED |
+| | **Total** | **8** | **258** | **563** | **436** | **1265** | | |
+
+## P0 findings: parent verification
+
+Each P0 was checked by reading the cited code. Disposition is the closing state.
+
+| ID | Report | Disposition | Note |
+|---|---|---|---|
+| 09-F1 | 09_feature_engineering-2.md | DEFERRED | Random-feature scale is wrong (kernel exp(q.k/d)). Fix (unscaled directions, patch in patches/09-F1_deferred_performer_scale.patch) makes unscaled exponents underflow the global key shift on query rows, so normalizer and kernel_concentration need a per-row design. Needs a decision. |
+| 09-F2 | 09_feature_engineering-2.md | RESOLVED | Double d^-1/2 removed at both call sites; test test_nystrom_scales_each_neighbour_once.py. Commit 4863686a5. |
+| 09-F3 | 09_feature_engineering-2.md | RESOLVED | Documented as the label-free proxy |p - median(y)| on both sides (no query label exists). Behaviour unchanged. Commit 8dc4360c0. |
+| 24-F1 | 24_root_modules-3.md | RESOLVED | Per-column finite-row AUC when a cell is non-finite; single-class columns are kept. Test test_drop_near_noise_handles_nan.py. Commit 2171ff34e. Siblings drop_raw_after_embedding.py:53,142 still open. |
+| 35-F1 | 35_training-4.md | DEFERRED | from_fitted_inner has no features or transformed target, so it cannot compute residual smearing like fit(). Fix belongs in _wrap_fitted_inner (call sites ensemble/__init__.py:642,885 and _oof_external.py:83 have X) and changes predict output for smeared transforms. Needs validation. |
+| 35-F2 | 35_training-4.md | RESOLVED | CRPS weights are cell widths (helper _crps_cell_weights); reduces to 2/K on midpoint grids. Also fixed sibling in qrf.py (new). Tests test_crps_cell_weights.py. Commit bd2709ef9. |
+| 40-F1 | 40_training-9.md | RESOLVED | save/load store classes and the multilabel flag; model rebuilt with task_type. Tests test_recurrent_classifier_save_keeps_classes_and_multilabel.py. Commit 7e0cd9b40. |
+| 40-F2 | 40_training-9.md | RESOLVED | Unweighted score() returns accuracy in both branches. Tests test_classifier_score_is_accuracy.py. Commit 2798b5a6c. |
