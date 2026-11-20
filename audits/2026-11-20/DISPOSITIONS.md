@@ -544,3 +544,47 @@
 | 23-F12 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
 | 23-F13 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
 | 23-F14 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
+| 24-F48 | FIXED | validation-only class labels get the probability floor instead of a neighbouring class's column; tests/feature_selection/test_cluster24_unseen_validation_label.py |
+| 24-F23 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F24 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F25 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F26 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F27 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F28 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F29 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F30 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F31 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F32 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F33 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F34 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F35 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F36 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F37 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F38 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F39 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F40 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F41 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F42 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F43 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F44 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F45 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F46 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F47 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F49 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F50 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F51 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F52 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F53 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F54 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F55 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F56 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F57 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F58 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F59 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F60 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F61 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F62 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F63 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F64 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F65 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F66 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
