@@ -470,7 +470,7 @@ def _combine_residue_exact(arrs: Sequence[np.ndarray], op: str, modulus: int) ->
     """``(combiner of arrs) mod modulus`` from the residues of the operands (exact for any int64 operands, where the combiner itself may wrap); ``modulus`` is a small positive integer."""
     r = [np.mod(_to_int64(a), modulus) for a in arrs]
     if op == "self":
-        return r[0]
+        return cast(np.ndarray, r[0])
     if op == "sum":
         return cast(np.ndarray, np.mod(r[0] + r[1], modulus))
     if op == "diff":
