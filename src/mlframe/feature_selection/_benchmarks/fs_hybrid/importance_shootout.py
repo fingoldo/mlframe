@@ -94,12 +94,16 @@ def main():
             row["fit_s"] = round(time.time() - t0, 1)
             cols = [c for c in r.get_feature_names_out() if c in X.columns]
             if not cols:
-                cols = list(X.columns[:1])
-            base = set(t["base"])
-            noise = set(t["noise"])
-            row.update(n_feat=len(cols), base_recall=round(len(set(cols) & base) / max(1, len(base)), 3), noise_sel=len(set(cols) & noise), auc=downstream(Xtr, Xte, ytr, yte, cols))
-            row["auc_mean"] = compute_auc_mean(row["auc"])
-            log(f"[{i}/{len(cells)}] {sc}/{sd}/{ig}: n={row['n_feat']} rec={row['base_recall']} noise={row['noise_sel']} " f"fit={row['fit_s']}s auc={row['auc']}")
+                # An empty RFECV selection is a result, not a feature set: scoring the first column as the selection put a fallback
+                # into the win counts (12-F20). Record it as empty and skip the downstream fit.
+                row.update(n_feat=0, empty_selection=True)
+                log(f"[{i}/{len(cells)}] {sc}/{sd}/{ig}: EMPTY selection")
+            else:
+                base = set(t["base"])
+                noise = set(t["noise"])
+                row.update(n_feat=len(cols), base_recall=round(len(set(cols) & base) / max(1, len(base)), 3), noise_sel=len(set(cols) & noise), auc=downstream(Xtr, Xte, ytr, yte, cols))
+                row["auc_mean"] = compute_auc_mean(row["auc"])
+                log(f"[{i}/{len(cells)}] {sc}/{sd}/{ig}: n={row['n_feat']} rec={row['base_recall']} noise={row['noise_sel']} " f"fit={row['fit_s']}s auc={row['auc']}")
         except Exception as e:
             logger.debug("cell %s/%s/%s failed: %s: %s", sc, sd, ig, type(e).__name__, e)
             row["error"] = f"{type(e).__name__}: {e}"
