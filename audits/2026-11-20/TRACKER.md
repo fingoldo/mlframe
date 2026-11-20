@@ -129,3 +129,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 25-F2 | 25_root_modules-4.md | FIXED | Monotonicity by comparison for unsigned ids. Test test_cluster25_unsigned_group_ids_unsorted.py. |
 | 26-F4 | 26_root_modules-5.md | FIXED | Expanding stats use observed count; the earlier test was weak (finiteness only). Strict test test_cluster26_expanding_uses_observed_count.py. |
 | 28-F12 | 28_root_modules-7.md | FIXED | Absent class_weight key skipped. Test test_cluster28_class_weight_absent_key_skipped.py. |
+| 28-F2 | 28_root_modules-7.md | FIXED (test pending) | Multilabel decided from shape only; no targeted test yet (needs full calibrator run). |
