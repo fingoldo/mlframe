@@ -472,13 +472,13 @@ def _combine_residue_exact(arrs: Sequence[np.ndarray], op: str, modulus: int) ->
     if op == "self":
         return r[0]
     if op == "sum":
-        return np.mod(r[0] + r[1], modulus)
+        return cast(np.ndarray, np.mod(r[0] + r[1], modulus))
     if op == "diff":
-        return np.mod(r[0] - r[1], modulus)
+        return cast(np.ndarray, np.mod(r[0] - r[1], modulus))
     if op == "prod":
-        return np.mod(r[0] * r[1], modulus)
+        return cast(np.ndarray, np.mod(r[0] * r[1], modulus))
     if op == "sum3":
-        return np.mod(r[0] + r[1] + r[2], modulus)
+        return cast(np.ndarray, np.mod(r[0] + r[1] + r[2], modulus))
     raise ValueError(f"unknown combiner op {op!r}")
 
 
