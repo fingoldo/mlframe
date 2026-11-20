@@ -93,3 +93,8 @@ def plan_code_storage(
         elif np.dtype(user_dtype).itemsize > np.dtype(signed).itemsize:
             reasons.append(f"requested {np.dtype(user_dtype).name} is wider than the codes need: narrowed to {np.dtype(signed).name}")
     return CodeStoragePlan(signed, storage, int(bound), tuple(reasons))
+
+
+def code_alloc_dtype(estimator: Any) -> Any:
+    """The dtype the codes of ``estimator``'s current fit are allocated in: the plan's when the fit has one (``_code_alloc_dtype``), else the requested ``quantization_dtype``."""
+    return getattr(estimator, "_code_alloc_dtype", None) or estimator.quantization_dtype

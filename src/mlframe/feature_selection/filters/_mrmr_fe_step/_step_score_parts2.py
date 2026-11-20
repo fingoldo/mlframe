@@ -6,6 +6,7 @@ import logging
 from functools import partial
 
 import numpy as np
+from mlframe.feature_selection.filters.discretization._code_storage_plan import code_alloc_dtype
 from mlframe.feature_selection.filters.discretization._code_dtype import append_code_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
@@ -150,7 +151,7 @@ def _discretise_survivor_block(self, transformed_vals, n_rows, _n_forms, discret
         # prevent everywhere else it's used (``discretize_array``/``discretize_2d_quantile_batch``/
         # ``discretize_2d_array``).
         from mlframe.feature_selection.filters.discretization.shared import safe_code_dtype as _safe_code_dtype
-        _safe_dtype = _safe_code_dtype(self.quantization_nbins, self.quantization_dtype, reserve_nan_slot=(self.quantization_method == "uniform"))
+        _safe_dtype = _safe_code_dtype(self.quantization_nbins, code_alloc_dtype(self), reserve_nan_slot=(self.quantization_method == "uniform"))
         new_vals = np.empty(shape=(n_rows, _n_forms), dtype=_safe_dtype)
         for j in range(_n_forms):
             new_vals[:, j] = discretize_array(
@@ -523,7 +524,7 @@ def _materialise_escalation_admitted(self, st, _esc_admitted, X, data, cols, nbi
     # for quantization_nbins > 127 under quantization_dtype=int8 (same bug already fixed
     # above at the unary/binary materialize block via _safe_code_dtype).
     from mlframe.feature_selection.filters.discretization.shared import safe_code_dtype as _safe_code_dtype
-    _esc_safe_dtype = _safe_code_dtype(self.quantization_nbins, self.quantization_dtype, reserve_nan_slot=(self.quantization_method == "uniform"))
+    _esc_safe_dtype = _safe_code_dtype(self.quantization_nbins, code_alloc_dtype(self), reserve_nan_slot=(self.quantization_method == "uniform"))
     _esc_new_codes: np.ndarray = np.empty(
         shape=(len(X), len(_esc_admitted)), dtype=_esc_safe_dtype,
     )
@@ -604,7 +605,7 @@ def _fused_compound_codes(self, X, fused, discretize_array) -> np.ndarray:
     from mlframe.feature_selection.filters.discretization.shared import safe_code_dtype as _safe_code_dtype
 
     # Pre-widen to _safe_code_dtype so discretize_array's internally-widened return value isn't silently downcast on assignment.
-    _fz_safe_dtype = _safe_code_dtype(self.quantization_nbins, self.quantization_dtype, reserve_nan_slot=(self.quantization_method == "uniform"))
+    _fz_safe_dtype = _safe_code_dtype(self.quantization_nbins, code_alloc_dtype(self), reserve_nan_slot=(self.quantization_method == "uniform"))
     _fz_codes: np.ndarray = np.empty(shape=(len(X), len(fused)), dtype=_fz_safe_dtype)
     for _jf, _fc in enumerate(fused):
         _dev_codes = _device_codes_to_host(_fc["values"], self.quantization_nbins, self.quantization_dtype) if self.quantization_method == "quantile" else None

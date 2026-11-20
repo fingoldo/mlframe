@@ -9,6 +9,7 @@ import hashlib
 import logging
 
 import numpy as np
+from mlframe.feature_selection.filters.discretization._code_storage_plan import code_alloc_dtype as _code_alloc_dtype
 from mlframe._array_buffer import array_buffer
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import os
@@ -431,11 +432,6 @@ def _plan_code_storage_for_fit(self: Any, nbins_strategy: Any, nbins_strategy_kw
     self._code_alloc_dtype = plan.alloc_dtype
     logger.info("mrmr: code storage %s (max code %d): %s", np.dtype(plan.storage_dtype).name, plan.bound, "; ".join(plan.reasons))
     return plan
-
-
-def _code_alloc_dtype(self: Any) -> Any:
-    """The dtype the discretiser allocates the codes in: the plan's when this fit has one, else the requested ``quantization_dtype``."""
-    return getattr(self, "_code_alloc_dtype", None) or self.quantization_dtype
 
 
 def _discretize_inputs_part1(

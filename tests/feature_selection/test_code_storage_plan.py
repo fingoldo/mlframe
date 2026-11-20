@@ -101,3 +101,15 @@ def test_explicit_narrow_dtype_with_a_wide_strategy_is_widened_not_rejected():
     assert m.code_storage_plan_["alloc_dtype"] == "int16"
     assert any("widened" in r for r in m.code_storage_plan_["reasons"])
     assert len(list(m.get_feature_names_out())) >= 1
+
+
+def test_code_alloc_dtype_follows_the_plan_and_falls_back_to_the_request():
+    """The FE steps allocate new code blocks in the plan's dtype once a fit has one, in the requested dtype before that."""
+    import types
+
+    from mlframe.feature_selection.filters.discretization._code_storage_plan import code_alloc_dtype
+
+    fresh = types.SimpleNamespace(quantization_dtype=np.int32)
+    assert code_alloc_dtype(fresh) is np.int32
+    fresh._code_alloc_dtype = np.int8
+    assert code_alloc_dtype(fresh) is np.int8
