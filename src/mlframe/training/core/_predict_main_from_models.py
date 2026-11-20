@@ -726,6 +726,11 @@ def _apply_suite_ensemble(all_probs, all_calib_flags, metadata, per_target_probs
     """Combine every member into the suite-wide ensemble and write its probabilities and predictions into ``results``."""
     from mlframe.training.core.predict import _combine_probs, _resolve_chosen_flavour, suite_binary_threshold
 
+    # Members of different targets predict different quantities; averaging their probabilities and thresholding the mix has no
+    # meaning, so the suite-wide ensemble exists only for a single-target suite (audit 38-F1).
+    if len({tn for (_tt, tn) in per_target_probs.keys()}) > 1:
+        return
+
     # Suite-wide ensemble: resolve a single flavour when one was chosen across the suite, else arithmetic mean.
     _suite_flavour = _resolve_chosen_flavour(metadata)
     # Pass the target_type only when the suite is homogeneously multiclass so the simplex renorm in

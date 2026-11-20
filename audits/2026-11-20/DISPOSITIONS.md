@@ -198,3 +198,6 @@
 | 37-F6 | FIXED | refit_capped_stack takes and uses sample_weight, and the call site passes the OOF weights; tests/training/composite/test_cluster37_venn_refit.py |
 | 37-F7 | FIXED | group sizes come from one np.unique pass; no separate test |
 | 37-F8 | FIXED | a failed fingerprint cross-check distrusts the precomputed bundle and logs at WARNING; no separate test |
+| 38-F1 | FIXED | the suite-wide ensemble is not built when members span more than one target; tests/training/test_cluster38_suite_ensemble_targets.py |
+| 38-F2 | FIXED | calib_preds are no longer re-stamped by the recalibrator, so conformal residuals are not in-sample for it; no separate test |
+| 38-F3 | FIXED | a detector without predict() skips the val-side filter explicitly with a WARNING; no separate test |

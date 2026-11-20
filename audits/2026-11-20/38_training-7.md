@@ -50,3 +50,10 @@ Coverage: every listed file was read in full except `_phase_train_one_target_wei
 - `_phase_train_one_target_dataset_cache.py:288-318`: ids of released polars frames are purged from the view cache, the recurrent cache and the FH cache before the next conversion.
 - Default CatBoost encoder (src/mlframe/training/core/_setup_helpers.py:457-460): ordered target encoding, seeded, as the leakage comment requires.
 - `_resolve_defer_pandas_conv` / `_cache_pandas_frame_sizes` (src/mlframe/training/core/_phase_helpers_pandas_prep.py:43-171): deferral needs every gate to pass and the log reasons mirror the gate.
+
+
+## Dispositions
+
+- 38-F1: FIXED. the suite-wide ensemble is not built when members span more than one target; tests/training/test_cluster38_suite_ensemble_targets.py
+- 38-F2: FIXED. calib_preds are no longer re-stamped by the recalibrator, so conformal residuals are not in-sample for it; no separate test
+- 38-F3: FIXED. a detector without predict() skips the val-side filter explicitly with a WARNING; no separate test

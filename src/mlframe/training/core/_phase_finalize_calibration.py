@@ -335,7 +335,9 @@ def _recalibrate_one_entry(_entry, _i, _ttype, _tname, method, min_gain):
         log_throttle(logger, "finalize_calib_regression_recal_wrap_failed", logging.WARNING, "[regression_recal] wrap failed for %s/%s: %s", _ttype, _tname, _wrap_err)
         return None
     # Re-stamp cached preds to the SHIPPED (recalibrated) values so conformal + any later reader agree.
-    for _attr in ("test_preds", "val_preds", "train_preds", "oof_preds", "calib_preds"):
+    # calib_preds are NOT re-stamped: they are the recalibrator's fit set, so conformal residuals taken on them were in-sample
+    # for the recalibrator (audit 38-F2). They keep the pre-recalibration values, the same ones the conformal step reads.
+    for _attr in ("test_preds", "val_preds", "train_preds", "oof_preds"):
         _v = _arr(getattr(_e, _attr, None))
         if _v is not None:
             setattr(_e, _attr, g.transform(_v))
