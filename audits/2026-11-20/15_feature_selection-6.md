@@ -50,3 +50,12 @@ So the audit is incomplete. Roughly 60% of the manifest lines were not read, so 
 
 - 15-F1: RESOLVED. A NaN estimator score makes the fold score NaN (worst case cannot be read from the other estimators); a fully scored fold still takes the minimum. Test tests/feature_selection/test_rfecv_fold_min_counts_failed_estimators.py; 33 existing RFECV fold tests pass. Commit below.
 - 15-F2: RESOLVED. The dispatcher completes ragged per-run tables with fi_missing_policy before the tree and linear aggregators run, as the legacy path does. Test tests/feature_selection/test_dispatched_agg_imputes_ragged_runs.py; 3 existing importance-agg tests pass. Commit below.
+- 15-F8: FIXED. a callable prescreen's result is filtered to the candidate names the search offered; no direct test (the prescreen path needs a full RFECV fixture)
+- 15-F9: FIXED. the importance callable is called with target only when its signature accepts it, so a TypeError inside it runs once; tests/feature_selection/test_cluster15_importance_getter_and_prescreen.py
+- 15-F3: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
+- 15-F4: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
+- 15-F5: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
+- 15-F6: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
+- 15-F7: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
+- 15-F10: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
+- 15-F11: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
