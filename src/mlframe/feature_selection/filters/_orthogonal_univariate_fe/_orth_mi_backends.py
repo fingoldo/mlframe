@@ -12,6 +12,7 @@ from __future__ import annotations
 from mlframe.system import host_memory
 from typing import TYPE_CHECKING, Any, Optional, cast
 
+import functools
 import logging
 
 import numpy as np
@@ -324,8 +325,13 @@ def _select_mi_backend() -> str:
 _MI_BACKEND = _select_mi_backend()
 
 
+@functools.cache
 def _device_error_classes() -> tuple:
-    """Exception classes of a genuine cupy/device fault (plus LinAlgError); registration of the optional cupy ones is best-effort."""
+    """Exception classes of a genuine cupy/device fault (plus LinAlgError); registration of the optional cupy ones is best-effort.
+
+    Memoised: the answer is fixed for the life of the process (cupy either imports or it does not), and an absent cupy made every MI call
+    pay a failing import (about 7 ms on this host) before it reached the CPU kernel.
+    """
     _dev_errs: list = [np.linalg.LinAlgError]
     try:
         import cupy as _cp_e
