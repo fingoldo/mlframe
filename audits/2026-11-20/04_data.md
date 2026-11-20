@@ -70,7 +70,7 @@ Scope: the 42 files in `audits/2026-11-20/manifests/04_data.txt`, all read in fu
 - 04-F4: RESOLVED. link_regions passes the link's regional gate to every column it reads, so FeatureTruth.region is set at both generator call sites. Test tests/data/datasets/test_link_region_reaches_feature_truth.py. Commit below.
 - 04-F3: RESOLVED. Multiclass class scores come from multiclass_class_scores: rotated additive weights per class plus the link's interactions and basis terms for every class. Tests tests/data/datasets/test_multiclass_scores_keep_interactions.py; existing multiclass tests pass. Commit below.
 - 04-F5: RESOLVED. Latent reflections are now graph edges (latent -> reflected column), so the M-bias collider sees its second arm and gets role M_COLLIDER. Also: instrument-convention test aligned with 04-F6; explicit t latent family kept as Student-t(4). Tests tests/data/datasets/test_mbias_collider_sees_the_reflected_arm.py; related tests pass. Commit below.
-- 04-F13: FIXED. graded-cardinality weights scaled to 1/(levels-1) so each cardinality carries equal signal range; existing dataset tests pass (49)
+- 04-F13: FIXED. graded-cardinality weights scaled to 1/(levels-1) so each cardinality carries equal signal range; existing dataset tests pass (49); test tests/data/test_cluster04_graded_cardinality_weights.py
 - 04-F25: FIXED. scipy rvs gets shape parameters first, loc and scale as keywords; tests/data/test_cluster04_sapp_args_and_coerce.py
 - 04-F23: FIXED. non-numeric values coerced to NaN are counted in the notes; same test file
 - 04-F14: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
@@ -85,3 +85,4 @@ Scope: the 42 files in `audits/2026-11-20/manifests/04_data.txt`, all read in fu
 - 04-F24: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
 - 04-F26: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
 - 04-F11: FIXED. Decision (default taken): the beds are approximations, not published functions; provenance now says so instead of claiming the published formula. Tests tests/data/test_cluster04_friedman_provenance_is_honest.py. Exact Friedman forms need new basis kinds (separate work).
+- 04-F13: FIXED. Graded-cardinality weights are 1/(levels-1). Test tests/data/test_cluster04_graded_cardinality_weights.py.
