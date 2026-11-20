@@ -89,10 +89,9 @@ def apply_entity_time_composite_fe(
             continue
         sliced = _slice(idx, row_count(df))
         if sliced is None:
-            # idx not usable for this split (length mismatch) -- skip the step for this split rather
-            # than risk misaligning group_ids/timestamps against df's actual rows.
-            out[split_name] = df
-            continue
+            # An unusable index for a split that has rows would leave that split without the new columns while the others gain them, a
+            # schema drift that fails later in a feature-count check (40-F15). Refuse, naming the split.
+            raise ValueError(f"entity-time FE: the {split_name} split has no row index aligned with group_ids (idx={None if idx is None else len(idx)}, rows={row_count(df)}); refusing an inconsistent schema across splits")
         g, t = sliced
         new_cols = _build_entity_time_columns(df, g, t, config, state_cols, recency_cols)
 
