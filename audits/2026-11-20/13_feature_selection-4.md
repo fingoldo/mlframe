@@ -67,3 +67,15 @@ Scope: 142 files from `audits/2026-11-20/manifests/13_feature_selection-4.txt`, 
 
 - 13-F2: RESOLVED. The stability path builds the shared fit state before returning, so Subset, results_to_csv and plot read set attributes. Test tests/feature_selection/test_boruta_stability_path_has_fit_state.py; existing stability tests (6) pass. Commit below.
 - 13-F1: RESOLVED. Under premerge, Subset() expands accepted representatives back to their cluster members and indexes the pre-collapse frame. Test tests/feature_selection/test_boruta_subset_keeps_premerge_members.py; existing premerge tests (3) pass. Commit below.
+- 13-F3: FIXED. sub-fits run with premerge_clusters=False, since the parent has already collapsed X; covered by the existing Boruta premerge and stability tests (run in progress)
+- 13-F4: DEFERRED. needs the held-out split indices available at the auto-measure probe; the probe currently reads all rows, so the routing decision is not yet leak-free
+- 13-F5: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 13-F6: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 13-F7: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 13-F8: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 13-F9: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 13-F10: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 13-F11: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 13-F12: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 13-F13: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 13-F14: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule

@@ -221,6 +221,7 @@ def _fit_with_subsample_stability(self, X, y):
     params = self.get_params(deep=False)  # shallow: deep=True yields model__* nested keys __init__ rejects
     params["stability_subsamples"] = 0  # recursion guard: each sub-fit is a single pass
     params["verbose"] = False
+    params["premerge_clusters"] = False  # the parent already collapsed X; a sub-fit re-collapsing on its own rows lost votes (audit 13-F3)
 
     # ``get_params`` copies ``stratify`` verbatim, so every sub-fit would carry the original length-n
     # stratify array while running on a ``size``-row subsample. When train_or_test='test',

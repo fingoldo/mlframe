@@ -415,3 +415,15 @@
 | 12-F80 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F81 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F84 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
+| 13-F3 | FIXED | sub-fits run with premerge_clusters=False, since the parent has already collapsed X; covered by the existing Boruta premerge and stability tests (run in progress) |
+| 13-F4 | DEFERRED | needs the held-out split indices available at the auto-measure probe; the probe currently reads all rows, so the routing decision is not yet leak-free |
+| 13-F5 | DEFERRED | P2 under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 13-F6 | DEFERRED | P2 under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 13-F7 | DEFERRED | P2 under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 13-F8 | DEFERRED | P2 under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 13-F9 | DEFERRED | P2 under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 13-F10 | DEFERRED | P2 under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 13-F11 | DEFERRED | P2 under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 13-F12 | DEFERRED | P2 under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 13-F13 | DEFERRED | P2 under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 13-F14 | DEFERRED | P2 under _benchmarks (benchmark harness); deferred under the benchmark rule |
