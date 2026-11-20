@@ -229,6 +229,10 @@ class RecurrentClassifierWrapper(ClassifierMixin, _RecurrentWrapperBase):
             (n_samples,) array of predictions
         """
         proba = self.predict_proba(features, sequences)
+        # Multilabel: each column is an independent sigmoid, so argmax over columns is meaningless. Return the thresholded
+        # indicator matrix instead; and a multilabel fit never sets classes_ (40-F4), so this must not reach the classes_ lookup.
+        if getattr(self, "_is_multilabel", False):
+            return (np.asarray(proba) >= 0.5).astype(np.int64)
         positions = proba.argmax(axis=1)
         # Map argmax POSITIONS back through ``classes_`` so the returned labels are the original ones (sklearn ClassifierMixin contract); a raw
         # argmax would return 0..(k-1) positional indices, mislabelling any non-0..k-1 label set and breaking cross_val_predict / CalibratedClassifierCV / Stacking.
