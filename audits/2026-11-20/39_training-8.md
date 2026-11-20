@@ -112,7 +112,7 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F6: FIXED (default choice: floor weight). Previously deferred. Test tests/training/test_cluster39_recency_missing_timestamp.py. Original note: the recency weighting's NaN policy for missing timestamps needs a decision (drop, neutral, or raise)
 - 39-F17: FIXED. fit_transform applies the binary target check for woe, as fit does; test tests/training/test_cluster39_woe_fit_transform_binary_check.py
 - 39-F18: FIXED. a float NaN text becomes the empty string, as the docstring says; test tests/training/test_cluster39_hf_nan_text_is_empty.py
-- 39-F19: DEFERRED. not changed: the memory-pressure eviction policy (what low RAM should evict and how far) needs an owner decision
+- 39-F19: FIXED (default choice: one entry per low-RAM check). Previously deferred. Test tests/training/test_cluster39_low_ram_evicts_one_entry.py. Original note: the memory-pressure eviction policy needed an owner decisionner decision
 - 39-F20: DEFERRED. not changed: the disk tier is unreachable (no caller builds DiskKey). Wire it in or remove it: an owner decision
 - 39-F32: FIXED. Previously deferred; now only float NaN cells are rebranded. Test tests/training/test_cluster39_polars_string_nan_is_data.py. Original note: the polars NaN-string rebrand needed a closer read of the cast path
 - 39-F33: FIXED. null categories group with dropna=False; tests/training/test_cluster39_encoders_and_casts.py
@@ -138,3 +138,4 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F6: FIXED. Decision (default taken): a missing timestamp gets the floor weight min_weight (treated as the oldest, least influential row) so every training weight is finite. Test tests/training/test_cluster39_recency_missing_timestamp.py.
 - 39-F38: DEFERRED. hgb_max_features_cap has no caller in the pipeline (only tests and the uncalled-functions allowlist in tests/test_meta). Project policy is wire in, not delete. Wiring needs the chosen insertion point (encoder construction or the assembler's dense branch), which changes how HGB text blocks are built: a design decision left open.
 - 39-F32: FIXED. Only float NaN cells become the null sentinel; the string 'NaN' in a string column is kept as data. Test tests/training/test_cluster39_polars_string_nan_is_data.py.
+- 39-F19: FIXED. Decision (default taken): low system RAM alone evicts one entry per check and yields; a cache over its size limit still evicts until under it. Tests tests/training/test_cluster39_low_ram_evicts_one_entry.py.
