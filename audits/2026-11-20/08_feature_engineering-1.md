@@ -40,3 +40,9 @@ Coverage note: this pass read fully about 25 of the 163 listed files (all core s
 - `_key_bank.py:288-301`: the cache write goes to a UUID temp directory and is renamed atomically onto the content-addressed directory, and a loser of the race cleans up its temp.
 
 Not verified: possible `fastmath=True` interaction with the `np.isfinite` guards in `_kernels_njit.py:44` and `:54`. This would need a compiled-kernel test and is not reported as a finding.
+
+
+## Dispositions
+
+- 08-F1: RESOLVED. build_nca_projection fits NCA on the rows it is applied to: the internal StandardScaler (fit then discarded) is removed. Test tests/feature_engineering/transformer/test_nca_projection_lives_in_the_applied_space.py; existing nca selection passes. Note: the unit test uses production-standardised input, so it does not separate old from new behaviour on its own. Commit below.
+- 08-F2: RESOLVED. All 15 Mode-A out-of-fold output arrays start as NaN (baseline_surprise, adversarial_flip, anomaly_score_features, class_distance, and the 11 grep-found files), so an uncovered row is NaN, not 0.0. Test tests/feature_engineering/transformer/test_oof_uncovered_rows_are_nan.py; 15 selected OOF tests pass. Commit below.

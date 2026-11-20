@@ -54,3 +54,19 @@ Scope: the 42 files in `audits/2026-11-20/manifests/04_data.txt`, all read in fu
 ## Test coverage gaps (located, not run)
 
 - Tests exist under `tests/data/` and `tests/data/datasets/` for most modules. I did not confirm coverage of `CeilingTarget.tolerance` (unused), the count-intercept path (04-F1), the `mi_reference` memo (04-F9), the threshold link path, or regional truth roles (04-F4); a grep for the threshold and count-ceiling names matched several test files, but I did not read them, so treat these as unverified gaps.
+
+
+## Dispositions
+
+- 04-F1: RESOLVED. count branch uses count_mean(scale*unit_score), intercept no longer added twice. Test tests/data/datasets/test_count_target_intercept_once.py. Commit below.
+- 04-F11: DEFERRED. Published Friedman-2 is sqrt(x0^2 + (x1*x2 - 1/(x1*x3))^2) and Friedman-3 is atan((x1*x2 - 1/(x1*x3))/x0). The link vocabulary (BasisTerm kinds) has no 1/(a*b) term and no compound sqrt/atan form, so neither can be written exactly. Needs new basis kinds and a decision on the provenance text.
+- 04-F2: RESOLVED. TargetSpec rejects a logloss or accuracy ceiling on a binary target (was silently ignored). Tests tests/data/datasets/test_binary_ceiling_metric_rejected.py. Commit below.
+- 04-F7: RESOLVED. realize_latent refuses an unknown family instead of drawing Student-t(4). Tests tests/data/datasets/test_latent_unknown_family_rejected.py. Commit below.
+- 04-F12: RESOLVED. Simpson group is a fair sign (new rademacher family, -1/+1), so the interaction reverses sign between subgroups as documented. Tests tests/data/datasets/test_simpson_group_is_a_sign.py; existing simpson bed test passes. Commit below.
+- 04-F9: RESOLVED. mi_reference memo key includes a blake2b digest of the column data and labels. Test tests/data/datasets/test_truth_mi_memo_keys_on_data.py. Commit below.
+- 04-F10: RESOLVED. count_ceiling sums every row exactly in blocks (the 2001-row prefix extrapolation is gone). Test tests/data/datasets/test_count_ceiling_sums_every_row.py; 5 existing count tests pass. Commit below.
+- 04-F6: RESOLVED. Convention fixed in _declared_kind_role: copy/proxy kinds mark the target, the instrument kind marks its source (instrument -> treatment is causal). Test tests/data/datasets/test_declared_roles_follow_the_edge_convention.py. Commit below.
+- 04-F8: RESOLVED. _exact_mi_independent averages the row entropies within each bin (H(Y|X in bin) = mean H(p_i)) instead of the entropy at the bin-mean probability. Test tests/data/datasets/test_exact_mi_averages_row_entropy.py. Commit below.
+- 04-F4: RESOLVED. link_regions passes the link's regional gate to every column it reads, so FeatureTruth.region is set at both generator call sites. Test tests/data/datasets/test_link_region_reaches_feature_truth.py. Commit below.
+- 04-F3: RESOLVED. Multiclass class scores come from multiclass_class_scores: rotated additive weights per class plus the link's interactions and basis terms for every class. Tests tests/data/datasets/test_multiclass_scores_keep_interactions.py; existing multiclass tests pass. Commit below.
+- 04-F5: RESOLVED. Latent reflections are now graph edges (latent -> reflected column), so the M-bias collider sees its second arm and gets role M_COLLIDER. Also: instrument-convention test aligned with 04-F6; explicit t latent family kept as Student-t(4). Tests tests/data/datasets/test_mbias_collider_sees_the_reflected_arm.py; related tests pass. Commit below.

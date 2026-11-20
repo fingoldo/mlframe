@@ -27,3 +27,8 @@ Scope: the 25 `.py` files plus `__init__.py` in `src/mlframe/calibration/_benchm
 - `bench_within_bin_shuffle_iter.py` argsort logic (lines 22-33): stable argsort gives ascending bins and in-bin order matching `np.where`, so the shuffle draws match the legacy path.
 - `bench_eci_miller_madow.py:33` Miller-Madow term `(k_obs - 1) / (2N)` and sign convention match production `quality.py:727-729`.
 - `bench_ece_debiased_equal_mass.py:80-82` Bernoulli noise-floor term `acc*(1-acc)/(n-1)` matches the debiasing formula, and the empty-bin handling is consistent.
+
+
+## Dispositions
+
+- 01-F3: WON'T FIX. Production loop already measured against the argsort variant in probabilities.py (argsort 0.43x at n=1e6, n_bins=10); the O(n_bins*N) scan stays. Bench finding is about the bench, not the shipped code.
