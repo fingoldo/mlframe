@@ -111,7 +111,7 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F5: FIXED. a configured group column missing from the frame logs a WARNING; test tests/training/test_cluster39_missing_group_column_logged.py
 - 39-F6: DEFERRED. not changed: the recency weighting's NaN policy for missing timestamps needs a decision (drop, neutral, or raise)
 - 39-F17: FIXED. fit_transform applies the binary target check for woe, as fit does; test tests/training/test_cluster39_woe_fit_transform_binary_check.py
-- 39-F18: FIXED. a float NaN text becomes the empty string, as the docstring says; no separate test
+- 39-F18: FIXED. a float NaN text becomes the empty string, as the docstring says; test tests/training/test_cluster39_hf_nan_text_is_empty.py
 - 39-F19: DEFERRED. not changed: the memory-pressure eviction policy (what low RAM should evict and how far) needs an owner decision
 - 39-F20: DEFERRED. not changed: the disk tier is unreachable (no caller builds DiskKey). Wire it in or remove it: an owner decision
 - 39-F32: DEFERRED. not changed: the polars NaN-string rebrand needs a closer read of the cast path before a safe change
@@ -129,3 +129,4 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F4: FIXED. The named-target lookup no longer borrows another target's params: the single-entry fallback and the suite-wide fallback apply only when no target was asked for. Test tests/training/test_cluster39_chosen_params_target_isolation.py.
 - 39-F5: FIXED. A configured group column missing from the frame logs a WARNING. Test tests/training/test_cluster39_missing_group_column_logged.py.
 - 39-F17: FIXED. fit_transform applies the binary {0,1} check for woe, as fit does. Test tests/training/test_cluster39_woe_fit_transform_binary_check.py.
+- 39-F18: FIXED. A float NaN text is embedded as the empty string, as the docstring says. Test tests/training/test_cluster39_hf_nan_text_is_empty.py.
