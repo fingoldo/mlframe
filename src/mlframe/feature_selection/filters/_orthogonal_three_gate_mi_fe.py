@@ -681,15 +681,36 @@ def _cmi_gate_scores(
     z_joint, _ = _renumber_joint(*sup_bins)
     _, y_bin = np.unique(y_int, return_inverse=True)
     y_bin = y_bin.astype(np.int64)
-    eng_mat = engineered_X.to_numpy(dtype=np.float64)  # Intentional float64: engineered matrix for the CMI statistic
-    eng_bins_mat = _quantile_bin_batched(eng_mat, nbins)
-    batched = _cmi_gate_scores_batched(eng_bins_mat, y_bin, z_joint)
-    if batched is not None:
-        return {c: float(batched[k]) for k, c in enumerate(engineered_X.columns)}
-    out: dict[str, float] = {}
-    for k, c in enumerate(engineered_X.columns):
-        out[c] = float(_cmi_from_binned(np.ascontiguousarray(eng_bins_mat[:, k]), y_bin, z_joint))
-    return out
+    # The engineered columns go through in blocks: every column's CMI is independent of the others, and one (n, p) pass keeps about 34 bytes a cell alive at once (the float64 matrix and its C copy, the int64
+    # codes, the transposed copy and the int16 codes): 30000 rows x 3018 columns was 3 GB of host memory in the 500000 x 1000 fit.
+    columns = list(engineered_X.columns)
+    block = _cmi_gate_block_columns(int(engineered_X.shape[0]), len(columns))
+    scores = np.empty(len(columns), dtype=np.float64)  # Intentional float64: CMI statistic vector
+    for c0 in range(0, len(columns), block):
+        c1 = min(len(columns), c0 + block)
+        eng_mat = engineered_X.iloc[:, c0:c1].to_numpy(dtype=np.float64)  # Intentional float64: engineered matrix for the CMI statistic
+        eng_bins_mat = _quantile_bin_batched(eng_mat, nbins)
+        batched = _cmi_gate_scores_batched(eng_bins_mat, y_bin, z_joint)
+        if batched is not None:
+            scores[c0:c1] = batched
+        else:
+            for k in range(c1 - c0):
+                scores[c0 + k] = float(_cmi_from_binned(np.ascontiguousarray(eng_bins_mat[:, k]), y_bin, z_joint))
+        del eng_mat, eng_bins_mat
+    return {c: float(scores[k]) for k, c in enumerate(columns)}
+
+
+_CMI_GATE_BLOCK_BYTES = 256 * 1024 * 1024  # host bytes one block of engineered columns may keep alive in the binning pass
+_CMI_GATE_BYTES_PER_CELL = 34
+
+
+def _cmi_gate_block_columns(n_rows: int, n_cols: int) -> int:
+    """Columns per block so that a block's temporaries stay within ``_CMI_GATE_BLOCK_BYTES``; the blocks are balanced (no tiny tail that would fall under the device CMI size gate) and a matrix that fits is one block."""
+    per_block = max(1, _CMI_GATE_BLOCK_BYTES // (_CMI_GATE_BYTES_PER_CELL * max(1, int(n_rows))))
+    if n_cols <= per_block:
+        return max(1, int(n_cols))
+    n_blocks = -(-int(n_cols) // per_block)
+    return -(-int(n_cols) // n_blocks)
 
 
 def _cmi_gate_scores_batched(eng_bins_mat: np.ndarray, y_bin: np.ndarray, z_joint: np.ndarray) -> Optional[np.ndarray]:

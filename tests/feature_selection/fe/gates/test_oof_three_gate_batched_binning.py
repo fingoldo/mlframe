@@ -141,3 +141,33 @@ def test_cmi_gate_scores_batched_device_pass_equals_the_per_column_route(monkeyp
     assert calls and real(np.zeros((n, 2), dtype=np.int64), y, np.zeros(n, dtype=np.int64)) is not None
     assert list(batched) == list(per_column)
     np.testing.assert_allclose([batched[c] for c in batched], [per_column[c] for c in per_column], rtol=0, atol=1e-12)
+
+
+def test_cmi_gate_scores_in_column_blocks_equal_one_pass(monkeypatch):
+    """The engineered columns are scored in blocks of bounded host memory; a block budget of a few columns gives the same scores, in the same order, as one pass over the matrix."""
+    import pandas as pd
+
+    from mlframe.feature_selection.filters import _orthogonal_three_gate_mi_fe as m
+
+    rng = np.random.default_rng(1)
+    n = 3000
+    sup = pd.DataFrame(rng.standard_normal((n, 2)), columns=["s0", "s1"])
+    y = ((sup["s0"] + 0.5 * rng.standard_normal(n)) > 0).astype(np.int64).to_numpy()
+    eng = pd.DataFrame(rng.standard_normal((n, 11)), columns=[f"e{i}" for i in range(11)])
+    eng["e0"] = eng["e0"] + y
+    eng.loc[::50, "e4"] = np.nan  # a column with NaN takes the scalar per-column binning route inside a block
+    one_pass = m._cmi_gate_scores(eng, y, sup)
+    monkeypatch.setattr(m, "_CMI_GATE_BLOCK_BYTES", 3 * m._CMI_GATE_BYTES_PER_CELL * n)  # three columns per block
+    assert m._cmi_gate_block_columns(n, 11) == 3
+    blocked = m._cmi_gate_scores(eng, y, sup)
+    assert list(blocked) == list(one_pass)
+    np.testing.assert_allclose([blocked[c] for c in blocked], [one_pass[c] for c in one_pass], rtol=0, atol=1e-12)
+
+
+def test_cmi_gate_block_columns_is_balanced_and_covers_the_matrix():
+    """Blocks are balanced (no one-column tail) and one block when the matrix fits the budget."""
+    from mlframe.feature_selection.filters import _orthogonal_three_gate_mi_fe as m
+
+    assert m._cmi_gate_block_columns(30000, 100) == 100
+    b = m._cmi_gate_block_columns(30000, 3018)
+    assert 200 <= b <= 260 and -(-3018 // b) * b >= 3018 and (3018 % b == 0 or 3018 % b > b // 2)

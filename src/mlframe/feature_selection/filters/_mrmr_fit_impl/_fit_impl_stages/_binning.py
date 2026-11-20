@@ -70,12 +70,10 @@ def _compact_code_storage(data):
         try:
             _dmin = int(data.min())
             _dmax = int(data.max())
-            _store_dt: Optional[type]
-            if -128 <= _dmin and _dmax <= 127:
-                _store_dt = np.int8
-            elif -32768 <= _dmin and _dmax <= 32767:
-                _store_dt = np.int16
-            else:
+            from mlframe.feature_selection.filters.discretization._code_dtype import narrowest_code_dtype
+
+            _store_dt: Optional[type] = narrowest_code_dtype(_dmin, _dmax)  # int8 up to 127, uint8 for 0..255 (a 256-cardinality categorical), int16 above
+            if _store_dt in (np.int32, np.int64):
                 _store_dt = None
             if _store_dt is not None and data.dtype.itemsize > np.dtype(_store_dt).itemsize:
                 data = data.astype(_store_dt, copy=False)
@@ -385,7 +383,7 @@ def _strategy_kwargs(self: Any, _nbins_strategy: Any) -> Any:
     # user pinned max_depth explicitly). This makes max_categorical_cardinality a single knob for a universally-narrow
     # codes matrix - categorical tail folded AND numeric intervals bounded.
     _cap = getattr(self, "max_categorical_cardinality", None)
-    if _cap and str(_nbins_strategy).lower() in ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated"):
+    if _cap and int(_cap) < 255 and str(_nbins_strategy).lower() in ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated"):  # at the default cap the default depth (<= 256 intervals) already fits
         _md = max(2, int(np.floor(np.log2(int(_cap)))))
         _nbins_strategy_kwargs = dict(_nbins_strategy_kwargs or {})
         _nbins_strategy_kwargs.setdefault("max_depth", _md)

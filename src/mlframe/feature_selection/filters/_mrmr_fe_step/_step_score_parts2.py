@@ -6,6 +6,7 @@ import logging
 from functools import partial
 
 import numpy as np
+from mlframe.feature_selection.filters.discretization._code_dtype import append_code_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.cv_policy import get_cv_policy
@@ -536,7 +537,7 @@ def _materialise_escalation_admitted(self, st, _esc_admitted, X, data, cols, nbi
     _n_cols_before_esc = len(cols)
     # Preserve the compact codes dtype (COMPACT CODES STORAGE in _fit_impl_core): nbins-bounded codes,
     # cast down to data.dtype rather than upcasting the whole matrix back to int32.
-    data = np.append(data, _esc_new_codes.astype(data.dtype, copy=False), axis=1)
+    data = append_code_columns(data, _esc_new_codes)
     nbins = np.concatenate([
         np.asarray(nbins),
         np.asarray([self.quantization_nbins] * len(_esc_admitted), dtype=np.asarray(nbins).dtype),
@@ -659,7 +660,7 @@ def _materialise_and_fina_step4_contract_stay_off(self, engineered_recipes, st, 
                 # isn't silently downcast back on assignment.
                 _fz_codes = _fused_compound_codes(self, X, _fused, discretize_array)
                 _n_cols_before_fz = len(cols)
-                data = np.append(data, _fz_codes.astype(data.dtype, copy=False), axis=1)
+                data = append_code_columns(data, _fz_codes)
                 nbins = np.concatenate([
                     np.asarray(nbins),
                     np.asarray([self.quantization_nbins] * len(_fused), dtype=np.asarray(nbins).dtype),

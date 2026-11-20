@@ -345,7 +345,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # by frequency kept). None (default) = uncapped. A high-cardinality categorical has sparse contingency cells so its plug-in MI/CMI is unreliable
         # regardless (the analytic null guards on >=5 expected/cell); capping DENSIFIES the cells (better MI) AND lets the whole codes matrix stay a narrow int
         # - set to <=127 to keep the compact-codes storage int8 (4x smaller) even when legitimate high-card categoricals exist.
-        max_categorical_cardinality: int | None = 256,
+        max_categorical_cardinality: int | None = 255,
         # per-feature adaptive bin chooser. Default ``'mdlp'`` (Fayyad-Irani 1993, with njit-accelerated kernel) is the honest combined-ranking winner of the F1
         # leaderboard (``|err vs truth| + noise_floor``: MDLP 0.107, Sturges 0.135, quantile10 0.139, OptimalJoint 0.167, FD 0.175). MDLP is the only strategy
         # with a TRUE zero no-signal floor, which directly improves MRMR's relevance gate against false-positive feature picks. Pass ``nbins_strategy=None`` to

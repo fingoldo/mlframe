@@ -27,6 +27,7 @@ import logging
 from typing import Any, Sequence
 
 import numpy as np
+from mlframe.feature_selection.filters.discretization._code_dtype import append_code_columns
 
 from .engineered_recipes import apply_recipe, build_cluster_aggregate_recipe
 from .friend_graph import node_relevance, pairwise_mi_edge
@@ -692,5 +693,5 @@ def run_cluster_aggregate_step(
             logger.info("cluster_aggregate: accepted %s (MI %.5f vs best member %.5f, k=%d, method=%s)", recipe.name, agg_mi, best_member_mi, len(members), method)
 
     if new_data_cols:
-        data = np.append(data, np.column_stack(new_data_cols), axis=1)
+        data = append_code_columns(data, np.column_stack(new_data_cols))
     return data, cols, nbins, X, n_added, removed_member_names, added_indices, summary
