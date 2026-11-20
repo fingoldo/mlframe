@@ -64,7 +64,9 @@ def apply_cross_sectional_composite_fe(
         # nothing to compute and every split keeps its schema, as documented above.
         return train_df, val_df, test_df
     train_n_snapshots = pd_train[snapshot_col].nunique()
-    effective_k = min(k, max(train_n_snapshots - 1, 0))
+    # A replay carries the k the model was fitted with; recomputing it from the serving batch gave a different neighbour radius (40-F17).
+    _fitted_k = getattr(config, "_fitted_effective_k", None)
+    effective_k = int(_fitted_k) if _fitted_k is not None else min(k, max(train_n_snapshots - 1, 0))
 
     if metadata is not None:
         metadata["cross_sectional_neighbors_snapshot_col"] = snapshot_col
@@ -120,6 +122,7 @@ class _ReplayConfig:
         self.cross_sectional_neighbors_snapshot_col = metadata.get("cross_sectional_neighbors_snapshot_col")
         self.cross_sectional_neighbors_feature_cols = metadata.get("cross_sectional_neighbors_feature_cols") or []
         self.cross_sectional_neighbors_k = metadata.get("cross_sectional_neighbors_k", 10)
+        self._fitted_effective_k = metadata.get("cross_sectional_neighbors_effective_k")
         _agg_stats = metadata.get("cross_sectional_neighbors_agg_stats")
         self.cross_sectional_neighbors_agg_stats = ["mean", "std"] if _agg_stats is None or len(_agg_stats) == 0 else _agg_stats
 
