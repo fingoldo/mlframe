@@ -28,3 +28,18 @@ No P0 or P1 findings. All 7 files are cProfile/timing harnesses, not production 
 - `bench_shap_oof_per_fold.py:112-113` identity of OOF indexing: `te` indexes the rows of X, and the per-fold models are trained on `tr` only, so the NEW path is leakage-free.
 - Production `explainability.py:224-231` contains both a `explainer(X_test)` branch and a fallback `explainer(X)` branch. The bench docstring's claim (`bench_shap_oof_per_fold.py:3-4`) describes only the fallback path. Not filed because it is outside the manifest.
 - Test coverage: these benches are harnesses, not tests. Coverage of the production public functions was not assessed in this pass.
+
+
+## Dispositions
+
+- 16-F1: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 16-F2: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 16-F3: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 16-F4: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 16-F5: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 16-F6: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 16-F7: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 16-F8: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 16-F9: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 16-F10: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
+- 16-F11: DEFERRED. P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule
