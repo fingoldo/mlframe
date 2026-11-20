@@ -61,7 +61,9 @@ def calendar_feature_names(frame: Any, timestamps: np.ndarray, feature_names: Op
     idx = np.sort(np.random.default_rng(seed).choice(n, size=min(n, _SAMPLE), replace=False))
     ts_s = ts[idx]
     ok_t = ~np.isnat(ts_s)
-    encodings = [e[ok_t] for e in _calendar_encodings(ts_s[ok_t])]
+    # The encodings are already computed on the non-missing rows; indexing them with the full-length mask again raised IndexError as soon as any
+    # timestamp was NaT, and the caller swallowed it, so the calendar columns were silently kept.
+    encodings = _calendar_encodings(ts_s[ok_t])
     # Over a window shorter than the cycle (day of year / month across half a year) an encoding is just a monotone
     # function of time, and matching it would flag any trending feature as "calendar". Keep only encodings that
     # actually cycle within the window.
