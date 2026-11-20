@@ -20,3 +20,13 @@ Scope: `src/mlframe/core/_benchmarks/` (manifest 03_core.txt: `__init__.py`, `be
 - `bench_parallel` passes `WEIGHTS.index("tukey")` (= 2) and the positional arguments in the order `_robust_mean_irls` expects (robust_location.py:89), so the wcode mapping agrees with `_weight` (robust_location.py:77-78).
 - `_best_of` (profile_robust_location.py:21-28) warms the JIT before timing, so the reported numbers do not include compile time.
 - No P0 or P1 findings: the harness files do not feed production results, and the production functions they call were out of scope for this manifest.
+
+
+## Dispositions
+
+- 03-F3: FIXED. coverage gap closed: parallel and serial robust means agree at n above the dispatch threshold; tests/core/test_robust_mean_parallel_matches_serial.py
+- 03-F1: DEFERRED. benchmark-script change not made in this pass; low impact
+- 03-F2: DEFERRED. benchmark-script change not made in this pass; low impact
+- 03-F4: DEFERRED. benchmark-script change not made in this pass; low impact
+- 03-F5: DEFERRED. benchmark-script change not made in this pass; low impact
+- 03-F6: DEFERRED. benchmark-script change not made in this pass; low impact

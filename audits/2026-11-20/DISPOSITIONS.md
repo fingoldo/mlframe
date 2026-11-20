@@ -265,3 +265,9 @@
 | 02-F4 | DEFERRED | benchmark-script cleanup not done in this pass; low impact |
 | 02-F5 | DEFERRED | benchmark-script cleanup not done in this pass; low impact |
 | 02-F6 | DEFERRED | benchmark-script cleanup not done in this pass; low impact |
+| 03-F3 | FIXED | coverage gap closed: parallel and serial robust means agree at n above the dispatch threshold; tests/core/test_robust_mean_parallel_matches_serial.py |
+| 03-F1 | DEFERRED | benchmark-script change not made in this pass; low impact |
+| 03-F2 | DEFERRED | benchmark-script change not made in this pass; low impact |
+| 03-F4 | DEFERRED | benchmark-script change not made in this pass; low impact |
+| 03-F5 | DEFERRED | benchmark-script change not made in this pass; low impact |
+| 03-F6 | DEFERRED | benchmark-script change not made in this pass; low impact |
