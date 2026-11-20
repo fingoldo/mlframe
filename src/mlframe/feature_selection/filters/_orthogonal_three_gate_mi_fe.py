@@ -342,15 +342,37 @@ def _mi_from_binned_xy(x_bin: np.ndarray, y_bin: np.ndarray, *, clip_zero: bool 
     return mi_corrected
 
 
+def _fold_mi_split_columns(arr: np.ndarray, train_idx: np.ndarray, test_idx: np.ndarray, y_test_bin: np.ndarray, nbins: int, finite_cols: np.ndarray, y_h: Any) -> "np.ndarray | None":
+    """``(n_cols,)`` OOF MI of one fold: the all-finite columns on the device (``fold_mi_device``), the columns holding a NaN / inf on the host NaN-aware binner of ``_kfold_one_fold``; ``None`` when the device fails.
+
+    Columns are scored independently of each other, so splitting them between the two routes gives each column its own route's value."""
+    from ._kfold_oof_mi_gpu import fold_mi_device
+
+    out = np.zeros(arr.shape[1], dtype=np.float64)  # Intentional float64: score statistic output contract
+    if finite_cols.any():
+        dev = fold_mi_device(arr[:, finite_cols] if not finite_cols.all() else arr, train_idx, test_idx, y_test_bin, nbins)
+        if dev is None:
+            return None
+        out[finite_cols] = dev
+    odd = np.flatnonzero(~finite_cols)
+    if odd.size:
+        bins = _fold_test_bins(arr[:, odd], train_idx, test_idx, int(odd.size), nbins)
+        out[odd] = [_mi_from_binned_xy(bins[:, j], y_test_bin, clip_zero=False, y_entropy=y_h) for j in range(odd.size)]
+    return out
+
+
 def _folds_on_device(raw_arr, eng_arr, y_arr, fold_test_idx, n, nbins):
     """``_one_fold`` of every fold on the device (``_kfold_oof_mi_gpu``), same ``None`` for an empty or single-class fold; ``None`` overall when the device
-    is not used or any fold fails there (the host pool then runs every fold)."""
-    from ._kfold_oof_mi_gpu import fold_mi_device, kfold_oof_mi_device_enabled
+    is not used or any fold fails there (the host pool then runs every fold). Columns holding a NaN / inf (the device twin bins by plain train quantiles) are
+    scored on the host NaN-aware binner while the rest of the block stays on the device."""
+    from ._kfold_oof_mi_gpu import kfold_oof_mi_device_enabled
 
     if not kfold_oof_mi_device_enabled(n, raw_arr.shape[1] + eng_arr.shape[1]):
         return None
-    if not (np.isfinite(raw_arr).all() and np.isfinite(eng_arr).all()):
-        return None  # the device twin bins by plain train quantiles; a column with a missing value takes the host NaN-aware binner
+    raw_fin = np.isfinite(raw_arr).all(axis=0)
+    eng_fin = np.isfinite(eng_arr).all(axis=0)
+    if not (raw_fin.any() or eng_fin.any()):
+        return None
     out: "list[tuple[np.ndarray, np.ndarray] | None]" = []
     for test_idx in fold_test_idx:
         if test_idx.size == 0:
@@ -361,11 +383,13 @@ def _folds_on_device(raw_arr, eng_arr, y_arr, fold_test_idx, n, nbins):
             out.append(None)
             continue
         _, y_test_bin = np.unique(y_test, return_inverse=True)
+        y_test_bin = y_test_bin.astype(np.int64)
         train_mask = np.ones(n, dtype=bool)
         train_mask[test_idx] = False
         train_idx = np.where(train_mask)[0]
-        r = fold_mi_device(raw_arr, train_idx, test_idx, y_test_bin.astype(np.int64), nbins)
-        e = fold_mi_device(eng_arr, train_idx, test_idx, y_test_bin.astype(np.int64), nbins)
+        y_h = _y_entropy(y_test_bin)
+        r = _fold_mi_split_columns(raw_arr, train_idx, test_idx, y_test_bin, nbins, raw_fin, y_h)
+        e = _fold_mi_split_columns(eng_arr, train_idx, test_idx, y_test_bin, nbins, eng_fin, y_h)
         if r is None or e is None:
             return None
         out.append((r, e))
