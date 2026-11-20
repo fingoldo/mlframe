@@ -619,3 +619,4 @@
 | 35-F14 | FIXED | predict_cdf sorts each quantile row before the binary search. Test tests/training/composite/test_cluster35_cdf_unsorted_quantile_rows.py. |
 | 35-F11 | FIXED | The early logratio raise is removed; the domain mask routes base<=0 rows to the fallback. Test tests/training/composite/test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | FIXED | time_aware with groups raises. Test tests/training/composite/test_cluster35_stacking_time_and_groups_refused.py. |
+| 35-F9 | FIXED | External holdout key includes a frame content digest. Test tests/training/composite/test_cluster35_holdout_digest_distinguishes_content.py. |
