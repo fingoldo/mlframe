@@ -123,3 +123,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 40-F9 | 40_training-9.md | FIXED | All-null categorical maps to unknown code at predict. Test test_cluster40_all_null_categorical_predicts.py. |
 | 40-F10 | 40_training-9.md | FIXED | Unequal hidden_layers refused at construction (default choice; per-layer sizes not supported by the builder). Test test_cluster40_ranker_refuses_unequal_hidden_layers.py. |
 | 40-F15 | 40_training-9.md | FIXED | Entity-time module refuses an unaligned split (test test_cluster40_entity_time_refuses_unaligned_split.py). Latent-SVD, MA no-group path and nearest-past-join still open. |
+| 40-F16 | 40_training-9.md | FIXED | Powerset composites attached to every split or none. Test test_cluster40_powerset_all_or_nothing.py. |

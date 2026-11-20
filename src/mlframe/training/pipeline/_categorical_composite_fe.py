@@ -97,20 +97,26 @@ def _attach_powerset_composites(train_df: Any, val_df: Any, test_df: Any, train_
         _max_order = int(getattr(config, "categorical_powerset_concat_max_order", 2) or 2)
         metadata["categorical_powerset_concat_columns"] = list(cat_cols)
         metadata["categorical_powerset_concat_max_order"] = _max_order
+        # Compute every split's columns FIRST and attach only once all three succeeded: attaching as we went left train with the composite
+        # columns while val/test failed to get them, and the except returned that mixed state (40-F16). A split that has rows but lacks the
+        # source columns is a failure, so the whole step is skipped and every split stays as it came in.
+        _pending: dict = {}
         for _split_name, _df in (("train", train_df), ("val", val_df), ("test", test_df)):
             if _df is None:
                 continue
             _pd_view = train_cat_pd if _split_name == "train" else _to_pandas_view(_df, cat_cols)
             if _pd_view is None:
-                continue
+                if _split_name == "train":
+                    continue
+                raise ValueError(f"powerset composites: the {_split_name} split lacks the source columns {list(cat_cols)}; refusing an inconsistent schema")
             _powerset_out = categorical_powerset_concat(_pd_view, columns=cat_cols, separator=COMPOSITE_SEPARATOR, max_order=_max_order)
-            _new_cols = _powerset_out.drop(columns=list(cat_cols))
-            if _split_name == "train":
-                train_df = attach_new_columns(train_df, _new_cols)
-            elif _split_name == "val":
-                val_df = attach_new_columns(val_df, _new_cols)
-            else:
-                test_df = attach_new_columns(test_df, _new_cols)
+            _pending[_split_name] = _powerset_out.drop(columns=list(cat_cols))
+        if "train" in _pending:
+            train_df = attach_new_columns(train_df, _pending["train"])
+        if "val" in _pending:
+            val_df = attach_new_columns(val_df, _pending["val"])
+        if "test" in _pending:
+            test_df = attach_new_columns(test_df, _pending["test"])
         if verbose:
             logger.info("apply_categorical_composite_fe: powerset-concat over %d source column(s), max_order=%d", len(cat_cols), _max_order)
     except Exception:
