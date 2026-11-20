@@ -192,7 +192,9 @@ def finite_mask_prep(
                 "to feature-list order.", int(finite.sum()),
             )
             # Keep hint features at the front: BD ablation is the one signal not derived from the broken screening sample, and a hint may not fall within the first top_k of the arbitrary column order.
-            return (hint_kept + [c for c in usable_features if c not in hint_kept])[:top_k], usable_features, x_matrix, x_matrix_for_mi, use_per_pair, finite
+            _surviving = set(usable_features)
+            _hints = [c for c in hint_kept if c in _surviving]  # a hint the finite filter dropped must not take a slot (audit 34-F2)
+            return (_hints + [c for c in usable_features if c not in _hints])[:top_k], usable_features, x_matrix, x_matrix_for_mi, use_per_pair, finite
     return None, usable_features, x_matrix, x_matrix_for_mi, use_per_pair, finite
 
 

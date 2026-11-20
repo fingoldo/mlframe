@@ -347,14 +347,13 @@ def near_collinear_keep_mask_fast(
             keep_i8, borderline_i8 = _keep_mask_kernel(fm, finite, thr, _BORDERLINE_BAND)
         keep = keep_i8.astype(bool)
         if borderline_i8.any():
-            # Replay the left-to-right walk, re-deciding only the borderline columns with
-            # the exact numpy primitives. The kept set is rebuilt in column order so a
-            # re-decided KEEP can correctly shadow a later borderline column too.
+            # Replay the left-to-right walk EXACTLY for every column. Re-deciding only the borderline columns left the
+            # others on the kernel's decision, which was made against the kernel's kept set; a flipped borderline column
+            # then never re-checked the columns after it (audit 34-F4). The kept set is rebuilt in column order.
             kept_idx: list[int] = []
             for j in range(n_cols):
-                if borderline_i8[j]:
-                    dropped = _recheck_column_exact(fm, finite, j, kept_idx, thr)
-                    keep[j] = not dropped
+                dropped = _recheck_column_exact(fm, finite, j, kept_idx, thr)
+                keep[j] = not dropped
                 if keep[j]:
                     kept_idx.append(j)
         if _ck is not None:

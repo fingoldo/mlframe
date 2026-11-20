@@ -50,12 +50,18 @@ def _causal_rolling_mean_impl(y_sorted: np.ndarray, window: int) -> np.ndarray:
     n = y_sorted.shape[0]
     out = np.full(n, np.nan, dtype=np.float64)
     win_sum = 0.0
+    win_cnt = 0
+    # A NaN used to enter the running sum and stay there for every later row. NaN entries are skipped and the mean
+    # divides by the finite count, as _grouped_trailing_impl does (audit 34-F1).
     for i in range(n):
         if i >= window:
-            out[i] = win_sum / window
-        win_sum += y_sorted[i]
-        if i >= window:
+            out[i] = win_sum / win_cnt if win_cnt > 0 else np.nan
+        if not np.isnan(y_sorted[i]):
+            win_sum += y_sorted[i]
+            win_cnt += 1
+        if i >= window and not np.isnan(y_sorted[i - window]):
             win_sum -= y_sorted[i - window]
+            win_cnt -= 1
     return out
 
 

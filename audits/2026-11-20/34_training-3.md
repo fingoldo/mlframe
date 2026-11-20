@@ -51,3 +51,11 @@ Scope: the 88 files in `audits/2026-11-20/manifests/34_training-3.txt` under wor
 - `_fit_helpers.take_screen_matrix`: the stash is reused only when frame identity, column tuple and row set all match; the permutation is validated with array_equal.
 - `_honest_oof_select.cached_honest_prediction`: a cached prediction is reused only when fit rows, eval rows and the valid-mask fingerprint all match.
 - `_screening_tiny_perbin._build_yscale_population` and `_yscale_one_fold`: the fallback median and clip bounds use fit rows only, and off-domain validation rows are scored with the train-fold median, as the trained composite predicts.
+
+
+## Dispositions
+
+- 34-F1: FIXED. trailing mean skips NaN entries and divides by the finite count; tests/training/test_cluster34_trailing_mean_nan.py
+- 34-F2: FIXED. hints dropped by the finite-cell filter are removed from the hint slots on both paths; no separate test
+- 34-F3: FIXED. demoted candidates are kept out of the MRMR relevance scale and ranked after the MRMR pass; no separate test
+- 34-F4: FIXED. once any borderline column exists the collinear replay re-checks every column exactly. Cost: exact replay is O(n_cols * kept) in that case; no separate test

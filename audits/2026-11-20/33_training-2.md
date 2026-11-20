@@ -35,3 +35,9 @@ None. Partial reads: `cb/_cb_pool.py` (about 60 lines), `composite/conformal.py`
 - Not read at all: 92 of 100 manifest files, including `composite/diagnostics.py`, `composite/cache_store.py`, `composite/cache.py`, `composite/_moe_gate.py`, `composite/_canonical_hash.py`, and `composite/cv.py`. These are the largest and riskiest remaining targets.
 - Grep only: the 40 `composite/_benchmarks/*` files. They are not runtime code, so this is low risk.
 - No public function in scope was checked for test coverage. The report does not list coverage gaps.
+
+
+## Dispositions
+
+- 33-F1: FIXED. the CatBoost categorical NaN fill failure is logged at WARNING with the error type; the except is kept broad (not narrowed) so the fill never raises into predict; no separate test
+- 33-F2: FIXED. label-stacking failure logged at WARNING; no separate test

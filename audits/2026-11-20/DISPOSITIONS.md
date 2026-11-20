@@ -168,3 +168,9 @@
 | 32-F4 | FIXED | a non-finite global mean returns the minimum pseudocount (finite); tests/training/test_cluster32_baseline_fixes.py. Residual: the finding's preferred option, dropping non-finite y before the estimate, is not implemented; the caller still computes the mean from NaN-bearing y |
 | 32-F5 | FIXED | nanmedian and nanquantile for the quantile baselines; no separate test |
 | 32-F6 | FIXED | nanstd for the cross-output scale, non-finite scales skipped, non-finite normalized means excluded before the pick; no separate test |
+| 33-F1 | FIXED | the CatBoost categorical NaN fill failure is logged at WARNING with the error type; the except is kept broad (not narrowed) so the fill never raises into predict; no separate test |
+| 33-F2 | FIXED | label-stacking failure logged at WARNING; no separate test |
+| 34-F1 | FIXED | trailing mean skips NaN entries and divides by the finite count; tests/training/test_cluster34_trailing_mean_nan.py |
+| 34-F2 | FIXED | hints dropped by the finite-cell filter are removed from the hint slots on both paths; no separate test |
+| 34-F3 | FIXED | demoted candidates are kept out of the MRMR relevance scale and ranked after the MRMR pass; no separate test |
+| 34-F4 | FIXED | once any borderline column exists the collinear replay re-checks every column exactly. Cost: exact replay is O(n_cols * kept) in that case; no separate test |
