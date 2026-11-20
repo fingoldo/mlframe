@@ -238,3 +238,11 @@
 | 40-F16 | DEFERRED | not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet |
 | 40-F17 | DEFERRED | not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet |
 | 40-F18 | DEFERRED | not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet |
+| 41-F2 | FIXED | verbose NDCG logging uses .get so an eval_at without 10 cannot raise; no separate test |
+| 41-F3 | FIXED | NaN temporal labels count as missing in the polars path, matching the pandas twin; no separate test |
+| 41-F6 | FIXED | GroupKFold with fewer groups than k returns no shards, as the docstring promises; no separate test |
+| 41-F1 | DEFERRED | not changed: the NaN categorical predict mapping needs the sentinel contract confirmed with the fit side |
+| 41-F4 | DEFERRED | not changed: the early branches skip the skew check; reordering changes the rationale text, needs a decision on the intended output |
+| 41-F5 | DEFERRED | not changed: per-group masks are an O(G*n) performance issue; a groupby rewrite needs a benchmark decision |
+| 42-F1 | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
+| 42-F2 | FIXED | sub-leaderboards inherit allow_partial and partial_fill; no separate test |

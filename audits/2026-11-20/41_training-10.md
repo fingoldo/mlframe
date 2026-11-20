@@ -67,3 +67,13 @@ Scope: 63 files from `audits/2026-11-20/manifests/41_training-10.txt`, worktree 
 ## Files read only by grep
 
 None. All 63 manifest files were read in full. Grep was used for callers and definitions (e.g. `_mlframe_selector_kind_` set in training/core/_setup_helpers_pre_pipelines.py:163, and `rrf_fuse` / `_binned_mi` call sites).
+
+
+## Dispositions
+
+- 41-F2: FIXED. verbose NDCG logging uses .get so an eval_at without 10 cannot raise; no separate test
+- 41-F3: FIXED. NaN temporal labels count as missing in the polars path, matching the pandas twin; no separate test
+- 41-F6: FIXED. GroupKFold with fewer groups than k returns no shards, as the docstring promises; no separate test
+- 41-F1: DEFERRED. not changed: the NaN categorical predict mapping needs the sentinel contract confirmed with the fit side
+- 41-F4: DEFERRED. not changed: the early branches skip the skew check; reordering changes the rationale text, needs a decision on the intended output
+- 41-F5: DEFERRED. not changed: per-group masks are an O(G*n) performance issue; a groupby rewrite needs a benchmark decision

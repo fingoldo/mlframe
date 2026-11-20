@@ -42,3 +42,9 @@ Verification: two behaviours were reproduced with a read-only Python probe (`PYT
 - `leaderboard_impl.py:282`: `reindex` on the sub-ranking keeps `meta_table` row alignment. Ranking functions return Series sorted by score, so the reindex is required and correct.
 - `leaderboard_impl.py:165-171`, `:198-204`: the `PARTIAL_METHODS` and `drop_mean` filters use order-preserving lists and not sets, so output column/row order is deterministic.
 - `utils.py:11-13` (`ranking2top`): correct for ties. It returns all models at the max. It inherits NaN-max to empty output, which the minimax guard already avoids.
+
+
+## Dispositions
+
+- 42-F1: FIXED. tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test
+- 42-F2: FIXED. sub-leaderboards inherit allow_partial and partial_fill; no separate test
