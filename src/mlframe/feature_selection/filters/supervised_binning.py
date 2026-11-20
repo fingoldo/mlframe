@@ -219,6 +219,7 @@ def mdlp_bin_edges(
     bonferroni: bool = False,
     validated_seed: int = 0,
     y_pseudo_classes: int = 16,
+    presorted: "tuple[np.ndarray, np.ndarray] | None" = None,
 ) -> np.ndarray:
     """Fayyad-Irani MDLP discretisation. Returns sorted bin edges (includes ``-inf`` / ``+inf`` sentinels).
 
@@ -317,6 +318,9 @@ def mdlp_bin_edges(
             heavy-tailed, log-normal and pure-noise targets at n = 6k / 20k / 60k; 10 classes were faster still and equally good there but leave less headroom for
             fine target structure). Targets at or below the cap are untouched.
 
+        presorted: ``(x_sorted, y_sorted)`` of the finite rows of ``x`` with the labels ``_encode_mdlp_target`` gives ``y``, when the caller already sorted the column (the drop of non-finite rows and the
+            sort are then skipped; the result is the one the unsorted call gives).
+
     Returns:
         Sorted 1-D array of bin edges, including the ``-inf`` / ``+inf`` sentinels.
     """
@@ -337,12 +341,17 @@ def mdlp_bin_edges(
     if scaled_min_split:
         min_split_size = max(int(min_split_size), int(0.02 * len(x)))
 
-    x, y = _drop_nonfinite_xy(x, _y_arr)
+    if presorted is not None:
+        x_sorted, y_sorted = presorted
+        x = x_sorted
+    else:
+        x, y = _drop_nonfinite_xy(x, _y_arr)
     if x.size == 0:
         # All-NaN / all-non-finite input: no splits computable.
         return np.array([-np.inf, np.inf], dtype=np.float64)  # Intentional float64: bin-edge / cut vector, compared against values at full precision
 
-    x_sorted, y_sorted = _sorted_by_x(x, y)
+    if presorted is None:
+        x_sorted, y_sorted = _sorted_by_x(x, y)
 
     splits = _mdlp_sorted_splits(
         x_sorted, y_sorted, fast_mode=fast_mode, backend=backend, min_split_size=int(min_split_size), max_depth=int(max_depth),

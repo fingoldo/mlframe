@@ -17,6 +17,7 @@ from typing import Any, Callable, Optional
 import numpy as np
 
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters.discretization._quantile_radix import quantiles_of_sorted, sorted_unique_with_counts
 from mlframe.feature_selection.filters.discretization.shared import unique_with_counts
 
 logger = logging.getLogger("mlframe.feature_selection.filters._adaptive_nbins")
@@ -74,6 +75,7 @@ def _fayyad_irani(col: np.ndarray, y: Optional[np.ndarray], base: str, kwargs: d
         bonferroni=kwargs.get("mdlp_bonferroni", False),
         validated_seed=kwargs.get("mdlp_validated_seed", 0),
         y_pseudo_classes=kwargs.get("mdlp_y_pseudo_classes", 16),
+        presorted=kwargs.get("_presorted"),
     )
 
 
@@ -165,8 +167,17 @@ _EDGE_BUILDERS: dict[str, Callable[[np.ndarray, Optional[np.ndarray], str, dict]
 }
 
 
+def _quantile_edges_of_sorted(xs: np.ndarray, n_bins: int) -> np.ndarray:
+    """``_edges_from_quantiles`` of the finite values ``xs`` already sorted ascending: the same inner edges (``n_bins - 1`` linear quantiles, de-duplicated), read off the sort instead of a partition."""
+    full_edges = np.unique(quantiles_of_sorted(xs, np.linspace(0.0, 100.0, n_bins + 1) / 100.0))
+    if full_edges.size <= 2:
+        return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
+    return np.asarray(full_edges[1:-1], dtype=np.float64)  # Intentional float64: bin-edge output contract
+
+
 def _collapsed_supervised_edges(
     edges: Any, col: np.ndarray, finite: np.ndarray, base: str, kwargs: dict, facts_key: Any = None, uniq: Optional[np.ndarray] = None, uniq_counts: Optional[np.ndarray] = None,
+    presorted: "tuple[np.ndarray, np.ndarray] | None" = None,
 ) -> Any:
     """Edges of a supervised method after the collapse handling.
 
@@ -187,6 +198,8 @@ def _collapsed_supervised_edges(
     if _is_empty(edges):
         _fallback_nb = int(kwargs.get("collapsed_fallback_nbins", 5))
         if base == "quantile":
+            if presorted is not None and _fallback_nb >= 2:
+                return _quantile_edges_of_sorted(presorted[0], _fallback_nb)
             return _an()._edges_from_quantiles(col, _fallback_nb)
         return _an()._edges_from_uniform(col, _fallback_nb)
     from ._supervised_collapse_refine import refine_near_collapsed_supervised_edges
@@ -299,6 +312,22 @@ def compute_col_edges(col: np.ndarray, method_resolved: str, base: str, kwargs: 
     return edges, low
 
 
+def _presort_for_mdlp(col: np.ndarray, finite: np.ndarray, finite_mask: np.ndarray, method_resolved: str, y: Optional[np.ndarray], kwargs: dict) -> "tuple[np.ndarray, np.ndarray] | None":
+    """``(x_sorted, y_sorted)`` of the finite rows of ``col`` for the MDLP (``fayyad_irani``) search, or ``None`` when the radix sort does not apply (small or non-float input, a non-integer
+    label vector) and the search sorts for itself. The labels are the ones ``mdlp_bin_edges`` encodes ``y`` to, so the search gives the edges it gives unsorted."""
+    if method_resolved != "fayyad_irani" or y is None or finite.size == 0:
+        return None
+    from .discretization._quantile_radix import sort_xy
+    from .supervised_binning import _encode_mdlp_target
+
+    fast_mode = kwargs.get("mdlp_fast_mode", False)
+    y_enc, _depth = _encode_mdlp_target(y, kwargs.get("mdlp_max_y_classes", 64), fast_mode, kwargs.get("mdlp_y_pseudo_classes", 16), _max_depth(kwargs))
+    y_enc = np.asarray(y_enc)
+    if y_enc.shape[0] != col.shape[0]:
+        return None  # the search raises its own length error
+    return sort_xy(finite, y_enc[finite_mask])
+
+
 def _compute_col_edges_uncached(col: np.ndarray, method_resolved: str, base: str, kwargs: dict, y: Optional[np.ndarray], low_card_cap: int) -> tuple[Any, bool]:
     """Pure per-column edge computation (no cache I/O). Returns ``(edges, was_low_card)``.
 
@@ -314,11 +343,18 @@ def _compute_col_edges_uncached(col: np.ndarray, method_resolved: str, base: str
     if _facts_cache is not None:
         # The finite values and their unique counts depend on the column only; a null that permutes the target bins the same columns for every permutation.
         _facts_key, _finite, _uniq, _uniq_counts = _facts_cache.column_facts(col)
+        _presorted = None
     else:
-        _finite = col[np.isfinite(col)]
+        _finite_mask = np.isfinite(col)
+        _finite = col[_finite_mask]
+        _presorted = _presort_for_mdlp(col, _finite, _finite_mask, method_resolved, y, kwargs)
         # return_counts=True up front so the rare sparse-dominance fallback below (which needs the
         # per-value counts) reuses THIS array instead of re-running np.unique a second time.
-        if _finite.size > 0:
+        if _presorted is not None:
+            # the column was sorted once for the MDLP search: its distinct values and counts are a pass over that sort, not a second radix sort of the same values
+            _uniq, _uniq_counts = sorted_unique_with_counts(_presorted[0])
+            _uniq = _uniq.astype(_finite.dtype, copy=False)
+        elif _finite.size > 0:
             _uniq, _uniq_counts = unique_with_counts(_finite)
         else:
             _uniq = np.empty(0, dtype=_crit_np_dtype())
@@ -330,9 +366,9 @@ def _compute_col_edges_uncached(col: np.ndarray, method_resolved: str, base: str
     builder = _EDGE_BUILDERS.get(method_resolved)
     if builder is None:
         raise NotImplementedError(method_resolved)
-    edges = builder(col, y, base, kwargs)
+    edges = builder(col, y, base, kwargs if _presorted is None else {**kwargs, "_presorted": _presorted})
     if method_resolved in _SUPERVISED_METHODS:
-        edges = _collapsed_supervised_edges(edges, col, _finite, base, kwargs, _facts_key, _uniq, _uniq_counts)
+        edges = _collapsed_supervised_edges(edges, col, _finite, base, kwargs, _facts_key, _uniq, _uniq_counts, _presorted)
     edges = _sparse_dominance_edges(edges, _finite, _uniq, _uniq_counts, kwargs)
     # Systemic silent-degenerate-fallback guardrail: EVERY method funnels through this
     # single return point, so this is the ONE place that can catch "binning method returned empty/
