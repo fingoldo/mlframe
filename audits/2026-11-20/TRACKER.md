@@ -101,3 +101,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 39-F5 | 39_training-8.md | FIXED | Missing group column logged at WARNING. Test test_cluster39_missing_group_column_logged.py. |
 | 39-F17 | 39_training-8.md | FIXED | fit_transform applies the woe binary check. Test test_cluster39_woe_fit_transform_binary_check.py. |
 | 39-F18 | 39_training-8.md | FIXED | NaN text embedded as empty string. Test test_cluster39_hf_nan_text_is_empty.py. |
+| 39-F35 | 39_training-8.md | FIXED | 'no terms remain' handled as empty vocabulary. Test test_cluster39_tfidf_no_terms_remain.py. |

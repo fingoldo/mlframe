@@ -117,7 +117,7 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F32: DEFERRED. not changed: the polars NaN-string rebrand needs a closer read of the cast path before a safe change
 - 39-F33: FIXED. null categories group with dropna=False; tests/training/test_cluster39_encoders_and_casts.py
 - 39-F34: FIXED. zero smoothing falls back to the global prior; tests/training/test_cluster39_encoders_and_casts.py
-- 39-F35: FIXED. the 'no terms remain' pruning error is handled like empty vocabulary; no separate test
+- 39-F35: FIXED. the 'no terms remain' pruning error is handled like empty vocabulary; test tests/training/test_cluster39_tfidf_no_terms_remain.py
 - 39-F36: FIXED. the entry is pinned in the strong tier while it loads (RLock, safe to reenter); no separate test
 - 39-F37: DEFERRED. not changed: NaN input to PolynomialFeatures needs a NaN policy decision (refuse, or NaN-propagate per row)
 - 39-F38: DEFERRED. not changed: hgb_max_features_cap is exported with no caller; wire in or remove, an owner decision
@@ -130,3 +130,4 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F5: FIXED. A configured group column missing from the frame logs a WARNING. Test tests/training/test_cluster39_missing_group_column_logged.py.
 - 39-F17: FIXED. fit_transform applies the binary {0,1} check for woe, as fit does. Test tests/training/test_cluster39_woe_fit_transform_binary_check.py.
 - 39-F18: FIXED. A float NaN text is embedded as the empty string, as the docstring says. Test tests/training/test_cluster39_hf_nan_text_is_empty.py.
+- 39-F35: FIXED. 'No terms remain' after min_df pruning is handled like empty vocabulary (zero-width matrix). Test tests/training/test_cluster39_tfidf_no_terms_remain.py.
