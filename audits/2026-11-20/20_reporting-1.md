@@ -90,3 +90,24 @@ Counts below are the number of files under `tests/` whose text names the functio
 - 20-F6: RESOLVED. Adversarial validation on a frame with no scalar column returns an annotated skip instead of fitting a 0-feature model. Test tests/reporting/test_adversarial_all_embedding_frame.py; 150 existing adversarial/drift tests pass. Commit below.
 - 20-F3: RESOLVED. NDCG bootstrap builds its resample gather in row blocks (bounded memory) with the same seeded draws. Test tests/reporting/test_bootstrap_ndcg_ci_blocks.py matches a row-by-row reference; 115 existing LTR/bootstrap tests pass. Commit below.
 - 20-F5: RESOLVED. Target drift verdict does not run the binary class-1 proportion test for multiclass targets; it reports the mean shift and states that no drift flag applies. Test tests/reporting/test_target_drift_multiclass_no_false_flag.py; 217 existing drift/error-analysis tests pass. Commit below.
+- 20-F9: FIXED. the DeLong warning now says labels outside {0, 1} are excluded from both classes, matching the code; no separate test
+- 20-F17: FIXED. the per-alpha pinball panel drops non-finite rows first, as its sibling panels do; tests/reporting/test_cluster20_pinball_panel_nan.py
+- 20-F7: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F8: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F10: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F11: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F12: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F13: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F14: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F15: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F16: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F18: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F19: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F20: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F21: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F22: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F23: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F24: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F25: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F26: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
+- 20-F27: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)

@@ -58,8 +58,8 @@ def delong_auc_variance(y_true: np.ndarray, y_score: np.ndarray) -> Tuple[float,
     off_domain = [v for v in labels.tolist() if v not in (0, 1, True, False)]
     if off_domain:
         logger.warning(
-            "delong_auc_variance: y_true carries %d label(s) outside {0, 1} (%s); those rows are treated as the "
-            "NEGATIVE class, which is a one-vs-rest reading of a target that may not be binary.",
+            "delong_auc_variance: y_true carries %d label(s) outside {0, 1} (%s); those rows are EXCLUDED from both "
+            "classes, so the AUC variance is computed on the {0, 1} subset only (audit 20-F9).",
             len(off_domain), off_domain[:5],
         )
     pos = ys[yt == 1]
