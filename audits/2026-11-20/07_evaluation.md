@@ -28,3 +28,21 @@ Scope: 24 files under `src/mlframe/evaluation/_benchmarks/` from `audits/2026-11
 - `bootstrap_metric` returns `samples`, `lo` and `hi` (`bootstrap.py:145`), which the coverage and DeLong benches rely on.
 - `_bootstrap_jackknife._jackknife_auc` is re-exported from `bootstrap.py:60`, so the driver bench's import resolves.
 - Test coverage at name level: every public function the harnesses call has at least one test reference under `tests/evaluation/` (for example `test_biz_val_evaluation_*.py`, `test_noise_band_uses_the_t_quantile.py`). I did not check branch-level coverage, so no specific gap is claimed.
+
+
+## Dispositions
+
+- 07-F1: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 07-F2: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 07-F3: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 07-F4: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 07-F5: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 07-F6: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 07-F7: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 07-F8: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 07-F9: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 07-F10: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 07-F11: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 07-F12: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 07-F13: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 07-F14: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup

@@ -290,3 +290,22 @@
 | 05-F3 | DEFERRED | benchmark-script cleanup not done in this pass; low impact |
 | 05-F4 | DEFERRED | benchmark-script cleanup not done in this pass; low impact |
 | 05-F5 | DEFERRED | benchmark-script cleanup not done in this pass; low impact |
+| 06-F1 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 06-F2 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 06-F3 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 06-F4 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 06-F5 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 07-F1 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 07-F2 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 07-F3 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 07-F4 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 07-F5 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 07-F6 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 07-F7 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 07-F8 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 07-F9 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 07-F10 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 07-F11 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 07-F12 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 07-F13 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |
+| 07-F14 | DEFERRED | benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup |

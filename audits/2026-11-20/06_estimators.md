@@ -19,3 +19,12 @@ Scope: 1 file from `audits/2026-11-20/manifests/06_estimators.txt` (master dd028
 - NaN correlations (constant columns) give `False` in both paths, since `abs(NaN) > threshold` is False. The paths agree on this, even though it is untested (see 06-F5).
 - The benchmark module has no callers in package code. Grep shows only self-references and sibling `_benchmarks` helpers, so no public API is affected.
 - The bench only reads data and prints results. It writes no files and runs no git write commands.
+
+
+## Dispositions
+
+- 06-F1: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 06-F2: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 06-F3: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 06-F4: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 06-F5: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
