@@ -631,7 +631,9 @@ def is_supported_xgboost(estimator: Any) -> bool:
         if n_class > 2:
             return False
     except Exception as e:  # nosec B110 - best-effort path
-        logger.debug("xgboost num_class config lookup failed: %s", e)
+        # Unknown class count: refuse the single-margin kernel rather than run it on a possibly multiclass model (audit 14-F6).
+        logger.warning("xgboost num_class lookup failed (%s); the single-margin TreeSHAP path is not used for this model", e)
+        return False
     return True
 
 

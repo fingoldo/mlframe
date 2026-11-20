@@ -35,3 +35,9 @@ Scope: 63 files from `audits/2026-11-20/manifests/14_feature_selection-5.txt` (s
 
 - 14-F2: RESOLVED. Target imbalance of a float target counts labelled rows only; NaN is no longer a class. Test tests/feature_selection/test_auto_tune_imbalance_ignores_missing_labels.py; 22 existing auto-tune tests pass. Commit below.
 - 14-F1: DEFERRED. The auto tightening compares the value to its default (3.0), so an explicit 3.0 is overridden. Telling explicit from default needs a None sentinel in the public signature, and the training config (training/fs_params/shap_proxied_fs.py:56) always passes 3.0, so the sentinel would never reach the tightening. That is a config-design change: deferred.
+- 14-F5: FIXED. a failed seed or n_jobs set_params is logged at WARNING; no separate test
+- 14-F6: FIXED. an unreadable xgboost class count fails closed; tests/feature_selection/shap_proxied/test_cluster14_xgb_eligibility_fails_closed.py
+- 14-F3: DEFERRED. string handling on the array path needs a design decision on supported dtypes
+- 14-F4: DEFERRED. catboost fast-budget parameter naming needs a behaviour decision (iterations vs n_estimators)
+- 14-F7: DEFERRED. duplicated per-column correlation loops: performance refactor, not a correctness fix
+- 14-F5: FIXED. note: tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_core_refine.py::test_biz_val_auto_matches_core_on_non_saturated_bed fails on the exact pre-change file too (pre-existing, verified)

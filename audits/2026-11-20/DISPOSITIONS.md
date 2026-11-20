@@ -428,3 +428,9 @@
 | 13-F13 | DEFERRED | P2 under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 13-F14 | DEFERRED | P2 under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 13-F3 | FIXED | note: tests/feature_selection/boruta_shap/test_explain_basis_is_the_fitted_slice.py fails both before and after this change (pre-existing, verified by restoring the prior file); not caused by the fix, needs a separate look |
+| 14-F5 | FIXED | a failed seed or n_jobs set_params is logged at WARNING; no separate test |
+| 14-F6 | FIXED | an unreadable xgboost class count fails closed; tests/feature_selection/shap_proxied/test_cluster14_xgb_eligibility_fails_closed.py |
+| 14-F3 | DEFERRED | string handling on the array path needs a design decision on supported dtypes |
+| 14-F4 | DEFERRED | catboost fast-budget parameter naming needs a behaviour decision (iterations vs n_estimators) |
+| 14-F7 | DEFERRED | duplicated per-column correlation loops: performance refactor, not a correctness fix |
+| 14-F5 | FIXED | note: tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_core_refine.py::test_biz_val_auto_matches_core_on_non_saturated_bed fails on the exact pre-change file too (pre-existing, verified) |

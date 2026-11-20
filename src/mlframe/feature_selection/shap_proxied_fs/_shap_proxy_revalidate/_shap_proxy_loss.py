@@ -365,14 +365,15 @@ def _fit_and_score_honest(model_template, X_tr, y_tr, X_ev, y_ev, idx, classific
     if seed is not None and hasattr(est, "random_state"):
         try:
             est.set_params(random_state=int(seed))
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as _exc:
+            # The honest-loss cache key includes the seed, so an unseeded fit must not be cached as seeded: say it failed (audit 14-F5).
+            logger.warning("could not seed %s (%s); the fit is not reproducible under the requested seed", type(est).__name__, _exc)
     # Cap per-fit threads when many fits run in parallel (avoid CPU oversubscription).
     if inner_n_jobs is not None and hasattr(est, "n_jobs"):
         try:
             est.set_params(n_jobs=int(inner_n_jobs))
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as _exc:
+            logger.warning("could not cap n_jobs on %s (%s); the fit may oversubscribe CPUs", type(est).__name__, _exc)
     # Numpy-slice the fit/predict columns (strip pandas feature names -> xgboost skips the
     # per-call ``from_cstr_to_pystr`` + ``_validate_features`` marshalling; bit-identical, see
     # ``_slice_cols_to_numpy``). Same ``cols`` order on both sides keeps positional == named.
