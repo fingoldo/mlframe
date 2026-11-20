@@ -517,7 +517,9 @@ def _fit_persist_and_transform(
         # Persist as sklearn-compatible objects so the NEXT call hits the transform-only fastpath.
         # The imputer's statistics_ holds the imputation mean (== drop_nans mean == post-fill mean).
         try:
-            imputer = SimpleImputer(strategy="mean", keep_empty_features=True)
+            # A real fit sets sklearn's private dtype state (_fit_dtype/_fill_dtype) that transform() reads; setting only the
+            # public attributes by hand broke the next call's transform (audit 27-F2). The statistics are then overwritten.
+            imputer = SimpleImputer(strategy="mean", keep_empty_features=True).fit(np.zeros((1, len(cols)), dtype=np.float64))
             imputer.statistics_ = _means_post.copy()
             imputer.n_features_in_ = len(cols)
             imputer.feature_names_in_ = np.array(list(cols), dtype=object)

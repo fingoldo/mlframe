@@ -468,6 +468,11 @@ def _build_tree_model_params(
     return cb_params, hgb_params, xgb_params, lgb_params
 
 
+def _backend_requested(name: str, mlframe_models: list | None) -> bool:
+    """True when ``mlframe_models`` is unset (every backend allowed) or names ``name``."""
+    return mlframe_models is None or name in mlframe_models
+
+
 def _build_rfecv_and_models(
     configs: Any,
     cpu_configs: Any,
@@ -504,23 +509,29 @@ def _build_rfecv_and_models(
 
     params = (cb_configs.CB_REGR if use_regression else (cb_configs.CB_CALIB_CLASSIF if prefer_calibrated_classifiers else cb_configs.CB_CLASSIF)).copy()
 
-    cb_rfecv = RFECV(
-        estimator=(metamodel_func(CatBoostRegressor(**params)) if use_regression else CatBoostClassifier(**params)),
-        fit_params=dict(plot=rfecv_model_verbose > 1),
-        cat_features=cat_features,
-        scoring=rfecv_scoring,
-        **cb_rfecv_params,
-    )
+    # Build an RFECV only for a backend that is installed AND requested; the former unconditional build crashed on a
+    # missing package (its class is None) and built selectors nobody asked for (audit 27-F6).
+    cb_rfecv = None
+    if CatBoostClassifier is not None and _backend_requested("cb_rfecv", mlframe_models):
+        cb_rfecv = RFECV(
+            estimator=(metamodel_func(CatBoostRegressor(**params)) if use_regression else CatBoostClassifier(**params)),
+            fit_params=dict(plot=rfecv_model_verbose > 1),
+            cat_features=cat_features,
+            scoring=rfecv_scoring,
+            **cb_rfecv_params,
+        )
 
     lgb_fit_params = dict(eval_metric=cpu_configs.lgbm_integral_calibration_error) if prefer_calibrated_classifiers else {}
 
-    lgb_rfecv = RFECV(
-        estimator=(metamodel_func(LGBMRegressor(**configs.LGB_GENERAL_PARAMS)) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS)),
-        fit_params=lgb_fit_params,
-        cat_features=cat_features,
-        scoring=rfecv_scoring,
-        **rfecv_params,
-    )
+    lgb_rfecv = None
+    if LGBMClassifier is not None and _backend_requested("lgb_rfecv", mlframe_models):
+        lgb_rfecv = RFECV(
+            estimator=(metamodel_func(LGBMRegressor(**configs.LGB_GENERAL_PARAMS)) if use_regression else LGBMClassifier(**configs.LGB_GENERAL_PARAMS)),
+            fit_params=lgb_fit_params,
+            cat_features=cat_features,
+            scoring=rfecv_scoring,
+            **rfecv_params,
+        )
 
     models_params, xgb_rfecv = _configure_training_xgb_rfecv_rfecv(use_regression, metamodel_func, configs, prefer_calibrated_classifiers, cat_features, rfecv_scoring, rfecv_params, cb_params, lgb_params, xgb_params, hgb_params, mlp_params, ngb_params, gated_outlier_params, bagging_params, composite_classification_params)
     # Add linear models (already filtered to only needed ones)

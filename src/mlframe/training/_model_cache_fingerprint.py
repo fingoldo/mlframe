@@ -42,6 +42,18 @@ def _stable(value: Any, depth: int = 0) -> str:
         except Exception as exc:  # an estimator whose get_params fails is identified by its class alone
             logger.debug("_stable: %s", exc, exc_info=True)
             return type(value).__qualname__
+    # Objects without get_params (e.g. a metric holding weights in __slots__) are identified by their state, not just their
+    # class, so a changed weight changes the fingerprint (audit 27-F3).
+    state: dict = {}
+    for klass in type(value).__mro__:
+        slots = klass.__dict__.get("__slots__", ())
+        for name in ((slots,) if isinstance(slots, str) else slots):
+            if hasattr(value, name):
+                state[name] = getattr(value, name)
+    if hasattr(value, "__dict__"):
+        state.update(vars(value))
+    if state:
+        return type(value).__qualname__ + _stable(state, depth + 1)
     return type(value).__qualname__
 
 

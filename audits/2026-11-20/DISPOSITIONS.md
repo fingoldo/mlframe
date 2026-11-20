@@ -129,3 +129,9 @@
 | 26-F3 | FIXED | tree branch scores against supplied bounds as the non-tree branch does; same file |
 | 26-F4 | FIXED | expanding denominator is the per-feature observed count; same file (weak test: only augmented rows are exposed) |
 | 26-F5 | FIXED | auto-discovered non-numeric columns take mode under median/mean; same file |
+| 27-F1 | FIXED | edge blend reads a snapshot of the hard predictions; tests/training/test_direct_horizon_edge_blend_from_hard.py |
+| 27-F2 | FIXED | polars persist path fits a real SimpleImputer, so sklearn's dtype state is set; covered by tests/inference/test_predict_nan_guard_polars_native.py and the schema drift matrix |
+| 27-F3 | FIXED | fingerprint digests __slots__ and __dict__ state for objects without get_params; tests/training/test_cluster27_fingerprint_threshold_backends.py |
+| 27-F4 | FIXED | positive class is the larger label (y == max) in _counts_at and the minority count; same file |
+| 27-F5 | FIXED | duplicated buckets read member slices from one stable argsort; covered by test_biz_val_training_pseudo_group_reconstruction.py |
+| 27-F6 | FIXED | cb/lgb RFECV built only when the class is installed and the backend is requested, else None; same file tests the helper |

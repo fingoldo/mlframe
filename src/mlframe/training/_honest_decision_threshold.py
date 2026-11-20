@@ -33,7 +33,8 @@ MIN_POSITIVES_FOR_A_RECOMMENDATION = 50
 def _counts_at(y: np.ndarray, p: np.ndarray, thr: float) -> Dict[str, int]:
     """Confusion counts for ``p >= thr``."""
     pred = p >= thr
-    pos = y > 0.5
+    # The positive class is the larger label, as in sklearn's pos_label default; y > 0.5 counted every row of {1, 2} or {0, 2} as positive (audit 27-F4).
+    pos = y == np.nanmax(y)
     return {
         "tp": int(np.count_nonzero(pred & pos)),
         "fp": int(np.count_nonzero(pred & ~pos)),
@@ -105,7 +106,7 @@ def decision_threshold_block(
     lo, hi = optimal_threshold_bootstrap_ci(
         y, p, metric=metric, fp_cost=fp_cost, fn_cost=fn_cost, n_boot=n_boot, random_state=rng_seed,
     )
-    n_pos = int(np.count_nonzero(y > 0.5))
+    n_pos = int(np.count_nonzero(y == np.nanmax(y)))
     return {
         "status": "ok",
         "objective": metric,

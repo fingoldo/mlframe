@@ -81,8 +81,13 @@ def reconstruct_pseudo_group_ids(
     # unverified, a collision would silently over-merge two genuinely distinct rows into one pseudo-group --
     # only makes GroupKFold more conservative for those two rows (never splits a real duplicate pair), but
     # a real bug class worth closing rather than trusting the hash alone.
+    # One stable sort gives every duplicated bucket's members as a contiguous slice; the former ``group_ids == bucket_id``
+    # scanned all n rows per duplicated bucket, O(n * buckets) (audit 27-F5).
+    order = np.argsort(group_ids, kind="stable")
+    sorted_ids = group_ids[order]
     for bucket_id in np.flatnonzero(counts > 1):
-        member_idx = np.flatnonzero(group_ids == bucket_id)
+        lo, hi = np.searchsorted(sorted_ids, [bucket_id, bucket_id + 1])
+        member_idx = np.sort(order[lo:hi])
         member_rows = rounded.iloc[member_idx]
         if member_rows.duplicated(keep=False).all():
             continue  # every row in this bucket is a genuine exact duplicate -- no collision.
