@@ -630,3 +630,4 @@
 | 12-F28 | FIXED | A size with any failed cell gets no family mean instead of a mean over its survivors. Tests tests/feature_selection/test_fs_hybrid_family_curve_failed_cells.py. |
 | 12-F29 | FIXED | The designed-bed verdict reads the pre-specified right operator (designed_recovery, DESIGNED_RIGHT_OP) instead of the max over test AUC. Tests tests/feature_selection/test_fs_hybrid_designed_verdict_uses_prespecified_op.py. |
 | 12-F30 | FIXED | run_bed takes its split from split_indices (fixed seed), so every preset is fit on the same rows. Tests tests/feature_selection/test_fs_hybrid_cost_split_is_fixed.py. |
+| 12-F32 | FIXED | Failures are logged at WARNING and the summary prints completed and failed run counts per config next to the means (config_run_counts). Test tests/feature_selection/test_fs_hybrid_shap_run_counts.py. |

@@ -35,6 +35,13 @@ BASE: dict[str, Any] = dict(classification=True, n_splits=3, min_features=1, pre
 
 
 
+def config_run_counts(rows):
+    """Per config: completed and failed run counts (12-F32). The means below cover completed runs only, so this must print next to them."""
+    frame = pd.DataFrame(rows)
+    failed = frame["error"].notna() if "error" in frame else pd.Series(False, index=frame.index)
+    frame = frame.assign(failed=failed.to_numpy())
+    return frame.groupby("config").agg(completed=("failed", lambda f: int((~f).sum())), failed=("failed", "sum")).astype(int)
+
 def main():
     rows = []
     for sc in SCEN:
@@ -50,7 +57,7 @@ def main():
                     am = round(float(np.nanmean([v for v in a.values()])), 4)
                     row: dict[str, Any] = dict(scenario=sc, seed=sd, config=name, n=len(cols), base=len(set(cols) & base), fit_s=round(dt, 1), auc=a, auc_mean=am)
                 except Exception as e:
-                    logger.debug("scenario=%s seed=%s config=%s failed: %s: %s", sc, sd, name, type(e).__name__, e)
+                    logger.warning("scenario=%s seed=%s config=%s failed: %s: %s", sc, sd, name, type(e).__name__, e)
                     row = dict(scenario=sc, seed=sd, config=name, error=f"{type(e).__name__}: {e}")
                 rows.append(row)
                 print(f"{sc:14s} sd{sd} {name:16s} " + (str(row.get("error")) if row.get("error") else f"n={row['n']:2d} base={row['base']}/{len(base)} {row['fit_s']:5.1f}s auc={row['auc']} mean={row['auc_mean']}"), flush=True)
@@ -58,6 +65,8 @@ def main():
         for r in rows:
             f.write(json.dumps(r) + "\n")
     df = pd.DataFrame([r for r in rows if not r.get("error")])
+    print("\n=== completed runs per config (failed ones are excluded from every mean below) ===")
+    print(config_run_counts(rows).to_string())
     print("\n=== mean over scenarios x seeds ===")
     print(df.groupby("config").agg(auc_mean=("auc_mean", "mean"), lgbm=("auc", lambda s: np.mean([a["lgbm"] for a in s])),
                                    n=("n", "mean"), base=("base", "mean"), fit_s=("fit_s", "mean")).round(4).to_string())
