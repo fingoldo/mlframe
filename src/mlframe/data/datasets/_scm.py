@@ -30,7 +30,7 @@ real property of the scenario, so it is recorded as a caveat on the target set r
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from mlframe.data.datasets.ground_truth import (
     Edge,
@@ -506,6 +506,19 @@ def graph_from_spec(spec: DatasetSpec, target_name: Optional[str] = None) -> Cau
         observed=spec.feature_names(),
         latents=tuple(latent.name for latent in spec.latents),
     )
+
+
+def link_regions(link: Any) -> Optional[Dict[str, GateSpec]]:
+    """Per-column gates for every column the link uses, from its ``region``; ``None`` when the link has no region.
+
+    The region is declared on the link (one gate for the whole link score), but ``FeatureTruth.region`` is per column. Each column the
+    link reads is given the same gate, so a feature whose effect is regional is recorded as regional rather than as a weak global one.
+    """
+    region = getattr(link, "region", None)
+    if region is None:
+        return None
+    columns = set(link.coefficients) | {name for term in link.interactions for name in term} | {name for term in link.basis_terms for name in term.columns}
+    return {name: region for name in sorted(columns)}
 
 
 def build_ground_truth(

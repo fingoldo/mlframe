@@ -39,7 +39,7 @@ from mlframe.data.datasets._links import apply_heteroscedasticity, link_score
 from mlframe.data.datasets._missing import apply_missingness
 from mlframe.data.datasets._noise import apply_corruption
 from mlframe.data.datasets._rng import stream_for
-from mlframe.data.datasets._scm import build_ground_truth, graph_from_spec
+from mlframe.data.datasets._scm import build_ground_truth, graph_from_spec, link_regions
 from mlframe.data.datasets._target import bayes_auc, bayes_brier, calibrate_scale, probability_from_score, sample_labels, shift_to_prevalence
 from mlframe.data.datasets.ground_truth import GroundTruth
 from mlframe.data.datasets.spec import DatasetSpec, TargetSpec, resolve_knob
@@ -248,7 +248,7 @@ def generate(spec: DatasetSpec, target_name: Optional[str] = None) -> GeneratedD
     # the recorded ceiling the ceiling of a half-observed world, which nothing here computes.
     columns, missing_caveats = apply_missingness(spec.missingness, columns, spec.root_seed, spec.name, knob_rng)
 
-    structural = build_ground_truth(spec, target_name=target.name, redundancy_groups=redundancy_groups)
+    structural = build_ground_truth(spec, target_name=target.name, redundancy_groups=redundancy_groups, regions=link_regions(target.link))
     caveats = list(structural.caveats) + missing_caveats
     if caveat:
         caveats.append(caveat)
@@ -383,7 +383,7 @@ def _generate_non_binary(
         realize_derived(after_target, graph, columns, scales, target.name, {target.name: labels}, spec.root_seed, spec.name, latent_values=factors)
     columns, missing_caveats = apply_missingness(spec.missingness, columns, spec.root_seed, spec.name, knob_rng)
 
-    structural = build_ground_truth(spec, target_name=target.name, redundancy_groups=redundancy_groups)
+    structural = build_ground_truth(spec, target_name=target.name, redundancy_groups=redundancy_groups, regions=link_regions(target.link))
     truth = replace(
         structural,
         features={name: replace(entry, pre_standardization_scale=scales.get(name)) for name, entry in structural.features.items()},
