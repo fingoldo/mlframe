@@ -102,7 +102,8 @@ def _topk_proximity(S_query: sp.csr_matrix, S_bank: sp.csr_matrix, k: int) -> tu
     if k >= n_bank:
         k = n_bank
     # argpartition for top-k indices (unsorted).
-    part_idx = np.argpartition(-sim_dense, kth=k - 1, axis=1)[:, :k]  # (n_query, k)
+    # Largest k directly: partitioning the negated matrix allocated a full second copy of the (n_query, n_bank) block for no benefit.
+    part_idx = np.argpartition(sim_dense, kth=n_bank - k, axis=1)[:, n_bank - k :]  # (n_query, k)
     # Sort the top-k by similarity for stable downstream softmax. kind="stable" makes the neighbour order
     # deterministic among tied similarities (RF proximities are quantised co-occurrence ratios, so ties are
     # common); the softmax aggregate itself is order-invariant, but a stable order keeps the emitted
