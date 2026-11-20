@@ -215,12 +215,21 @@ def _all_finite_njit(arr: np.ndarray) -> bool:
 
 
 @njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
+def _l2_penalty_njit(l2_penalty: float, s_norm: float, l2_saturation: float) -> float:
+    """The reference L2 penalty: ``l2 * s / (s + saturation)`` for a positive saturation, the raw ``l2 * s`` otherwise."""
+    if l2_saturation > 0.0:
+        return l2_penalty * s_norm / (s_norm + l2_saturation)
+    return l2_penalty * s_norm
+
+
+@njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
 def _eval_one_candidate_njit(
     x_a: np.ndarray, x_b: np.ndarray, y: np.ndarray,
     coef_a: np.ndarray, coef_b: np.ndarray,
     basis_id: int, bf_ids: np.ndarray,
     n_bins: int, l2_penalty: float, direction_only: bool,
     discrete_target: bool,
+    l2_saturation: float = 1.0,
 ):
     """Evaluate one (coef_a, coef_b) candidate across all bf_ids; return
     (best_score, best_raw_mi, best_bf_id). Mirrors the inner body of
@@ -259,8 +268,7 @@ def _eval_one_candidate_njit(
         # with sat = _L2_PENALTY_SATURATION_DEFAULT (1.0). The old RAW lambda * s penalty grew unbounded
         # with coefficient magnitude and systematically suppressed genuinely-high-MI large-||c|| solutions
         # (the exact cubic-inner failure: winner ||c||^2 ~ 12 -> raw penalty 0.6 dwarfing the MI gain).
-        s_norm = a_sq + b_sq
-        penalty = l2_penalty * s_norm / (s_norm + 1.0)
+        penalty = _l2_penalty_njit(l2_penalty, a_sq + b_sq, l2_saturation)
 
     best_score = -np.inf
     best_raw = 0.0
@@ -333,7 +341,7 @@ def _zero_invalid_columns(cols_scratch, col_valid_scratch, n, n_cols):
 
 
 @njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
-def _argmax_per_candidate(mi_arr, coefs_a_batch, coefs_b_batch, bf_ids, direction_only, l2_penalty, col_valid_scratch, out_scores, out_raws, out_bfs):
+def _argmax_per_candidate(mi_arr, coefs_a_batch, coefs_b_batch, bf_ids, direction_only, l2_penalty, col_valid_scratch, out_scores, out_raws, out_bfs, l2_saturation):
     """Per candidate, the best basis function by penalised MI, written to ``out_scores`` / ``out_raws`` / ``out_bfs``."""
     B = coefs_a_batch.shape[0]
     K = bf_ids.shape[0]
@@ -343,7 +351,7 @@ def _argmax_per_candidate(mi_arr, coefs_a_batch, coefs_b_batch, bf_ids, directio
         penalty = 0.0
         if not direction_only and l2_penalty > 0.0:
             s_norm = _coef_sq_norm(coefs_a_batch[b], ca_size) + _coef_sq_norm(coefs_b_batch[b], cb_size)
-            penalty = l2_penalty * s_norm / (s_norm + 1.0)  # saturating parity, see the single-eval note
+            penalty = _l2_penalty_njit(l2_penalty, s_norm, l2_saturation)
         for k in range(K):
             col_idx = b * K + k
             if not col_valid_scratch[col_idx]:
@@ -369,6 +377,7 @@ def _eval_batch_candidates_njit(
     out_scores: np.ndarray,  # (B,)
     out_raws: np.ndarray,  # (B,)
     out_bfs: np.ndarray,  # (B,)
+    l2_saturation: float,
 ) -> None:
     """Evaluate B candidates in ONE batched MI call. Replaces the
     per-candidate ``_plugin_mi_classif_njit`` call pattern - batch MI
@@ -401,13 +410,13 @@ def _eval_batch_candidates_njit(
     else:
         mi_arr = _plugin_mi_regression_batch_njit(cols_scratch, y, n_bins)
 
-    _argmax_per_candidate(mi_arr, coefs_a_batch, coefs_b_batch, bf_ids, direction_only, l2_penalty, col_valid_scratch, out_scores, out_raws, out_bfs)
+    _argmax_per_candidate(mi_arr, coefs_a_batch, coefs_b_batch, bf_ids, direction_only, l2_penalty, col_valid_scratch, out_scores, out_raws, out_bfs, l2_saturation)
 
 
 @njit(cache=True, fastmath=_NAN_SAFE_FASTMATH, nogil=True)
 def _warm_start_best(
     x_a, x_b, y, ca_size, cb_size, warm_start_a, warm_start_b, n_warm,
-    basis_id, bf_ids, n_bins, l2_penalty, direction_only, discrete_target,
+    basis_id, bf_ids, n_bins, l2_penalty, direction_only, discrete_target, l2_saturation,
 ):
     """Evaluate the provided warm-start seeds; return the running best and the evaluation count."""
     best_score = -np.inf
@@ -422,7 +431,7 @@ def _warm_start_best(
         cb = warm_start_b[w].copy()
         score, raw, bf = _eval_one_candidate_njit(
             x_a, x_b, y, ca, cb, basis_id, bf_ids,
-            n_bins, l2_penalty, direction_only, discrete_target,
+            n_bins, l2_penalty, direction_only, discrete_target, l2_saturation,
         )
         n_evals += 1
         if score > best_score:
@@ -511,6 +520,7 @@ def _random_batch_one_pair_njit(
     discrete_target: bool,
     uniform_stream: np.ndarray, normal_stream: np.ndarray,
     warm_start_a: np.ndarray, warm_start_b: np.ndarray, n_warm: int,
+    l2_saturation: float,
 ):
     """Run random-batch + elitism search for ONE pair using pre-generated
     RNG streams. Returns (best_coef_a, best_coef_b, best_score, best_raw,
@@ -529,7 +539,7 @@ def _random_batch_one_pair_njit(
     """
     best_ca, best_cb, best_score, best_raw, best_bf, has_best, n_evals = _warm_start_best(
         x_a, x_b, y, ca_size, cb_size, warm_start_a, warm_start_b, n_warm,
-        basis_id, bf_ids, n_bins, l2_penalty, direction_only, discrete_target,
+        basis_id, bf_ids, n_bins, l2_penalty, direction_only, discrete_target, l2_saturation,
     )
 
     # Scratch buffers for the candidate batch + batched-eval workspace.
@@ -561,6 +571,7 @@ def _random_batch_one_pair_njit(
             discrete_target,
             cols_scratch, col_valid_scratch,
             batch_scores, batch_raws, batch_bfs,
+            l2_saturation,
         )
         n_evals += batch_size
 
@@ -588,6 +599,7 @@ def _optimize_all_pairs_kernel(
     out_best_ca: np.ndarray, out_best_cb: np.ndarray,
     out_best_score: np.ndarray, out_best_raw: np.ndarray,
     out_best_bf: np.ndarray, out_n_evals: np.ndarray,
+    l2_saturation: float = 1.0,
 ):
     """Multi-pair outer kernel: prange over pairs, each thread runs an
     independent random-batch search on its pair.
@@ -617,7 +629,7 @@ def _optimize_all_pairs_kernel(
             basis_id, bf_ids,
             n_bins, l2_penalty, direction_only, discrete_target,
             uniform_streams[p], normal_streams[p],
-            warm_start_a, warm_start_b, n_warm,
+            warm_start_a, warm_start_b, n_warm, l2_saturation,
         )
 
         for j in range(ca_size):
@@ -702,6 +714,8 @@ def run_numba_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_
     y_arr = np.ascontiguousarray(y_njit, dtype=np.int64) if discrete_target else np.ascontiguousarray(y_njit, dtype=_crit_np_dtype())
     n_bins = int(eval_kwargs["plugin_n_bins"])
     l2_penalty = float(eval_kwargs["l2_penalty"]) if not direction_only else 0.0
+    l2_saturation = eval_kwargs.get("l2_penalty_saturation")
+    l2_saturation = 1.0 if l2_saturation is None else float(l2_saturation)
 
     coef_lo, coef_hi = float(coef_range[0]), float(coef_range[1])
     sigma_perturb = perturb_sigma_frac * (coef_hi - coef_lo)
@@ -763,6 +777,7 @@ def run_numba_kernel_search(*, ca_size: int, cb_size: int, coef_range: tuple, n_
         out_best_ca, out_best_cb,
         out_best_score, out_best_raw,
         out_best_bf, out_n_evals,
+        l2_saturation,
     )
 
     if out_best_score[0] == -np.inf:
@@ -786,6 +801,7 @@ def optimize_all_pairs_numba_kernel(
     elitism_k: int = 4, perturb_sigma_frac: float = 0.1,
     n_bins: int = 20, l2_penalty: float = 0.05,
     direction_only: bool = False, discrete_target: bool = True,
+    l2_penalty_saturation: Optional[float] = 1.0,
     seed: int = 0,
     warm_start_seeds: Optional[Sequence[np.ndarray]] = None,
 ) -> dict:
@@ -856,6 +872,7 @@ def optimize_all_pairs_numba_kernel(
         out_best_ca, out_best_cb,
         out_best_score, out_best_raw,
         out_best_bf, out_n_evals,
+        1.0 if l2_penalty_saturation is None else float(l2_penalty_saturation),
     )
 
     return {

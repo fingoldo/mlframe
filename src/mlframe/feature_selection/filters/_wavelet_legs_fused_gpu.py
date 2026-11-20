@@ -21,7 +21,6 @@ from pyutilz.performance.gpu_hw_launch import block_size_for
 from typing import Any, Optional
 
 from mlframe.feature_selection.filters._raw_module_cache import RawModuleCache
-from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
 _SRC = r"""
 // Leg value of row value z for level j, cell k: +1 left half, -1 right half, 0 outside the cell (also for z outside [0, 1) and NaN).
@@ -81,7 +80,7 @@ def leg_code_matrices(cp: Any, z_g: Any, max_scale: int, min_half_rows: int) -> 
     if max_scale < 0 or max_scale > 10:  # the shared histogram holds 2 * (2^(max_scale+1) - 1) counters: 16 KB at 10
         return None
     n = int(z_g.shape[0])
-    z = cp.ascontiguousarray(z_g, dtype=crit_float_dtype())
+    z = cp.ascontiguousarray(z_g, dtype=cp.float64)
     n_legs_all = (1 << (int(max_scale) + 1)) - 1
     mod = _MODULES_BY_REAL["float" if z.dtype.itemsize == 4 else "double"].get(cp)  # the kernels read ``z`` at its own dtype and compare in double precision
     counts = cp.zeros(2 * n_legs_all, dtype=cp.int32)

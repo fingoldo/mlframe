@@ -233,6 +233,12 @@ def pooled_pair_ii_null_floor(
     for c in cols:
         ci = int(c)
         col_codes[ci] = np.ascontiguousarray(factors_data[:, ci]).astype(np.int64)
+        # the counting kernel uses a code directly as a histogram offset: an out-of-range code writes outside the table
+        lo, hi = int(col_codes[ci].min()), int(col_codes[ci].max())
+        if lo < 0 or hi >= int(nb[ci]):
+            raise ValueError(f"pooled_pair_ii_null_floor: column {ci} has codes in [{lo}, {hi}] outside [0, {int(nb[ci])})")
+    if int(y0.min()) < 0 or int(y0.max()) >= k_y:
+        raise ValueError(f"pooled_pair_ii_null_floor: target codes in [{int(y0.min())}, {int(y0.max())}] outside [0, {k_y})")
 
     rng = np.random.default_rng(random_seed)
     y_perm = y0.copy()

@@ -33,6 +33,7 @@ from ._numba_utils import _codes_at_rows
 from ._mdlp_honest_njit import _analytic_p_value, _mdlp_cuts_presorted, _mi_codes, _n_unique_codes, _supervised_edges
 from ._kernel_types import render
 from ._fe_family_timing import record_fe_family_wall
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -461,6 +462,16 @@ def _entropy(counts: np.ndarray, n: int) -> float:
     return h
 
 
+def _prep_declined(prep_box: dict) -> bool:
+    """True (and a throttled warning) when the host prep stopped before the bitsets: too many bins or too many classes for the device kernels, so the host path runs."""
+    nx_max = int(prep_box["nx"].max())
+    if nx_max <= MAX_BINS and "cls" in prep_box:
+        return False
+    log_throttle(logger, "_honest_null_device.prep_declined", logging.WARNING, "device honest null not used: %d bins (limit %d) or %d classes (limit %d); using the host path",
+                 nx_max, MAX_BINS, int(prep_box.get("ny", 0)), MAX_CLASSES)
+    return True
+
+
 @njit(cache=True, parallel=True, nogil=True)
 def _labels_at_rows(y_perm: np.ndarray, rows: np.ndarray) -> np.ndarray:
     """``y_perm[:, rows]`` as a C-contiguous matrix of the same integer type, one parallel task per permutation (the fancy-indexed gather of 999 x 30000 labels took 0.34 s on one core)."""
@@ -554,7 +565,7 @@ def honest_null_columns_device(
         record_fe_family_wall("stage:honest_accept_block", perf_counter() - _t0)
         if "codes" not in prep_box:
             host_prep()
-        if int(prep_box["nx"].max()) > MAX_BINS or "cls" not in prep_box:  # too many bins, or too many classes (the prep stopped before the bitsets)
+        if _prep_declined(prep_box):
             return None
         nx, kx, counts_b = prep_box["nx"], prep_box["kx"], prep_box["counts_b"]
         cls, prep = prep_box["cls"], prep_box["prep"]

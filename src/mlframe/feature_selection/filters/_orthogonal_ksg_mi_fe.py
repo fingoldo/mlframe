@@ -57,7 +57,6 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
-from ._fe_usability_signal import _crit_np_dtype
 
 import pandas as pd
 
@@ -136,7 +135,7 @@ def _ksg_mi_batch(
 
     from ._ksg_cd_fast import ksg_mi_discrete_target
 
-    X = np.asarray(X, dtype=_crit_np_dtype())
+    X = np.asarray(X, dtype=np.float64)  # Intentional float64: a float32 cast quantises columns with a large offset before the k-NN distances
     if X.ndim == 1:
         X = X.reshape(-1, 1)
     y_arr = np.asarray(y).ravel()
@@ -163,7 +162,7 @@ def _ksg_mi_batch(
         )
     else:
         mi = mutual_info_regression(
-            X, y_arr.astype(_crit_np_dtype()),
+            X, y_arr.astype(np.float64),
             discrete_features=False,
             n_neighbors=int(n_neighbors),
             copy=True,
@@ -226,12 +225,12 @@ def score_features_by_ksg_mi_uplift(
         ])
     # f64 kept: distance/kernel-Gram stability (f32 sums lose precision here) - NOT routed through _crit_np_dtype.
     raw_mi = _ksg_mi_batch(
-        raw_X.to_numpy(dtype=_crit_np_dtype()), y_arr,
+        raw_X.to_numpy(dtype=np.float64), y_arr,
         n_neighbors=int(n_neighbors), random_state=int(random_state),
     )
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
     eng_mi = _ksg_mi_batch(
-        engineered_X.to_numpy(dtype=_crit_np_dtype()), y_arr,
+        engineered_X.to_numpy(dtype=np.float64), y_arr,
         n_neighbors=int(n_neighbors), random_state=int(random_state),
     )
     rows = []

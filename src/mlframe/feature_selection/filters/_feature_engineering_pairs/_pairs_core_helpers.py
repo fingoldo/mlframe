@@ -105,8 +105,10 @@ def _check_prospective__scores_same_rows_fall(shared_subsample_idx, _full_n_rows
     if shared_subsample_idx is not None:
         try:
             _si = np.asarray(shared_subsample_idx)
-            if _si.ndim == 1 and 0 < _si.shape[0] < _full_n_rows and int(_si.max()) < _full_n_rows:
+            if _si.ndim == 1 and 0 < _si.shape[0] < _full_n_rows and int(_si.max()) < _full_n_rows and int(_si.min()) >= 0:
                 _shared_idx = _si.astype(np.int64, copy=False)
+            elif _si.size and _si.shape[0] != _full_n_rows:
+                log_throttle(logger, "pairs_core.shared_subsample_invalid", logging.WARNING, "pair search: the shared subsample index (%d entries, full n=%d) is out of range, no shared subsample is used", int(_si.size), int(_full_n_rows))
         except Exception as e:
             log_throttle(logger, "pairs_core.shared_subsample", logging.WARNING, "pair search: the shared subsample index failed validation (%s), no shared subsample is used", e)
             _shared_idx = None
@@ -207,16 +209,16 @@ def _check_prospective__ignored_thread_multiplication_byte(max_n_combs, X, _n_bi
             except MemoryError:
                 # psutil over-reported available; falling back stays safe.
                 final_transformed_vals_shared = None
-                if verbose:
-                    logger.warning(
-                        "check_prospective_fe_pairs: shared buffer (%.1f GiB) allocation raised "
-                        "MemoryError despite passing the available-RAM check (%.1f GiB available, "
-                        "%.0f%% budget); switching to recompute-from-metadata fallback (~1%% extra "
-                        "bin_func calls per pair).",
-                        _bb / 2**30,
-                        _avail / 2**30 if _avail >= 0 else float("nan"),
-                        _FE_BUFFER_RAM_BUDGET_RATIO * 100.0,
-                    )
+                log_throttle(
+                    logger, "pairs_core.shared_buffer_memory_error", logging.WARNING,
+                    "check_prospective_fe_pairs: shared buffer (%.1f GiB) allocation raised "
+                    "MemoryError despite passing the available-RAM check (%.1f GiB available, "
+                    "%.0f%% budget); switching to recompute-from-metadata fallback (~1%% extra "
+                    "bin_func calls per pair).",
+                    _bb / 2**30,
+                    _avail / 2**30 if _avail >= 0 else float("nan"),
+                    _FE_BUFFER_RAM_BUDGET_RATIO * 100.0,
+                )
         else:
             if verbose:
                 logger.warning(
@@ -277,12 +279,12 @@ def _check_prospective__only_worth_chunking_least(_fe_chunks, _chunk_buf_width, 
         except MemoryError:
             _chunk_buffer = None
             _pair_to_chunk = {}
-            if verbose:
-                logger.warning(
-                    "check_prospective_fe_pairs: cross-pair chunk buffer (%d x %d) raised " "MemoryError; using per-pair batching.",
-                    len(X),
-                    _chunk_buf_width,
-                )
+            log_throttle(
+                logger, "pairs_core.chunk_buffer_memory_error", logging.WARNING,
+                "check_prospective_fe_pairs: cross-pair chunk buffer (%d x %d) raised " "MemoryError; using per-pair batching.",
+                len(X),
+                _chunk_buf_width,
+            )
     else:
         _chunk_global_batch = False
     return _chunk_buffer, _chunk_global_batch, _pair_to_chunk

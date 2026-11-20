@@ -7,6 +7,8 @@ import logging
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__package__)
 
 
@@ -73,7 +75,8 @@ def hybrid_abs_mi_floor(scores: pd.DataFrame, min_abs_mi_frac: float, _h_y: floa
     # below H(y), so a meaningful floor still rejects them.
     _mad_floors = [f for f in (noise_floor, eng_noise_floor) if not (_h_y > 0.0 and f >= _h_y)]
     if len(_mad_floors) < 2:
-        logger.debug(
+        log_throttle(
+            logger, "_orth_abs_floor.dropped_mad_floor", logging.WARNING,
             "hybrid_orth_mi_fe: dropped a MAD noise floor at/above H(y)=%.4f (raw=%.4f, eng=%.4f, n_cands=%d) "
             "-- unsatisfiable by construction, would have vetoed every candidate.",
             _h_y, noise_floor, eng_noise_floor, n_cands,

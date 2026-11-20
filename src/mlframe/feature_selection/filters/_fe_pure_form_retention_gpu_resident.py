@@ -61,6 +61,7 @@ import numpy as np
 from mlframe.utils.array_shape import length_of
 
 from ._kernel_types import render
+from mlframe.utils.log_throttle import log_throttle
 
 from ._safe_scale import standardise
 
@@ -392,7 +393,7 @@ def _device_verdicts(
         _gate = np.concatenate(parts, axis=0)
         return _verdict_flags(_gate, P, min_resid_frac, min_resid_corr, y_std, ss_yrel)
     except _DEV_ERRS as _exc:
-        logger.debug("adds_nonlinear_value_batch_gpu_resident fell back to its default after %s", type(_exc).__name__)
+        log_throttle(logger, "fe_pure_form_gpu_resident.device_fault", logging.WARNING, "resident pure-form gate hit a device fault (%s: %s); the exact per-candidate CPU path runs instead", type(_exc).__name__, _exc)
         return None  # genuine cupy/device/linalg fault in setup/upload -> exact CPU path (logic bugs propagate)
 
 
@@ -476,7 +477,7 @@ def pure_form_device_chosen(n_rows: int, n_pairs: int = 0) -> bool:
     try:
         return str(_SPEC.choose(n_samples=int(n_rows))) == "device"
     except Exception as exc:
-        logger.debug("pure_form_gate_backend: KTC choose() failed, using the floor: %s", exc)
+        log_throttle(logger, "fe_pure_form_gpu_resident.ktc_choose", logging.WARNING, "pure_form_gate_backend: KTC choose() failed, using the %d-row floor: %s", DEVICE_FALLBACK_ROWS, exc)
         return int(n_rows) >= DEVICE_FALLBACK_ROWS
 
 
@@ -503,7 +504,7 @@ def adds_nonlinear_value_batch_gpu_resident(
             rel_host = _f64(_scrub(np.asarray(rel_y, dtype=np.float64)))  # Intentional float64: host copy of the relevance target
             return _host_verdicts(form_values, base_columns, src_pairs, base_names, rel_host, min_resid_frac, min_resid_corr)
         except Exception as exc:
-            logger.debug("host batched pure-form gate unavailable (%s); device path", exc)
+            log_throttle(logger, "fe_pure_form_gpu_resident.host_gate", logging.WARNING, "host batched pure-form gate unavailable (%s); the device path runs instead", exc)
     return _device_verdicts(form_values, src_pairs, base_names, base_columns, rel_y, min_resid_frac=min_resid_frac, min_resid_corr=min_resid_corr)
 
 

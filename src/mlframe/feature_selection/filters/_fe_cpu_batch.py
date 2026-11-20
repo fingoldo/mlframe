@@ -86,6 +86,8 @@ def cpu_fe_batch_mi(
     if n == 0 or k == 0:
         return out
     y = np.ascontiguousarray(y_codes, dtype=np.int64)
+    if y.shape[0] != n:
+        raise ValueError(f"cpu_fe_batch_mi: y_codes has {y.shape[0]} rows but X_cands has {n}")
 
     # Per-column finite partition (mirrors _mi_classif_batch): dense columns go through the batch kernel;
     # partial-NaN columns are scored on their finite subset; all-NaN -> 0.0.

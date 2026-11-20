@@ -39,6 +39,8 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 from .._kernel_types import render
 
 logger = logging.getLogger(__name__)
@@ -431,5 +433,8 @@ def extra_basis_eng_mi_resident(
             return None  # the kernel-tuning entry says the host scorer is faster at this row count: the caller runs it
         return _mi_by_name_blocks(cp, raw_X, names, meta, y, int(nbins))
     except Exception as _exc:
-        logger.debug("extra_basis_eng_mi_resident: GPU path failed (%s); host fallback", _exc)
+        log_throttle(
+            logger, "extra_basis_eng_mi_resident_gpu_failed", logging.WARNING,
+            "extra_basis_eng_mi_resident: GPU path failed (%s: %s) for %d columns x %d rows; scoring on the host", type(_exc).__name__, _exc, len(names), len(raw_X),
+        )
         return None

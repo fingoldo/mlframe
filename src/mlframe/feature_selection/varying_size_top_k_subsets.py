@@ -26,7 +26,6 @@ from __future__ import annotations
 from typing import List, Optional, Sequence, Union
 
 import numpy as np
-from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 from ._selection_log import logs_selection
 
 FloatMatrix = Union[np.ndarray, "object"]  # ndarray or a pandas DataFrame with columns named like ranked_features
@@ -42,18 +41,14 @@ def _cluster_anchors(ranked_features: Sequence[str], data: FloatMatrix, corr_thr
 
     Returns ``{anchor_name: [members in rank order]}``.
     """
-    try:
-        import pandas as pd
+    import pandas as pd
 
-        if isinstance(data, pd.DataFrame):
-            cols = [c for c in ranked_features if c in data.columns]
-            mat = data[cols].to_numpy(dtype=_crit_np_dtype())
-        else:
-            cols = list(ranked_features)
-            mat = np.asarray(data, dtype=_crit_np_dtype())
-    except ImportError:
+    if isinstance(data, pd.DataFrame):
+        cols = [c for c in ranked_features if c in data.columns]
+        mat = data[cols].to_numpy(dtype=np.float64)  # Intentional float64: float32 narrowing destroys a large-offset column before it is centred
+    else:
         cols = list(ranked_features)
-        mat = np.asarray(data, dtype=_crit_np_dtype())
+        mat = np.asarray(data, dtype=np.float64)  # Intentional float64: float32 narrowing destroys a large-offset column before it is centred
 
     n_cols = mat.shape[1] if mat.ndim == 2 else 0
     if n_cols != len(cols) or n_cols == 0:
@@ -63,8 +58,12 @@ def _cluster_anchors(ranked_features: Sequence[str], data: FloatMatrix, corr_thr
             clusters[f] = [f]
         return clusters
 
-    with np.errstate(invalid="ignore", divide="ignore"):
-        corr = np.corrcoef(mat, rowvar=False)
+    if np.isnan(mat).any():
+        # pairwise-complete correlation: one NaN must not turn a column's whole correlation row into 0 (every feature its own cluster).
+        corr = pd.DataFrame(mat).corr().to_numpy()
+    else:
+        with np.errstate(invalid="ignore", divide="ignore"):
+            corr = np.corrcoef(mat, rowvar=False)
     corr = np.nan_to_num(corr, nan=0.0)
     idx_of = {name: i for i, name in enumerate(cols)}
 

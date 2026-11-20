@@ -403,10 +403,10 @@ def _cmim_scores_device(eng_bins, y_bin, sel_bins, support_names, eng_sources, n
         # write outside it. batched_cmi_gpu's own guard reduces the whole (n, block) matrix twice per call, and the reference loop calls it about forty times.
         eb = np.asarray(eng_bins)
         if eb.size and (int(eb.min()) < 0 or int(eb.max()) >= int(n_bins)):
-            logger.debug("CMIM device scorer: candidate codes outside [0, %d); host loop", int(n_bins))
+            log_throttle(logger, "_orthogonal_cmim_fe.codes_range", logging.WARNING, "CMIM device scorer not used: candidate codes outside [0, %d); host loop", int(n_bins))
             return None
         if int(np.asarray(y_bin).min()) < 0 or any(int(np.asarray(z).min()) < 0 for z in sel_bins):
-            logger.debug("CMIM device scorer: negative target or reference codes; host loop")
+            log_throttle(logger, "_orthogonal_cmim_fe.neg_codes", logging.WARNING, "CMIM device scorer not used: negative target or reference codes; host loop")
             return None
         allowed = np.array([[support_names[j] != eng_sources[i] for i in range(k)] for j in range(len(sel_bins))], dtype=bool)  # (S, K)
         out = np.full(k, np.inf)

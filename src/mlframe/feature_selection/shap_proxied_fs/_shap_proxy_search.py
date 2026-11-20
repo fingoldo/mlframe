@@ -328,9 +328,15 @@ def brute_force_top_n(
     if metric_name == "auc":  # AUC needs a per-subset sort -> not in the njit hot loop
         raise ValueError("brute_force_top_n does not support metric='auc' (use brier/logloss); AUC is Python-path only.")
     metric_code = METRIC_CODES[metric_name]
+    if int(top_n) < 1:
+        raise ValueError(f"brute_force_top_n: top_n must be >= 1, got {top_n}")
+    min_card = max(1, int(min_card))  # the empty subset has no scorable margin; r=0 would index comb[-1] of an empty row
     phi = np.ascontiguousarray(phi, dtype=_crit_np_dtype())
-    base = np.ascontiguousarray(base, dtype=_crit_np_dtype())
+    n_rows_phi = phi.shape[0]
+    base = np.ascontiguousarray(np.broadcast_to(np.asarray(base, dtype=_crit_np_dtype()), (n_rows_phi,)))
     y = np.ascontiguousarray(y, dtype=_crit_np_dtype())
+    if y.shape != (n_rows_phi,):
+        raise ValueError(f"brute_force_top_n: y has shape {y.shape}, expected ({n_rows_phi},) to match phi rows")
     n_features = phi.shape[1]
     max_card = n_features if max_card is None else min(max_card, n_features)
     # Transpose once: column-major (f, n) layout turns the strided ``phi[t, fcol]`` reads inside the

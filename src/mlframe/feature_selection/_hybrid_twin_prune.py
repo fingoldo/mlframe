@@ -10,6 +10,7 @@ number of candidates). Columns without a high-correlation partner are never test
 from __future__ import annotations
 
 import logging
+import warnings
 from typing import Any, Optional, Sequence
 
 import numpy as np
@@ -83,9 +84,11 @@ def prune_conditional_twins(
 
             classification = type_of_target(yv) in ("binary", "multiclass")
         frame = X[numeric].to_numpy(dtype=_crit_np_dtype())
-        frame = np.where(np.isfinite(frame), frame, np.nanmean(np.where(np.isfinite(frame), frame, np.nan), axis=0)[None, :])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)  # a column with no finite value has an empty nanmean; it is dropped below via its NaN sd
+            frame = np.where(np.isfinite(frame), frame, np.nanmean(np.where(np.isfinite(frame), frame, np.nan), axis=0)[None, :])
         sd = frame.std(axis=0)
-        if np.any(sd <= SD_FLOOR):
+        if not np.all(sd > SD_FLOOR):  # also true for a NaN sd (a column with no finite value)
             keep_idx = np.flatnonzero(sd > SD_FLOOR)
             numeric = [numeric[i] for i in keep_idx]
             frame, sd = frame[:, keep_idx], sd[keep_idx]

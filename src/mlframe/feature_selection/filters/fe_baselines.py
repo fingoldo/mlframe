@@ -281,7 +281,7 @@ def best_trivial_pair(
         if not _finite_mask.any():
             # All-NaN: no valid baseline - caller treats None as
             # "no baseline beat the gate" which is the correct semantic.
-            return None, None, float("nan")
+            return None
         # Among the finite maxima, the lexicographically smallest NAME: plug-in MI is quantised, so exact ties are real,
         # and np.argmax's lowest-index rule let the enumeration order of the candidate pool decide which baseline an
         # engineered candidate had to beat.

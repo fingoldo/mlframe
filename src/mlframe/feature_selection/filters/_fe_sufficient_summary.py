@@ -78,11 +78,13 @@ linear fit so collinear / redundant selected columns do not blow up the normal e
 from __future__ import annotations
 
 import logging
+import zlib
 from dataclasses import dataclass, field
-from typing import Any, Optional, Sequence
+from typing import Any, Optional, Sequence, cast
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.utils.numeric_floors import SD_FLOOR
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -117,13 +119,15 @@ def _get_shared_fe_subsample_idx(self, y_continuous, n_full):
     target) so the shared draw matches the classification consumers' stratification."""
     try:
         n = int(n_full)
-        cached_n = getattr(self, "_fe_shared_subsample_n", None)
-        if cached_n == n:
-            return getattr(self, "_fe_shared_subsample_idx", None)
         size = None
         _resolver = getattr(self, "_default_screen_subsample_n", None)
         if callable(_resolver):
             size = int(_resolver())
+        y_fp = zlib.crc32(cast(Any, np.ascontiguousarray(np.asarray(y_continuous)))) if size is not None and n > size else 0
+        key = (n, size, y_fp, getattr(self, "random_seed", None), getattr(self, "fe_subsample_stratify", None))
+        if getattr(self, "_fe_shared_subsample_key", None) == key:
+            return getattr(self, "_fe_shared_subsample_idx", None)
+        self._fe_shared_subsample_key = key
         if size is None or n <= size:
             self._fe_shared_subsample_idx = None
             self._fe_shared_subsample_n = n
@@ -151,6 +155,7 @@ def _get_shared_fe_subsample_idx(self, y_continuous, n_full):
         # runs at FULL n - a ~33x cost blow-up at n~1M that only shows up as "slow" in a profile. Log at
         # WARNING so a resolver failure is diagnosable; still fall back to full-n (best-effort), never
         # silently.
+        self._fe_shared_subsample_key = None
         logger.warning("_get_shared_fe_subsample_idx failed; FE screen will run at FULL n (no subsample): %r", exc, exc_info=True)
         return None
 
@@ -187,7 +192,7 @@ def _shannon_entropy_nats(codes: np.ndarray, nbins_hint: int = 0) -> float:
     if c.size == 0:
         return 0.0
     minlen = int(max(int(c.max()) + 1 if c.size else 1, int(nbins_hint)))
-    counts = np.bincount(c[c >= 0], minlength=minlen).astype(_crit_np_dtype())
+    counts = np.bincount(c[c >= 0], minlength=minlen).astype(np.float64)  # entropy differences need double
     total = float(counts.sum())
     if total <= 0:
         return 0.0
@@ -333,7 +338,7 @@ def _maxt_residual_test(
     v.maxt_floor = float(floor)
 
     # Per-raw observed MI(r; x_j), Miller-Madow debiased to match the floor's scale.
-    r_counts = np.bincount(r_codes, minlength=int(r_codes.max()) + 1).astype(_crit_np_dtype())
+    r_counts = np.bincount(r_codes, minlength=int(r_codes.max()) + 1).astype(np.float64)  # MI is a difference of entropies: double
     kr = int((r_counts > 0).sum())
     inv_n = 1.0 / n
     pr = r_counts[r_counts > 0] * inv_n
@@ -348,11 +353,11 @@ def _maxt_residual_test(
         if nbx < 2:
             per_raw[ci] = 0.0
             continue
-        xcounts = np.bincount(xc, minlength=nbx).astype(_crit_np_dtype())
+        xcounts = np.bincount(xc, minlength=nbx).astype(np.float64)
         px = xcounts[xcounts > 0] * inv_n
         h_x = float(-(px * np.log(px)).sum())
         joint = xc.astype(np.int64) * (int(r_codes.max()) + 1) + r_codes
-        jc = np.bincount(joint).astype(_crit_np_dtype())
+        jc = np.bincount(joint).astype(np.float64)
         jc = jc[jc > 0] * inv_n
         h_xr = float(-(jc * np.log(jc)).sum())
         mi = h_x + h_r_nats - h_xr
@@ -607,14 +612,12 @@ def check_sufficient_summary_for_mrmr(
                     sel_cont[nm] = np.asarray(X[nm].values, dtype=_crit_np_dtype()).reshape(-1)
                     continue
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("_fe_sufficient_summary: probe failed: %s", e)
-                    pass
+                    log_throttle(logger, "_fe_sufficient_summary.raw_cont", logging.WARNING, "_fe_sufficient_summary: raw column %r continuous read failed, using the codes: %s", nm, e)
             if nm in eng_cont:
                 try:
                     sel_cont[nm] = np.asarray(eng_cont[nm], dtype=_crit_np_dtype()).reshape(-1)
                 except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("_fe_sufficient_summary: probe failed: %s", e)
-                    pass
+                    log_throttle(logger, "_fe_sufficient_summary.eng_cont", logging.WARNING, "_fe_sufficient_summary: engineered column %r continuous read failed, using the codes: %s", nm, e)
 
         # ONE shared subsample reused across the fit: the maxT residual floor below was
         # historically computed on FULL n even when the FE candidate search ran on the ~30k screen
@@ -650,7 +653,7 @@ def check_sufficient_summary_for_mrmr(
             verbose=int(verbose),
         )
     except Exception as exc:  # best-effort: never let the optimiser break the fit
-        logger.debug("MRMR sufficient-summary check failed (%s); not stopping.", exc)
+        log_throttle(logger, "_fe_sufficient_summary.check_failed", logging.WARNING, "MRMR sufficient-summary check failed (%s); not stopping.", exc)
         return SufficientSummaryVerdict(reason=f"check errored: {exc}")
 
 

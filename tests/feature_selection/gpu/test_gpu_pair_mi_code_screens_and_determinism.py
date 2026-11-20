@@ -138,3 +138,49 @@ def test_fused_pair_mi_kernel_refuses_codes_that_would_corrupt_shared_memory():
         batch_pair_mi_cuda_shared_fused(data, np.array([0], dtype=np.int64), np.array([1], dtype=np.int64), nbins, y, freqs_y)
     with pytest.raises(ValueError, match="multiple of 32"):
         batch_pair_mi_cuda_shared_fused(data[:, :2], np.array([0], dtype=np.int64), np.array([1], dtype=np.int64), nbins, y, freqs_y, threads_per_block=100)
+
+
+def _bad_frame(bad):
+    """The pair frame with one violation: a code at ``nbins``, a negative code, or a class at ``n_classes_y``."""
+    data, nbins, y = _pair_frame()
+    y = (y % 2).astype(np.int32)
+    if bad == "over_nbins":
+        data[3, 0] = 3
+    elif bad == "negative":
+        data[3, 1] = -1
+    else:
+        y[3] = 2
+    return data, nbins, y
+
+
+@pytest.mark.parametrize("bad", ["over_nbins", "negative", "over_classes"])
+def test_batch_pair_mi_cupy_rejects_out_of_range_codes_with_a_failing_device_check(monkeypatch, caplog, bad):
+    """``batch_pair_mi_cupy`` raises ``ValueError`` on a code outside ``[0, nbins)`` or a class outside ``[0, n_classes_y)`` even when the device reduction itself fails (cupy stubbed out): it warns and uses the host check instead of skipping the screen."""
+    import mlframe.feature_selection.filters._fe_resident_operands as ro
+    import mlframe.feature_selection.filters._batch_pair_mi_cuda_shared_fused as sf
+    import mlframe.feature_selection.filters.batch_pair_mi_gpu as g
+
+    monkeypatch.setattr(g, "_CUPY_AVAIL", True)
+    monkeypatch.setattr(sf, "_cp", None)
+    monkeypatch.setattr(ro, "resident_operand", lambda arr, key, dtype=None, **kw: np.asarray(arr, dtype=dtype))
+    data, nbins, y = _bad_frame(bad)
+    with caplog.at_level("WARNING"), pytest.raises(ValueError):
+        g.batch_pair_mi_cupy(data, np.array([0], dtype=np.int64), np.array([1], dtype=np.int64), nbins, y, np.array([0.5, 0.5]))
+    assert "device code-range check failed" in caplog.text
+
+
+@pytest.mark.skipif(not _cuda_ok(), reason="needs a CUDA device")
+@pytest.mark.parametrize("bad", ["over_nbins", "negative", "over_classes"])
+def test_check_codes_on_device_rejects_out_of_range_codes_on_a_real_device(bad):
+    """The device reduction raises the same ``ValueError`` as the host screen for each kind of violation, and accepts clean codes."""
+    import cupy as cp
+
+    from mlframe.feature_selection.filters._batch_pair_mi_cuda_shared_fused import check_codes_on_device
+
+    pa, pb = np.array([0], dtype=np.int64), np.array([1], dtype=np.int64)
+    data, nbins, y = _pair_frame()
+    y = (y % 2).astype(np.int32)
+    check_codes_on_device(cp.asarray(data), cp.asarray(y), data, y, pa, pb, nbins, 2)
+    data, nbins, y = _bad_frame(bad)
+    with pytest.raises(ValueError):
+        check_codes_on_device(cp.asarray(data), cp.asarray(y), data, y, pa, pb, nbins, 2)

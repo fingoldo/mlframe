@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._safe_scale import guarded_scale, scale_is_usable
@@ -115,8 +116,8 @@ def _best_pair_basis(_blocks_a, _blocks_b, y_tr, y_va, xa_tr, xb_tr):
             if coef_a is None or coef_b is None:
                 continue
             c = _heldout_abs_corr((Ba_va @ np.ascontiguousarray(coef_a, dtype=np.float64)) * (Bb_va @ np.ascontiguousarray(coef_b, dtype=np.float64)), y_va)  # Intentional float64: held-out correlation statistic input
-        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
+        except Exception as e:
+            log_throttle(logger, "fe_escalation.pair_basis_failed", logging.WARNING, "_best_pair_basis: basis %r skipped after %s: %s", basis, type(e).__name__, e)
             continue
         if c > best_corr:
             best_corr = c
@@ -240,8 +241,8 @@ def _propose_poly(x_a, x_b, y_f, *, degree: int, min_val_corr: float, pairness_m
                     if coef is None or not np.all(np.isfinite(coef)):
                         continue
                     single_best = max(single_best, _heldout_abs_corr(B_va @ np.ascontiguousarray(coef, dtype=np.float64), y_va))  # Intentional float64: held-out correlation statistic input
-                except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed: %s", e)
+                except Exception as e:
+                    log_throttle(logger, "fe_escalation.single_basis_failed", logging.WARNING, "_propose_poly: single-operand basis %r skipped after %s: %s", _sb_basis, type(e).__name__, e)
                     continue
 
     best_basis, best_corr = _best_pair_basis(_blocks_a, _blocks_b, y_tr, y_va, xa_tr, xb_tr)

@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
 from ._batch_mi_noise_gate_kernels import FUSED_GATE_MAX_BINS, _cuda_fused_gate_kernel_factory, _nb_cuda, cuda_available
 
 logger = logging.getLogger(__name__)
@@ -67,5 +68,5 @@ def fused_gate_mi(
         _FUSED_KERNEL[(K, P), int(threads), 0, sh_bytes](d_cm, d_nb, d_y, d_freq, n, K_y, d_ref, d_out, h_y, bool(use_su))
         return np.asarray(d_out.copy_to_host())
     except Exception:
-        logger.warning("fused noise-gate kernel failed; using the two-kernel gate", exc_info=True)
+        log_throttle(logger, "noise_gate.fused_failed", logging.WARNING, "fused noise-gate kernel failed; using the two-kernel gate", exc_info=True)
         return None

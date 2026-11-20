@@ -8,10 +8,12 @@ sampling leaf siblings; ``resolve_metric`` comes from the proxy objective module
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Sequence
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_objective import resolve_metric
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_proxy_loss import (
     _expand, _honest_loss, _open_disk_cache, _parallel_honest_losses,
@@ -33,6 +35,8 @@ from ._shap_proxy_refine_helpers import (  # noqa: F401  -- carved helpers
     _within_cluster_ref_prefix_importance_col_above,
 )
 
+logger = logging.getLogger(__name__)
+
 
 def _mark_selection_optimistic(ranked: list, best_idx) -> None:
     """Flag the chosen subset's ``honest_loss`` as selection-optimistic.
@@ -47,6 +51,25 @@ def _mark_selection_optimistic(ranked: list, best_idx) -> None:
     for d in ranked:
         if d.get("features") == best_idx:
             d["honest_loss_selection_optimistic"] = True
+
+def _parsimony_pick(ranked: list, parsimony_tol: float) -> dict:
+    """Sort ``ranked`` in place by stable_score (non-finite last) and return the fewest-member entry within ``parsimony_tol`` of the best finite score.
+
+    When no entry has a finite score (every honest loss undefined) the first entry in the caller's order is returned rather than crashing."""
+    ranked.sort(key=lambda d: d["stable_score"] if np.isfinite(d["stable_score"]) else float("inf"))
+    best_score = ranked[0]["stable_score"]
+    if not np.isfinite(best_score):
+        log_throttle(
+            logger, "shap_proxy_reval_no_finite_honest_loss", logging.WARNING,
+            "ShapProxiedFS revalidation: no candidate has a finite honest loss; keeping the first candidate in proxy order.",
+        )
+        first: dict = ranked[0]
+        return first
+    threshold = best_score + parsimony_tol * abs(best_score)
+    eligible = [d for d in ranked if d["stable_score"] <= threshold]
+    chosen: dict = min(eligible, key=lambda d: (d["n_members"], d["stable_score"]))
+    return chosen
+
 
 def _winner_from_per_candidate(per_candidate, candidates, member_cols, lambda_stab, parsimony_tol):
     """Parsimony-rule winner index tuple from accumulated per-candidate seed losses (iter77).
@@ -65,12 +88,7 @@ def _winner_from_per_candidate(per_candidate, candidates, member_cols, lambda_st
         ranked.append(dict(features=tuple(idx), n_members=len(member_cols[ci]), stable_score=mean + lambda_stab * std))
     if not ranked:
         return None
-    ranked.sort(key=lambda d: d["stable_score"])
-    best_score = ranked[0]["stable_score"]
-    threshold = best_score + parsimony_tol * abs(best_score)
-    eligible = [d for d in ranked if d["stable_score"] <= threshold]
-    chosen = min(eligible, key=lambda d: (d["n_members"], d["stable_score"]))
-    return chosen["features"]
+    return _parsimony_pick(ranked, parsimony_tol)["features"]
 
 
 def _random_baseline_is_meaningful(k: int, f: int) -> bool:
@@ -312,12 +330,8 @@ class _RevalRun:
         """Rank the evaluated candidates and pick the parsimony / paired one-SE winner; returns ``(best_idx, ranked, paired_info)``."""
         ranked: list[Any] = []
         _collect_candidate_scores(self.candidates, self.per_candidate, ranked, self.member_cols, self.lambda_stab)
-        ranked.sort(key=lambda d: d["stable_score"])
         if ranked:
-            best_score = ranked[0]["stable_score"]
-            threshold = best_score + self.parsimony_tol * abs(best_score)
-            eligible = [d for d in ranked if d["stable_score"] <= threshold]
-            chosen = min(eligible, key=lambda d: (d["n_members"], d["stable_score"]))
+            chosen = _parsimony_pick(ranked, self.parsimony_tol)
             best_idx = chosen["features"]
             from mlframe.feature_selection.shap_proxied_fs._shap_proxy_revalidate._shap_proxy_paired_parsimony import paired_one_se_pick
 
@@ -548,13 +562,9 @@ def active_learning_revalidate(
 
     ranked: list[dict[str, Any]] = [dict(features=tuple(idxs[i]), n_members=len(member_cols[i]), proxy_loss=float(proxy_all[i]),
                    honest_loss=honest[i], honest_std=0.0, stable_score=honest[i]) for i in honest]
-    ranked.sort(key=lambda d: d["stable_score"])
     best_idx: tuple = ()
     if ranked:
-        best_score = ranked[0]["stable_score"]
-        thr = best_score + parsimony_tol * abs(best_score)
-        eligible = [d for d in ranked if d["stable_score"] <= thr]
-        best_idx = min(eligible, key=lambda d: (d["n_members"], d["stable_score"]))["features"]
+        best_idx = _parsimony_pick(ranked, parsimony_tol)["features"]
 
     # Full-template re-evaluation of the winner (mirror of revalidate_top_n; see that function for the
     # apples-to-apples rationale). When cap is None this is a guaranteed cache hit (no extra fit).

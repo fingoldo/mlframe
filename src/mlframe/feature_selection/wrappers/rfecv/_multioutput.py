@@ -37,7 +37,12 @@ def fit_multioutput(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Ser
     feature_names_in_, _selected_cols_cache) plus ``self.multioutput_supports_`` (per-column selected feature-name lists).
     Returns ``self``.
     """
-    feature_names = X.columns.tolist() if isinstance(X, pd.DataFrame) else list(map(str, range(X.shape[1])))
+    if isinstance(X, pd.DataFrame):
+        feature_names = X.columns.tolist()
+    elif hasattr(X, "columns"):
+        feature_names = list(X.columns)
+    else:
+        feature_names = list(map(str, range(X.shape[1])))
     name_to_idx = {n: i for i, n in enumerate(feature_names)}
     n_features = len(feature_names)
 

@@ -355,10 +355,15 @@ def test_mrmr_empty_fallback_uses_secondary_index() -> None:
 
 
 def test_screen_expected_gains_uses_lexsort() -> None:
-    """Two exact copies of the signal column tie on gain; the winner is the name-first one in either column order."""
+    """Two exact copies of the signal column tie on gain; the winner is the name-first one in either column order.
+
+    Run with the feature-engineering families off: the contract under test is the screening tie-break, and an engineered column named after the column order of the frame (a sliced-inverse-regression
+    direction is named after its source columns in frame order) would decide the pick before the tie-break is reached.
+    """
     import pandas as pd
 
     from mlframe.feature_selection.filters import MRMR
+    from tests.feature_selection.conftest import make_fast_mrmr
 
     rng = np.random.default_rng(3)
     n = 500
@@ -372,7 +377,7 @@ def test_screen_expected_gains_uses_lexsort() -> None:
     picked = {}
     for label, frame in frames.items():
         MRMR._FIT_CACHE.clear()
-        selector = MRMR(full_npermutations=10, baseline_npermutations=5, n_jobs=1, verbose=0, random_state=7)
+        selector = make_fast_mrmr(full_npermutations=10, baseline_npermutations=5, n_jobs=1, random_state=7)
         selector.fit(frame, y)
         picked[label] = sorted(frame.columns[np.asarray(selector.support_)])
         MRMR._FIT_CACHE.clear()

@@ -525,7 +525,7 @@ def _build_usability_cand_step2_sub_quantum_cpu(cand_here, _mi_key, max_per_pair
                 fit_values_for_edges=_f64(c.values),  # edges need double precision
             )
         except Exception as e:  # nosec B112 - optional/best-effort path, rationale documented
-            logger.debug("recipe build failed, dropping this candidate as not replayable: %s", e)
+            log_throttle(logger, "usability_aware_selection.recipe_build_failed", logging.WARNING, "recipe build failed, dropping this candidate as not replayable: %s", e)
             continue  # recipe could not even be built -> not replayable, drop.
         # Verify the replay ONCE per distinct op-combo (see cache note above); trust verified combos
         # for later candidates. A recipe whose replay RAISES or MISMATCHES on its first sighting
@@ -564,7 +564,7 @@ def _usability_greedy_try_gpu_resident(pool, y_cont, *, w, K, seed, n_folds, mae
             if _res is not None:
                 return _res
     except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
-        logger.debug("GPU-resident greedy path unavailable, falling back to the exact CPU greedy: %s", e)
+        log_throttle(logger, "usability_aware_selection.resident_greedy_failed", logging.WARNING, "GPU-resident greedy path unavailable, falling back to the exact CPU greedy: %s", e)
     return None
 
 
@@ -822,8 +822,8 @@ def usability_greedy(
 
             try:
                 return cv_candidates_binary_host(_pv, list(sel_idx), list(cand_list), folds, n_folds, y_enc)
-            except HostBatchedFallbackError:
-                pass
+            except HostBatchedFallbackError as exc:
+                log_throttle(logger, "usability_aware_selection.host_batched_clf_fallback", logging.WARNING, "batched Newton CV of the usability greedy declined (%s); refitting every candidate with sklearn", exc)
         return {i: _cv_per_fold([*sel_idx, i]) for i in cand_list}
 
     _cv_per_fold = _usability_greedy_step2_def_cv_fold(classification, n_folds, folds, y_enc, n_classes, _logloss, _pv, _mk, y_cont)

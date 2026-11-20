@@ -31,6 +31,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._recipe_core import EngineeredRecipe
 from ._recipe_extract import _extract_column
 
@@ -70,7 +72,7 @@ def _vram_f32() -> bool:
         return bool(fe_gpu_f32_enabled())
     except Exception as e:
         # fallback: a failing flag check keeps the f64 dtype discipline, the default path.
-        logger.debug("_vram_f32: fe_gpu_f32_enabled() check failed, staying on the f64 dtype discipline: %s", e)
+        log_throttle(logger, "recipe_vram_f32_check_failed", logging.WARNING, "_vram_f32: fe_gpu_f32_enabled() check failed, staying on the f64 dtype discipline: %s", e)
         return False
 
 

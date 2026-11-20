@@ -37,6 +37,7 @@ from typing import Any, Optional
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -176,7 +177,7 @@ def gbm_split_propensity(values: np.ndarray, y: np.ndarray, num_boost_round: int
     try:
         import lightgbm as lgb
     except ImportError as e:
-        logger.debug("lightgbm import failed: %s", e)
+        log_throttle(logger, "fe_prerank.gbm_import", logging.WARNING, "lightgbm import failed (%s); the gbm split-frequency propensity ingredient is all-zero", e)
         return np.zeros(values.shape[1], dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
     X = np.ascontiguousarray(values, dtype=_crit_np_dtype())
     X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
@@ -206,7 +207,7 @@ def gbm_split_propensity(values: np.ndarray, y: np.ndarray, num_boost_round: int
         # reasonable) `import lightgbm` probe a few lines above - a genuine LightGBM bug (bad params, a
         # degenerate label after class-collapse, an internal assertion) silently degraded the
         # fused/gbm_splits interaction-propensity criterion to an all-zero ingredient with zero trace.
-        logger.debug("gbm_split_propensity: lgb.train/feature_importance failed; falling back to zeros: %r", exc)
+        log_throttle(logger, "fe_prerank.gbm_train", logging.WARNING, "gbm_split_propensity: lgb.train/feature_importance failed; the gbm propensity ingredient is all-zero: %r", exc)
         return np.zeros(X.shape[1], dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
 
 

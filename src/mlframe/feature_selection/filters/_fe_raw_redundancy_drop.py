@@ -360,8 +360,7 @@ def _no_harm_guard_result(
                     _final_drop_idx = {_name_to_idx2[n] for n in _final_drop_names if n in _name_to_idx2}
                     return [i for i in st.sel if i not in _final_drop_idx], _final_drop_names
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("raw-redundancy: held-out Ridge R2 no-harm re-check failed: %s", e)
-            pass
+            log_throttle(logger, "_fe_raw_redundancy_drop.no_harm", logging.WARNING, "raw-redundancy: held-out Ridge R2 no-harm re-check failed, the drop stands unchecked: %s", e)
     return None
 
 
@@ -700,7 +699,7 @@ def _join_support(host_bins, dev_bins):
             z_dev, card = _renumber_joint_gpu(*dev_bins)
             return None, card, z_dev
         except Exception as exc:
-            logger.debug("device-resident conditioning-support join failed, falling back to the host join: %s", exc)
+            log_throttle(logger, "_fe_raw_redundancy_drop.join_support", logging.WARNING, "device-resident conditioning-support join failed, falling back to the host join: %s", exc)
     from mlframe.feature_selection.filters._mi_greedy_cmi_fe import _renumber_joint
 
     z_host, card = _renumber_joint(*host_bins)
@@ -853,8 +852,7 @@ def _drop_redundant_raw_o_step2_adversarial_multi_contamination(_all_leaf_pair, 
                         [cols[e] for e in consumers],
                     )
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("raw-redundancy: linear-usability-leg probe failed: %s", e)
-            pass
+            log_throttle(logger, "_fe_raw_redundancy_drop.linear_leg", logging.WARNING, "raw-redundancy: linear-usability-leg probe failed, the CMI verdict stands: %s", e)
     return keep
 
 
@@ -900,8 +898,7 @@ def _drop_redundant_raw_o_step3_profiles_already_drop(keep, tail_subsume_enable,
                             [cols[e] for e in consumers],
                         )
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("raw-redundancy: tail-concentration continuous-subsumption probe failed: %s", e)
-            pass
+            log_throttle(logger, "_fe_raw_redundancy_drop.tail_probe", logging.WARNING, "raw-redundancy: tail-concentration continuous-subsumption probe failed, the CMI verdict stands: %s", e)
     return keep
 
 
@@ -941,7 +938,7 @@ def _drop_redundant_raw_o_step2_st_gmi_payload(st, y_binned, cols, data, verbose
                     sorted(st._group_leak_names),
                 )
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("raw-redundancy: group-aware leak check failed: %s", e)
+            log_throttle(logger, "_fe_raw_redundancy_drop.group_leak", logging.WARNING, "raw-redundancy: group-aware leak check failed, no leak is exempted from the no-harm revert: %s", e)
 
 
 __all__ = [

@@ -7,12 +7,13 @@ with the fused ``_row_bin_histogram_njit`` prange kernel (~27x on the scatter at
 from __future__ import annotations
 
 import numpy as np
+from scipy.special import xlogy
 
 from mlframe.feature_engineering import ensemble_features as ef
 
 
 def _reference_consensus_entropy(arr: np.ndarray, n_bins: int = 5) -> np.ndarray:
-    """The exact pre-fix np.add.at implementation, kept here as an independent oracle."""
+    """The np.add.at scatter implementation with the exact ``p * log(p)`` entropy (0 for an empty bin), kept here as an independent oracle."""
     n, k = arr.shape
     lo = arr.min(axis=1, keepdims=True) - 1e-9
     hi = arr.max(axis=1, keepdims=True) + 1e-9
@@ -22,7 +23,7 @@ def _reference_consensus_entropy(arr: np.ndarray, n_bins: int = 5) -> np.ndarray
     for j in range(k):
         np.add.at(counts, (np.arange(n), binned[:, j]), 1.0)
     probs = counts / counts.sum(axis=1, keepdims=True)
-    return -np.sum(probs * np.log(probs + 1e-12), axis=1)
+    return -np.sum(xlogy(probs, probs), axis=1)
 
 
 def test_row_bin_histogram_njit_matches_add_at_scatter():

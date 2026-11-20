@@ -41,7 +41,8 @@ def monotonic_deviation_stability_filter(
     For each feature, computes ``deviation = feature - group_mean(feature)`` (deviation from the entity's own
     baseline), then repeatedly subsamples a fraction of the groups and measures the Spearman-sign correlation
     between ``deviation`` and ``y`` within that subsample. A feature is "stable" when its correlation sign
-    agrees with the full-sample sign in at least ``min_stable_fraction`` of subsamples.
+    agrees with the full-sample sign in at least ``min_stable_fraction`` of subsamples. A feature whose full-sample correlation is undefined or exactly zero (constant deviation, NaN)
+    has no sign to agree with and is never reported stable.
 
     Random group subsampling mixes groups from every segment of the data in each draw, so a feature whose
     deviation-target relationship flips sign inside one specific segment (e.g. one instrument/basket/regime)
@@ -119,7 +120,7 @@ def monotonic_deviation_stability_filter(
         y_sub = y[row_mask]
         corr_arr = _spearman_corr_batch(dev_matrix[row_mask, :], y_sub)
         sub_sign_arr = np.sign(corr_arr)
-        agreement_counts_arr += (full_sign_arr == 0) | (sub_sign_arr == full_sign_arr)
+        agreement_counts_arr += (full_sign_arr != 0) & (sub_sign_arr == full_sign_arr)
     agreement_counts = dict(zip(feature_cols, agreement_counts_arr.tolist()))
 
     segment_agreement_fraction: Dict[str, float] = {}
@@ -138,7 +139,7 @@ def monotonic_deviation_stability_filter(
             y_seg = y[seg_mask]
             corr_arr = _spearman_corr_batch(dev_matrix[seg_mask, :], y_seg)
             seg_sign_arr = np.sign(corr_arr)
-            segment_agreement_counts_arr += (full_sign_arr == 0) | (seg_sign_arr == full_sign_arr)
+            segment_agreement_counts_arr += (full_sign_arr != 0) & (seg_sign_arr == full_sign_arr)
         segment_agreement_counts = dict(zip(feature_cols, segment_agreement_counts_arr.tolist()))
         for col in feature_cols:
             frac = segment_agreement_counts[col] / n_valid_segments if n_valid_segments > 0 else np.nan

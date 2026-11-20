@@ -38,9 +38,9 @@ from mlframe.utils.array_shape import length_of
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
-from mlframe.feature_selection.filters._fe_gpu_batch._devices import assert_kernel_buffers, crit_float_dtype
-
 from mlframe.utils.log_throttle import log_throttle
+
+from mlframe.feature_selection.filters._fe_gpu_batch._devices import assert_kernel_buffers, crit_float_dtype
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ void build_op_cands(const {REAL}* __restrict__ M, const int* __restrict__ pi, co
     } else if (c < m + 4 * npairs) {
         int q = c - m; int p = q >> 2; int o = q & 3;
         double u = Mr[pi[p]], v = Mr[pj[p]];
-        val = o == 0 ? u * v : (o == 1 ? u - v : (o == 2 ? u / fmax(fabs(v), 1e-6) : u + v));
+        val = o == 0 ? u * v : (o == 1 ? u - v : (o == 2 ? u / (fabs(v) < 1e-6 ? copysign(1e-6, v) : v) : u + v));
     } else {
         int r = c - m - 4 * npairs;
         if (r <= 1) {                                  // row max / min over the m operands
@@ -99,7 +99,7 @@ void build_op_cands_cm(const {REAL}* __restrict__ M, const int* __restrict__ pi,
     } else if (c < m + 4 * npairs) {
         int q = c - m; int p = q >> 2; int o = q & 3;
         double u = M[(long long)pi[p] * n + row], v = M[(long long)pj[p] * n + row];
-        val = o == 0 ? u * v : (o == 1 ? u - v : (o == 2 ? u / fmax(fabs(v), 1e-6) : u + v));
+        val = o == 0 ? u * v : (o == 1 ? u - v : (o == 2 ? u / (fabs(v) < 1e-6 ? copysign(1e-6, v) : v) : u + v));
     } else {
         int r = c - m - 4 * npairs;
         if (r <= 1) {                                                      // row max / min over the m operands
@@ -158,7 +158,7 @@ def _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu: list, cp, out_dtype=
         build_cm(((total + threads - 1) // threads,), (threads,), (M, pi, pj, np.int64(n), np.int32(m), np.int32(npairs), np.int32(has_sum), np.int32(k), out))
         return out
     except Exception as e:
-        logger.debug("column-major batched-fill kernel failed, transposing the row-major build: %s", e)
+        log_throttle(logger, "_resident_candidate_mi.build_cm", logging.WARNING, "column-major batched-fill kernel failed, transposing the row-major build: %s", e)
         return cp.ascontiguousarray(_build_best_existing_op_candidates_gpu(cols_arr_gpu, cp).T.astype(buf_t, copy=False))
 
 
@@ -217,7 +217,7 @@ def _build_best_existing_op_candidates_gpu(cols_arr_gpu: list, cp):
         for i in range(m):
             for j in range(i + 1, m):
                 u, v = cols_arr_gpu[i], cols_arr_gpu[j]
-                cands.append(u * v); cands.append(u - v); cands.append(u / cp.maximum(cp.abs(v), 1e-6)); cands.append(u + v)
+                cands.append(u * v); cands.append(u - v); cands.append(u / cp.where(cp.abs(v) < 1e-6, cp.copysign(1e-6, v), v)); cands.append(u + v)
         stk = cp.stack(cols_arr_gpu, axis=1)
         cands.append(stk.max(axis=1)); cands.append(stk.min(axis=1))
         if m >= 3:
@@ -273,6 +273,7 @@ def best_existing_op_mi_resident(
         _k = _m + 4 * _npairs + 2 + (1 if _m >= 3 else 0)
         _itemsize = np.dtype(crit_float_dtype()).itemsize if rank_binning else np.dtype(_cdt).itemsize
         if not fe_gpu_has_vram_cushion(_n_rows * _k * _itemsize):
+            log_throttle(logger, "_resident_candidate_mi.cushion", logging.WARNING, "best_existing_op_mi_resident: no VRAM cushion for a (%d, %d) candidate block; host fallback", _n_rows, _k)
             return None
         mat_gpu = _build_best_existing_op_candidates_gpu(cols_arr_gpu, cp) if rank_binning else _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu, cp, out_dtype=_cdt)
         if y_gpu is None:
@@ -291,7 +292,7 @@ def best_existing_op_mi_resident(
             )
         return float(np.max(mis))
     except Exception as _exc:
-        logger.debug("best_existing_op_mi_resident: GPU path failed (%s); host fallback", _exc)
+        log_throttle(logger, "_resident_candidate_mi.best_existing_op_mi_resident", logging.WARNING, "best_existing_op_mi_resident: GPU path failed (%s); host fallback", _exc)
         try:
             import cupy as _cp
 
@@ -504,6 +505,6 @@ def gate_grid_mi_resident(
             )
         return np.asarray(mis, dtype=np.float64)  # Intentional float64: MI statistic output contract
     except Exception as _exc:
-        logger.debug("gate_grid_mi_resident: GPU path failed (%s); host fallback", _exc)
+        log_throttle(logger, "_resident_candidate_mi.gate_grid_mi_resident", logging.WARNING, "gate_grid_mi_resident: GPU path failed (%s); host fallback", _exc)
         _note_oom(_exc)
         return None

@@ -265,6 +265,16 @@ def _cupy_relevance(
     return rel
 
 
+_PAIR_TILE_LIVE_ROWS = 5  # (rows, n) int64 buffers alive at once in a tile: va, vb, the vb*nb_a product, code, flat
+
+
+def _pairs_per_tile(free_b: int, n: int, max_joint_card: int, n_pairs: int) -> int:
+    """Number of pairs one cupy tile may hold so its live (rows, n) int64 buffers stay within 35% of ``free_b`` bytes."""
+    budget = int(free_b * 0.35)
+    bytes_per_pair = 8 * (_PAIR_TILE_LIVE_ROWS * n + max_joint_card)
+    return min(n_pairs, max(1, budget // max(1, bytes_per_pair)))
+
+
 def _cupy_pair_edges(
     cp: Any,
     d_sub: Any,
@@ -301,13 +311,7 @@ def _cupy_pair_edges(
         except Exception as e:
             logger.warning("cp.cuda.runtime.memGetInfo() failed, using the conservative 512MiB default: %s", e)
             free_b = 512 * 1024 * 1024
-        budget = int(free_b * 0.35)
-        # per-pair tile cost ~ n int64 (index col) + joint_card int64 (count slot).
-        max_jc = int(joint_card.max()) if n_pairs else 1
-        bytes_per_pair = 8 * (n + max_jc)
-        pairs_per_tile = max(1, budget // max(1, bytes_per_pair))
-        if pairs_per_tile > n_pairs:
-            pairs_per_tile = n_pairs
+        pairs_per_tile = _pairs_per_tile(free_b, n, int(joint_card.max()), n_pairs)
         if pairs_per_tile < n_pairs:
             logger.info(
                 "friend_graph cupy: tiling %d pairs into tiles of %d (free=%dMB, n=%d)",
@@ -826,10 +830,13 @@ def dispatch_friend_graph_stats(
     try:
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
         if not fe_gpu_has_vram_cushion(n * 8):
+            log_throttle(
+                logger, "friend_graph_gpu.vram_cushion", logging.WARNING,
+                "friend_graph GPU stats declined for lack of free VRAM (n=%d, k=%d); the slower CPU edge pass runs instead", n, k,
+            )
             return None
     except Exception as e:
-        logger.debug("swallowed exception in friend_graph_gpu.py: %s", e)
-        pass
+        log_throttle(logger, "friend_graph_gpu.vram_cushion_probe", logging.WARNING, "friend_graph GPU VRAM cushion probe failed (%s: %s); the launch is not guarded", type(e).__name__, e)
 
     if force_backend is not None:
         # A forced GPU backend must still fall back to CPU (return None) on a genuine device fault -
@@ -842,7 +849,10 @@ def dispatch_friend_graph_stats(
             if fb == "cuda" and _CUDA_AVAIL:
                 return friend_graph_stats_cuda(sel, factors_data, factors_nbins, target_indices, dtype)
         except Exception as e:
-            logger.debug("friend_graph forced %s backend failed (%s); falling back to CPU", fb, e)
+            log_throttle(
+                logger, "friend_graph_gpu.forced_backend_failed", logging.WARNING,
+                "friend_graph forced %s backend failed (%s: %s); the slower CPU edge pass runs instead", fb, type(e).__name__, e,
+            )
         return None  # forced CPU (or unavailable / failed forced backend) -> caller uses CPU
 
     choice = _friend_graph_backend_choice(n, k)
@@ -851,12 +861,18 @@ def dispatch_friend_graph_stats(
         try:
             return friend_graph_stats_cupy(sel, factors_data, factors_nbins, target_indices, dtype)
         except Exception as e:
-            logger.debug("friend_graph cupy backend failed (%s); falling back to CPU", e)
+            log_throttle(
+                logger, "friend_graph_gpu.cupy_backend_failed", logging.WARNING,
+                "friend_graph cupy backend failed (%s: %s); the slower CPU edge pass runs instead", type(e).__name__, e,
+            )
     if choice == "cuda" and _CUDA_AVAIL:
         try:
             return friend_graph_stats_cuda(sel, factors_data, factors_nbins, target_indices, dtype)
         except Exception as e:  # incl. numba CudaAPIError/CudaDriverError (Exception, not RuntimeError)
-            logger.debug("friend_graph cuda backend failed (%s); falling back to CPU", e)
+            log_throttle(
+                logger, "friend_graph_gpu.cuda_backend_failed", logging.WARNING,
+                "friend_graph cuda backend failed (%s: %s); the slower CPU edge pass runs instead", type(e).__name__, e,
+            )
 
     return None  # CPU region (or GPU failed) -> caller runs the CPU edge pass
 

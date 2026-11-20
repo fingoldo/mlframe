@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import threading
 from ._content_hasher import new_content_hasher
 from typing import Any, Callable
 
@@ -20,6 +21,7 @@ from ._cache_release import register_cache_releaser
 logger = logging.getLogger(__name__)
 
 _STORES: "list[dict]" = []
+_STORE_LOCK = threading.RLock()
 
 
 def _digest(obj: Any, h: Any, depth: int = 0) -> None:
@@ -37,15 +39,19 @@ def _digest(obj: Any, h: Any, depth: int = 0) -> None:
             _digest(obj[c].to_numpy(), h, depth + 1)
     elif isinstance(obj, pd.Series):
         _digest(obj.to_numpy(), h, depth + 1)
-    elif isinstance(obj, (list, tuple)) and depth < 3 and len(obj) < 500:
-        for x in obj:
-            _digest(x, h, depth + 1)
-    elif isinstance(obj, dict) and depth < 3 and len(obj) < 100:
-        for k in sorted(obj, key=str):
-            h.update(str(k).encode())
-            _digest(obj[k], h, depth + 1)
+    elif isinstance(obj, (list, tuple, dict)):
+        limit = 100 if isinstance(obj, dict) else 500
+        if depth >= 3 or len(obj) >= limit:
+            raise ValueError("container too large to hash by content; the call runs unmemoised")
+        if isinstance(obj, dict):
+            for k in sorted(obj, key=str):
+                h.update(str(k).encode())
+                _digest(obj[k], h, depth + 1)
+        else:
+            for x in obj:
+                _digest(x, h, depth + 1)
     else:
-        h.update(repr(obj).encode()[:200])
+        h.update(repr(obj).encode())
 
 
 def content_memo(max_entries: int = 4, max_bytes: int = 256 * 1024 * 1024) -> Callable:
@@ -67,16 +73,19 @@ def content_memo(max_entries: int = 4, max_bytes: int = 256 * 1024 * 1024) -> Ca
             except Exception as _silent_exc:
                 logger.debug("_fe_content_memo.py: suppressed %r", _silent_exc)
                 return fn(*args, **kwargs)
-            hit = store.get(key)
+            with _STORE_LOCK:
+                hit = store.get(key)
             if hit is not None:
                 return hit.copy(deep=True)
             result = fn(*args, **kwargs)
             if isinstance(result, pd.DataFrame):
                 size = int(result.memory_usage(index=True).sum())
                 if size <= max_bytes:
-                    while store and (len(store) >= max_entries or sum(int(d.memory_usage(index=True).sum()) for d in store.values()) + size > max_bytes):
-                        store.pop(next(iter(store)))
-                    store[key] = result.copy(deep=True)
+                    stored = result.copy(deep=True)
+                    with _STORE_LOCK:
+                        while store and (len(store) >= max_entries or sum(int(d.memory_usage(index=True).sum()) for d in store.values()) + size > max_bytes):
+                            store.pop(next(iter(store)))
+                        store[key] = stored
             return result
 
         return wrapper
@@ -87,9 +96,10 @@ def content_memo(max_entries: int = 4, max_bytes: int = 256 * 1024 * 1024) -> Ca
 def _release_content_memos() -> int:
     """Drop every memoised result (registered for release under memory pressure); returns the bytes freed."""
     freed = 0
-    for store in _STORES:
-        freed += sum(int(d.memory_usage(index=True).sum()) for d in store.values())
-        store.clear()
+    with _STORE_LOCK:
+        for store in _STORES:
+            freed += sum(int(d.memory_usage(index=True).sum()) for d in store.values())
+            store.clear()
     return freed
 
 

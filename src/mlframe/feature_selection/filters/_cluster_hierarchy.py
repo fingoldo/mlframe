@@ -489,6 +489,11 @@ def build_cluster_hierarchy(
             # check is cheap insurance against pathological inputs.
             break
         level_anchors = next_level_anchors
+    if n_failed_pairs:
+        log_throttle(
+            logger, "cluster_hierarchy_failed_pair_total", logging.WARNING,
+            "build_cluster_hierarchy: %d anchor pair(s) could not be scored and were left out; the hierarchy may be missing merges.", n_failed_pairs,
+        )
     return hierarchy
 
 

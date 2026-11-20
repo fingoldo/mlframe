@@ -16,6 +16,7 @@ from collections import OrderedDict
 import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from ._kernel_types import render
 
@@ -51,8 +52,11 @@ def _cuda_present() -> bool:
 
             return bool(getattr(_c, "is_available", lambda: False)())
         except Exception as e2:
-            # fallback: no CUDA is reported when neither pyutilz nor numba can answer, so callers stay on the host path.
-            logger.debug("_cuda_present: numba.cuda.is_available() also failed, defaulting to no CUDA: %s", e2)
+            log_throttle(
+                logger, "gpu_shared.cuda_present_probe", logging.WARNING,
+                "_cuda_present: neither pyutilz.is_cuda_available() (%s) nor numba.cuda.is_available() (%s) could answer; reporting no CUDA, so the GPU FE paths run on the host",
+                e, e2,
+            )
             return False
 
 

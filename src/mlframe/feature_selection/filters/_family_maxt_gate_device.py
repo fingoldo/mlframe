@@ -18,7 +18,6 @@ from typing import Any, Optional, Sequence
 import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
-from ._fe_usability_signal import _crit_np_dtype
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -116,6 +115,8 @@ class _FamilyOnDevice:
         n = int(devs[0].shape[0])
         if any(int(d.shape[0]) != n for d in devs):
             raise _NotApplicableError("batches of different length")
+        if int(y.shape[0]) != n:
+            raise _NotApplicableError("labels and candidate codes differ in length")
         # The batches are packed one by one at a column offset: concatenating them first copied the whole (n, k) code matrix (57 MB a call, 22 ms; 2.4 GB over a default fit) only so that one launch could read it.
         parts = [d if d.dtype in _C_TYPES else d.astype(cp.int64) for d in devs]
         k_total = int(sum(int(d.shape[1]) for d in parts))
@@ -226,11 +227,11 @@ class _FamilyOnDevice:
 
     def null_max(self, m: int, rng: np.random.Generator) -> np.ndarray:
         """The next ``m`` null maxima over every column of the family (host double precision), the permutations drawn from ``rng`` exactly as the host gate draws them."""
-        from ._family_maxt_gate import _permutation_block
+        from ._family_maxt_gate import _budgeted_perm_block, _permutation_block
         from ._family_maxt_null_v2_njit import label_bitsets_from_index
 
         out = np.empty(int(m), dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-        block = 256
+        block = _budgeted_perm_block(256, self.n)
         cp = self.cp
         for start in range(0, int(m), block):
             mm = min(block, int(m) - start)
@@ -239,7 +240,7 @@ class _FamilyOnDevice:
             for part in self._parts(cls):
                 top = part.max(axis=1)
                 best = top if best is None else cp.maximum(best, top)
-            out[start : start + mm] = cp.asnumpy(best).astype(_crit_np_dtype())
+            out[start : start + mm] = cp.asnumpy(best).astype(np.float64)
         return out
 
 
@@ -275,7 +276,7 @@ def family_pass_batches_device(batches: Sequence[Any], y_codes: np.ndarray, alph
             flags[gray] = _permutation_pass_flags_with(fam.null_max, observed_max[gray], alpha, n_perm, seed)
         return [bool(f) for f in flags]
     except _NotApplicableError as exc:
-        logger.debug("device family gate does not apply (%s); the host gate runs", exc)
+        log_throttle(logger, "_family_maxt_gate_device.not_applicable", logging.INFO, "device family gate does not apply (%s); the host gate runs", exc)
         return None
     except Exception as exc:  # any device failure: the host gate gives the decisions
         logger.warning("device family gate failed (%s: %s); the host gate runs", type(exc).__name__, exc)

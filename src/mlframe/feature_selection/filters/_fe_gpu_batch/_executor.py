@@ -54,11 +54,6 @@ def gpu_fe_batch_mi(
     computed on a single GPU. Returns a host (K,) double MI array. ``device`` selects the CUDA device
     (default: current). Raises if cupy / CUDA is unavailable - the dispatcher gates that upstream.
     """
-    import cupy as cp
-
-    from mlframe.utils.cupy_pinned import install_pinned_policy
-
-    install_pinned_policy()
     if dtype is None:
         dtype = _crit_np_dtype()
     _f32 = np.dtype(dtype) == np.float32  # f32: half the H2D + f32 radix-select (selection-equivalent, not 1e-9)
@@ -72,6 +67,15 @@ def gpu_fe_batch_mi(
     out = np.zeros(k, dtype=np.float64)  # Intentional float64: MI statistic output compared at full precision
     if n == 0 or k == 0:
         return out
+    y_host = np.ascontiguousarray(y_codes, dtype=np.int64)
+    if y_host.shape[0] != n:
+        raise ValueError(f"gpu_fe_batch_mi: y_codes has {y_host.shape[0]} rows but X_cands has {n}")
+
+    import cupy as cp
+
+    from mlframe.utils.cupy_pinned import install_pinned_policy
+
+    install_pinned_policy()
 
     # Import via the ``hermite_fe`` PACKAGE, not ``_hermite_fe_mi`` directly: the two are mutually circular
     # (``_hermite_fe_mi`` imports ``hermite_fe`` at its top; ``hermite_fe`` re-imports ``_hermite_fe_mi`` at
@@ -89,7 +93,6 @@ def gpu_fe_batch_mi(
         # them host-side removes that sync entirely, on both a cache hit AND a miss.
         from .._fe_resident_operands import resident_operand
 
-        y_host = np.ascontiguousarray(y_codes, dtype=np.int64)
         y_min = int(y_host.min())
         n_classes = int(y_host.max()) - y_min + 1
         y_gpu = resident_operand(y_host, "gpu_fe_batch_y", dtype=np.int64)

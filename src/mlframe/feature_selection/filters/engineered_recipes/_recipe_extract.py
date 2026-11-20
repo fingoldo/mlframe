@@ -202,13 +202,13 @@ def _coerce_to_int_with_nan_handling(
     if cat_code_map:
         return _codes_from_cat_map(vals, cat_code_map, n_bins, recipe_name, col_name, unknown_strategy)
     if np.issubdtype(vals.dtype, np.floating):
-        nan_mask = np.isnan(vals)
+        nan_mask = ~np.isfinite(vals)
         if nan_mask.any():
             if unknown_strategy == "raise":
                 n_nan = int(nan_mask.sum())
                 raise ValueError(
                     f"Recipe '{recipe_name}': column '{col_name}' has "
-                    f"{n_nan} NaN value(s) at transform time. Set "
+                    f"{n_nan} non-finite value(s) at transform time. Set "
                     f"unknown_strategy='clip' or 'sentinel' to handle "
                     f"silently."
                 )

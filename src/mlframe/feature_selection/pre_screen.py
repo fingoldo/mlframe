@@ -125,7 +125,8 @@ def compute_unsupervised_drops(
             if not is_numeric:
                 continue
             try:
-                var_val = col.var()
+                # Polars propagates a float NaN through var() (nulls are skipped, NaNs are not); pandas skips both, so drop the NaNs to agree with the pandas branch.
+                var_val = col.drop_nans().var() if col.dtype.is_float() else col.var()
             except Exception as e:
                 log_throttle(logger, "pre_screen.hot_loop_warning", logging.WARNING, "var() failed for column %r: %s", col_name, e)
                 var_val = None
@@ -173,10 +174,12 @@ def _column_null_count(col, col_name, n_rows):
         # without touching the data at all. Every other dtype (object/None, datetime/NaT,
         # nullable Int/Float ext, category, etc.) falls back to the exact ``isna().sum()``.
         _np_dt = col.dtype
-        if np.issubdtype(_np_dt, np.floating):
-            return int(np.isnan(col.to_numpy()).sum())
-        if _np_dt == np.int64 or _np_dt == np.int32 or _np_dt == np.int16 or _np_dt == np.int8 or _np_dt == bool:  # noqa: E721 - numpy dtype `==` comparison is intended
-            return 0
+        # ``np.issubdtype`` raises TypeError on a pandas extension dtype (Float64 / Int64 / category / string), so only a plain numpy dtype takes the fast paths.
+        if isinstance(_np_dt, np.dtype):
+            if _np_dt.kind == "f":
+                return int(np.isnan(col.to_numpy()).sum())
+            if _np_dt.kind in "iub":
+                return 0
         return int(col.isna().sum())
     except Exception as e:
         log_throttle(logger, "pre_screen_isna_sum_failed", logging.WARNING, "isna().sum() failed for column %r, treating its null count as 0: %s", col_name, e)

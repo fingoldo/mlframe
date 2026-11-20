@@ -24,6 +24,8 @@ import logging
 import numpy as np
 from typing import cast
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 _HISTGATE_THREADS_DEFAULT = 128  # historical hardcoded default + pre-sweep / no-cuda / lookup-failure fallback
@@ -58,7 +60,7 @@ def _histgate_threads_variants() -> list:
             cands.append(top)
         return sorted(set(cands)) or seed
     except Exception as e:
-        logger.debug("_histgate_threads_variants: HW-occupancy probe failed, using the plain seed list: %s", e)
+        log_throttle(logger, "histgate_threads.variants", logging.INFO, "_histgate_threads_variants: the hardware occupancy probe failed (%s), the plain seed list is used", e)
         return seed
 
 
@@ -74,7 +76,7 @@ def histgate_threads(n_rows: int) -> int:
     try:
         choice = _HISTGATE_THREADS_SPEC.choose(n_rows=int(n_rows))
     except Exception as e:
-        logger.debug("histgate_threads: KTC choose() failed, using the historical default %d: %s", _HISTGATE_THREADS_DEFAULT, e)
+        log_throttle(logger, "histgate_threads.choose", logging.WARNING, "histgate_threads: the tuning cache lookup failed (%s), %d threads per block are used", e, _HISTGATE_THREADS_DEFAULT)
         return _HISTGATE_THREADS_DEFAULT
     if isinstance(choice, str) and choice.startswith("th_"):
         try:

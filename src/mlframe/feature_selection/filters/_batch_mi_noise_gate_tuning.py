@@ -15,6 +15,7 @@ import logging
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
 from .info_theory import batch_mi_with_noise_gate as _cpu_batch_mi_with_noise_gate
 from typing import cast
 
@@ -244,5 +245,8 @@ def _batch_mi_noise_gate_backend_choice(n_rows: int, n_cols: int) -> str:
         if bc in ("cpu", "cuda", "cupy"):
             return bc
     except Exception as e:
-        logging.getLogger(__name__).debug("batch_mi_noise_gate get_or_tune failed: %s", e)
+        log_throttle(
+            logger, "batch_mi_noise_gate_get_or_tune_failed", logging.WARNING,
+            "batch_mi_noise_gate backend lookup failed (%s: %s); using the size-threshold heuristic instead of the per-host tuned choice.", type(e).__name__, e,
+        )
     return _batch_mi_noise_gate_fallback_choice(n_rows, n_cols)

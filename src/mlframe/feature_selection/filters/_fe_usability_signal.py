@@ -59,6 +59,8 @@ def _abs_pearson_njit(y, v):
     DELIBERATELY EXCLUDED from the fastmath set: a full ``fastmath=True`` here would let LLVM assume no-NaN and drop
     the ``isfinite`` test, silently admitting the NaN rows the ratio forms produce and CORRUPTING the |corr| (a
     selection-BREAKING ~1e-2 error, not the ~1e-16 reassoc ULP delta this safe set gives)."""
+    if v.shape[0] != y.shape[0]:
+        raise ValueError("_abs_pearson_njit: y and v differ in length")
     n = 0
     sa: float | np.floating = 0.0; sv: float | np.floating = 0.0
     for i in range(y.shape[0]):

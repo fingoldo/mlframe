@@ -105,7 +105,7 @@ def cascade_select(
     boruta_confirmed = [name for name, decision in zip(boruta_result["feature_names"], boruta_result["decision"]) if decision in ("confirmed", "tentative")]
 
     if not boruta_confirmed:
-        return {"boruta_result": boruta_result, "boruta_confirmed": [], "forward_selected": [], "final_selected": [], "rfecv": None}
+        return {"boruta_result": boruta_result, "boruta_confirmed": [], "forward_selected": [], "final_selected": [], "rfecv": None, "holdout_score": None}
 
     X_stage1 = X[boruta_confirmed]
     forward_selected = forward_select(
@@ -113,7 +113,7 @@ def cascade_select(
     )
 
     if not forward_selected:
-        return {"boruta_result": boruta_result, "boruta_confirmed": boruta_confirmed, "forward_selected": [], "final_selected": [], "rfecv": None}
+        return {"boruta_result": boruta_result, "boruta_confirmed": boruta_confirmed, "forward_selected": [], "final_selected": [], "rfecv": None, "holdout_score": None}
 
     X_stage2 = X[forward_selected]
     rfecv_config = dict(rfecv_kwargs) if rfecv_kwargs else {}

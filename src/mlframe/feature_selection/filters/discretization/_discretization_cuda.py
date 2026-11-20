@@ -302,8 +302,8 @@ def discretize_2d_array_cuda_row_chunked(
             d_chunk = cp.asarray(arr[row_start:row_end])
             cmin = cp.nanmin(d_chunk, axis=0).astype(cp.float64)  # Intentional float64: the cuts and the scaling are double so the codes equal the host binner's
             cmax = cp.nanmax(d_chunk, axis=0).astype(cp.float64)
-            col_min_d = cmin if col_min_d is None else cp.minimum(col_min_d, cmin)
-            col_max_d = cmax if col_max_d is None else cp.maximum(col_max_d, cmax)
+            col_min_d = cmin if col_min_d is None else cp.fmin(col_min_d, cmin)
+            col_max_d = cmax if col_max_d is None else cp.fmax(col_max_d, cmax)
             del d_chunk
         _rng = col_max_d - col_min_d
         flat_cols = cp.asnumpy(_rng <= 0) if arr.dtype == np.float32 else None

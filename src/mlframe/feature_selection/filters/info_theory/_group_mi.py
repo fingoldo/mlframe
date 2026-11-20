@@ -154,6 +154,12 @@ def _coarsen_codes(codes: np.ndarray, n_bins: int, cap: int) -> tuple[np.ndarray
     return coarse.astype(codes.dtype, copy=False), cap
 
 
+def _check_group_codes(codes: np.ndarray, n_bins: int, name: str) -> None:
+    """Raise ``ValueError`` when a code is ``>= n_bins``: the njit histogram indexes ``[0, n_bins)`` unchecked, so a larger code reads and writes out of bounds."""
+    if codes.size and int(codes.max()) >= n_bins:
+        raise ValueError(f"group_blocked_mi: {name} holds a code {int(codes.max())} >= n_bins={n_bins}")
+
+
 def group_blocked_mi(
     codes_x: np.ndarray,
     codes_y: np.ndarray,
@@ -191,6 +197,10 @@ def group_blocked_mi(
     cy = np.ascontiguousarray(codes_y)
     if int(group_offsets[-1]) != cx.shape[0] or cy.shape[0] != cx.shape[0]:
         return float("nan")
+    if np.asarray(sort_idx).shape[0] != cx.shape[0]:
+        return float("nan")
+    _check_group_codes(cx, int(n_bins_x), "codes_x")
+    _check_group_codes(cy, int(n_bins_y), "codes_y")
     _cap = _group_mi_bin_cap(group_offsets, min_rows)
     cx, n_bins_x = _coarsen_codes(cx, int(n_bins_x), _cap)
     cy, n_bins_y = _coarsen_codes(cy, int(n_bins_y), _cap)

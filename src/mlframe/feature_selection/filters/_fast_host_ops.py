@@ -41,7 +41,7 @@ def _searchsorted_right_par(edges: np.ndarray, x: np.ndarray, out: np.ndarray) -
 def searchsorted_right(edges: np.ndarray, x: np.ndarray) -> np.ndarray:
     """``np.searchsorted(edges, x, side="right")`` for ascending 1-D ``edges`` and a 1-D float column, multi-core for large columns."""
     x = np.asarray(x)
-    if x.size < _PARALLEL_MIN_N or x.dtype.kind != "f":
+    if x.ndim != 1 or x.size < _PARALLEL_MIN_N or x.dtype.kind != "f":
         return np.searchsorted(edges, x, side="right")
     # compare in the common dtype, as np.searchsorted does: float64 edges against a float32 column must not be rounded to float32, or a value lying on an edge changes bin
     common = np.result_type(np.asarray(edges).dtype, x.dtype)
@@ -62,7 +62,8 @@ def count_distinct_int(a: np.ndarray) -> int:
         lo = int(a.min())
         span = int(a.max()) - lo + 1
         if span <= (1 << 22):
-            return int(np.count_nonzero(np.bincount((a.astype(np.int64, copy=False) - lo), minlength=span)))
+            shifted = (a - a.dtype.type(lo)).astype(np.int64) if a.dtype.kind == "u" else a.astype(np.int64, copy=False) - lo
+            return int(np.count_nonzero(np.bincount(shifted, minlength=span)))
     return int(np.unique(a).size)
 
 

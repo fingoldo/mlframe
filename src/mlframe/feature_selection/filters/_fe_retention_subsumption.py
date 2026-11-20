@@ -34,6 +34,7 @@ from typing import Any, Sequence, cast
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -89,7 +90,7 @@ def replay_candidate_continuous(recipe: Any, X: Any, apply_fn: Any) -> Any:
             if dev is not None:
                 return dev.ravel()
     except Exception as e:
-        logger.debug("device replay of the retention candidate failed, using the host replay: %s", e)
+        log_throttle(logger, "_fe_retention_subsumption.device_replay", logging.WARNING, "device replay of the retention candidate failed, using the host replay: %s", e)
     host = np.asarray(apply_fn(recipe, X), dtype=_crit_np_dtype()).ravel()
     return np.nan_to_num(host, copy=False, nan=0.0, posinf=0.0, neginf=0.0)
 
@@ -199,7 +200,7 @@ def retention_form_is_subsumed(
         from ._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin, _renumber_joint
         from ._fe_cmi_redundancy_gate import _conditional_perm_null
     except ImportError as e:
-        logger.debug("import for the conditional-permutation-null path failed: %s", e)
+        log_throttle(logger, "_fe_retention_subsumption.import", logging.WARNING, "import for the conditional-permutation-null path failed, retaining the candidate: %s", e)
         return False
 
     inc = [_flat(c) for c in incumbent_continuous if c is not None]

@@ -378,7 +378,8 @@ def _refine_kway_coordinate_ascent(
     phase actually found."""
     if n_passes <= 0 or not kway_results:
         return kway_results
-    refined = []
+    refined: list = []
+    seen_tuples: set = set()
     for orig_tuple, orig_classes, orig_nuniq, orig_mi in kway_results:
         current = list(orig_tuple)
         current_mi = orig_mi
@@ -431,5 +432,9 @@ def _refine_kway_coordinate_ascent(
                             )
             if not improved:
                 break
-        refined.append((tuple(sorted(current)), current_classes, current_nuniq, current_mi))
+        refined_tuple = tuple(sorted(current))
+        if refined_tuple in seen_tuples:
+            continue
+        seen_tuples.add(refined_tuple)
+        refined.append((refined_tuple, current_classes, current_nuniq, current_mi))
     return refined

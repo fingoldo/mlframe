@@ -148,7 +148,7 @@ logger = logging.getLogger(__name__)
 # was examined again by every caller (715 examinations of about 105 columns in a 100000 x 100 fit).
 _HEAVY_TAIL_MEMO: dict = {"cache": None, "depth": 0}
 _HEAVY_TAIL_MEMO_LOCK = _threading.Lock()
-_heavy_tail_hash: "Optional[Callable[[Any], int]]"
+_heavy_tail_hash: Optional[Callable[[Any], int]]
 try:
     import xxhash as _xxhash
 

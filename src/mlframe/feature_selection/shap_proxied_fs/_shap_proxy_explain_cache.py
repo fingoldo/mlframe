@@ -31,14 +31,34 @@ def content_digest(data: Any) -> str:
     return h.hexdigest()
 
 
-def _compute_shap_matri_out_fold_true_splitter(out_of_fold: bool, n_models: int, rng: np.random.Generator, n_splits: int) -> None:
-    """Block of compute_shap_matrix starting at ``if not out_of_fold:``."""
+def _policy_folds(cv_policy: Any, n: int, n_splits: int, out_of_fold: bool) -> Optional[list]:
+    """The shared CV policy's out-of-fold partition when it applies to this call (same rule as the OOF stage), else None."""
+    if not out_of_fold or cv_policy is None:
+        return None
+    from mlframe.feature_selection.cv_policy import partition_folds
+
+    return partition_folds(cv_policy, n, n_splits)
+
+
+def _policy_folds_digest(folds: list) -> str:
+    """Digest of a fold partition: the held-out fold id of every row (train rows are the complement)."""
+    n = sum(len(te) for _, te in folds)
+    fold_of_row = np.full(n, -1, dtype=np.int64)
+    for k, (_, te) in enumerate(folds):
+        fold_of_row[np.asarray(te)] = k
+    return content_digest(fold_of_row)
+
+
+def _compute_shap_matri_out_fold_true_splitter(out_of_fold: bool, n_models: int, rng: np.random.Generator, n_splits: int, policy_folds: Optional[list] = None) -> None:
+    """Block of compute_shap_matrix starting at ``if not out_of_fold:``; a policy partition draws no splitter seed."""
     if not out_of_fold:
         for _ in range(n_models):
             rng.integers(0, 2**31 - 1)
     else:
-        rng.integers(0, 2**31 - 1)
-        for _ in range(n_splits * n_models):
+        if policy_folds is None:
+            rng.integers(0, 2**31 - 1)
+        n_folds = len(policy_folds) if policy_folds is not None else n_splits
+        for _ in range(n_folds * n_models):
             rng.integers(0, 2**31 - 1)
 
 
@@ -59,6 +79,7 @@ def _open_shap_disk_cache(
     shap_backend: str,
     n_estimators_cap: Optional[int],
     inner_n_jobs_cap: bool,
+    cv_policy: Any = None,
 ) -> tuple[Any, Optional[str], Any]:
     """Open the outer ``shap_phi_`` disk cache and look up the call; returns ``(cache, cache_key, hit)`` (``hit`` is None on a miss or when disabled)."""
     # Content-addressable disk cache: keyed by (X summary, y summary, booster params, fold/model
@@ -87,10 +108,13 @@ def _open_shap_disk_cache(
                 _rng_state = rng.bit_generator.state
             except AttributeError:
                 _rng_state = repr(rng)
+            _policy_folds_used = _policy_folds(cv_policy, int(X.shape[0]), int(n_splits), bool(out_of_fold))
             _x_key = hash_array_summary(X.values if hasattr(X, "values") else np.asarray(X)) + ":" + content_digest(X)
             _y_key = hash_array_summary(np.asarray(y)) + ":" + content_digest(y)
             _state_key = hash_object({
                 "params": _params,
+                "estimator": type(model_template).__module__ + "." + type(model_template).__qualname__,
+                "cv_folds": _policy_folds_digest(_policy_folds_used) if _policy_folds_used is not None else None,
                 "rng": _rng_state,
                 "n_splits": int(n_splits),
                 "n_models": int(n_models),
@@ -115,7 +139,7 @@ def _open_shap_disk_cache(
                 # Sequence (mirrors the non-cached code path below):
                 #   * out_of_fold=False: n_models seeds.
                 #   * out_of_fold=True: 1 splitter seed + n_splits * n_models fold seeds.
-                _compute_shap_matri_out_fold_true_splitter(out_of_fold, n_models, rng, n_splits)
+                _compute_shap_matri_out_fold_true_splitter(out_of_fold, n_models, rng, n_splits, _policy_folds_used)
                 return _cache, _cache_key, _hit
         except Exception as exc:
             # Cache failures are non-fatal: we lose the speedup but the compute path stays correct.
@@ -131,5 +155,5 @@ def _store_shap_cache(cache: Any, cache_key: Optional[str], result: Any) -> Any:
         try:
             cache.put(cache_key, result)
         except Exception as exc:
-            logger.debug("compute_shap_matrix: cache put failed (%s)", exc)
+            log_throttle(logger, "shap_proxy.cache_put_failed", logging.WARNING, "compute_shap_matrix: the disk cache write failed (%s), the result is returned but not cached", exc)
     return result

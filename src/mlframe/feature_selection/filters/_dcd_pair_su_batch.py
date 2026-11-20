@@ -142,7 +142,6 @@ def _validate_batch_joint_entropy_pairs_inputs(a_arr: np.ndarray, b_arr: np.ndar
     nbins>=1 precondition should fail loudly here instead of corrupting memory silently."""
     if int(nb_arr[a_arr].min(initial=1)) < 1 or int(nb_arr[b_arr].min(initial=1)) < 1:
         raise ValueError("_batch_joint_entropy_pairs: nbins must be >= 1 for every referenced column")
-    _batch_joint_entropy_pairs = None
 
 
 #: Row width (bytes) and pair count from which the codes of the pairs' columns are copied into contiguous rows before the histograms are built. The strided kernel reads two codes
@@ -202,6 +201,7 @@ def _warm_marginal_entropies(state: Any, pairs_list: list, fd: Optional[np.ndarr
             # pair_su uses. Bit-equivalent: identical merge_vars call
             # shape (vars_indices=[col], var_is_nominal=None, fn_arr,
             # dtype) -> identical freqs -> identical entropy().
+            col_idx: Any = None
             try:
                 from .info_theory import entropy, merge_vars
                 fn_arr = state._fn_arr_cached

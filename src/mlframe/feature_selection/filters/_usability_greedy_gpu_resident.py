@@ -183,7 +183,7 @@ def usability_greedy_gpu_resident(
         _usability_greedy_g_range_min(K, P, _shortlist, selected, mae_cur, folds_cur, _cv_candidates, min_improving_folds, mae_improve_rel)
         return [pool[i] for i in selected]
     except _ResidentFallbackError as e:
-        logger.debug("usability_greedy_gpu_resident: singular border / degenerate device fit, falling back to the exact CPU greedy: %s", e)
+        log_throttle(logger, "usability_greedy_gpu_resident.fallback", logging.WARNING, "usability_greedy_gpu_resident: singular border / degenerate device fit, falling back to the exact CPU greedy: %s", e)
         return None
     except Exception as e:
         logger.warning("usability_greedy_gpu_resident: cupy/device error, falling back to the exact CPU greedy: %s", e)
@@ -295,6 +295,8 @@ def _usability_greedy_gpu_step2_def_shortlist_sel(va_masks, tr_masks, Vdev, ydev
         except Exception as e:
             logger.debug("usability_greedy_gpu_resident._fit_selected: centered Gram is singular, caller falls back to the CPU refit: %s", e)
             return None, None, None
+        if not bool(cp.all(cp.isfinite(beta))):
+            return None, None, None  # cupy's solve does not raise on a singular matrix: it returns inf / nan
         return beta, ybar, mu
 
     def _cv_baseline() -> np.ndarray:
@@ -401,6 +403,8 @@ def _usability_greedy_gpu_step3_def_cv_candidates(nf, tr_masks, va_masks, ydev, 
         out: dict = {}
         if errs_rows:
             errs_host = cp.asnumpy(cp.stack(errs_rows, axis=0))  # ONE D2H for the whole shortlist
+            if not np.isfinite(errs_host).all():
+                raise _ResidentFallbackError("a bordered solve returned a non-finite fold error")  # cupy's solve does not raise on a singular matrix: it returns inf / nan
             # Coalesced round-1 border check: pull the per-candidate min cc_tr.cc_tr back in the SAME
             # round (one stacked D2H), then fall back exactly if any candidate sits on the singular border.
             if any(m is not None for m in mind_rows):

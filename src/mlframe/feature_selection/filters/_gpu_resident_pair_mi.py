@@ -111,6 +111,15 @@ def gpu_pairs_fe_mi(
         # Admission before the upload: the candidate matrix, its resident codes and one temporary must fit the VRAM cushion; a refusal
         # returns None, which is the CPU dispatcher's path for any device fault.
         if not fe_gpu_has_vram_cushion(3 * int(np.asarray(cand).nbytes)):
+            import logging
+
+            log_throttle(
+                logging.getLogger(__name__),
+                "gpu_pairs_mi.vram_cushion",
+                logging.WARNING,
+                "gpu_pairs_fe_mi: %d MB of candidate working set does not fit the free VRAM cushion; CPU dispatcher",
+                3 * int(np.asarray(cand).nbytes) // (1024 * 1024),
+            )
             return None
         cand_d = cp.asarray(np.ascontiguousarray(cand, dtype=_binning_dtype(cand)))
         codes_d = _gpu_resident_discretize_codes(cand_d, _nb, out_dtype=cp.int32)  # (n,K) RESIDENT int codes
@@ -129,7 +138,7 @@ def gpu_pairs_fe_mi(
         # the GPU path would otherwise be invisible - the exact "GPU never helped" failure mode.
         import logging
 
-        logging.getLogger(__name__).debug("gpu_pairs_fe_mi failed; CPU fallback", exc_info=True)
+        log_throttle(logging.getLogger(__name__), "gpu_pairs_mi.analytic_failed", logging.WARNING, "gpu_pairs_fe_mi failed; CPU fallback", exc_info=True)
         return None
 
 
@@ -257,7 +266,13 @@ def fe_gpu_pairs_mi_backend_choice(n_rows: int, n_cols: int) -> str:
     except Exception as e:
         import logging
 
-        logging.getLogger(__name__).debug("fe_gpu_pairs_mi_backend_choice: kernel_tuning_cache lookup failed, using the measurement-backed fallback: %s", e)
+        log_throttle(
+            logging.getLogger(__name__),
+            "gpu_pairs_mi.ktc_lookup",
+            logging.WARNING,
+            "fe_gpu_pairs_mi_backend_choice: kernel_tuning_cache lookup failed, using the measurement-backed fallback: %s",
+            e,
+        )
         return _fe_gpu_pairs_mi_fallback_choice(n_rows, n_cols)
 
 
@@ -403,7 +418,13 @@ def fe_gpu_binning_backend_choice(n_rows: int, n_cols: int) -> str:
     except Exception as e:
         import logging
 
-        logging.getLogger(__name__).debug("fe_gpu_binning_backend_choice: kernel_tuning_cache lookup failed, using the measurement-backed fallback: %s", e)
+        log_throttle(
+            logging.getLogger(__name__),
+            "gpu_pairs_mi.binning_ktc_lookup",
+            logging.WARNING,
+            "fe_gpu_binning_backend_choice: kernel_tuning_cache lookup failed, using the measurement-backed fallback: %s",
+            e,
+        )
         return _fe_gpu_binning_fallback_choice(n_rows, n_cols)
 
 
@@ -484,7 +505,14 @@ def grand_fused_pair_mi(
         except Exception as e:
             import logging
 
-            logging.getLogger(__name__).info("grand-fusion fused path unavailable (%s); non-fused fallback", e)
+            log_throttle(
+                logging.getLogger(__name__),
+                "gpu_pairs_mi.grand_fused_unavailable",
+                logging.WARNING,
+                "grand-fusion fused path unavailable (%s: %s); using the slower non-fused path",
+                type(e).__name__,
+                e,
+            )
 
     _ret_grand_fused_pair_mi_part1 = _grand_fused_pair_mi_part1(a, b, y_codes, classes_y_safe, freqs_y, nbins, use_su, npermutations, random_seed, min_nonzero_confidence)
     _early_grand_fused_pair_mi_part1: tuple[list, np.ndarray] = _ret_grand_fused_pair_mi_part1[1]

@@ -118,6 +118,10 @@ def _infer_task_scoring(y_arr: np.ndarray):
     Binary -> roc_auc; multiclass -> roc_auc_ovr (one-vs-rest macro AUC); continuous -> r2. The continuous case also
     drives a KFold (vs StratifiedKFold) at the caller, since stratification on a continuous target is meaningless.
     """
+    y_arr = np.asarray(y_arr)
+    if y_arr.dtype.kind in "OUS":
+        n_labels = pd.Series(y_arr).nunique()
+        return ("binary", "roc_auc") if n_labels <= 2 else ("multiclass", "roc_auc_ovr")
     finite = y_arr[~_isnan_mask(y_arr)]
     n_unique = np.unique(finite).size
     looks_integer = np.allclose(finite, np.round(finite)) if finite.size else False
@@ -137,7 +141,7 @@ def _isnan_mask(arr: np.ndarray) -> np.ndarray:
     return np.zeros(a.shape, dtype=bool)
 
 
-def _rerank_by_model(estimator_factory: Callable, X: Any, y: Any, ranking: Sequence, max_rows: int, seed: int) -> list:
+def _rerank_by_model(estimator_factory: Callable, X: Any, y: Any, ranking: Sequence, max_rows: int, seed: Any) -> list:
     """The features of ``ranking`` re-ordered most-important-first by a fresh model fitted on ``y`` (feature_importances_ or |coef_|)."""
     is_df = hasattr(X, "columns")
     n = len(X)
@@ -175,12 +179,12 @@ def cv_curve(estimator_factory: Callable, X: Any, y: Any, ranking: Sequence, n_g
     curves = []
     for p in range(n_perm if permute else 1):
         if permute:
-            rng = np.random.default_rng(base_seed + p)
+            rng = np.random.default_rng([base_seed, p, 0])
             yy = rng.permutation(y_arr)
         else:
             yy = y_arr
         yy = pd.Series(yy, index=X.index) if is_df else yy
-        ranking_p = _rerank_by_model(estimator_factory, X, yy, ranking, rerank_rows, base_seed + p) if permute and rerank_rows is not None else ranking
+        ranking_p = _rerank_by_model(estimator_factory, X, yy, ranking, rerank_rows, [base_seed, p, 1]) if permute and rerank_rows is not None else ranking
         row = []
         for n in n_grid:
             cols = list(ranking_p[:n])

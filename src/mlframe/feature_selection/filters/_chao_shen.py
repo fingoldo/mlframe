@@ -104,12 +104,19 @@ def chao_shen_entropy_from_counts(counts: np.ndarray, coverage: float = -1.0) ->
     return max(0.0, h_cs)
 
 
+def _require_finite(a: np.ndarray, name: str) -> None:
+    """Raise ``ValueError`` when a float input holds NaN or inf: such codes cannot be binned or counted, and the quantile edges would all be NaN."""
+    if a.dtype.kind == "f" and not np.isfinite(a).all():
+        raise ValueError(f"chao_shen: {name} holds NaN/inf; drop or code missing values before the estimate")
+
+
 def chao_shen_entropy(x: np.ndarray) -> float:
     """Chao-Shen entropy of a 1-D integer-encoded sample. Convenience wrapper
     that bincounts ``x`` and dispatches to ``chao_shen_entropy_from_counts``."""
     x = np.asarray(x).ravel()
     if x.size == 0:
         return 0.0
+    _require_finite(x, "x")
     if x.dtype.kind not in "iub":
         # Quantile-bin float input to 10 quantiles before Chao-Shen; matches
         # the dispatch policy of ``_plug_in_mi``.
@@ -175,6 +182,8 @@ def chao_shen_mi(x_binned: np.ndarray, y: np.ndarray) -> float:
     y = np.asarray(y).ravel()
     if x_binned.size == 0:
         return 0.0
+    _require_finite(x_binned, "x_binned")
+    _require_finite(y, "y")
     # Coerce y to int.
     if y.dtype.kind not in "iub":
         q = np.quantile(y.astype(_crit_np_dtype()), np.linspace(0, 1, 11))

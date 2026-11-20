@@ -128,9 +128,6 @@ def duplicate_transfer_audit(min_bytes: int = MIN_BYTES) -> Iterator[DuplicateTr
         yield rep
         return
 
-    orig_asnumpy = cp.asnumpy
-    orig_get = cp.ndarray.get
-
     def _note(host: Any) -> None:
         """Record the host array of one finished transfer when it is large enough."""
         try:
@@ -167,6 +164,8 @@ def duplicate_transfer_audit(min_bytes: int = MIN_BYTES) -> Iterator[DuplicateTr
         return out
 
     with _AUDIT_LOCK:
+        orig_asnumpy = cp.asnumpy
+        orig_get = cp.ndarray.get
         cp.asnumpy = _asnumpy
         try:
             cp.ndarray.get = _get  # may be read-only on some cupy builds; guarded

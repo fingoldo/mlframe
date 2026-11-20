@@ -63,7 +63,7 @@ def add_back_mix_offset(predictions: Any, X: pd.DataFrame, record: dict) -> np.n
     fitted object (``record["recipe"]``), because the metadata holds only its repr. A non-finite base raises (no silent zero)."""
     from ._target_offset_regressor import _replay_base
 
-    u = _replay_base(record["recipe"], X)
+    u = _replay_base(record["recipe"], X, fill_nonfinite=False)
     if not np.all(np.isfinite(u)):
         raise ValueError("the mix base replays to non-finite values on this frame; refusing to fill them silently.")
     out: np.ndarray = np.asarray(predictions).ravel() + float(record["beta"]) * u

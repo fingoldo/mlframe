@@ -29,13 +29,12 @@ import numpy as np
 from mlframe._numba_parallel_guard import parallel_kernel_entry
 from numba import njit, prange
 
+from mlframe.utils.log_throttle import log_throttle
 from ._internals import LARGE_CONST, MAX_CONFIRMATION_CAND_NBINS, NMAX_NONPARALLEL_ITERS
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._numba_utils import _fleuret_shuffle_col_lcg
 from ._raw_module_cache import RawModuleCache
-
-from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 

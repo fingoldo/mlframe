@@ -835,9 +835,11 @@ def dispatch_batch_mi_with_noise_gate_gpu(
                 ),
                 "cupy",
             )
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
-            pass
+        except Exception as e:
+            log_throttle(
+                logger, "batch_mi_noise_gate_cupy_failed", logging.WARNING,
+                "batch_mi_noise_gate cupy backend failed (%s: %s); falling back to the CPU kernel", type(e).__name__, e,
+            )
     if choice == "cuda" and cuda_available():
         try:
             return (
@@ -859,8 +861,10 @@ def dispatch_batch_mi_with_noise_gate_gpu(
             # numba's CudaAPIError/CudaDriverError derive
             # directly from Exception, not RuntimeError - broaden to match the already-fixed
             # dispatch_batch_pair_mi sibling so a genuine CUDA driver fault can't escape uncaught.
-            logging.getLogger(__name__).debug("batch_mi_noise_gate cuda backend failed (%s); falling back to CPU", e)
-            pass
+            log_throttle(
+                logger, "batch_mi_noise_gate_cuda_failed", logging.WARNING,
+                "batch_mi_noise_gate cuda backend failed (%s: %s); falling back to the CPU kernel", type(e).__name__, e,
+            )
 
     return None  # CPU region (or GPU failed) -> caller runs the CPU kernel
 

@@ -253,6 +253,18 @@ def reset_gpu_model_available_cache() -> None:
     _GPU_MODEL_AVAILABLE_CACHE = None
 
 
+def _frame_values(X):
+    """Nameless ndarray of ``X``; pandas nullable columns (Int64/Float64/boolean) become float64 with NaN for NA instead of an object array holding pd.NA."""
+    if isinstance(X, pd.DataFrame):
+        if any(isinstance(dt, pd.api.extensions.ExtensionDtype) for dt in X.dtypes):
+            try:
+                return X.to_numpy(dtype=np.float64, na_value=np.nan)
+            except (ValueError, TypeError):
+                return X.values
+        return X.values
+    return np.asarray(X)
+
+
 def _as_nameless_array(X):
     """Return ``X`` as a nameless numpy array for a ranking booster fit.
 
@@ -261,7 +273,7 @@ def _as_nameless_array(X):
     ``from_cstr_to_pystr`` + ``_validate_features`` feature-name marshalling for nothing. Tree splits
     depend on column values + positions, never names, so the importance vector is bit-identical to
     the named-DataFrame fit. ndarray input passes through (already nameless)."""
-    return X.values if hasattr(X, "values") else np.asarray(X)
+    return _frame_values(X) if hasattr(X, "values") else np.asarray(X)
 
 
 def _importances_from_fitted(est, n_features: int) -> Optional[np.ndarray]:
@@ -352,8 +364,16 @@ def _rank_fast_model(model_template, X, y, *, n_features: int, n_estimators_cap=
     if fast:
         try:
             pf.set_params(**fast)
-        except (ValueError, TypeError):
-            pass
+        except (ValueError, TypeError) as e:
+            log_throttle(
+                logger,
+                "shap_proxy_fast_model_set_params_failed",
+                logging.WARNING,
+                "ShapProxiedFS prefilter fast_model: the reduced-budget params %s were rejected (%s: %s); ranking with the template's full-budget booster.",
+                sorted(fast),
+                type(e).__name__,
+                e,
+            )
     # Nameless numpy fit (positional importances; bit-identical) - see ``_rank_model``.
     pf.fit(_as_nameless_array(X), y)
     return _importances_from_fitted(_unwrap_estimator(pf), n_features)
@@ -468,7 +488,7 @@ def _rank_two_stage(
     # ``from_cstr_to_pystr`` + ``_validate_features`` feature-name marshalling (bit-identical to the
     # named path - importances are derived from identical trees; see the honest-loss numpy-slice
     # lever for the proven values-only/positional equivalence).
-    Xv = X.values if isinstance(X, pd.DataFrame) else np.asarray(X)
+    Xv = _frame_values(X)
     X_stage1 = np.ascontiguousarray(Xv[:, stage1_cols])
     t1 = time.perf_counter()
     # Route stage-B to the GPU when the problem is big enough that upload + kernel-launch overhead
@@ -530,7 +550,7 @@ def _rank_univariate(X, y, *, classification: bool, batch_size: Optional[int] = 
     bytes independent of total feature count."""
     from mlframe.feature_selection.shap_proxied_fs._shap_proxy_prefilter_univariate import f_classif_chunked, f_regression_chunked
 
-    Xv = X.values if isinstance(X, pd.DataFrame) else np.asarray(X)
+    Xv = _frame_values(X)
     if classification:
         scores = f_classif_chunked(Xv, y, batch_size=batch_size)
     else:

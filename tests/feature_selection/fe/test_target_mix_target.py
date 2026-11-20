@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+import pytest
 from sklearn.ensemble import HistGradientBoostingRegressor
 
 from mlframe.feature_selection.filters._target_mix_target import build_mix_offset_target
@@ -17,12 +18,13 @@ def _frame(seed, n=2000):
 
 
 def test_accepted_base_gives_the_offset_target_on_every_row():
-    """When a base is accepted, the values equal ``y - beta * u`` on all rows, with the slope close to the true 3."""
+    """When a base is accepted, the values equal ``y - beta * u`` on all rows, with the slope magnitude close to the true 3."""
     X, y = _frame(0)
     train_idx = np.arange(1500)
     out = build_mix_offset_target(X, y, train_idx, selector=MRMR(verbose=0, n_jobs=1, random_state=0, fe_target_mix_enable=True, fe_target_mix_max_bases=1, fe_max_steps=1), gate_regressor=HistGradientBoostingRegressor(max_iter=100, random_state=0))
     assert out is not None
-    assert abs(out["beta"] - 3.0) < 0.3
+    # the base can be a SIR direction whose eigenvector sign is arbitrary, so only the magnitude of the slope is pinned; the identity below fixes the sign
+    assert abs(abs(out["beta"]) - 3.0) < 0.3
     assert out["values"].shape == y.shape
     from mlframe.feature_selection.filters._target_offset_regressor import _replay_base
 
@@ -46,3 +48,12 @@ def test_add_back_returns_predictions_to_the_y_scale():
     rec = {"beta": 2.0, "recipe": {"raw": "u"}}
     back = add_back_mix_offset(np.zeros(len(X)), X, rec)
     assert np.allclose(back, 2.0 * X["u"].to_numpy())
+
+
+def test_add_back_mix_offset_refuses_a_non_finite_base():
+    """A NaN in the base column raises instead of being replayed as zero."""
+    from mlframe.feature_selection.filters._target_mix_target import add_back_mix_offset
+
+    X = pd.DataFrame({"a": [1.0, np.nan, 3.0]})
+    with pytest.raises(ValueError):
+        add_back_mix_offset(np.zeros(3), X, {"beta": 2.0, "recipe": {"raw": "a"}})

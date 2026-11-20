@@ -43,6 +43,8 @@ from collections.abc import Sequence
 
 import numpy as _np
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # _FE_RESIDENT_OPERANDS used to be read/evicted
@@ -354,7 +356,7 @@ def assemble_resident_matrix(host: "_np.ndarray | None", names: Sequence[str] | 
             cols = [resident_operand(np.ascontiguousarray(host[:, j]), ("xbasis_op", names[j]), dtype=dtype) for j in range(_k)]
             return cp.stack(cols, axis=1) if _k > 1 else cols[0][:, None]
         except Exception as e:  # nosec B110 - best-effort path
-            logger.debug("per-column resident-operand assembly failed, falling back to whole-matrix upload: %s", e)
+            log_throttle(logger, "_fe_resident_operands.assemble", logging.WARNING, "per-column resident-operand assembly failed, falling back to whole-matrix upload: %s", e)
     g = resident_operand(host, fallback_key, dtype=dtype)
     return g[:, None] if g.ndim == 1 else g
 
@@ -424,7 +426,7 @@ def resident_qbin_codes(a: Any, nbins: int, dtype: Any, compute_fn: Any) -> Any:
         xd = resident_operand(host, "qbin_x", dtype=dtype)
         return compute_fn(cp, xd, int(nbins))
 
-    sig = (host.shape, host.dtype.str, _content_hash_memoized(host), int(nbins), str(dtype))
+    sig = (int(cp.cuda.Device().id), host.shape, host.dtype.str, _content_hash_memoized(host), int(nbins), str(dtype))
     with _FE_RESIDENT_OPERANDS_LOCK:
         dev = _FE_RESIDENT_QBIN_CODES.get(sig)
         if dev is not None:

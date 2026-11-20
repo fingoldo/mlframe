@@ -26,7 +26,7 @@ def _candidate_codes(col: np.ndarray, nbins: int, quantile_bin):
             if dev is not None:
                 return dev
     except Exception as e:
-        logger.debug("resident binagg candidate binning failed, using the host binner: %s", e)
+        log_throttle(logger, "binagg_resident_candidate_bin_failed", logging.WARNING, "resident binagg candidate binning failed (%s: %s), using the host binner (slower).", type(e).__name__, e)
     return quantile_bin(col, nbins=nbins)
 
 

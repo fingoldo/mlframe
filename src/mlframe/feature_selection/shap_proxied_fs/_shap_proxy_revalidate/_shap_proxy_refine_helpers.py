@@ -362,7 +362,7 @@ def _within_cluster_ref_m_step3_range_st_rounds(st, current, parsimony_tol, prot
                 ):
                     break
             # Accept the leader if within tol; otherwise round terminates.
-            if best_local_idx < 0 or best_loss_round > st.cur_threshold:
+            if best_local_idx < 0 or not best_loss_round <= st.cur_threshold:
                 break
             drop_col = droppable_current[best_local_idx]
             current = [c for c in current if c != drop_col]
@@ -380,8 +380,9 @@ def _within_cluster_ref_m_step3_range_st_rounds(st, current, parsimony_tol, prot
                                              n_estimators_cap=cap, template_id=tid,
                                              inner_n_jobs_cap=inner_n_jobs_cap, disk_cache=disk_cache)
             losses_arr = np.asarray(st.losses, dtype=np.float64)  # Intentional float64: proxy-loss statistic compared at full precision in the refine bounds
+            losses_arr = np.where(np.isfinite(losses_arr), losses_arr, np.inf)  # a NaN loss must never win argmin or pass the threshold test
             best_i = int(np.argmin(losses_arr))
-            if losses_arr[best_i] > st.cur_threshold:
+            if not losses_arr[best_i] <= st.cur_threshold:
                 break
             current = trials[best_i]
             st.base = min(st.base, float(losses_arr[best_i]))

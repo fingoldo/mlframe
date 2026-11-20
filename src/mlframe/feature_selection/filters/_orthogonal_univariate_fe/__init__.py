@@ -589,7 +589,9 @@ def score_features_by_mi_uplift(
     DataFrame with columns ``[engineered_col, source_col, baseline_mi,
     engineered_mi, uplift]`` sorted by ``uplift`` descending.
     """
-    y_arr = np.asarray(y).astype(np.int64) if not np.issubdtype(np.asarray(y).dtype, np.integer) else np.asarray(y, dtype=np.int64)
+    from .._orthogonal_shared import coerce_y_classif
+
+    y_arr = coerce_y_classif(y)
     raw_cols = list(raw_X.columns)
     from .._fe_usability_signal import _crit_np_dtype
     raw_np = raw_X.to_numpy(dtype=_crit_np_dtype())  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); scale-robust MI
@@ -905,6 +907,13 @@ def hybrid_orth_mi_fe_with_recipes(
             # _orth_basis_recipes._eval_orth_basis_column casts to float64 unconditionally - see the fit-time
             # column-extraction fix above for the full rationale.
             _col_full = np.asarray(X[src].values, dtype=np.float64)  # Intentional float64: fit/replay bit-identity contract (basis axis)
+            if _do_sub and not np.isfinite(_col_full).all():
+                # the subsample was finite but the full column is not: the axis fit on it would be NaN, so the winner is dropped as the generator drops a non-finite column
+                log_throttle(
+                    logger, "univariate_basis_subsample_nonfinite_full_column", logging.WARNING,
+                    "hybrid_orth_mi_fe_with_recipes: column %r is finite on the decision subsample but not on the full frame; dropping %r", src, name,
+                )
+                continue
             _vals_full, _pp = _evaluate_basis_column(
                 _col_full, chosen_basis, int(chosen_degree), return_params=True,
             )

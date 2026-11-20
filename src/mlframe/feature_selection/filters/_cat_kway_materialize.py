@@ -310,13 +310,13 @@ def _build_kway_chained_lookup(
 
     # First step: merge cols [idx_tuple[0], idx_tuple[1]]
     vi_2 = np.array([idx_tuple[0], idx_tuple[1]], dtype=np.int64)
-    classes_step, _, n_uniq_step = merge_vars(
+    classes_step, _, _n_uniq_step = merge_vars(
         factors_data=factors_data, vars_indices=vi_2,
         var_is_nominal=None, factors_nbins=nbins, dtype=dtype,
     )
     nbins_a = int(nbins[idx_tuple[0]])
     nbins_b = int(nbins[idx_tuple[1]])
-    lookup_1, _ = _build_factorize_lookup(
+    lookup_1, n_eff_1 = _build_factorize_lookup(
         factors_data=factors_data,
         idx_a=int(idx_tuple[0]), idx_b=int(idx_tuple[1]),
         nbins_a=nbins_a, nbins_b=nbins_b,
@@ -324,11 +324,12 @@ def _build_kway_chained_lookup(
         unknown_strategy=unknown_strategy,
     )
     lookups.append(lookup_1)
-    intermediate_nuniqs.append(int(n_uniq_step))
+    # The cardinality the NEXT step multiplies by includes the "sentinel" class when unseen cells exist, else replay of an unseen prefix aliases another cell.
+    intermediate_nuniqs.append(int(n_eff_1))
 
     # Subsequent steps: merge (running classes, idx_tuple[step])
     running_classes = classes_step.astype(np.int64, copy=False)
-    running_nuniq = int(n_uniq_step)
+    running_nuniq = int(n_eff_1)
 
     for step in range(2, k):
         nxt_idx = int(idx_tuple[step])
@@ -346,6 +347,7 @@ def _build_kway_chained_lookup(
         lookup_step[pre_prune_codes] = cls_next
         # Resolve unseen per unknown_strategy
         seen_mask = lookup_step >= 0
+        n_eff_next = int(n_uniq_next)
         if not seen_mask.all():
             if unknown_strategy == "clip":
                 seen_max = int(lookup_step[seen_mask].max())
@@ -353,11 +355,12 @@ def _build_kway_chained_lookup(
             elif unknown_strategy == "sentinel":
                 seen_max = int(lookup_step[seen_mask].max())
                 lookup_step[~seen_mask] = seen_max + 1
+                n_eff_next = seen_max + 2
             # ``raise``: leave -1; apply_recipe surfaces an error.
         lookups.append(lookup_step)
-        intermediate_nuniqs.append(int(n_uniq_next))
+        intermediate_nuniqs.append(n_eff_next)
         running_classes = cls_next.astype(np.int64, copy=False)
-        running_nuniq = int(n_uniq_next)
+        running_nuniq = n_eff_next
 
     return lookups, intermediate_nuniqs
 
@@ -395,7 +398,6 @@ def _materialize_kway(
             eng_name = f"kway_{k_out}({'__'.join(src_names)})"
         new_data_block[:, k_out] = classes_arr
         new_names.append(eng_name)
-        new_nbins.append(int(n_uniq))
 
         # Build the chained lookup so transform() can replay this k-way on
         # test data. Memory: O(k * max_combined_nbins), bounded by config.
@@ -406,6 +408,8 @@ def _materialize_kway(
             unknown_strategy=unknown_strategy,
             dtype=dtype,
         )
+        # Like the pair path, the engineered column's cardinality counts the sentinel class when unseen cells exist.
+        new_nbins.append(int(chain_nuniqs[-1]))
 
         new_recipes.append(
             EngineeredRecipe(

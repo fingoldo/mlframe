@@ -72,6 +72,8 @@ def _is_multiclass_cardinality(n_unique: int, n_rows: int) -> bool:
 
 def _classify_target(y: np.ndarray) -> str:
     """Return one of 'binary', 'multiclass', 'continuous'."""
+    if y.dtype.kind in "OUS":
+        return "binary" if pd.Series(y).nunique() == 2 else "multiclass"
     if y.dtype.kind in "iub":
         # Integer / boolean target.
         uniq = np.unique(y[~_isnan_mask(y)])
@@ -187,7 +189,8 @@ def _rank_and_tiesum(x: np.ndarray) -> Tuple[np.ndarray, float]:
             ranks[order[k]] = avg
         t = j - i + 1
         if t > 1:
-            tie_sum += t * t * t - t
+            tf = float(t)
+            tie_sum += tf * tf * tf - tf
         i = j + 1
     return ranks, tie_sum
 
@@ -250,7 +253,8 @@ def _mann_whitney_u_z(x: np.ndarray, group: np.ndarray) -> Tuple[float, float, f
             j += 1
         t = j - i + 1
         if t > 1:
-            tie_sum += t * t * t - t
+            tf = float(t)
+            tie_sum += tf * tf * tf - tf
         i = j + 1
     if n > 1:
         var_U = (n1 * n2 / 12.0) * ((n + 1) - tie_sum / (n * (n - 1)))
@@ -315,10 +319,12 @@ def _kruskal_wallis_h(x: np.ndarray, group: np.ndarray, n_groups: int) -> Tuple[
             j += 1
         t = j - i + 1
         if t > 1:
-            tie_sum += t * t * t - t
+            tf = float(t)
+            tie_sum += tf * tf * tf - tf
         i = j + 1
     if n > 1:
-        C = 1.0 - tie_sum / (n * n * n - n)
+        nf = float(n)
+        C = 1.0 - tie_sum / (nf * nf * nf - nf)
         if C > 0:
             H = H / C
     return H, n_groups - 1
@@ -344,7 +350,8 @@ def _kruskal_wallis_h_v2(x: np.ndarray, group: np.ndarray, n_groups: int) -> Tup
             H_raw += (group_rank_sums[k] * group_rank_sums[k]) / group_sizes[k]
     H = 12.0 / (n * (n + 1)) * H_raw - 3.0 * (n + 1)
     if n > 1:
-        C = 1.0 - tie_sum / (n * n * n - n)
+        nf = float(n)
+        C = 1.0 - tie_sum / (nf * nf * nf - nf)
         if C > 0:
             H = H / C
     return H, n_groups - 1
@@ -565,7 +572,8 @@ def _chi2_independence_p(x_cat: np.ndarray, y_cat: np.ndarray) -> float:
     # table size, so it stays out of this hot prescreen path.
     n_low = int(np.sum(expected < 5.0))
     if n_low > 0 and n_low > 0.2 * expected.size:
-        logger.warning(
+        log_throttle(
+            logger, "univariate_ht_cochran_low_expected", logging.WARNING,
             "chi2_independence: %d/%d expected cell(s) < 5 (Cochran's rule); the asymptotic chi-squared p-value "
             "is unreliable on this small/sparse contingency table.", n_low, expected.size)
     chi2 = float(np.sum((table - expected) ** 2 / expected_safe))

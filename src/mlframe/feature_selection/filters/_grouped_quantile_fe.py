@@ -649,8 +649,9 @@ def _grouped_quantile_mi_device(eng_X: pd.DataFrame, eng_cols: list, y_bin: np.n
             cols.append(c)
         if not cols:
             return {}
-        n_cls = int(y_bin.max()) + 1 if y_bin.size else 1
-        yd = cp.asarray(np.ascontiguousarray(y_bin, dtype=np.int64))
+        _, y_dense = np.unique(y_bin, return_inverse=True)  # the kernel indexes classes from 0: sparse or negative integer labels would write out of range
+        n_cls = int(y_dense.max()) + 1 if y_dense.size else 1
+        yd = cp.asarray(np.ascontiguousarray(y_dense, dtype=np.int64))
         from ._device_blocks import first_block, run_column_blocks
 
         def score_block(lo: int, hi: int) -> np.ndarray:
@@ -756,13 +757,9 @@ def score_grouped_quantile_by_mi_uplift(
         return pd.DataFrame(columns=["engineered_col", "source_col", "mi", "source_mi", "uplift"])
     y_arr = np.asarray(y)
     if not np.issubdtype(y_arr.dtype, np.integer):
-        if y_arr.dtype.kind in "fc" and int(np.unique(y_arr).size) > 32:
-            try:
-                y_arr = pd.qcut(y_arr, q=10, labels=False, duplicates="drop").to_numpy()
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
-        _, y_arr = np.unique(y_arr, return_inverse=True)
+        from ._grouped_agg_fe import _dense_target_codes
+
+        y_arr = _dense_target_codes(y_arr)
     y_bin = y_arr.astype(np.int64)
 
     def _bin(arr: np.ndarray) -> np.ndarray:

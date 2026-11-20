@@ -20,6 +20,7 @@ import threading
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters.info_theory._reject_count import reject_count
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
@@ -272,7 +273,7 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int, gat
             zeroed = None
             n_shuffled = int(out.shape[0]) - 1
             if n_shuffled > 0:
-                max_failed = max(1, int(n_shuffled * (1.0 - float(gate[0]))))
+                max_failed = max(1, reject_count(n_shuffled, float(gate[0])))
                 failed = ((out[1:] >= original[None, :]) & (original[None, :] > 0)).sum(axis=0)
                 zeroed = (original > 0) & (failed >= max_failed)
                 kept = cp.where(zeroed, 0.0, original)
@@ -291,7 +292,9 @@ def bits_gate_mi(d_disc: Any, nbins_arr: np.ndarray, d_y_all: Any, n_y: int, gat
         host: np.ndarray = cp.asnumpy(out).astype(np.float64, copy=False)  # Intentional float64: MI output contract of the kernel is double precision
         return host
     except Exception as exc:  # nosec B110 - any device or compile failure falls back to the histogram gate
-        logger.warning("bit-set noise gate unavailable (%s: %s); using the histogram gate", type(exc).__name__, exc)
+        from mlframe.utils.log_throttle import log_throttle
+
+        log_throttle(logger, "noise_gate.bits_unavailable", logging.WARNING, "bit-set noise gate unavailable (%s: %s); using the histogram gate", type(exc).__name__, exc)
         return None
 
 

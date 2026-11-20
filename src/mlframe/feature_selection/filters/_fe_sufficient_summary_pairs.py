@@ -538,7 +538,7 @@ def pair_residual_backend_choice(n_samples: int, n_pairs: int) -> str:
     try:
         choice = _PRT_SPEC.choose(n_samples=int(n_samples), n_pairs=int(n_pairs))
     except Exception as e:  # nosec B110  # best-effort: the choice only picks CPU or GPU, both backends return the same result, so a broken cache cannot change the verdict
-        logger.debug("pair residual kernel-tuning lookup failed (%r), the heuristic decides", e)
+        log_throttle(logger, "pair_residual_tuning_lookup_failed", logging.WARNING, "pair residual kernel-tuning lookup failed (%r), the heuristic decides the backend", e)
         choice = _pair_residual_fallback_choice(n_samples, n_pairs)
     return "gpu_fused" if choice in ("gpu_fused", "gpu", "cuda", "cupy") else "njit"
 

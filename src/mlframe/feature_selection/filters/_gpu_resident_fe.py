@@ -58,7 +58,7 @@ exact cp.percentile sort is at the bandwidth floor; beating it needs a rank-EXAC
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 import logging
 import os
@@ -455,7 +455,7 @@ _FULL_BINARY = (
 
 _PREWARP_TRANSFORM_SRC = r"""
 extern "C" __global__
-void prewarp_transform(const {REAL}* __restrict__ x, const int code, const {ACC} lo, const {ACC} span,
+void prewarp_transform(const {XREAL}* __restrict__ x, const int code, const {ACC} lo, const {ACC} span,
                        const {ACC} mean, const {ACC} std_safe, const {ACC} clip_lo, const {ACC} clip_hi,
                        const int has_clip, const long long n, {REAL}* __restrict__ out) {
     long long i = (long long)blockIdx.x * blockDim.x + threadIdx.x;
@@ -476,13 +476,14 @@ _PREWARP_KERNEL_LOCK = threading.Lock()
 _PREWARP_TRANSFORM_KERNELS: dict = {}
 
 
-def _get_prewarp_transform_kernel(cp, real_t: str = "double"):
-    """Lazily compiles and caches the fused prewarp min-max/z-score/shift+clip ``RawKernel`` per buffer element type ``real_t`` (module-level; pickle-safe)."""
+def _get_prewarp_transform_kernel(cp, real_t: str = "double", in_t: Optional[str] = None):
+    """Lazily compiles and caches the fused prewarp min-max/z-score/shift+clip ``RawKernel`` per output element type ``real_t`` and input element type ``in_t`` (default ``real_t``; module-level; pickle-safe)."""
+    in_t = real_t if in_t is None else in_t
     with _PREWARP_KERNEL_LOCK:
-        kern = _PREWARP_TRANSFORM_KERNELS.get(real_t)
+        kern = _PREWARP_TRANSFORM_KERNELS.get((real_t, in_t))
         if kern is None:
-            kern = cp.RawKernel(_PREWARP_TRANSFORM_SRC.replace("{ACC}", "double").replace("{REAL}", real_t), "prewarp_transform")  # Intentional float64: the transform computes in double for every buffer type
-            _PREWARP_TRANSFORM_KERNELS[real_t] = kern
+            kern = cp.RawKernel(_PREWARP_TRANSFORM_SRC.replace("{ACC}", "double").replace("{XREAL}", in_t).replace("{REAL}", real_t), "prewarp_transform")  # Intentional float64: the transform computes in double for every buffer type
+            _PREWARP_TRANSFORM_KERNELS[(real_t, in_t)] = kern
     return kern
 
 
@@ -492,15 +493,16 @@ def _gpu_apply_prewarp(cp, x, spec):
     host copy."""
     basis = str(spec["basis"])
     buf_t = crit_float_dtype()
-    xf = x.astype(buf_t, copy=False)
+    # The affine preprocess runs on the operand in its own precision and only its result is narrowed to the buffer type: narrowing the raw operand first erases a spread that sits on a large offset.
+    xw = x if x.dtype in (cp.float32, cp.float64) else x.astype(cp.float64)
     if basis == "fourier_adaptive":
         pp = dict(spec["preprocess"])
         if str(pp.get("arg", "linear")) == "quadratic":
-            z = (xf - float(pp["mean"])) / float(pp["std"])
+            z = (xw - float(pp["mean"])) / float(pp["std"])
             u = cp.sign(z) * (z * z)
-            axis = (u - float(pp["lo"])) / float(pp["span"])
+            axis = ((u - float(pp["lo"])) / float(pp["span"])).astype(buf_t, copy=False)
         else:
-            axis = (xf - float(pp["lo"])) / float(pp["span"])
+            axis = ((xw - float(pp["lo"])) / float(pp["span"])).astype(buf_t, copy=False)
         coef = np.asarray(spec["coef"], dtype=np.float64).reshape(-1)  # Intentional float64: stored basis coefficient read for GPU replay
         out = cp.zeros_like(axis)
         for i, f in enumerate(pp["freqs"]):
@@ -540,12 +542,14 @@ def _gpu_apply_prewarp(cp, x, spec):
         clip_lo = 0.0
         clip_hi = (float(clip) + 1e-9) if clip is not None else 0.0
     try:
-        xfc = cp.ascontiguousarray(xf)
+        xfc = cp.ascontiguousarray(xw)
         nrow = int(xfc.size)
         z = cp.empty(nrow, dtype=buf_t)
         _real = "float" if buf_t == cp.float32 else "double"
-        assert_kernel_buffers("prewarp_transform", _real, x=xfc, out=z)
-        prewarp = _get_prewarp_transform_kernel(cp, _real)
+        _in_real = "float" if xfc.dtype == cp.float32 else "double"
+        assert_kernel_buffers("prewarp_transform", _in_real, x=xfc)
+        assert_kernel_buffers("prewarp_transform", _real, out=z)
+        prewarp = _get_prewarp_transform_kernel(cp, _real, _in_real)
         threads = block_size_for(prewarp, work_items=nrow)
         prewarp(
             ((nrow + threads - 1) // threads,),
@@ -567,17 +571,18 @@ def _gpu_apply_prewarp(cp, x, spec):
     except Exception as e:
         logger.warning("fused prewarp-transform kernel failed, falling back to the exact cupy chain: %s", e)
         if basis in ("legendre", "chebyshev"):
-            z = 2 * (xf - pp["lo"]) / _guarded_span(pp) - 1
+            z = 2 * (xw - pp["lo"]) / _guarded_span(pp) - 1
             if clip is not None:
                 z = cp.clip(z, -float(clip), float(clip))
         elif basis == "hermite":
-            z = (xf - pp["mean"]) / pp["std"]
+            z = (xw - pp["mean"]) / pp["std"]
             if clip is not None:
                 z = cp.clip(z, -float(clip), float(clip))
         else:
-            z = xf - pp["lo"] + 1e-9
+            z = xw - pp["lo"] + 1e-9
             if clip is not None:
                 z = cp.clip(z, 0.0, float(clip) + 1e-9)
+        z = z.astype(buf_t, copy=False)
     coef_list = [float(v) for v in np.asarray(spec["coef"], dtype=np.float64).reshape(-1)]  # Intentional float64: stored basis coefficient read for GPU replay
     return clen(cp, z, coef_list)
 

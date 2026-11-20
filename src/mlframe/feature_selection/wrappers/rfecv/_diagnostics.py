@@ -179,10 +179,13 @@ def n_stability_elbow_(self, metric: str = "jaccard") -> int:
     if not curve or not hasattr(self, "cv_results_"):
         return getattr(self, "n_features_", 0)
     means = dict(zip(self.cv_results_["nfeatures"], self.cv_results_["cv_mean_perf"]))
+    finite_means = [float(v) for v in means.values() if np.isfinite(v)]
+    floor = min(finite_means) if finite_means else 0.0
+    shift = -floor if floor < 0 else 0.0
     combined = {}
     for n, s in curve.items():
         if n in means and np.isfinite(means[n]):
-            combined[n] = float(s) * float(means[n])
+            combined[n] = float(s) * (float(means[n]) + shift)
     if not combined:
         return getattr(self, "n_features_", 0)
     # Argmax with tie-breaker on smaller N (parsimony when scores tie).

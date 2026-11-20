@@ -11,6 +11,7 @@ from typing import Any
 
 import numba
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 from ._fe_usability_signal import _crit_np_dtype
 
 logger = logging.getLogger("mlframe.feature_selection.filters._usability_aware_selection")
@@ -51,7 +52,7 @@ def _abscorr(u: np.ndarray, v: np.ndarray) -> float:
             from ._usability_gpu import gpu_abscorr
             return gpu_abscorr(u, v)
         except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
-            logger.debug("_abscorr: GPU path failed, falling back to the exact CPU path: %s", e)
+            log_throttle(logger, "usability_greedy_steps.abscorr_gpu_failed", logging.WARNING, "_abscorr: GPU path failed, falling back to the exact CPU path: %s", e)
     u = _f64(u); v = _f64(v)  # precision for the heavy-tail correlation
     if u.size == 0:
         return 0.0
@@ -124,6 +125,16 @@ def _usability_greedy_step1_unchanged_selection_identical(K, pool, st, shortlist
     return K, shortlist
 
 
+def _full_class_proba(model: Any, proba: np.ndarray, n_classes: int) -> np.ndarray:
+    """``proba`` widened to ``n_classes`` columns: a fold whose train rows miss a class gets that class's column as 0, so the columns line up with the dense class codes."""
+    classes = np.asarray(getattr(model, "classes_", np.arange(proba.shape[1])), dtype=np.int64)
+    if proba.shape[1] == n_classes and np.array_equal(classes, np.arange(n_classes)):
+        return proba
+    full = np.zeros((proba.shape[0], n_classes), dtype=proba.dtype)
+    full[:, classes] = proba
+    return full
+
+
 def _usability_greedy_step2_def_cv_fold(classification, n_folds, folds, y_enc, n_classes, _logloss, _pv, _mk, y_cont):
     """Step 2 of usability_greedy: lines starting at ``def _cv_per_fold(sel_idx) -> np.ndarray:``."""
     def _cv_per_fold(sel_idx) -> np.ndarray:
@@ -156,7 +167,7 @@ def _usability_greedy_step2_def_cv_fold(classification, n_folds, folds, y_enc, n
                     errs.append(np.inf)
                     continue
                 m = _mk().fit(Xs[trm], y_enc[trm])
-                proba = m.predict_proba(Xs[vam])
+                proba = _full_class_proba(m, m.predict_proba(Xs[vam]), n_classes)
                 errs.append(_logloss(y_enc[vam], proba))
             # Intentional float64: accumulator kept f64 (statistic / count sums need full precision)
             return np.asarray(errs, dtype=np.float64)
@@ -205,7 +216,7 @@ def _usability_greedy_step3_cheap_residual_aware(classification, n_classes, y_en
                 tr = ~ho
                 if np.unique(y_enc[tr]).size >= 2:
                     m = _mk().fit(Xs[tr], y_enc[tr])
-                    proba = m.predict_proba(Xs[ho])
+                    proba = _full_class_proba(m, m.predict_proba(Xs[ho]), n_classes)
                     if n_classes == 2:
                         phat = proba[:, 1]
                     else:
@@ -240,7 +251,7 @@ def _usability_greedy_step3_cheap_residual_aware(classification, n_classes, y_en
                 cols = np.column_stack([_pv(i)[rows] for i in cand_ids])
                 uses = gpu_abscorr_batch(cols, _f64(np.asarray(resid)))
             except Exception as e:  # best-effort: the exact per-candidate CPU |corr| loop below reproduces the same shortlist order
-                logger.debug("gpu_abscorr_batch failed, falling back to the exact CPU path: %s", e)
+                log_throttle(logger, "usability_greedy_steps.abscorr_batch_gpu_failed", logging.WARNING, "gpu_abscorr_batch failed, falling back to the exact CPU path: %s", e)
                 uses = None  # fall back to the exact CPU path
         scored = []
         for k, i in enumerate(cand_ids):

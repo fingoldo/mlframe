@@ -31,18 +31,18 @@ _BODY_TEMPLATE = r"""
         case @neg@: r = -v; break;
         case @abs@: r = fabs(v); break;
         case @sqr@: r = v * v; break;
-        case @reciproc@: r = T(1.0) / v; break;
+        case @reciproc@: r = v == T(0) ? T(1e9) : T(1.0) / v; break;
         case @sqrt@: r = sqrt(fabs(v)); break;
         case @log@: r = pos ? log(v) : log(v + shift); break;
         case @sin@: r = sin(v); break;
         case @sign@: r = isnan(v) ? v : (T)((v > T(0)) - (v < T(0))); break;   // NaN stays NaN, as np.sign and the njit twins give
         case @rint@: r = rint(v); break;
         case @qubed@: r = v * v * v; break;
-        case @invsquared@: r = T(1.0) / (v * v); break;
-        case @invqubed@: r = T(1.0) / (v * v * v); break;
+        case @invsquared@: r = v == T(0) ? T(1e9) : T(1.0) / (v * v); break;
+        case @invqubed@: r = v == T(0) ? T(1e9) : T(1.0) / (v * v * v); break;
         case @cbrt@: r = cbrt(v); break;
-        case @invcbrt@: r = pow(v, T(-1.0 / 3.0)); break;
-        case @invsqrt@: r = pow(v, T(-0.5)); break;
+        case @invcbrt@: r = v == T(0) ? T(1e9) : pow(v, T(-1.0 / 3.0)); break;
+        case @invsqrt@: r = v == T(0) ? T(1e9) : pow(v, T(-0.5)); break;
         default: r = exp(v); break;
     }
     out = r;

@@ -16,6 +16,7 @@ import logging
 from typing import Any, Callable, cast
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_dtype
 
@@ -170,7 +171,7 @@ def _apply_unary_binary(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str, 
             if _gpu_out is not None:
                 return _gpu_out
     except Exception as _e:  # pragma: no cover - rare GPU runtime failure
-        logger.debug("GPU unary_binary replay fell back to numpy: %r", _e)
+        log_throttle(logger, "recipe_unary_binary_gpu_replay_fallback", logging.WARNING, "GPU unary_binary replay of %r fell back to numpy: %r", recipe.name, _e)
 
     if len(recipe.src_names) != 2 or len(recipe.unary_names) != 2:
         raise ValueError(

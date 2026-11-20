@@ -11,6 +11,8 @@ from typing import Callable, cast
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._batch_kernels import batch_mi_with_noise_gate, batch_mi_with_noise_gate_v2
 from ._batch_kernels_v3 import batch_mi_with_noise_gate_v3
 
@@ -67,7 +69,7 @@ def select_batch_mi_kernel(n_rows: int, n_cols: int) -> Callable:
     except Exception as exc:
         # a genuine kernel-selection bug silently degrades
         # every fit to the hardcoded v2 default with no diagnostic trail.
-        logger.warning("mrmr: batch-MI kernel selection failed; defaulting to v2: %r", exc, exc_info=True)
+        log_throttle(logger, "batch_mi_kernel_selection_failed", logging.WARNING, "mrmr: batch-MI kernel selection failed; defaulting to v3: %r", exc, exc_info=True)
         choice = "v3"
     return cast(Callable, {"v1": batch_mi_with_noise_gate, "v2": batch_mi_with_noise_gate_v2}.get(choice, batch_mi_with_noise_gate_v3))
 

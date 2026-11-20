@@ -31,6 +31,11 @@ def _need_cuda() -> bool:
 pytestmark = [pytest.mark.gpu, pytest.mark.skipif(not _need_cuda(), reason="no CUDA")]
 
 
+def _has_role(cache, role):
+    """True when the resident cache holds ``role`` on any device (cache keys are ``(device_id, role)``)."""
+    return any(k[1] == role for k in cache)
+
+
 class TestCmiResidentCacheLru:
     """#1: the resident y/z cache must evict only the single coldest entry, never clear whole."""
 
@@ -53,8 +58,8 @@ class TestCmiResidentCacheLru:
         # a 17th distinct role overflows the cap -> only the coldest (keys[0]) must be evicted.
         _resident_upload(np.arange(8, dtype=np.int32) + 99, ("role", 16))
         assert len(_CMI_RESIDENT_CACHE) == 16, f"cache should stay capped at 16, not clear/grow: {len(_CMI_RESIDENT_CACHE)}"
-        assert keys[0] not in _CMI_RESIDENT_CACHE, "the coldest entry should have been evicted"
-        assert ("role", 5) in _CMI_RESIDENT_CACHE, "a still-hot mid-list entry must survive a single-entry eviction (would be gone under whole-cache-clear)"
+        assert not _has_role(_CMI_RESIDENT_CACHE, keys[0]), "the coldest entry should have been evicted"
+        assert _has_role(_CMI_RESIDENT_CACHE, ("role", 5)), "a still-hot mid-list entry must survive a single-entry eviction (would be gone under whole-cache-clear)"
         clear_cmi_resident_cache()
 
     def test_reaccessed_entry_survives_subsequent_overflow(self):
@@ -75,8 +80,8 @@ class TestCmiResidentCacheLru:
         _resident_upload(arrs[0], ("role", 0))
         # push one more distinct role past the cap: the now-coldest entry (role 1) must be evicted, not role 0.
         _resident_upload(np.arange(8, dtype=np.int32) + 200, ("role", 16))
-        assert ("role", 0) in _CMI_RESIDENT_CACHE, "a re-touched (hit) entry must survive the next overflow"
-        assert ("role", 1) not in _CMI_RESIDENT_CACHE, "the entry that became coldest after the re-touch should be evicted instead"
+        assert _has_role(_CMI_RESIDENT_CACHE, ("role", 0)), "a re-touched (hit) entry must survive the next overflow"
+        assert not _has_role(_CMI_RESIDENT_CACHE, ("role", 1)), "the entry that became coldest after the re-touch should be evicted instead"
         clear_cmi_resident_cache()
 
 

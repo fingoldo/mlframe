@@ -16,6 +16,7 @@ from .._fe_gpu_batch._devices import crit_float_dtype
 from .._fe_usability_signal import _crit_np_dtype
 
 from mlframe.utils.env_flags import env_int
+from mlframe.utils.log_throttle import log_throttle
 import pandas as pd
 from numba import njit, prange
 
@@ -431,7 +432,7 @@ def _resolve_pc_backend(q: int, r: int, n: int) -> str:
         if fe_gpu_strict_enabled(n=n, p=max(q, r)):
             return "cupy"
     except Exception as e:  # nosec B110 - strict-gate probe failure must never break the dedup itself
-        logger.debug("fe_gpu_strict_enabled() probe failed, dedup keeps its default backend: %s", e)
+        log_throttle(logger, "_orth_dedup._resolve_pc_backend.strict_probe", logging.WARNING, "fe_gpu_strict_enabled() probe failed, dedup keeps its default backend: %s", e)
     if _SPEC is None:
         return "numpy"
     try:

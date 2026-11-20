@@ -197,3 +197,20 @@ def test_expanding_history_equals_the_entity_by_entity_construction():
         X = pd.DataFrame({"e": rng.integers(0, 200, n), "e2": rng.integers(0, 3, n), "t": time_col, "v": rng.normal(size=n)})
         _enc, rec = T.generate_expanding_agg_features(X, ["e", "e2"], ["v"], "t", stats=("mean",))
         assert next(iter(rec.values()))["history"] == _reference_history(X, ["e", "e2"], "v", "t")
+
+
+def test_hybrid_temporal_continuous_target_is_decile_binned(monkeypatch):
+    """A continuous target must be decile-binned (<=10 classes) in the MI gate, not one class per distinct value."""
+    seen = {}
+    orig = M._mi_score
+
+    def spy(col, y_bin, n_bins=10):
+        """Record the number of target classes seen by the MI gate."""
+        seen["k"] = int(np.unique(y_bin).size)
+        return orig(col, y_bin, n_bins)
+
+    monkeypatch.setattr(M, "_mi_score", spy)
+    df = _make()
+    y = np.random.default_rng(0).normal(size=len(df))
+    M.hybrid_temporal_agg_fe(df, y, entity_cols=["ent"], value_cols=["val"], time_col="t", stats=("mean",), lags=(1,))
+    assert 2 <= seen["k"] <= 10

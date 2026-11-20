@@ -53,6 +53,11 @@ def jmim_score(x_cand: np.ndarray, selected_cols: list[np.ndarray], y: np.ndarra
     # of bounds - silent histogram corruption. PID hardens the same class explicitly; mirror it here.
     from ._fe_batched_mi import _assert_codes_in_range
 
+    # the kernel indexes the selected columns and y by the row positions of x_cand: a shorter array would be read past its end
+    if len(nbins_selected) != len(selected_cols):
+        raise ValueError(f"jmim_score: {len(selected_cols)} selected columns but {len(nbins_selected)} bin counts")
+    if y.shape[0] != x_cand.shape[0] or any(c.shape[0] != x_cand.shape[0] for c in selected_cols):
+        raise ValueError("jmim_score: x_cand, y and every selected column must have the same number of rows")
     _assert_codes_in_range(x_cand, int(nbins_x), "jmim_score x_cand")
     _assert_codes_in_range(y, int(nbins_y), "jmim_score y")
     for _j, _c in enumerate(selected_cols):

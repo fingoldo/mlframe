@@ -169,8 +169,9 @@ def _rows_entropy_lut_split(cp, c, inv_n: float, segments: int):
 
 def _xlogx_table(cp, nmax: int):
     """Device table ``t[c] = c * ln(c)`` for ``c = 0 .. nmax`` (``t[0] = 0``), built on the host in double precision and kept per ``nmax`` (a few distinct row counts per fit)."""
+    key = (int(cp.cuda.Device().id), int(nmax))  # a device array is only valid on the device that built it
     with _XLOGX_TABLES_LOCK:
-        tab = _XLOGX_TABLES.get(int(nmax))
+        tab = _XLOGX_TABLES.get(key)
         if tab is None:
             # Intentional float64: the entropy table is built in double precision, as the kernel reads it
             c = np.arange(1, int(nmax) + 1, dtype=np.float64)
@@ -178,7 +179,7 @@ def _xlogx_table(cp, nmax: int):
             host[1:] = c * np.log(c)
             if len(_XLOGX_TABLES) >= _XLOGX_TABLES_MAX:
                 _XLOGX_TABLES.pop(next(iter(_XLOGX_TABLES)))  # evict-ok: a miss rebuilds the table
-            tab = _XLOGX_TABLES[int(nmax)] = cp.asarray(host)
+            tab = _XLOGX_TABLES[key] = cp.asarray(host)
     return tab
 
 

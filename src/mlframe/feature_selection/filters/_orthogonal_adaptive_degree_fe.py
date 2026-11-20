@@ -42,7 +42,7 @@ import numpy as np
 import pandas as pd
 
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
-from ._orthogonal_shared import coerce_y_classif
+from ._orthogonal_shared import coerce_y_classif, fit_axis_column as _fit_axis_column
 from ._orthogonal_univariate_fe import (
     _evaluate_basis_column,
     _mi_classif_batch,
@@ -276,6 +276,9 @@ def generate_adaptive_degree_basis_features(
         eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
 
     out_cols, meta = _gate_best_degree_per_source(cand_to_source, cand_cols, cand_values, eng_mi, raw_mi_map, min_uplift)
+    # the scoring ran on the criterion dtype; the emitted values are rebuilt on the float64 axis the recipe freezes, so fit and replay agree
+    for name, info in meta.items():
+        out_cols[name] = _evaluate_basis_column(_fit_axis_column(X, info["src"]), info["basis"], info["degree"])
     return pd.DataFrame(out_cols, index=X.index), meta
 
 def hybrid_orth_mi_adaptive_degree_fe(
@@ -378,7 +381,7 @@ def hybrid_orth_mi_adaptive_degree_fe_with_recipes(
         # source column is safe/exact - it reproduces, not refits, the fit-time params.
         _pp = None
         try:
-            _col_full = np.asarray(X[str(row["source_col"])].to_numpy(), dtype=np.float64)  # Intentional float64: the params the replay applies must be the ones the fit-time values used (float64 basis axis)
+            _col_full = _fit_axis_column(X, str(row["source_col"]))
             _, _pp = _evaluate_basis_column(_col_full, str(row["basis"]), int(row["degree"]), return_params=True)
         except Exception as exc:
             # Was a bare except with zero logging,

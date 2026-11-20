@@ -10,6 +10,8 @@ import logging
 import os
 import threading
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 # _fe_gpu_discretize_enabled/_fe_gpu_binning_enabled are
@@ -80,7 +82,7 @@ def _fe_gpu_discretize_enabled_uncached(n_rows: int, n_cands: int) -> bool:
             return False
     except Exception as e:
         # fallback: CUDA absent is the normal CPU-only case; the GPU discretize gate then stays on the CPU path.
-        logger.debug("_fe_gpu_discretize_enabled_uncached: cuda_available_for_run() check failed, defaulting to CPU: %s", e)
+        log_throttle(logger, "pairs_gpu_gates_discretize_cuda_probe", logging.WARNING, "_fe_gpu_discretize_enabled_uncached: cuda_available_for_run() check failed, defaulting to CPU: %s", e)
         return False
     if _env in ("1", "true", "yes", "on"):
         return True
@@ -99,7 +101,7 @@ def _fe_gpu_discretize_enabled_uncached(n_rows: int, n_cands: int) -> bool:
         return bool(fe_gpu_pairs_mi_backend_choice(int(n_rows), int(n_cands)) == "gpu")
     except Exception as e:
         # fallback: the KTC backend choice is an optional probe; any failure keeps the CPU discretize path.
-        logger.debug("_fe_gpu_discretize_enabled_uncached: KTC backend-choice lookup failed, defaulting to CPU: %s", e)
+        log_throttle(logger, "pairs_gpu_gates_discretize_ktc", logging.WARNING, "_fe_gpu_discretize_enabled_uncached: KTC backend-choice lookup failed, defaulting to CPU: %s", e)
         return False
 
 
@@ -135,7 +137,7 @@ def _fe_gpu_binning_enabled_uncached(n_rows: int, n_cands: int) -> bool:
             return False
     except Exception as e:
         # fallback: CUDA absent is the normal CPU-only case; the GPU binning gate then stays on the CPU path.
-        logger.debug("_fe_gpu_binning_enabled_uncached: cuda_available_for_run() check failed, defaulting to CPU: %s", e)
+        log_throttle(logger, "pairs_gpu_gates_binning_cuda_probe", logging.WARNING, "_fe_gpu_binning_enabled_uncached: cuda_available_for_run() check failed, defaulting to CPU: %s", e)
         return False
     if _env in ("1", "true", "yes", "on"):
         return True
@@ -154,5 +156,5 @@ def _fe_gpu_binning_enabled_uncached(n_rows: int, n_cands: int) -> bool:
         return bool(fe_gpu_binning_backend_choice(int(n_rows), int(n_cands)) == "gpu")
     except Exception as e:
         # fallback: the KTC binning choice is an optional probe; any failure keeps the CPU binning path.
-        logger.debug("_fe_gpu_binning_enabled_uncached: KTC binning backend-choice lookup failed, defaulting to CPU: %s", e)
+        log_throttle(logger, "pairs_gpu_gates_binning_ktc", logging.WARNING, "_fe_gpu_binning_enabled_uncached: KTC binning backend-choice lookup failed, defaulting to CPU: %s", e)
         return False

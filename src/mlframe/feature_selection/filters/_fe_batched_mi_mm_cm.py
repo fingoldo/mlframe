@@ -67,6 +67,10 @@ def binned_mm_mi_from_cm_gpu(
         from ._fe_resident_operands import resident_operand
 
         yv = resident_operand(np.asarray(y_codes).ravel(), "binned_mm_ycodes", dtype=np.int64)
+    if int(yv.size) != n:
+        raise ValueError("binned_mm_mi_from_cm_gpu: y_codes has %d rows but x_cm has %d" % (int(yv.size), n))
+    if E.ndim != 2 or int(E.shape[1]) != K or int(E.shape[0]) > int(nbins) - 1:
+        raise ValueError("binned_mm_mi_from_cm_gpu: interior_edges shape %r does not fit (nbins-1=%d, K=%d)" % (tuple(E.shape), int(nbins) - 1, K))
     _assert_codes_in_range(yv, Ky, "binned_mm_mi_from_cm_gpu y codes", codes_trusted)
     ne = int(E.shape[0])
     if row_bounds is not None and row_bounds[0] is not None:

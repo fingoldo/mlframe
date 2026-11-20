@@ -41,11 +41,13 @@ __all__ = [
 def _pairwise_sq_dist(X: np.ndarray) -> np.ndarray:
     """(n, n) squared Euclidean distance matrix via the matmul trick ``||a-b||^2 = ||a||^2 +
     ||b||^2 - 2*a.b``; the diagonal is forced to +inf so a row never counts itself as a neighbor."""
-    sq = np.sum(X * X, axis=1)
-    d2 = sq[:, None] + sq[None, :] - 2.0 * (X @ X.T)
+    # Centred and formed in double: the expansion cancels catastrophically in float32 once the columns sit far from the origin; the result keeps ``X``'s dtype.
+    Xc = np.asarray(X, dtype=np.float64) - np.asarray(X, dtype=np.float64).mean(axis=0)  # Intentional float64: cancellation-prone distance expansion
+    sq = np.sum(Xc * Xc, axis=1)
+    d2 = sq[:, None] + sq[None, :] - 2.0 * (Xc @ Xc.T)
     np.maximum(d2, 0.0, out=d2)
     np.fill_diagonal(d2, np.inf)
-    return np.asarray(d2)
+    return np.asarray(d2.astype(X.dtype, copy=False))
 
 
 def lof_scores(X: np.ndarray, *, k: int = 20) -> np.ndarray:
@@ -121,11 +123,16 @@ def _lof_transform(X_new: np.ndarray, X_ref: np.ndarray, lrd_ref: np.ndarray, k_
     so the device memory does not grow with the number of rows), else :func:`_lof_transform_host`."""
     from ._lof_gpu import lof_transform_gpu, use_device_lof
 
+    scored = None
     if use_device_lof(int(X_new.shape[0])):
         scored = lof_transform_gpu(X_new, X_ref, lrd_ref, k_distance_ref, k_eff)
-        if scored is not None:
-            return scored
-    return _lof_transform_host(X_new, X_ref, lrd_ref, k_distance_ref, k_eff)
+    if scored is None:
+        scored = _lof_transform_host(X_new, X_ref, lrd_ref, k_distance_ref, k_eff)
+    bad = ~np.isfinite(np.asarray(X_new)).all(axis=1) if np.ndim(X_new) == 2 else np.zeros(0, dtype=bool)
+    if bad.any():
+        scored = np.array(scored, copy=True)
+        scored[bad] = np.nan  # a non-finite row has no neighbours: NaN, as ``lof_scores`` returns, not a garbage density ratio
+    return scored
 
 
 @njit(cache=True, parallel=True, nogil=True)

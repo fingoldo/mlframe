@@ -57,7 +57,7 @@ def test_explicit_gpu_backend_still_raises():
 
 
 def test_successful_gpu_pair_search_reports_interaction_information():
-    """On success the helper returns joint MI, interaction information (joint - marginals) and the pair cardinalities."""
+    """On success the helper returns joint MI, interaction information (joint - marginals) and -1 for the unknown occupied cell counts."""
     data, nb, y, freqs_y = _fixture()
     pa, pb = np.array([0, 2]), np.array([1, 3])
     joint = np.array([0.5, 0.25])
@@ -68,7 +68,7 @@ def test_successful_gpu_pair_search_reports_interaction_information():
     assert used is True
     np.testing.assert_allclose(ii, [0.5 - 0.1 - 0.05, 0.25 - 0.02 - 0.01])
     np.testing.assert_array_equal(joint_out, joint)
-    np.testing.assert_array_equal(n_uniq, [9, 9])
+    np.testing.assert_array_equal(n_uniq, [-1, -1])
 
 
 @pytest.mark.gpu

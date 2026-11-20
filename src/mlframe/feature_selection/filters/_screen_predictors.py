@@ -15,6 +15,7 @@ from collections.abc import Iterable, Sequence
 
 import numba
 import numpy as np
+from mlframe.feature_selection.filters.info_theory._reject_count import reject_count
 from numba.core import types
 
 from pyutilz.numbalib import set_numba_random_seed
@@ -362,7 +363,7 @@ def screen_predictors(
     _seed_screen_rngs(st, random_seed, use_gpu)
 
     try:
-        max_failed = int(full_npermutations * (1 - min_nonzero_confidence))
+        max_failed = reject_count(full_npermutations, min_nonzero_confidence)
         if max_failed <= 1:
             max_failed = 1
 

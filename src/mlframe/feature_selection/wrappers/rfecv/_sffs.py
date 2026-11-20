@@ -20,6 +20,21 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
+def _mean_importance(feature_importances: dict) -> dict:
+    """Mean of the non-NaN importances of every feature across all runs (a value that is not a number is skipped)."""
+    from collections import defaultdict
+
+    fi_acc = defaultdict(list)
+    for _fi in feature_importances.values():
+        for feat, val in _fi.items():
+            try:
+                if val is not None and not (isinstance(val, float) and np.isnan(val)):
+                    fi_acc[feat].append(float(val))
+            except (TypeError, ValueError):  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
+                continue
+    return {f: float(np.mean(v)) for f, v in fi_acc.items() if v}
+
+
 def _sffs_swap_pass(
     self, X, y, estimator, cv, scoring,
     best_nfeatures: int, best_score_ref: float,
@@ -39,17 +54,7 @@ def _sffs_swap_pass(
     if len(best_set) < 1:
         return
 
-    # Aggregate FI across all runs (mean of non-NaN values per feature).
-    from collections import defaultdict
-    fi_acc = defaultdict(list)
-    for _fi in feature_importances.values():
-        for feat, val in _fi.items():
-            try:
-                if val is not None and not (isinstance(val, float) and np.isnan(val)):
-                    fi_acc[feat].append(float(val))
-            except (TypeError, ValueError):  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
-                continue
-    fi_mean = {f: float(np.mean(v)) for f, v in fi_acc.items() if v}
+    fi_mean = _mean_importance(feature_importances)
 
     # Worst K kept (features with no FI history get 0).
     # Add feature name as deterministic tiebreaker -
@@ -73,7 +78,12 @@ def _sffs_swap_pass(
     # enable_metadata_routing at its default False, params={"sample_weight": full_length_array} still
     # auto-slices per CV fold exactly like the old fit_params did.
     _sw = getattr(self, "_fit_sample_weight_", None)
-    _cv_score_kwargs = {"params": {"sample_weight": _sw}} if _sw is not None else {}
+    _cv_score_kwargs: dict = {"params": {"sample_weight": _sw}} if _sw is not None else {}
+    _groups = getattr(self, "_fit_groups_", None)
+    if _groups is not None:
+        _cv_score_kwargs["groups"] = _groups
+    _mean_w = float(getattr(self, "mean_perf_weight", 1.0))
+    _std_w = float(getattr(self, "std_perf_weight", 0.0))
 
     cur_set = list(best_set)
     cur_score = float(best_score_ref)
@@ -113,14 +123,16 @@ def _sffs_swap_pass(
             continue
         trial_mean = float(np.nanmean(trial_scores))
         trial_std = float(np.nanstd(trial_scores))
-        if trial_mean > cur_score:
+        # ``cur_score`` is the main loop's objective (mean * w - std * w'), so the trial is scored by the same formula.
+        trial_final = trial_mean * _mean_w - trial_std * _std_w
+        if trial_final > cur_score:
             if verbose:
                 logger.info(
                     "SFFS swap accepted: %s -> %s improved %.*f -> %.*f",
-                    out_f, in_f, ndigits, cur_score, ndigits, trial_mean,
+                    out_f, in_f, ndigits, cur_score, ndigits, trial_final,
                 )
             cur_set = trial_set
-            cur_score = trial_mean
+            cur_score = trial_final
             n_swaps_accepted += 1
             # |trial_set| == |best_set|, so this overwrites the entry for that nfeatures count.
             _n = len(trial_set)

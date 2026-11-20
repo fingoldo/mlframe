@@ -311,7 +311,7 @@ def knockoff_importance(
 
             _expl = _TreeExplainer(model)
             _vals = _expl.shap_values(X_joint_df)
-            _arr = _vals if not isinstance(_vals, list) else np.stack(_vals)
+            _arr = np.stack(_vals, axis=-1) if isinstance(_vals, list) else np.asarray(_vals)
             if _arr.ndim > 2:
                 _arr = np.abs(_arr).mean(axis=tuple(range(2, _arr.ndim)))
             fi_vals = np.abs(_arr).mean(axis=0)

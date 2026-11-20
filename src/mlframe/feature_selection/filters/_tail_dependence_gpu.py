@@ -167,6 +167,9 @@ def tail_dependence_columns_device(cols_rows: Any, v: np.ndarray, q: float) -> O
     k, n = cols_rows.shape
     if cols_rows.dtype not in (np.dtype(np.float32), np.dtype(np.float64)) or k == 0 or n < 2:  # Intentional float64: dtype check: float64 is a supported column type here, nothing is computed in it
         return None
+    if int(np.shape(v)[0]) != int(n):
+        log_throttle(logger, "tail_dependence_gpu.target_length", logging.WARNING, "device tail dependence skipped: the target has %d rows, the columns %d; the host kernel scores the columns", int(np.shape(v)[0]), int(n))
+        return None
     try:
         import cupy as cp
 

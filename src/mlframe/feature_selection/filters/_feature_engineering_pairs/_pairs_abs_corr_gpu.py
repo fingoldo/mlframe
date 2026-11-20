@@ -14,6 +14,7 @@ import numpy as np
 
 from .._kernel_types import render
 from .._raw_module_cache import RawModuleCache
+from mlframe.utils.log_throttle import log_throttle
 from ._pairs_common import _DEGENERATE_REL_TOL
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,12 @@ def kernel(cp: Any, real: Any) -> Any:
     return _MODULES["float" if np.dtype(real) == np.float32 else "double"].get(cp).get_function("abs_corr_finite_stats")
 
 
+def _check_target_rows(n: int, y: np.ndarray, y_finite: np.ndarray) -> None:
+    """Raise when the target or its finite mask does not have the ``n`` rows of the device column: the kernel reads both at every row index."""
+    if int(np.shape(y)[0]) != n or int(np.shape(y_finite)[0]) != n:
+        raise ValueError(f"abs_corr: the column has {n} rows, the target {int(np.shape(y)[0])} and its finite mask {int(np.shape(y_finite)[0])}")
+
+
 def _finish(stats: Any, min_n: int) -> float:
     """The degenerate handling and the ratio, from ``(n, sum da^2, sum dy^2, sum da dy, max |a|, max |y|)``."""
     cnt, va, vy, cay, amax, ymax = (float(v) for v in stats)
@@ -98,11 +105,12 @@ def _finish(stats: Any, min_n: int) -> float:
 def abs_corr_finite_batch_gpu(cols_dev: Any, y: np.ndarray, y_finite: np.ndarray, min_n: int = 8) -> list:
     """:func:`abs_corr_finite_gpu` for every row of the C-contiguous device batch ``cols_dev`` of shape ``(K, n)`` (float32 or double precision) in ONE launch (a block per column) and
     one read of ``6 K`` doubles; the value of row ``k`` equals the single-column call on that row (same kernel, same fixed tree)."""
+    k, n = int(cols_dev.shape[0]), int(cols_dev.shape[1])
+    _check_target_rows(n, y, y_finite)
     import cupy as cp
 
     from mlframe.feature_selection.filters._fe_resident_operands import resident_operand
 
-    k, n = int(cols_dev.shape[0]), int(cols_dev.shape[1])
     # Intentional float64: the target is reduced in float64 (a target at offset ~1e7 keeps no variance in float32).
     y_dev = resident_operand(y, ("abs_corr_y",), dtype=np.float64).ravel()
     fin_dev = resident_operand(np.asarray(y_finite, dtype=np.uint8), ("abs_corr_yfin",), dtype=np.uint8).ravel()
@@ -118,6 +126,7 @@ def abs_corr_finite_gpu(a_dev: Any, y: np.ndarray, y_finite: np.ndarray, min_n: 
     handling as ``_abs_corr_finite_njit`` (``0.0`` below ``min_n`` joint-finite rows or for a near-constant side). Only scalars cross to the host.
 
     One kernel launch and one read of six doubles; any fault of the kernel path runs the cupy chain (:func:`_abs_corr_finite_cupy`) instead."""
+    _check_target_rows(int(a_dev.shape[0]), y, y_finite)
     import cupy as cp
 
     from mlframe.feature_selection.filters._fe_resident_operands import resident_operand
@@ -133,7 +142,7 @@ def abs_corr_finite_gpu(a_dev: Any, y: np.ndarray, y_finite: np.ndarray, min_n: 
         kern((1,), (256,), (a, y_dev, fin_dev, np.int64(a.shape[0]), out))  # launch-ok: one column per call, 256 threads reduce both passes in a fixed tree
         return _finish(out.get(), min_n)
     except Exception as exc:
-        logger.debug("abs_corr_finite kernel failed (%s: %s); cupy chain", type(exc).__name__, exc)
+        log_throttle(logger, "abs_corr_finite_kernel_failed", logging.WARNING, "abs_corr_finite kernel failed (%s: %s); the cupy chain of about twenty launches serves", type(exc).__name__, exc)
         return _abs_corr_finite_cupy(a_dev, y, y_finite, min_n)
 
 
@@ -180,7 +189,7 @@ def abs_corr_or_none(a_dev: Any, y: Optional[np.ndarray], y_finite: Optional[np.
     try:
         return abs_corr_finite_gpu(a_dev, y, y_finite, 8)
     except Exception as e:
-        logger.debug("device |corr| failed, caller falls back to the host column: %s", e)
+        log_throttle(logger, "abs_corr_device_failed", logging.WARNING, "device |corr| failed (%s: %s); the caller reads the host column", type(e).__name__, e)
         return None
 
 

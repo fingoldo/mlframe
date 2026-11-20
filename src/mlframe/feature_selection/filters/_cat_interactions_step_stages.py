@@ -311,7 +311,7 @@ def _stage_materialise(
     # ---- Materialise k-way survivors (alongside pairs) ----
     st.new_data_block = _run_cat_interactio_materialise_way_survivors_alongside(kway_results, data, nbins, cols, dtype, cfg, st.new_data_block, st.new_names, st.new_nbins, st.new_recipes, st.n_samples, st.state)
     # Diagnostics (always cheap, gated by cfg).
-    _run_cat_interactio_diagnostics_always_cheap_gated(cfg, st.selected_idx, pairs_a, pairs_b, st.ii_arr, st.joint_mi_arr, marginal_mi_full, st.n_uniq_arr, cols, st.n_samples, st.confidence_dict, st.bootstrap_ci_dict, st.state, st.new_names)
+    _run_cat_interactio_diagnostics_always_cheap_gated(cfg, st.selected_idx, pairs_a, pairs_b, st.ii_arr, st.joint_mi_arr, marginal_mi_full, st.n_uniq_arr, cols, st.n_samples, st.confidence_dict, st.bootstrap_ci_dict, st.state, st.new_names, data, nbins)
 
     st.state.recipes.extend(st.new_recipes)
 

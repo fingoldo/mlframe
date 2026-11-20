@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Any
 
 import numpy as np
+
+from mlframe.utils.log_throttle import log_throttle
 
 from ._ktc_fallback import host_device_sweep, rows_fallback, selection_view
 
@@ -27,6 +30,7 @@ _SWEEP_ROWS = [_SWEEP_N * k for k in (1, 4, 16, 64, 256, 1024)]  # n_samples is 
 _SWEEP_BINS = 10
 _SWEEP_SUPPORT_CLASSES = 30
 _SALT = 1
+_SWEEP_ENV_LOCK = threading.Lock()  # the sweep flips process-wide env switches; two sweeps at once would save each other's overrides as the originals
 
 
 def _sweep_inputs(dims: dict) -> tuple:
@@ -44,19 +48,20 @@ def _sweep_host(X: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
     """The host path of a greedy round (the per-candidate loop with the hoisted terms), with the device routes of the scorer switched off for the timing."""
     from ._mi_greedy_cmi_fe_steps import _renumber_joint, cmi_from_binned_fixed_yz, precompute_cmi_yz_terms
 
-    saved = {k: os.environ.get(k) for k in ("MLFRAME_CMI_GPU", "MLFRAME_FE_GPU_STRICT")}
-    os.environ["MLFRAME_CMI_GPU"] = "0"
-    os.environ["MLFRAME_FE_GPU_STRICT"] = "0"
-    try:
-        y_i, z_i, h_yz, h_z, k_yz, k_z, n_f = precompute_cmi_yz_terms(y, z)
-        yz_dense, _ = _renumber_joint(y_i, z_i)
-        scores = np.array([cmi_from_binned_fixed_yz(X[:, j], y_i, z_i, h_yz, h_z, k_yz, k_z, n_f, yz_i=yz_dense) for j in range(X.shape[1])], dtype=np.float64)  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
-    finally:
-        for k, v in saved.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
+    with _SWEEP_ENV_LOCK:
+        saved = {k: os.environ.get(k) for k in ("MLFRAME_CMI_GPU", "MLFRAME_FE_GPU_STRICT")}
+        os.environ["MLFRAME_CMI_GPU"] = "0"
+        os.environ["MLFRAME_FE_GPU_STRICT"] = "0"
+        try:
+            y_i, z_i, h_yz, h_z, k_yz, k_z, n_f = precompute_cmi_yz_terms(y, z)
+            yz_dense, _ = _renumber_joint(y_i, z_i)
+            scores = np.array([cmi_from_binned_fixed_yz(X[:, j], y_i, z_i, h_yz, h_z, k_yz, k_z, n_f, yz_i=yz_dense) for j in range(X.shape[1])], dtype=np.float64)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
     return selection_view(scores)
 
 
@@ -101,5 +106,5 @@ def candidate_batch_device_chosen(n: int, p: int) -> bool:
     try:
         return str(_SPEC.choose(n_samples=work)) == "device"
     except Exception as exc:
-        logger.debug("cmi_candidate_batch_backend: KTC choose() failed, using the floors: %s", exc)
+        log_throttle(logger, "cmi_candidate_batch_backend.ktc_choose", logging.WARNING, "cmi_candidate_batch_backend: KTC choose() failed (%s); using the floors", exc)
         return _floors()

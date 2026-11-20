@@ -73,6 +73,8 @@ def _encode_mdlp_target_uncached(y, max_y_classes, fast_mode, y_pseudo_classes, 
             import pandas as _pd_iter50
 
             _y_arr, _ = _pd_iter50.factorize(_y_arr, sort=True)
+            if (_y_arr < 0).any():
+                _y_arr = np.where(_y_arr < 0, np.nan, _y_arr).astype(np.float64)
         except Exception as e:
             logger.warning("pandas factorize failed, falling back to numpy-only label encode: %s", e)
             # Fallback: numpy-only label encode via unique.
@@ -87,7 +89,10 @@ def _encode_mdlp_target_uncached(y, max_y_classes, fast_mode, y_pseudo_classes, 
             _n_pseudo = int(max_y_classes) if fast_mode else max(2, min(int(max_y_classes), int(y_pseudo_classes)))
             _q = np.linspace(0.0, 1.0, _n_pseudo + 1)[1:-1]
             _y_edges = np.unique(np.quantile(_y_finite, _q))
+            _y_nonfinite = ~np.isfinite(_y_arr) if _y_arr.dtype.kind == "f" else None
             _y_arr = np.searchsorted(_y_edges, _y_arr, side="right")
+            if _y_nonfinite is not None and _y_nonfinite.any():
+                _y_arr = np.where(_y_nonfinite, np.nan, _y_arr).astype(np.float64)
             # This blunt depth cap now applies ONLY when ``fast_mode=True``.
             # The DEFAULT path (``fast_mode=False``) replaces the depth heuristic with a
             # per-split significance gate (``_mdlp_recurse_validated``) that decides, per
@@ -575,11 +580,15 @@ def _mdlp_pass_threshold_njit(
     """
     if n <= 1:
         return False
-    delta_arg = (3.0**n_classes_full) - 2.0
-    if delta_arg <= 0.0:
-        return False
+    if n_classes_full > 600:
+        log_delta_arg = n_classes_full * math.log(3.0)
+    else:
+        delta_arg = (3.0**n_classes_full) - 2.0
+        if delta_arg <= 0.0:
+            return False
+        log_delta_arg = math.log(delta_arg)
     log2 = math.log(2.0)
-    delta = (math.log(delta_arg) / log2) - (n_classes_full * h_full - n_classes_left * h_left - n_classes_right * h_right) / log2
+    delta = (log_delta_arg / log2) - (n_classes_full * h_full - n_classes_left * h_left - n_classes_right * h_right) / log2
     threshold = (math.log(float(n - 1)) / log2 + delta) / n
     return (best_gain / log2) > threshold
 

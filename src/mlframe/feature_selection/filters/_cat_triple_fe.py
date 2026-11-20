@@ -76,6 +76,8 @@ from ._cat_pair_fe import (
     _bin_target,
     _cross_too_high_card,
     _kfold_target_encode_codes,
+    _occupied_classes,
+    ii_plugin_bias,
     score_cat_pairs_by_interaction_information,
 )
 from typing import TYPE_CHECKING
@@ -106,6 +108,28 @@ def engineered_name_cat_triple_cross(cat_a: str, cat_b: str, cat_c: str) -> str:
 # Discrete-MI primitives (reuse Layer 60 / Layer 19 plug-in family)
 # ---------------------------------------------------------------------------
 
+_KEY_LIMIT = 2**62  # a packed joint key stays below this so int64 arithmetic cannot wrap
+
+
+def _triple_cell_keys(inv_a: np.ndarray, inv_b: np.ndarray, inv_c: np.ndarray, nb: int, nc: int) -> np.ndarray:
+    """One int64 key per row for the (a, b, c) code triple, order-preserving (lexicographic), packed in two stages when the plain product would wrap int64."""
+    a64 = inv_a.astype(np.int64, copy=False)
+    b64 = inv_b.astype(np.int64, copy=False)
+    c64 = inv_c.astype(np.int64, copy=False)
+    na = int(a64.max()) + 1 if a64.size else 1
+    if na * nb * nc < _KEY_LIMIT:
+        return a64 * (nb * nc) + b64 * nc + c64
+    _, ab = unique_inverse_dense(a64 * nb + b64)
+    return ab.astype(np.int64, copy=False) * nc + c64
+
+
+def _first_rows_of_cells(cell_codes: np.ndarray, n_cells: int) -> np.ndarray:
+    """Row index of the first occurrence of each dense cell code ``0..n_cells-1``."""
+    first = np.empty(n_cells, dtype=np.int64)
+    first[cell_codes[::-1]] = np.arange(cell_codes.shape[0] - 1, -1, -1, dtype=np.int64)
+    return first
+
+
 def _dense_codes(values) -> np.ndarray:
     """Dense int64 class codes for a stringified categorical column."""
     _, codes = np.unique(values, return_inverse=True)
@@ -121,10 +145,16 @@ def _join_codes(*code_arrays: np.ndarray) -> np.ndarray:
     if not code_arrays:
         return np.zeros(0, dtype=np.int64)
     key = np.zeros(len(code_arrays[0]), dtype=np.int64)
+    key_span = 1
     for c in code_arrays:
         c64 = np.asarray(c, dtype=np.int64)
         cmax = int(c64.max()) + 1 if c64.size else 1
+        if key_span * cmax >= _KEY_LIMIT:
+            _, key = unique_inverse_dense(key)
+            key = key.astype(np.int64, copy=False)
+            key_span = int(key.max()) + 1 if key.size else 1
         key = key * cmax + c64
+        key_span *= cmax
     _, codes = unique_inverse_dense(key)
     return codes.astype(np.int64)
 
@@ -213,17 +243,12 @@ def _encode_triple(
         return np.empty(0, dtype=np.int64), {}
     nb = len(uniq_b)
     nc = len(uniq_c)
-    combined = inv_a.astype(np.int64) * (nb * nc) + inv_b.astype(np.int64) * nc + inv_c.astype(np.int64)
+    combined = _triple_cell_keys(inv_a, inv_b, inv_c, nb, nc)
     uniq_keys, codes = unique_inverse_dense(combined)
     codes = codes.astype(np.int64, copy=False)
     mapping: dict[tuple, int] = {}
-    for code, key in enumerate(uniq_keys):
-        k = int(key)
-        ia = k // (nb * nc)
-        rem = k % (nb * nc)
-        ib = rem // nc
-        ic = rem % nc
-        mapping[(uniq_a[ia], uniq_b[ib], uniq_c[ic])] = code
+    for code, row in enumerate(_first_rows_of_cells(codes, len(uniq_keys)).tolist()):
+        mapping[(uniq_a[inv_a[row]], uniq_b[inv_b[row]], uniq_c[inv_c[row]])] = code
     return codes, mapping
 
 @fe_timed("cat_triple")
@@ -391,8 +416,10 @@ def score_cat_triples_by_interaction_information(
     ``np.unique(_column_to_str(X[col]), return_inverse=True)`` result a downstream materialisation step (e.g. ``hybrid_cat_triple_fe``) would otherwise
     re-derive from scratch via ``_encode_triple``'s ``precomputed_a``/``_b``/``_c`` params.
     """
+    from ._adaptive_nbins import _bin_y_for_mi
+
     cat_cols = [c for c in cat_cols if c in X.columns]
-    empty = pd.DataFrame(columns=["cat_a", "cat_b", "cat_c", "engineered_col", "ii3"])
+    empty = pd.DataFrame(columns=["cat_a", "cat_b", "cat_c", "engineered_col", "ii3", "ii3_mm"])
     if len(cat_cols) < 3:
         empty.attrs["n_triples_evaluated"] = 0
         empty.attrs["n_triples_exhaustive"] = 0
@@ -440,6 +467,10 @@ def score_cat_triples_by_interaction_information(
         seed_pairs = _refine_seed_pairs(triple_ii3, beam_width)
 
     out = _triples_frame(triple_ii3)
+    k_y_occ = _occupied_classes(_bin_y_for_mi(y_bin)[0])
+    out["ii3_mm"] = [
+        float(r.ii3) - ii_plugin_bias([int(scorer.codes(c).max()) + 1 for c in (r.cat_a, r.cat_b, r.cat_c)], k_y_occ, len(y_bin)) for r in out.itertuples()
+    ]
     n_exhaustive = math.comb(len(cat_cols), 3)  # the count of triples, without materialising them
     out.attrs["n_triples_evaluated"] = int(n_evaluated)
     out.attrs["n_triples_exhaustive"] = int(n_exhaustive)
@@ -468,7 +499,7 @@ def hybrid_cat_triple_fe(
     1. Auto-detect ``cat_cols`` when not supplied (Layer 89 detector).
     2. Beam-search the triple lattice for three-way interaction information
        (:func:`score_cat_triples_by_interaction_information`).
-    3. Keep synergistic triples (``II3 > min_interaction_info``), top ``top_k``.
+    3. Keep synergistic triples (Miller-Madow bias-corrected ``ii3_mm > min_interaction_info``), top ``top_k`` by ``ii3_mm``.
     4. For each survivor emit the integer cell cross. Apply the Layer 29
        cardinality pre-screen: a cross with > ``0.5 * n`` distinct cells routes
        through K-fold OOF target encoding (Layer 33); otherwise the raw integer
@@ -479,6 +510,8 @@ def hybrid_cat_triple_fe(
     target encoding. The persisted recipes carry no ``y`` reference, so
     ``transform()`` replay is leakage-free.
     """
+    from mlframe.feature_selection._append_columns import append_columns
+
     from .engineered_recipes import build_cat_triple_cross_recipe
 
     if not isinstance(X, pd.DataFrame):
@@ -508,8 +541,8 @@ def hybrid_cat_triple_fe(
     if scores.empty:
         return X, [], [], scores
 
-    keep = scores[scores["ii3"] > float(min_interaction_info)]
-    keep = keep.head(int(top_k))
+    keep = scores[scores["ii3_mm"] > float(min_interaction_info)]
+    keep = keep.sort_values("ii3_mm", ascending=False, kind="mergesort").head(int(top_k))
     if keep.empty:
         return X, [], [], scores
 
@@ -558,7 +591,7 @@ def hybrid_cat_triple_fe(
     if not appended:
         return X, [], [], scores
     new_df = pd.DataFrame(new_cols, index=X.index)
-    X_aug = pd.concat([X, new_df], axis=1)
+    X_aug = append_columns(X, new_df)
     return X_aug, appended, recipes, scores
 
 # ---------------------------------------------------------------------------
@@ -607,16 +640,12 @@ def apply_cat_triple_cross(
     codes_c, uniq_c = pd.factorize(cats_c)
     nb = len(uniq_b)
     nc = len(uniq_c)
-    joint = codes_a.astype(np.int64) * (nb * nc) + codes_b.astype(np.int64) * nc + codes_c.astype(np.int64)
+    joint = _triple_cell_keys(codes_a, codes_b, codes_c, nb, nc)
     cell_codes, joint_uniques = pd.factorize(joint)
+    first_rows = _first_rows_of_cells(cell_codes, len(joint_uniques)).tolist()
     vals = np.empty(len(joint_uniques), dtype=np.float64)  # Intentional float64: replay values must stay bit-identical to the per-row mapping loop (target-encoding means)
-    for i, k in enumerate(joint_uniques):
-        k = int(k)
-        ia = k // (nb * nc)
-        rem = k % (nb * nc)
-        ib = rem // nc
-        ic = rem % nc
-        triple = (uniq_a[ia], uniq_b[ib], uniq_c[ic])
+    for i, row in enumerate(first_rows):
+        triple = (uniq_a[codes_a[row]], uniq_b[codes_b[row]], uniq_c[codes_c[row]])
         if is_target:
             code = mapping.get(triple)
             vals[i] = global_mean if code is None else float(lookup.get(code, global_mean))

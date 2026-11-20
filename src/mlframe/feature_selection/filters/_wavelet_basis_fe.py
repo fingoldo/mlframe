@@ -83,6 +83,7 @@ from numba import njit, prange
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+from mlframe.utils.log_throttle import log_throttle
 from ._y_encoding import FEW_CLASSES_MAX, _has_more_distinct_than
 from mlframe.feature_selection.filters._lazy_host_codes import size_of
 from mlframe.feature_selection.filters._device_sort_safe import device_quantile, device_unique  # thrust aborts the process on a short pool
@@ -311,7 +312,7 @@ def _dyadic_haar_leg(z: np.ndarray, j: int, k: int, dtype=np.float32) -> np.ndar
     try:
         choice = _HAAR_LEG_PARALLELISM_SPEC.choose(n=int(zc.shape[0]))
     except Exception as e:
-        logger.warning("haar_leg_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
+        log_throttle(logger, "_wavelet_basis_fe.haar_choose", logging.WARNING, "haar_leg_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
         choice = _haar_leg_fallback_choice(int(zc.shape[0]))
     fn = _dyadic_haar_leg_njit if choice == "parallel" else _dyadic_haar_leg_njit_serial
     fn(zc, left, mid, right, leg)
@@ -343,7 +344,7 @@ def _bin_y_codes(y: np.ndarray, nbins: int = 10) -> np.ndarray:
             return cast(np.ndarray, hit.copy())
         if not _has_more_distinct_than(y, FEW_CLASSES_MAX):
             uy = np.unique(y)
-            out = y.astype(np.int64) if np.issubdtype(y.dtype, np.integer) else np.searchsorted(uy, y)
+            out = np.searchsorted(uy, y)
         else:
             edges_y = np.quantile(y, np.linspace(0.0, 1.0, nbins + 1)[1:-1])
             out = np.asarray(np.digitize(y, edges_y))
@@ -368,7 +369,7 @@ def _binnedmi_gpu_enabled(*, n: int | None = None, p: int | None = None) -> bool
         return bool(fe_gpu_strict_enabled(n=n, p=p))
     except Exception as e:
         # fallback: the GPU-strict probe is unavailable (typically no cupy); the host binned-MI path runs.
-        logger.debug("_binnedmi_gpu_enabled: fe_gpu_strict_enabled() check failed, staying on the host binned-MI path: %s", e)
+        log_throttle(logger, "_wavelet_basis_fe.gpu_enabled", logging.WARNING, "_binnedmi_gpu_enabled: fe_gpu_strict_enabled() check failed, staying on the host binned-MI path: %s", e)
         return False
 
 
@@ -418,9 +419,8 @@ def _binned_mi_cupy(feat, y, nbins: int, y_codes, discrete: bool = False) -> flo
                 e = _radix_select_interior_edges(v.reshape(-1, 1), nbins)
                 if e is not None:
                     return e.ravel()
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
-            pass
+        except Exception as e:
+            log_throttle(logger, "_wavelet_basis_fe.radix_edges", logging.WARNING, "radix interior-edge select failed, using device_quantile: %s", e)
         return device_quantile(v, cp.linspace(0.0, 1.0, nbins + 1)[1:-1])
 
     uf = device_unique(df)
@@ -473,9 +473,8 @@ def _binned_mi(feat: np.ndarray, y: np.ndarray, nbins: int = 10, y_codes: Option
     if _binnedmi_gpu_enabled(n=int(n), p=1):
         try:
             return _binned_mi_cupy(feat, y, int(nbins), y_codes, discrete=discrete)
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
-            pass
+        except Exception as e:
+            log_throttle(logger, "_wavelet_basis_fe.binned_mi_cupy", logging.WARNING, "_binned_mi_cupy failed, falling back to the host binned MI: %s", e)
     # Feature is a Haar leg taking values in {-1, 0, +1} -> use those as classes
     # directly (3 cells); avoids quantile-binning a ternary column.
     if not _has_more_distinct_than(feat, nbins):
@@ -676,7 +675,7 @@ def _heldout_incremental_mi_from_prep(prep: Optional[dict], leg: np.ndarray) -> 
                 jm = np.asarray(binned_mi_from_codes_gpu(Yp_d, joint_d, kx_per_col=[n_cls] * n_perm, ky=int(joint_nb)), dtype=np.float64)
                 null = jm - bm
             except Exception as e:
-                logger.warning("binned_mi_from_codes_gpu (joint) failed, falling back to the CPU path: %s", e)
+                log_throttle(logger, "_wavelet_basis_fe.joint_gpu", logging.WARNING, "binned_mi_from_codes_gpu (joint) failed, falling back to the CPU path: %s", e)
                 null = None
         if null is None:
             # Intentional float64: joint null MI statistic buffer is float64 (MI output contract)
@@ -820,7 +819,7 @@ def _try_gpu_leg_selection(x, y, lo, span, max_scale, max_legs, scale_sigma, ret
         _z = np.clip((np.asarray(x, dtype=np.float64).ravel() - lo) / span, 0.0, 1.0)
         return [(j, k, _dyadic_haar_leg(_z, j, k)) for j, k in _legs]
     except Exception as e:  # nosec B110 - optional dependency import guard
-        logger.debug("GPU-resident leg-selection path failed, falling back to the host path: %s", e)
+        log_throttle(logger, "_wavelet_basis_fe.try_gpu_leg_selection", logging.WARNING, "GPU-resident leg-selection path failed, falling back to the host path: %s", e)
         return None
 
 

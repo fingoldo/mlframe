@@ -136,6 +136,7 @@ def device_born_candidates(fit_fn: Any, X: pd.DataFrame, y: Any, gsel: Sequence[
     if not cand_names:
         return "empty", raw, None, None
     survivor_list = None
+    last_error: Optional[Exception] = None
     for attempt in (0, 1):
         try:
             from ._binned_numeric_agg_resident import local_mi_gate_binagg_resident
@@ -145,6 +146,7 @@ def device_born_candidates(fit_fn: Any, X: pd.DataFrame, y: Any, gsel: Sequence[
                 cand_cols=cand_names, n_rows=len(X),
             )
         except Exception as e:
+            last_error = e
             logger.debug("device candidate-survivor pass failed: %s", e)
         if survivor_list is not None or attempt == 1:
             break
@@ -152,7 +154,7 @@ def device_born_candidates(fit_fn: Any, X: pd.DataFrame, y: Any, gsel: Sequence[
         # before the exact host path, which costs about ten times as much (70 s against 6 s at 100000 x 100).
         _release_device_caches()
     if survivor_list is None:
-        log_throttle(logger, "binagg_device_gate_declined", logging.WARNING, "binned-aggregate device gate declined twice; scoring the candidates on the host (about ten times slower)")
+        log_throttle(logger, "binagg_device_gate_declined", logging.WARNING, "binned-aggregate device gate declined twice (last error: %r); scoring the candidates on the host (about ten times slower)", last_error)
         return "unavailable", None, None, None
     keep = set(survivor_list)
     survivors = [c for c in cand_names if c in keep]  # capped order, filtered to survivors

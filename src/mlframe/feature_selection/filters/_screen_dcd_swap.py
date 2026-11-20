@@ -19,12 +19,28 @@ from typing import TYPE_CHECKING, Sequence, cast
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
+from mlframe.utils.log_throttle import log_throttle
 
 if TYPE_CHECKING:
     from ._confirm_predictor import ScreenContext
     from ._dynamic_cluster_discovery import DCDState
 
 logger = logging.getLogger(__name__)
+
+
+def _rebind_swapped_refs(ctx: "ScreenContext", data_ref: dict, factors_data: np.ndarray, factors_nbins: np.ndarray, factors_names: Sequence[str]) -> tuple:
+    """Adopt the extended matrix refs a swap left in ``data_ref`` (``data``/``nbins``/``cols``) and publish them on ``ctx``; returns the four loop-local refs."""
+    factors_data = data_ref.get("data", factors_data)
+    factors_nbins = data_ref.get("nbins", factors_nbins)
+    factors_names = data_ref.get("cols", factors_names)
+    # data_copy is re-aliased to the extended factors_data; the Fleuret permutation njit saves+restores the columns it shuffles, so no whole-matrix copy is needed.
+    data_copy = factors_data
+    # confirm_one_predictor reads ctx.factors_data / ctx.data_copy at the top of every call: without these writes later confirmations index the OLD matrix with the NEW post-swap index.
+    ctx.factors_data = factors_data
+    ctx.factors_nbins = cast(Sequence[int], factors_nbins)
+    ctx.factors_names = factors_names
+    ctx.data_copy = data_copy
+    return factors_data, factors_nbins, factors_names, data_copy
 
 
 @fe_timed("stage:dcd_discover_and_swap")
@@ -51,6 +67,7 @@ def screen_dcd_discover_and_swap(
     Returns the (possibly swap-extended) loop-local matrix refs:
     ``(factors_data, factors_nbins, factors_names, data_copy)``.
     """
+    _data_ref: dict = {}
     try:
         from ._dynamic_cluster_discovery import (
             discover_cluster_members as _dcd_discover,
@@ -89,7 +106,6 @@ def screen_dcd_discover_and_swap(
                 full_npermutations=int(full_npermutations) if full_npermutations is not None else 0,
             )
             if _decision.accept:
-                _data_ref: dict = {}
                 # Layer 43 (PART A) fix:
                 # pass the host MRMR's engineered_recipes
                 # dict so commit_swap registers the PC1
@@ -107,28 +123,7 @@ def screen_dcd_discover_and_swap(
                     engineered_recipes=engineered_recipes,
                     predictors_log=predictors,
                 )
-                # Re-bind the loop-local matrix refs
-                # so subsequent iterations see the
-                # extended data / cols / nbins.
-                factors_data = _data_ref.get("data", factors_data)
-                factors_nbins = _data_ref.get("nbins", factors_nbins)
-                factors_names = _data_ref.get("cols", factors_names)
-                # Re-alias data_copy to the (post-swap, extended) factors_data for the next confirm cycle; the Fleuret permutation njit
-                # saves+restores the columns it shuffles, so no whole-matrix copy is needed here either.
-                data_copy = factors_data
-                #
-                # confirm_one_predictor reads ctx.factors_data
-                # and ctx.data_copy at the top of every call;
-                # without these writes, subsequent confirmations
-                # in this screen invocation index into the OLD
-                # matrix with selected_vars holding the NEW
-                # post-swap index -> silent OOB under
-                # numba boundscheck=False, IndexError otherwise.
-                ctx.factors_data = factors_data
-                # ScreenContext declares Sequence[int]; the runtime value is the ndarray.
-                ctx.factors_nbins = cast(Sequence[int], factors_nbins)
-                ctx.factors_names = factors_names
-                ctx.data_copy = data_copy
+                factors_data, factors_nbins, factors_names, data_copy = _rebind_swapped_refs(ctx, _data_ref, factors_data, factors_nbins, factors_names)
                 if verbose:
                     logger.info(
                         "DCD swap: anchor %s -> aggregate idx %d (%d members)",
@@ -153,9 +148,10 @@ def screen_dcd_discover_and_swap(
         # the screen. These ARE expected on pathologic
         # inputs; surface with a warning regardless of
         # verbose level.
-        logger.warning(
-            "DCD discover/swap step failed: %r",
-            _dcd_exc,
-        )
+        log_throttle(logger, "screen_dcd_swap.step_failed", logging.WARNING, "DCD discover/swap step failed: %r", _dcd_exc)
+        # commit_swap mutates the DCD state and selected_vars before it can fail: a swap that already extended the matrix must be adopted, or selected_vars
+        # would hold an index past the end of the matrix the loop keeps using.
+        if _data_ref:
+            factors_data, factors_nbins, factors_names, data_copy = _rebind_swapped_refs(ctx, _data_ref, factors_data, factors_nbins, factors_names)
 
     return factors_data, factors_nbins, factors_names, data_copy

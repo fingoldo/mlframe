@@ -223,3 +223,15 @@ class TestOrdinalPatternE2E:
         m2 = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         Xt_after = m2.transform(X)
         pd.testing.assert_frame_equal(Xt_before, Xt_after)
+
+
+def test_hybrid_ordinal_pattern_te_without_a_target_returns_nothing_instead_of_raising():
+    """The out-of-fold target encoding needs y; a missing y used to reach np.asarray(None) and raise a length mismatch."""
+    import pandas as pd
+
+    from mlframe.feature_selection.filters._ordinal_pattern_fe import hybrid_ordinal_pattern_te_fe
+
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame(rng.standard_normal((300, 4)), columns=list("abcd"))
+    X_out, appended, recipes, enc = hybrid_ordinal_pattern_te_fe(X, None)
+    assert X_out is X and appended == [] and recipes == [] and enc.empty

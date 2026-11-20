@@ -34,9 +34,15 @@ def fold_cell_sum_cnt(
     Summation runs in row order exactly like ``np.add.at`` on the boolean-masked arrays, so the result is bit-identical.
     """
     use_valid = valid is not None
-    v = valid if use_valid else np.ones(1, dtype=np.bool_)
+    v = np.ascontiguousarray(valid, dtype=np.bool_) if valid is not None else np.ones(1, dtype=np.bool_)
+    codes = np.ascontiguousarray(codes, dtype=np.int64)
+    n_rows = int(codes.shape[0])
+    if int(np.shape(y)[0]) != n_rows or int(np.shape(fold_ids)[0]) != n_rows or (use_valid and int(v.shape[0]) != n_rows):
+        raise ValueError("fold_cell_sum_cnt: codes, y, fold_ids and valid must have the same number of rows")
+    if n_rows and (int(codes.min()) < 0 or int(codes.max()) >= int(n_cells)):
+        raise ValueError(f"fold_cell_sum_cnt: codes must lie in [0, n_cells={int(n_cells)})")
     sums, counts = _cell_sum_cnt_kernel(
-        np.ascontiguousarray(codes, dtype=np.int64),
+        codes,
         # Intentional float64: bit-identical parity oracle against the float64 np.add.at reference
         np.ascontiguousarray(y, dtype=np.float64),
         np.ascontiguousarray(fold_ids, dtype=np.int64),

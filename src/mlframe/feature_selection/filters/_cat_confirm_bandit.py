@@ -13,6 +13,8 @@ from typing import Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from .cat_fe_state import CatFEConfig
 from .info_theory import merge_vars
 # The bandit per-arm pull pipes through the same shuffle + FWER helpers as
@@ -81,7 +83,7 @@ def _phase1_bulk_allocate(
         cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2 = pair_cache[j]
         # Per-pair base seed so different pairs see different permutation
         # sequences (deterministic given the fixed _phase1_base_seed).
-        _base_seed = _phase1_base_seed + np.uint64(j) * np.uint64(0x9E3779B1)
+        _base_seed = _phase1_base_seed + np.uint64(j * min_perms) * np.uint64(0x9E3779B1)
         ip_arr, ix1_arr, ix2_arr = _bulk_shuffle_and_compute_three_mis(
             cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2,
             classes_y, freqs_y, min_perms, _base_seed, dtype,
@@ -170,9 +172,12 @@ def _confirm_pairs_bandit_ucb1(
     n_perms_total = cfg.full_npermutations
     if n_perms_total <= 0 or len(selected_idx) == 0:
         return selected_idx, {}
-    if weights is not None and verbose:
-        logger.warning(
-            "cat-FE: sample weights ignored by the bandit-UCB1 permutation " "allocator: no weighted bulk-shuffle " "kernel yet); falling back to unweighted."
+    if weights is not None:
+        log_throttle(
+            logger,
+            "cat_confirm_bandit_weights_ignored",
+            logging.WARNING,
+            "cat-FE: sample weights ignored by the bandit-UCB1 permutation allocator (no weighted bulk-shuffle kernel yet); falling back to unweighted.",
         )
 
     min_perms = max(10, n_perms_total // 4)
@@ -258,7 +263,7 @@ def _confirm_pairs_bandit_ucb1(
         else:
             cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2 = pair_cache[best_j]
             _burst_seed = _burst_seed_base + np.uint64(_burst_counter) * np.uint64(0x9E3779B1)
-            _burst_counter += 1
+            _burst_counter += _burst
             ip_arr, ix1_arr, ix2_arr = _bulk_shuffle_and_compute_three_mis(
                 cls_pair, fq_pair, cls_x1, fq_x1, cls_x2, fq_x2,
                 classes_y, freqs_y, _burst, _burst_seed, dtype,

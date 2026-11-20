@@ -130,6 +130,8 @@ def iterative_zero_importance_pruning(
 
     remaining = list(X.columns) if has_columns else list(range(X.shape[1]))
     best_score = _cv_score(estimator, col_select(remaining), y, cv, scoring)
+    if np.isnan(best_score):
+        best_score = float("-inf")
     best_remaining = list(remaining)
     trace: List[PruningRound] = []
 
@@ -139,6 +141,8 @@ def iterative_zero_importance_pruning(
             importances = np.asarray(full_fit_estimator.feature_importances_)
         else:
             importances = np.asarray(importance_fn(full_fit_estimator, col_select(remaining), y))
+        if importances.shape != (len(remaining),):
+            raise ValueError(f"importances must have shape ({len(remaining)},), one value per column; got {importances.shape}")
         zero_mask = importances <= importance_threshold
         if not zero_mask.any():
             break

@@ -36,7 +36,7 @@ __all__ = ["choose_bases", "second_pass_recipes"]
 
 
 def _forward_gain(u: np.ndarray, y: np.ndarray) -> float:
-    """Relative reduction of the squared error of ``y ~ a + b u`` fitted on the first 70% of the rows, measured on the last 30% (0 when the block is too short)."""
+    """Relative reduction of the squared error of ``y ~ a + b u`` fitted on the first 70% of the rows, measured on the last 30% (1.0, i.e. no veto, when a block is shorter than 50 rows; 0 when the base is constant or the test target is constant)."""
     n = len(y)
     cut = int(0.7 * n)
     if cut < 50 or n - cut < 50:

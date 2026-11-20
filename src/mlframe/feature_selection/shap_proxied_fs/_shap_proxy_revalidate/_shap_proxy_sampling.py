@@ -179,8 +179,8 @@ def _sample_anchor_subsets(
             cols = tuple(sorted(int(c) for c in combined))
         elif use_weights:
             # k == 1 (or uniform_tail_frac at the boundary): single pick by weight (or uniform tail).
-            if k == 1 and uniform_tail_frac < 1.0:
-                pick = _weighted_choice_no_replace(rng, n_features, 1, probs_all)
+            if uniform_tail_frac < 1.0 and (k == 1 or uniform_tail_frac <= 0.0):
+                pick = _weighted_choice_no_replace(rng, n_features, k, probs_all)
             else:
                 pick = rng.choice(n_features, size=k, replace=False)
             cols = tuple(sorted(int(c) for c in pick))

@@ -15,6 +15,7 @@ from typing import Any, cast
 import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
+from mlframe.utils.log_throttle import log_throttle
 
 from ._fe_batched_mi_cmi import _sm_count
 
@@ -107,7 +108,7 @@ def v2_block_width(kern: Any, shared_bytes: int, columns: int) -> int:
             shared_bytes, regs_per_thread=int(kern.num_regs), static_smem=int(kern.shared_size_bytes), min_width=32, max_width=1024, work_items=columns
         )
     except Exception as _silent_exc:
-        logger.warning("_family_maxt_cuda_bits.py: block width not derived (%r); the default width is used", _silent_exc)
+        log_throttle(logger, "family_maxt_cuda_bits.block_width", logging.WARNING, "_family_maxt_cuda_bits.py: block width not derived (%r); the default width is used", _silent_exc)
         width = 0
     return width if width > 0 else _THREADS_V2
 
@@ -313,7 +314,7 @@ def _v2_applies(cp, n_y: int, words: int) -> bool:
     try:
         limit = int(cp.cuda.Device().attributes.get("MaxSharedMemoryPerBlock", 48 * 1024))
     except Exception as e:
-        logger.warning("Could not read MaxSharedMemoryPerBlock (%s: %s); assuming 48 KiB", type(e).__name__, e)
+        log_throttle(logger, "family_maxt_cuda_bits.max_shared", logging.WARNING, "Could not read MaxSharedMemoryPerBlock (%s: %s); assuming 48 KiB", type(e).__name__, e)
         limit = 48 * 1024
     return (n_y - 1) * words * 8 <= limit - _SHARED_MARGIN
 

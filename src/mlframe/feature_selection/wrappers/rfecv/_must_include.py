@@ -35,7 +35,7 @@ def _resolve_must_include(self, *, X, original_features, verbose):
             missing = [m for m in self.must_include if not (isinstance(m, (int, np.integer)) and 0 <= int(m) < p)]
         if missing:
             raise ValueError(f"must_include contains entries not in X: {missing}. " f"Available: {list(original_features)[:20]}...")
-        must_include_resolved = list(self.must_include)
+        must_include_resolved = list(dict.fromkeys(self.must_include))
         # Remove from search universe; the optimiser explores only the
         # COMPLEMENT. Final support_ = must_include + optimiser's pick.
         original_features = [c for c in original_features if c not in must_include_resolved]

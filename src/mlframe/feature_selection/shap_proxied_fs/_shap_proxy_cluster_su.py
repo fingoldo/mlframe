@@ -32,6 +32,7 @@ from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_d
 from mlframe.feature_selection.filters.shared import crit_float_dtype
 from numba import njit, prange
 
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster import _uf_labels
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_gpu_tuning import SU_FALLBACK_MIN_FEATURES, su_gpu_pays_off
 from mlframe.feature_selection.shap_proxied_fs._shap_proxy_cluster_su_joint import (
@@ -67,6 +68,9 @@ f=500 / n_bins=10 / n=1500)."""
 
 
 _GPU_AVAILABLE_CACHE: bool | None = None
+
+_GPU_EXACT_COUNT_MAX_ROWS: int = 1 << 24
+"""float32 joint counts are exact only below 2**24 rows; at or above it the GPU kernel's counts (and SU) are inexact, so the CPU kernel runs."""
 
 
 def cluster_su_gpu_available() -> bool:
@@ -150,6 +154,10 @@ def _should_route_su_gpu(
     """
     if not cluster_su_gpu_available():
         return False
+    if int(n_samples) >= _GPU_EXACT_COUNT_MAX_ROWS:
+        log_throttle(logger, "shap_proxy.cluster_su_gpu_rows", logging.WARNING,
+                     "cluster-SU GPU kernel declined: %d rows exceed the float32 exact-count limit %d; using the CPU kernel.", int(n_samples), _GPU_EXACT_COUNT_MAX_ROWS)
+        return False
     if gpu_min_features is not None:
         if n_features < int(gpu_min_features):
             return False
@@ -167,9 +175,13 @@ def _should_route_su_gpu(
     # temporaries) will not fit, we must route to the CPU kernel instead.
     joint_row_bytes = 10 * int(n_features) * int(max_n_bins) * int(max_n_bins) * 8
     free_bytes = _gpu_free_memory_bytes()
-    if free_bytes <= 0:
+    need_bytes = onehot_bytes + joint_row_bytes
+    if free_bytes <= 0 or need_bytes >= int(free_bytes * float(memory_safety_factor)):
+        log_throttle(logger, "shap_proxy.cluster_su_gpu_memory", logging.WARNING,
+                     "cluster-SU GPU kernel declined: needs %d bytes but only %d bytes are free (safety factor %s); using the slower CPU kernel.",
+                     need_bytes, max(free_bytes, 0), memory_safety_factor)
         return False
-    return (onehot_bytes + joint_row_bytes) < int(free_bytes * float(memory_safety_factor))
+    return True
 
 
 def _pairwise_su_edges_gpu(
@@ -486,6 +498,8 @@ def _column_marginal(
     cls = np.ascontiguousarray(classes, dtype=np.int64)
     if cls.size == 0:
         return cls, np.empty(0, dtype=_crit_np_dtype())
+    if int(cls.min()) < 0:
+        cls = cls - int(cls.min())
     observed_max = int(cls.max()) + 1 if cls.size else 0
     if observed_max > SPARSE_CODE_RELABEL_MIN:
         # Wide code space (see ``_setup_su_kernel_inputs``): relabel densely; SU is unchanged.

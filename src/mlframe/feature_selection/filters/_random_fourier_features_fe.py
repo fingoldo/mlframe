@@ -22,15 +22,19 @@ Fourier features linearly recovers it because the RBF kernel IS the radial-Gauss
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
+from mlframe.utils.log_throttle import log_throttle
 
 if TYPE_CHECKING:
     from .engineered_recipes import EngineeredRecipe
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "random_fourier_features",
@@ -81,6 +85,8 @@ def _median_pairwise_distance(X: np.ndarray, *, max_sample: int = 500, random_st
         idx = rng.choice(n, size=max_sample, replace=False)
         X = X[idx]
         n = max_sample
+    # Centred and in double: |a|^2 + |b|^2 - 2a.b on raw float32 columns cancels catastrophically when the offset dwarfs the spread.
+    X = np.asarray(X, dtype=np.float64) - np.asarray(X, dtype=np.float64).mean(axis=0, keepdims=True)  # Intentional float64: Gram-form distances
     sq = np.sum(X * X, axis=1)
     d2 = sq[:, None] + sq[None, :] - 2.0 * (X @ X.T)
     np.maximum(d2, 0.0, out=d2)
@@ -157,7 +163,10 @@ def generate_random_fourier_features_block(
         return pd.DataFrame(index=X.index), {}
     X_cols = X[cols].to_numpy(dtype=_crit_np_dtype())
     n, p = X_cols.shape
-    if n < 1 or p < 1 or m < 1 or not np.isfinite(X_cols).all():
+    if n < 1 or p < 1 or m < 1:
+        return pd.DataFrame(index=X.index), {}
+    if not np.isfinite(X_cols).all():
+        log_throttle(logger, "_random_fourier_features_fe.generate_block_nonfinite", logging.WARNING, "random Fourier block over %d column(s) skipped: the sources hold NaN/inf", p)
         return pd.DataFrame(index=X.index), {}
 
     bw = float(bandwidth) if bandwidth is not None else _median_pairwise_distance(X_cols, random_state=random_state)

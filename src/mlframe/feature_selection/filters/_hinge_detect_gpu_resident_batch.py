@@ -40,6 +40,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters._lazy_host_codes import length_of
 from ._fe_gpu_batch._devices import crit_float_dtype
 from ._fe_usability_signal import _crit_np_dtype
@@ -108,6 +109,7 @@ def detect_hinge_breakpoints_gpu_batch(
     n_candidates: int,
     min_rows: int,
     min_seg_rows: int,
+    scan_on_train_rows: bool = True,
 ) -> Optional[list]:
     """Batched twin of ``detect_hinge_breakpoints_gpu``: runs the plausibility precheck for EVERY column
     in ``x_cols`` in ONE closed-form GPU pass, then only the columns that pass go through the exact
@@ -151,10 +153,19 @@ def detect_hinge_breakpoints_gpu_batch(
                 x_cols[j], y_arr, max_breakpoints=max_breakpoints, min_heldout_r2_uplift=min_heldout_r2_uplift,
                 precheck_qs=precheck_qs, precheck_min_sse_drop=precheck_min_sse_drop,
                 cand_q_lo=cand_q_lo, cand_q_hi=cand_q_hi, n_candidates=n_candidates,
-                min_rows=min_rows, min_seg_rows=min_seg_rows,
+                min_rows=min_rows, min_seg_rows=min_seg_rows, scan_on_train_rows=scan_on_train_rows,
             )
-            out[j] = taus if taus is not None else []
+            if taus is None:
+                log_throttle(
+                    logger, "hinge_gpu_batch_column_fault", logging.WARNING,
+                    "detect_hinge_breakpoints_gpu_batch: the device detector faulted on column %d; the per-column path runs for every column", j,
+                )
+                return None
+            out[j] = taus
         return out
     except Exception as _exc:
-        logger.debug("detect_hinge_breakpoints_gpu_batch failed (%s); per-column fallback", _exc)
+        log_throttle(
+            logger, "hinge_gpu_batch_fault", logging.WARNING,
+            "detect_hinge_breakpoints_gpu_batch failed (%s: %s); the per-column path runs", type(_exc).__name__, _exc,
+        )
         return None

@@ -74,12 +74,12 @@ def _combo_mm_mi_njit(combo_codes, cards, target, kt, n_cells):
     for cell in range(n_cells):
         if px[cell] <= 0.0:
             continue
-        occ_cells += 1
         pxc = px[cell] * inv_n
         base = cell * kt
         for t in range(kt):
             cnt = joint[base + t]
             if cnt > 0.0:
+                occ_cells += 1
                 pj = cnt * inv_n
                 mi += pj * np.log(pj / (pxc * (py[t] * inv_n)))
     occ_x = 0
@@ -130,12 +130,12 @@ def _combo_mm_mi_cols_njit(c0, c1, c2, order, cards, target, kt, n_cells):
     for cell in range(n_cells):
         if px[cell] <= 0.0:
             continue
-        occ_cells += 1
         pxc = px[cell] * inv_n
         base = cell * kt
         for t in range(kt):
             cnt = joint[base + t]
             if cnt > 0.0:
+                occ_cells += 1
                 pj = cnt * inv_n
                 mi += pj * np.log(pj / (pxc * (py[t] * inv_n)))
     occ_x = 0
@@ -295,6 +295,13 @@ def detect_synergy_combos(
     _kt = int(_yt.max()) + 1 if _n else 1
     # Per-feature dense codes + cardinalities (cached once).
     _ccode = {i: np.ascontiguousarray(np.asarray(code_cols[i]).astype(np.int64).ravel()) for i in idx}
+    for _i, _cc in _ccode.items():
+        if _cc.shape[0] != _n:
+            raise ValueError(f"detect_synergy_combos: code column {_i} has {_cc.shape[0]} rows, the target has {_n}")
+        if _cc.size and int(_cc.min()) < 0:
+            raise ValueError(f"detect_synergy_combos: code column {_i} holds negative codes")
+    if _n and int(_yt.min()) < 0:
+        raise ValueError("detect_synergy_combos: the target codes hold negative values")
     _ccard = {i: (int(_ccode[i].max()) + 1 if _ccode[i].size else 1) for i in idx}
     _marg = {i: float(_combo_mm_mi_njit(_ccode[i].reshape(_n, 1), np.array([_ccard[i]], dtype=np.int64), _yt, _kt, _ccard[i])) for i in idx}
     # Cap: keep the strongest-marginal candidates PLUS (synergy needs low-marginal members) fill the

@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 
 from typing import cast
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._gpu_resident_shared import _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT, _GPU_K_CHUNK_VRAM_FRACTIONS
 
 _GPU_K_CHUNK_SWEEP_N_SAMPLES = [50_000, 100_000, 300_000, 1_000_000]
@@ -43,7 +45,7 @@ def gpu_k_chunk_vram_fraction(n: int) -> float:
     try:
         choice = _GPU_K_CHUNK_SPEC.choose(n_samples=int(n))
     except Exception as e:
-        logger.debug("gpu_k_chunk_vram_fraction: KTC choose() failed, using the conservative default %.2f: %s", _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT, e)
+        log_throttle(logger, "gpu_k_chunk.choose", logging.WARNING, "gpu_k_chunk_vram_fraction: the tuning cache lookup failed (%s), the conservative fraction %.2f is used", e, _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT)
         return _GPU_K_CHUNK_VRAM_FRACTION_DEFAULT
     if isinstance(choice, str) and choice.startswith("frac_"):
         try:

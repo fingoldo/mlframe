@@ -32,6 +32,8 @@ def _grand_fused_pair_mi_part1(
     random_seed: int, min_nonzero_confidence: float,
 ) -> tuple[Any, ...]:
     """Extracted block of ``grand_fused_pair_mi`` (part 1); returns the names the caller still uses."""
+    if int(nbins) > 128:
+        raise ValueError(f"grand_fused_pair_mi: nbins={int(nbins)} does not fit the int8 resident codes (max 128)")
     import cupy as cp
 
     from ._gpu_resident_select import _gpu_resident_discretize_codes  # type: ignore[attr-defined]  # dynamically re-exported via globals(); lazy: cross-sibling, avoids cycle

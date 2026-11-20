@@ -20,6 +20,7 @@ import sys
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.feature_selection.filters.info_theory._reject_count import reject_count
 
 from ._gpu_kernel_sources import (
     COMPUTE_JOINT_HIST_BATCHED_CUDA_SRC,
@@ -510,8 +511,11 @@ def mi_direct_gpu(
     # caller hasn't pre-warmed device buffers (those carry caller-
     # provided state we'd silently bypass) AND we have enough
     # permutations to amortise the batch-generation overhead.
+    # The batched path derives its own max_failed from min_nonzero_confidence, so an explicit different cap must stay on the per-iter loop.
+    _derived_max_failed = max(1, reject_count(npermutations, min_nonzero_confidence))
     if (
         npermutations >= _PERM_FANOUT_MIN_PERMUTATIONS
+        and (max_failed is None or max_failed <= 0 or max_failed == _derived_max_failed)
         and classes_y_safe is None
         and freqs_y_safe is None
         and not return_null_mean  # the batched path does not accumulate the null mean; keep the per-iter loop
@@ -563,7 +567,7 @@ def mi_direct_gpu(
     _nchecked = 0
     if original_mi > 0 and npermutations > 0:
         if max_failed is None or max_failed <= 0:  # a feature is rejected at nfailed >= max_failed, so 0 would reject every one
-            max_failed = int(npermutations * (1 - min_nonzero_confidence))
+            max_failed = reject_count(npermutations, min_nonzero_confidence)
             if max_failed <= 1:
                 max_failed = 1
 

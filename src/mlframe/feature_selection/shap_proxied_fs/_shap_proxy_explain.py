@@ -88,6 +88,7 @@ def _build_oof_fold_fit_disk_key(model_template, X_tr_fold, y_tr_fold, classific
             "n_estimators_cap": n_estimators_cap,
             "classification": bool(classification),
             "params": params,
+            "estimator": type(model_template).__module__ + "." + type(model_template).__qualname__,
         })
         return _OOF_FOLD_FIT_CACHE_PREFIX + compose_key(x_tr_key, y_tr_key, state_key)
     except Exception as exc:
@@ -277,7 +278,7 @@ def _treeshap_phi_and_base(explainer_base, X: pd.DataFrame, use_gpu: bool):
 
             return treeshap_phi_base_gpu(ensemble, Xv)
         except Exception as exc:  # device/cupy hiccup -> numba fallback (never lose the result)
-            logger.warning("ShapProxiedFS: GPU TreeSHAP failed (%s); falling back to numba.", exc)
+            log_throttle(logger, "shap_proxy.treeshap_gpu_failed", logging.WARNING, "ShapProxiedFS: GPU TreeSHAP failed (%s); falling back to numba.", exc)
     return treeshap_phi_base_numba(ensemble, Xv)
 
 
@@ -729,7 +730,7 @@ def compute_shap_matrix(
     _cache, _cache_key, _hit = _open_shap_disk_cache(
         cache_dir, model_template, X, y, rng, classification=classification, out_of_fold=out_of_fold, n_splits=n_splits, n_models=n_models,
         config_jitter=config_jitter, return_variance=return_variance, return_per_fold_phi_mean=return_per_fold_phi_mean,
-        shap_backend=shap_backend, n_estimators_cap=n_estimators_cap, inner_n_jobs_cap=inner_n_jobs_cap)
+        shap_backend=shap_backend, n_estimators_cap=n_estimators_cap, inner_n_jobs_cap=inner_n_jobs_cap, cv_policy=cv_policy)
     if _hit is not None:
         return _hit
 

@@ -238,6 +238,23 @@ def _bin_target(y: np.ndarray, n_bins: int = 10) -> np.ndarray:
     _, codes = np.unique(y_arr, return_inverse=True)
     return cast("np.ndarray", codes.astype(np.int64))
 
+def _occupied_classes(codes: np.ndarray) -> int:
+    """Number of distinct non-negative integer codes present in ``codes``."""
+    if codes.size == 0:
+        return 0
+    return int(np.count_nonzero(np.bincount(np.asarray(codes, dtype=np.int64))))
+
+
+def ii_plugin_bias(cards: Sequence[int], k_y: int, n: int) -> float:
+    """Upward bias of the plug-in interaction information under independence: ``prod(card - 1) * (k_y - 1) / (2 n)`` (Miller-Madow, telescoped over the inclusion-exclusion)."""
+    if n <= 0 or k_y <= 1 or any(int(c) <= 1 for c in cards):
+        return 0.0
+    bias = float(k_y - 1)
+    for c in cards:
+        bias *= float(int(c) - 1)
+    return bias / (2.0 * float(n))
+
+
 def score_cat_pairs_by_interaction_information(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -273,7 +290,7 @@ def score_cat_pairs_by_interaction_information(
     else:
         pairs = [(a, b) for (a, b) in pairs if a in X.columns and b in X.columns and a != b]
     if not pairs:
-        return pd.DataFrame(columns=["cat_i", "cat_j", "engineered_col", "mi_joint", "mi_i", "mi_j", "ii"])
+        return pd.DataFrame(columns=["cat_i", "cat_j", "engineered_col", "mi_joint", "mi_i", "mi_j", "ii", "ii_mm"])
 
     y_bin = _bin_target(y, n_bins=n_bins)
 
@@ -326,6 +343,8 @@ def score_cat_pairs_by_interaction_information(
             code_matrix, radix, np.array([column_row[a] for a, _ in pairs], dtype=np.int64), np.array([column_row[b] for _, b in pairs], dtype=np.int64),
             np.ascontiguousarray(y_b, dtype=np.int64), int(k_y),
         )
+    k_y_occ = _occupied_classes(y_b)
+    n_rows = int(y_b.size)
     rows = []
     for (cat_i, cat_j), mi_joint in zip(pairs, joint_mis.tolist()):
         mi_i = _mi_col(cat_i)
@@ -339,6 +358,7 @@ def score_cat_pairs_by_interaction_information(
             "mi_i": mi_i,
             "mi_j": mi_j,
             "ii": ii,
+            "ii_mm": ii - ii_plugin_bias((radix_cache[cat_i], radix_cache[cat_j]), k_y_occ, n_rows),
         })
     out = pd.DataFrame(rows)
     return out.sort_values("ii", ascending=False, kind="mergesort").reset_index(drop=True)
@@ -449,6 +469,7 @@ def hybrid_cat_pair_fe(
     cat_cols: Optional[Sequence[str]] = None,
     pairs: Optional[Sequence[tuple[str, str]]] = None,
     min_interaction_info: float = 0.001,
+    null_floor_mult: float = 2.5,
     top_k: int = 5,
     n_bins: int = 10,
     n_folds: int = 5,
@@ -459,7 +480,10 @@ def hybrid_cat_pair_fe(
 
     1. Auto-detect ``cat_cols`` when not supplied.
     2. Compute interaction information ``II(cat_i, cat_j; y)`` for all pairs.
-    3. Keep synergistic pairs (``II > min_interaction_info``), top ``top_k`` by II.
+    3. Keep synergistic pairs, top ``top_k`` by ``ii_mm``: ``ii_mm`` (Miller-Madow bias-corrected) must exceed
+       ``max(min_interaction_info, null_floor_mult * bias)`` where ``bias`` is the pair's Miller-Madow plug-in bias. MM removes only the
+       mean of the null; at few rows per cell its spread is a multiple of the bias (measured max noise ``ii_mm`` / bias 0.5-1.9 over
+       cardinalities 4-10, n 1e3-1e4), so the fixed 0.001 floor passed 10-level noise pairs. ``null_floor_mult=0`` restores the fixed floor.
     4. For each survivor emit the integer cell cross. Apply the Layer 29
        cardinality pre-screen: if the cross has > ``0.5 * n`` distinct cells,
        route it through K-fold OOF target encoding (Layer 33); otherwise keep
@@ -492,8 +516,9 @@ def hybrid_cat_pair_fe(
     if scores.empty:
         return X, [], [], scores
 
-    keep = scores[scores["ii"] > float(min_interaction_info)]
-    keep = keep.head(int(top_k))
+    _floor = np.maximum(float(min_interaction_info), float(null_floor_mult) * (scores["ii"] - scores["ii_mm"]).to_numpy())
+    keep = scores[scores["ii_mm"].to_numpy() > _floor]
+    keep = keep.sort_values("ii_mm", ascending=False, kind="mergesort").head(int(top_k))
     if keep.empty:
         return X, [], [], scores
 

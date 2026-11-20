@@ -38,6 +38,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 from ._safe_scale import standardise
 from mlframe.feature_selection.filters._lazy_host_codes import shape_of
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +55,15 @@ def _gpu_usability_on() -> bool:
         return fe_gpu_usability_enabled()
     except Exception as e:
         # fallback: usability_gpu is an optional GPU module; when it cannot load the CPU sklearn path is used.
-        logger.debug("_gpu_usability_on: usability_gpu check failed, staying on the CPU sklearn path: %s", e)
+        log_throttle(logger, "fe_pure_form_retention.gpu_usability_check", logging.WARNING, "_gpu_usability_on: usability_gpu check failed, staying on the CPU sklearn path: %s", e)
         return False
+
+
+def _finite_std(values: np.ndarray) -> float:
+    """Standard deviation over the finite entries of ``values``; 0.0 for a column with none, so it never poisons a sort key with NaN."""
+    v = np.asarray(values, dtype=np.float64)  # Intentional float64: ranking statistic
+    v = v[np.isfinite(v)]
+    return float(v.std()) if v.size else 0.0
 
 
 def _base_trim_select(mrmr, X, base_names, k):
@@ -72,7 +80,7 @@ def _base_trim_select(mrmr, X, base_names, k):
     cached = getattr(mrmr, "cached_MIs", None)
     names_in = list(getattr(mrmr, "feature_names_in_", []))
     pos = {nm: i for i, nm in enumerate(names_in)}
-    stds = {nm: float(np.nanstd(X[nm].to_numpy())) for nm in base_names}
+    stds = {nm: _finite_std(X[nm].to_numpy()) for nm in base_names}
     by_std = sorted(base_names, key=lambda nm: (-stds[nm], str(nm)))
     if not (isinstance(cached, dict) and all(nm in pos for nm in base_names)):
         return by_std[:k]
@@ -136,6 +144,9 @@ def _retention_prep(
     }
 
 
+_INSAMPLE_GATE_MIN_ROWS_PER_COL = 10  # in-sample gate scores need at least this many rows per column, else the gate scores held-out
+
+
 def _raws_already_explain_y(X: Any, y_cont: np.ndarray, base_names: list, is_clf: bool, seed: int) -> bool:
     """Cheap gate: ``True`` when a linear / logistic fit on the raw bases already explains the target, so no trapped nonlinear pair form can help."""
     # CHEAP LINEAR-FIT GATE: the trap conditions above are NECESSARY but not sufficient -
@@ -160,6 +171,8 @@ def _raws_already_explain_y(X: Any, y_cont: np.ndarray, base_names: list, is_clf
             _Xg = X[base_names].to_numpy(dtype=_crit_np_dtype(), copy=False)
             _yg = y_cont
         _Xg = np.nan_to_num(_Xg, nan=0.0, posinf=0.0, neginf=0.0)
+        # an in-sample score is inflated once the column count nears the row count (pure noise clears 0.92 at p ~ 0.95 n), which would silently skip the pass
+        _wide = _Xg.shape[1] * _INSAMPLE_GATE_MIN_ROWS_PER_COL > _Xg.shape[0]
         if is_clf:
             # CLASSIFICATION analogue: fit a logistic model on the raw bases and skip when the raws
             # already linearly SEPARATE the classes well (held-in AUC>=0.92 binary / accuracy>=0.92
@@ -170,22 +183,32 @@ def _raws_already_explain_y(X: Any, y_cont: np.ndarray, base_names: list, is_clf
 
             _ycodes_g = np.unique(_yg, return_inverse=True)[1]
             if np.unique(_ycodes_g).size >= 2:
-                _clf = _mp(StandardScaler(), _LogR(max_iter=200)).fit(_Xg, _ycodes_g)
-                if np.unique(_ycodes_g).size == 2:
-                    _sc = float(_auc(_ycodes_g, _clf.predict_proba(_Xg)[:, 1]))
+                if _wide:
+                    from sklearn.model_selection import cross_val_score
+
+                    _sc = float(np.mean(cross_val_score(_mp(StandardScaler(), _LogR(max_iter=200)), _Xg, _ycodes_g, cv=3, scoring="roc_auc" if np.unique(_ycodes_g).size == 2 else "accuracy")))
                 else:
-                    # multiclass accuracy = fraction correct (accuracy_ratio is CAP-AR, a different quantity)
-                    _sc = float(np.mean(_ycodes_g == _clf.predict(_Xg)))
+                    _clf = _mp(StandardScaler(), _LogR(max_iter=200)).fit(_Xg, _ycodes_g)
+                    if np.unique(_ycodes_g).size == 2:
+                        _sc = float(_auc(_ycodes_g, _clf.predict_proba(_Xg)[:, 1]))
+                    else:
+                        # multiclass accuracy = fraction correct (accuracy_ratio is CAP-AR, a different quantity)
+                        _sc = float(np.mean(_ycodes_g == _clf.predict(_Xg)))
                 if _sc >= 0.92:
                     return True  # raws already separate the classes - nothing nonlinear to recover
         else:
             from sklearn.linear_model import LinearRegression
 
-            _r2 = float(_mp(StandardScaler(), LinearRegression()).fit(_Xg, _yg).score(_Xg, _yg))
+            if _wide:
+                from sklearn.model_selection import KFold, cross_val_score
+
+                _r2 = float(np.mean(cross_val_score(_mp(StandardScaler(), LinearRegression()), _Xg, _yg, cv=KFold(3, shuffle=True, random_state=int(seed)), scoring="r2")))
+            else:
+                _r2 = float(_mp(StandardScaler(), LinearRegression()).fit(_Xg, _yg).score(_Xg, _yg))
             if _r2 >= 0.92:
                 return True  # raws already fit y linearly - no trapped nonlinear interaction to recover
     except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
-        logger.debug("linear-fit gate check failed, falling through to the full path: %s", e)  # gate is an optimisation; on any failure fall through to the (correct) full path
+        log_throttle(logger, "fe_pure_form_retention.raws_gate_failed", logging.WARNING, "linear-fit gate check failed, falling through to the full path: %s", e)  # gate is an optimisation; on any failure fall through to the (correct) full path
     return False
 
 
@@ -739,7 +762,7 @@ def _retain_usable_pure_cand_usable(usable, covered_pairs, existing_names, out, 
             break
 
 
-def _is_group_leak_raw(X_fit, name, y_values, n_bins: int = 8) -> bool:
+def _is_group_leak_raw(X_fit, name, y_values, n_bins: int = 8, *, X_full: Any = None, y_full: "np.ndarray | None" = None) -> bool:
     """True when group_aware_mi is active and raw column ``name`` is a between-group leak (no within-group signal).
 
     Both sides are quantile-binned here (the retention probe is continuous); the group segments must cover the same rows as
@@ -752,6 +775,9 @@ def _is_group_leak_raw(X_fit, name, y_values, n_bins: int = 8) -> bool:
         return False
     sort_idx, group_offsets, min_rows, size_weighted = payload
     n = len(y_values)
+    if int(shape_of(sort_idx)[0]) != n and X_full is not None and y_full is not None and int(shape_of(sort_idx)[0]) == len(y_full) == len(X_full):
+        # the probe ran on a row subsample but the group segments index the full frame: judge the verdict on the full rows
+        X_fit, y_values, n = X_full, y_full, len(y_full)
     if int(shape_of(sort_idx)[0]) != n or len(X_fit) != n:
         return False
 
@@ -878,7 +904,7 @@ def retain_usable_raw_columns(
             nm = getattr(cand, "name", None)
             if nm is None or nm in already or nm not in X.columns:
                 continue
-            if _is_group_leak_raw(X_fit, nm, _yv):
+            if _is_group_leak_raw(X_fit, nm, _yv, X_full=X, y_full=_scrub(y_cont)):
                 # A between-group leak is demoted under group_aware_mi; the global linear probe must not re-admit it.
                 continue
             out.append(nm)

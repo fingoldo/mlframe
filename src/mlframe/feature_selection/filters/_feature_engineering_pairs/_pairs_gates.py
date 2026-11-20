@@ -334,7 +334,7 @@ def _select_single_best(
             float(_use.get(kv[0], 0.0)),
             quantize_mi_tiebreak(kv[1]),
             float(_sec.get(kv[0], 0.0)),
-            _NegNameKey(get_new_feature_name(fe_tuple=kv[0], cols_names=cols_names)),
+            _NegNameKey(_name(kv[0])),
         ),
     )[0]
 

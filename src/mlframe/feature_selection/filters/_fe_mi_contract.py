@@ -49,6 +49,8 @@ THE CONTRACT (applies to the FE BATCHER paths - the new CPU and GPU resident sco
 """
 from __future__ import annotations
 
+import math
+
 # Quantisation grid for the EXACT-MI tiebreaker leg, in nats. Chosen so that
 #   cross-backend drift (unified binning -> fp reduction order, ~1e-12)  <<  QUANTUM  <<  genuine MI gaps.
 # The plug-in MI tie band is ``(k_x-1)(k_y-1)/2n`` ~ 1e-3 on the FE quantiser, and the tightest genuine
@@ -70,6 +72,6 @@ def quantize_mi_tiebreak(mi: float, quantum: float = _MI_TIEBREAK_QUANTUM) -> fl
     if quantum <= 0.0:
         return float(mi)
     m = float(mi)
-    if not (m == m):  # NaN guard: leave NaN as-is (max() over a NaN key is already undefined upstream)
+    if not math.isfinite(m):  # NaN / +-inf: round() raises OverflowError on inf, leave non-finite values as-is
         return m
     return round(m / quantum) * quantum

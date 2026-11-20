@@ -45,6 +45,7 @@ import threading
 from typing import Any, Optional
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
 
@@ -244,5 +245,12 @@ def plugin_mi_classif_batch_rank_cuda_resident(
         mi = binned_mi_from_codes_gpu(codes, yg, kx_per_col=[int(n_bins)] * k, ky=int(n_classes), codes_trusted=True)
         return np.asarray(mi)
     except Exception as _exc:
-        logger.debug("plugin_mi_classif_batch_rank_cuda_resident: GPU path failed (%s); host fallback", _exc)
+        log_throttle(
+            logger,
+            "gpu_rank_bin.plugin_mi_failed",
+            logging.WARNING,
+            "plugin_mi_classif_batch_rank_cuda_resident: GPU path failed (%s: %s); host fallback",
+            type(_exc).__name__,
+            _exc,
+        )
         return None

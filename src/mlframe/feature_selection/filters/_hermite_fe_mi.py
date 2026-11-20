@@ -373,7 +373,6 @@ def _resident_mi_candidates(X_gpu, n_bins: int, *, keep_dtype: bool, relax_binni
                 interior = _radix_edges_in_column_blocks(cp, X_gpu, n_bins)
             if interior is None:
                 logger.warning("_radix_select_interior_edges failed, falling back to the exact percentile path: %s", e)
-            interior = None
     if interior is None and x_is_cm:
         X_gpu = cp.ascontiguousarray(X_gpu.T)  # the percentile fallback and the code-path MI work on the (n, k) matrix
         x_is_cm = False

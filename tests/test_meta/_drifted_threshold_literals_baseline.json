@@ -1,6 +1,6 @@
 {
   "entries": {
-    "threshold::1e-09 compared against _col_std/_std_tr/_std_va/std::calibration/threshold_optimizer.py feature_selection/filters/_binned_numeric_agg_fe.py feature_selection/filters/_binned_numeric_agg_resident.py feature_selection/filters/_feature_engineering_pairs/_pairs_emit.py feature_selection/filters/_orthogonal_univariate_fe/_fourier_detect_gpu_resident.py feature_selection/filters/_target_encoding_fe.py": {
+    "threshold::1e-09 compared against _std_tr/_std_va/std::calibration/threshold_optimizer.py feature_selection/filters/_binned_numeric_agg_fe.py feature_selection/filters/_binned_numeric_agg_resident.py feature_selection/filters/_orthogonal_univariate_fe/_fourier_detect_gpu_resident.py feature_selection/filters/_target_encoding_fe.py": {
       "count": 1,
       "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
     },
@@ -16,9 +16,9 @@
       "count": 1,
       "note": "Numerical-zero guard on a dispersion/denominator, each at the scale of its own quantity (a standard deviation, a norm, a sum of squares); the figure is a floating-point safety floor, not a tuned limit, and the sites are unrelated kernels that must not change together."
     },
-    "threshold::1e-12 compared against var::feature_engineering/transformer/_aggregation.py feature_selection/filters/_meta_fe_recommender.py feature_selection/filters/_target_encoding_fe.py feature_selection/filters/_target_mix_fe.py": {
+    "threshold::1e-12 compared against var::feature_engineering/transformer/_aggregation.py feature_selection/filters/_target_encoding_fe.py feature_selection/filters/_target_mix_fe.py": {
       "count": 1,
-      "note": "Numerical-zero guard on a variance (a sum of squared centred values), each module at the scale of its own column; the figure is a floating-point safety floor, not a tuned limit, and the four sites are unrelated FE families that must not change together."
+      "note": "Numerical-zero guard on a variance (a sum of squared centred values), each module at the scale of its own column; the figure is a floating-point safety floor, not a tuned limit, and the three sites are unrelated FE families that must not change together."
     },
     "threshold::20 compared against size::feature_selection/filters/_feature_engineering_pairs/_pairs_setup.py feature_selection/shap_proxied_fs/_shap_proxy_interactions.py training/composite/autoconfig.py": {
       "count": 1,

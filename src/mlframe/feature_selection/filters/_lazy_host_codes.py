@@ -151,9 +151,8 @@ class LazyHostCodes:
 
     def __array__(self, dtype: Any = None, copy: Any = None) -> np.ndarray:
         """numpy conversion: materialises the host copy; a request for a narrower float dtype takes the shared narrow copy (``host_as``), so ``np.asarray(lazy, dtype=...)`` never moves double precision."""
-        if dtype is None:
-            return self.host()
-        return self.host_as(dtype)
+        out = self.host() if dtype is None else self.host_as(dtype)
+        return np.array(out, copy=True) if copy else out
 
     def __len__(self) -> int:
         """Length of the first axis (known without a copy)."""

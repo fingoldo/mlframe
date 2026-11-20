@@ -30,7 +30,7 @@ from typing import List, Optional, Sequence
 
 import numpy as np
 from sklearn.linear_model import Ridge, RidgeClassifier
-from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import check_cv
 from sklearn.preprocessing import StandardScaler
 
 from ._selection_log import logs_selection
@@ -109,6 +109,7 @@ def ridge_coefficient_prefilter(
         sizes.append(n_features)
         candidate_sizes = sorted(set(s for s in sizes if s <= n_features))
 
+    y = np.asarray(y)
     X_std = StandardScaler().fit_transform(X)
 
     ranker = RidgeClassifier(alpha=alpha, random_state=random_state) if is_classifier else Ridge(alpha=alpha, random_state=random_state)
@@ -120,15 +121,8 @@ def ridge_coefficient_prefilter(
         coefs = np.abs(coefs)
     ranked_idx = np.argsort(-coefs)
 
-    scoring = "accuracy" if is_classifier else "r2"
-    best_score = -np.inf
-    size_scores = {}
-    for size in candidate_sizes:
-        cols = ranked_idx[:size]
-        model = RidgeClassifier(alpha=alpha, random_state=random_state) if is_classifier else Ridge(alpha=alpha, random_state=random_state)
-        score = float(np.mean(cross_val_score(model, X_std[:, cols], y, cv=cv, scoring=scoring)))
-        size_scores[size] = score
-        best_score = max(best_score, score)
+    size_scores = nested_pool_cv_scores(X, y, candidate_sizes, cv, is_classifier, alpha, random_state)
+    best_score = max(size_scores.values(), default=-np.inf)
 
     # RELATIVE, as documented ("max allowed relative drop from the best observed CV score"). Subtracting `tol`
     # absolutely made the floor tighter or looser than intended depending on the score's magnitude: at r2 = 0.90
@@ -158,6 +152,39 @@ def ridge_coefficient_prefilter(
         )
 
     return [feature_names[i] for i in selected_idx]
+
+
+def nested_pool_cv_scores(
+    X: np.ndarray,
+    y: np.ndarray,
+    candidate_sizes: Sequence[int],
+    cv: int,
+    is_classifier: bool,
+    alpha: float,
+    random_state: int,
+) -> dict:
+    """Mean held-out score (R^2 or accuracy) of each pool size, with the scaler and the |coefficient| ranking refit inside every training fold.
+
+    Ranking on all rows and then cross-validating the top-k pools would let the held-out rows pick their own features, inflating the small-pool scores and biasing the
+    pool-size choice toward pools that are too small.
+    """
+    folds = check_cv(cv, y, classifier=is_classifier)
+    sums = {int(s): 0.0 for s in candidate_sizes}
+    n_folds = 0
+    for tr, va in folds.split(X, y):
+        scaler = StandardScaler().fit(X[tr])
+        X_tr, X_va = scaler.transform(X[tr]), scaler.transform(X[va])
+        ranker = RidgeClassifier(alpha=alpha, random_state=random_state) if is_classifier else Ridge(alpha=alpha, random_state=random_state)
+        ranker.fit(X_tr, y[tr])
+        coefs = np.abs(np.asarray(ranker.coef_))
+        order = np.argsort(-(coefs.max(axis=0) if coefs.ndim > 1 else coefs))
+        for size in sums:
+            cols = order[:size]
+            model = RidgeClassifier(alpha=alpha, random_state=random_state) if is_classifier else Ridge(alpha=alpha, random_state=random_state)
+            model.fit(X_tr[:, cols], y[tr])
+            sums[size] += float(model.score(X_va[:, cols], y[va]))
+        n_folds += 1
+    return {s: v / max(n_folds, 1) for s, v in sums.items()}
 
 
 def _bootstrap_stability_select(

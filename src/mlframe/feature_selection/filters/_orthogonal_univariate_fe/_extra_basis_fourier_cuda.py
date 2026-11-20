@@ -22,6 +22,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
 logger = logging.getLogger(__name__)
@@ -142,7 +144,10 @@ def fourier_block_cuda(cp: Any, columns: "list[Any]", metas: "list[dict]") -> Op
         run_column_blocks(cp, k, first_block(cp, n, k, int(dtype.itemsize), 2), name_block)  # column blocks of names, halved when a block does not fit
         return out
     except Exception as exc:  # nosec B110 - any device or compile failure falls back to the per-column build
-        logger.debug("fourier_block_cuda unavailable (%s: %s); using the per-column build", type(exc).__name__, exc)
+        log_throttle(
+            logger, "fourier_block_cuda_unavailable", logging.WARNING,
+            "fourier_block_cuda unavailable (%s: %s) for %d names; using the slower per-column device build", type(exc).__name__, exc, len(metas),
+        )
         return None
 
 

@@ -48,3 +48,33 @@ def test_harmful_offset_is_rejected_on_held_out_rows():
     Z = w.selector_.transform(X)
     even = np.arange(len(y)) % 2 == 0
     assert w._offset_helps_held_out(Z, y, X, even) is False
+
+
+def test_forward_offset_gate_fits_and_scores_only_rows_the_selector_has_not_seen():
+    """The forward block of the offset gate uses the odd rows only: the even rows carry the selector's features and beta, so scoring on them would validate on fitted rows."""
+    from sklearn.base import BaseEstimator, RegressorMixin
+
+    fitted_rows = []
+
+    class _Spy(RegressorMixin, BaseEstimator):
+        """Ridge that records the number of rows it is fitted on."""
+
+        def fit(self, X, y):
+            """Record the row count and fit."""
+            fitted_rows.append(len(y))
+            self.m_ = Ridge().fit(X, y)
+            return self
+
+        def predict(self, X):
+            """Predict with the inner Ridge."""
+            return self.m_.predict(X)
+
+    X, y = _frame(4, n=1000)
+    w = TargetOffsetRegressor(selector=None, regressor=_Spy())
+    w.offset_base_ = {"raw": "u"}
+    w.offset_beta_ = 4.0
+    w._y_dtype_ = y.dtype
+    even = np.arange(len(y)) % 2 == 0
+    w._offset_helps_forward(X.to_numpy(), y, X, even)
+    n_odd = int((~even).sum())
+    assert fitted_rows == [int(0.7 * n_odd)] * 2

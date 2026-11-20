@@ -306,8 +306,13 @@ class BorutaShap(BorutaShapProtocolMixin, TransformerMixin, BaseEstimator):
             return
         from ._auto_dispatch import resolve_auto_importance_measure
 
+        # The probe casts to float; fit() has not ordinal-encoded object / category columns yet, so encode them on a shallow copy first.
+        _probe_X = X
+        if isinstance(X, pd.DataFrame):
+            _probe_X = X.copy(deep=False)
+            self._ordinal_encode_object_cols_inplace(_probe_X)
         measure, diag = resolve_auto_importance_measure(
-            X, y, classification=bool(self.classification), random_state=int(self.random_state),
+            _probe_X, y, classification=bool(self.classification), random_state=int(self.random_state),
         )
         self._resolved_importance_measure_ = measure
         self.auto_dispatch_diagnostics_ = diag
@@ -707,8 +712,9 @@ class BorutaShap(BorutaShapProtocolMixin, TransformerMixin, BaseEstimator):
 
         self.history_x_ = pd.DataFrame(data=self.history_x_, columns=self.all_columns_)
 
-        self.history_x_["Max_Shadow"] = [max(i) for i in self.history_shadow_]  # type: ignore[call-overload, unused-ignore]  # numpy stubs narrow the per-row iteration element to a scalar double; each row is actually a 1D ndarray
-        self.history_x_["Min_Shadow"] = [min(i) for i in self.history_shadow_]  # type: ignore[call-overload, unused-ignore]
+        # nanmax / nanmin: builtin max() / min() return NaN whenever the row's FIRST entry is NaN (a removed first feature), since no comparison with NaN is true.
+        self.history_x_["Max_Shadow"] = np.nanmax(self.history_shadow_, axis=1)
+        self.history_x_["Min_Shadow"] = np.nanmin(self.history_shadow_, axis=1)
         self.history_x_["Mean_Shadow"] = [np.nanmean(i) for i in self.history_shadow_]
         self.history_x_["Median_Shadow"] = [np.nanmedian(i) for i in self.history_shadow_]
 

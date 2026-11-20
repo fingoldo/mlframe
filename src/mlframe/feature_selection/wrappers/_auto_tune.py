@@ -78,6 +78,17 @@ def _target_type_and_imbalance(y_arr: np.ndarray, n: int) -> tuple[str, float]:
         target_imbalance = float(ystd / max(abs(ymean), 1e-12))
     return target_type, target_imbalance
 
+def _target_as_float(y_arr: np.ndarray) -> np.ndarray:
+    """``y_arr`` as float64 for the correlation signals; non-numeric labels (strings, objects) are factorised, missing -> NaN."""
+    try:
+        return y_arr.astype(float)
+    except (TypeError, ValueError):
+        codes = np.asarray(pd.factorize(y_arr.ravel())[0])
+        out: np.ndarray = codes.astype(float)
+        out[codes < 0] = np.nan
+        return out.reshape(y_arr.shape)
+
+
 def _array_column_signals(X, y_arr: np.ndarray, p: int) -> tuple[bool, float, float]:
     """NaN presence and the max / mean absolute target correlation of a fully numeric ndarray ``X``."""
     max_corr = 0.0
@@ -88,7 +99,7 @@ def _array_column_signals(X, y_arr: np.ndarray, p: int) -> tuple[bool, float, fl
     if X_arr.dtype.kind not in "fiub":
         X_arr = X_arr.astype(float)
     has_nan = bool(np.isnan(X_arr).any())
-    yfloat = y_arr.astype(float)
+    yfloat = _target_as_float(y_arr)
     corrs = []
     for j in range(p):
         col = X_arr[:, j].astype(float, copy=False)
@@ -123,9 +134,11 @@ def _column_signals(X, y_arr: np.ndarray, p: int, n: int) -> tuple[float, float,
         hi_card = 0
         const = 0
         corrs = []
-        yfloat = y_arr.astype(float)
+        yfloat = _target_as_float(y_arr)
+        has_nan = any(bool(X[c].isna().any()) for c in X.columns)
         for c in numeric_cols:
-            col = X[c].to_numpy()
+            # to_numpy(dtype=float, na_value=nan) keeps nullable Int64 / Float64 / boolean columns from becoming object arrays holding pd.NA.
+            col = X[c].to_numpy(dtype=float, na_value=np.nan)
             try:
                 nu = int(X[c].nunique(dropna=True))
             except (TypeError, ValueError):
@@ -138,12 +151,10 @@ def _column_signals(X, y_arr: np.ndarray, p: int, n: int) -> tuple[float, float,
             # floats trivially exceed this threshold and are NOT high-card.
             if X[c].dtype.kind in "iub" and nu > 0.5 * n:
                 hi_card += 1
-            col_f = col.astype(float, copy=False)
+            col_f = col
             mask = np.isfinite(col_f) & np.isfinite(yfloat)
             if mask.sum() < 10:
                 continue
-            if np.isnan(col_f).any():
-                has_nan = True
             xstd = np.nanstd(col_f[mask])
             if xstd < 1e-12:
                 continue

@@ -7,7 +7,7 @@ import pytest
 
 cp = pytest.importorskip("cupy")
 from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_abs_corr_gpu as mod
-from tests.feature_selection.gpu._gpu_support import has_device
+from tests._cuda_require import require_cuda_device
 
 pytestmark = pytest.mark.gpu
 
@@ -44,8 +44,7 @@ def _cases():
 @pytest.mark.parametrize("name,col,y,fin", _cases(), ids=[c[0] for c in _cases()])
 def test_kernel_equals_the_cupy_chain(name, col, y, fin):
     """Same value to 1e-11 relative (the degenerate cases return exactly 0.0 on both sides); the correlated case is near 1, so the check is not vacuous."""
-    if not has_device(cp):
-        pytest.skip("no usable CUDA device")
+    require_cuda_device()
     d = cp.asarray(col)
     got = mod.abs_corr_finite_gpu(d, y, fin, 8)
     want = mod._abs_corr_finite_cupy(d, y, fin, 8)
@@ -56,8 +55,7 @@ def test_kernel_equals_the_cupy_chain(name, col, y, fin):
 
 def test_kernel_is_faster_per_call_than_the_chain():
     """Interleaved medians over 32 columns of 40000 rows: the kernel path costs under half of the cupy chain per call."""
-    if not has_device(cp):
-        pytest.skip("no usable CUDA device")
+    require_cuda_device()
     rng = np.random.default_rng(3)
     y, f = _target(40_000)
     cols = [cp.asarray(rng.standard_normal(40_000).astype(np.float32)) for _ in range(32)]

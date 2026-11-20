@@ -258,7 +258,7 @@ def find_underdelivering_pairs(
             if leftover > self_ratio * leftover_self:
                 out.append((pair, pair_mi))
         except Exception as e:  # pragma: no cover - trigger must never break the FE step
-            logger.debug("swallowed exception in _fe_auto_escalation.py: %s", e)
+            log_throttle(logger, "fe_auto_escalation.underdelivery_pair_failed", logging.WARNING, "find_underdelivering_pairs: pair %r skipped after %s: %s", _k[0] if _k else _k, type(e).__name__, e)
             continue
     return out
 

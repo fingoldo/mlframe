@@ -14,6 +14,8 @@ import numpy as np
 from numba import njit, prange
 from pyutilz.performance.kernel_tuning.registry import kernel_tuner
 
+from mlframe.utils.log_throttle import log_throttle
+
 from .info_theory import compute_relevance_score
 
 logger = logging.getLogger(__name__)
@@ -30,6 +32,8 @@ def parallel_mi_prange(
     base_seed: np.uint64,
     dtype: type = np.int32,
     use_su: bool = False,  # SU normalization toggle threaded from mi_direct.
+    use_mm: bool = False,
+    use_cs: bool = False,
 ) -> tuple:
     """Inner-loop parallel permutation test.
 
@@ -64,7 +68,7 @@ def parallel_mi_prange(
             local[k] = tmp
 
         mi_perm = compute_relevance_score(
-            use_su, classes_x, freqs_x, local, freqs_y, dtype=dtype,
+            use_su, classes_x, freqs_x, local, freqs_y, dtype=dtype, use_mm=use_mm, use_cs=use_cs,
         )
         if mi_perm >= original_mi:
             nfailed_arr[i] = 1
@@ -83,6 +87,8 @@ def _parallel_mi_prange_serial(
     base_seed: np.uint64,
     dtype: type = np.int32,
     use_su: bool = False,
+    use_mm: bool = False,
+    use_cs: bool = False,
 ) -> tuple:
     """Serial twin of :func:`parallel_mi_prange` -- identical body, ``range`` instead of ``prange``.
 
@@ -112,7 +118,7 @@ def _parallel_mi_prange_serial(
             local[k] = tmp
 
         mi_perm = compute_relevance_score(
-            use_su, classes_x, freqs_x, local, freqs_y, dtype=dtype,
+            use_su, classes_x, freqs_x, local, freqs_y, dtype=dtype, use_mm=use_mm, use_cs=use_cs,
         )
         if mi_perm >= original_mi:
             nfailed_arr[i] = 1
@@ -188,6 +194,8 @@ def _mi_prange_dispatch(
     base_seed: np.uint64,
     dtype: type = np.int32,
     use_su: bool = False,
+    use_mm: bool = False,
+    use_cs: bool = False,
 ) -> tuple[int, int]:
     """Dispatch to the serial or parallel ``parallel_mi_prange`` variant via the per-host
     kernel_tuning_cache (``_MI_PRANGE_PARALLELISM_SPEC``). Bit-identical output either way (see
@@ -208,13 +216,13 @@ def _mi_prange_dispatch(
     try:
         choice = _MI_PRANGE_PARALLELISM_SPEC.choose(n=n, npermutations=int(npermutations))
     except Exception as e:
-        logger.warning("mi_prange_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
+        log_throttle(logger, "mi_prange_kernel_parallelism.choose_failed", logging.WARNING, "mi_prange_kernel_parallelism choose() failed, using the size-based fallback: %s", e)
         choice = _mi_prange_fallback_choice(n, int(npermutations))
     fn = parallel_mi_prange if choice == "parallel" else _parallel_mi_prange_serial
     with parallel_kernel_entry():
         nfailed, n_checked = fn(
             classes_x=classes_x, freqs_x=freqs_x, classes_y=classes_y, freqs_y=freqs_y,
             npermutations=npermutations, original_mi=original_mi, base_seed=base_seed,
-            dtype=dtype, use_su=use_su,
+            dtype=dtype, use_su=use_su, use_mm=use_mm, use_cs=use_cs,
         )
     return int(nfailed), int(n_checked)
