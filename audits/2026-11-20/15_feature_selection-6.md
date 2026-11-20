@@ -44,3 +44,9 @@ Scope: 48 files in `audits/2026-11-20/manifests/15_feature_selection-6.txt`, wor
 - Test coverage: a grep over `tests/` found 78 references to the public helpers across 16 files (for example `test_importance_agg_dispatch.py`, `test_rfecv_stability_elimination.py`). I did not check per-function gaps, and I did not verify whether any test exercises ragged tables under `dispatched` (15-F2) or resume (15-F3 to 15-F5).
 
 So the audit is incomplete. Roughly 60% of the manifest lines were not read, so a clean result on the unread files should not be assumed.
+
+
+## Dispositions
+
+- 15-F1: RESOLVED. A NaN estimator score makes the fold score NaN (worst case cannot be read from the other estimators); a fully scored fold still takes the minimum. Test tests/feature_selection/test_rfecv_fold_min_counts_failed_estimators.py; 33 existing RFECV fold tests pass. Commit below.
+- 15-F2: RESOLVED. The dispatcher completes ragged per-run tables with fi_missing_policy before the tree and linear aggregators run, as the legacy path does. Test tests/feature_selection/test_dispatched_agg_imputes_ragged_runs.py; 3 existing importance-agg tests pass. Commit below.

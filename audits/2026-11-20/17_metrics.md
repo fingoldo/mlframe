@@ -48,3 +48,15 @@ Reading coverage: every manifest file was read in full (all of `calibration/`, `
 - `optimal_threshold` sweep (`classification/_threshold_optimization.py:82-100`): NaN scores break the sweep, and the HOLDOUT CONTRACT is documented (L124-130). Not leakage in the function itself.
 - Hosmer-Lemeshow variance term and dof (`_classification_calibration.py:51-61`, `:92-102`) and the Accuracy Ratio trapezoid (`:155-168`) match their definitions.
 - Empty-input guards in the regression wrappers (`regression/_regression_metrics.py:353-354`, `:395-396`) raise consistently, and the fused block returns NaN per the documented contract.
+
+
+## Dispositions
+
+- 17-F5: RESOLVED. accuracy_ratio returns NaN when any score is non-finite, instead of a ratio built from NaN rows as tie blocks. Test tests/metrics/test_accuracy_ratio_nan_scores.py; 28 existing CAP/AR tests pass. Commit below.
+- 17-F1: RESOLVED. MaxError kernels propagate NaN residuals (x != x check in the three comparison sites of both regression modules), matching MAE/MSE. Test tests/metrics/test_max_error_propagates_nan.py; 142 existing regression metric tests pass. Commit below.
+- 17-F2: RESOLVED. variance_weighted R2 with all-constant outputs averages the per-output sklearn scores (1.0 for a perfect fit) instead of returning 0.0. Tests tests/metrics/test_r2_variance_weighted_constant_targets.py; 74 existing R2 tests pass. Commit below.
+- 17-F3: RESOLVED. fast_tweedie_deviance (power 0) checks lengths and shapes before the difference, so a column prediction no longer broadcasts to N*N pairs. Test tests/metrics/test_tweedie_power_zero_length_check.py; 18 existing deviance tests pass. Commit below.
+- 17-F6: RESOLVED. apply_cutpoints refuses non-finite predictions (integer grades cannot carry NaN) instead of grading NaN as the top class. Tests tests/metrics/classification/test_apply_cutpoints_refuses_nan.py; the existing ordinal-cutpoint tests pass. Commit below.
+- 17-F4: RESOLVED. Weighted regression kernels check sample_weight against the row count before indexing (the three weight-taking entry points); the deviance wrappers were already covered by the shape check in 17-F3. Test tests/metrics/test_sample_weight_length_checked.py; 192 existing weighted/regression metric tests pass. Commit below.
+- 17-F8: RESOLVED. fast_calibration_metrics checks that y_true and y_pred have the same length before its serial kernel (inline, since the body is compiled). Test tests/metrics/test_fast_calibration_metrics_length_checked.py; 99 existing calibration metric tests pass. Commit below.
+- 17-F9: DEFERRED. Degenerate reports use ICE = 1.0 as a worst-case placeholder, but a real model's ICE can exceed 1.0, so the placeholder can beat it. The report contract (module docstring) promises finite floats to consumers (plots, threshold search, string builders); choosing a larger finite placeholder or NaN changes that contract for every caller, so it waits for a decision.
