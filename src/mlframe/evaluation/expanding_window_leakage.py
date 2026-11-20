@@ -90,8 +90,8 @@ def _score_expanding_folds(
             # The honest value for the fold's OWN validation rows (the tail of honest_feature_all) is the
             # leakage-safe recomputation boundary: fit strictly precedes this fold's split.
             remediated_sorted[val_idx] = honest_feature_all[n_train:]
-        if (leaky_score - honest_score) > _LEAK_TOLERANCE:
-            leaking_folds.append(val_idx)
+        # Every fold is returned with its scores; which folds leak is decided by the final tolerance in the caller, not the fixed constant here.
+        leaking_folds.append(val_idx)
 
     return leaky_scores, honest_scores, leaking_folds
 
@@ -231,13 +231,15 @@ def detect_expanding_window_feature_leakage(
     # positions are generally scattered when df wasn't already time-sorted -- collapsing to (min, max+1) would
     # silently claim every row in between as leaked too, on the realistic unsorted-input case spanning nearly the
     # whole dataset. Report the exact scattered positions.
-    leaky_row_positions = [np.sort(inverse_order[val_idx]) for val_idx in leaking_folds]
-
     leaky_mean = float(np.mean(leaky_scores))
     honest_mean = float(np.mean(honest_scores))
     inflation = leaky_mean - honest_mean
 
     tolerance, leak_pvalue, leak_detected = _leak_verdict(leaky_scores, honest_scores, honest_mean, inflation, leak_tolerance)
+    # A fold leaks when its inflation clears the same tolerance the verdict uses (the caller's leak_tolerance when given). The positions
+    # therefore agree with the verdict; a fixed 0.02 used to flag folds the verdict never called leaky.
+    leaking_folds = [val_idx for ls, hs, val_idx in zip(leaky_scores, honest_scores, leaking_folds) if (ls - hs) > tolerance]
+    leaky_row_positions = [np.sort(inverse_order[val_idx]) for val_idx in leaking_folds]
 
     result: Dict[str, Any] = {
         "leaky_scores": leaky_scores,
