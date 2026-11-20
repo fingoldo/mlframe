@@ -275,18 +275,32 @@ def _residue_best_mi(cols, a, b, mods, ycls, n, n_cls, hy, joint, marg):
     ``joint`` and ``marg`` are caller-owned scratch buffers, sized for the largest modulus, reset per (operator, modulus).
     """
     best = 0.0
+    amax = 0.0
+    bmax = 0.0
+    for t in range(n):
+        amax = max(amax, abs(float(cols[a, t])))
+        bmax = max(bmax, abs(float(cols[b, t])))
+    # a pair whose combined magnitude could leave int64 (Unix milliseconds times a count) is ranked by the residues of the operands: (a op b) mod k from (a mod k) op (b mod k), exact where the wrapped
+    # product is not
+    exact = amax * bmax >= 4.0e18 or amax + bmax >= 4.0e18
     for op in range(3):
         for mi in range(mods.shape[0]):
             k = mods[mi]
             joint[: k * n_cls] = 0.0
             marg[:k] = 0.0
             for t in range(n):
-                if op == 0:
-                    v = cols[a, t] + cols[b, t]
-                elif op == 1:
-                    v = cols[a, t] - cols[b, t]
+                if exact:
+                    ra = cols[a, t] % k
+                    rb = cols[b, t] % k
                 else:
-                    v = cols[a, t] * cols[b, t]
+                    ra = cols[a, t]
+                    rb = cols[b, t]
+                if op == 0:
+                    v = ra + rb
+                elif op == 1:
+                    v = ra - rb
+                else:
+                    v = ra * rb
                 r = v % k
                 if r < 0:
                     r += k
@@ -439,6 +453,35 @@ def _select_triples_by_residue_score(
     return [(cols[int(triples[q, 0])], cols[int(triples[q, 1])], cols[int(triples[q, 2])]) for q in order]
 
 
+_INT64_SAFE_BOUND = 4.0e18  # below 2**62: sums and products of operands whose magnitudes stay under it cannot leave int64
+
+
+def _combine_overflows(arrs: Sequence[np.ndarray], op: str) -> bool:
+    """Whether combining ``arrs`` with ``op`` in int64 could wrap: the bound on the combined magnitude (a sum of the operand maxima, a product of two) reaches ``_INT64_SAFE_BOUND``."""
+    if op == "self":
+        return False
+    peaks = [float(np.max(np.abs(_to_int64(a).astype(np.float64)))) if np.size(a) else 0.0 for a in arrs]
+    if op == "prod":
+        return peaks[0] * peaks[1] >= _INT64_SAFE_BOUND
+    return sum(peaks) >= _INT64_SAFE_BOUND
+
+
+def _combine_residue_exact(arrs: Sequence[np.ndarray], op: str, modulus: int) -> np.ndarray:
+    """``(combiner of arrs) mod modulus`` from the residues of the operands (exact for any int64 operands, where the combiner itself may wrap); ``modulus`` is a small positive integer."""
+    r = [np.mod(_to_int64(a), modulus) for a in arrs]
+    if op == "self":
+        return r[0]
+    if op == "sum":
+        return np.mod(r[0] + r[1], modulus)
+    if op == "diff":
+        return np.mod(r[0] - r[1], modulus)
+    if op == "prod":
+        return np.mod(r[0] * r[1], modulus)
+    if op == "sum3":
+        return np.mod(r[0] + r[1] + r[2], modulus)
+    raise ValueError(f"unknown combiner op {op!r}")
+
+
 def _combine(arrs: Sequence[np.ndarray], op: str) -> np.ndarray:
     """Fold one to three integer columns into a single combiner column."""
     ai = _to_int64(arrs[0])
@@ -568,12 +611,13 @@ def _collect_combiner_jobs(cols: Sequence[str], arrs: dict, yi: np.ndarray, mods
     for a, b in _select_pairs_by_residue_score(cols, arrs, yi, mods, seed, max_pairs):
         if deadline_hit:
             break
-        jobs.extend((op, (a, b), _combine([arrs[a], arrs[b]], op)) for op in _PAIR_OPS)
+        jobs.extend((op, (a, b), _combine([arrs[a], arrs[b]], op)) for op in _PAIR_OPS if not _combine_overflows([arrs[a], arrs[b]], op))  # a combiner that would wrap int64 is not scanned
         deadline_hit = fe_deadline_passed()
     for a, b, c in _select_triples_by_residue_score(cols, arrs, yi, mods, seed, max_triples):
         if deadline_hit:
             break
-        jobs.append(("sum3", (a, b, c), _combine([arrs[a], arrs[b], arrs[c]], "sum3")))
+        if not _combine_overflows([arrs[a], arrs[b], arrs[c]], "sum3"):
+            jobs.append(("sum3", (a, b, c), _combine([arrs[a], arrs[b], arrs[c]], "sum3")))
         deadline_hit = fe_deadline_passed()
     return jobs
 
@@ -771,8 +815,11 @@ def apply_pairwise_modular(X: pd.DataFrame | pl.DataFrame, op: str, cols: Sequen
     for arr in arrs:
         bad |= ~np.isfinite(np.asarray(arr, dtype=_crit_np_dtype()))
     with np.errstate(invalid="ignore"):  # non-finite rows cast to INT64_MIN then get masked to NaN below
-        c_arr = _combine(arrs, op)
-        out = np.mod(c_arr, m).astype(_crit_np_dtype())
+        if _combine_overflows(arrs, op):
+            out = _combine_residue_exact(arrs, op, m).astype(_crit_np_dtype())  # the combiner itself would wrap int64: the residue of the operands is exact
+        else:
+            c_arr = _combine(arrs, op)
+            out = np.mod(c_arr, m).astype(_crit_np_dtype())
     if bad.any():
         out[bad] = np.nan
     return np.asarray(out)

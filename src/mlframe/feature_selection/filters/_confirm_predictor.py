@@ -62,7 +62,7 @@ from ._confirm_predictor_engineered import (
 # back to 1007 lines). Re-exported here so every existing import keeps working unchanged.
 from ._confirm_predictor_context import ScreenContext
 from ._confirm_predictor_score import score_candidates_serial
-from ._confirm_predictor_helpers import confirm_in_gain_order, fleuret_conditional_recheck, marginal_confirm_use_gpu
+from ._confirm_predictor_helpers import _confirm_one_predic_add_one_disabled_ceiling, confirm_in_gain_order, fleuret_conditional_recheck, marginal_confirm_use_gpu
 
 
 def score_candidates(ctx: ScreenContext, best_gain: float, best_candidate: Any, expected_gains: np.ndarray) -> tuple:
@@ -464,7 +464,10 @@ def _confirm_one_predic_becomes_redundant_marked_accepted(_child, ctx, added_can
         _child_boot, _child_conf = confirm_candidate(ctx, _child_X, _child_gain)
         if _child_boot > 0:
             added_candidates.add(next_best_candidate_idx)  # raw parent now redundant
-            _sub_idx, _sub_X, _sub_gain = _child_idx, _child_X, _child_gain * _child_conf
+            # the gain multiplier is the budget-aware confidence of the normal confirmed path (the add-one ceiling divided out): the raw ``_child_conf`` tops out at budget / (budget + 1), so a clean child
+            # was deflated against its raw parent (about 25 percent at full_npermutations = 3) and could fall below the gain floor the parent cleared
+            _child_conf_for_gain = _confirm_one_predic_add_one_disabled_ceiling(ctx.full_npermutations, _child_conf, _child_conf)
+            _sub_idx, _sub_X, _sub_gain = _child_idx, _child_X, _child_gain * _child_conf_for_gain
             if verbose >= 2:
                 logger.info(
                     "prefer-engineered substitution: %s -> %s (raw gain %.*f, transform gain %.*f)",
