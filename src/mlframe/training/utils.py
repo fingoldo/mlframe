@@ -808,10 +808,14 @@ def save_series_or_df(
             obj = obj.to_frame()
     from mlframe.training.io import atomic_write_bytes
 
+    if isinstance(obj, (np.ndarray, list)):
+        obj = pd.DataFrame(obj)  # array-likes are written as a frame instead of being silently skipped (audit 29-F6)
     if isinstance(obj, pd.DataFrame):
         atomic_write_bytes(file, lambda fh: obj.to_parquet(fh, compression=compression))
     elif pl is not None and isinstance(obj, pl.DataFrame):
         atomic_write_bytes(file, lambda fh: obj.write_parquet(fh, compression=compression))  # type: ignore[arg-type]  # compression is a validated free-form str at the public API boundary; polars narrows to a Literal set at runtime
+    else:
+        raise TypeError(f"save_series_or_df: unsupported type {type(obj).__name__}; nothing was written (audit 29-F6)")
 
 
 from ._nan_processing import _process_special_values, process_nans, process_nulls, process_infinities, get_numeric_columns, get_categorical_columns, remove_constant_columns  # noqa: F401

@@ -143,6 +143,9 @@ def default_store_dir() -> str:
 # Fingerprint helpers (stat-only)
 # ---------------------------------------------------------------------------
 
+_NAN_BUCKET = "nan"  # bucket value for an unmeasurable dimension
+
+
 def log_bucket(v: float) -> float:
     """Log-scale bucketiser for size-like dims (n, p, cardinality).
 
@@ -160,7 +163,7 @@ def log_bucket(v: float) -> float:
         logger.debug("log_bucket fell back to its default after %s", type(_exc).__name__)
         return 0.0
     if not math.isfinite(f):
-        return 0.0
+        return _NAN_BUCKET  # keep the 'unmeasurable' marker in the key; 0.0 erased it (audit 29-F3)
     return round(math.log10(max(abs(f), 1.0)) * 2.0) / 2.0
 
 
@@ -178,7 +181,7 @@ def linear_bucket(v: float, resolution: float = 0.1) -> float:
         logger.debug("linear_bucket fell back to its default after %s", type(_exc).__name__)
         return 0.0
     if not math.isfinite(f):
-        return 0.0
+        return _NAN_BUCKET  # keep the 'unmeasurable' marker in the key; 0.0 erased it (audit 29-F3)
     return round(f / resolution) * resolution
 
 
@@ -192,10 +195,22 @@ def _as_2d_numeric(obj: Any):
     arr = None
     dtype_kind = "f"
     n = p = 0
+    _true_rows = None  # set only when the frame is pre-sampled below
     # Duck-type pandas/polars without importing them.
     if hasattr(obj, "to_numpy") and hasattr(obj, "shape"):
         try:
-            raw = obj.to_numpy()
+            # Bound the dense copy first: strided rows (deterministic, so the key is stable) before to_numpy (audit 29-F2).
+            rows_total = int(obj.shape[0])
+            cols_total = int(obj.shape[1]) if len(obj.shape) > 1 else 1
+            max_rows = max(_FINGERPRINT_MIN_ROWS, _FINGERPRINT_MAX_CELLS // max(cols_total, 1))
+            step = max(1, rows_total // max_rows) if rows_total > max_rows else 1
+            if step > 1:
+                sampled = obj.gather_every(step) if hasattr(obj, "gather_every") else obj.iloc[::step]
+                raw = sampled.to_numpy()
+                _true_rows = rows_total
+            else:
+                raw = obj.to_numpy()
+                _true_rows = None
         except Exception as e:  # fallback: np.asarray below is tried when to_numpy fails
             logger.debug("to_numpy() conversion failed: %s", e)
             raw = None
@@ -225,6 +240,8 @@ def _as_2d_numeric(obj: Any):
         n = int(arr.shape[0])
         p = int(arr.shape[1]) if arr.ndim >= 2 else 1
         arr2d = arr.reshape(n, -1)
+    if _true_rows is not None:
+        n = _true_rows  # the identity is the TRUE shape; arr2d holds only the strided sample
     return arr2d, n, p, dtype_kind
 
 
@@ -285,7 +302,8 @@ def default_fingerprint(args: Sequence[Any], kwargs: Mapping[str, Any]) -> dict:
     arr2d, n, p, dtype_kind = candidate
     # ``n`` and ``p`` stay the TRUE shape -- they are part of the fingerprint's identity. Only the statistics
     # below are computed on a bounded sample.
-    arr2d = _subsample_rows(arr2d, n, p)
+    if arr2d.shape[0] == n:  # not pre-sampled above
+        arr2d = _subsample_rows(arr2d, n, p)
 
     if dtype_kind == "O":
         # Object/categorical: only cheap structural stats.

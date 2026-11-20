@@ -153,3 +153,9 @@
 | 28-F16 | FIXED | validation cache hit re-applies init_score; no separate test |
 | 28-F17 | FIXED | set_label encodes through the fitted label encoder; no separate test |
 | 28-F18 | FIXED | the unimplemented carrier stamp is replaced by a logged warning; no separate test |
+| 29-F1 | FIXED | -P only on Python 3.11+ (empty flag tuple on older interpreters); tests/utils/test_native_import_probe.py and tests/utils/test_cluster29_utils_fixes.py |
+| 29-F2 | FIXED | strided sample taken before the dense copy; n keeps the true row count; same test file |
+| 29-F3 | FIXED | unmeasurable dimensions bucket to the string marker nan, not 0.0; same test file |
+| 29-F4 | FIXED | structured/void dtype hashes the whole buffer; same test file |
+| 29-F5 | FIXED | preprocess_glue NaN guard matches preprocess_sglue; no separate test (votenrank suite passed) |
+| 29-F6 | FIXED | array-likes are written as a frame, other types raise TypeError; same test file |

@@ -49,11 +49,16 @@ def _describe_failure(returncode: int, stderr: str) -> str:
     return f"import failed with exit code {returncode}" + (f": {last[-1][:300]}" if last else "")
 
 
+# -P (no script directory on sys.path) exists only on Python 3.11+; pyproject allows 3.9. Older interpreters get no flag
+# rather than exiting 2 with no traceback, which the probe then misread as a crash (audit 29-F1).
+_CHILD_SAFE_PATH_FLAGS: tuple[str, ...] = ("-P",) if sys.version_info >= (3, 11) else ()
+
+
 def _probe_child(name: str) -> subprocess.CompletedProcess[str] | None:
     """Run ``import name`` in a child interpreter; None when the child cannot be started at all."""
     try:
         return subprocess.run(  # nosec B603 - fixed trusted executable and argument list
-            [sys.executable, "-P", "-c", f"import {name}"],
+            [sys.executable, *_CHILD_SAFE_PATH_FLAGS, "-c", f"import {name}"],
             capture_output=True,
             text=True,
             # Both ends agree on UTF-8: the child's ImportError text carries paths and names, and decoding it with the parent's legacy code page raised
@@ -107,8 +112,11 @@ def native_module_importable(name: str) -> bool:
         return _record_verdict(name, True, export=False)
     ok = proc.returncode == 0
     if not ok and "No module named" not in (proc.stderr or ""):
-        logger.warning("Optional native module %r is unusable in this environment: %s. Falling back to the alternative backend.",
-                       name, _describe_failure(proc.returncode, proc.stderr))
+        logger.warning(
+            "Optional native module %r is unusable in this environment: %s. Falling back to the alternative backend.",
+            name,
+            _describe_failure(proc.returncode, proc.stderr),
+        )
     return _record_verdict(name, ok, export=True)
 
 
