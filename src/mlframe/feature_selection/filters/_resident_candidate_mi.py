@@ -155,10 +155,11 @@ def _get_build_opcands_cm_kernel(cp, real_t: str = "double"):
     return ker
 
 
-def _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu: list, cp, out_dtype=None):
+def _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu: list, cp, out_dtype=None, out=None):
     """:func:`_build_best_existing_op_candidates_gpu` as a ``(k, n)`` column-major block (candidate ``c`` is row ``c``; same columns in the same order, same values).
 
-    ``out_dtype=float32`` stores each value rounded to float32 (what casting the finished double block gives), saving the cast pass and the double-width buffer."""
+    ``out_dtype=float32`` stores each value rounded to float32 (what casting the finished double block gives), saving the cast pass and the double-width buffer.
+    ``out``: a contiguous ``(k, n)`` device slice of the buffer's element type to fill in place (the many-set caller hands row slices of one joined block, so no concatenate copy follows)."""
     m = len(cols_arr_gpu)
     buf_t = crit_float_dtype() if out_dtype is None else out_dtype
     try:
@@ -169,7 +170,8 @@ def _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu: list, cp, out_dtype=
         has_sum = 1 if m >= 3 else 0
         k = m + 4 * npairs + 2 + has_sum
         pi, pj = _pair_index_arrays(cp, pairs)
-        out = cp.empty((k, n), dtype=buf_t)
+        if out is None:
+            out = cp.empty((k, n), dtype=buf_t)
         total = n * k
         _real = "float" if buf_t == cp.float32 else "double"
         assert_kernel_buffers("build_op_cands_cm", _real, M=M, out=out)
@@ -179,7 +181,11 @@ def _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu: list, cp, out_dtype=
         return out
     except Exception as e:
         log_throttle(logger, "_resident_candidate_mi.build_cm", logging.WARNING, "column-major batched-fill kernel failed, transposing the row-major build: %s", e)
-        return cp.ascontiguousarray(_build_best_existing_op_candidates_gpu(cols_arr_gpu, cp).T.astype(buf_t, copy=False))
+        fallback = cp.ascontiguousarray(_build_best_existing_op_candidates_gpu(cols_arr_gpu, cp).T.astype(buf_t, copy=False))
+        if out is not None:
+            out[...] = fallback
+            return out
+        return fallback
 
 
 _BUILD_OPCANDS_KERNELS: dict = {}
@@ -348,21 +354,28 @@ def best_existing_op_mi_resident_many(
         while i < len(keys):
             blocks: list = []
             spans: list = []
+            sets: list = []
             total = 0
             while i < len(keys):
                 m = len(keys[i])
                 k_i = m + 4 * (m * (m - 1) // 2) + 2 + (1 if m >= 3 else 0)
-                if blocks and total + k_i > col_budget:
+                if sets and total + k_i > col_budget:
                     break
                 cols_gpu = [resident_operand(arrs[c], ("op", c), dtype=crit_float_dtype()) for c in keys[i]]
-                if not blocks and not fe_gpu_has_vram_cushion(int(cols_gpu[0].shape[0]) * max(k_i, col_budget) * itemsize):
+                if not sets and not fe_gpu_has_vram_cushion(int(cols_gpu[0].shape[0]) * max(k_i, col_budget) * itemsize):
                     return None
-                blocks.append(_build_best_existing_op_candidates_gpu(cols_gpu, cp) if rank_binning else _build_best_existing_op_candidates_gpu_cm(cols_gpu, cp, out_dtype=cdt))
+                sets.append(cols_gpu)
                 spans.append((total, total + k_i))
                 total += k_i
                 i += 1
-            mat = cp.concatenate(blocks, axis=1 if rank_binning else 0)
-            del blocks
+            if rank_binning:
+                blocks = [_build_best_existing_op_candidates_gpu(c, cp) for c in sets]
+                mat = cp.concatenate(blocks, axis=1)
+                del blocks
+            else:
+                mat = cp.empty((total, int(sets[0][0].shape[0])), dtype=cdt)  # joined block filled in place: no per-set buffers, no concatenate copy
+                for cols_gpu, (lo, hi) in zip(sets, spans):
+                    _build_best_existing_op_candidates_gpu_cm(cols_gpu, cp, out_dtype=cdt, out=mat[lo:hi])
             if rank_binning:
                 from ._gpu_resident_rank_bin import plugin_mi_classif_batch_rank_cuda_resident
 
