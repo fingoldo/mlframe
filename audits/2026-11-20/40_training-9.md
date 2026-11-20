@@ -87,5 +87,6 @@ Severity: P0 = crash or wrong result on the default path; P1 = wrong result on a
 - 40-F15: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
 - 40-F16: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
 - 40-F17: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
-- 40-F18: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
+- 40-F18: FIXED. unaligned split with group ids is refused. Test tests/training/test_cluster40_ma_crossover_refuses_unaligned_groups.py. Earlier note: not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
 - 40-F13: FIXED. A pre-pipeline cache hit stamps model._mlframe_pre_pipeline before returning, as the fit path does. Test tests/training/test_cluster40_cache_hit_stamps_pre_pipeline.py.
+- 40-F18: FIXED. A split with group ids but no aligned row index is refused (ValueError naming the split) instead of averaged across entities. Test tests/training/test_cluster40_ma_crossover_refuses_unaligned_groups.py; existing ma_crossover tests (40) pass.
