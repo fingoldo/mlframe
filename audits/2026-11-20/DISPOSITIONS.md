@@ -246,3 +246,16 @@
 | 41-F5 | DEFERRED | not changed: per-group masks are an O(G*n) performance issue; a groupby rewrite needs a benchmark decision |
 | 42-F1 | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
 | 42-F2 | FIXED | sub-leaderboards inherit allow_partial and partial_fill; no separate test |
+| 04-F13 | FIXED | graded-cardinality weights scaled to 1/(levels-1) so each cardinality carries equal signal range; existing dataset tests pass (49) |
+| 01-F1 | FIXED | bench bias indexed by each row's own group code; benchmark-only, no test |
+| 01-F2 | FIXED | bench seeds use zlib.crc32 instead of salted hash(); benchmark-only, no test |
+| 01-F9 | FIXED | sort timer excludes RNG generation; benchmark-only, no test |
+| 01-F12 | FIXED | module docstrings moved above the imports; benchmark-only |
+| 01-F4 | DEFERRED | not changed in the P2/P3 pass yet; benchmark-only, low impact |
+| 01-F5 | DEFERRED | not changed in the P2/P3 pass yet; benchmark-only, low impact |
+| 01-F6 | DEFERRED | not changed in the P2/P3 pass yet; benchmark-only, low impact |
+| 01-F7 | DEFERRED | not changed in the P2/P3 pass yet; benchmark-only, low impact |
+| 01-F8 | DEFERRED | not changed in the P2/P3 pass yet; benchmark-only, low impact |
+| 01-F10 | DEFERRED | not changed in the P2/P3 pass yet; benchmark-only, low impact |
+| 01-F11 | DEFERRED | not changed in the P2/P3 pass yet; benchmark-only, low impact |
+| 01-F13 | DEFERRED | not changed in the P2/P3 pass yet; benchmark-only, low impact |

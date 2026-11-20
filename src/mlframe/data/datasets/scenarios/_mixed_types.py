@@ -56,7 +56,9 @@ def graded_cardinality_spec(n_noise: int = 20, n_samples: int = 6000, ceiling: f
     probe_categoricals = tuple(
         FeatureSpec(name=f"p{levels}_{index}", family="categorical", params={"n_levels": float(levels)}, dtype="category", levels=_levels(levels)) for levels in CARDINALITIES for index in range(2)
     )
-    weights = {f"k{levels}": 1.0 for levels in CARDINALITIES}
+    # Codes run 0..levels-1 and enter the link raw, so the weight is scaled to 1/(levels-1): every cardinality then carries the same
+    # range of signal, as the docstring states. Unscaled weights made k100's score range ~99 against k2's 1 (audit 04-F13).
+    weights = {f"k{levels}": 1.0 / max(levels - 1, 1) for levels in CARDINALITIES}
     return DatasetSpec(
         name="graded_cardinality",
         n_samples=n_samples,
