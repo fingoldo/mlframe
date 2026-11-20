@@ -172,6 +172,9 @@ def _bin_matrix(mat: np.ndarray, nbins: int, row_mask: Optional[np.ndarray] = No
         finite = col[~nan_mask]
         if finite.size == 0:
             all_edges.append(np.array([0.0, 1.0]))
+            if any_missing:
+                # An all-missing column gets the missingness code, not bin 0 with a numeric range (audit 21-F5).
+                codes[nan_mask, j] = 1
             continue
         edges = np.unique(np.quantile(finite, np.linspace(0.0, 1.0, nbins + 1)))
         all_edges.append(edges)

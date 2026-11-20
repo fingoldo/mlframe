@@ -63,3 +63,15 @@ Name-reference counts are a grep of `tests/` for each public or load-bearing nam
 - 21-F4: RESOLVED. Scatter subsample past the cap slices symmetric and asymmetric per-point error arrays with the same indices (on a copy of the spec). Test tests/reporting/test_scatter_subsample_keeps_error_bars_aligned.py; 61 existing scatter tests pass. Commit below.
 - 21-F2: RESOLVED. Slice finder feeds the 3-way combo builder the feature rows that match the finite errors (mat filtered with row_mask on the NaN path). Test tests/reporting/test_slice_finder_nan_errors_arity3.py; 50 existing slice tests pass. Commit below.
 - 21-F3: RESOLVED. Per-instance and interaction SHAP builders skip a multi-output CatBoost model before shap's TreeExplainer, as shap_panels already does. Test tests/reporting/test_shap_multioutput_catboost_is_skipped.py (monkeypatched; it would not catch a renamed explainer call); 91 existing SHAP tests pass. Commit below.
+- 21-F5: FIXED. an all-missing slice column takes the missingness code; tests/reporting/test_cluster21_slice_missing_and_metric_direction.py
+- 21-F16: FIXED. metric direction uses the family name before any @k cutoff; same test file
+- 21-F6: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
+- 21-F7: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
+- 21-F8: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
+- 21-F9: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
+- 21-F10: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
+- 21-F11: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
+- 21-F12: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
+- 21-F13: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
+- 21-F14: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
+- 21-F15: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)

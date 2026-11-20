@@ -504,3 +504,15 @@
 | 20-F25 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F26 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F27 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
+| 21-F5 | FIXED | an all-missing slice column takes the missingness code; tests/reporting/test_cluster21_slice_missing_and_metric_direction.py |
+| 21-F16 | FIXED | metric direction uses the family name before any @k cutoff; same test file |
+| 21-F6 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
+| 21-F7 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
+| 21-F8 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
+| 21-F9 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
+| 21-F10 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
+| 21-F11 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
+| 21-F12 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
+| 21-F13 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
+| 21-F14 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
+| 21-F15 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
