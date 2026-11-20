@@ -103,3 +103,10 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F6: FIXED. CUSUM reference mean is the expanding mean of prior rows; auto threshold is MAD of the first 30 rows; test_cusum_is_causal.py; test_cusum_walk_njit reference updated to causal form
 - 24-F7: FIXED. NaN/None states no longer count as possession; test_state_duration_and_sentinel_guards.py
 - 24-F8: FIXED. sentinel detection is numeric-only, non-bool, and needs at least 3 other levels; same test file
+- 24-F9: FIXED. IDW, label-dispersion and gradient drop the query point itself when query is the reference pool (shared _drop_self_match); tests/feature_engineering/test_spatial_query_is_ref_and_nan_queries.py
+- 24-F10: FIXED. knn_within_bucket_aggregate drops the self-match when query is reference; same test file
+- 24-F11: FIXED. knn_gradient uses zero-filled coords for the design matrix and marks non-finite query rows singular, so no NaN reaches the batched SVD/solve; same test file
+- 24-F12: FIXED. rolling_longest_monotone_run returns NaN for windows containing a non-finite value; tests/feature_engineering/test_feature_edge_cases_24_f12_to_f15.py
+- 24-F13: FIXED. nearest_past_join indexes unresolved rows through the positional copy; same test file
+- 24-F14: FIXED. create_ts_features_parallel returns (None, None) for an empty span before dividing; same test file
+- 24-F15: FIXED. mps shift fills the vacated tail from the last shifted position; same test file

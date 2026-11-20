@@ -809,6 +809,10 @@ def create_ts_features_parallel(
             return None, None
         end_index = end_index // nrecords_per_period
 
+    if end_index <= start_index:
+        # An empty span has no chunks to split; this also keeps the step division below from dividing by zero (audit 24-F14).
+        return None, None
+
     if not n_chunks or n_chunks <= 0:
         # Honour the caller's `logical` flag rather than hard-coding `logical=True`.
         cpu_count = psutil.cpu_count(logical=logical) or psutil.cpu_count(logical=True) or 1

@@ -240,15 +240,16 @@ def test_pe_accepts_polars_series():
     assert df.shape == (20, 8)
 
 
-def test_pe_clamps_huge_positions():
-    # 2e6 % 1e6 = 0; PE at clamped 0 is all-zero sins, all-one cosines.
-    """Pe clamps huge positions."""
+def test_pe_uses_huge_positions_as_given_without_modulus():
+    """Positions are used as given: a modulus aliased distinct positions (audit 09-F8), so huge positions encode their own angle."""
     pos = np.array([2_000_000, 3_000_000], dtype=np.int64)
     df = compute_positional_encoding(pos, d_model=4, base=10_000.0)
     arr = df.to_numpy()
-    # Both rows clamp to 0; sin(0) = 0, cos(0) = 1.
-    np.testing.assert_allclose(arr[:, 0::2], np.zeros((2, 2)), atol=1e-6)
-    np.testing.assert_allclose(arr[:, 1::2], np.ones((2, 2)), atol=1e-6)
+    # d_model=4 -> frequencies 1 (pair 0) and 1/100 (pair 1), since base**(2/4) = 100.
+    p = pos.astype(np.float64)
+    expected = np.column_stack([np.sin(p), np.cos(p), np.sin(p / 100.0), np.cos(p / 100.0)])
+    np.testing.assert_allclose(arr, expected, atol=1e-4)
+    assert not np.allclose(arr, 0.0)
 
 
 # ---------- positions_within_group ----------

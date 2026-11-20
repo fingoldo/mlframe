@@ -284,6 +284,9 @@ def find_best_mps_sequence(
 
     if shift > 0:
         positions[:-shift] = positions[shift:]
+        # The vacated tail takes the last shifted position explicitly; it used to keep the stale pre-shift values (audit 24-F15).
+        if shift < positions.size:
+            positions[-shift:] = positions[-shift - 1]
         positions = backfill_zeros(positions, direction="left")
     # compute profits from current idx till the end of current area
     profits = compute_area_profits(prices=raw_prices, positions=positions)

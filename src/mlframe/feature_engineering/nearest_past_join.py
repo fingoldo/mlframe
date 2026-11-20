@@ -153,7 +153,10 @@ def nearest_past_join(
                 f"right_value_cols; a key column cannot also be a value column."
             )
 
-    out = left_df.reset_index(drop=True).copy()
+    # ``out`` is positional (RangeIndex). Index the source rows with the same labels so the tier loop never
+    # mixes the caller's original index with ``out``'s (audit 24-F13).
+    left_df_r = left_df.reset_index(drop=True)
+    out = left_df_r.copy()
     attached_names = [f"{col}{suffix}" if col in out.columns else col for col in right_value_cols]
     for new_name, src_col in zip(attached_names, right_value_cols):
         # NaN in a numeric column, not `pd.NA` in an object one. Seeding with pd.NA gave every attached column
@@ -173,13 +176,13 @@ def nearest_past_join(
         if not unresolved.any():
             break
         unresolved_idx = out.index[unresolved.to_numpy()]
-        candidate = _nearest_past_join_single_tier(left_df.loc[unresolved_idx].reset_index(drop=True), right_df, on, tier_by_list, right_value_cols, suffix)
+        candidate = _nearest_past_join_single_tier(left_df_r.loc[unresolved_idx].reset_index(drop=True), right_df, on, tier_by_list, right_value_cols, suffix)
         candidate.index = unresolved_idx
 
         # a group with fewer than ``min_group_size`` historical rows counts as "too sparse" even when a
         # nearest-past value technically exists, so its rows still fall through to the next, coarser tier.
         # vectorized via merge (not a per-row dict/tuple lookup, which dominates wall time on large inputs).
-        row_group_sizes = _historical_group_sizes(left_df.loc[unresolved_idx], right_df, on, tier_by_list)
+        row_group_sizes = _historical_group_sizes(left_df_r.loc[unresolved_idx], right_df, on, tier_by_list)
 
         sparse = row_group_sizes < min_group_size
         for new_name in attached_names:
