@@ -26,3 +26,11 @@ Coverage honesty: this pass is partial. Read fully: `composite/meta.py`, `compos
 - `transforms/linear.py` lines 40-110: the logratio MAD floor and soft cap are unit-consistent (comment at lines 71-72). `np.log(y)` at lines 64 and 89 relies on the caller's domain filter, which I did not trace; no finding is claimed.
 - Pattern scans across all 68 files: no bare `except:` and no `except ...: pass`. No unseeded RNG calls outside `_benchmarks`. The `np.log` / `np.sqrt` calls are guarded or caller-filtered as far as checked.
 - Test coverage gaps: `test_honest_selection_score_is_time_ordered.py` calls `_nested_selection_score` directly with an already-aligned `time_ordering`, so the covered-subset plus `time_ordering` combination behind 36-F1 is untested. No test exercises `use_predict_proba` with a multiclass auxiliary target (36-F4). No test covers `CompositeOrRawStacker` with a sample-weight-unaware raw estimator (36-F2).
+
+
+## Dispositions
+
+- 36-F1: FIXED. time_ordering is restricted to the covered rows with a length check before the nested selection; no separate test
+- 36-F2: FIXED. sample_weight to the raw estimator is gated by _model_fit_accepts_sample_weight on both fits; no separate test
+- 36-F3: FIXED. stage-2 sample_weight gated like stage 1; no separate test
+- 36-F4: FIXED. the proba wrapper refuses non-binary classifiers at fit; tests/training/composite/test_cluster36_stacking_guards.py

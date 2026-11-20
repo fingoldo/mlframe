@@ -42,6 +42,7 @@ logger = logging.getLogger(__name__)
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 from sklearn.model_selection import KFold
 
+from .post_shim import _model_fit_accepts_sample_weight
 from .estimator import CompositeTargetEstimator
 
 __all__ = ["CompositeOrRawStacker"]
@@ -203,7 +204,7 @@ class CompositeOrRawStacker(RegressorMixin, BaseEstimator):
             oof[test_idx, 0] = np.asarray(comp.predict(X_te), dtype=float).reshape(-1)
 
             raw = self._make_raw()
-            raw.fit(X_tr, y_tr, **fit_kwargs)
+            raw.fit(X_tr, y_tr, **(fit_kwargs if _model_fit_accepts_sample_weight(raw) else {}))
             oof[test_idx, 1] = np.asarray(raw.predict(X_te), dtype=float).reshape(-1)
 
         self.oof_matrix_ = oof
@@ -212,9 +213,9 @@ class CompositeOrRawStacker(RegressorMixin, BaseEstimator):
         # FULL-data models for prediction (NOT used to fit the weights -> no leakage).
         full_fit_kwargs = {"sample_weight": w_arr} if w_arr is not None else {}
         self.composite_ = self._make_composite()
-        self.composite_.fit(X, y_arr, **full_fit_kwargs)
+        self.composite_.fit(X, y_arr, **(full_fit_kwargs if _model_fit_accepts_sample_weight(self.composite_) else {}))
         self.raw_ = self._make_raw()
-        self.raw_.fit(X, y_arr, **full_fit_kwargs)
+        self.raw_.fit(X, y_arr, **(full_fit_kwargs if _model_fit_accepts_sample_weight(self.raw_) else {}))
 
         n_feat = getattr(self.composite_, "n_features_in_", None)
         if n_feat is None:

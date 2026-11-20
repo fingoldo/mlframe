@@ -186,3 +186,7 @@
 | 35-F12 | FIXED | point-mass match uses rtol=0; no separate test |
 | 35-F13 | FIXED | per-fold catch removed; a failing fold raises instead of NaN-filling; no separate test |
 | 35-F14 | FIXED | predict_cdf sorts quantile rows before the binary search; no separate test |
+| 36-F1 | FIXED | time_ordering is restricted to the covered rows with a length check before the nested selection; no separate test |
+| 36-F2 | FIXED | sample_weight to the raw estimator is gated by _model_fit_accepts_sample_weight on both fits; no separate test |
+| 36-F3 | FIXED | stage-2 sample_weight gated like stage 1; no separate test |
+| 36-F4 | FIXED | the proba wrapper refuses non-binary classifiers at fit; tests/training/composite/test_cluster36_stacking_guards.py |
