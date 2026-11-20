@@ -36,3 +36,10 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 - `_arm_result.py:__post_init__`: the support dtype/length, score finiteness, `score_kind` and `ranked_prefix` contracts are all enforced and raise rather than degrade.
 - `common/downstream.py:61-71`: models are fit only on the train split, and R^2 is reference-only as documented, so no leakage in the metric path.
 - `wiring.py:24` (REPO = parents[5]) resolves to the repository root, and `plan` counts anchors on CRLF-normalised text, so the dry run and `apply` agree on counts.
+
+
+## Dispositions
+
+- 11-F2: RESOLVED. RFECV empty selection scores chance (0.5) in the importance-aggregation bench instead of refitting on every column. Test tests/feature_selection/test_bench_rfecv_empty_selection_is_chance.py. Commit below.
+- 11-F1: RESOLVED. _integer_bins ranks finite values only; missing rows take bin 0 instead of the top bin. Test tests/feature_selection/test_bench_integer_bins_missing_not_top.py. Commit below.
+- 11-F3: DEFERRED. Searched arms report the max over many in-sample candidates while truth, joint and als are single candidates, so the comparison is not like for like. The fix is a study-design change (same candidate sets, or held-out scoring) for the stat-study tables; it changes every published table, so it waits for a decision.

@@ -26,3 +26,10 @@ Scope: 143 files listed in `audits/2026-11-20/manifests/10_feature_selection-1.t
 - `_bench_shared.py:12` re-export of `uf_find`: the target `filters/_cluster_aggregate.py:313` exists.
 - `_bench_shared.py:162-165` `discretize_quantile_10bin`: the target `filters/discretization/__init__.py:439` `discretize_array` exists.
 - `_aggregate.py:33`: the `_results/MANIFEST.json` path resolves (the file exists).
+
+
+## Dispositions
+
+- 10-F3: RESOLVED. logreg_holdout_auc returns chance (0.5) for an empty selection instead of scoring all columns. Test tests/feature_selection/test_bench_logreg_empty_selection_is_chance.py. Commit below.
+- 10-F1: RESOLVED. Adaptive-guards bench scores the refit on the untouched holdout split; the concatenated re-split is gone. Test tests/feature_selection/test_bench_holdout_auc_is_unseen.py. Commit below.
+- 10-F2: RESOLVED. honest_auc fits on the search rows and scores the untouched holdout, at all three call sites. Test tests/feature_selection/test_bench_interaction_holdout_is_unseen.py. Commit below.
