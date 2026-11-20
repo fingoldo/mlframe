@@ -89,7 +89,7 @@ Coverage and method:
 - 35-F2: RESOLVED. CRPS weights are cell widths (helper _crps_cell_weights); reduces to 2/K on midpoint grids. Also fixed sibling in qrf.py (new). Tests test_crps_cell_weights.py. Commit bd2709ef9.
 - 35-F3: FIXED. a base must take more than one value to set the early time-aware flag; tests/training/composite/test_cluster35_digest_and_flags.py
 - 35-F4: FIXED. a non-finite raw baseline fails closed (empty result) when require_beats_raw_baseline is set, with a WARNING; test tests/training/composite/test_cluster35_raw_baseline_fail_closed.py
-- 35-F5: FIXED. each fold keeps one slot (NaN when unusable); the paired test already skips non-finite pairs; no separate test
+- 35-F5: FIXED. each fold keeps one slot (NaN when unusable); the paired test already skips non-finite pairs; test tests/training/composite/test_cluster35_stepwise_fold_slots.py
 - 35-F6: FIXED. the stacked target is float64 before the residual; no separate test
 - 35-F7: FIXED. time_aware with groups raises instead of silently dropping time order; test tests/training/composite/test_cluster35_stacking_time_and_groups_refused.py
 - 35-F8: FIXED. string digest length-prefixes each element; tests/training/composite/test_cluster35_digest_and_flags.py
@@ -107,3 +107,4 @@ Coverage and method:
 - 35-F11: FIXED. The early logratio raise is removed; the domain mask routes base<=0 rows to the fallback. Test tests/training/composite/test_cluster35_quantile_logratio_nonpositive_base.py.
 - 35-F7: FIXED. time_aware with groups raises. Test tests/training/composite/test_cluster35_stacking_time_and_groups_refused.py.
 - 35-F9: FIXED. External holdout key includes a frame content digest. Test tests/training/composite/test_cluster35_holdout_digest_distinguishes_content.py.
+- 35-F5: FIXED. Each fold keeps one slot (NaN when unusable), so the paired test zips by fold. Test tests/training/composite/test_cluster35_stepwise_fold_slots.py.
