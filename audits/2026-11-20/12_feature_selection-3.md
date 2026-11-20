@@ -122,3 +122,10 @@ Public functions in these files with no test in `fs_hybrid/test_hybrid_tree_memb
 - Train/test separation in most benches: selection on `Xtr`, scoring on `Xte` (spot-checked in `round2_boruta_bench.py`, `run_experiment.py:236,243,373`).
 
 Counts: P0 0, P1 22, P2 57, P3 22 (101 rows). The rows marked [v] are the ones I re-read myself; the rest are sub-audit leads that cite the right lines but were not all re-read line by line.
+
+
+## Dispositions
+
+- 12-F1: RESOLVED. Staleness default root walks up to the .git folder instead of the module directory, so the git paths match. Test tests/feature_selection/test_staleness_repo_root_is_the_git_root.py. Commit below.
+- 12-F19: RESOLVED. Bench arms are cap60 (the old MRMR width) and cap250; the earlier None arm equalled MRMR's default 250 and so duplicated cap250. Test tests/feature_selection/test_mrmrcap_bench_arms_differ.py. Commit below.
+- 12-F20: DEFERRED. An RFECV that selects nothing is replaced by the first column and recorded as its selection (importance_shootout.py cell loop). The fix (empty selection scores chance) is a one-branch change, but the cell loop runs a full RFECV and cannot be tested in isolation without first extracting its scoring into a helper; deferred until that extraction is done.
