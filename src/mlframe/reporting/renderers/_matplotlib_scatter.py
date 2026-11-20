@@ -8,6 +8,7 @@ bound onto the class at the bottom of ``matplotlib.py``, so ``MatplotlibRenderer
 from __future__ import annotations
 
 import logging
+import dataclasses
 from typing import Any
 
 import numpy as np
@@ -132,6 +133,17 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
             size_arr = size_arr[idx]
         if color_arr is not None and len(color_arr) == n:
             color_arr = color_arr[idx]
+        # Per-point error bars must follow the same rows: slicing only x/y left y_err/x_err at full length and errorbar raised on the mismatch.
+        _sub = {}
+        for _name in ("y_err", "x_err"):
+            _err = getattr(p, _name, None)
+            if isinstance(_err, tuple):  # asymmetric (lower, upper) pair
+                if all(np.ndim(e) > 0 and np.shape(e)[0] == n for e in _err):
+                    _sub[_name] = tuple(np.asarray(e)[idx] for e in _err)
+            elif _err is not None and np.ndim(_err) > 0 and np.shape(_err)[0] == n:
+                _sub[_name] = np.asarray(_err)[idx]
+        if _sub:
+            p = dataclasses.replace(p, **_sub)
         rasterized = True  # capped scatter still rasterized so a vector export stays small.
 
     # Per-point error bars (e.g. Wilson CIs on reliability bins). Drawn before the scatter so the markers
