@@ -623,6 +623,10 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
             "cat_cols": self._cat_cols_,
             "cat_cardinalities": self._cat_cardinalities_,
             "n_cat_features": self._n_cat_features_,
+            # Classifier label mapping and multilabel flag: predict() maps argmax positions back through classes_, and the flag selects the
+            # multilabel loss head. Stored as plain Python values so they survive torch.load(weights_only=True).
+            "classes": np.asarray(self.classes_).tolist() if getattr(self, "classes_", None) is not None else None,
+            "is_multilabel": bool(getattr(self, "_is_multilabel", False)),
         }
         torch.save(state, path)
 
@@ -652,6 +656,10 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         wrapper._cat_cols_ = state.get("cat_cols")
         wrapper._cat_cardinalities_ = state.get("cat_cardinalities")
         wrapper._n_cat_features_ = state.get("n_cat_features", 0)
+        _classes = state.get("classes")
+        if _classes is not None:
+            wrapper.classes_ = np.asarray(_classes)
+        wrapper._is_multilabel = bool(state.get("is_multilabel", False))
 
         _sd = state.get("feature_scaler_dict")
         if _sd is not None:
@@ -672,6 +680,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
             is_regression=state.get("is_regression", wrapper._is_regression),
             aux_categorical_cardinalities=list(wrapper._cat_cardinalities_) if wrapper._cat_cardinalities_ else None,
             aux_categorical_embed_dim=wrapper.categorical_embed_dim,
+            task_type="multilabel" if wrapper._is_multilabel else None,
         )
         wrapper.model.load_state_dict(state["model_state_dict"])
         wrapper.model.eval()
