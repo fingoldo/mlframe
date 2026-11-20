@@ -97,3 +97,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 12-F25 | 12_feature_selection-3.md | FIXED | Refit-only budget; test extended in test_fs_hybrid_rfecv_benches_have_no_wall_clock_cap.py. |
 | 39-F2 | 39_training-8.md | FIXED | Batch alignment refused. Test test_cluster39_run_batched_alignment.py. |
 | 39-F3 | 39_training-8.md | FIXED | Failed concatenate raises. Test test_cluster39_run_batched_alignment.py. |
+| 39-F4 | 39_training-8.md | FIXED | Named target never borrows another target's params (suite-wide fallback also gated). Test test_cluster39_chosen_params_target_isolation.py. |

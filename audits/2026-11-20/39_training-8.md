@@ -107,7 +107,7 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F1: FIXED. object targets are range-checked (non-integer or non-finite refused) before the int8 cast; tests/training/test_cluster39_encoders_and_casts.py
 - 39-F2: FIXED. a batch missing a key raises instead of concatenating misaligned rows; test tests/training/test_cluster39_run_batched_alignment.py
 - 39-F3: FIXED. a failed concatenate raises with the shapes instead of truncating to batch 0; test tests/training/test_cluster39_run_batched_alignment.py
-- 39-F4: FIXED. the single-entry fallback applies only when no target was asked for; no separate test
+- 39-F4: FIXED. the single-entry fallback applies only when no target was asked for; test tests/training/test_cluster39_chosen_params_target_isolation.py
 - 39-F5: FIXED. a configured group column missing from the frame logs a WARNING; no separate test
 - 39-F6: DEFERRED. not changed: the recency weighting's NaN policy for missing timestamps needs a decision (drop, neutral, or raise)
 - 39-F17: FIXED. fit_transform applies the binary target check for woe, as fit does; no separate test
@@ -126,3 +126,4 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F67: FIXED. the L1 exclusion ids are computed per step, not cached and pickled; no separate test
 - 39-F2: FIXED. A batch missing an ensemble key raises instead of concatenating misaligned rows. Test tests/training/test_cluster39_run_batched_alignment.py.
 - 39-F3: FIXED. A failed concatenate raises with the shapes instead of truncating. Test tests/training/test_cluster39_run_batched_alignment.py.
+- 39-F4: FIXED. The named-target lookup no longer borrows another target's params: the single-entry fallback and the suite-wide fallback apply only when no target was asked for. Test tests/training/test_cluster39_chosen_params_target_isolation.py.

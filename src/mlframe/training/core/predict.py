@@ -570,7 +570,8 @@ def _resolve_chosen_ensemble_params(metadata: dict, target_type: Any = None, tar
                     return _only
     # suite-wide fallback when only one (tt, tname) entry exists across the map
     _all_params: list[dict] = [_vv for _v in _ep.values() if isinstance(_v, dict) for _vv in _v.values() if isinstance(_vv, dict)]
-    if len(_all_params) == 1:
+    # Only when no target was asked for: a named target absent from the map must not borrow another target's params (39-F4).
+    if target_name is None and len(_all_params) == 1:
         return _all_params[0]
     return {}
 

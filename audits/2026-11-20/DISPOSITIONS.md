@@ -641,3 +641,4 @@
 | 12-F25 | FIXED | The prior-protected RFECV bench budgets by refits only (max_runtime_mins=None), like the other RFECV benches (12-F35). Test extended in tests/feature_selection/test_fs_hybrid_rfecv_benches_have_no_wall_clock_cap.py. |
 | 39-F2 | FIXED | A batch missing an ensemble key raises instead of concatenating misaligned rows. Test tests/training/test_cluster39_run_batched_alignment.py. |
 | 39-F3 | FIXED | A failed concatenate raises with the shapes instead of truncating. Test tests/training/test_cluster39_run_batched_alignment.py. |
+| 39-F4 | FIXED | The named-target lookup no longer borrows another target's params: the single-entry fallback and the suite-wide fallback apply only when no target was asked for. Test tests/training/test_cluster39_chosen_params_target_isolation.py. |
