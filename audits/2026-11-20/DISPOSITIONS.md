@@ -609,3 +609,6 @@
 | 24-F27 | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
 | 24-F28 | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
 | 24-F29 | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
+| 35-F1 | RESOLVED | from_fitted_inner now stamps smearing_quantiles from the train features (X_train) and the reconstructed T, as fit() does; call sites pass the raw train rows. Tests tests/training/composite/test_smearing_fit_from_fitted_parity.py. |
+| 09-F1 | RESOLVED | Random directions are unscaled; the d^{-1/4} scale moved to the inputs so the kernel is exp(q.k/sqrt(d)) as documented. Tests tests/feature_engineering/transformer/test_performer_kernel_identity.py; reference in test_performer_attention_key_side_stabilization.py updated. |
+| 24-F30 | DOCUMENTED | The complement fallback is pinned by tests/feature_engineering/test_aggregated_view_based.py; the subset_direct feature flags it in the feature names. No behaviour change. |

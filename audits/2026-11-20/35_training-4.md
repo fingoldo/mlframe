@@ -85,7 +85,7 @@ Coverage and method:
 
 ## Dispositions
 
-- 35-F1: DEFERRED. from_fitted_inner has no features or transformed target, so it cannot compute residual smearing like fit(). Fix belongs in _wrap_fitted_inner (call sites ensemble/__init__.py:642,885 and _oof_external.py:83 have X) and changes predict output for smeared transforms. Needs validation.
+- 35-F1: RESOLVED. See the dispositions section below.
 - 35-F2: RESOLVED. CRPS weights are cell widths (helper _crps_cell_weights); reduces to 2/K on midpoint grids. Also fixed sibling in qrf.py (new). Tests test_crps_cell_weights.py. Commit bd2709ef9.
 - 35-F3: FIXED. a base must take more than one value to set the early time-aware flag; tests/training/composite/test_cluster35_digest_and_flags.py
 - 35-F4: FIXED. a non-finite raw baseline fails closed (empty result) when require_beats_raw_baseline is set, with a WARNING; no separate test
@@ -99,3 +99,4 @@ Coverage and method:
 - 35-F12: FIXED. point-mass match uses rtol=0; no separate test
 - 35-F13: FIXED. per-fold catch removed; a failing fold raises instead of NaN-filling; no separate test
 - 35-F14: FIXED. predict_cdf sorts quantile rows before the binary search; no separate test
+- 35-F1: RESOLVED. from_fitted_inner now stamps smearing_quantiles from the train features (X_train) and the reconstructed T, as fit() does; call sites pass the raw train rows. Tests tests/training/composite/test_smearing_fit_from_fitted_parity.py.

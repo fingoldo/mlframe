@@ -394,7 +394,7 @@ def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_trai
         y_train=y_train,
         base_train=base_train,
         group_column=group_column,
-        groups_train=groups_train,
+        groups_train=groups_train, X_train=None if raw_rows is None else (raw_rows if valid is None else (raw_rows.iloc[np.flatnonzero(valid)] if hasattr(raw_rows, "iloc") else np.asarray(raw_rows)[valid])),
     )
 
 from ._oof_external import _compute_oof_with_external_holdout  # re-exported; carved to keep this module under 1000 lines

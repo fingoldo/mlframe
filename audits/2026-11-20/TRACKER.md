@@ -56,11 +56,11 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 
 | ID | Report | Disposition | Note |
 |---|---|---|---|
-| 09-F1 | 09_feature_engineering-2.md | DEFERRED | Random-feature scale is wrong (kernel exp(q.k/d)). Fix (unscaled directions, patch in patches/09-F1_deferred_performer_scale.patch) makes unscaled exponents underflow the global key shift on query rows, so normalizer and kernel_concentration need a per-row design. Needs a decision. |
+| 09-F1 | 09_feature_engineering-2.md | RESOLVED | Inputs scaled by d^{-1/4} with unscaled W, so the kernel is exp(q.k/sqrt(d)) as documented. Tests test_performer_kernel_identity.py. |
 | 09-F2 | 09_feature_engineering-2.md | RESOLVED | Double d^-1/2 removed at both call sites; test test_nystrom_scales_each_neighbour_once.py. Commit 4863686a5. |
 | 09-F3 | 09_feature_engineering-2.md | RESOLVED | Documented as the label-free proxy |p - median(y)| on both sides (no query label exists). Behaviour unchanged. Commit 8dc4360c0. |
 | 24-F1 | 24_root_modules-3.md | RESOLVED | Per-column finite-row AUC when a cell is non-finite; single-class columns are kept. Test test_drop_near_noise_handles_nan.py. Commit 2171ff34e. Siblings drop_raw_after_embedding.py:53,142 still open. |
-| 35-F1 | 35_training-4.md | DEFERRED | from_fitted_inner has no features or transformed target, so it cannot compute residual smearing like fit(). Fix belongs in _wrap_fitted_inner (call sites ensemble/__init__.py:642,885 and _oof_external.py:83 have X) and changes predict output for smeared transforms. Needs validation. |
+| 35-F1 | 35_training-4.md | RESOLVED | from_fitted_inner stamps smearing_quantiles from train features (X_train) and reconstructed T, as fit() does. Parity tests test_smearing_fit_from_fitted_parity.py. |
 | 35-F2 | 35_training-4.md | RESOLVED | CRPS weights are cell widths (helper _crps_cell_weights); reduces to 2/K on midpoint grids. Also fixed sibling in qrf.py (new). Tests test_crps_cell_weights.py. Commit bd2709ef9. |
 | 40-F1 | 40_training-9.md | RESOLVED | save/load store classes and the multilabel flag; model rebuilt with task_type. Tests test_recurrent_classifier_save_keeps_classes_and_multilabel.py. Commit 7e0cd9b40. |
 | 40-F2 | 40_training-9.md | RESOLVED | Unweighted score() returns accuracy in both branches. Tests test_classifier_score_is_accuracy.py. Commit 2798b5a6c. |
