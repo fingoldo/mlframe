@@ -222,6 +222,9 @@ def _compute_metrics_table(
     else:
         return pd.DataFrame(), ""
 
+    if not rows:
+        # No baseline produced a row (e.g. an LTR target that skipped ranking): an empty frame has no ``baseline`` column (audit 32-F1).
+        return pd.DataFrame(), primary_metric
     table = pd.DataFrame(rows).set_index("baseline")
     return table, primary_metric
 

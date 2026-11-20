@@ -63,3 +63,13 @@ Read by a delegated read-only reviewer, every file in its scope in full: manifes
 Not opened: `calibration_params/__init__.py` (1 line), `training/_benchmarks/__init__.py` (1 line, manifest line 1).
 
 Grep and Read used for caller checks: `core/_phase_dummy_baselines.py` (the try/except at :346 and the call at :292), `_trainer_train_and_evaluate_parts.py:219-290`, `slicing/_slice_helpers.py:203-247`, and the test-reference greps.
+
+
+## Dispositions
+
+- 32-F1: FIXED. an empty rows list returns an empty frame before set_index; no separate test (LTR skip path)
+- 32-F2: FIXED. a probability matrix takes the true-class probability and its bootstrap CI; tests/training/test_cluster32_baseline_fixes.py
+- 32-F3: FIXED. one validation shard falls back to single-validation early stopping with one warning; no separate test
+- 32-F4: FIXED. a non-finite global mean returns the minimum pseudocount (finite); tests/training/test_cluster32_baseline_fixes.py. Residual: the finding's preferred option, dropping non-finite y before the estimate, is not implemented; the caller still computes the mean from NaN-bearing y
+- 32-F5: FIXED. nanmedian and nanquantile for the quantile baselines; no separate test
+- 32-F6: FIXED. nanstd for the cross-output scale, non-finite scales skipped, non-finite normalized means excluded before the pick; no separate test

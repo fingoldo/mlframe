@@ -162,3 +162,9 @@
 | 31-F1 | FIXED | -P gated on Python 3.11+; PYTHONPATH still carries the import root; no separate test (subprocess command construction) |
 | 31-F2 | FIXED | an ok sweep that persisted 0 regions counts as failed; cmd_refresh returns non-zero for 0; tests/system/test_cluster31_kernel_tuning_fixes.py |
 | 31-F3 | FIXED | lock records pid:start-token; a live pid with a mismatching token is stale; same test file; test_kernel_tuning_lock_race.py assertion updated to the pid field |
+| 32-F1 | FIXED | an empty rows list returns an empty frame before set_index; no separate test (LTR skip path) |
+| 32-F2 | FIXED | a probability matrix takes the true-class probability and its bootstrap CI; tests/training/test_cluster32_baseline_fixes.py |
+| 32-F3 | FIXED | one validation shard falls back to single-validation early stopping with one warning; no separate test |
+| 32-F4 | FIXED | a non-finite global mean returns the minimum pseudocount (finite); tests/training/test_cluster32_baseline_fixes.py. Residual: the finding's preferred option, dropping non-finite y before the estimate, is not implemented; the caller still computes the mean from NaN-bearing y |
+| 32-F5 | FIXED | nanmedian and nanquantile for the quantile baselines; no separate test |
+| 32-F6 | FIXED | nanstd for the cross-output scale, non-finite scales skipped, non-finite normalized means excluded before the pick; no separate test |
