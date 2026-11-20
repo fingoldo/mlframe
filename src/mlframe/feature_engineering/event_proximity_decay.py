@@ -64,7 +64,8 @@ def event_proximity_decay_features(
     total_force = np.zeros(len(dates), dtype=np.float64)
     for i, event_date in enumerate(event_dates):
         if is_datetime:
-            days_to_event = (pd.to_datetime(dates_arr) - pd.Timestamp(event_date)).dt.days.to_numpy().astype(np.float64)
+            # Fractional days: .dt.days floors, so an hour before a midnight event counted as a whole day earlier (audit 23-F8).
+            days_to_event = (pd.to_datetime(dates_arr) - pd.Timestamp(event_date)).dt.total_seconds().to_numpy().astype(np.float64) / 86400.0
         else:
             days_to_event = np.asarray(dates_arr, dtype=np.float64) - float(event_date)
         if asymmetric:

@@ -119,11 +119,13 @@ def _leak_verdict(leaky_scores, honest_scores, honest_mean: float, inflation: fl
         # Reported alongside: how consistently leaky beat honest, fold by fold. It does not gate the verdict - with
         # four or five folds a rank test cannot reach p < 0.05 at all - but it distinguishes "one lucky fold" from
         # "every fold", which is what a reader wants next after the verdict.
-        if _diffs.size >= 2 and not np.allclose(_diffs, 0.0):
-            from scipy.stats import wilcoxon
-
-            leak_pvalue = float(wilcoxon(_diffs, alternative="greater", zero_method="zsplit").pvalue)
         leak_detected = bool(inflation > tolerance)
+    # The p-value is reported whether or not an explicit tolerance decided the verdict; it was computed only in the default
+    # branch, so a caller's leak_tolerance always produced NaN (audit 23-F5).
+    if _diffs.size >= 2 and not np.allclose(_diffs, 0.0):
+        from scipy.stats import wilcoxon
+
+        leak_pvalue = float(wilcoxon(_diffs, alternative="greater", zero_method="zsplit").pvalue)
     return tolerance, leak_pvalue, leak_detected
 
 

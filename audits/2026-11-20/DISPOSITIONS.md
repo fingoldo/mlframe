@@ -534,3 +534,13 @@
 | 22-F24 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F25 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F26 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 23-F5 | FIXED | the leakage p-value is computed whether or not a tolerance decided the verdict; tests/evaluation/test_cluster23_leak_pvalue_and_event_days.py |
+| 23-F8 | FIXED | event distances use fractional days (total seconds / 86400) instead of the floored .dt.days; same test file; 95 related tests pass |
+| 23-F6 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
+| 23-F7 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
+| 23-F9 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
+| 23-F10 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
+| 23-F11 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
+| 23-F12 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
+| 23-F13 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
+| 23-F14 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |

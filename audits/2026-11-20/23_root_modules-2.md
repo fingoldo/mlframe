@@ -38,3 +38,21 @@ Scope: cluster 23 "root_modules-2", manifest `audits/2026-11-20/manifests/23_roo
 - Test coverage: the public functions in evaluation (scan_temporal_leak, detect_expanding_window_feature_leakage, check_pairwise_score_correlation, imputation_sensitivity_check, cv_informativeness_check, constant_group_target_scan, label_correlation_rerank, optimize_group_blend_weight) and in feature_engineering (as_of_aggregate, entity_diff_features, event_proximity_decay_features) have test files under tests/evaluation and tests/feature_engineering. I did not check whether those tests exercise the specific edge cases above (NaN group ids, tied ranks, NaN ratios, explicit `leak_tolerance`, sub-day timestamps). Coverage of those edge cases is presumed missing until checked. No tests were written.
 
 Counts: P0 0, P1 4, P2 4, P3 6.
+
+
+## Dispositions
+
+- 23-F4: RESOLVED. rank_agreement counts only concordant pairs (both orderings equal); a tie in either ranking is not agreement. Test tests/evaluation/test_rank_agreement_ignores_ties.py; 23 existing blend-selection tests pass. Commit below.
+- 23-F3: RESOLVED. Missing group ids (NaN/None) are one group in the leakage guard, so a shared missing id across a split raises. Test tests/evaluation/test_group_leakage_nan_ids.py; 43 existing leakage tests pass. Commit below.
+- 23-F2: RESOLVED. Leaking folds are decided with the same tolerance as the verdict (the caller's leak_tolerance when given), not a fixed 0.02, so leaky_row_positions agree with leak_detected. Regression coverage: the existing 50 expanding/leak tests pass; no new fixture with a real leak was built, so the change is verified by the existing suite and by reading. Commit below.
+- 23-F1: RESOLVED. When more than a quarter of resamples fail, the bootstrap CI spans the surviving range (as the docstring documents) and the result carries degraded=True. Test tests/evaluation/test_bootstrap_degraded_ci_spans_survivors.py; 73 existing bootstrap tests pass. Commit below.
+- 23-F5: FIXED. the leakage p-value is computed whether or not a tolerance decided the verdict; tests/evaluation/test_cluster23_leak_pvalue_and_event_days.py
+- 23-F8: FIXED. event distances use fractional days (total seconds / 86400) instead of the floored .dt.days; same test file; 95 related tests pass
+- 23-F6: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
+- 23-F7: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
+- 23-F9: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
+- 23-F10: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
+- 23-F11: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
+- 23-F12: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
+- 23-F13: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
+- 23-F14: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
