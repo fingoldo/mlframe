@@ -111,8 +111,11 @@ def realize_latent(
     if latent.family in ("ar1", "random_walk"):
         # A serially dependent factor, for a target that is a time series of its own; the columns never see it.
         values = draw_family(latent.family, {}, n, rng)
+    elif latent.family == "normal":
+        values = rng.normal(0.0, 1.0, n)
     else:
-        values = rng.normal(0.0, 1.0, n) if latent.family == "normal" else rng.standard_t(4.0, n)
+        # Any other name used to fall through to a Student-t(4) draw, so a misspelt family silently changed the bed; refuse it instead.
+        raise ValueError(f"latent {latent.name!r}: unknown family {latent.family!r}; supported: normal, ar1, random_walk")
     # Explicit emptiness rather than `or`: the spec validator already refuses a partially specified
     # loading vector, so an empty tuple means "unspecified" and any other length is exactly the
     # reflection count. A truthiness fallback would read the same today and silently swallow a
