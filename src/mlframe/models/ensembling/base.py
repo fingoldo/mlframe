@@ -369,7 +369,8 @@ def batch_numaggs(predictions: np.ndarray, get_numaggs_names_len: int, numaggs_k
     for i in range(len(predictions)):
         arr = predictions[i, :]
         if means_only:
-            numerical_features = compute_numerical_aggregates_numba(arr, geomean_log_mode=False, directional_only=False)
+            # whiten_means=False as on the serial path (line ~433): the default changes the quadratic/qubic/geometric/harmonic means.
+            numerical_features = compute_numerical_aggregates_numba(arr, geomean_log_mode=False, directional_only=False, whiten_means=False)
         else:
             numerical_features = compute_numaggs(arr=arr, **numaggs_kwds)
         row_features[i, :] = numerical_features
