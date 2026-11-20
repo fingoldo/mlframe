@@ -119,7 +119,7 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F34: FIXED. zero smoothing falls back to the global prior; tests/training/test_cluster39_encoders_and_casts.py
 - 39-F35: FIXED. the 'no terms remain' pruning error is handled like empty vocabulary; test tests/training/test_cluster39_tfidf_no_terms_remain.py
 - 39-F36: FIXED. the entry is pinned in the strong tier while it loads (RLock, safe to reenter); test tests/training/test_cluster39_prewarm_pins_entry_during_load.py
-- 39-F37: DEFERRED. not changed: NaN input to PolynomialFeatures needs a NaN policy decision (refuse, or NaN-propagate per row)
+- 39-F37: FIXED (by default choice: refuse). Previously deferred pending a NaN policy; refusing with a clear message is the conservative default. Test tests/training/test_cluster39_polynomial_refuses_nonfinite.py. Original note: NaN input to PolynomialFeatures needs a NaN policy decision (refuse, or NaN-propagate per row)
 - 39-F38: DEFERRED. not changed: hgb_max_features_cap is exported with no caller; wire in or remove, an owner decision
 - 39-F53: FIXED. multilabel heads use per-label sigmoid; tests/training/test_cluster39_encoders_and_casts.py
 - 39-F54: FIXED. orthogonal_ and sparse_ fall back on 1-D tensors instead of raising; test tests/training/test_cluster39_orthogonal_init_on_batchnorm.py
@@ -134,3 +134,4 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F54: FIXED. orthogonal_ and sparse_ fall back on 1-D tensors (BatchNorm gamma -> 1.0, bias -> 0). Test tests/training/test_cluster39_orthogonal_init_on_batchnorm.py.
 - 39-F67: FIXED. Correction: the earlier 'computed per step' claim was incomplete. The id set was still stored on self (and so pickled); it is now a local of training_step and never stored. Test tests/training/neural/test_cluster39_l1_exclusion_not_pickled.py.
 - 39-F36: FIXED. Prewarm pins the entry in the strong tier while it loads. Test tests/training/test_cluster39_prewarm_pins_entry_during_load.py.
+- 39-F37: FIXED. Decision (default taken): NaN/inf input is refused in fit and transform with a message naming the count and the remedy, instead of sklearn's opaque error. Tests tests/training/test_cluster39_polynomial_refuses_nonfinite.py.
