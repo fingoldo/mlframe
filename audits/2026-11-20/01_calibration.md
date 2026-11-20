@@ -32,3 +32,15 @@ Scope: the 25 `.py` files plus `__init__.py` in `src/mlframe/calibration/_benchm
 ## Dispositions
 
 - 01-F3: WON'T FIX. Production loop already measured against the argsort variant in probabilities.py (argsort 0.43x at n=1e6, n_bins=10); the O(n_bins*N) scan stays. Bench finding is about the bench, not the shipped code.
+- 01-F1: FIXED. bench bias indexed by each row's own group code; benchmark-only, no test
+- 01-F2: FIXED. bench seeds use zlib.crc32 instead of salted hash(); benchmark-only, no test
+- 01-F9: FIXED. sort timer excludes RNG generation; benchmark-only, no test
+- 01-F12: FIXED. module docstrings moved above the imports; benchmark-only
+- 01-F4: DEFERRED. not changed in the P2/P3 pass yet; benchmark-only, low impact
+- 01-F5: DEFERRED. not changed in the P2/P3 pass yet; benchmark-only, low impact
+- 01-F6: DEFERRED. not changed in the P2/P3 pass yet; benchmark-only, low impact
+- 01-F7: DEFERRED. not changed in the P2/P3 pass yet; benchmark-only, low impact
+- 01-F8: DEFERRED. not changed in the P2/P3 pass yet; benchmark-only, low impact
+- 01-F10: DEFERRED. not changed in the P2/P3 pass yet; benchmark-only, low impact
+- 01-F11: DEFERRED. not changed in the P2/P3 pass yet; benchmark-only, low impact
+- 01-F13: DEFERRED. not changed in the P2/P3 pass yet; benchmark-only, low impact
