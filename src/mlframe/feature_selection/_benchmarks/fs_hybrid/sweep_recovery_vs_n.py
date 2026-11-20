@@ -92,12 +92,23 @@ def run_point(bed: str, arm_name: str, n_samples: int, seed: int) -> Dict[str, A
 
 
 def _family_curve(rows: Sequence[Dict[str, Any]], arms: Sequence[str]) -> Dict[int, float]:
-    """Return ``{n_samples: mean recall}`` pooled over a family's arms and seeds."""
+    """Return ``{n_samples: mean recall}`` pooled over a family's arms and seeds.
+
+    A size with ANY failed cell (non-finite recall) gets no mean: dropping the NaN cells and averaging the rest hid the failures
+    and reported the family as better than it was on the sizes where it broke (12-F28).
+    """
     out: Dict[int, List[float]] = {}
+    failed: set = set()
     for row in rows:
-        if str(row.get("arm")) in set(arms) and np.isfinite(float(row.get("recall", float("nan")))):
-            out.setdefault(int(row["n_samples"]), []).append(float(row["recall"]))
-    return {size: float(np.mean(values)) for size, values in sorted(out.items()) if values}
+        if str(row.get("arm")) not in set(arms):
+            continue
+        size = int(row["n_samples"])
+        recall = float(row.get("recall", float("nan")))
+        if np.isfinite(recall):
+            out.setdefault(size, []).append(recall)
+        else:
+            failed.add(size)
+    return {size: float(np.mean(values)) for size, values in sorted(out.items()) if values and size not in failed}
 
 
 def crossing_points(rows: Sequence[Dict[str, Any]]) -> Optional[Tuple[int, int]]:

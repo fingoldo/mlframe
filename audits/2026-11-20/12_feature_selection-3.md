@@ -198,3 +198,4 @@ Counts: P0 0, P1 22, P2 57, P3 22 (101 rows). The rows marked [v] are the ones I
 - 12-F20: FIXED. Scoring moved to score_selection; an empty RFECV selection is recorded as empty_selection and not scored. Tests tests/feature_selection/test_fs_hybrid_empty_rfecv_selection_not_scored.py.
 - 12-F26: FIXED. The default flips only when the new arm wins most cells and its mean delta is positive (decide_flip). Tests tests/feature_selection/test_fs_hybrid_flip_needs_positive_mean.py.
 - 12-F27: FIXED. The proxy Brier is computed out-of-fold (oof_proxy_brier), so it is comparable with the honest out-of-fold Brier. Test tests/feature_selection/test_fs_hybrid_s2_proxy_is_out_of_fold.py.
+- 12-F28: FIXED. A size with any failed cell gets no family mean instead of a mean over its survivors. Tests tests/feature_selection/test_fs_hybrid_family_curve_failed_cells.py.
