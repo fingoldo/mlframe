@@ -83,8 +83,9 @@ Severity: P0 = crash or wrong result on the default path; P1 = wrong result on a
 - 40-F9: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
 - 40-F10: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
 - 40-F11: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
-- 40-F13: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
+- 40-F13: FIXED. cache hit stamps the pre-pipeline (test tests/training/test_cluster40_cache_hit_stamps_pre_pipeline.py). Earlier note: not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
 - 40-F15: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
 - 40-F16: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
 - 40-F17: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
 - 40-F18: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
+- 40-F13: FIXED. A pre-pipeline cache hit stamps model._mlframe_pre_pipeline before returning, as the fit path does. Test tests/training/test_cluster40_cache_hit_stamps_pre_pipeline.py.

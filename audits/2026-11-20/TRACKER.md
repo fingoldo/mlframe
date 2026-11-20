@@ -113,3 +113,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 04-F11 | 04_data.md | FIXED | Provenance now states the beds are approximations, not published functions. Test test_cluster04_friedman_provenance_is_honest.py. |
 | 04-F13 | 04_data.md | FIXED | Weights 1/(levels-1). Test test_cluster04_graded_cardinality_weights.py. |
 | 23-F2 | 23_root_modules-2.md | FIXED | Explicit leak_tolerance decides the verdict. Test test_cluster23_leak_verdict_uses_caller_tolerance.py. |
+| 40-F13 | 40_training-9.md | FIXED | Cache hit stamps the pre-pipeline on the model. Test test_cluster40_cache_hit_stamps_pre_pipeline.py. |
