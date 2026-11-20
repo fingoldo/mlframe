@@ -337,7 +337,10 @@ def apply_features_cleaning(df: pd.DataFrame, features_cleaning: dict, update_da
     # Non-mutating path: compose the replacements into a new frame without touching the caller's columns.
     replacements = {col: df[col].replace(repl_instructions).astype(_target_dtype(col)) for col, repl_instructions in transforms.items()}
     if replacements:
-        df = df.assign(**replacements)
+        # Per-column assignment: assign(**kwargs) requires string keys, and a frame with integer labels raised TypeError (audit 26-F1).
+        df = df.copy(deep=False)
+        for col, values in replacements.items():
+            df[col] = values
     if constant_features:
         df = df.drop(columns=constant_features)
     return df

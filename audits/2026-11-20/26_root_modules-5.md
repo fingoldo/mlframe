@@ -61,3 +61,12 @@ Scope: 69 files from manifest `26_root_modules-5.txt` (preprocessing 25, reporti
 - Fully read, all 69 manifest files: preprocessing/ (25 files incl. `__init__.py`), reporting/ (17), signal/ (6), system/ (3), testing/ (2), training/ (16). `_composite_target_discovery_config_base.py` was read in two ranges (1-747, 748-919), so it is complete.
 - Grep-only (for callers and tests): `compute_signature` (training/_dataset_cache_fingerprint.py:56), `mask_nonfinite_oof_rows` callers (training/evaluation.py), and test references to preprocessing and signal public functions (341 hits across 34 test files under tests/).
 - Test coverage: I did not assess coverage gaps per function. The findings above (26-F1, F2, F3, F4, F5, F28, F31) are behaviours I did not find referenced by name in the test grep, but I did not verify that against individual test bodies.
+
+
+## Dispositions
+
+- 26-F1: FIXED. non-mutating cleaning path assigns per column (no assign(**kwargs)); tests/preprocessing/test_cluster26_preprocessing_fixes.py
+- 26-F2: FIXED. dedup gate tests only float NaN, so pd.NA no longer hits bool(); same file
+- 26-F3: FIXED. tree branch scores against supplied bounds as the non-tree branch does; same file
+- 26-F4: FIXED. expanding denominator is the per-feature observed count; same file (weak test: only augmented rows are exposed)
+- 26-F5: FIXED. auto-discovered non-numeric columns take mode under median/mean; same file

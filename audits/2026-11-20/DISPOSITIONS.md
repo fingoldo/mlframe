@@ -124,3 +124,8 @@
 | 25-F18 | FIXED | a column is a drop candidate only if unimportant in every training fold, importances on training rows only. Residual: the fold's held-out rows still shape the other folds' masks; a fully nested variant is a design option. Test: same test file |
 | 25-F19 | FIXED | NaN epochs are skipped before the baseline and weights; a RuntimeWarning fires when no epoch is finite; same test file |
 | 25-F18 | FIXED | correction: the drop mask is the mean of per-training-fold importances (each computed on training rows only) at or below the threshold; an all-folds AND broke biz_val pruning (26 of 43 survivors). Residual: held-out rows of one fold still shape other folds' masks |
+| 26-F1 | FIXED | non-mutating cleaning path assigns per column (no assign(**kwargs)); tests/preprocessing/test_cluster26_preprocessing_fixes.py |
+| 26-F2 | FIXED | dedup gate tests only float NaN, so pd.NA no longer hits bool(); same file |
+| 26-F3 | FIXED | tree branch scores against supplied bounds as the non-tree branch does; same file |
+| 26-F4 | FIXED | expanding denominator is the per-feature observed count; same file (weak test: only augmented rows are exposed) |
+| 26-F5 | FIXED | auto-discovered non-numeric columns take mode under median/mean; same file |
