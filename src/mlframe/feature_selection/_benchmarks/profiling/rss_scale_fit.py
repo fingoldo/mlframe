@@ -42,6 +42,7 @@ frame_mb = X.memory_usage(deep=False).sum() / 1e6
 import tracemalloc
 
 TRACE = os.environ.get("RSS_TRACEMALLOC") == "1"
+STOP_AFTER = float(os.environ.get("RSS_STOP_AFTER_S", "0") or 0)  # with RSS_TRACEMALLOC=1: print the live allocations at this second and exit
 if TRACE:
     tracemalloc.start(6)
 trace = types.SimpleNamespace(snapshots=[])  # the sampler thread appends its tracemalloc snapshots here
@@ -98,6 +99,14 @@ def sampler():
                 for when_t, mb_t, where_t in ticks:
                     print(f"  tick t={when_t:7.1f}s +{mb_t:7.0f} MB  {where_t}", flush=True)
             os._exit(3)  # exit-ok: a script run as a process; only os._exit ends the main thread stuck inside the fit, SystemExit here would end this thread alone
+        if STOP_AFTER and time.perf_counter() - t0 >= STOP_AFTER and TRACE:  # a snapshot of the plateau: who holds the live memory
+            snap = tracemalloc.take_snapshot()
+            print(f"--- tracemalloc at t={time.perf_counter() - t0:.0f}s, RSS growth {(rss - base) / 1e6:.0f} MB: the largest live allocations", flush=True)
+            for st in snap.statistics("traceback")[:18]:
+                print(f"  {st.size / 1e6:8.0f} MB in {st.count} blocks", flush=True)
+                for line in st.traceback.format()[-5:]:
+                    print("     ", line.strip()[:160], flush=True)
+            os._exit(0)  # exit-ok: a script run as a process; the main thread is inside the fit
         if TICK and (not ticks or time.perf_counter() - t0 - ticks[-1][0] >= TICK):
             ticks.append((time.perf_counter() - t0, (rss - base) / 1e6, f"cpu {proc_cpu():3.0f}% gpu {gpu_util():>3}% " + innermost(sys._current_frames().get(main_id))))
         if rss > peak[0]:
