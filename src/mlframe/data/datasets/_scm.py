@@ -285,8 +285,13 @@ def _declared_kind_role(graph: CausalGraph, node: str) -> Optional[FeatureRole]:
     Returns:
         The declared role, or ``None`` when every incoming edge is a plain ``direct`` / ``latent`` arrow.
     """
+    # Convention: a copy or proxy kind marks its TARGET (the redundant copy, the proxy), while an instrument marks its SOURCE, because
+    # ``instrument -> treatment`` is a causal arrow and the instrument is the node that carries the role.
     for edge in graph.edges:
-        if edge.target == node and edge.kind in _KIND_TO_ROLE:
+        if edge.kind not in _KIND_TO_ROLE:
+            continue
+        marked = edge.source if edge.kind == "instrument" else edge.target
+        if marked == node:
             return _KIND_TO_ROLE[edge.kind]
     return None
 
