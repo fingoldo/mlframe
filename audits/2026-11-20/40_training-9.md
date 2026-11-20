@@ -75,7 +75,7 @@ Severity: P0 = crash or wrong result on the default path; P1 = wrong result on a
 - 40-F12: FIXED. kwargs are filtered by signature and the fit is called once, so a TypeError inside a fit propagates; tests/training/test_cluster40_pipeline_fixes.py
 - 40-F14: FIXED. duplicated index labels no longer multiply rows: both FE joins are positional; tests/training/test_cluster40_pipeline_fixes.py
 - 40-F19: FIXED. array-valued parameters are keyed by shape, dtype and content digest; tests/training/test_cluster40_pipeline_fixes.py
-- 40-F3: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
+- 40-F3: FIXED. multi-target regression monitors RMSE, not ICE (test tests/training/neural/test_cluster40_multitarget_regression_uses_rmse.py). Earlier note: not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
 - 40-F4: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
 - 40-F5: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
 - 40-F7: DEFERRED. not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
@@ -90,3 +90,4 @@ Severity: P0 = crash or wrong result on the default path; P1 = wrong result on a
 - 40-F18: FIXED. unaligned split with group ids is refused. Test tests/training/test_cluster40_ma_crossover_refuses_unaligned_groups.py. Earlier note: not changed in this pass: needs a targeted reading and a design decision (see the cluster report); no fix applied yet
 - 40-F13: FIXED. A pre-pipeline cache hit stamps model._mlframe_pre_pipeline before returning, as the fit path does. Test tests/training/test_cluster40_cache_hit_stamps_pre_pipeline.py.
 - 40-F18: FIXED. A split with group ids but no aligned row index is refused (ValueError naming the split) instead of averaged across entities. Test tests/training/test_cluster40_ma_crossover_refuses_unaligned_groups.py; existing ma_crossover tests (40) pass.
+- 40-F3: FIXED. Multi-target regression no longer takes the ICE branch: _metric_branch_for returns RMSE unless num_classes>1 and not multi-target regression. Tests tests/training/neural/test_cluster40_multitarget_regression_uses_rmse.py; existing multi-target tests (6) pass.

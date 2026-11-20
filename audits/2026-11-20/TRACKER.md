@@ -115,3 +115,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 23-F2 | 23_root_modules-2.md | FIXED | Explicit leak_tolerance decides the verdict. Test test_cluster23_leak_verdict_uses_caller_tolerance.py. |
 | 40-F13 | 40_training-9.md | FIXED | Cache hit stamps the pre-pipeline on the model. Test test_cluster40_cache_hit_stamps_pre_pipeline.py. |
 | 40-F18 | 40_training-9.md | FIXED | Unaligned split with group ids refused. Test test_cluster40_ma_crossover_refuses_unaligned_groups.py. |
+| 40-F3 | 40_training-9.md | FIXED | Multi-target regression monitors RMSE, not ICE. Test test_cluster40_multitarget_regression_uses_rmse.py. |
