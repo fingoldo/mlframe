@@ -441,6 +441,9 @@ def fast_calibration_metrics(
     ``calibration_metrics_from_freqs``. Returns ``(calibration_mae, calibration_std, calibration_coverage)``.
     """
     # Call the serial njit binning kernel directly: ``fast_calibration_binning`` is a plain-Python size dispatcher (not njit), so referencing it from inside this nopython body fails type inference. This wrapper is a one-shot small-n convenience path, so the serial kernel is the right njit-callable choice.
+    # Inline (not the Python helper): this body is compiled, and the serial kernel indexes y_pred with bounds checking off.
+    if y_true.shape[0] != y_pred.shape[0]:
+        raise ValueError("fast_calibration_metrics: y_true and y_pred differ in length")
     freqs_predicted, freqs_true, hits = _fast_calibration_binning_serial(y_true, y_pred, nbins)
     if verbose:
         print(freqs_predicted, freqs_true)  # noqa: T201 -- inside @njit nopython mode, logging isn't supported here
