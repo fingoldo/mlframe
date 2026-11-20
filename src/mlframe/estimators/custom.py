@@ -729,7 +729,9 @@ class IdentityClassifier(ClassifierMixin, IdentityEstimator):
         check_is_fitted(self, "is_fitted_")
         last_class_probs = self.predict(X)
         if len(self.classes_) == 2 and last_class_probs.ndim == 1:
-            return np.vstack([1 - last_class_probs, last_class_probs]).T
+            # Clip like the multiclass branch: an out-of-range score must not yield a negative or >1 probability (audit 22-F20).
+            _p = np.clip(np.asarray(last_class_probs, dtype=np.float64), 0.0, 1.0)
+            return np.vstack([1 - _p, _p]).T
         # Multiclass: the raw feature slice is neither clipped, normalised, nor aligned
         # to ``classes_``. Coerce it into a valid probability matrix (one column per class,
         # in ``classes_`` order, clipped to [0, 1] and row-normalised to sum to 1) so it

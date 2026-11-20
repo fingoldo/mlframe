@@ -85,3 +85,21 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F1: RESOLVED. Independence summary reads 1.0 (fully redundant) when every member is constant, instead of 0.0 (independent), so odds_ratio_combine warns. Test tests/calibration/test_independence_all_constant_members_is_redundant.py; 30 existing independence/odds tests pass. Commit below.
 - 22-F2: RESOLVED. A calibrator whose OOF outputs are non-finite is excluded from candidate scoring (logged), instead of being scored over its finite rows. Test tests/calibration/test_candidate_with_nan_outputs_is_excluded.py; 340 existing calibration policy tests pass. Commit below.
 - 22-F3: DEFERRED. get_postcalibrators imports netcal, pycalib, ml_insights, betacal and venn_abers unguarded, and the calibrator list references their attributes directly. Making each optional means restructuring the whole zoo list per library. The change is mechanical but touches every entry; deferred to a dedicated pass with a test that blocks each module in turn.
+- 22-F13: FIXED. the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass
+- 22-F20: FIXED. the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test
+- 22-F9: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
+- 22-F10: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
+- 22-F11: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
+- 22-F12: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
+- 22-F14: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
+- 22-F15: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
+- 22-F16: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
+- 22-F17: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
+- 22-F18: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
+- 22-F19: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
+- 22-F21: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
+- 22-F22: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
+- 22-F23: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
+- 22-F24: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
+- 22-F25: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
+- 22-F26: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)

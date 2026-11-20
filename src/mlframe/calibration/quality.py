@@ -703,7 +703,8 @@ def chi_square_statistic(pit_values: np.ndarray, bins: int = 10) -> float:
     if len(pit_values) == 0:
         return float("nan")
     observed, _bin_edges = np.histogram(pit_values, bins=bins, range=(0, 1))
-    expected = np.ones_like(observed) * len(pit_values) / bins
+    # Expected counts follow the total that was actually binned: np.histogram drops NaN, so len(pit_values) overstated it (audit 22-F13).
+    expected = np.ones_like(observed) * observed.sum() / bins
     chi2_stat, _ = chisquare(f_obs=observed, f_exp=expected)
     return float(chi2_stat)
 

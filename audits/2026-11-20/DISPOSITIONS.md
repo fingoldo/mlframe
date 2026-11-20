@@ -516,3 +516,21 @@
 | 21-F13 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F14 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F15 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
+| 22-F13 | FIXED | the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass |
+| 22-F20 | FIXED | the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test |
+| 22-F9 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F10 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F11 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F12 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F14 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F15 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F16 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F17 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F18 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F19 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F21 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F22 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F23 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F24 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F25 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F26 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
