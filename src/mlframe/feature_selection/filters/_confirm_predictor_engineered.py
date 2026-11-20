@@ -52,7 +52,7 @@ def _occupied_cells_over(base_classes: np.ndarray, factors_data: np.ndarray, var
         x = x - ((x >> np.uint64(1)) & np.uint64(0x5555555555555555))
         x = (x & np.uint64(0x3333333333333333)) + ((x >> np.uint64(2)) & np.uint64(0x3333333333333333))
         x = (x + (x >> np.uint64(4))) & np.uint64(0x0F0F0F0F0F0F0F0F)
-        total += np.int64((x * np.uint64(0x0101010101010101)) >> np.uint64(56))
+        total += int((x * np.uint64(0x0101010101010101)) >> np.uint64(56))
     return total
 
 

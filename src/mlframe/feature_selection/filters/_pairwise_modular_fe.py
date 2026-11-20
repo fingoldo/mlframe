@@ -541,6 +541,43 @@ def _perm_null_hi(c: np.ndarray, y: np.ndarray, k: int, nbins: int, n_perm: int 
     vals = np.asarray(vals, dtype=_crit_np_dtype())
     return float(vals.mean() + z * vals.std())
 
+def _resident_scan_enabled() -> bool:
+    """Whether the modular scan scores its combiners on the resident-GPU path (strict-resident mode); ``False`` when the probe fails."""
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+
+        return bool(fe_gpu_strict_resident_enabled())
+    except Exception as e:
+        log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
+        return False
+
+
+def _collect_combiner_jobs(cols: Sequence[str], arrs: dict, yi: np.ndarray, mods: list, seed: int, max_pairs: int, max_triples: int) -> list:
+    """The combiners of the modular sweep in the scan order, as ``(operator, operand names, combiner column)``: every column (``self``), the selected pairs (every pair operator) and the selected triples
+    (``sum3``). They do not depend on the scan results, so they are collected first and scored together (a few launches for the whole sweep instead of 1 + (groups) per combiner: 45 combiners x 8 plug-in calls
+    at 100000 rows). The optional-enrichment wall-clock budget stops the collection (self, pair and triple stages in order) once MRMR.fit's deadline passes; no-op without a budget."""
+    from ._fe_deadline import fe_deadline_passed
+
+    deadline_hit = fe_deadline_passed()
+    jobs: list = []
+    for c in cols:
+        if deadline_hit:
+            break
+        jobs.append(("self", (c,), _combine([arrs[c]], "self")))
+        deadline_hit = fe_deadline_passed()
+    for a, b in _select_pairs_by_residue_score(cols, arrs, yi, mods, seed, max_pairs):
+        if deadline_hit:
+            break
+        jobs.extend((op, (a, b), _combine([arrs[a], arrs[b]], op)) for op in _PAIR_OPS)
+        deadline_hit = fe_deadline_passed()
+    for a, b, c in _select_triples_by_residue_score(cols, arrs, yi, mods, seed, max_triples):
+        if deadline_hit:
+            break
+        jobs.append(("sum3", (a, b, c), _combine([arrs[a], arrs[b], arrs[c]], "sum3")))
+        deadline_hit = fe_deadline_passed()
+    return jobs
+
+
 def cheap_modular_scan(
     X: pd.DataFrame | pl.DataFrame,
     y: np.ndarray,
@@ -579,12 +616,7 @@ def cheap_modular_scan(
 
     hits: list[ModularHit] = []
 
-    try:
-        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
-        _scan_rb = fe_gpu_strict_resident_enabled()
-    except Exception as e:
-        log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
-        _scan_rb = False
+    _scan_rb = _resident_scan_enabled()
     from ._pairwise_modular_resident import combiner_mi_resident
 
     def _scan_one(op: str, cset: tuple[str, ...], c_arr: np.ndarray, base: "float | None" = None, grid: "np.ndarray | None" = None):
@@ -611,33 +643,9 @@ def cheap_modular_scan(
 
     from ._fe_deadline import fe_deadline_passed
 
-    # Optional-enrichment wall-clock budget: stop the modular sweep (self/pair/triple stages, in order) once
-    # MRMR.fit's deadline passes, and return whatever partial hit list was engineered so far - sorted, same
-    # as the normal-completion contract. No-op without a budget (mirrors the orth-univariate/pair-cross/
-    # extra-basis generators' internal deadline check - this sweep never had one).
-    # The combiners of the sweep (self, pair operators, triples) do not depend on the scan results, so they are collected first in the scan order and their baselines and residue grids are scored
-    # together (a few launches for the whole sweep instead of 1 + (groups) per combiner: 45 combiners x 8 plug-in calls at 100000 rows); the per-combiner decision then runs as before.
     from ._pairwise_modular_resident import combiner_bases_and_grids_resident
 
-    _deadline_hit = fe_deadline_passed()
-    jobs: list = []
-    for c in cols:
-        if _deadline_hit:
-            break
-        jobs.append(("self", (c,), _combine([arrs[c]], "self")))
-        _deadline_hit = fe_deadline_passed()
-
-    for a, b in _select_pairs_by_residue_score(cols, arrs, yi, mods, seed, max_pairs):
-        if _deadline_hit:
-            break
-        jobs.extend((op, (a, b), _combine([arrs[a], arrs[b]], op)) for op in _PAIR_OPS)
-        _deadline_hit = fe_deadline_passed()
-
-    for a, b, c in _select_triples_by_residue_score(cols, arrs, yi, mods, seed, max_triples):
-        if _deadline_hit:
-            break
-        jobs.append(("sum3", (a, b, c), _combine([arrs[a], arrs[b], arrs[c]], "sum3")))
-        _deadline_hit = fe_deadline_passed()
+    jobs = _collect_combiner_jobs(cols, arrs, yi, mods, seed, max_pairs, max_triples)
 
     batched = combiner_bases_and_grids_resident([j[2] for j in jobs], yi, mods, nbins=nbins, rank_binning=_scan_rb) if len(jobs) >= 2 else None
     for i, (op, cset, c_arr) in enumerate(jobs):

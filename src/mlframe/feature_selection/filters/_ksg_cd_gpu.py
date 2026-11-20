@@ -78,10 +78,11 @@ extern "C" __global__ void ksg_psi_m_sums(const {REAL}* __restrict__ xs, const {
 
 # {CT} is the type of the class labels of the sorted rows: ``int`` (the original) or ``signed char`` (1 byte per row instead of 4: the neighbour walks compare a label per step, and the labels are the second
 # stream the kernel reads; the classes of a screening target are a handful). Both are compiled for both column types; the ``int`` instances are the ones the kernel always had.
-_C_TYPES = {np.dtype(np.int32): "int", np.dtype(np.int8): "signed char"}
+_C_TYPES: "dict[np.dtype, str]" = {np.dtype(np.int32): "int", np.dtype(np.int8): "signed char"}
+_REAL_TYPES: "tuple[type[np.floating], ...]" = (np.float64, np.float32)  # Intentional float64: both column types are compiled
 _MODULES = {
     (np.dtype(real), np.dtype(ct)): RawModuleCache(render(_SRC, real=real).replace("{CT}", c_name))  # Intentional float64: the default column type (see the comment in the kernel); {ACC} is the 64-bit accumulator
-    for real in (np.float64, np.float32)  # Intentional float64: both column types are compiled
+    for real in _REAL_TYPES
     for ct, c_name in _C_TYPES.items()
 }
 

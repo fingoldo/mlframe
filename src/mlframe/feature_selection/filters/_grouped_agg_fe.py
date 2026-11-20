@@ -478,7 +478,7 @@ def _dense_target_codes(y) -> np.ndarray:
         except Exception as e:
             log_throttle(logger, "grouped_agg_target_qcut_failed", logging.WARNING, "grouped_agg: decile-binning the continuous target failed (%s: %s); one class per distinct value", type(e).__name__, e)
     _, codes = np.unique(y_arr, return_inverse=True)
-    return codes.astype(np.int64)
+    return np.asarray(codes, dtype=np.int64)
 
 def _filter_num_cols_by_relevance(
     X: pd.DataFrame, y, num_cols: Sequence[str], *, n_bins: int = 10,

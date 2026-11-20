@@ -275,6 +275,7 @@ def _oof_gather_into_kernel(cp, out_dtype):
 
 
 _OOF_GATHER_MULTI_SRC = r"""
+// dtype-ok: Intentional float64, reviewed 2026-11-20: ``fallback`` is the per-column fallback value row, a float64 array the host builds explicitly (the gathered table values it stands in for are float64).
 extern "C" __global__ void binagg_oof_gather_multi(const unsigned long long* __restrict__ idx_ptrs, const unsigned long long* __restrict__ tab_ptrs, const double* __restrict__ fallback,
                                                    const long long n, const int ncols, const long long col_stride, const long long row_stride, OUT_T* __restrict__ out) {
     const long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;

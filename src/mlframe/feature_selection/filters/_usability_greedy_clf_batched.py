@@ -21,6 +21,7 @@ _BATCH_ELEMENT_BUDGET = 48_000_000  # design elements per chunk (three live copi
 
 _FUSED_SRC = r"""
 #define MAXKK 40
+// dtype-ok: Intentional float64, reviewed 2026-11-20: the Newton scratch (standardized columns, weights, residuals) and the log-loss output are double scratch buffers the host allocates as float64 explicitly (the fit solves a k x k system and is compared with the host fit at 1e-9).
 extern "C" __global__ void logistic_cv_newton(const VT_* __restrict__ V, const long long ldv, const long long* __restrict__ tr, const int ntr, const long long* __restrict__ va, const int nva,
                                               const int* __restrict__ sel, const int s, const int* __restrict__ cand, const int cand_off, const long long* __restrict__ yenc,
                                               const double lam, const double tol, const int max_iter, const double eps,
@@ -194,7 +195,7 @@ def cv_candidates_binary(
         shared = (kk * kk + 3 * kk + 2 * (s + 1) + threads) * 8
         for lo in range(0, m_all, chunk):
             mb = min(chunk, m_all - lo)
-            kern((mb,), (threads,), (V, np.int64(V.shape[1]), tr, np.int32(ntr), va, np.int32(nva), sel_dev, np.int32(s), cand_dev, np.int32(lo), y64, np.float64(lam), np.float64(tol), np.int32(newton_max_iter), np.float64(logloss_eps), xs, wd, rr, ll, status, np.int32(fo * m_all + lo)), shared_mem=shared)
+            kern((mb,), (threads,), (V, np.int64(V.shape[1]), tr, np.int32(ntr), va, np.int32(nva), sel_dev, np.int32(s), cand_dev, np.int32(lo), y64, np.float64(lam), np.float64(tol), np.int32(newton_max_iter), np.float64(logloss_eps), xs, wd, rr, ll, status, np.int32(fo * m_all + lo)), shared_mem=shared)  # launch-ok: the block width is part of the kernel's shared-memory layout (one double per thread), see ``threads`` above
     host = cp.asnumpy(cp.concatenate([ll.ravel(), status.ravel().astype(cp.float64)]))  # ONE read: the logloss of every (fold, candidate) and the fit statuses
     ll_h = host[: nf * m_all].reshape(nf, m_all)
     st_h = host[nf * m_all :].reshape(nf, m_all)
