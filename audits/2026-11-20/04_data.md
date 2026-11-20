@@ -71,3 +71,16 @@ Scope: the 42 files in `audits/2026-11-20/manifests/04_data.txt`, all read in fu
 - 04-F3: RESOLVED. Multiclass class scores come from multiclass_class_scores: rotated additive weights per class plus the link's interactions and basis terms for every class. Tests tests/data/datasets/test_multiclass_scores_keep_interactions.py; existing multiclass tests pass. Commit below.
 - 04-F5: RESOLVED. Latent reflections are now graph edges (latent -> reflected column), so the M-bias collider sees its second arm and gets role M_COLLIDER. Also: instrument-convention test aligned with 04-F6; explicit t latent family kept as Student-t(4). Tests tests/data/datasets/test_mbias_collider_sees_the_reflected_arm.py; related tests pass. Commit below.
 - 04-F13: FIXED. graded-cardinality weights scaled to 1/(levels-1) so each cardinality carries equal signal range; existing dataset tests pass (49)
+- 04-F25: FIXED. scipy rvs gets shape parameters first, loc and scale as keywords; tests/data/test_cluster04_sapp_args_and_coerce.py
+- 04-F23: FIXED. non-numeric values coerced to NaN are counted in the notes; same test file
+- 04-F14: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
+- 04-F15: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
+- 04-F16: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
+- 04-F17: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
+- 04-F18: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
+- 04-F19: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
+- 04-F20: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
+- 04-F21: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
+- 04-F22: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
+- 04-F24: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
+- 04-F26: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)

@@ -271,3 +271,16 @@
 | 03-F4 | DEFERRED | benchmark-script change not made in this pass; low impact |
 | 03-F5 | DEFERRED | benchmark-script change not made in this pass; low impact |
 | 03-F6 | DEFERRED | benchmark-script change not made in this pass; low impact |
+| 04-F25 | FIXED | scipy rvs gets shape parameters first, loc and scale as keywords; tests/data/test_cluster04_sapp_args_and_coerce.py |
+| 04-F23 | FIXED | non-numeric values coerced to NaN are counted in the notes; same test file |
+| 04-F14 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
+| 04-F15 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
+| 04-F16 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
+| 04-F17 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
+| 04-F18 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
+| 04-F19 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
+| 04-F20 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
+| 04-F21 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
+| 04-F22 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
+| 04-F24 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
+| 04-F26 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |

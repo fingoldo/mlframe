@@ -61,7 +61,7 @@ def get_sapp_dataset(
 
     df = pd.DataFrame()
     for i in range(20):
-        df[f"X{i+1}"] = _distribution(distr_name).rvs(loc, scale, *distr_params, size=N, random_state=rng)
+        df[f"X{i+1}"] = _distribution(distr_name).rvs(*distr_params, loc=loc, scale=scale, size=N, random_state=rng)  # scipy takes shape parameters first (audit 04-F25)
 
     # Guard |X3| against zero to avoid log(-inf) contaminating target.
     _safe_abs_x3 = np.maximum(np.abs(df["X3"].values), 1e-12)
@@ -70,7 +70,7 @@ def get_sapp_dataset(
     )
 
     if add_error:
-        target = target + _distribution(distr_name).rvs(loc, scale, *distr_params, size=N, random_state=rng)
+        target = target + _distribution(distr_name).rvs(*distr_params, loc=loc, scale=scale, size=N, random_state=rng)  # scipy takes shape parameters first (audit 04-F25)
     if binarize:
         # Direct int cast, no float32 round-trip.
         y = (target > target.mean()).astype(np.int8)
