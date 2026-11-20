@@ -36,10 +36,13 @@ from ._composite_fe_shared import attach_new_columns, to_pandas
 logger = logging.getLogger(__name__)
 
 
-def _join_embeddings(df: Any, group_ids_split: Optional[np.ndarray], row_emb: "pd.DataFrame", column_prefix: str) -> Any:
+def _join_embeddings(df: Any, group_ids_split: Optional[np.ndarray], row_emb: "pd.DataFrame", column_prefix: str, split_name: str = "") -> Any:
     """Attach each row's SVD embedding vector (looked up by group id) onto df as new prefixed columns."""
-    if df is None or group_ids_split is None:
+    if df is None:
         return df
+    if group_ids_split is None:
+        # A split with rows and no aligned group ids would keep no embedding columns while the others gain them: a schema drift (40-F15). Refuse.
+        raise ValueError(f"latent-interaction SVD: the {split_name or 'given'} split has no row index aligned with group_ids; refusing an inconsistent schema across splits")
     n = df.shape[0] if hasattr(df, "shape") else 0
     lut = {idx: row for idx, row in zip(row_emb.index, row_emb.to_numpy())}
     zero_vec = np.zeros(row_emb.shape[1])
@@ -110,9 +113,9 @@ def apply_latent_interaction_svd_composite_fe(
             return None
         return np.asarray(group_ids[idx_arr])
 
-    out_train = _join_embeddings(train_df, _slice(train_idx, train_df.shape[0]), row_emb, column_prefix)
-    out_val = _join_embeddings(val_df, _slice(val_idx, val_df.shape[0]) if val_df is not None else None, row_emb, column_prefix)
-    out_test = _join_embeddings(test_df, _slice(test_idx, test_df.shape[0]) if test_df is not None else None, row_emb, column_prefix)
+    out_train = _join_embeddings(train_df, _slice(train_idx, train_df.shape[0]), row_emb, column_prefix, "train")
+    out_val = _join_embeddings(val_df, _slice(val_idx, val_df.shape[0]) if val_df is not None else None, row_emb, column_prefix, "val")
+    out_test = _join_embeddings(test_df, _slice(test_idx, test_df.shape[0]) if test_df is not None else None, row_emb, column_prefix, "test")
 
     if verbose:
         logger.info("apply_latent_interaction_svd_composite_fe: added %d embedding column(s), %d fitted entities", row_emb.shape[1], row_emb.shape[0])
