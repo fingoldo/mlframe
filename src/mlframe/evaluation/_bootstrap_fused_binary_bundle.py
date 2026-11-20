@@ -198,8 +198,8 @@ def _iter_resample_idx_chunks(
                 chunk[i] = rng.integers(0, n, size=n, dtype=np.int64)
             yield lo, hi, chunk
         return
-    groups = {int(c): np.flatnonzero(stratify == c) for c in np.unique(stratify)}
-    groups_list = list(groups.values())
+    # One group per distinct label, keyed by the label itself: an int() key merged fractional labels (0.2 and 0.7 both became 0) and dropped a class.
+    groups_list = [np.flatnonzero(stratify == c) for c in np.unique(stratify)]
     class_sizes = np.array([g.shape[0] for g in groups_list], dtype=np.int64)
     class_offsets = np.empty(class_sizes.shape[0] + 1, dtype=np.int64)
     class_offsets[0] = 0
