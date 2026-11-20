@@ -28,6 +28,8 @@ if mode == "all":
 
     kwargs = F.all_families_kwargs()
     kwargs["nbins_strategy"] = os.environ.get("BENCH_NBINS", "mdlp")
+    if os.environ.get("BENCH_QDTYPE"):  # e.g. int16 / int8: A/B of the codes-matrix width
+        kwargs["quantization_dtype"] = getattr(np, os.environ["BENCH_QDTYPE"])
 else:
     kwargs = {}
 
@@ -109,7 +111,9 @@ th.start()
 t = time.perf_counter()
 status = "ok"
 try:
-    MRMR(verbose=0, random_seed=0, n_jobs=1, **kwargs).fit(X, y)
+    _sel = MRMR(verbose=0, random_seed=0, n_jobs=1, **kwargs).fit(X, y)
+    _sup = sorted(int(v) for v in np.asarray(getattr(_sel, 'support_', [])).ravel())
+    print(f'selected {len(_sup)} columns, sum {sum(_sup)}: {_sup[:20]}', flush=True)
 except BaseException as exc:  # reported with the peak: a MemoryError at scale is the finding
     status = f"{type(exc).__name__}: {str(exc)[:120]}"
 wall = time.perf_counter() - t
