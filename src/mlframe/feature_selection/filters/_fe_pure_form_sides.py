@@ -36,6 +36,59 @@ def _side_values(recipe: Any, X: Any) -> "list[np.ndarray] | None":
     return out
 
 
+def _batched_verdicts(candidates: list, X: Any, y: np.ndarray, classification: bool, n_folds: int, seed: int, improve_rel: float) -> "list[bool] | None":
+    """The verdicts of :func:`drop_forms_not_beating_their_sides` with the CV loss of every form and of every distinct side column computed in ONE batched device pass (``cv_loss_columns_device``);
+    ``None`` when that route does not apply and the candidates are judged one by one. A candidate without a recipe, with sides that cannot be replayed or that raises while they are replayed stays, as in
+    the per-candidate path."""
+    from ._linear_cv_loss import cv_loss_columns_device
+
+    if not classification or not candidates:
+        return None
+    plan: list = []  # per candidate: None (kept unchecked) or (form column index, [side column indexes])
+    columns: list = []
+    index_of: "dict[bytes, int]" = {}
+
+    def _column(values: np.ndarray) -> int:
+        """Index of ``values`` in the distinct columns to score (sides shared by several candidates are scored once)."""
+        key = hashlib.blake2b(np.ascontiguousarray(values).view(np.uint8).data, digest_size=16).digest()
+        got = index_of.get(key)
+        if got is None:
+            got = index_of[key] = len(columns)
+            columns.append(values)
+        return got
+
+    for cand in candidates:
+        recipe = getattr(cand, "recipe", None)
+        if recipe is None:
+            plan.append(None)
+            continue
+        try:
+            sides = _side_values(recipe, X)
+            if sides is None:
+                plan.append(None)
+                continue
+            plan.append((_column(np.asarray(cand.values)), [_column(s) for s in sides]))
+        except Exception as exc:
+            log_throttle(logger, "fe_pure_form_sides.check_skipped", logging.WARNING, "pure-form side check skipped for %s, so the candidate is kept unchecked: %s", getattr(cand, "name", "?"), exc)
+            plan.append(None)
+    if not columns:
+        return [True] * len(candidates)
+    losses = cv_loss_columns_device(columns, y, classification, n_folds, seed)
+    if losses is None:
+        return None
+    verdicts = []
+    for cand, item in zip(candidates, plan):
+        if item is None:
+            verdicts.append(True)
+            continue
+        form_i, side_is = item
+        beats = losses[form_i] < (1.0 - improve_rel) * min(losses[i] for i in side_is)
+        if not beats:
+            logger.debug("pure-form retention: %s does not beat its better side; dropped", getattr(cand, "name", "?"))
+        verdicts.append(bool(beats))
+    return verdicts
+
+
 @fe_timed("stage:pure_form_side_check")
 def drop_forms_not_beating_their_sides(candidates: list, X: Any, y: np.ndarray, *, classification: bool, seed: int, n_folds: int = 3, improve_rel: float = 0.01) -> list:
     """``candidates`` without the pair forms whose CV loss is not below ``(1 - improve_rel)`` times the better side's; raw passthroughs and forms
@@ -73,6 +126,9 @@ def drop_forms_not_beating_their_sides(candidates: list, X: Any, y: np.ndarray, 
             logger.debug("pure-form retention: %s does not beat its better side (CV loss %.5f vs %.5f); dropped", cand.name, form_loss, side_loss)
         return beats
 
+    batched = _batched_verdicts(candidates, X, y, classification, n_folds, seed, improve_rel)
+    if batched is not None:
+        return [cand for cand, verdict in zip(candidates, batched) if verdict]
     # the candidates are independent (each fits its own small linear models on its own columns) and the pool returns the verdicts in candidate order
     keep = map_on_edge_pool(_verdict, candidates)
     return [cand for cand, verdict in zip(candidates, keep) if verdict]

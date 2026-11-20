@@ -541,6 +541,43 @@ def _perm_null_hi(c: np.ndarray, y: np.ndarray, k: int, nbins: int, n_perm: int 
     vals = np.asarray(vals, dtype=_crit_np_dtype())
     return float(vals.mean() + z * vals.std())
 
+def _resident_scan_enabled() -> bool:
+    """Whether the modular scan scores its combiners on the resident-GPU path (strict-resident mode); ``False`` when the probe fails."""
+    try:
+        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+
+        return bool(fe_gpu_strict_resident_enabled())
+    except Exception as e:
+        log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
+        return False
+
+
+def _collect_combiner_jobs(cols: Sequence[str], arrs: dict, yi: np.ndarray, mods: list, seed: int, max_pairs: int, max_triples: int) -> list:
+    """The combiners of the modular sweep in the scan order, as ``(operator, operand names, combiner column)``: every column (``self``), the selected pairs (every pair operator) and the selected triples
+    (``sum3``). They do not depend on the scan results, so they are collected first and scored together (a few launches for the whole sweep instead of 1 + (groups) per combiner: 45 combiners x 8 plug-in calls
+    at 100000 rows). The optional-enrichment wall-clock budget stops the collection (self, pair and triple stages in order) once MRMR.fit's deadline passes; no-op without a budget."""
+    from ._fe_deadline import fe_deadline_passed
+
+    deadline_hit = fe_deadline_passed()
+    jobs: list = []
+    for c in cols:
+        if deadline_hit:
+            break
+        jobs.append(("self", (c,), _combine([arrs[c]], "self")))
+        deadline_hit = fe_deadline_passed()
+    for a, b in _select_pairs_by_residue_score(cols, arrs, yi, mods, seed, max_pairs):
+        if deadline_hit:
+            break
+        jobs.extend((op, (a, b), _combine([arrs[a], arrs[b]], op)) for op in _PAIR_OPS)
+        deadline_hit = fe_deadline_passed()
+    for a, b, c in _select_triples_by_residue_score(cols, arrs, yi, mods, seed, max_triples):
+        if deadline_hit:
+            break
+        jobs.append(("sum3", (a, b, c), _combine([arrs[a], arrs[b], arrs[c]], "sum3")))
+        deadline_hit = fe_deadline_passed()
+    return jobs
+
+
 def cheap_modular_scan(
     X: pd.DataFrame | pl.DataFrame,
     y: np.ndarray,
@@ -579,23 +616,20 @@ def cheap_modular_scan(
 
     hits: list[ModularHit] = []
 
-    try:
-        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
-        _scan_rb = fe_gpu_strict_resident_enabled()
-    except Exception as e:
-        log_throttle(logger, "gpu_strict.resident_probe", logging.WARNING, "the resident-GPU eligibility probe failed (%s), using the non-resident path", e)
-        _scan_rb = False
+    _scan_rb = _resident_scan_enabled()
     from ._pairwise_modular_resident import combiner_mi_resident
 
-    def _scan_one(op: str, cset: tuple[str, ...], c_arr: np.ndarray):
+    def _scan_one(op: str, cset: tuple[str, ...], c_arr: np.ndarray, base: "float | None" = None, grid: "np.ndarray | None" = None):
         """Score one candidate combiner column ``c_arr`` (from operator ``op`` over ``cset``): compute its raw-combiner baseline MI, then probe modular residues against it, recording any that clear the response gate."""
         # SF2 :311 collapse: the per-combiner baseline single-column upload (one (n,1) cp.asarray per
         # combiner at _orth_mi_backends:311) is built DEVICE-BORN from the resident combiner column + scored
         # through the SAME rank resident estimator host ``_mi`` uses. None -> the EXACT host ``_mi`` below.
-        base = combiner_mi_resident(c_arr, yi, nbins=nbins, rank_binning=_scan_rb, modulus=0)
+        if base is None:
+            base = combiner_mi_resident(c_arr, yi, nbins=nbins, rank_binning=_scan_rb, modulus=0)
         if base is None:
             base = _mi(c_arr.astype(_crit_np_dtype()), yi, nbins=nbins)
-        grid = _residue_grid_mi(c_arr, yi, mods, nbins)
+        if grid is None:
+            grid = _residue_grid_mi(c_arr, yi, mods, nbins)
         best_i = int(np.argmax(grid))
         best_k, best_mi = mods[best_i], float(grid[best_i])
         # Early-reject: the permutation null only matters for combiners that already clear the baseline margin
@@ -609,29 +643,19 @@ def cheap_modular_scan(
 
     from ._fe_deadline import fe_deadline_passed
 
-    # Optional-enrichment wall-clock budget: stop the modular sweep (self/pair/triple stages, in order) once
-    # MRMR.fit's deadline passes, and return whatever partial hit list was engineered so far - sorted, same
-    # as the normal-completion contract. No-op without a budget (mirrors the orth-univariate/pair-cross/
-    # extra-basis generators' internal deadline check - this sweep never had one).
-    _deadline_hit = fe_deadline_passed()
-    for c in cols:
-        if _deadline_hit:
-            break
-        _scan_one("self", (c,), _combine([arrs[c]], "self"))
-        _deadline_hit = fe_deadline_passed()
+    from ._pairwise_modular_resident import combiner_bases_and_grids_resident
 
-    for a, b in _select_pairs_by_residue_score(cols, arrs, yi, mods, seed, max_pairs):
-        if _deadline_hit:
-            break
-        for op in _PAIR_OPS:
-            _scan_one(op, (a, b), _combine([arrs[a], arrs[b]], op))
-        _deadline_hit = fe_deadline_passed()
+    jobs = _collect_combiner_jobs(cols, arrs, yi, mods, seed, max_pairs, max_triples)
 
-    for a, b, c in _select_triples_by_residue_score(cols, arrs, yi, mods, seed, max_triples):
-        if _deadline_hit:
+    batched = combiner_bases_and_grids_resident([j[2] for j in jobs], yi, mods, nbins=nbins, rank_binning=_scan_rb) if len(jobs) >= 2 else None
+    for i, (op, cset, c_arr) in enumerate(jobs):
+        if i and fe_deadline_passed():
             break
-        _scan_one("sum3", (a, b, c), _combine([arrs[a], arrs[b], arrs[c]], "sum3"))
-        _deadline_hit = fe_deadline_passed()
+        if batched is not None:
+            bases, grids = batched
+            _scan_one(op, cset, c_arr, None if bases is None else float(bases[i]), grids[i])
+        else:
+            _scan_one(op, cset, c_arr)
 
     # Canonical secondary key on (op, operand names) so near-ties don't break by enumeration (column) order.
     hits.sort(key=lambda h: (-h.margin_over_baseline, str(h.op), tuple(str(c) for c in h.cols)))

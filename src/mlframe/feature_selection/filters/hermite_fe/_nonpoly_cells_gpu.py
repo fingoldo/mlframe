@@ -136,6 +136,32 @@ def _cell_specs(basis: str, degrees: "list[int]") -> "list[int]":
     return [d for d in degrees if d >= 1]
 
 
+def _params_loop_forced() -> bool:
+    """Whether ``MLFRAME_NONPOLY_PARAMS_LOOP=1`` asks for the per-degree parameter build (the original form, kept as the reference and the rollback)."""
+    import os
+
+    return os.environ.get("MLFRAME_NONPOLY_PARAMS_LOOP", "0").strip().lower() in ("1", "true", "on", "yes")
+
+
+def _params_repeated(cp: Any, first: Any, second: Any, n_degrees: int) -> Any:
+    """``(n_degrees * K, 4)`` parameter rows ``[first, second, 0, 0]`` of every column, the same block repeated for each degree (the fourier and pade cells do not depend on the degree)."""
+    f64 = cp.float64
+    k = int(first.shape[0])
+    block = cp.stack([first, second, cp.zeros(k, f64), cp.zeros(k, f64)], axis=1)
+    return cp.tile(block, (int(n_degrees), 1))
+
+
+def _params_by_degree(cp: Any, quant: Any, second: Any, degs: "list[int]") -> Any:
+    """``(len(degs) * K, 4)`` parameter rows ``[quant[d - 1], second, 0, 0]`` for every degree ``d`` (degree-major, the columns inside a degree) from ONE gather and ONE stack: the per-degree form
+    issued a stack, two zero allocations and an index per degree (about five launches each, nine degrees, 130 blocks of a fit)."""
+    f64 = cp.float64
+    k = int(quant.shape[1])
+    firsts = quant[cp.asarray(np.asarray(degs, dtype=np.int64) - 1)]  # (D, K)
+    seconds = cp.broadcast_to(second, firsts.shape)
+    zeros = cp.zeros(firsts.shape, f64)
+    return cp.stack([firsts, seconds, zeros, zeros], axis=2).reshape(len(degs) * k, 4)
+
+
 def nonpoly_block_gpu(cp: Any, M: Any, basis: str, degrees: "list[int]") -> "tuple[Any, list[tuple[int, int]]] | None":
     """``(cells (n, C), [(column, degree)] * C)`` of the non-polynomial ``basis`` for the finite ``(n, K)`` device matrix ``M``, or ``None`` when no degree has a cell.
 
@@ -158,13 +184,19 @@ def nonpoly_block_gpu(cp: Any, M: Any, basis: str, degrees: "list[int]") -> "tup
         span = hi - lo
         degenerate = span <= 1e-9 * (cp.abs(lo) + cp.abs(hi) + 1.0)
         p0, p1 = lo, cp.where(degenerate, 0.0, span)
-        par_blocks.extend(cp.stack([p0, p1, cp.zeros(K, f64), cp.zeros(K, f64)], axis=1) for _d in degs)
+        if _params_loop_forced():
+            par_blocks.extend(cp.stack([p0, p1, cp.zeros(K, f64), cp.zeros(K, f64)], axis=1) for _d in degs)
+        else:
+            par_blocks.append(_params_repeated(cp, p0, p1, len(degs)))
     elif basis == "pade":
         mean = Mf.mean(axis=0)
         std = Mf.std(axis=0)
         degenerate = std <= 1e-9 * (cp.abs(mean) + 1.0)
         p1 = cp.where(degenerate, 0.0, std)
-        par_blocks.extend(cp.stack([mean, p1, cp.zeros(K, f64), cp.zeros(K, f64)], axis=1) for _d in degs)
+        if _params_loop_forced():
+            par_blocks.extend(cp.stack([mean, p1, cp.zeros(K, f64), cp.zeros(K, f64)], axis=1) for _d in degs)
+        else:
+            par_blocks.append(_params_repeated(cp, mean, p1, len(degs)))
     else:
         fractions = [float(f) for f in np.linspace(0.1, 0.9, 9)]
         quant = _quantile_columns(cp, M, fractions)  # (9, K)
@@ -178,7 +210,10 @@ def nonpoly_block_gpu(cp: Any, M: Any, basis: str, degrees: "list[int]") -> "tup
         else:
             iqr = cp.maximum(quant[8] - quant[0], 1e-12)
             second = 4.0 / (iqr / 9.0)
-        par_blocks.extend(cp.stack([quant[d - 1], second, cp.zeros(K, f64), cp.zeros(K, f64)], axis=1) for d in degs)
+        if _params_loop_forced():
+            par_blocks.extend(cp.stack([quant[d - 1], second, cp.zeros(K, f64), cp.zeros(K, f64)], axis=1) for d in degs)
+        else:
+            par_blocks.append(_params_by_degree(cp, quant, second, degs))
     cols_of_cell.extend(np.arange(K, dtype=np.int32) for _d in degs)
     deg_of_cell.extend(np.full(K, d, dtype=np.int32) for d in degs)
     cell_col = cp.asarray(np.concatenate(cols_of_cell))

@@ -13,7 +13,7 @@ import logging
 import os
 
 import numpy as np
-from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # thrust aborts the process on a short pool
 from ._fe_gpu_vram import pool_column_block
 from mlframe.utils.log_throttle import log_throttle
 from ._gpu_resident_select_kernels import _transpose_to_cm
@@ -43,6 +43,49 @@ def use_device_presort(n_rows: int, n_cols: int) -> bool:
     return int(n_rows) * int(n_cols) >= DEVICE_MIN_ELEMENTS
 
 
+_KEYS_BYTES_PER_COLUMN_ROW = 56  # float copy, ordered bits, the 64-bit key, its sorted copy and the sort's temporary, the order and the flags
+
+
+def _presort_by_keys(cp, raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray] | None":
+    """The order and tie flags of :func:`presort_and_ties_gpu` from ONE 1-D sort of composite keys per block of columns (the sort of a long vector runs one ``argsort`` per column otherwise): the key is
+    ``column | ordered bits of the float32 value | row``, so the sorted keys list each column's rows in value order and, among equal values, in row order (the stable argsort's order; -0.0 is mapped to +0.0 so the two
+    tie), the row is read from the low bits and a tie is two adjacent keys with the same ``column | value`` prefix. ``None`` for float64 columns and shapes whose key needs more than 64 bits."""
+    n, k = int(raw_cont.shape[0]), int(raw_cont.shape[1])
+    if raw_cont.dtype != np.float32:  # Intentional float64: only float32 columns fit a 64-bit composite key
+        return None
+    row_bits = max(1, int(n - 1).bit_length())
+    block = max(1, _presort_column_block_bytes(cp, n, _KEYS_BYTES_PER_COLUMN_ROW))
+    col_bits = max(1, int(min(block, k) - 1).bit_length())
+    if col_bits + 32 + row_bits > 64:
+        return None
+    order = np.empty((k, n), dtype=np.int32)
+    tie = np.zeros((k, n), dtype=np.uint8)
+    row_mask = np.uint64((1 << row_bits) - 1)
+    rows = cp.arange(n, dtype=cp.uint64)[None, :]
+    for c0 in range(0, k, block):
+        c1 = min(k, c0 + block)
+        kc = c1 - c0
+        cm = _transpose_to_cm(cp.asarray(np.ascontiguousarray(raw_cont[:, c0:c1])))  # (kc, n) float32, one row per column
+        bits = (cm + np.float32(0.0)).view(cp.uint32)  # -0.0 becomes +0.0
+        ordered = bits ^ ((bits >> 31) * np.uint32(0xFFFFFFFF) | np.uint32(0x80000000))  # unsigned order of the float order
+        key = (cp.arange(kc, dtype=cp.uint64)[:, None] << np.uint64(32 + row_bits)) | (ordered.astype(cp.uint64) << np.uint64(row_bits)) | rows
+        del cm, bits, ordered
+        sk = device_sort(key.ravel())
+        del key
+        order[c0:c1] = cp.asnumpy((sk & row_mask).astype(cp.int32).reshape(kc, n))
+        prefix = sk >> np.uint64(row_bits)
+        flags = cp.zeros(kc * n, dtype=cp.uint8)
+        flags[:-1] = prefix[:-1] == prefix[1:]  # the column is part of the prefix, so a column's last row never ties with the next column's first
+        tie[c0:c1] = cp.asnumpy(flags.reshape(kc, n))
+        del sk, prefix, flags
+    return order, tie
+
+
+def _presort_column_block_bytes(cp, n_rows: int, bytes_per_column_row: int) -> int:
+    """Columns per launch within ``_BUDGET_FRACTION`` of what the memory pool can still hand out, for ``bytes_per_column_row`` bytes a column row."""
+    return pool_column_block(cp, n_rows, bytes_per_column_row=bytes_per_column_row, budget_fraction=_BUDGET_FRACTION, min_block=4, fallback=8, what="device presort")
+
+
 def presort_and_ties_gpu(raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray] | None":
     """``(order (columns, n) int32, tie (columns, n) uint8)`` of the columns of ``raw_cont`` ``(n, columns)`` as ``_presort_columns`` and ``_tie_flags`` give them, or ``None`` when the device path does not apply or fails."""
     n, k = int(raw_cont.shape[0]), int(raw_cont.shape[1])
@@ -56,6 +99,13 @@ def presort_and_ties_gpu(raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
     except Exception as exc:
         log_throttle(logger, "_honest_null_presort_gpu.cupy_unavailable", logging.WARNING, "device presort unavailable (%s: %s); sorting on the host", type(exc).__name__, exc)
         return None
+    try:
+        got = _presort_by_keys(cp, raw_cont)
+        if got is not None:
+            cp.get_default_memory_pool().free_all_blocks()
+            return got
+    except Exception as exc:  # best-effort: the per-column device sort below gives the same order
+        logger.info("device presort by composite keys failed (%s: %s); sorting per column", type(exc).__name__, exc)
     order = np.empty((k, n), dtype=np.int32)
     tie = np.zeros((k, n), dtype=np.uint8)
     try:

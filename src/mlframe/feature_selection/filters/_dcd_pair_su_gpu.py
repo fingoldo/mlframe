@@ -11,6 +11,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import threading
+import weakref
+
 import numpy as np
 
 from ._kernel_types import render
@@ -71,6 +74,32 @@ def _kernel(cp: Any) -> Any:
     return _KERNEL
 
 
+# The code matrix of the pair sweep is round-constant: it is uploaded once (int16, 2 bytes a code) and the columns of a block are gathered on the device, instead of a host transposed copy of
+# the block columns converted to int32 and uploaded per block (about 19 ms of host work and 20 MB of upload per block at 100000 rows). Two entries; the key is the array object (checked through a
+# weak reference, so a recycled id cannot answer for another matrix), its shape, dtype and data address.
+_RESIDENT_FD: list = []  # [(weakref, key, device matrix)], newest last
+_RESIDENT_FD_MAX = 2
+_RESIDENT_FD_LOCK = threading.Lock()
+
+
+def _resident_codes(cp: Any, fd: np.ndarray) -> "Any | None":
+    """The ``(n, p)`` code matrix ``fd`` as a resident int16 array, uploaded once per matrix; ``None`` when the codes do not fit int16 (the per-block host path then runs)."""
+    if fd.ndim != 2 or fd.size == 0:
+        return None
+    key = (id(fd), tuple(fd.shape), str(fd.dtype), int(fd.ctypes.data))
+    with _RESIDENT_FD_LOCK:
+        for ref, k, dev in _RESIDENT_FD:
+            if k == key and ref() is fd:
+                return dev
+    if int(fd.min()) < 0 or int(fd.max()) > 32767:
+        return None
+    dev = cp.asarray(np.ascontiguousarray(fd, dtype=np.int16))
+    with _RESIDENT_FD_LOCK:
+        _RESIDENT_FD.append((weakref.ref(fd), key, dev))
+        del _RESIDENT_FD[:-_RESIDENT_FD_MAX]
+    return dev
+
+
 def joint_entropies_gpu(fd: np.ndarray, a_arr: np.ndarray, b_arr: np.ndarray, nb_arr: np.ndarray) -> np.ndarray:
     """``H(X_a, X_b)`` per pair from the ``(n, p)`` code matrix ``fd``; NaN for a pair over the shared-memory limit. Raises on a device fault."""
     import cupy as cp
@@ -86,13 +115,17 @@ def joint_entropies_gpu(fd: np.ndarray, a_arr: np.ndarray, b_arr: np.ndarray, nb
     if k == 0 or n == 0 or fits.size == 0:
         return out
     kernel = _kernel(cp)
+    fd_dev = _resident_codes(cp, fd)
 
     def block_work(lo: int, hi: int) -> int:
-        """Entropies of the pairs ``fits[lo:hi]``, uploading only the columns they reference as contiguous rows."""
+        """Entropies of the pairs ``fits[lo:hi]``, over the columns they reference as contiguous int32 rows (gathered on the device from the resident matrix, or uploaded when it does not fit int16)."""
         sel = fits[lo:hi]
         used, inverse = np.unique(np.concatenate([a_arr[sel], b_arr[sel]]), return_inverse=True)
         m = int(sel.shape[0])
-        cols_d = cp.asarray(np.ascontiguousarray(fd[:, used].T, dtype=np.int32))
+        if fd_dev is not None:
+            cols_d = cp.ascontiguousarray(fd_dev[:, cp.asarray(used)].T).astype(cp.int32)
+        else:
+            cols_d = cp.asarray(np.ascontiguousarray(fd[:, used].T, dtype=np.int32))
         a_d = cp.asarray(inverse[:m].astype(np.int32))
         b_d = cp.asarray(inverse[m:].astype(np.int32))
         na_d = cp.asarray(nb_a_all[sel].astype(np.int32))

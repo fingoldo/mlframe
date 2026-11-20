@@ -18,10 +18,31 @@ from typing import Optional, cast
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["env_flag", "env_flag_or_none", "env_float", "env_int", "TRUE_VALUES", "FALSE_VALUES"]
+__all__ = ["env_flag", "env_flag_or_none", "env_float", "env_int", "env_reader", "TRUE_VALUES", "FALSE_VALUES"]
 
 TRUE_VALUES = frozenset({"1", "true", "yes", "on", "y", "t"})
 FALSE_VALUES = frozenset({"0", "false", "no", "off", "n", "f", ""})
+
+
+def env_reader(name: str):
+    """A zero-argument function that returns the CURRENT value of the environment variable ``name`` (``None`` when unset), for a switch read on a hot path.
+
+    ``os.environ.get`` encodes the key on every call (1.5 us); the reader looks the key up, already encoded, in the dictionary ``os.environ`` itself keeps (0.09 us), so a value changed after the
+    import (``monkeypatch.setenv``, ``os.environ[...] = ...``, ``mock.patch.dict``) is seen at the next call exactly as before. If ``os.environ`` is replaced by another object the reader goes
+    back to ``os.environ.get``."""
+    env = os.environ
+    key = env.encodekey(name) if hasattr(env, "encodekey") else None
+    data = getattr(env, "_data", None)
+    decode = getattr(env, "decodevalue", None)
+
+    def read() -> Optional[str]:
+        """The current value of the variable, or None."""
+        if os.environ is env and key is not None and data is not None and decode is not None:
+            raw = data.get(key)
+            return None if raw is None else cast(str, decode(raw))
+        return os.environ.get(name)
+
+    return read
 
 
 def env_flag(name: str, default: bool = False) -> bool:

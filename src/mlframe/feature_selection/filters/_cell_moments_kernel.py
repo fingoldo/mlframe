@@ -228,12 +228,10 @@ def fold_cell_moments(cp: ModuleType, codes_g: Any, v_safe: Any, finite_f: Any, 
     folds = fold_g if fold_g.dtype == cp.int64 else fold_g.astype(cp.int64)
     v_safe = v_safe if v_safe.dtype == cp.float64 else v_safe.astype(cp.float64)  # Intentional float64: kernel signature is double*
     finite_f = finite_f if finite_f.dtype == cp.float64 else finite_f.astype(cp.float64)  # Intentional float64: kernel signature is double*
-    cnt = cp.zeros((nf, nc), dtype=cp.float64)  # Intentional float64: double* atomic accumulator
-    s1 = cp.zeros((nf, nc), dtype=cp.float64)  # Intentional float64: double* atomic accumulator
+    # one zeroed buffer for the five tables (one memset instead of five); each table is a contiguous row of it
+    tables = cp.zeros((5, nf, nc), dtype=cp.float64)  # Intentional float64: double* atomic accumulators
+    cnt, s1, cm2, cm3, cm4 = tables[0], tables[1], tables[2], tables[3], tables[4]
     k1((blocks,), (threads,), (codes, v_safe, finite_f, folds, cp.int64(n), cp.int32(nc), cp.int32(nf), cnt, s1), shared_mem=2 * nf * nc * 8)
     mean = s1 / cp.maximum(cnt, 1.0)
-    cm2 = cp.zeros((nf, nc), dtype=cp.float64)  # Intentional float64: double* atomic accumulator
-    cm3 = cp.zeros((nf, nc), dtype=cp.float64)  # Intentional float64: double* atomic accumulator
-    cm4 = cp.zeros((nf, nc), dtype=cp.float64)  # Intentional float64: double* atomic accumulator
     k2((blocks,), (threads,), (codes, v_safe, finite_f, folds, mean, cp.int64(n), cp.int32(nc), cp.int32(nf), cm2, cm3, cm4), shared_mem=3 * nf * nc * 8)
     return cnt, mean, cm2, cm3, cm4

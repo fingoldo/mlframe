@@ -274,6 +274,56 @@ def _oof_gather_into_kernel(cp, out_dtype):
     return kern
 
 
+_OOF_GATHER_MULTI_SRC = r"""
+// dtype-ok: Intentional float64, reviewed 2026-11-20: ``fallback`` is the per-column fallback value row, a float64 array the host builds explicitly (the gathered table values it stands in for are float64).
+extern "C" __global__ void binagg_oof_gather_multi(const unsigned long long* __restrict__ idx_ptrs, const unsigned long long* __restrict__ tab_ptrs, const double* __restrict__ fallback,
+                                                   const long long n, const int ncols, const long long col_stride, const long long row_stride, OUT_T* __restrict__ out) {
+    const long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (t >= n * (long long)ncols) return;
+    const int c = (int)(t / n);
+    const long long i = t - (long long)c * n;
+    const long long* idx = (const long long*)idx_ptrs[c];
+    const double* table = (const double*)tab_ptrs[c];
+    const double v = table[idx[i]];
+    out[c * col_stride + i * row_stride] = (OUT_T)(isfinite(v) ? v : fallback[c]);
+}
+"""
+_OOF_GATHER_MULTI_KERNELS: dict = {}
+
+
+def kernel_oof_gather_multi(cp, out_dtype):
+    """``binagg_oof_gather_multi`` for the output type ``out_dtype`` (float32 or double): every column of the OOF block in one launch, each column reading its own stat table through its own row index
+    (compile point of the launch and of the register-pressure registry)."""
+    key = cp.dtype(out_dtype).name
+    with _OOF_GATHER_INTO_KERNELS_LOCK:
+        kern = _OOF_GATHER_MULTI_KERNELS.get(key)
+        if kern is None:
+            kern = cp.RawKernel(_OOF_GATHER_MULTI_SRC.replace("OUT_T", {"float32": "float", "float64": "double"}[key]), "binagg_oof_gather_multi")
+            _OOF_GATHER_MULTI_KERNELS[key] = kern
+    return kern
+
+
+def _oof_gather_columns_multi(cp, block, pending: list, column_major: bool) -> None:
+    """Write every column of ``block`` in ONE launch. ``pending[j]`` is ``(row_index, table, fallback)`` of block column ``j`` (all columns, in order): the value of :func:`_oof_gather_into_kernel` per
+    column (``table[idx]`` where finite, else the fallback, cast to the block type), about 8000 launches fewer a fit at 100000 rows."""
+    from pyutilz.performance.gpu_hw_launch import block_size_for
+
+    ncols = len(pending)
+    n = int(pending[0][0].shape[0])
+    ptrs = np.empty((2, ncols), dtype=np.uint64)
+    fb = np.empty(ncols, dtype=np.float64)  # Intentional float64: the fallback keeps the table's width
+    for j, (row_index, table, fallback) in enumerate(pending):
+        ptrs[0, j] = int(row_index.data.ptr)
+        ptrs[1, j] = int(table.data.ptr)
+        fb[j] = fallback
+    dev = cp.asarray(np.ascontiguousarray(ptrs))  # one upload for the pointers of every column
+    kern = kernel_oof_gather_multi(cp, block.dtype)
+    total = n * ncols
+    threads = block_size_for(kern, work_items=total)
+    col_stride, row_stride = (n, 1) if column_major else (1, ncols)
+    kern(((total + threads - 1) // threads,), (threads,), (dev[0], dev[1], cp.asarray(fb), np.int64(n), np.int32(ncols), np.int64(col_stride), np.int64(row_stride), block))
+
+
 def _value_bytes(value: Any) -> int:
     """Bytes of the arrays in a cache value (arrays, tuples and dicts of them; other objects count zero)."""
     if hasattr(value, "nbytes"):
@@ -429,6 +479,7 @@ def build_binagg_oof_matrix_gpu(
     # The block is allocated once and each candidate column is cast and written into it as it is built: collecting the float64 columns and stacking them held about three times the block at the peak (1.8 GB of a 1.9 GB pool at 100000 rows).
     n_out = len(col_specs)
     block = cp.empty((n_out, n) if column_major else (n, n_out), dtype=dt) if n_out else None
+    pending: list = []  # (row_index, table, fallback) of the columns written by the one fused launch after the loop
     for out_i, spec in enumerate(col_specs):
         gcol = spec["group_col"]
         acol = spec["agg_col"]
@@ -496,8 +547,8 @@ def build_binagg_oof_matrix_gpu(
         row_index = _row_cell_index(cp, code_cache, gcol, fold_g, codes_g, n_cells)
         assert block is not None  # allocated before the first column is written
         if cp.dtype(dt).name in ("float32", "float64"):  # Intentional float64: the statistic is computed in double
-            # one launch writes the cast column into its place in the block (the columns ARE the rows of the (K, n) block when column_major: contiguous, nothing to transpose)
-            _oof_gather_into_kernel(cp, dt)(row_index, tables[stat].reshape(-1), glob, block[out_i] if column_major else block[:, out_i])
+            # the cast column goes into its place in the block by the one launch after the loop (the columns ARE the rows of the (K, n) block when column_major: nothing to transpose)
+            pending.append((row_index, tables[stat].reshape(-1), glob))
             continue
         oof = _oof_column_from_table(cp, tables[stat], row_index, glob)
         if column_major:
@@ -507,6 +558,8 @@ def build_binagg_oof_matrix_gpu(
 
     if block is None:
         return cp.empty((0, n) if column_major else (n, 0), dtype=dt)
+    if pending:
+        _oof_gather_columns_multi(cp, block, pending, column_major)
     return block
 
 

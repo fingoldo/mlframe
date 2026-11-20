@@ -46,14 +46,37 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from typing import Any, Optional
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.utils.frame_rows import take_rows
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.feature_selection.filters._ktc_fallback import ktc_device_chooser
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
+
+DEVICE_FALLBACK_ROWS = 80_000  # work = fold rows x recipes at which the batched device replay beats the per-job host replay (measured crossover: 4 recipes x 20000 rows, host 0.165 s, device 0.163 s; 28 recipes 0.95 s vs 0.68 s)
+_SPEC = None  # the kernel_tuner entry of the vote's device replay; None until a sweep is registered, the floor above decides
+_vote_device_chosen = ktc_device_chooser(__name__, "fe_stability_vote", env="MLFRAME_FE_VOTE_DEVICE", pairs=True)
+
+
+def _device_replay_enabled(fold_rows: int, n_recipes: int) -> bool:
+    """Whether the batched device replay of the vote runs: always under STRICT-resident, else when a GPU is usable, ``MLFRAME_FE_VOTE_DEVICE`` (``0`` / ``1``) does not force a side and the
+    work (fold rows x recipes) reaches the floor / the tuned crossover. The per-recipe, per-fold host replay (pandas slice, numpy ufuncs, host binner) is the fallback of every job the device skips."""
+    from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
+
+    if fe_gpu_strict_resident_enabled():
+        return True
+    from ._gpu_policy import cuda_available_for_run, gpu_globally_disabled
+
+    if gpu_globally_disabled() or not cuda_available_for_run():
+        return False
+    forced = os.environ.get("MLFRAME_FE_VOTE_DEVICE", "").strip()
+    if forced in ("0", "1"):
+        return forced == "1"
+    return bool(_vote_device_chosen(int(fold_rows), int(n_recipes)))
 
 
 def resolve_adaptive_vote_k(k_param: Any, n_rows: int, *, min_rows_per_fold: int = 100) -> int:
@@ -234,6 +257,39 @@ def _replay_codes_on_device(recipe: Any, X_fold: Any, nbins: int) -> Optional[np
         return None
 
 
+def _recipe_source_columns(recipes: Any) -> Optional[list]:
+    """The sorted source column names that replaying ``recipes`` reads (their ``src_names`` and those of every recipe nested in ``extra``), or ``None`` when a recipe exposes none (the whole frame is then sliced)."""
+    seen: set = set()
+
+    def walk(r: Any, depth: int = 0) -> bool:
+        """Collect the sources of ``r`` and its nested recipes; False when ``r`` names none."""
+        names = tuple(getattr(r, "src_names", ()) or ())
+        if not names or depth > 8:
+            return False
+        seen.update(names)
+        for val in (getattr(r, "extra", None) or {}).values():
+            if hasattr(val, "src_names") and not walk(val, depth + 1):
+                return False
+        return True
+
+    for r in recipes:
+        if not walk(r):
+            return None
+    return sorted(seen)
+
+
+def _column_subset(X: Any, cols: list) -> Any:
+    """``X`` restricted to ``cols`` (pandas or polars); the frame itself when it is neither or a column is missing."""
+    try:
+        if hasattr(X, "columns") and hasattr(X, "iloc") and all(c in X.columns for c in cols):
+            return X[cols]
+        if hasattr(X, "select") and hasattr(X, "columns") and all(c in X.columns for c in cols):
+            return X.select(cols)
+    except Exception as exc:
+        logger.debug("Stability vote: column subset of the fold frame failed (%s: %s); slicing the whole frame.", type(exc).__name__, exc)
+    return X
+
+
 def _fold_frame(cache: dict, fold_no: int, idx: np.ndarray, X: Any) -> Any:
     """The rows ``idx`` of ``X``, sliced once per fold for every recipe of the vote: the recipes replay on read-only slices of the same folds, and a slice of all the columns of a 100000-row frame costs 14 ms
     (155 slices, 2.1 s, in a default fit with 31 recipes over 5 folds). ``cache`` is the vote's own per-call dict (its keys are column names, so a tuple key cannot collide); the slice is replaced
@@ -241,9 +297,40 @@ def _fold_frame(cache: dict, fold_no: int, idx: np.ndarray, X: Any) -> Any:
     key = ("__fold_frame__", fold_no)
     hit = cache.get(key)
     if hit is None or hit[0] is not idx:
-        hit = (idx, _slice_fold(X, idx))
+        cols = cache.get("__fold_cols__")
+        hit = (idx, _slice_fold(_column_subset(X, cols) if cols else X, idx))
         cache[key] = hit
     return hit[1]
+
+
+_REPLAY_THREADS = 8  # upper bound of the pool that replays the host-only recipes of one fold (the numpy ufuncs release the interpreter lock)
+
+
+def _host_replay(recipe: Any, X_fold: Any, n_rows: int) -> Optional[np.ndarray]:
+    """The replay of a recipe the device cannot rebuild itself (a nested basis parent, a ``prewarp`` unary) done on the host exactly as the per-job path does, as one criterion-dtype column;
+    ``None`` when the replay fails or has the wrong length (the per-job path then handles the recipe and logs it as before)."""
+    from .engineered_recipes import apply_recipe
+
+    try:
+        eng_fold = np.asarray(apply_recipe(recipe, X_fold)).ravel()
+    except Exception as exc:
+        logger.debug("Stability vote: recipe failed to replay on a fold (%s: %s); left to the per-job path.", type(exc).__name__, exc)
+        return None
+    if eng_fold.shape[0] != n_rows:
+        return None
+    return np.asarray(eng_fold, dtype=_crit_np_dtype())
+
+
+def _host_replays(recipes: list, X_fold: Any, n_rows: int) -> "list[Optional[np.ndarray]]":
+    """:func:`_host_replay` of every recipe of ``recipes`` in order, on a thread pool when there are several."""
+    if len(recipes) < 2:
+        return [_host_replay(r, X_fold, n_rows) for r in recipes]
+    import os
+    from concurrent.futures import ThreadPoolExecutor
+
+    workers = max(1, min(_REPLAY_THREADS, len(recipes), os.cpu_count() or 1))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return list(pool.map(lambda r: _host_replay(r, X_fold, n_rows), recipes))
 
 
 _BATCH_ELEMENTS = 32 * 1024 * 1024  # replayed values held on the device per binning block (recipes x fold rows)
@@ -266,9 +353,7 @@ def _batched_replay_codes(voted: dict, folds: list, X: Any, nbins: int, cache: d
     """``{(recipe name, fold no): host int64 codes}`` of every device-replayable recipe, and ``{(("raw", source name), fold no): codes}`` of every raw source operand (the host binner's float input binned on the device), the recipes of a fold replayed on the device and binned TOGETHER (one row-batched binning per block of recipes,
     ``qbin_codes_rows``) instead of one column-at-a-time binner call per (recipe, fold) job. Empty when the strict-resident mode is off or a device step fails (the per-job paths then run as before)."""
     try:
-        from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
-
-        if not fe_gpu_strict_resident_enabled() or int(nbins) > 32767:
+        if not folds or int(nbins) > 32767 or not _device_replay_enabled(int(folds[0].shape[0]), len(voted)):
             return {}
         import cupy as cp
 
@@ -282,9 +367,13 @@ def _batched_replay_codes(voted: dict, folds: list, X: Any, nbins: int, cache: d
             cols: list = []
             per_block = max(1, _BATCH_ELEMENTS // max(1, int(idx.shape[0])))
 
-            for name, recipe in voted.items():
-                column = apply_unary_binary_gpu_resident(recipe, X_fold)
-                if column is None or int(column.shape[0]) != int(idx.shape[0]):
+            n_fold = int(idx.shape[0])
+            replayed: dict = {name: apply_unary_binary_gpu_resident(recipe, X_fold) for name, recipe in voted.items()}
+            host_names = [name for name, column in replayed.items() if column is None]
+            for name, values in zip(host_names, _host_replays([voted[nm] for nm in host_names], X_fold, n_fold)):
+                replayed[name] = None if values is None else cp.asarray(values)
+            for name, column in replayed.items():
+                if column is None or int(column.shape[0]) != n_fold:
                     continue
                 cols.append(column.astype(_crit_np_dtype(), copy=False).astype(_qbin_float_dtype(), copy=False))
                 names.append(name)
@@ -463,6 +552,9 @@ def confirm_recipes_cross_fold(
     raw_set = set(feature_names_in or [])
 
     _raw_col_cache: dict = {}
+    _fold_cols = _recipe_source_columns(voted.values())
+    if _fold_cols:
+        _raw_col_cache["__fold_cols__"] = _fold_cols  # fold slices carry only the columns the voted recipes read
     pre_codes = _batched_replay_codes(voted, folds, X, nbins, _raw_col_cache, raw_set, n)
 
     for eng_name, recipe in voted.items():
