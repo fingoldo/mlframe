@@ -188,6 +188,7 @@ def test_near_zero_free_vram_dispatch_falls_back_to_cpu_end_to_end(monkeypatch):
     monkeypatch.setattr(bpmk, "_choose_row_chunk_rows", lambda *a, **kw: 1000)
     monkeypatch.setattr(bpmk, "_choose_pair_subchunk_rows", lambda *a, **kw: 1)
     monkeypatch.setattr(bpmg, "_gpu_upload_fits", lambda *a, **kw: False)
+    monkeypatch.setattr(bpmg._PairMiDispatch, "try_feature_major", lambda self: None)  # these tests pin the row-chunked -> CPU chain; the feature-major kernel (tried first) has its own test
 
     mi, backend = bpmg.dispatch_batch_pair_mi(data, pair_a, pair_b, nbins, classes_y, freqs_y, force_backend="cuda")
 
