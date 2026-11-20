@@ -61,3 +61,14 @@ Reading coverage: every manifest file was read in full (all of `calibration/`, `
 - 17-F8: RESOLVED. fast_calibration_metrics checks that y_true and y_pred have the same length before its serial kernel (inline, since the body is compiled). Test tests/metrics/test_fast_calibration_metrics_length_checked.py; 99 existing calibration metric tests pass. Commit below.
 - 17-F9: DEFERRED. Degenerate reports use ICE = 1.0 as a worst-case placeholder, but a real model's ICE can exceed 1.0, so the placeholder can beat it. The report contract (module docstring) promises finite floats to consumers (plots, threshold search, string builders); choosing a larger finite placeholder or NaN changes that contract for every caller, so it waits for a decision.
 - 17-F7: RESOLVED. Multiclass confusion wrappers (MCC and the confusion block) refuse labels outside [0, K) before the kernel, which skips them silently. Tests tests/metrics/test_multiclass_confusion_refuses_out_of_range_labels.py; 36 existing multiclass/MCC tests pass. Commit below.
+- 17-F13: FIXED. the quantile calibration branch refuses non-integer labels instead of truncating them; tests/metrics/test_cluster17_kappa_and_label_guard.py
+- 17-F16: FIXED. single-class perfect agreement gives kappa 1, as sklearn; tests/metrics/test_cluster17_kappa_and_label_guard.py
+- 17-F15: FIXED. a failed title-token metric is logged at WARNING, not DEBUG; no separate test
+- 17-F10: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
+- 17-F11: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
+- 17-F12: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
+- 17-F14: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
+- 17-F17: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
+- 17-F18: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
+- 17-F19: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
+- 17-F20: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)

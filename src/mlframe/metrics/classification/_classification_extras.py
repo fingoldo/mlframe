@@ -278,7 +278,8 @@ def cohen_kappa_binary(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     col_pos = (tp + fp) / n
     p_e = row_pos * col_pos + (1.0 - row_pos) * (1.0 - col_pos)
     if 1.0 - p_e == 0:
-        return 0.0
+        # One class throughout: chance agreement is already 1. Perfect observed agreement is kappa 1 (as sklearn), not 0 (audit 17-F16).
+        return 1.0 if p_o >= 1.0 else 0.0
     return (p_o - p_e) / (1.0 - p_e)
 
 

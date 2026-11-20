@@ -240,7 +240,7 @@ def _title_token_extras(
         mcc_val = matthews_corrcoef_from_counts(*counts)
         bss_val = brier_skill_score_from_brier(brier_loss, yt_int)
     except (ValueError, TypeError, FloatingPointError) as _ext_err:
-        logger.debug("title-token extras (KS/MCC/BSS) skipped: %s", _ext_err)
+        logger.warning("title-token extras (KS/MCC/BSS) skipped; those report values are NaN: %s", _ext_err)  # not DEBUG: a silent NaN in the title (audit 17-F15)
     return ks_val, mcc_val, bss_val
 
 
