@@ -173,7 +173,7 @@ def cmd_refresh(specs: dict, kernel: str) -> int:
     print(f"Refreshing {spec.kernel_name} (force=True)...")
     n = tune_spec(spec, force=True)
     print(f"  {spec.kernel_name}: {n} region(s) persisted")
-    return 0
+    return 0 if n else 1  # an empty sweep is a failure, not an exit-0 success (audit 31-F2)
 
 
 def cmd_refresh_all(specs: dict) -> int:

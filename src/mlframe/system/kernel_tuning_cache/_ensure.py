@@ -113,10 +113,29 @@ def _pid_alive(pid: int) -> bool:
         return False
 
 
+def _pid_start_token(pid: int) -> str:
+    """A token that changes when a pid is reused: the process creation time, or '' when it cannot be read."""
+    try:
+        import psutil
+
+        return f"{psutil.Process(pid).create_time():.3f}"
+    except Exception:  # no psutil or the process is gone: no token, so the pid alone decides (the old behaviour)
+        return ""
+
+
+def _lock_token(path: Path) -> str:
+    """The start token recorded beside the pid in the lock file, or '' when none was recorded."""
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+    return text.split(":", 1)[1] if ":" in text else ""
+
+
 def _lock_holder(path: Path) -> int:
     """The pid recorded in the lock file, or 0 (logged) when the file cannot be read - an unreadable lock is treated as stale."""
     try:
-        return int(path.read_text(encoding="utf-8").strip() or 0)
+        return int(path.read_text(encoding="utf-8").strip().split(":", 1)[0] or 0)
     except (OSError, ValueError) as exc:
         logger.warning("tuning lock %s is unreadable (%s: %s); treating it as stale", path, type(exc).__name__, exc)
         return 0
@@ -156,7 +175,11 @@ def single_flight() -> Iterator[bool]:
             yield False
             return
         holder = _lock_holder(path)
-        if holder and holder != os.getpid() and _pid_alive(holder):
+        # A live pid is the holder only if it is the SAME process that wrote the lock: after a reboot a reused pid belongs to an
+        # unrelated process, which must not block tuning (audit 31-F3).
+        recorded = _lock_token(path)
+        same_process = not recorded or recorded == _pid_start_token(holder)
+        if holder and holder != os.getpid() and _pid_alive(holder) and same_process:
             yield False
             return
         # An empty or unreadable lock is either a live process mid-creation or a crashed one. Only one that has stopped changing is taken over (CON2-1).
@@ -181,7 +204,7 @@ def _create_lock(path: Path) -> bool:
     The pid goes into a per-process temp file first, which is then hard-linked to the lock path: the link fails if the lock exists, and the lock never exists without its pid.
     """
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(str(os.getpid()), encoding="utf-8")
+    tmp.write_text(f"{os.getpid()}:{_pid_start_token(os.getpid())}", encoding="utf-8")
     try:
         os.link(tmp, path)
         return True
@@ -212,7 +235,9 @@ def _run_sweep(spec: Any, timeout_s: float) -> tuple:
 
     Returns ``("ok", "")``, ``("timeout", detail)`` or ``("failed", detail)``. The child is ``mlframe-tune-kernels refresh <kernel>`` and persists its own result.
     """
-    cmd = [sys.executable, "-P", "-m", "mlframe.system.kernel_tuning_cache", "refresh", spec.kernel_name]
+    # -P (no script directory on sys.path) exists only on Python 3.11+; pyproject allows 3.9 (audit 31-F1). PYTHONPATH below carries the import root.
+    _safe_path = ["-P"] if sys.version_info >= (3, 11) else []
+    cmd = [sys.executable, *_safe_path, "-m", "mlframe.system.kernel_tuning_cache", "refresh", spec.kernel_name]
     # The child must import the same ``mlframe`` this process did: a sys.path entry added here (a git worktree's ``src``) is not inherited, and an editable install
     # of another checkout would tune a kernel that the code being pushed does not have.
     env = dict(os.environ)
@@ -282,7 +307,12 @@ def _tune_all(todo: list, status: dict, max_minutes: Optional[float], advisory: 
         outcome, detail = _run_sweep(spec, limit_s)
         if outcome == "ok":
             n = len(KernelTuningCache().get_regions(spec.kernel_name) or [])
-            print(f"  {spec.kernel_name}: {n} region(s), {time.monotonic() - t0:.0f}s", flush=True)
+            if n == 0:
+                # A sweep that persisted nothing is not a success, whatever its exit code (audit 31-F2).
+                failed.append(spec.kernel_name)
+                print(f"  {spec.kernel_name}: FAILED, the sweep persisted 0 regions", file=sys.stderr, flush=True)
+            else:
+                print(f"  {spec.kernel_name}: {n} region(s), {time.monotonic() - t0:.0f}s", flush=True)
         elif outcome == "timeout":
             timed_out.append(spec.kernel_name)
             print(f"  {spec.kernel_name}: STOPPED ({detail})", file=sys.stderr, flush=True)

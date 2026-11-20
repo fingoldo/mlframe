@@ -159,3 +159,6 @@
 | 29-F4 | FIXED | structured/void dtype hashes the whole buffer; same test file |
 | 29-F5 | FIXED | preprocess_glue NaN guard matches preprocess_sglue; no separate test (votenrank suite passed) |
 | 29-F6 | FIXED | array-likes are written as a frame, other types raise TypeError; same test file |
+| 31-F1 | FIXED | -P gated on Python 3.11+; PYTHONPATH still carries the import root; no separate test (subprocess command construction) |
+| 31-F2 | FIXED | an ok sweep that persisted 0 regions counts as failed; cmd_refresh returns non-zero for 0; tests/system/test_cluster31_kernel_tuning_fixes.py |
+| 31-F3 | FIXED | lock records pid:start-token; a live pid with a mismatching token is stale; same test file; test_kernel_tuning_lock_race.py assertion updated to the pid field |

@@ -39,3 +39,10 @@ Public or key helpers with no direct test found under `tests/system/` or `tests/
 - `_ensure.spec_status` and `tune_spec` (`skip_existing` path): both use the same `code_version_stale` test, so `ensure --check` and the sweep agree.
 - `__init__.main` dispatch (`__init__.py:84-100`): the keyword call to `cmd_ensure` matches its signature (`_ensure.py:233-242`).
 - `__init__._parse_dims` (`__init__.py:110-121`): malformed pairs are skipped and values fall back to strings; behaves as documented.
+
+
+## Dispositions
+
+- 31-F1: FIXED. -P gated on Python 3.11+; PYTHONPATH still carries the import root; no separate test (subprocess command construction)
+- 31-F2: FIXED. an ok sweep that persisted 0 regions counts as failed; cmd_refresh returns non-zero for 0; tests/system/test_cluster31_kernel_tuning_fixes.py
+- 31-F3: FIXED. lock records pid:start-token; a live pid with a mismatching token is stale; same test file; test_kernel_tuning_lock_race.py assertion updated to the pid field
