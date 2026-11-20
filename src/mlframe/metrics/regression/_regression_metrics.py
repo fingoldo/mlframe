@@ -545,9 +545,9 @@ def fast_r2_score(
                 wmean = float((col_yt * w).sum() / wsum)
                 ss_tots[j] = float(((col_yt - wmean) ** 2 * w).sum())
         if ss_tots.sum() == 0.0:
-            # Degenerate: all outputs constant. sklearn returns 0.0
-            # when all SS_tot are zero (otherwise raises).
-            return 0.0
+            # Degenerate: every output is constant, so there is no weight to average with. Each output's own score already follows
+            # sklearn (1.0 for a zero residual, 0.0 otherwise); the earlier constant 0.0 scored a perfect fit as 0.
+            return float(np.mean(per_out))
         return float(np.average(per_out, weights=ss_tots))
 
     return _aggregate_multioutput(per_out, multioutput)
