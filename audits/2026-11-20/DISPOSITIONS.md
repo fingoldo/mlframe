@@ -672,3 +672,4 @@
 | 40-F16 | FIXED | Powerset composites are computed for all splits first and attached only when all succeed; a split missing the source columns skips the step for every split. Test tests/training/test_cluster40_powerset_all_or_nothing.py; 25 related tests pass. |
 | 40-F17 | FIXED | Replay restores the fitted effective_k (persisted in metadata) instead of recomputing it from the serving batch. Tests tests/training/test_cluster40_replay_uses_fitted_effective_k.py; related existing tests pass. |
 | 40-F11 | FIXED | The precomputed pair cache is capped per query like the loss (_cap_pair_indices, deterministic). Tests tests/training/neural/test_cluster40_ranker_pairs_are_capped.py; related existing ranker tests pass (5 run, 37 skipped). |
+| 25-F2 | FIXED | Monotonicity is checked by comparison, not np.diff (which wraps on unsigned ids). Test tests/metrics/test_cluster25_unsigned_group_ids_unsorted.py. |
