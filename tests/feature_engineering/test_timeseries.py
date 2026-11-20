@@ -88,7 +88,8 @@ def test_find_cumsum_right_end_index():
     """Test with left_index at end."""
     arr = np.array([1.0, 2.0, 3.0], dtype=np.float64)
     right, _total = find_next_cumsum_right_index(arr, 1.0, len(arr) - 1)
-    assert right == len(arr) - 1
+    # The element at left_index is summed and included, so the exclusive end is len(arr) (audit 24-F2 contract).
+    assert right == len(arr)
 
 
 @given(st.booleans())

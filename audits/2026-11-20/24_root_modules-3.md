@@ -161,3 +161,18 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F64: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F65: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F66: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
+- 24-F25: FIXED. empty support returns NaN per query point; tests/feature_engineering/test_cluster24_empty_and_alignment.py
+- 24-F31: FIXED. chunks that return (None, None) are skipped and an all-empty run returns (None, None); no separate test
+- 24-F36: FIXED. the long MA is reindexed to the short one's index before differencing; tests/feature_engineering/test_cluster24_empty_and_alignment.py
+- 24-F23: DEFERRED. not reviewed in this pass; P2 still open
+- 24-F24: DEFERRED. not reviewed in this pass; P2 still open
+- 24-F26: DEFERRED. not reviewed in this pass; P2 still open
+- 24-F27: DEFERRED. not reviewed in this pass; P2 still open
+- 24-F28: DEFERRED. not reviewed in this pass; P2 still open
+- 24-F29: DEFERRED. not reviewed in this pass; P2 still open
+- 24-F30: DEFERRED. not reviewed in this pass; P2 still open
+- 24-F32: DEFERRED. not reviewed in this pass; P2 still open
+- 24-F33: DEFERRED. not reviewed in this pass; P2 still open
+- 24-F34: DEFERRED. not reviewed in this pass; P2 still open
+- 24-F35: DEFERRED. not reviewed in this pass; P2 still open
+- 24-F31: FIXED. empty parallel chunks are skipped and an all-empty run returns (None, None); tests/feature_engineering/test_timeseries.py expectation updated to the corrected cumsum end contract; 129 related tests pass

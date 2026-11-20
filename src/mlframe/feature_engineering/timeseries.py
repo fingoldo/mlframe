@@ -835,10 +835,14 @@ def create_ts_features_parallel(
     res = applyfunc_parallel(args, partial(ts_func, **kwargs), return_dataframe=False, logical=logical, n_cores=n_cores)
     X_parts, Y_parts = [], []
     for X_part, Y_part in res:
+        if X_part is None or Y_part is None:
+            continue  # an empty chunk yields (None, None); pd.concat on a list of Nones raised (audit 24-F31)
         X_parts.append(X_part)
         Y_parts.append(Y_part)
 
     del res
+    if not X_parts:
+        return None, None
     return pd.concat(X_parts, ignore_index=True), pd.concat(Y_parts, ignore_index=True)
 
 
