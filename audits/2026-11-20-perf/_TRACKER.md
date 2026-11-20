@@ -9,3 +9,5 @@ Four read-only agents (E CPU / GIL, F GPU / kernels, G overlap / scheduling, H r
 | G-F01 honest null on the idle slot | 1.0-1.4 s | TODO | |
 | G-F02, G-F03 | 0.5-0.8 s, 0.3-0.6 s | TODO | |
 | E-F03..F07, F-F01..F06, H-F01..F05 | 0.02-0.5 s each | TODO | |
+| F-F05 `Device().attributes` per call | 0.05-0.3 s | REJECTED (measured) | 3.1 us a call, 30 ms for 10000 calls |
+| G-F01 honest null on the idle slot | 1.0-1.4 s | DEFERRED | the permuted labels are drawn from one rng stream in call order (`_permuted_labels_cached`): a worker that fills the cache earlier changes the draws and the floors, so it is not selection-equivalent without restructuring the stream; the gain is also inside the noise |
