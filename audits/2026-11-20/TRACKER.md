@@ -70,3 +70,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | ID | Report | Disposition | Note |
 |---|---|---|---|
 | 01-F3 | 01_calibration.md | WON'T FIX | Rejected by the in-code bench (probabilities.py:292-298): the argsort variant is 0.43x at n=1e6. Not ported. |
+| 35-F10 | 35_training-4.md | FIXED | Trim branch carries kept _component_col_means and logs the meta-model drop. Test test_cluster35_cap_keeps_component_means.py. |

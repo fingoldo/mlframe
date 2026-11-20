@@ -100,3 +100,4 @@ Coverage and method:
 - 35-F13: FIXED. per-fold catch removed; a failing fold raises instead of NaN-filling; no separate test
 - 35-F14: FIXED. predict_cdf sorts quantile rows before the binary search; no separate test
 - 35-F1: RESOLVED. from_fitted_inner now stamps smearing_quantiles from the train features (X_train) and the reconstructed T, as fit() does; call sites pass the raw train rows. Tests tests/training/composite/test_smearing_fit_from_fitted_parity.py.
+- 35-F10: FIXED. The copy branch already carried the meta state. The trim branch now carries the kept components' col means (so a capped linear_stack keeps its dropout stand-in) and logs a WARNING when a meta model is dropped. Test tests/training/composite/ensemble/test_cluster35_cap_keeps_component_means.py.

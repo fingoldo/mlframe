@@ -764,7 +764,18 @@ class CompositeCrossTargetEnsemble:
             new._linear_stack_intercept = self._linear_stack_intercept
         # The meta model was fit on the FULL component set; after a trim its input width no longer matches, so it is dropped
         # explicitly (predict then uses the blend), rather than silently routed to a mismatched model (audit 35-F10).
+        if getattr(self, "_meta_model", None) is not None:
+            logger.warning(
+                "[CompositeCrossTargetEnsemble] cap_inference_components(%d): dropping the meta model (fit on %d components, now %d); "
+                "predict falls back to the blend of the kept components.",
+                int(max_components), len(self.component_models), len(keep),
+            )
         new._meta_model = None
+        # Per-component OOF means feed the dropout stand-in in predict; keep the ones for the kept components so a capped
+        # linear_stack does not halve its served forecast when a component drops out.
+        _cmeans = getattr(self, "_component_col_means", None)
+        if _cmeans is not None:
+            new._component_col_means = [float(_cmeans[i]) for i in keep]
         for _attr in (
             "_linear_stack_train_preds", "_linear_stack_train_y", "_linear_stack_ridge_alpha",
             "_nnls_stack_train_preds", "_nnls_stack_train_y",
