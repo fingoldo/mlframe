@@ -14,7 +14,7 @@ import numpy as np
 import torch
 import lightning as L
 from sklearn.base import ClassifierMixin, RegressorMixin
-from mlframe.metrics.core import accuracy_ratio, fast_r2_score
+from mlframe.metrics.core import fast_r2_score
 
 from .._base_tensor_helpers import safe_accelerator, to_numpy_safe
 
@@ -367,7 +367,7 @@ class _PredictMixin:
         elif isinstance(self, ClassifierMixin):
             # y_pred is already class labels from PytorchLightningClassifier.predict()
             if sample_weight is None:
-                return accuracy_ratio(np.asarray(y), np.asarray(y_pred))
+                return float(np.mean(np.asarray(y) == np.asarray(y_pred)))
             sw = np.asarray(sample_weight, dtype=np.float64)
             correct = (np.asarray(y) == np.asarray(y_pred)).astype(np.float64)
             return float((correct * sw).sum() / sw.sum())
