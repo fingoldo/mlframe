@@ -93,3 +93,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 12-F36 | 12_feature_selection-3.md | FIXED | Configs with failed runs INCOMPLETE and excluded from ranking. Test test_fs_hybrid_ablation_failed_runs_excluded.py. |
 | 12-F37 | 12_feature_selection-3.md | FIXED | Failed runs excluded from kept-share sizes. Test test_fs_hybrid_ablation_failed_runs_excluded.py. |
 | 12-F39 | 12_feature_selection-3.md | FIXED | Failures at WARNING; completed/failed counts printed with the means. Test test_fs_hybrid_run_counts_by_key.py. |
+| 12-F23 | 12_feature_selection-3.md | FIXED (test pending) | Baseline and relay use h.transform output, keeping engineered columns. No dedicated test yet (needs a full HybridSelector fit). |

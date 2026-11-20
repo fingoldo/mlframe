@@ -25,22 +25,24 @@ from hybrid_selector import HybridSelector
 def run_bed(name, X, y, seed=0):
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=seed, stratify=y)
     rows = []
+    Ztr, Zte = Xtr, Xte  # the frame the selections refer to; replaced by the augmented frame once the hybrid is fit (12-F23)
 
     def emit(tag, cols, t0):
-        cols = [c for c in dict.fromkeys(cols) if c in Xtr.columns]
-        a = downstream(Xtr[cols], Xte[cols], ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)
+        cols = [c for c in dict.fromkeys(cols) if c in Ztr.columns]
+        a = downstream(Ztr[cols], Zte[cols], ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)
         rows.append(dict(bed=name, variant=tag, n=len(cols), fit_s=round(time.time()-t0, 1), auc_mean=am, **a))
         print(f"[{name}] {tag:22s} n={len(cols):3d} {rows[-1]['fit_s']:6.1f}s mean={am} {a}", flush=True)
         return set(cols)
 
     # baseline: tree-member hybrid
     t0 = time.time(); h = HybridSelector(vote=1, use_fe=True, random_state=seed).fit(Xtr, ytr)
-    S = [c for c in h.raw_selected_ if c in Xtr.columns]
+    Ztr, Zte = h.transform(Xtr), h.transform(Xte)  # raw + engineered columns: the selection names engineered columns too
+    S = [c for c in h.raw_selected_ if c in Ztr.columns]
     Sset = emit("hybrid", S, t0)
 
     # OOF residual from a model on S
     m = lgb.LGBMClassifier(n_estimators=300, num_leaves=31, learning_rate=0.05, n_jobs=-1, verbose=-1)
-    p_oof = cross_val_predict(m, Xtr[S], ytr, cv=4, method="predict_proba", n_jobs=-1)[:, 1]
+    p_oof = cross_val_predict(m, Ztr[S], ytr, cv=4, method="predict_proba", n_jobs=-1)[:, 1]
     resid = ytr.values.astype(float) - p_oof  # deviance-ish residual
 
     # screen DROPPED raw features by |corr| with the residual, and (separately) by MI with a binarized residual
