@@ -104,13 +104,21 @@ def downstream_auc(Xtr, ytr, Xte, yte):
     return out
 
 
+def split_indices(n, seed=20260604):
+    """Train / holdout row indices for a bed of ``n`` rows, from a FIXED seed.
+
+    The shuffle used to draw from a module-global RNG, so each preset got a different random split and the presets were
+    not comparable (12-F30). Every call with the same ``n`` now returns the same split.
+    """
+    idx = np.arange(n)
+    np.random.default_rng(seed).shuffle(idx)
+    cut = int(n * 0.6)
+    return idx[:cut], idx[cut:]
+
+
 def run_bed(name, X, y, preset):
     """Fit MRMR with given binary preset; transform train+holdout; measure AUC+time."""
-    n = X.shape[0]
-    idx = np.arange(n)
-    RNG.shuffle(idx)
-    cut = int(n * 0.6)
-    tr, te = idx[:cut], idx[cut:]
+    tr, te = split_indices(X.shape[0])
     Xtr_df, Xte_df = _to_df(X[tr]), _to_df(X[te])
     ytr, yte = y[tr], y[te]
 

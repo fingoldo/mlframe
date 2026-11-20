@@ -85,3 +85,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 12-F27 | 12_feature_selection-3.md | FIXED | Proxy Brier computed out-of-fold. Test test_fs_hybrid_s2_proxy_is_out_of_fold.py. |
 | 12-F28 | 12_feature_selection-3.md | FIXED | Sizes with a failed cell get no family mean. Test test_fs_hybrid_family_curve_failed_cells.py. |
 | 12-F29 | 12_feature_selection-3.md | FIXED | Designed verdict uses the pre-specified operator, not the max over test AUC. Test test_fs_hybrid_designed_verdict_uses_prespecified_op.py. |
+| 12-F30 | 12_feature_selection-3.md | FIXED | run_bed uses a fixed-seed split shared by all presets. Test test_fs_hybrid_cost_split_is_fixed.py. |
