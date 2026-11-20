@@ -64,6 +64,23 @@ class Staleness:
         return {"manifest_sha": self.manifest_sha, "head_sha": self.head_sha, "commits_behind": self.commits_behind, "verdict": self.verdict, "reason": self.reason}
 
 
+def _repo_root() -> str:
+    """Return the git repository root that contains this module.
+
+    The default used to be this module's own directory, so the git paths were resolved against the wrong working directory and every
+    watched path matched nothing (every manifest then read as current). Walk up until a ``.git`` entry is found.
+    """
+    here = os.path.dirname(os.path.abspath(__file__))
+    current = here
+    while True:
+        if os.path.exists(os.path.join(current, ".git")):
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            return here
+        current = parent
+
+
 def _git(args: Sequence[str], repo: str) -> Optional[str]:
     """Run one read-only git command, returning its output or ``None`` when git cannot answer.
 
@@ -115,7 +132,7 @@ def assess(manifest_path: str, repo: Optional[str] = None, warn_at: int = WARN_C
         ``unknown``. ``unknown`` is a real answer: a manifest with no commit recorded, or a checkout with
         no history, cannot be aged, and guessing would be worse than saying so.
     """
-    root = repo if repo else os.path.dirname(os.path.abspath(__file__))
+    root = repo if repo else _repo_root()
     try:
         with open(manifest_path, encoding="utf-8") as handle:
             manifest = json.load(handle)
