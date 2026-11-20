@@ -80,3 +80,10 @@ Counts below are the number of files under `tests/` whose text names the functio
 - Two test files each: `calendar_feature_names` (the NaT path behind 20-F4 is the one to add), `category_discriminability_table`, `compose_fuzzy_membership_figure`, `compose_interaction_strength_figure`, `compose_pdp_2d_figure`, `compute_subgroup_ece_disparity`, `confusion_matrix_counts`, `cusum_residual_drift`, `model_card_verdict`, `smoothed_reliability_curve`, `binary_decile_table_figure`.
 - Findings that depend on untested edges: `compose_separability_figure` is named by 3 files, but none was checked for the Fisher-J to AUC mapping (20-F2). `adversarial_auc` is named by 7 files, but none was checked for the all-non-scalar input (20-F6). `calendar_feature_names` is named by 2 files, but none was checked for NaT (20-F4).
 - Not checked: whether the existing tests assert exact values for the statistics above. The function-name counts alone cannot show that.
+
+
+## Dispositions
+
+- 20-F2: RESOLVED. Implied AUC of a Fisher J is Phi(sqrt(J)/sqrt(2)) for J as the squared Mahalanobis distance; the earlier Phi(sqrt(J)/2) understated every separability figure. Test tests/reporting/test_implied_auc_formula.py; 25 existing separability tests pass. Commit below.
+- 20-F4: RESOLVED. Calendar encodings are used as computed on the non-missing rows; the second full-length mask index (IndexError on any NaT, swallowed by the caller) is gone. Test tests/reporting/test_calendar_features_with_nat.py; 4 existing calendar tests pass. Commit below.
+- 20-F1: DEFERRED. The current labels pass the existing tests: a lognormal (long positive residual tail) reads RIGHT-SKEW, and the swap the audit proposes breaks that test. The asymmetry metric (tail medians of the detrended QQ) is itself unreliable: an upper-tail mixture reads LEFT, so the finding is a metric defect, not a label inversion. Fixing the metric changes the verdicts of a published panel, so it waits for a decision.
