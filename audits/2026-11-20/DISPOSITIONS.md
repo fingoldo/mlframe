@@ -284,3 +284,9 @@
 | 04-F22 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
 | 04-F24 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
 | 04-F26 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
+| 05-F2 | FIXED | the duplicated fixture delegates to the shared builder, with the same draws; benchmark-only |
+| 05-F6 | FIXED | tests/data_valuation/test_dv_bench_shared_fixture.py covers the shared builder |
+| 05-F1 | DEFERRED | benchmark-script cleanup not done in this pass; low impact |
+| 05-F3 | DEFERRED | benchmark-script cleanup not done in this pass; low impact |
+| 05-F4 | DEFERRED | benchmark-script cleanup not done in this pass; low impact |
+| 05-F5 | DEFERRED | benchmark-script cleanup not done in this pass; low impact |

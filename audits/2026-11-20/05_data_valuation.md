@@ -23,3 +23,13 @@ No P0 or P1 findings in this subset.
 - Timing hygiene: each timed section calls the function once beforehand to warm numba (`profile_data_valuation.py:34, 49, 69`; `profile_training_weight_adapter.py:31-32, 46`), so JIT compile time is excluded.
 - `make_blob_fixture` labels are `int64` and the features are float64, which fits the `y_train[order] == yb[r]` comparison in `_score_one_batch` (`_knn_shapley.py:60`).
 - `_benchmarks/__init__.py` is empty, and the absolute import path used by the two consumers resolves.
+
+
+## Dispositions
+
+- 05-F2: FIXED. the duplicated fixture delegates to the shared builder, with the same draws; benchmark-only
+- 05-F6: FIXED. tests/data_valuation/test_dv_bench_shared_fixture.py covers the shared builder
+- 05-F1: DEFERRED. benchmark-script cleanup not done in this pass; low impact
+- 05-F3: DEFERRED. benchmark-script cleanup not done in this pass; low impact
+- 05-F4: DEFERRED. benchmark-script cleanup not done in this pass; low impact
+- 05-F5: DEFERRED. benchmark-script cleanup not done in this pass; low impact
