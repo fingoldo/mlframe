@@ -75,7 +75,7 @@ Scope: the 72 files in `audits/2026-11-20/manifests/09_feature_engineering-2.txt
 ## Dispositions
 
 - 09-F2: RESOLVED. Both call sites (`spectral_attention.py`, `per_class_spectral.py`) pass the eigenvectors of A unscaled; `_nystrom_extend` applies `d_i^{-1/2}` once. Regression test: `tests/feature_engineering/transformer/test_nystrom_scales_each_neighbour_once.py`.
-- 09-F1: DEFERRED. Random-feature scale is wrong (kernel exp(q.k/d)). Fix (unscaled directions, patch in patches/09-F1_deferred_performer_scale.patch) makes unscaled exponents underflow the global key shift on query rows, so normalizer and kernel_concentration need a per-row design. Needs a decision.
+- 09-F1: RESOLVED. See the dispositions section below.
 - 09-F2: RESOLVED. Double d^-1/2 removed at both call sites; test test_nystrom_scales_each_neighbour_once.py. Commit 4863686a5.
 - 09-F3: RESOLVED. Documented as the label-free proxy |p - median(y)| on both sides (no query label exists). Behaviour unchanged. Commit 8dc4360c0.
 - 09-F4: RESOLVED. Jackknife endpoint weights are no longer proportional: the upper endpoint favours positives and the lower negatives. Test tests/feature_engineering/transformer/test_jackknife_endpoints_weight_classes_differently.py. Commit below.
@@ -106,3 +106,4 @@ Scope: the 72 files in `audits/2026-11-20/manifests/09_feature_engineering-2.txt
 - 09-F29: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F30: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F31: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
+- 09-F1: RESOLVED. Random directions are unscaled; the d^{-1/4} scale moved to the inputs so the kernel is exp(q.k/sqrt(d)) as documented. Tests tests/feature_engineering/transformer/test_performer_kernel_identity.py; reference in test_performer_attention_key_side_stabilization.py updated.

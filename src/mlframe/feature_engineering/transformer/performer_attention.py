@@ -105,8 +105,13 @@ def compute_performer_attention_features(
             Xq_s = Xq
         d_input = Xt_s.shape[1]
         rng = np.random.default_rng(fold_seed)
-        # Random Gaussian projection directions, scaled for Performer kernel approximation.
-        W = rng.standard_normal((d_input, n_features)).astype(np.float32) / np.sqrt(d_input)
+        # Unscaled Gaussian directions W ~ N(0, I). The positive RFF identity E[phi(q).phi(k)] = exp(q.k) is exact only for unscaled W with the
+        # -||x||^2/2 term, so the 1/sqrt(d) scale belongs on the INPUTS: scaling q and k by d^{-1/4} gives exp(q.k/sqrt(d)), the softmax
+        # temperature the module describes. Scaling W instead (the old code) gave exp(q.k/d) times a norm factor that did not cancel.
+        W = rng.standard_normal((d_input, n_features)).astype(np.float32)
+        _input_scale = np.float32(d_input**-0.25)
+        Xt_s = (Xt_s * _input_scale).astype(np.float32)
+        Xq_s = (Xq_s * _input_scale).astype(np.float32)
         phi_k, key_shift = _performer_features(Xt_s, W)  # (n_train, M)
         phi_q, _ = _performer_features(Xq_s, W, shift=key_shift)  # (n_query, M)
         # Pre-aggregate K-side: A (numerator) and B (denominator).
