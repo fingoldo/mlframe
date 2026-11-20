@@ -116,7 +116,8 @@ def compute_density_weighted_smote_features(
             Xq_s = Xq
         Xt_pos, Xt_neg = class_or_quantile_slice(Xt_s, y_t, task, q_high)
         if Xt_pos.shape[0] < 2 or Xt_neg.shape[0] < 2:
-            return np.zeros((Xq_s.shape[0], 2 * len(_K_SCALES)), dtype=np.float32)
+            # A degenerate fold has no estimate: NaN, not 0.0, which would read as a point on the positive manifold.
+            return np.full((Xq_s.shape[0], 2 * len(_K_SCALES)), np.nan, dtype=np.float32)
         n_synthetic = max(50, int(Xt_pos.shape[0] * oversample))
         X_synth_pos = _density_weighted_smote_synthesize(Xt_pos, n_synthetic=n_synthetic, k_neighbors=k_smote, seed=fold_seed)
         X_virtual_pos = np.concatenate([Xt_pos, X_synth_pos], axis=0)
