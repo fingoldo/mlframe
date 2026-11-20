@@ -78,3 +78,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |
 | 12-F38 | 12_feature_selection-3.md | FIXED | downstream returns NaN for an empty selection. Test test_fs_hybrid_empty_selection_downstream.py. |
+| 12-F31 | 12_feature_selection-3.md | PARTIAL | Two named benches narrowed; 61 other fs_hybrid benches still use a catch-all ignore (open). Test test_fs_hybrid_warning_filter_keeps_degraded_warning.py. |
