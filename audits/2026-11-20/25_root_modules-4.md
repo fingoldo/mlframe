@@ -156,3 +156,8 @@ Method: four parallel sub-audits read every listed file fully and grepped caller
 - 25-F22: FIXED. Both the live modular report and the recipe report use one op-to-symbol helper, so diff reads as a minus. Test tests/feature_selection/test_cluster25_structure_op_symbols.py.
 - 25-F39: FIXED. numba_warmup guards each kernel separately, so one signature mismatch no longer skips the other compiles. The function is public and stays. Test tests/metrics/test_cluster25_numba_warmup_per_kernel.py.
 - 25-F36: FIXED. The kernel tuning cache is loaded once per process; a failed load is retried, as before. Test tests/metrics/test_cluster25_kernel_tuning_cache_loaded_once.py.
+- 25-F50: DEFERRED. Duplicated bodies in _ice_metric.py: merging them needs an equivalence test per copy first. Deferred to a dedicated refactor pass.
+- 25-F51: DEFERRED. Duplicated bodies in ranking.py: merging them needs an equivalence test per copy first. Deferred to a dedicated refactor pass.
+- 25-F52: DEFERRED. Duplicated bodies in _multilabel_extras.py: merging them needs an equivalence test per copy first. Deferred to a dedicated refactor pass.
+- 25-F53: DEFERRED. Duplicated logical-constraint loops: merging them needs an equivalence test per copy first. Deferred to a dedicated refactor pass.
+- 25-F35: DEFERRED. Keeping labels on the device changes cupy semantics for every caller and needs a GPU benchmark on real hardware before it can be called safe.
