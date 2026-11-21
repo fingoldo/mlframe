@@ -54,6 +54,7 @@ import threading
 from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
+from .._fe_frame_ops import fe_frame_from_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
@@ -554,7 +555,7 @@ def _generate_univariate_basis_features_impl(
     results = map_on_edge_pool(_one_column, cols)
     for found in until_first_none(results):
         out_cols.update(found)
-    return pd.DataFrame(out_cols, index=X.index)
+    return fe_frame_from_columns(out_cols, X.index)
 
 # Carved out to _orth_gpu_resident.py (monolith-split, LOC budget); re-exported here so the
 # package-facade names and all internal callers keep working.

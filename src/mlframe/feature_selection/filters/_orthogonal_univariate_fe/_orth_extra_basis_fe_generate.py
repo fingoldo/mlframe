@@ -15,6 +15,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from .._fe_frame_ops import fe_frame_from_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
@@ -227,7 +228,7 @@ def generate_extra_basis_features(
     for found in until_first_none(results):
         out_cols.update(found[0])
         meta.update(found[1])
-    return pd.DataFrame(out_cols, index=X.index), meta
+    return fe_frame_from_columns(out_cols, X.index), meta
 
 def _prefetch_adaptive_fourier(X, cols, extra_bases, fourier_powers, y_adapt, y_adapt_prep, fourier_adaptive, fourier_chirp, adaptive_allowed, f_grid, min_val_corr) -> "tuple[dict, dict]":
     """``(gate, freqs)``: the adaptive-Fourier gate of every scanned column and, when the batched device detector applies, the frequencies of all gated columns detected in one resident batch.
