@@ -135,7 +135,12 @@ def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
     if label_arr.dtype.kind not in ("f",):
         return
     try:
-        model.set_params(loss_function="MultiRMSE", eval_metric="MultiRMSE")
+        # A metric the user chose (eval_metric="AUC", say) is kept; only an unset one takes the MTR default (audit 28-F44).
+        _user_metric = (model.get_params() or {}).get("eval_metric") if hasattr(model, "get_params") else None
+        if _user_metric is None:
+            model.set_params(loss_function="MultiRMSE", eval_metric="MultiRMSE")
+        else:
+            model.set_params(loss_function="MultiRMSE")
     except Exception as _set_exc:
         logger.warning("CatBoost set_params rejected the loss/metric (%s); writing the private _init_params fallback instead", _set_exc)
         try:
@@ -207,7 +212,11 @@ def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
     if label_arr is None or label_arr.ndim != 2:
         return
     try:
-        model.set_params(loss_function="MultiLogloss", eval_metric="HammingLoss")
+        _user_metric = (model.get_params() or {}).get("eval_metric") if hasattr(model, "get_params") else None
+        if _user_metric is None:
+            model.set_params(loss_function="MultiLogloss", eval_metric="HammingLoss")
+        else:
+            model.set_params(loss_function="MultiLogloss")
     except Exception as _set_exc:
         logger.warning("CatBoost set_params rejected the loss/metric (%s); writing the private _init_params fallback instead", _set_exc)
         try:
