@@ -122,6 +122,7 @@ def _mi_cd_columns_auto(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbor
     return cast(np.ndarray, _mi_cd_columns(X, d, n_classes, n_neighbors))
 
 
+_COLUMNS_BLOCK_BYTES = 128 * 1024 * 1024  # host bytes of the float64 working copy of one block of columns in ksg_mi_discrete_target_columns
 _NOISE_TILE_ELEMENTS = 4_000_000  # elements of one tile of the Kraskov noise (32 MB in float64)
 
 
@@ -208,7 +209,18 @@ def ksg_mi_discrete_target_columns(X: np.ndarray, y: np.ndarray, *, n_neighbors:
     # Intentional float64: the noise is drawn in double precision, as the per-column call draws it
     one_draw = np.asarray(np.random.RandomState(int(random_state)).standard_normal(size=n), dtype=np.float64)
     # Intentional float64: reproduces sklearn mutual_info_classif, which scales and adds the noise in double precision
-    X = _prepare_columns(np.ascontiguousarray(X), one_draw)
     _, d = np.unique(np.asarray(y).ravel(), return_inverse=True)
     d = np.ascontiguousarray(d, dtype=np.int64)
-    return _mi_cd_columns_auto(np.ascontiguousarray(X), d, int(d.max()) + 1 if d.size else 0, int(n_neighbors))
+    n_classes = int(d.max()) + 1 if d.size else 0
+    # the columns are independent (scaling, noise and the MI are all per column), so they go through in blocks whose float64 copy stays within ``_COLUMNS_BLOCK_BYTES``: at 30000 x 3018 the whole copy was 725 MB, and
+    # several of these calls run at once on the stage threads
+    p = int(X.shape[1])
+    step = max(1, int(_COLUMNS_BLOCK_BYTES // max(1, 8 * n)))
+    if step >= p:
+        return _mi_cd_columns_auto(np.ascontiguousarray(_prepare_columns(np.ascontiguousarray(X), one_draw)), d, n_classes, int(n_neighbors))
+    out = np.empty(p, dtype=np.float64)  # Intentional float64: MI statistic vector
+    for c0 in range(0, p, step):
+        c1 = min(p, c0 + step)
+        block = _prepare_columns(np.ascontiguousarray(X[:, c0:c1]), one_draw)
+        out[c0:c1] = _mi_cd_columns_auto(np.ascontiguousarray(block), d, n_classes, int(n_neighbors))
+    return out

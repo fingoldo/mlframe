@@ -33,3 +33,18 @@ def test_tiled_noise_is_the_single_draw(monkeypatch, tile_elements):
     got = K.ksg_mi_discrete_target(X, y, n_neighbors=3, random_state=7)
     ref = _reference(X, y, 3, 7)
     np.testing.assert_array_equal(got, ref)
+
+
+@pytest.mark.parametrize("block_bytes", [128 * 1024 * 1024, 8 * 3000 * 4, 8 * 3000 * 1])
+def test_column_blocks_give_the_same_mi_as_one_block(monkeypatch, block_bytes):
+    """The per-column KSG over blocks of 4 columns, of 1 column and in one block: the same vector, bit for bit."""
+    rng = np.random.default_rng(3)
+    n, p = 3000, 11
+    X = rng.standard_normal((n, p)).astype(np.float32)
+    y = (X[:, 0] + 0.5 * rng.standard_normal(n) > 0).astype(int)
+    monkeypatch.setattr(K, "_COLUMNS_BLOCK_BYTES", 10**12)
+    one = K.ksg_mi_discrete_target_columns(X, y, n_neighbors=3, random_state=5)
+    monkeypatch.setattr(K, "_COLUMNS_BLOCK_BYTES", block_bytes)
+    blocked = K.ksg_mi_discrete_target_columns(X, y, n_neighbors=3, random_state=5)
+    np.testing.assert_array_equal(blocked, one)
+    assert blocked.shape == (p,)
