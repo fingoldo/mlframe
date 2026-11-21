@@ -52,11 +52,15 @@ def test_an_explicit_probe_pair_is_honoured_even_without_cupy(without_cupy):
     assert fe_gpu_has_vram_cushion(10**9, free_b=_cushion_bytes(total_b), total_b=total_b) is False
 
 
-def test_cushion_decision_matches_manual_formula_when_probe_supplied():
+def test_cushion_decision_matches_manual_formula_when_probe_supplied(monkeypatch):
     """When the pair IS supplied the decision must equal the documented formula, on any host.
 
     Independent of cupy by construction: the supplied-pair branch never probes.
     """
+    # the pure formula: idle blocks that earlier tests of the process left in the cupy pools are not part of it
+    import mlframe.feature_selection.filters._fe_gpu_vram as _vram
+
+    monkeypatch.setattr(_vram, "_own_pool_free_bytes", lambda: 0)
     total_b = 4 * 1024 * 1024 * 1024
     cushion = _cushion_bytes(total_b)
     free_b_ok = cushion + 10**7  # just above the cushion floor

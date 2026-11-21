@@ -158,6 +158,45 @@ if os.environ.get("RSS_LOG_INFO", "").strip():  # comma-separated logger names s
         _lgr.setLevel(_lg.INFO)
         _lgr.addHandler(_h)
 
+_PAIR_CAPTURE: list = []
+if os.environ.get("RSS_CAPTURE_PAIRS", "").strip():  # what the per-pair FE search returns for each pair (pair, pair MI, best MI, best configuration): the first pair whose answer differs between two runs
+    from mlframe.feature_selection.filters._feature_engineering_pairs import _pairs_core as _pc
+
+    _orig_score_one = _pc._score_one_pair
+
+    def _capturing_score_one(**kwargs):
+        """Run the per-pair search and record its answer."""
+        out = _orig_score_one(**kwargs)
+        try:
+            _PAIR_CAPTURE.append({"pair": [int(v) for v in kwargs["raw_vars_pair"]], "pair_mi": float(kwargs["pair_mi"]), "best_mi": None if out[2] is None else float(out[2]), "best_config": repr(out[1])[:200], "entry": repr(out[0])[:1500]})
+        except Exception as exc:  # the capture must not break the fit
+            _PAIR_CAPTURE.append({"error": repr(exc)})
+        return out
+
+    _pc._score_one_pair = _capturing_score_one
+
+_FE_STEP_CAPTURE: list = []
+if os.environ.get("RSS_CAPTURE_FE_STEP", "").strip():  # the column pool and the selected variables each time the FE step starts: where two runs of one fit first differ
+    from mlframe.feature_selection.filters.mrmr import MRMR as _MRMR_CLS
+
+    _orig_fe_step = _MRMR_CLS._run_fe_step
+
+    def _capturing_fe_step(self, **kwargs):
+        """Record what the FE step starts from, then run it."""
+        try:
+            _FE_STEP_CAPTURE.append({"cols": [str(c) for c in kwargs.get("cols", [])], "selected_vars": sorted(int(v) for v in (kwargs.get("selected_vars") or []))})
+        except Exception as exc:  # the capture must not break the fit
+            _FE_STEP_CAPTURE.append({"error": repr(exc)})
+        out = _orig_fe_step(self, **kwargs)
+        try:
+            if out is not None:
+                _FE_STEP_CAPTURE[-1].update({"out_cols": [str(c) for c in out[1]], "out_selected": sorted(int(v) for v in out[4]), "n_recommended": int(out[5])})
+        except Exception as exc:  # the capture must not break the fit
+            _FE_STEP_CAPTURE.append({"error_out": repr(exc)})
+        return out
+
+    _MRMR_CLS._run_fe_step = _capturing_fe_step
+
 _CALL_STATS: dict = {}
 _CALL_NONE: dict = {}
 for _spec in [x for x in os.environ.get("RSS_TRACE_CALLS", "").split(",") if x.strip()]:  # "package.module:function,...": count and sum the wall of those calls (wrapped on the module attribute)
@@ -214,6 +253,16 @@ try:
             _row[0 if _ok else 1] += 1
             _row[2] = max(_row[2], _nb)
         print("CUSHION " + "; ".join(f"{w}: ok={r[0]} refused={r[1]} max={r[2] / 1e6:.0f}MB" for w, r in sorted(_agg.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))[:14]), flush=True)
+    if _PAIR_CAPTURE and os.environ.get("RSS_CAPTURE_PAIRS", "").strip():
+        import json as _json2
+
+        with open(os.environ["RSS_CAPTURE_PAIRS"], "w", encoding="utf-8") as _fh2:
+            _json2.dump(_PAIR_CAPTURE, _fh2)
+    if _FE_STEP_CAPTURE and os.environ.get("RSS_CAPTURE_FE_STEP", "").strip():
+        import json as _json
+
+        with open(os.environ["RSS_CAPTURE_FE_STEP"], "w", encoding="utf-8") as _fh:
+            _json.dump(_FE_STEP_CAPTURE, _fh)
     _dump = os.environ.get("RSS_DUMP_JSON", "").strip()
     if _dump:  # the fitted state that differs between runs (which stage produced which survivor), for run-to-run diffs
         import json
