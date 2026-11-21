@@ -53,12 +53,12 @@ def main() -> None:
     ap.add_argument("--timeout-s", type=float, default=3600.0)
     ap.add_argument("--out", default="")
     args = ap.parse_args()
-    lines = ["target\tstrategy\twall_s\tstatus\tgrowth_mb\tselected(count/sum)"]
+    lines = ["target\tstrategy\twall_s\tstatus\tgrowth_mb\tselected(count/sum)	engineered"]
     print(lines[0], flush=True)
     for target in args.targets.split(","):
         for strategy in args.strategies.split(","):
             r = run_cell(args.rows, args.cols, target, strategy, args.timeout_s)
-            line = f"{target}\t{strategy}\t{r['wall_s']}\t{r['status']}\t{r['growth_mb']}\t{r['selected']}"
+            line = f"{target}\t{strategy}\t{r['wall_s']}\t{r['status']}\t{r['growth_mb']}\t{r['selected']}	{r['engineered']}"
             print(line, flush=True)
             lines.append(line)
             if args.out:
