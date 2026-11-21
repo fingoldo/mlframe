@@ -136,3 +136,8 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 28-F11 | 28_root_modules-7.md | FIXED | Auto-wrap switch carried on the control config. Test test_cluster28_wrap_flag_reaches_control.py. |
 | 28-F14 | 28_root_modules-7.md | FIXED | Unreadable existing bundle raises. Test test_cluster28_unreadable_bundle_raises.py. |
 | 28-F16 | 28_root_modules-7.md | FIXED (test pending) | Validation cache hit re-applies init_score. Needs a full cached fit to test. |
+| 01-F1 | 01_calibration.md | FIXED | Bench groups from the bias-index codes. Bench-only, no test. |
+| 01-F2 | 01_calibration.md | FIXED | Bench seeds via zlib.crc32. Bench-only, no test. |
+| 01-F4 | 01_calibration.md | DEFERRED | Bench re-implements shipped ECI code. Bench-only rewrite. |
+| 01-F6 | 01_calibration.md | DEFERRED | Bench per-row label loop (perf). Bench-only. |
+| 01-F8 | 01_calibration.md | DEFERRED | Bench verdict needs re-measuring. Bench-only. |

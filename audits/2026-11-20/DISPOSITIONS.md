@@ -682,3 +682,8 @@
 | 28-F11 | FIXED | The auto-wrap switch is carried on the control config the training loop reads (set by _build_control_config), so False is honoured. Test tests/training/test_cluster28_wrap_flag_reaches_control.py. |
 | 28-F14 | FIXED | An existing bundle that cannot be read raises instead of falling back to an unverified reopen. Test tests/training/test_cluster28_unreadable_bundle_raises.py. |
 | 28-F16 | FIXED (test pending) | Validation cache hit re-applies init_score (lgb_shim). A test needs a full cached fit through fit(); not yet written. |
+| 01-F1 | FIXED | Bench groups are derived from the same codes that index the bias multiplier (bench_group_bias_correction). Bench-only; verified by reading, no test. |
+| 01-F2 | FIXED | Bench seeds use zlib.crc32 instead of salted hash() (bench_ece_nbins). Bench-only; verified by reading, no test. |
+| 01-F4 | DEFERRED | Bench re-implements the ECI histogram and entropy instead of calling the shipped function. Bench-only rewrite; deferred. |
+| 01-F6 | DEFERRED | Bench draws labels with a per-row Python loop (performance only). Bench-only; deferred. |
+| 01-F8 | DEFERRED | Bench verdict rests on a parallel-vs-serial comparison that needs re-measuring. Bench-only; deferred. |
