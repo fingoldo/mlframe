@@ -150,7 +150,10 @@ def finite_mask_prep(
     # reference keeps pointing at the original NaN-bearing screening sample.
     x_matrix_for_mi = x_matrix
     use_per_pair = bool(getattr(self.config, "auto_base_mi_per_pair_mask", True))
-    finite = np.isfinite(y_screen) & np.all(np.isfinite(x_matrix), axis=1)
+    # One finite mask of the screening matrix, reused for the all-row mask and the per-pair counts below; each full-matrix isfinite
+    # pass cost a copy of the screening sample (audit 34-F21).
+    _fin_x = np.isfinite(x_matrix)
+    finite = np.isfinite(y_screen) & _fin_x.all(axis=1)
     # Audit the MNAR severity once: how much of the per-pair-available row
     # mass the global intersection discards. Below the configured fraction
     # the global mask would meaningfully under-sample some column, which is
@@ -159,7 +162,7 @@ def finite_mask_prep(
         self.config, "auto_base_mnar_per_pair_threshold", 0.5,
     ))
     _n_global = int(finite.sum())
-    _per_col_finite = np.isfinite(x_matrix) & np.isfinite(y_screen)[:, None]
+    _per_col_finite = _fin_x & np.isfinite(y_screen)[:, None]
     _per_col_counts = _per_col_finite.sum(axis=0)
     _max_per_col = int(_per_col_counts.max()) if _per_col_counts.size else 0
     if use_per_pair and _max_per_col > 0 and _n_global < _mnar_threshold * _max_per_col:
