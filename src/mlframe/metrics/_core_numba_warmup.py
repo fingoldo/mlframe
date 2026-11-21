@@ -822,9 +822,9 @@ def _prewarm_numba_cach_skip_heavy(_skip_heavy):
             if module_available("shap"):
                 try:
                     import shap
-                    import shap.utils.transformers
-                    # Match the runtime monkeypatch so prewarm leaves shap in the state the suite expects.
-                    shap.utils.transformers.is_transformers_lm = lambda model: False
+                    import shap.utils.transformers  # noqa: F401 - the import is the warmup
+                    # The import is the warmup. The is_transformers_lm patch is NOT applied here: it replaced a function on the shared shap
+                    # module for every process that imported shap after prewarm. The SHAP use site applies it where the suite needs it (audit 25-F40).
                 except Exception as e:  # nosec B110 - optional dependency import guard
                     logger.debug("shap.utils.transformers import/monkeypatch warmup failed, skipping: %s", e)
             try:

@@ -748,3 +748,5 @@
 | 25-F45 | FIXED | fast_log_loss_binary converts its inputs with np.asarray before reading attributes, so lists work. Test tests/metrics/test_cluster25_contract_fixes.py. |
 | 25-F54 | FIXED | The return annotation of prepare_trials_dataset is the tuple it returns. Test tests/metrics/test_cluster25_contract_fixes.py. |
 | 25-F25 | DEFERRED | Needs an owner decision on the run lifecycle: _start_run_with_retries ends the run before returning it, so the caller's handle is already closed. Removing end_run changes when runs close for every caller. |
+| 25-F49 | FIXED | compute_all_metrics returns {} for learning_to_rank rather than regression metrics under ranking keys. Test tests/metrics/test_cluster25_ranking_round_has_no_regression_block.py. |
+| 25-F40 | FIXED | Prewarm imports shap without replacing is_transformers_lm on the shared module; the SHAP use site keeps its own scoped patch. No unit test: the cold shap import is too slow for the unit suite. |

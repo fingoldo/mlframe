@@ -260,8 +260,10 @@ def compute_all_metrics(
     """Compute the full metric suite for ``target_type`` from val ``(y_true, y_score)`` -- one flat dict of floats.
 
     ``target_type`` accepts the ``mlframe.training.TargetTypes`` string values (or a bare ``TargetTypes`` member);
-    recognised families: binary / multiclass / multilabel classification and (any) regression. Unknown / ranking
-    types degrade to the regression block when ``y_score`` is 1-D, else an empty dict (never raises).
+    recognised families: binary / multiclass / multilabel classification and (any) regression. Ranking types
+    (``learning_to_rank``) return an empty dict: a per-round MAE/MSE block would report regression numbers under a
+    ranking task (audit 25-F49). Other unknown types degrade to the regression block when ``y_score`` is 1-D, else an
+    empty dict (never raises).
 
     ``y_score`` shapes: 1-D probabilities (binary), ``(n, n_classes)`` proba matrix (multiclass), ``(n, n_labels)``
     indicator-proba matrix (multilabel), 1-D predictions (regression).
@@ -280,7 +282,10 @@ def compute_all_metrics(
         return _multilabel_metrics(yt, ys, nbins)
     if "regression" in tt:
         return _regression_metrics(yt, ys)
-    # Unknown / learning_to_rank: best-effort regression block on a 1-D score, else nothing.
+    if "rank" in tt:
+        # A ranking round has no regression metrics to report; emitting MAE/MSE/RMSE/R2 under ranking keys misleads (audit 25-F49).
+        return {}
+    # Unknown types: best-effort regression block on a 1-D score, else nothing.
     if ys.ndim == 1 or (ys.ndim == 2 and ys.shape[1] == 1):
         return _regression_metrics(yt, ys)
     logger.debug("compute_all_metrics: unsupported target_type=%r with %dD y_score; returning empty dict.", tt, ys.ndim)
