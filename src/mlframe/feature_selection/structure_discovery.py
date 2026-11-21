@@ -222,7 +222,7 @@ def _modular_op_text(op: str, cols: tuple) -> str:
     Shared by the live detector and the recipe report, so a fit that found ``a - b mod 7`` reads the same from either path.
     """
     if op == "self":
-        return cols[0]
+        return str(cols[0])
     symbols = {"sum": " + ", "sum3": " + ", "diff": " - ", "prod": " * "}
     if op in symbols:
         return symbols[op].join(cols)

@@ -255,6 +255,7 @@ class _PerClassIsotonicCalibrator:
                 continue
             # Per-class binary target
             if is_exclusive:
+                assert col_labels is not None  # the branch above continues when the labels cannot be aligned
                 y_k = (y == col_labels[k]).astype(_np.int8)
             else:
                 # Multilabel: y is (N, K)
