@@ -842,3 +842,4 @@
 | 30-F1 | FIXED | The DTW bench prints measured pool bytes; the analytic float32 overwrite is removed. Bench output; verified by reading, not by a unit test (needs a GPU). |
 | 30-F2 | FIXED | The analytic overwrite of the measured memory is removed; the printed values are the measured pool numbers. Bench output; verified by reading. |
 | 30-F4 | FIXED | The GP bench builds its dataset before the timer, so the wall time covers smoothing only. Bench output; verified by compiling and reading. |
+| 31-F6 | FIXED | A failed cold-cache check records the registry keys as checked, so no new thread starts per fit, and logs at WARNING. Test tests/system/test_cluster31_cold_check_failure_is_recorded.py. |

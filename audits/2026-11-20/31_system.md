@@ -46,3 +46,4 @@ Public or key helpers with no direct test found under `tests/system/` or `tests/
 - 31-F1: FIXED. -P gated on Python 3.11+; PYTHONPATH still carries the import root; no separate test (subprocess command construction)
 - 31-F2: FIXED. an ok sweep that persisted 0 regions counts as failed; cmd_refresh returns non-zero for 0; tests/system/test_cluster31_kernel_tuning_fixes.py
 - 31-F3: FIXED. lock records pid:start-token; a live pid with a mismatching token is stale; same test file; test_kernel_tuning_lock_race.py assertion updated to the pid field
+- 31-F6: FIXED. A failed cold-cache check records the registry keys as checked, so no new thread starts per fit, and logs at WARNING. Test tests/system/test_cluster31_cold_check_failure_is_recorded.py.
