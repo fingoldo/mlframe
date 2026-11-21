@@ -443,6 +443,9 @@ def gpu_multiple_roc_auc_scores(actual: Any, predicted: Any) -> Any:
         ranks[:, c0:c1] = _fractional_ranks_block(cp, predicted[:, c0:c1], order[:, c0:c1])
 
     aucs = (cp.sum(ranks[actual == 1, :], axis=0) - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg)
+    # A column whose scores hold a NaN has no defined AUC: NaN, as the CPU batch path reports it, instead of an order-dependent number (audit 25-F34).
+    nan_columns = cp.isnan(predicted).any(axis=0)
+    aucs = cp.where(nan_columns, cp.nan, aucs)
     return aucs
 
 
