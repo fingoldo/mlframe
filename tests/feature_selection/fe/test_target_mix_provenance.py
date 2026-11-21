@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from mlframe.feature_selection.filters import _target_mix_fe as TM
+from mlframe.feature_selection.filters import _target_mix_fe as target_mix_fe
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 
@@ -15,7 +15,7 @@ def test_provenance_names_the_base_and_slope_of_a_strong_column():
     x2 = rng.standard_normal(n)
     y = 2.0 * u + 0.3 * x2 + 0.05 * rng.standard_normal(n)
     X = pd.DataFrame({"u": u, "x2": x2})
-    found, provenance = TM.second_pass_recipes(MRMR(fe_max_steps=1), X, y, {"u": u}, max_bases=1, scan_rows=n, min_relative_gain=0.001)
+    found, provenance = target_mix_fe.second_pass_recipes(MRMR(fe_max_steps=1), X, y, {"u": u}, max_bases=1, scan_rows=n, min_relative_gain=0.001)
     assert len(provenance) == 1
     assert provenance[0]["base"] == "u"
     assert abs(provenance[0]["beta"] - 2.0) < 0.1
@@ -28,7 +28,7 @@ def test_no_base_gives_empty_provenance():
     n = 2000
     u = rng.standard_normal(n)
     y = rng.standard_normal(n)
-    found, provenance = TM.second_pass_recipes(MRMR(fe_max_steps=1), pd.DataFrame({"u": u}), y, {"u": u}, max_bases=1, scan_rows=n, min_relative_gain=0.001)
+    found, provenance = target_mix_fe.second_pass_recipes(MRMR(fe_max_steps=1), pd.DataFrame({"u": u}), y, {"u": u}, max_bases=1, scan_rows=n, min_relative_gain=0.001)
     assert found == {}
     assert provenance == []
 
