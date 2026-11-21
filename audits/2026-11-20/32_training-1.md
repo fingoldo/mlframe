@@ -73,3 +73,4 @@ Grep and Read used for caller checks: `core/_phase_dummy_baselines.py` (the try/
 - 32-F4: FIXED. a non-finite global mean returns the minimum pseudocount (finite); tests/training/test_cluster32_baseline_fixes.py. Residual: the finding's preferred option, dropping non-finite y before the estimate, is not implemented; the caller still computes the mean from NaN-bearing y
 - 32-F5: FIXED. nanmedian and nanquantile for the quantile baselines; no separate test
 - 32-F6: FIXED. nanstd for the cross-output scale, non-finite scales skipped, non-finite normalized means excluded before the pick; no separate test
+- 32-F10: FIXED. Integer timestamps go through the same unit detector as object timestamps, so epoch seconds are no longer read as nanoseconds. Test tests/training/test_cluster32_integer_epoch_seconds_unit.py.
