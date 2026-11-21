@@ -687,3 +687,9 @@
 | 01-F4 | DEFERRED | Bench re-implements the ECI histogram and entropy instead of calling the shipped function. Bench-only rewrite; deferred. |
 | 01-F6 | DEFERRED | Bench draws labels with a per-row Python loop (performance only). Bench-only; deferred. |
 | 01-F8 | DEFERRED | Bench verdict rests on a parallel-vs-serial comparison that needs re-measuring. Bench-only; deferred. |
+| 02-F1 | FIXED | The reported wall time comes from an un-profiled call (_cprofile_bench_shared). Bench-only; verified by reading. |
+| 02-F2 | DEFERRED | Bench-only group of scripts (seeding and setup); not read in this pass. Deferred to a bench pass. |
+| 02-F3 | DEFERRED | Bench-only group of scripts; not read in this pass. Deferred to a bench pass. |
+| 03-F1 | DEFERRED | Bench-only perf: the cProfile section reruns the full workload. Deferred. |
+| 03-F2 | DEFERRED | Bench-only: the harness times but does not assert equality. Production equality is covered by tests/core/test_robust_mean_parallel_matches_serial.py. |
+| 03-F3 | FIXED | Production parallel-vs-serial robust mean agreement is tested (tests/core/test_robust_mean_parallel_matches_serial.py, passing). |

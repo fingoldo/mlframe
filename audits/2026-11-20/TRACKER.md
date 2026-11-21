@@ -141,3 +141,9 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 01-F4 | 01_calibration.md | DEFERRED | Bench re-implements shipped ECI code. Bench-only rewrite. |
 | 01-F6 | 01_calibration.md | DEFERRED | Bench per-row label loop (perf). Bench-only. |
 | 01-F8 | 01_calibration.md | DEFERRED | Bench verdict needs re-measuring. Bench-only. |
+| 02-F1 | 02_competition.md | FIXED | Wall time from an un-profiled call. Bench-only. |
+| 02-F2 | 02_competition.md | DEFERRED | Bench-only group, not read. |
+| 02-F3 | 02_competition.md | DEFERRED | Bench-only group, not read. |
+| 03-F1 | 03_core.md | DEFERRED | Bench-only perf. |
+| 03-F2 | 03_core.md | DEFERRED | Bench-only; production covered by test. |
+| 03-F3 | 03_core.md | FIXED | Production parallel-vs-serial test passing (test_robust_mean_parallel_matches_serial.py). |
