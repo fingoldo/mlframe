@@ -175,10 +175,9 @@ def fast_log_loss(y_true: np.ndarray, y_pred: np.ndarray, eps: Optional[float] =
     Returns:
         Binary cross-entropy loss.
     """
-    if isinstance(y_true, (pd.Series, pl.Series)):
-        y_true = y_true.to_numpy()
-    if isinstance(y_pred, (pd.Series, pl.Series)):
-        y_pred = y_pred.to_numpy()
+    # A sklearn drop-in takes lists too: convert before reading any attribute (audit 25-F45).
+    y_true = np.asarray(y_true.to_numpy() if isinstance(y_true, (pd.Series, pl.Series)) else y_true)
+    y_pred = np.asarray(y_pred.to_numpy() if isinstance(y_pred, (pd.Series, pl.Series)) else y_pred)
 
     # Ensure float type for numba
     if y_true.dtype not in (np.float32, np.float64):

@@ -50,13 +50,12 @@ def _cluster_anchors(ranked_features: Sequence[str], data: FloatMatrix, corr_thr
         cols = list(ranked_features)
         mat = np.asarray(data, dtype=np.float64)  # Intentional float64: float32 narrowing destroys a large-offset column before it is centred
 
+    if not cols:
+        return {}
     n_cols = mat.shape[1] if mat.ndim == 2 else 0
-    if n_cols != len(cols) or n_cols == 0:
-        # data doesn't line up with the requested features - every feature is its own cluster (no pruning).
-        clusters: dict = {}
-        for f in ranked_features:
-            clusters[f] = [f]
-        return clusters
+    if n_cols != len(cols):
+        # Silently making every feature its own cluster turned diversify=True into a no-op with no sign of it (audit 25-F24). Refuse.
+        raise ValueError(f"_cluster_anchors: data has {n_cols} column(s) but {len(cols)} ranked feature(s) were given; they must line up")
 
     if np.isnan(mat).any():
         # pairwise-complete correlation: one NaN must not turn a column's whole correlation row into 0 (every feature its own cluster).

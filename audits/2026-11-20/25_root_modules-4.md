@@ -140,3 +140,8 @@ Method: four parallel sub-audits read every listed file fully and grepped caller
 - 25-F33: FIXED. fast_roc_curve uses the same positive-label rule as fast_roc_auc and refuses a NaN score as sklearn does. Note: fast_roc_auc returns NaN for NaN scores; the curve raises. Test tests/metrics/test_cluster25_roc_labels_and_err_bounds.py.
 - 25-F46: FIXED. expected_reciprocal_rank rejects a negative label. Test tests/metrics/test_cluster25_roc_labels_and_err_bounds.py.
 - 25-F30: FIXED. A CatBoost fold no longer receives its scored test fold as eval_set, so best-iteration selection cannot use it. Behaviour change: CatBoost folds now run to their full iteration count. Test tests/inference/test_cluster25_catboost_fold_never_uses_test_as_eval.py.
+- 25-F24: FIXED. A width mismatch between data and ranked features raises ValueError instead of turning diversification off. Test tests/metrics/test_cluster25_contract_fixes.py::test_width_mismatch_refuses_rather_than_disabling_diversification.
+- 25-F38: FIXED. compute_fairness_metrics returns an empty DataFrame with the documented index when no subgroup produced a row. Test tests/metrics/test_cluster25_contract_fixes.py.
+- 25-F45: FIXED. fast_log_loss_binary converts its inputs with np.asarray before reading attributes, so lists work. Test tests/metrics/test_cluster25_contract_fixes.py.
+- 25-F54: FIXED. The return annotation of prepare_trials_dataset is the tuple it returns. Test tests/metrics/test_cluster25_contract_fixes.py.
+- 25-F25: DEFERRED. Needs an owner decision on the run lifecycle: _start_run_with_retries ends the run before returning it, so the caller's handle is already closed. Removing end_run changes when runs close for every caller.

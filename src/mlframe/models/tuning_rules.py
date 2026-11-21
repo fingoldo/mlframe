@@ -281,7 +281,7 @@ def preprocess_df(df: pd.DataFrame, cat_features: list) -> None:
         df[var] = df[var].fillna("")
 
 
-def prepare_trials_dataset(experiment_name: str, objective_name: str) -> pd.DataFrame:
+def prepare_trials_dataset(experiment_name: str, objective_name: str) -> tuple[pd.DataFrame, list]:
     """Load historical trial params + results for one experiment/objective from the DB and build a training dataframe.
 
     Fetches every trial row for ``experiment_name`` whose ``results`` include ``objective_name``, attaches the
