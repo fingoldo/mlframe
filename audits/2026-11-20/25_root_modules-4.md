@@ -139,3 +139,4 @@ Method: four parallel sub-audits read every listed file fully and grepped caller
 - 25-F27: FIXED. The docstring now says hard mode repeats to a fixpoint and soft mode is one ordered pass. The code is unchanged. Test tests/inference/test_cluster25_soft_constraints_single_pass.py.
 - 25-F33: FIXED. fast_roc_curve uses the same positive-label rule as fast_roc_auc and refuses a NaN score as sklearn does. Note: fast_roc_auc returns NaN for NaN scores; the curve raises. Test tests/metrics/test_cluster25_roc_labels_and_err_bounds.py.
 - 25-F46: FIXED. expected_reciprocal_rank rejects a negative label. Test tests/metrics/test_cluster25_roc_labels_and_err_bounds.py.
+- 25-F30: FIXED. A CatBoost fold no longer receives its scored test fold as eval_set, so best-iteration selection cannot use it. Behaviour change: CatBoost folds now run to their full iteration count. Test tests/inference/test_cluster25_catboost_fold_never_uses_test_as_eval.py.
