@@ -710,3 +710,8 @@
 | 05-F3 | FIXED | The shared fixture's docstring is rewritten to name its consumers. Docs only. |
 | 05-F5 | FIXED | functools moved into the stdlib import group. Import order only. |
 | 05-F6 | FIXED | Smoke test imports each benchmark script and builds its fixtures at tiny sizes, so signature drift surfaces in the test run. Test tests/data_valuation/test_cluster05_benchmark_helpers_smoke.py. |
+| 06-F1 | FIXED | The bench's NEW side is the production MyDecorrelator.fit and its OLD side a labelled replica; the git show call that decoded nothing is removed. |
+| 06-F2 | FIXED | The bench times and gates the production class instead of a copy of its logic. |
+| 06-F3 | FIXED | The dead git show subprocess is removed with the 06-F1 fix. |
+| 06-F4 | FIXED | The production drop set is one reduction over the upper triangle, same positions (custom.py). Covered by test_cpx39_decorrelator_identity.py. |
+| 06-F5 | FIXED | Constant and all-NaN columns are checked against the loop rule. Test tests/estimators/test_cluster06_decorrelator_constant_and_nan_columns.py. |

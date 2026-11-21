@@ -2,17 +2,17 @@
 
 Run: CUDA_VISIBLE_DEVICES="" python src/mlframe/estimators/_benchmarks/bench_cpx39_decorrelator.py
 
-OLD side is loaded via ``git show HEAD:...`` so we A/B two real artifacts, not a from-memory rewrite.
-Warm + best-of-N; identity gate on the dropped-columns set across several seeds / correlation structures.
+The NEW side is the production class ``MyDecorrelator(threshold).fit(X)``. The OLD side is a replica of the
+pre-vectorisation double loop, kept here as the reference the identity gate compares against. It is not loaded from git
+history: this bench does not read an old revision of custom.py, so its OLD timing describes the replica, and a change to
+the production class shows up in the NEW column and in the identity check (audit 06-F1, 06-F2, 06-F3).
+Warm + best-of-N; identity gate on ``correlated_features_`` across several seeds.
 """
-
-import os, subprocess  # nosec B404 - subprocess used below with fixed list args, no shell=True
 
 import numpy as np, pandas as pd
 
 from mlframe._bench_timing_shared import best_of_seconds
-
-REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+from mlframe.estimators.custom import MyDecorrelator
 
 
 def _make_data(n=5000, p=200, n_corr_pairs=40, seed=0):
@@ -26,37 +26,27 @@ def _make_data(n=5000, p=200, n_corr_pairs=40, seed=0):
     return pd.DataFrame(X)
 
 
-def _old_fit_factory():
-    """Load HEAD's MyDecorrelator.fit body as a standalone function."""
-    subprocess.check_output(["git", "show", "HEAD:src/mlframe/estimators/custom.py"], cwd=REPO).decode("utf-8")  # nosec B603, B607 - fixed/trusted executable (git) with list args, no untrusted input, resolved via PATH intentionally
-    # Extract the class and build it in an isolated namespace.
-    # pull just the fit logic to avoid importing sklearn base; replicate old loop directly:
-    def old_fit(X, threshold):
-        correlated_features = set()
-        X = pd.DataFrame(X)
-        corr_matrix = X.corr()
-        for i in range(len(corr_matrix.columns)):
-            for j in range(i):
-                if abs(corr_matrix.iloc[i, j]) > threshold:
-                    colname = corr_matrix.columns[i]
-                    correlated_features.add(colname)
-        return correlated_features
-    return old_fit
+def _old_fit(X, threshold):
+    """Replica of the pre-vectorisation loop: a column is flagged when an EARLIER column correlates above threshold. Returns integer positions."""
+    corr_matrix = pd.DataFrame(X).corr()
+    flagged = set()
+    for i in range(len(corr_matrix.columns)):
+        for j in range(i):
+            if abs(corr_matrix.iloc[i, j]) > threshold:
+                flagged.add(i)
+    return flagged
 
 
 def _new_fit(X, threshold):
-    X = pd.DataFrame(X)
-    corr_matrix = X.corr()
-    cols = corr_matrix.columns
-    upper = np.triu(np.abs(corr_matrix.to_numpy()), k=1)
-    return {cols[c] for c in range(len(cols)) if (upper[:, c] > threshold).any()}
+    """The production class's fit: its ``correlated_features_`` (integer positions)."""
+    return set(MyDecorrelator(threshold).fit(X).correlated_features_)
 
 
 _best_of = best_of_seconds
 
 
 def main():
-    old_fit = _old_fit_factory()
+    old_fit = _old_fit
     threshold = 0.9
     print(f"{'shape':>12} {'OLD ms':>10} {'NEW ms':>10} {'speedup':>8} {'identity':>9}")
     all_ident = True
