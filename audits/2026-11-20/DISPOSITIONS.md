@@ -754,3 +754,4 @@
 | 25-F34 | FIXED | The GPU multi-column ROC primitive returns NaN for a column whose scores contain NaN, matching the CPU batch path. Test tests/metrics/test_cluster25_gpu_roc_masks_nan_columns.py (cupy-gated). |
 | 25-F31 | FIXED | GroupTimeSeriesSplit builds its per-group indices with one stable sort instead of a per-sample loop; the folds are unchanged. Test tests/models/test_cluster25_group_time_split_vectorised.py; 21 existing group-split tests pass. |
 | 25-F37 | FIXED | The NaN fill is one dict construction and the NaN count only walks the valid groups; output unchanged. Test tests/metrics/test_cluster25_group_aucs_nan_fill_vectorised.py. |
+| 25-F44 | FIXED | Integer multilabel input is validated by its min and max instead of a float64 copy; the 0/1 rule and the uint8 result are unchanged. Test tests/metrics/test_cluster25_multilabel_coerce_integer_range.py. |
