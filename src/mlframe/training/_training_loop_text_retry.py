@@ -56,7 +56,8 @@ def retry_params_after_empty_text_dictionary(model: Any, train_df: Any, train_ta
             else:
                 _bad = unusable_text_features(train_df, train_target, text_feat, verbose=True)
         except Exception as _probe_exc:
-            logger.debug("text-feature probe unavailable (%s); dropping all text features", _probe_exc)
+            # The cause goes to WARNING with its traceback: a bug in the probe silently demoted every text feature at default log level (audit 28-F42).
+            logger.warning("text-feature probe unavailable (%s); dropping all text features", _probe_exc, exc_info=True)
             _bad = {c: "probe unavailable" for c in text_feat}
         _keep = [c for c in text_feat if c not in _bad]
         if _bad:

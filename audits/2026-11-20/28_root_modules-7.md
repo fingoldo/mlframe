@@ -125,3 +125,5 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F11: FIXED. The auto-wrap switch is carried on the control config the training loop reads (set by _build_control_config), so False is honoured. Test tests/training/test_cluster28_wrap_flag_reaches_control.py.
 - 28-F14: FIXED. An existing bundle that cannot be read raises instead of falling back to an unverified reopen. Test tests/training/test_cluster28_unreadable_bundle_raises.py.
 - 28-F16: FIXED (test pending). Validation cache hit re-applies init_score (lgb_shim). A test needs a full cached fit through fit(); not yet written.
+- 28-F42: FIXED. A failed text-feature probe logs at WARNING with its traceback. Test tests/training/test_cluster28_probe_and_names_warn.py (covers the names path; the probe path shares the same change).
+- 28-F49: FIXED. An unreadable feature-name list logs at WARNING, and the attribute read itself is inside the guard. Test tests/training/test_cluster28_probe_and_names_warn.py.
