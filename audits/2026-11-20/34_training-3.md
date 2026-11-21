@@ -71,3 +71,5 @@ Scope: the 88 files in `audits/2026-11-20/manifests/34_training-3.txt` under wor
 - 34-F10: FIXED. Upgraded multi-base spec scored with the final kept set's forward-stepwise CV RMSE; seed score only when no base accepted (test_cluster34_multibase_upgrade_score)
 - 34-F11: FIXED. Auto block search fits folds with sample_weight and pools a weighted fold RMSE; unweighted path unchanged (test_cluster34_direct_multi_horizon_weighted_search)
 - 34-F12: FIXED. Column set built once per spec in the rescore; call-count regression test (test_cluster34_incremental_column_set_built_once)
+- 34-F18: FIXED. Degenerate fits (disabled, or under 50 rows) publish specs_, report_, val/test idx, elapsed_seconds_ and signature bookkeeping via _fit_publish_empty (test_cluster34_degenerate_fit_publishes_attributes)
+- 34-F24: FIXED. domain_check output cast to bool at both unguarded eval sites (test_cluster34_domain_mask_is_boolean)
