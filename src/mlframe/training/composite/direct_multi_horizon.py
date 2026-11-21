@@ -156,22 +156,36 @@ class DirectMultiHorizonEnsemble(RegressorMixin, BaseEstimator):
             keep = (rows < test_idx[0] - purge) | (rows > test_idx[-1] + purge)
             yield rows[keep], test_idx
 
-    def _cv_score_block_size(self, X: Any, Y_arr: np.ndarray, block_size: int) -> float:
-        """Score a candidate contiguous block size via K-fold CV pooled RMSE."""
+    def _cv_score_block_size(self, X: Any, Y_arr: np.ndarray, block_size: int, sample_weight: Optional[np.ndarray] = None) -> float:
+        """Score a candidate contiguous block size via K-fold CV pooled RMSE.
+
+        With ``sample_weight`` both the fold fits and the pooled error are weighted, so the partition is chosen on the same
+        objective the final block models are fit to (audit 34-F11). Without weights the result is the unweighted pooled RMSE.
+        """
         n_horizons = Y_arr.shape[1]
         blocks = _contiguous_blocks(n_horizons, block_size)
         n = Y_arr.shape[0]
         has_iloc = hasattr(X, "iloc")
-        fold_errors = []
+        sw = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64).ravel()
+        sq_sum = 0.0
+        weight_sum = 0.0
         for train_idx, test_idx in self._block_search_folds(n, n_horizons):
             X_train = X.iloc[train_idx] if has_iloc else X[train_idx]
             X_test = X.iloc[test_idx] if has_iloc else X[test_idx]
-            models = self._fit_blocks(X_train, Y_arr[train_idx], blocks)
+            sw_train = None if sw is None else sw[train_idx]
+            models = self._fit_blocks(X_train, Y_arr[train_idx], blocks, sample_weight=sw_train)
             pred = self._predict_blocks(X_test, blocks, models, n_horizons)
-            fold_errors.append((pred - Y_arr[test_idx]) ** 2)
-        return float(np.sqrt(np.mean(np.concatenate([e.ravel() for e in fold_errors]))))
+            err = (pred - Y_arr[test_idx]) ** 2
+            if sw is None:
+                sq_sum += float(err.sum())
+                weight_sum += float(err.size)
+            else:
+                w_test = sw[test_idx][:, None]
+                sq_sum += float((err * w_test).sum())
+                weight_sum += float(w_test.sum() * n_horizons)
+        return float(np.sqrt(sq_sum / weight_sum))
 
-    def _search_horizon_blocks(self, X: Any, Y_arr: np.ndarray) -> list[list[int]]:
+    def _search_horizon_blocks(self, X: Any, Y_arr: np.ndarray, sample_weight: Optional[np.ndarray] = None) -> list[list[int]]:
         """Grid-search contiguous block sizes by CV RMSE and return the winning block partition."""
         n_horizons = Y_arr.shape[1]
         grid = list(self.block_size_grid) if self.block_size_grid is not None else self._default_block_size_grid(n_horizons)
@@ -179,7 +193,7 @@ class DirectMultiHorizonEnsemble(RegressorMixin, BaseEstimator):
         best_block_size = grid[0]
         best_rmse = np.inf
         for block_size in grid:
-            rmse = self._cv_score_block_size(X, Y_arr, block_size)
+            rmse = self._cv_score_block_size(X, Y_arr, block_size, sample_weight=sample_weight)
             blocks = _contiguous_blocks(n_horizons, block_size)
             report.append({"block_size": block_size, "n_blocks": len(blocks), "cv_rmse": rmse})
             if rmse < best_rmse:
@@ -221,7 +235,7 @@ class DirectMultiHorizonEnsemble(RegressorMixin, BaseEstimator):
             self._validate_blocks(self.horizon_blocks, Y_arr.shape[1])
             self.horizon_blocks_: list[list[int]] = [list(block) for block in self.horizon_blocks]
         elif self.auto_block_search:
-            self.horizon_blocks_ = self._search_horizon_blocks(X, Y_arr)
+            self.horizon_blocks_ = self._search_horizon_blocks(X, Y_arr, sample_weight=sample_weight)
         else:
             raise ValueError("horizon_blocks must be given, or auto_block_search=True to discover it via CV grid search.")
 

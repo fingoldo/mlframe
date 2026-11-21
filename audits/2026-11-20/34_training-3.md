@@ -69,3 +69,4 @@ Scope: the 88 files in `audits/2026-11-20/manifests/34_training-3.txt` under wor
 - 34-F4: FIXED. Collinear replay re-checks every column exactly (commit 9c32cf0b1). Test test_cluster34_auto_base_mrmr_and_collinear.py.
 - 34-F9: PARTIAL. Per-fold refit failure logged at WARNING with exception class (test_cluster34_fold_refit_failure_is_visible). Not done: marking the spec as leaked-param-scored; unreachable from default discovery since grouped transforms are rejected upstream.
 - 34-F10: FIXED. Upgraded multi-base spec scored with the final kept set's forward-stepwise CV RMSE; seed score only when no base accepted (test_cluster34_multibase_upgrade_score)
+- 34-F11: FIXED. Auto block search fits folds with sample_weight and pools a weighted fold RMSE; unweighted path unchanged (test_cluster34_direct_multi_horizon_weighted_search)

@@ -130,6 +130,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 34-F4 | 34_training-3.md | FIXED | Collinear replay skipped re-checking non-borderline columns after a flip (commit 9c32cf0b1). Test test_cluster34_auto_base_mrmr_and_collinear.py. |
 | 34-F9 | 34_training-3.md | PARTIAL | Per-fold refit failure silently fell back to leaked global params; now WARNING. Spec not marked (unreachable from default discovery). Test test_cluster34_fold_refit_failure_is_visible.py. |
 | 34-F10 | 34_training-3.md | FIXED | Upgraded multi-base spec carried the seed's tiny-rerank score; now uses the final kept set's CV RMSE. Test test_cluster34_multibase_upgrade_score.py. |
+| 34-F11 | 34_training-3.md | FIXED | Block-size search ignored sample_weight used by the final fit. Test test_cluster34_direct_multi_horizon_weighted_search.py. |
 | 40-F9 | 40_training-9.md | FIXED | All-null categorical maps to unknown code at predict. Test test_cluster40_all_null_categorical_predicts.py. |
 | 40-F10 | 40_training-9.md | FIXED | Unequal hidden_layers refused at construction (default choice; per-layer sizes not supported by the builder). Test test_cluster40_ranker_refuses_unequal_hidden_layers.py. |
 | 40-F15 | 40_training-9.md | FIXED | Entity-time module refuses an unaligned split (test test_cluster40_entity_time_refuses_unaligned_split.py). Latent-SVD, MA no-group path and nearest-past-join still open. |
