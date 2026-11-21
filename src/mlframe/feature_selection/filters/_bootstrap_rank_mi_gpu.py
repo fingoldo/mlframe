@@ -21,7 +21,7 @@ from ._ktc_fallback import device_from_rows
 
 
 from ._raw_module_cache import RawModuleCache
-from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # noqa: F401  (thrust aborts the process on a short pool)
+from mlframe.feature_selection.filters._device_sort_safe import device_argsort, device_sort  # (thrust aborts the process on a short pool)
 from ._fe_gpu_vram import pool_column_block
 from ._gpu_resident_select_kernels import _transpose_to_cm
 from ._kernel_types import render
@@ -189,6 +189,27 @@ def _ties_on_device() -> bool:
     return os.environ.get("MLFRAME_BOOTSTRAP_RANK_TIES_DEVICE", "1").strip().lower() in ("1", "true", "on", "yes")
 
 
+def _sorted_block_packed(cp, mono, width: int, n: int):
+    """``(ord32, tie)`` of a block of ``width`` columns of ``n`` rows (``mono`` the order-preserving 32-bit keys, as uint64) from ONE plain sort of packed 64-bit keys, or ``None`` when the column index, the value
+    key and the row index do not fit 64 bits together (the caller then argsorts).
+
+    The key is ``column | value key | row``: sorting it orders every column's rows by value with the row index in the low bits, so the permutation is read off the sorted keys, and the tie flags
+    (a row equal to the next sorted row) come from the bits above the row index. ``argsort`` of the (column | value) keys needed a sort by key with values plus two gathers of the keys by the permutation;
+    this is one sort and shifts. A run of equal values is ordered by row index here and arbitrarily by the argsort; the walk is independent of the order inside a run (see the kernel), so the MI is the same."""
+    row_bits = max(1, (int(n) - 1).bit_length())
+    col_bits = max(1, (int(width) - 1).bit_length())
+    if 32 + row_bits + col_bits > 64:
+        return None
+    key = (cp.arange(width, dtype=cp.uint64)[:, None] << np.uint64(32 + row_bits)) | (mono << np.uint64(row_bits)) | cp.arange(n, dtype=cp.uint64)[None, :]
+    srt = device_sort(key.ravel())
+    del key
+    ord32 = (srt & np.uint64((1 << row_bits) - 1)).astype(cp.int32).reshape(width, n)
+    upper = srt >> np.uint64(row_bits)
+    tie = cp.zeros(width * n, dtype=cp.uint8)
+    tie[:-1] = (upper[1:] == upper[:-1]).astype(cp.uint8)
+    return ord32, tie.reshape(width, n)
+
+
 def distinct_walk_gpu(arr: np.ndarray, prep: dict, n_bins: int) -> "tuple[np.ndarray, np.ndarray] | None":
     """``(mi (B, k), done (k,) bool)``: the MI of every fully distinct finite column of ``arr`` ``(n, k)`` for the resamples of ``prep`` (from ``_resample_tables`` with the walk tables), the other columns left to the host.
 
@@ -222,15 +243,20 @@ def distinct_walk_gpu(arr: np.ndarray, prep: dict, n_bins: int) -> "tuple[np.nda
             finite = cp.isfinite(xd).all(axis=1)
             bits = xd.view(cp.uint32)
             mono = cp.where(bits >> 31 == 1, ~bits, bits | np.uint32(0x80000000)).astype(cp.uint64)
-            keys = ((cp.arange(width, dtype=cp.uint64)[:, None] << np.uint64(32)) | mono).ravel()
-            del xd, bits, mono
-            order = device_argsort(keys)
-            tie = cp.zeros(width * n, dtype=cp.uint8)
-            tie[:-1] = (keys[order][1:] == keys[order][:-1]).astype(cp.uint8)  # a row equal to the next sorted row (the high word keeps columns apart)
-            tie = tie.reshape(width, n)
+            packed = _sorted_block_packed(cp, mono, width, n)
+            if packed is not None:
+                ord32, tie = packed
+                del mono
+            else:
+                keys = ((cp.arange(width, dtype=cp.uint64)[:, None] << np.uint64(32)) | mono).ravel()
+                del mono
+                order = device_argsort(keys)
+                tie = cp.zeros(width * n, dtype=cp.uint8)
+                tie[:-1] = (keys[order][1:] == keys[order][:-1]).astype(cp.uint8)  # a row equal to the next sorted row (the high word keeps columns apart)
+                tie = tie.reshape(width, n)
+                ord32 = (order.reshape(width, n) - (cp.arange(width, dtype=cp.int64) * n)[:, None]).astype(cp.int32)
+                del keys, order
             n_equal = tie.sum(axis=1)
-            ord32 = (order.reshape(width, n) - (cp.arange(width, dtype=cp.int64) * n)[:, None]).astype(cp.int32)
-            del keys, order
             take = finite & (n_equal <= int(MAX_TIE_FRACTION * n if _ties_on_device() else 0))
             ok = np.flatnonzero(cp.asnumpy(take))
             if ok.size == 0:
