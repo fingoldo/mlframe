@@ -134,3 +134,4 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F41: FIXED. Every grid label is planned and checked before the first variant runs, so a duplicate refuses the grid with nothing trained. Test tests/training/test_cluster28_grid_labels_checked_before_runs.py.
 - 28-F43: FIXED. A rejected CatBoost set_params is logged at WARNING before the private _init_params fallback is written. Test tests/training/test_cluster28_cb_set_params_fallback_logged.py.
 - 28-F35: FIXED. The drift helper converts nullable pandas columns to float with NaN for pd.NA, so the sensor is not dropped. Test tests/training/test_cluster28_drift_nullable_column.py.
+- 28-F33: FIXED. The binary default is applied whenever no task key is given, after the time budget is merged, so a budget no longer drops it. No local test: lightautoml is not installed here; the test skips without it. Verified by reading the change.

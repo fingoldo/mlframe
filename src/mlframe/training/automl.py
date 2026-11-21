@@ -231,9 +231,12 @@ def train_lama_model(
         logger.exception("LightAutoML not available")
         return None
 
-    # Default to binary classification if no init_params provided
-    if init_params is None:
-        init_params = {"task": Task("binary")}
+    # Default to binary classification when no task is given. The time budget is merged into init_params by the caller, so the
+    # test must be on the task key itself: keying it on init_params being None skipped the binary default whenever a budget was set
+    # (audit 28-F33).
+    init_params = dict(init_params or {})
+    if "task" not in init_params:
+        init_params["task"] = Task("binary")
     fit_params = fit_params or {}
 
     if verbose:
