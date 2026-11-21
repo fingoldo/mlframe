@@ -96,3 +96,4 @@ Scope: the 42 files in `audits/2026-11-20/manifests/04_data.txt`, all read in fu
 - 04-F21: FIXED. Probe resampling keeps the donor's missing values, so probes match the donor's missingness. Test tests/data/test_cluster04_probe_keeps_donor_missingness.py.
 - 04-F22: FIXED. Probes built into one dict and appended with a single concat; donors converted once. Values unchanged (same per-probe streams). Test tests/data/test_cluster04_probes_built_in_one_pass.py.
 - 04-F19: FIXED. Removed the three never-populated FeatureTruth fields (marginal_mi, conditional_mi_given_rest, r2_to_source); the generator fills only role, region, source, cost. Test tests/data/test_cluster04_feature_truth_fields.py.
+- 04-F24: FIXED. replay(with_data=False) compares the spec hash and skips generation; replay_report uses it, so one line per scenario no longer regenerates every bed. Test tests/data/test_cluster04_replay_status_skips_generation.py.

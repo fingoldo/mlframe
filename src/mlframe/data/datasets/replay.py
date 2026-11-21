@@ -64,7 +64,7 @@ def spec_hash_for(scenario: str, seed: int = 0) -> Optional[str]:
         return None
 
 
-def replay(scenario: str, seed: int, expected_hash: Optional[str] = None) -> ReplayResult:
+def replay(scenario: str, seed: int, expected_hash: Optional[str] = None, *, with_data: bool = True) -> ReplayResult:
     """Regenerate one bed and say whether it is the bed a recorded result was measured on.
 
     Args:
@@ -74,6 +74,9 @@ def replay(scenario: str, seed: int, expected_hash: Optional[str] = None) -> Rep
             data but CANNOT certify it, and says so: a replay whose status is "unverified" is a different
             claim from one whose status is "exact", and collapsing them is the whole failure this module
             exists to prevent.
+        with_data: Generate the bed. False answers the status question alone: the spec hash is compared
+            first and ``dataset`` stays None, so a caller that only reports status (``replay_report``) does
+            not regenerate every scenario's data (audit 04-F24).
 
     Returns:
         A :class:`ReplayResult`.
@@ -89,7 +92,7 @@ def replay(scenario: str, seed: int, expected_hash: Optional[str] = None) -> Rep
 
     spec = entry.build(seed=seed)
     actual = spec.content_hash()
-    dataset = generate(spec)
+    dataset = generate(spec) if with_data else None
 
     if expected_hash is None:
         return ReplayResult(scenario=scenario, seed=seed, status="unverified", expected_hash=None, actual_hash=actual, dataset=dataset, reason="the record carries no spec hash, so this data cannot be certified as the data the result was measured on")
@@ -123,7 +126,7 @@ def replay_report(records: List[Dict[str, Any]]) -> List[str]:
     for record in records:
         scenario = str(record.get("scenario", ""))
         if scenario and scenario not in seen:
-            seen[scenario] = replay_from_record(record)
+            seen[scenario] = replay(scenario, int(record.get("dataset_seed", 0)), record.get("spec_hash"), with_data=False)
 
     lines = ["", "=" * 100, "CAN THESE RESULTS' BEDS STILL BE REBUILT?", "=" * 100, ""]
     if not seen:
