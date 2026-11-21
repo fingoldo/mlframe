@@ -715,3 +715,7 @@
 | 06-F3 | FIXED | The dead git show subprocess is removed with the 06-F1 fix. |
 | 06-F4 | FIXED | The production drop set is one reduction over the upper triangle, same positions (custom.py). Covered by test_cpx39_decorrelator_identity.py. |
 | 06-F5 | FIXED | Constant and all-NaN columns are checked against the loop rule. Test tests/estimators/test_cluster06_decorrelator_constant_and_nan_columns.py. |
+| 07-F1 | FIXED | The docstring names _two_sided_t and its lru_cache thrash, not the nonexistent uncached norm.ppf. Docs only; the bench is cost-only. |
+| 07-F2 | FIXED | The dead argsort and empty rank array are removed from _fast_auc; ranks are still rankdata. Test tests/evaluation/test_cluster07_bench_fixes.py. |
+| 07-F3 | FIXED | Failed bootstrap trials are logged at WARNING and counted, and a run with more than 5% failures raises instead of reporting coverage over the survivors. Test tests/evaluation/test_cluster07_bench_fixes.py. |
+| 07-F4 | FIXED | Only the constructed leak is swallowed; any other ValueError from the guard propagates. Test tests/evaluation/test_cluster07_bench_fixes.py. |

@@ -43,8 +43,11 @@ def _run_near_duplicate(n_entities: int, copies_per_entity: int, n_features: int
             near_duplicate_metric="euclidean",
             near_duplicate_max_neighbor_distance=0.05,
         )
-    except ValueError:
-        pass  # expected: this synthetic dataset IS leaky by construction; we're only timing the check itself.
+    except ValueError as err:
+        # Expected: this synthetic dataset IS leaky by construction, and we are timing the check. Any other ValueError (bad
+        # arguments, an unsupported metric) is a failure of the measurement itself and must not be swallowed (audit 07-F4).
+        if "both sides" not in str(err) and "near-duplicate" not in str(err):
+            raise
 
 
 if __name__ == "__main__":

@@ -46,3 +46,7 @@ Scope: 24 files under `src/mlframe/evaluation/_benchmarks/` from `audits/2026-11
 - 07-F12: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
 - 07-F13: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
 - 07-F14: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 07-F1: FIXED. The docstring names _two_sided_t and its lru_cache thrash, not the nonexistent uncached norm.ppf. Docs only; the bench is cost-only.
+- 07-F2: FIXED. The dead argsort and empty rank array are removed from _fast_auc; ranks are still rankdata. Test tests/evaluation/test_cluster07_bench_fixes.py.
+- 07-F3: FIXED. Failed bootstrap trials are logged at WARNING and counted, and a run with more than 5% failures raises instead of reporting coverage over the survivors. Test tests/evaluation/test_cluster07_bench_fixes.py.
+- 07-F4: FIXED. Only the constructed leak is swallowed; any other ValueError from the guard propagates. Test tests/evaluation/test_cluster07_bench_fixes.py.
