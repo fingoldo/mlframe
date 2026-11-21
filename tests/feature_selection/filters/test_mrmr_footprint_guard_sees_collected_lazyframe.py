@@ -14,7 +14,9 @@ from mlframe.feature_selection.filters import _mrmr_validate_transform as vt
 
 def _stub():
     """The minimal MRMR-like object ``_validate_inputs`` reads."""
-    return types.SimpleNamespace(_validate_string_params=lambda: None, quantization_nbins=10, interactions_max_order=2, fe_max_steps=0)
+    return types.SimpleNamespace(
+        _validate_string_params=lambda: None, quantization_nbins=10, quantization_method="quantile", nbins_strategy=None, interactions_max_order=2, fe_max_steps=0
+    )
 
 
 def test_lazyframe_is_checked_against_free_ram_after_collect(monkeypatch):

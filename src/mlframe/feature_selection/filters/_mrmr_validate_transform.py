@@ -141,8 +141,29 @@ def _warn_transform_dtype_drift(self, X, columns) -> None:
         )
 
 
-def _check_fit_footprint(X):
-    """Refuse a fit whose int32 binned working set would exceed half of the free RAM; a no-op for frames without a row count."""
+def _planned_code_itemsize(self) -> int:
+    """Bytes per cell of the binned codes this fit will allocate: the compact code storage plan of its binning settings, resolved from the same strategy keywords the fit passes to the binner (one byte while the codes stay below 128)."""
+    import numpy as _np
+
+    from ._mrmr_fit_impl._fit_impl_stages._binning import _strategy_kwargs
+    from .discretization._code_storage_plan import plan_code_storage
+
+    _strategy = getattr(self, "nbins_strategy", None)
+    plan = plan_code_storage(
+        n_bins=int(self.quantization_nbins),
+        method=str(self.quantization_method),
+        nbins_strategy=None if _strategy is None else str(_strategy),
+        nbins_strategy_kwargs=_strategy_kwargs(self, _strategy),
+        max_adaptive_nbins=int(getattr(self, "max_adaptive_nbins", 127) or 127),
+        max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None),
+        categorical_cardinalities=None,
+        user_dtype=getattr(self, "quantization_dtype", None),
+    )
+    return max(1, int(_np.dtype(plan.alloc_dtype).itemsize))
+
+
+def _check_fit_footprint(X, code_itemsize: int = 4):
+    """Refuse a fit whose binned working set (``code_itemsize`` bytes per cell, int32 by default) would exceed half of the free RAM; a no-op for frames without a row count."""
     n_rows = getattr(X, "shape", (None,))[0]
     if n_rows is not None:
         n_cols = X.shape[1] if len(X.shape) > 1 else 1
@@ -152,7 +173,7 @@ def _check_fit_footprint(X):
             raise ValueError("MRMR.fit: cannot fit on a single row")
         if isinstance(n_cols, int):
             # MRMR's binned-frame working set is roughly ``n_rows * n_cols * 4`` bytes (int32 per cell). The previous absolute 1e9 cell ceiling rejected datasets that comfortably fit in RAM on a modern 128 GB+ host while letting through wide-but-not-as-wide frames on a tiny 16 GB box. Compare to ``psutil.virtual_memory().available * 0.5`` - half of free RAM is the standard "safe working set" headroom for one stage of the pipeline.
-            _footprint_bytes = n_rows * n_cols * 4
+            _footprint_bytes = n_rows * n_cols * int(code_itemsize)
             # psutil is a HARD dependency (unconditional module-top import in mrmr/__init__ and _mrmr_class), so the import
             # here never fails - the try/except guards only a RUNTIME ``virtual_memory()`` failure (some sandboxed / container
             # hosts where the syscall errors), in which case ``_available_bytes=0`` disables the headroom check (permissive).
@@ -162,7 +183,7 @@ def _check_fit_footprint(X):
             except Exception as e:
                 log_throttle(
                     logger, "mrmr_ram_headroom_probe_failed", logging.WARNING,
-                    "MRMR.fit: psutil.virtual_memory() failed (%s: %s); the RAM headroom guard is OFF for this fit (~%.2f GB int32 working set unchecked)",
+                    "MRMR.fit: psutil.virtual_memory() failed (%s: %s); the RAM headroom guard is OFF for this fit (~%.2f GB working set unchecked)",
                     type(e).__name__, e, _footprint_bytes / 1e9,
                 )
                 _available_bytes = 0
@@ -170,7 +191,7 @@ def _check_fit_footprint(X):
             if _headroom_bytes > 0 and _footprint_bytes > _headroom_bytes:
                 raise ValueError(
                     f"MRMR.fit: refusing to allocate for n*p={n_rows * n_cols:_} "
-                    f"(~{_footprint_bytes / 1e9:.2f} GB int32 working set) on a host with "
+                    f"(~{_footprint_bytes / 1e9:.2f} GB working set at {int(code_itemsize)} byte(s) per cell) on a host with "
                     f"{_available_bytes / 1e9:.2f} GB available RAM; threshold is half of available "
                     f"(~{_headroom_bytes / 1e9:.2f} GB). Subsample, split the dataset, or free RAM "
                     "headroom before fitting."
@@ -185,7 +206,7 @@ def _validate_inputs(self, X, y):
     self._validate_string_params()
     _snapshot_fit_dtypes(self, X)
     import warnings as _w
-    _check_fit_footprint(X)
+    _check_fit_footprint(X, _planned_code_itemsize(self))
 
     if self.quantization_nbins > 1000:
         raise ValueError(f"quantization_nbins={self.quantization_nbins} > 1000 likely OOMs")

@@ -340,12 +340,12 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # quantization
         quantization_method: str = "quantile",
         quantization_nbins: int = 10,  # [ACCURACY-CAVEAT] <5 is too coarse for the plug-in MI; see _param_accuracy_warnings.ACCURACY_SUBOPTIMAL
-        quantization_dtype: type = np.int32,
+        quantization_dtype: type = np.int8,
         # Cap categorical column cardinality: any categorical with more than this many distinct codes folds its rare tail into one "other" bucket (top-(cap-1)
         # by frequency kept). None (default) = uncapped. A high-cardinality categorical has sparse contingency cells so its plug-in MI/CMI is unreliable
         # regardless (the analytic null guards on >=5 expected/cell); capping DENSIFIES the cells (better MI) AND lets the whole codes matrix stay a narrow int
         # - set to <=127 to keep the compact-codes storage int8 (4x smaller) even when legitimate high-card categoricals exist.
-        max_categorical_cardinality: int | None = 255,
+        max_categorical_cardinality: int | None = 127,
         # per-feature adaptive bin chooser. Default ``'mdlp'`` (Fayyad-Irani 1993, with njit-accelerated kernel) is the honest combined-ranking winner of the F1
         # leaderboard (``|err vs truth| + noise_floor``: MDLP 0.107, Sturges 0.135, quantile10 0.139, OptimalJoint 0.167, FD 0.175). MDLP is the only strategy
         # with a TRUE zero no-signal floor, which directly improves MRMR's relevance gate against false-positive feature picks. Pass ``nbins_strategy=None`` to
@@ -364,12 +364,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         nbins_strategy_kwargs: dict | None = None,
         # Shared per-column bin-count ceiling applied to every adaptive strategy whose own formula
         # has no natural upper bound (knuth, bayesian_blocks, freedman_diaconis) - see
-        # ``_adaptive_nbins.MAX_ADAPTIVE_NBINS``. 256 matches MDLP's own implicit ceiling
-        # (max_depth=8 -> 2**8 leaves), so every strategy answers "how many bins can one column
-        # produce" the same way by default. Lower it (e.g. 64) to bound downstream pairwise-MI cost
+        # ``_adaptive_nbins.MAX_ADAPTIVE_NBINS``. 127 is the largest code a signed int8 holds: with the default ``max_categorical_cardinality=127`` (which also bounds MDLP's recursion depth at 6, so at most 64
+        # intervals) every column's codes stay in int8, one byte a cell, and every strategy answers "how many bins can one column produce" the same way by default. Lower it (e.g. 64) to bound downstream pairwise-MI cost
         # further on very wide / high-row-count real data; per-method overrides
         # (``nbins_strategy_kwargs={"knuth_m_max_cap": ..., "bb_m_max_cap": ...}``) still win when set.
-        max_adaptive_nbins: int = 256,
+        max_adaptive_nbins: int = 127,
         # Large-n REGRESSION adaptive quantization gate. On a large-n regression target the supervised MDLP per-feature binning
         # under-resolves a heavy-tailed continuous y: the 180-cell large-n MRMR campaign (reg n=100k, 15 seeds) measured a 15/15
         # paired win for fixed 20-bin quantile over MDLP - holdout R2 0.597 vs 0.481 (+0.116, std 0.0025) and F1 0.909 vs 0.667

@@ -97,10 +97,24 @@ def test_explicit_narrow_dtype_with_a_wide_strategy_is_widened_not_rejected():
     X, y = _small_frame(seed=1)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        m = MRMR(max_runtime_mins=1, verbose=0, fe_max_steps=0, quantization_dtype=np.int8, nbins_strategy="mdlp").fit(X, y)
+        m = MRMR(max_runtime_mins=1, verbose=0, fe_max_steps=0, quantization_dtype=np.int8, nbins_strategy="mdlp", max_categorical_cardinality=255).fit(X, y)  # the 127 caps lifted: up to 256 intervals
     assert m.code_storage_plan_["alloc_dtype"] == "int16"
     assert any("widened" in r for r in m.code_storage_plan_["reasons"])
     assert len(list(m.get_feature_names_out())) >= 1
+
+
+def test_the_default_settings_allocate_int8_codes_with_mdlp():
+    """By default the 127 caps bound MDLP at 64 intervals and the plan is int8, one byte a cell, with no widening."""
+    import warnings
+
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    X, y = _small_frame(seed=1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        m = MRMR(max_runtime_mins=1, verbose=0, fe_max_steps=0, nbins_strategy="mdlp").fit(X, y)
+    assert m.code_storage_plan_["alloc_dtype"] == "int8" and m.code_storage_plan_["max_code"] <= 127
+    assert not any("widened" in r for r in m.code_storage_plan_["reasons"])
 
 
 def test_code_alloc_dtype_follows_the_plan_and_falls_back_to_the_request():
