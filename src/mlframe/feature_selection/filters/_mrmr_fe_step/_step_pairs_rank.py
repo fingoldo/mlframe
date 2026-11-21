@@ -96,13 +96,22 @@ def _batch_usability_admission_verdicts(self, *, need_usability, y_continuous, c
         _pair_a_m = np.array([_op_row_of_m[_pk[0]] for _pk in need_usability], dtype=np.int64)
         _pair_b_m = np.array([_op_row_of_m[_pk[1]] for _pk in need_usability], dtype=np.int64)
 
+        # a pair whose coarse best-form |corr| is far below the admission floor cannot clear it on all rows either: the batch scores only the others (verdict False for the rest, as the full pass gives them)
+        from ._step_pairs_prevalence import coarse_pair_form_keep
+
+        _keep_m = coarse_pair_form_keep(_y_batch_m, _operand_matrix_m, _pair_a_m, _pair_b_m, _min_corr_m)
+        _idx_m = np.arange(len(need_usability)) if _keep_m is None else np.flatnonzero(_keep_m)
+        if _idx_m.size == 0:
+            return {_pk: False for _pk in need_usability}
         _verdicts_m = batch_pair_tail_concentration_rankaware(
-            _y_batch_m, _operand_matrix_m, _pair_a_m, _pair_b_m,
+            _y_batch_m, _operand_matrix_m, _pair_a_m[_idx_m], _pair_b_m[_idx_m],
             min_corr=_min_corr_m, pairness_margin=_margin_m, max_rank_frac=_rank_frac_m,
             single_corr=_single_corr_m,
         )
-        for _pk, _v in zip(need_usability, _verdicts_m):
-            _usability_verdict[_pk] = bool(_v)
+        for _pk in need_usability:
+            _usability_verdict[_pk] = False
+        for _i, _v in zip(_idx_m.tolist(), _verdicts_m):
+            _usability_verdict[need_usability[_i]] = bool(_v)
         return _usability_verdict
     except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
         # Every lookup then defaults to False (the strict rank-MI decision stands), which removes the usability admission route for the
