@@ -281,6 +281,9 @@ def expected_reciprocal_rank(
     if mg <= 0:
         mg = 1.0
     finite_labels = yt[np.isfinite(yt)]
+    if finite_labels.size and float(finite_labels.min()) < 0:
+        # A negative grade gives a negative stop probability, so the remain-probability product leaves [0, 1] (audit 25-F46).
+        raise ValueError(f"expected_reciprocal_rank: a label ({float(finite_labels.min())}) is below 0; grades must be non-negative.")
     if finite_labels.size and float(finite_labels.max()) > mg:
         # R = (2^rel - 1) / 2^max_grade must stay below 1: above it the stop probability exceeds 1 and ERR leaves [0, 1].
         raise ValueError(f"expected_reciprocal_rank: a label ({float(finite_labels.max())}) is above max_grade ({mg}); pass max_grade= as the top of your grade scale.")

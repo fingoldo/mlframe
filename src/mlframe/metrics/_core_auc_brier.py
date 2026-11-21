@@ -709,8 +709,11 @@ def fast_roc_curve(y_true: np.ndarray, y_score: np.ndarray, *, sample_weight: np
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
     y_score = np.ascontiguousarray(y_score, dtype=np.float64)
-    # sklearn treats the positive class as ``y_true == 1``; normalise to {0.0, 1.0} so {-1,1} / bool inputs match.
-    y_true = np.ascontiguousarray(np.asarray(y_true) == 1, dtype=np.float64)
+    # Same label rule as fast_roc_auc (the larger of two labels is positive, as sklearn does), so the curve and the AUC agree on {1, 2} and
+    # {-1, 1} inputs. A NaN score would sort first and corrupt the curve, so refuse it as sklearn does (audit 25-F33).
+    y_true = np.ascontiguousarray(_binary_labels_01(y_true), dtype=np.float64)
+    if _has_nan_score(np.asarray(y_score)):
+        raise ValueError("fast_roc_curve: y_score contains NaN; sklearn refuses it and so does this curve")
     _check_equal_length(y_true, y_score)
 
     n = y_score.shape[0]
