@@ -2,6 +2,20 @@
 
 Usage: rss_scale_fit.py ROWS [COLS] [all|default]; RSS_TICK_S=20 adds a timeline line of the main thread every 20 s. The frame is a float32 DataFrame (the project dtype), the target a noisy function of five columns. The sampler records the
 process RSS every 0.2 s; a new peak is attributed to the main thread's innermost mlframe frame, which names the step that allocated.
+
+LATEST RESULTS (2026-11-21, tree b786940de, `rss_scale_fit.py ROWS COLS all`, one fit per fresh process, runs one after another with nothing else running; GTX 1050 Ti 4 GB, 16 GB host)
+    100000 x 100 : 45.4 / 44.0 / 44.3 s, selected [2, 3, 4] every time, peak RSS growth 1.5-1.6 GB. GPU at the start 71-75 C, SM 1708 MHz (1695 at the end of the third run): not throttled.
+                   Earlier the same day, before the later changes: 38.8-44.1 s fresh process, about 33 s steady state.
+    100000 x 1000: 221-232 s in the fast path (selected [2, 4]; stage:score_one_pair 11-17 s, the device ext-val path declined 0-4 times) and 234-352 s in the slow path (selected [2];
+                   score_one_pair 25-38 s, the device path declined 12-30 times by the VRAM cushion); both paths of the SAME fit, one of them per run, about one run in three slow. A/B series of 5 fits each:
+                   median 290 s before the day's changes against 296 s after; two of the five older fits took 580 and 702 s (CPU fallbacks of the pair MI / usability scan), none of the five new ones. See the audit tracker
+                   (MRMR-TWO-MODES-ROOT-CAUSE-2026-11-21, MRMR-AB-SERIES-2026-11-21).
+    500000 x 1000: 896.7 s, selected [2, 3], peak RSS growth 7.6 GB (3.8 x the 2 GB frame). GPU 75 C / 1695 MHz at the start, 69 C / 1708 MHz at the end. The fit ran with the card nearly full: 6 CPU fallbacks
+                   ('GPU upload REJECTED ... requested 2.11GB (n_samples=500000, n_cols=1126, dtype=int32) exceeds the safe relative cap 0.94GB', 'GPU path declined for lack of free VRAM'), and the timeline shows
+                   about 120 s at 100 % CPU in the CPU pair MI (batch_pair_mi_prange_cols) at t = 480-600 s. The same size took about 604 s in the middle of the day; it was not re-run in between.
+    1000000 x 1000: NOT RUN: MRMR.fit refuses before the first stage ('refusing to allocate for n*p=1_000_000_000 (~4.00 GB int32 working set) on a host with 6.73 GB available RAM') after the 4 GB frame is built;
+                   status ValueError after 39.8 s. The host would need roughly 4 GB more free RAM than this machine has after the frame.
+Wall times on this machine spread by up to 50 % between runs of one code state; read differences below about 15 % as noise unless several fits per side were taken.
 """
 from typing import Any
 import os
