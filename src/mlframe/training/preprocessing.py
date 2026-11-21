@@ -119,6 +119,8 @@ def _process_special_values(
             # Restrict inf -> NaN to floats: integer columns cannot hold inf and pandas .replace on int dtypes would coerce them to float unnecessarily.
             float_cols = _pandas_float_like_columns(df)
             if float_cols:
+                # Write into a shallow copy: the caller still holds this frame, and inf was replaced in its frame behind its back (audit 28-F21).
+                df = df.copy(deep=False)
                 df[float_cols] = df[float_cols].replace([float("inf"), float("-inf")], float("nan"))  # type: ignore[union-attr]  # is_polars bool flag already excludes the pl.DataFrame arm here
     return df
 
