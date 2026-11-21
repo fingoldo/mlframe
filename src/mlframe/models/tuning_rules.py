@@ -786,6 +786,10 @@ class ParamsOptimizer:
                     n = min(n, len(np.where(probs > 0)[0]))
                     return self._rng.choice(candidates, n, replace=False, p=probs)
 
+            if len(candidates) > n:
+                # The ML pool was skipped (too few trials, no fitted model), so this is an UNWEIGHTED head of the pool. Say so, instead of
+                # returning it as if the surrogate had ranked it (audit 25-F29).
+                logger.warning("Experiment %s: ML scoring skipped, returning the first %d of %d candidates unweighted", experiment_name, n, len(candidates))
             return candidates[:n]
 
     def report_trial_results(self, objectives: dict):

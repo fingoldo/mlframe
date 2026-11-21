@@ -163,6 +163,7 @@ def reset_gpu_argsort_probe() -> None:
 
 def _argsort_desc_for_metrics(y_score: np.ndarray) -> np.ndarray:
     """Descending argsort used by every metric kernel; stable-opt-in via env, GPU-dispatched for very large N."""
+    global _GPU_ARGSORT_AVAILABLE
     if _os.environ.get("MLFRAME_METRICS_STABLE_SORT") == "1":
         return np.argsort(y_score, kind="stable")[::-1]
     n = y_score.shape[0] if hasattr(y_score, "shape") else len(y_score)
@@ -172,7 +173,10 @@ def _argsort_desc_for_metrics(y_score: np.ndarray) -> np.ndarray:
             from mlframe.feature_selection.filters import shared as _safe_sort  # local: metrics must not import the filters package at module load
             return np.asarray(cp.asnumpy(_safe_sort.device_argsort(cp.asarray(y_score))[::-1]))
         except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
-            logger.debug("GPU argsort failed, falling back to the exact CPU path: %s", e)  # GPU OOM / transient device error -> exact CPU fallback
+            # Latch the GPU path off for the rest of the process: one WARNING, then the exact CPU path on every call, with no retry
+            # of a device that has already failed (audit 25-F41). Reset with the availability cache.
+            _GPU_ARGSORT_AVAILABLE = False
+            logger.warning("GPU argsort failed (%s); falling back to the exact CPU path for the rest of this process", e)
     if n >= _PAR_BUCKET_ARGSORT_MIN_N:
         return _argsort_desc_par_bucket(y_score)
     return np.argsort(y_score)[::-1]

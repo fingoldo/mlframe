@@ -774,12 +774,11 @@ def _install_catboost_sklearn_clone_patch() -> None:
             try:
                 new._init_params[name] = value
             except (AttributeError, KeyError):
-                pass
+                pass  # this CatBoost build has no _init_params mapping for the name: the public set_params below still applies
             try:
                 new.set_params(**{name: value})
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
+            except Exception as e:  # not fatal, but a rejected set_params means the clone is not identical: say so (audit 25-F48)
+                logger.warning("CatBoost clone could not re-attach %s=%r via set_params (%s); the clone may not match the original", name, value, e)
         return new
 
     for cls in (CatBoostClassifier, CatBoostRegressor):

@@ -734,3 +734,8 @@
 | 25-F32 | FIXED | The plot title formats the best candidate only when it exists. Test tests/models/test_cluster25_known_nonfinite_and_title.py::test_plot_title_survives_no_best_candidate. |
 | 25-F42 | FIXED | fast_rmse returns NaN for no rows, matching rmse_loss. Test tests/metrics/test_cluster25_empty_and_degenerate_guards.py. |
 | 25-F43 | FIXED | hamming_loss returns NaN when there are no labels (K == 0). Test tests/metrics/test_cluster25_empty_and_degenerate_guards.py. |
+| 25-F21 | FIXED | Each structure family runs under its own guard; a failed family is named in the report's skipped field and the others still run. Test tests/feature_selection/test_cluster25_structure_families_isolated.py. |
+| 25-F26 | FIXED | Exhausting the start-run retries raises a scrubbed RuntimeError instead of returning None. Scope: only already-active errors are retried; other failures already raised at once. Behaviour change for any caller that expected None. Test tests/integrations/test_cluster25_mlflow_exhaustion_raises.py. |
+| 25-F29 | FIXED | The unweighted fallback when ML scoring is skipped is logged at WARNING. Log-only change; no unit test, since the path needs a trained surrogate. |
+| 25-F41 | FIXED | One GPU argsort failure logs a WARNING and latches the GPU path off for the process. Test tests/metrics/test_cluster25_gpu_argsort_latches.py. |
+| 25-F48 | FIXED | set_params failures during CatBoost clone are logged at WARNING, and the excepts are narrowed. No unit test: it needs a CatBoost build that rejects set_params. |

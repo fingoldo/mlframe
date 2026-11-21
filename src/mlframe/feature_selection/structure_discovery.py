@@ -399,23 +399,30 @@ def discover_structure(
     include = tuple(include)
     n_perm = int(significance_n_perm)
     relations: list[DiscoveredRelation] = []
-    try:
-        if "modular" in include:
-            relations += _modular_relations(X, yb, names, nbins, seed, max_int_cols, n_perm)
-        if "lattice" in include:
-            relations += _lattice_relations(X, yb, names, nbins, seed, max_int_cols, n_perm)
-        if "argmax" in include:
-            relations += _argmax_relations(X, yb, names, nbins, seed, n_perm)
-        if "gate" in include:
-            relations += _gate_relations(X, yb, names, nbins, seed, n_perm)
-    except Exception as exc:  # pragma: no cover - best-effort: a detector failure must not break the EDA call
-        logger.warning("discover_structure: detector raised (%s); returning partial report", exc)
+    families = (
+        ("modular", lambda: _modular_relations(X, yb, names, nbins, seed, max_int_cols, n_perm)),
+        ("lattice", lambda: _lattice_relations(X, yb, names, nbins, seed, max_int_cols, n_perm)),
+        ("argmax", lambda: _argmax_relations(X, yb, names, nbins, seed, n_perm)),
+        ("gate", lambda: _gate_relations(X, yb, names, nbins, seed, n_perm)),
+    )
+    # Each family runs under its own guard, so one failing detector does not skip the others, and a failed family is named in the
+    # report rather than making an empty result look like "nothing found" (audit 25-F21).
+    failed: list[str] = []
+    for family, build in families:
+        if family not in include:
+            continue
+        try:
+            relations += build()
+        except Exception as exc:  # best-effort: a detector failure must not break the EDA call
+            failed.append(family)
+            logger.warning("discover_structure: %s detector raised (%s); the other families still run", family, exc)
 
     relations.sort(key=lambda r: (r.mi, r.lift if np.isfinite(r.lift) else 1e18), reverse=True)
     return StructureReport(
         relations=relations[: int(top_k)],
         n_columns=n_columns,
         n_integer_columns=int(n_int),
+        skipped=("failed detector famil" + ("y" if len(failed) == 1 else "ies") + ": " + ", ".join(failed)) if failed else None,
     )
 
 
