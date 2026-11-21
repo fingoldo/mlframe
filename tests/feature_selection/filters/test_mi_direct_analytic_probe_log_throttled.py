@@ -27,4 +27,4 @@ def test_probe_failure_is_throttled(monkeypatch, caplog):
             res, _cy, _fy = _mi_direct_analytic_null(data, (0,), (1,), nb, np.int64, None, None, False)
             assert res is None
     warned = [r for r in caplog.records if "analytic-null availability" in r.getMessage()]
-    assert 1 <= len(warned) < 20
+    assert len(warned) == 5, f"the throttle admits its default max_count of 5 warnings after a reset, got {len(warned)}"
