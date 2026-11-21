@@ -101,6 +101,14 @@ def _binary_split_summary(arr: np.ndarray) -> dict[str, float]:
 
 def _multiclass_split_summary(arr: np.ndarray, classes: Sequence) -> dict[str, Any]:
     """Summarize one split of a multiclass target: per-class count and rate, computed via a single ``np.unique`` pass and reindexed to ``classes``' order/dtype so missing classes report zero rather than raising a KeyError."""
+    # Drop missing labels before counting, as the binary summary does: a NaN label counted in the denominator made every class rate
+    # fall, and produced a false drift warning on a split with many unlabelled rows (audit 28-F31 / drift_report 104).
+    try:
+        finite_mask = np.isfinite(np.asarray(arr, dtype=np.float64))
+    except (TypeError, ValueError):
+        finite_mask = np.ones(arr.shape[0], dtype=bool)
+    n_missing = int(arr.shape[0] - finite_mask.sum())
+    arr = arr[finite_mask]
     n = int(arr.shape[0])
     # Single sort-based pass via np.unique(return_counts) instead of one ``(arr == c).sum()`` full scan per class.
     # Bit-identical (exact integer counts); the per-class dict is rebuilt in the caller's ``classes`` order/dtype.
@@ -112,7 +120,7 @@ def _multiclass_split_summary(arr: np.ndarray, classes: Sequence) -> dict[str, A
         count_lookup = {}
     counts = {int(c) if isinstance(c, (np.integer, int)) else c: int(count_lookup.get(c, 0)) for c in classes}
     rates = {k: (v / n if n else float("nan")) for k, v in counts.items()}
-    return {"n": n, "counts": counts, "rates": rates}
+    return {"n": n, "counts": counts, "rates": rates, "n_missing": n_missing}
 
 
 def _multilabel_split_summary(arr: np.ndarray) -> dict[str, Any]:
