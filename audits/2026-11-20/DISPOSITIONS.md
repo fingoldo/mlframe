@@ -677,3 +677,4 @@
 | 28-F12 | FIXED | A class_weight key absent from the training labels is skipped at fit. Test tests/training/test_cluster28_class_weight_absent_key_skipped.py. |
 | 28-F2 | FIXED (test pending) | The multilabel decision uses the array shape only (evaluation.py). A regression test needs the full per-class calibrator run inside a nine-argument function; no targeted helper exists yet. |
 | 28-F6 | FIXED | The fail-loud inf check also runs on the batched path when fix_infinities is False. Test tests/training/test_cluster28_polars_inf_guard_runs_when_not_fixing.py. |
+| 28-F17 | FIXED | set_label applies the fitted label encoder, so the cached Dataset matches what fit trained on. Test tests/training/test_cluster28_set_label_encodes_like_fit.py. |
