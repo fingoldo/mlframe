@@ -151,3 +151,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 04-F20 | 04_data.md | FIXED | id_trap row_id is a permutation; test asserts exact uniqueness. |
 | 04-F23 | 04_data.md | FIXED | Coerced non-numeric counted in notes. Test test_cluster04_sapp_args_and_coerce.py (passing). |
 | 04-F17 | 04_data.md | FIXED | No-op threshold line removed (behaviour identical). Existing link tests pass. |
+| 04-F16 | 04_data.md | FIXED | Caveat threshold from the spec's ceiling tolerance. Test test_cluster04_ceiling_tolerance_drives_caveat.py. |
