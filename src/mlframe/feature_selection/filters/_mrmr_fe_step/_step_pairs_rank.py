@@ -21,7 +21,7 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 from mlframe.utils.log_throttle import log_throttle
 
-from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+from .._fe_rejection_ledger import fe_rejection_ledger_saturated as _ledger_saturated, record_fe_rejection as _record_fe_rejection
 
 from .._fe_usability_signal import (  # shared leaf helpers (numpy-only, no cycle)
     _single_operand_usability_corr,
@@ -450,14 +450,15 @@ def _score_prospective_pairs_part2(
                         # REJECTION LEDGER (additive): a zero-individual-MI (XOR-branch) pair was
                         # dropped because its MM-debiased joint MI did not clear the order-2 max-T
                         # permutation null floor. Record observed=joint MI vs threshold=floor.
-                        _record_fe_rejection(
-                            self, gate="order2_maxt_floor",
-                            candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
-                            operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
-                            observed=_pair_mi_floor_cmp, threshold=_pair_maxt_floor,
-                            reason=("xor_zero_marginal_below_maxt" if pair_mi > 0 else "xor_zero_pair_mi"),
-                            step=int(num_fs_steps),
-                        )
+                        if not _ledger_saturated(self):  # a full ledger drops the record: skip building its strings
+                            _record_fe_rejection(
+                                self, gate="order2_maxt_floor",
+                                candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
+                                operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
+                                observed=_pair_mi_floor_cmp, threshold=_pair_maxt_floor,
+                                reason=("xor_zero_marginal_below_maxt" if pair_mi > 0 else "xor_zero_pair_mi"),
+                                step=int(num_fs_steps),
+                            )
                     continue
                 # Prevalence + order-2 maxT gate state (synergy debiasing, asymmetric-synergy CMI
                 # relaxation, MM-debias floor comparison - see ``_resolve_pair_prevalence_gate``'s
@@ -582,14 +583,15 @@ def _score_prospective_pairs_part1(
         # failed (prevalence first - it is the primary screen the session diagnoses).
         if not _passes_prevalence:
             # observed = joint MI; threshold = marginal-sum * prevalence bar.
-            _record_fe_rejection(
-                self, gate="marginal_pair_mi_prescreen",
-                candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
-                operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
-                observed=pair_mi, threshold=ind_elems_mi_sum * _prev_thresh,
-                reason=("synergy_prevalence" if _is_synergy_pair else "prevalence_ratio"),
-                step=int(num_fs_steps),
-            )
+            if not _ledger_saturated(self):  # a full ledger drops the record: skip building its strings
+                _record_fe_rejection(
+                    self, gate="marginal_pair_mi_prescreen",
+                    candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
+                    operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
+                    observed=pair_mi, threshold=ind_elems_mi_sum * _prev_thresh,
+                    reason=("synergy_prevalence" if _is_synergy_pair else "prevalence_ratio"),
+                    step=int(num_fs_steps),
+                )
             # SECOND-CHANCE RESCUE (see ``_prevalence_failed_synergy`` above):
             # a SYNERGY pair that cleared the order-2 maxT floor but only missed
             # the stricter raw-MI synergy ratio is handed to the auto-escalation,
@@ -612,13 +614,14 @@ def _score_prospective_pairs_part1(
                 _prevalence_failed_synergy[tuple(raw_vars_pair)] = float(pair_mi)
         else:
             # prevalence passed but the MM-debiased joint MI missed the max-T floor.
-            _record_fe_rejection(
-                self, gate="order2_maxt_floor",
-                candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
-                operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
-                observed=_pair_mi_floor_cmp, threshold=_pair_maxt_floor,
-                reason="below_maxt_floor", step=int(num_fs_steps),
-            )
+            if not _ledger_saturated(self):  # a full ledger drops the record: skip building its strings
+                _record_fe_rejection(
+                    self, gate="order2_maxt_floor",
+                    candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
+                    operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
+                    observed=_pair_mi_floor_cmp, threshold=_pair_maxt_floor,
+                    reason="below_maxt_floor", step=int(num_fs_steps),
+                )
     return _pair_mi_floor_cmp, var
 
 

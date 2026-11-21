@@ -205,6 +205,18 @@ def record_family_failure(mrmr_self: Any, family: str, exc: BaseException) -> No
     )
 
 
+def fe_rejection_ledger_saturated(mrmr_self: Any) -> bool:
+    """Whether the rejection ledger is past its cap AND already holds its ``ledger_capped`` marker, so a further :func:`record_fe_rejection` call returns at once and records nothing.
+
+    A caller that builds its arguments (the candidate string, the operand names) for every candidate of a wide pool can ask first and skip that work: at 1000 columns the pair screen alone fills the
+    500000-record ledger, and the rest of the pairs formatted their arguments for a call that dropped them. The state at exactly the cap is not saturated: the next call appends the marker."""
+    records = getattr(mrmr_self, "_fe_rejection_records_", None)
+    if records is None:
+        return False
+    _cap_cfg = getattr(mrmr_self, "fe_rejection_ledger_cap", None)
+    return len(records) > int(FE_REJECTION_LEDGER_CAP if _cap_cfg is None else _cap_cfg)
+
+
 def record_fe_rejection(
     mrmr_self: Any,
     *,
