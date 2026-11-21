@@ -126,3 +126,8 @@ Method: four parallel sub-audits read every listed file fully and grepped caller
 - 25-F19: FIXED. NaN epochs are skipped before the baseline and weights; a RuntimeWarning fires when no epoch is finite; same test file
 - 25-F18: FIXED. correction: the drop mask is the mean of per-training-fold importances (each computed on training rows only) at or below the threshold; an all-folds AND broke biz_val pruning (26 of 43 survivors). Residual: held-out rows of one fold still shape other folds' masks
 - 25-F2: FIXED. Monotonicity is checked by comparison, not np.diff (which wraps on unsigned ids). Test tests/metrics/test_cluster25_unsigned_group_ids_unsorted.py.
+- 25-F23: FIXED. The unanimous prune keeps the eligible feature whose permutation helped least when every feature is eligible, so the selection is never empty. Test tests/feature_selection/test_cluster25_prune_keeps_one_feature.py.
+- 25-F28: FIXED. The warm start drops non-finite evaluations, with their candidates, before the surrogate sees them. Test tests/models/test_cluster25_known_nonfinite_and_title.py.
+- 25-F32: FIXED. The plot title formats the best candidate only when it exists. Test tests/models/test_cluster25_known_nonfinite_and_title.py::test_plot_title_survives_no_best_candidate.
+- 25-F42: FIXED. fast_rmse returns NaN for no rows, matching rmse_loss. Test tests/metrics/test_cluster25_empty_and_degenerate_guards.py.
+- 25-F43: FIXED. hamming_loss returns NaN when there are no labels (K == 0). Test tests/metrics/test_cluster25_empty_and_degenerate_guards.py.

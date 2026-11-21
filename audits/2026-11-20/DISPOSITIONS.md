@@ -729,3 +729,8 @@
 | 07-F12 | FIXED | The bench is labelled cost-only in the code that builds the identical variants. |
 | 07-F13 | FIXED | run_once takes kwargs built once outside the timer, so the median excludes resampler setup. Bench-only, no unit test. |
 | 07-F14 | FIXED | The unverifiable timings in the code comments are replaced with a note that they are not stored and need a re-run. Comments only. |
+| 25-F23 | FIXED | The unanimous prune keeps the eligible feature whose permutation helped least when every feature is eligible, so the selection is never empty. Test tests/feature_selection/test_cluster25_prune_keeps_one_feature.py. |
+| 25-F28 | FIXED | The warm start drops non-finite evaluations, with their candidates, before the surrogate sees them. Test tests/models/test_cluster25_known_nonfinite_and_title.py. |
+| 25-F32 | FIXED | The plot title formats the best candidate only when it exists. Test tests/models/test_cluster25_known_nonfinite_and_title.py::test_plot_title_survives_no_best_candidate. |
+| 25-F42 | FIXED | fast_rmse returns NaN for no rows, matching rmse_loss. Test tests/metrics/test_cluster25_empty_and_degenerate_guards.py. |
+| 25-F43 | FIXED | hamming_loss returns NaN when there are no labels (K == 0). Test tests/metrics/test_cluster25_empty_and_degenerate_guards.py. |

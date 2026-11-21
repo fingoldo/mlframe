@@ -59,6 +59,8 @@ def fast_rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     (no harm), float64+float32 3.90x. Bit-equivalent across all dtype
     pairs (numba's mixed-dtype subtract widens to float64 same as the
     explicit cast did)."""
+    if np.shape(y_true)[0] == 0:
+        return float("nan")  # no rows: the kernel would divide by zero; rmse_loss returns NaN here too (audit 25-F42)
     y_true = np.ascontiguousarray(y_true)
     y_pred = np.ascontiguousarray(y_pred)
     return float(_fast_rmse_kernel(y_true, y_pred))

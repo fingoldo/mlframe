@@ -268,6 +268,12 @@ class MBHOptimizer:
         # direction dedup aggregation to a constant INT64_MIN for every deduplicated point.
         if known_evaluations.dtype.kind in ("i", "u", "b"):
             known_evaluations = known_evaluations.astype(np.float64)
+        # A non-finite warm-start evaluation (NaN, inf) must not reach the surrogate, whose first fit raises on it. submit_evaluations
+        # already drops such pairs; this makes the warm start do the same, keeping candidates and evaluations aligned (audit 25-F28).
+        finite = np.isfinite(known_evaluations.astype(np.float64))
+        if not finite.all():
+            known_candidates = known_candidates[finite]
+            known_evaluations = known_evaluations[finite]
         self.known_candidates = known_candidates
         self.known_evaluations = known_evaluations
         return cast(np.ndarray, known_candidates)

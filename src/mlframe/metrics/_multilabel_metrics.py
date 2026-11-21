@@ -337,8 +337,8 @@ def hamming_loss(y_true: ArrayLike, y_pred: ArrayLike) -> float:
     Same return-value semantics as ``sklearn.metrics.hamming_loss``.
     """
     yt, yp = _validate_multilabel_pair(y_true, y_pred)
-    if yt.shape[0] == 0:
-        return float("nan")  # no samples: the kernels would divide by zero; an empty slice has no score
+    if yt.shape[0] == 0 or yt.shape[1] == 0:
+        return float("nan")  # no samples or no labels: the kernels would divide by N*K == 0; an empty slice has no score (audit 25-F43)
     # Separately benchmarked/tuned element-count gate (N*K), not the row-count _PARALLEL_MULTILABEL_THRESHOLD
     # subset_accuracy/jaccard_score_multilabel share below.
     if yt.shape[0] * yt.shape[1] > 1_000_000:
