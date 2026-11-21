@@ -107,15 +107,19 @@ def bayes_auc(probability: np.ndarray) -> float:
     # Strictly-smaller mass is measured to the start of a row's OWN tie group, not to its own position: a
     # prefix sum would count earlier members of the same group as smaller, which turns a bed where every
     # probability is identical -- every pair a tie, ceiling one half -- into a reported ceiling of one.
-    less_mass = np.empty_like(p_sorted)
-    tie_mass = np.empty_like(p_sorted)
-    start = 0
-    for end in range(1, p_sorted.size + 1):
-        if end == p_sorted.size or p_sorted[end] != p_sorted[start]:
-            group_q = cumulative_q[end] - cumulative_q[start]
-            less_mass[start:end] = cumulative_q[start]
-            tie_mass[start:end] = 0.5 * (group_q - q_sorted[start:end])
-            start = end
+    # Vectorised over the tie groups (audit 04-F14): a group starts where the sorted value changes, and each row takes its group's
+    # start and end from those boundaries, so the per-row Python loop becomes a few array gathers over the same cumulative sums.
+    starts_flag = np.empty(p_sorted.size, dtype=bool)
+    starts_flag[0] = True
+    starts_flag[1:] = p_sorted[1:] != p_sorted[:-1]
+    group_starts = np.flatnonzero(starts_flag)
+    group_ends = np.append(group_starts[1:], p_sorted.size)
+    group_of_row = np.cumsum(starts_flag) - 1
+    row_start = group_starts[group_of_row]
+    row_end = group_ends[group_of_row]
+    less_mass = cumulative_q[row_start]
+    group_q = cumulative_q[row_end] - cumulative_q[row_start]
+    tie_mass = 0.5 * (group_q - q_sorted)
 
     numerator = float(np.sum(p_sorted * (less_mass + tie_mass)))
     denominator = float(np.sum(p_sorted) * np.sum(q_sorted) - np.sum(p_sorted * q_sorted))
