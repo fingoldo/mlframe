@@ -39,6 +39,7 @@ import logging
 from typing import Any, Optional, Sequence
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 import pandas as pd
 
 from mlframe.feature_selection.filters.hermite_fe.shared import POLY_BASES as _POLY_BASES
@@ -279,7 +280,7 @@ def generate_adaptive_degree_basis_features(
     # the scoring ran on the criterion dtype; the emitted values are rebuilt on the float64 axis the recipe freezes, so fit and replay agree
     for name, info in meta.items():
         out_cols[name] = _evaluate_basis_column(_fit_axis_column(X, info["src"]), info["basis"], info["degree"])
-    return pd.DataFrame(out_cols, index=X.index), meta
+    return fe_frame_from_columns(out_cols, X.index), meta
 
 def hybrid_orth_mi_adaptive_degree_fe(
     X: pd.DataFrame,

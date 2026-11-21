@@ -14,6 +14,7 @@ import os
 from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import numpy.typing as npt
 import pandas as pd
@@ -239,7 +240,7 @@ def generate_wavelet_features(
         for name, leg, entry in found:
             out_cols[name] = leg
             meta[name] = entry
-    return pd.DataFrame(out_cols, index=X.index), meta
+    return fe_frame_from_columns(out_cols, X.index), meta
 
 
 def build_orth_wavelet_recipe(

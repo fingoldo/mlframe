@@ -24,3 +24,15 @@ def test_empty_dict_and_foreign_index():
     assert fe_frame_from_columns({}, idx).shape == (3, 0)
     got = fe_frame_from_columns({"a": np.arange(3.0)}, idx)
     assert list(got.index) == [10, 20, 30] and got["a"].tolist() == [0.0, 1.0, 2.0]
+
+
+def test_a_read_only_array_is_copied_not_shared():
+    """A read-only view (a block of another frame) is copied so the new frame never shares memory it cannot write; a writable array is shared."""
+    base = np.arange(6.0)
+    ro = base.view()
+    ro.flags.writeable = False
+    rw_arr = np.arange(6.0) + 10
+    got = fe_frame_from_columns({"ro": ro, "rw": rw_arr}, pd.RangeIndex(6))
+    assert not np.shares_memory(got["ro"].to_numpy(), base) and np.shares_memory(got["rw"].to_numpy(), rw_arr)
+    got["ro"] = 0.0
+    assert base.tolist() == [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]

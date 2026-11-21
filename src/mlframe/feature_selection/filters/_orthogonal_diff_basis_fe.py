@@ -50,6 +50,7 @@ import logging
 from typing import Optional, Sequence
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
@@ -206,7 +207,7 @@ def _diff_winners_output(index: pd.Index, winners: list, cand_values: list) -> t
             "uplift": float(info["uplift"]),
             "basis_params": info.get("basis_params"),
         }
-    return pd.DataFrame(out_cols, index=index), meta
+    return fe_frame_from_columns(out_cols, index), meta
 
 
 def _diff_survivors(

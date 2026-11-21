@@ -71,6 +71,7 @@ import logging
 from typing import Callable, Literal, Optional, Sequence, overload
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -372,7 +373,7 @@ def _cluster_winners_output(index: pd.Index, winners: list, cand_values: list) -
             "agg_stats": info.get("agg_stats"),
             "basis_params": info.get("basis_params"),
         }
-    return pd.DataFrame(out_cols, index=index), meta
+    return fe_frame_from_columns(out_cols, index), meta
 
 
 def _cluster_survivors(

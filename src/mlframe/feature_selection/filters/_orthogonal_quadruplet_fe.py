@@ -49,6 +49,7 @@ from mlframe.feature_selection.filters._fe_frame_ops import fe_column_is_numeric
 from typing import Optional, Sequence
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -236,7 +237,7 @@ def generate_quadruplet_cross_basis_features(
             out_cols, cache, x_i, x_j, x_k, x_l, basis_i, basis_j, basis_k, basis_l,
             col_i, col_j, col_k, col_l, min_d, max_d,
         )
-    return pd.DataFrame(out_cols, index=X.index)
+    return fe_frame_from_columns(out_cols, X.index)
 
 _QUADRUPLET_SCORE_EMPTY_COLS = [
     "engineered_col",
