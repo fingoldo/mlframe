@@ -406,6 +406,18 @@ def _fit_mi_baseline_vectors(self: "CompositeTargetDiscovery", df: Any, st: _Sim
     st._dedup_corr_thr = float(getattr(self.config, "dedup_x_remaining_corr_threshold", 0.99))
 
 
+def _fit_publish_empty(self: "CompositeTargetDiscovery", df: Any, target_col: str, feature_cols: Sequence[str], val_idx: Any, test_idx: Any, elapsed: float) -> None:
+    """Publish the bookkeeping attributes on a degenerate fit (no specs), so reading them after it does not raise AttributeError (audit 34-F18)."""
+    self.specs_ = []
+    self.report_ = []
+    self._fit_data_signature = None
+    self._fit_data_signature_seed = None
+    self._fit_data_signature_inputs, self._fit_n_rows = (target_col, list(feature_cols)), len(df)
+    self.val_idx_ = val_idx
+    self.test_idx_ = test_idx
+    self.elapsed_seconds_ = elapsed
+
+
 def _fit_record_results(
     self: "CompositeTargetDiscovery", st: _SimpleNamespace, df: Any, target_col: str, feature_cols: Sequence[str], val_idx: np.ndarray | None, test_idx: np.ndarray | None
 ) -> None:
@@ -470,11 +482,10 @@ def fit(
     """
     st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     if not self.config.enabled:
-        self.specs_ = []
-        self.report_ = []
         self.train_idx_ = np.asarray(train_idx)
         self._df_ref = df
         self._target_col = target_col
+        _fit_publish_empty(self, df, target_col, feature_cols, val_idx, test_idx, 0.0)
         return self
 
     train_idx, val_idx, test_idx = _fit_normalise_indices(df, train_idx, val_idx, test_idx)
@@ -484,8 +495,7 @@ def fit(
             "[CompositeTargetDiscovery] train_idx has only %d rows; " "MI estimates unreliable. Discovery yields no specs.",
             train_idx.size,
         )
-        self.specs_ = []
-        self.report_ = []
+        _fit_publish_empty(self, df, target_col, feature_cols, val_idx, test_idx, 0.0)
         return self
 
     df = _fit_resolve_bases(self, st, df, target_col, feature_cols, train_idx, time_ordering)
