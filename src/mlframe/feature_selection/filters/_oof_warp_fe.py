@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 import pandas as pd
 
 from ._fe_gain_stats import held_out_codes, paired_gain_se, plugin_mi_of_codes
@@ -231,5 +232,5 @@ def hybrid_oof_warp_fe(
         recipes.append(build_oof_warp1d_recipe(name=name, src=cand["col"], cx=fit["cx"], cy=fit["cy"], fill=fit["fill"], lo=float(col.min()), hi=float(col.max())))
     if not new_cols:
         return empty
-    enc_df = pd.DataFrame(new_cols, index=X.index)
+    enc_df = fe_frame_from_columns(new_cols, X.index)
     return pd.concat([X, enc_df], axis=1), list(new_cols), recipes, enc_df

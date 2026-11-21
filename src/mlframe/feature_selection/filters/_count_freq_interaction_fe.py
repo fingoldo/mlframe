@@ -45,6 +45,7 @@ import logging
 from typing import Callable, Optional, Sequence
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
@@ -570,7 +571,7 @@ def cat_num_interaction_with_recipes(
                     smoothing=raw_rec["smoothing"],
                 )
             )
-    new_df = pd.DataFrame(new_cols, index=X.index)
+    new_df = fe_frame_from_columns(new_cols, X.index)
     if mi_gate and not new_df.empty:
         new_df = _gate_enc(new_df, y, X, mi_gate, mi_gate_top_k, reject_sink=reject_sink)
         if new_df.empty:
