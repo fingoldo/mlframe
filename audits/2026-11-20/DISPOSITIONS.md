@@ -856,3 +856,5 @@
 | 28-F48 | DEFERRED | report_title is built and never emitted: wiring it in changes the train report, so it is an owner decision (emit or delete). |
 | 28-F76 | DEFERRED | Seven public or load-bearing functions have no test reference. Each needs a targeted test; deferred as a batch to its own change. |
 | 32-F10 | FIXED | Integer timestamps go through the same unit detector as object timestamps, so epoch seconds are no longer read as nanoseconds. Test tests/training/test_cluster32_integer_epoch_seconds_unit.py. |
+| 32-F11 | DEFERRED | The combiner is fit on all rows, so the holdout's init_score depends on holdout labels. The fix refits the combiner inside each training fold, a change to the diagnostic's method, deferred. |
+| 32-F12 | DEFERRED | Below 50 rows the metric is in-sample. Returning a skip instead changes _fit_quick_and_score's return contract for its caller, a contract decision, deferred. |

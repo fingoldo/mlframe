@@ -74,3 +74,5 @@ Grep and Read used for caller checks: `core/_phase_dummy_baselines.py` (the try/
 - 32-F5: FIXED. nanmedian and nanquantile for the quantile baselines; no separate test
 - 32-F6: FIXED. nanstd for the cross-output scale, non-finite scales skipped, non-finite normalized means excluded before the pick; no separate test
 - 32-F10: FIXED. Integer timestamps go through the same unit detector as object timestamps, so epoch seconds are no longer read as nanoseconds. Test tests/training/test_cluster32_integer_epoch_seconds_unit.py.
+- 32-F11: DEFERRED. The combiner is fit on all rows, so the holdout's init_score depends on holdout labels. The fix refits the combiner inside each training fold, a change to the diagnostic's method, deferred.
+- 32-F12: DEFERRED. Below 50 rows the metric is in-sample. Returning a skip instead changes _fit_quick_and_score's return contract for its caller, a contract decision, deferred.
