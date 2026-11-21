@@ -4,6 +4,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
+from matplotlib.collections import LineCollection, PathCollection
 
 from mlframe.reporting.renderers._matplotlib_scatter import _SCATTER_MAX_POINTS, _scatter
 from mlframe.reporting.renderers.matplotlib import MatplotlibRenderer
@@ -23,4 +24,9 @@ def test_error_bars_follow_a_subsampled_scatter():
     ):
         fig, ax = plt.subplots()
         _scatter(MatplotlibRenderer(), ax, spec, fig)
+        scatter_lens = [len(c.get_offsets()) for c in ax.collections if isinstance(c, PathCollection)]
+        error_lens = [len(c.get_segments()) for c in ax.collections if isinstance(c, LineCollection)]
+        assert scatter_lens and max(scatter_lens) <= _SCATTER_MAX_POINTS, "the scatter was not subsampled to the cap"
+        assert error_lens, "no error-bar segments were drawn"
+        assert set(error_lens) == set(scatter_lens), f"error bars {error_lens} do not follow the {scatter_lens} subsampled points"
         plt.close(fig)
