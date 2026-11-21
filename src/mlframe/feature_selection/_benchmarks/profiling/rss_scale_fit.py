@@ -134,6 +134,61 @@ def sampler():
                 events.append((time.perf_counter() - t0, (rss - base) / 1e6, innermost(_frames.get(main_id)) + ("   | threads: " + "; ".join(sorted(set(_others))[:4]) if _others else "")))
 
 
+_CUSHION_CALLS: list = []
+if os.environ.get("RSS_TRACE_CUSHION", "").strip():  # record every VRAM-cushion question (bytes asked, answer) to see which device paths the cushion refuses
+    from mlframe.feature_selection.filters import _fe_gpu_vram as _vram
+
+    _orig_cushion = _vram.fe_gpu_has_vram_cushion
+
+    def _traced_cushion(nbytes, *args, **kwargs):
+        """The cushion check, remembered with its caller."""
+        ok = _orig_cushion(nbytes, *args, **kwargs)
+        _CUSHION_CALLS.append((int(nbytes), bool(ok), sys._getframe(1).f_code.co_filename.split("filters")[-1] + ":" + sys._getframe(1).f_code.co_name))
+        return ok
+
+    _vram.fe_gpu_has_vram_cushion = _traced_cushion
+
+if os.environ.get("RSS_LOG_INFO", "").strip():  # comma-separated logger names switched to INFO on stdout (a throttled INFO line then shows why a path was declined)
+    import logging as _lg
+
+    _h = _lg.StreamHandler(sys.stdout)
+    _h.setFormatter(_lg.Formatter("LOG %(name)s: %(message)s"))
+    for _ln in os.environ["RSS_LOG_INFO"].split(","):
+        _lgr = _lg.getLogger(_ln.strip())
+        _lgr.setLevel(_lg.INFO)
+        _lgr.addHandler(_h)
+
+_CALL_STATS: dict = {}
+_CALL_NONE: dict = {}
+for _spec in [x for x in os.environ.get("RSS_TRACE_CALLS", "").split(",") if x.strip()]:  # "package.module:function,...": count and sum the wall of those calls (wrapped on the module attribute)
+    import importlib as _il
+
+    _mod_name, _fn_name = _spec.strip().split(":")
+    _mod = _il.import_module(_mod_name)
+    _fn = getattr(_mod, _fn_name)
+
+    def _make(fn, key):
+        """A timing wrapper of ``fn`` recording into ``_CALL_STATS[key]``."""
+
+        def wrapper(*args, **kwargs):
+            """Call ``fn`` and add its wall to the stats."""
+            t0 = time.perf_counter()
+            try:
+                result = fn(*args, **kwargs)
+                if result is None:
+                    _CALL_NONE[key] = _CALL_NONE.get(key, 0) + 1
+                return result
+            finally:
+                row = _CALL_STATS.setdefault(key, [0, 0.0, []])
+                row[0] += 1
+                row[1] += time.perf_counter() - t0
+                if len(row[2]) < 8:  # the first calls' arguments: type and shape / value
+                    row[2].append(",".join(("None" if x is None else type(x).__name__ + str(getattr(x, "shape", x if isinstance(x, (int, float, bool)) else ""))) for x in args[:8]))
+
+        return wrapper
+
+    setattr(_mod, _fn_name, _make(_fn, _spec.strip()))
+
 th = threading.Thread(target=sampler, daemon=True)
 th.start()
 t = time.perf_counter()
@@ -145,6 +200,20 @@ try:
     if os.environ.get("RSS_FAMILY_WALLS", "").strip():  # the fit's own per-family wall table (summed over threads, so it exceeds the fit wall under concurrency)
         _fw = getattr(_sel, "fe_family_wall_", None) or {}
         print("FAMILY_WALLS " + "; ".join(f"{k}={v['wall_s']:.1f}s/{v['calls']}" for k, v in list(_fw.items())[:45]), flush=True)
+    if _CALL_STATS:
+        print("CALLS " + "; ".join(f"{k}: n={v[0]} wall={v[1]:.1f}s none={_CALL_NONE.get(k, 0)}" for k, v in _CALL_STATS.items()), flush=True)
+        for _k, _v in _CALL_STATS.items():
+            for _a in _v[2]:
+                print("CALLARGS " + _k.split(":")[-1] + " " + _a, flush=True)
+    if _CUSHION_CALLS:
+        import collections as _co
+
+        _agg = _co.defaultdict(lambda: [0, 0, 0])
+        for _nb, _ok, _who in _CUSHION_CALLS:
+            _row = _agg[_who]
+            _row[0 if _ok else 1] += 1
+            _row[2] = max(_row[2], _nb)
+        print("CUSHION " + "; ".join(f"{w}: ok={r[0]} refused={r[1]} max={r[2] / 1e6:.0f}MB" for w, r in sorted(_agg.items(), key=lambda kv: -(kv[1][0] + kv[1][1]))[:14]), flush=True)
     _dump = os.environ.get("RSS_DUMP_JSON", "").strip()
     if _dump:  # the fitted state that differs between runs (which stage produced which survivor), for run-to-run diffs
         import json
