@@ -151,3 +151,9 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F19: FIXED. When both refit paths fail, the saturated-best-iteration refit restores the model's parameters, as the degenerate path does. Verified by reading; no unit test, since it needs a CatBoost-shaped loss fallback.
 - 28-F30: FIXED. Eviction first adopts .pkl entries on disk that this process's ledger does not know, as the oldest, so they count against and can be evicted from the byte budget. Test tests/training/test_cluster28_cache_adopts_other_process_entries.py; 5 cache tests pass.
 - 28-F20: FIXED. With balance_proxy the elkan_noto prior is NaN instead of the balanced proxy's mean scaled by c, which is not a prior. Test tests/training/test_cluster28_pu_prior_nan_when_balanced.py.
+- 28-F22: FIXED. Lasso and elasticnet classifiers refuse alpha <= 0 with a ValueError naming the unpenalised alternative, instead of silently using C=1.0. Test tests/training/test_cluster28_linear_classifier_alpha_positive.py.
+- 28-F23: DEFERRED. Uncalled function: project rule is to wire it in or classify it before deleting. Classification is deferred to the uncalled-functions pass.
+- 28-F24: DEFERRED. The TTA duplication needs the fused function kept and the others made thin wrappers, or removed; that touches a public API and the bench that calls it. Deferred.
+- 28-F47: DEFERRED. Duplicated GTC cache state in the helpers module: deletion needs a check that nothing imports it. Deferred to the uncalled-functions pass.
+- 28-F48: DEFERRED. report_title is built and never emitted: wiring it in changes the train report, so it is an owner decision (emit or delete).
+- 28-F76: DEFERRED. Seven public or load-bearing functions have no test reference. Each needs a targeted test; deferred as a batch to its own change.
