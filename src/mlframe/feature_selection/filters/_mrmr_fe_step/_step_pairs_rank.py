@@ -158,33 +158,41 @@ def _prepass_gate_and_usability_candidates(
         sorted_pairs = sort_dict_by_value(cached_MIs)
     from ._pair_admission_batch import batched_asymmetric_relax_verdicts
 
-    _eligible = [
-        _pk for _pk in sorted_pairs
-        if len(_pk) == 2 and _pk not in checked_pairs and _pk[0] in numeric_vars_to_consider and _pk[1] in numeric_vars_to_consider and cached_MIs[(_pk[0],)] + cached_MIs[(_pk[1],)] > 0
-    ]
-    _relax = batched_asymmetric_relax_verdicts(gate_kwargs["self"], _eligible, gate_kwargs.get("_synergy_added_idx"), data, gate_kwargs["classes_y"])
+    # one pass over the candidate pairs collects the eligible ones with their joint MI, the sum and the pair of operand MIs; the gate state of all of them is then resolved in array form
+    _eligible: list = []
+    _e_pmi: list = []
+    _e_ies: list = []
+    _e_s0: list = []
+    _e_s1: list = []
     for _pk, _pmi in sorted_pairs.items():
-        if len(_pk) != 2 or _pk in checked_pairs:
+        if len(_pk) != 2 or _pk in checked_pairs or _pk[0] not in numeric_vars_to_consider or _pk[1] not in numeric_vars_to_consider:
             continue
-        if _pk[0] not in numeric_vars_to_consider or _pk[1] not in numeric_vars_to_consider:
-            continue
-        _ies = cached_MIs[(_pk[0],)] + cached_MIs[(_pk[1],)]
+        _m0 = cached_MIs[(_pk[0],)]
+        _m1 = cached_MIs[(_pk[1],)]
+        _ies = _m0 + _m1
         if _ies <= 0:
             continue
-        _gate_cache[_pk] = _resolve_pair_prevalence_gate(
-            _pk, _pmi, _ies, **gate_kwargs, _col_codes_cache=_col_codes_cache, single_mis=(cached_MIs[(_pk[0],)], cached_MIs[(_pk[1],)]), conditional_gate=_conditional_gate,
-            relax_verdicts=_relax,
-        )
-        if not usability_enabled or not yc_shape_ok:
-            continue
-        _pp, _pt, _is_syn_ign, _prevt_ign, _floorcmp_ign = _gate_cache[_pk]
-        if (_pp and _pt) or _pmi <= 0:
-            continue  # usability never consulted: normal gates already satisfied, or pair_mi<=0
-        _o0 = cached_operand(_pk[0])
-        _o1 = cached_operand(_pk[1])
-        if _o0 is None or _o1 is None or _o0.shape[0] != data.shape[0] or _o1.shape[0] != data.shape[0]:
-            continue
-        _need_usability.append(_pk)
+        _eligible.append(_pk)
+        _e_pmi.append(_pmi)
+        _e_ies.append(_ies)
+        _e_s0.append(_m0)
+        _e_s1.append(_m1)
+    _relax = batched_asymmetric_relax_verdicts(gate_kwargs["self"], _eligible, gate_kwargs.get("_synergy_added_idx"), data, gate_kwargs["classes_y"])
+    from ._pair_gate_batch import resolve_pair_gates_batch
+
+    _gates = resolve_pair_gates_batch(
+        _eligible, _e_pmi, _e_ies, (_e_s0, _e_s1), scalar_resolve=_resolve_pair_prevalence_gate, col_codes_cache=_col_codes_cache, conditional_gate=_conditional_gate, relax_verdicts=_relax, **gate_kwargs,
+    )
+    _gate_cache.update(zip(_eligible, _gates))
+    if usability_enabled and yc_shape_ok:
+        for _pk, _pmi, _gate in zip(_eligible, _e_pmi, _gates):
+            if (_gate[0] and _gate[1]) or _pmi <= 0:
+                continue  # usability never consulted: normal gates already satisfied, or pair_mi<=0
+            _o0 = cached_operand(_pk[0])
+            _o1 = cached_operand(_pk[1])
+            if _o0 is None or _o1 is None or _o0.shape[0] != data.shape[0] or _o1.shape[0] != data.shape[0]:
+                continue
+            _need_usability.append(_pk)
     return _gate_cache, _need_usability
 
 
