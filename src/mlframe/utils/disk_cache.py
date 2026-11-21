@@ -392,9 +392,10 @@ class DiskCache:
                 pass
             self.misses += 1
             return None
-        except (pickle.UnpicklingError, EOFError, OSError) as exc:
-            # Corrupt entry (e.g. mid-rename crash on a non-atomic FS). Drop
-            # the file so the next put rebuilds cleanly.
+        except (pickle.UnpicklingError, EOFError, OSError, AttributeError, ImportError, TypeError, ValueError, IndexError, KeyError) as exc:
+            # Corrupt entry (e.g. mid-rename crash on a non-atomic FS), or one whose class was renamed or removed since it was written
+            # (AttributeError / ImportError while unpickling). Drop the file so the next put rebuilds cleanly, instead of raising out of get()
+            # in the middle of a run (audit 29-F11).
             logger.debug("DiskCache: corrupt entry %s (%s); removing", path, exc)
             try:
                 path.unlink()

@@ -822,3 +822,4 @@
 | 29-F21 | FIXED | agreement_rate refuses k below 1 with a ValueError. Test tests/votenrank/test_cluster29_agreement_k_validation.py. |
 | 29-F24 | FIXED | create_experiment raises NotImplementedError instead of silently storing nothing; its stub test now expects the refusal. Tests tests/utils/test_experiments.py (23 pass with the votenrank test). |
 | 29-F18 | FIXED | A blank GloVe line is skipped instead of aborting the file, and skipped lines are counted in a WARNING. Test tests/utils/test_cluster29_glove_blank_and_bad_lines.py. |
+| 29-F11 | FIXED | An unpickling failure from a renamed or removed class (AttributeError, ImportError and similar) is a miss that drops the entry, instead of raising out of get(). Test tests/utils/test_cluster29_disk_cache_stale_class_is_a_miss.py. |
