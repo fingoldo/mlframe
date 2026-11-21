@@ -258,16 +258,24 @@ def _frame_columns(df: Any) -> list[str]:
     return frame_columns(df)
 
 
-def _attach_columns(df: Any, cols: Mapping[str, np.ndarray]) -> Any:
-    """Return ``df`` augmented with ``cols`` WITHOUT copying existing data or mutating the caller's frame."""
+def _attach_columns(df: Any, cols: Mapping[str, np.ndarray], keep_float64: frozenset = frozenset()) -> Any:
+    """Return ``df`` augmented with ``cols`` WITHOUT copying existing data or mutating the caller's frame.
+
+    Engineered bases are stored as float32, except the names in ``keep_float64``: the target must stay float64, since a float32
+    cast rounds a large target differently from the train side (audit 34-F30).
+    """
+    def _dtype(name: str) -> Any:
+        """float64 for the names that must keep full precision, float32 for the engineered bases."""
+        return np.float64 if name in keep_float64 else np.float32
+
     if _is_polars(df):
         import polars as pl
 
-        return df.with_columns([pl.Series(name, np.asarray(arr, dtype=np.float32)) for name, arr in cols.items()])
+        return df.with_columns([pl.Series(name, np.asarray(arr, dtype=_dtype(name))) for name, arr in cols.items()])
     # pandas: shallow copy shares existing blocks (no data copy); assigning new columns touches only the copy.
     df2 = df.copy(deep=False)
     for name, arr in cols.items():
-        df2[name] = np.asarray(arr, dtype=np.float32)
+        df2[name] = np.asarray(arr, dtype=_dtype(name))
     return df2
 
 
@@ -306,7 +314,7 @@ def grouped_causal_bases_for_frame(self: Any, frame: Any, y: np.ndarray, target_
     existing = set(_frame_columns(frame))
     if all(c in existing for c in needed):
         return frame
-    with_y = _attach_columns(frame, {target_col: np.asarray(y, dtype=np.float64)})
+    with_y = _attach_columns(frame, {target_col: np.asarray(y, dtype=np.float64)}, keep_float64=frozenset({target_col}))
     augmented, _unused_features, _unused_bases = maybe_add_grouped_causal_bases(self, with_y, target_col, [], [], np.arange(len(y)))
     return augmented
 
