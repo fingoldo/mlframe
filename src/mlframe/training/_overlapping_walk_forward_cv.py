@@ -194,6 +194,12 @@ def cv_stability_check(
     if curves.ndim != 2 or curves.shape[0] < min_seeds:
         raise ValueError(f"cv_stability_check: need >= {min_seeds} seed curves of equal length; got shape {curves.shape}")
 
+    if not np.isfinite(curves).all():
+        # A NaN from one failed seed made the mean curve's argmax the NaN position, and that position could then pass as "agreed".
+        # A failed fold is an error to surface, not a stability verdict (audit 27-F10).
+        bad_seeds = sorted({int(i) for i in np.argwhere(~np.isfinite(curves))[:, 0]})
+        raise ValueError(f"cv_stability_check: non-finite metric values in seed curve(s) {bad_seeds}; a failed fold must be fixed or dropped first")
+
     mean_curve = curves.mean(axis=0)
     n_points = curves.shape[1]
 

@@ -66,3 +66,9 @@ Scope: 88 files listed in `audits/2026-11-20/manifests/27_root_modules-6.txt`, a
 - 27-F4: FIXED. positive class is the larger label (y == max) in _counts_at and the minority count; same file
 - 27-F5: FIXED. duplicated buckets read member slices from one stable argsort; covered by test_biz_val_training_pseudo_group_reconstruction.py
 - 27-F6: FIXED. cb/lgb RFECV built only when the class is installed and the backend is requested, else None; same file tests the helper
+- 27-F10: FIXED. A non-finite value in any seed curve raises naming the seed, instead of producing a stability verdict. Test tests/training/test_cluster27_cv_stability_rejects_nan_curve.py.
+- 27-F15: FIXED. The LightGBM factories import the plain class when the shim is off, instead of returning the unbound module name. Test tests/training/test_cluster27_lgb_factory_without_shim.py.
+- 27-F16: FIXED. The MSLE to rmse substitution for LightGBM is logged at WARNING. Test tests/training/test_cluster27_lgb_msle_substitution_warns.py.
+- 27-F10: FIXED. A non-finite value in any seed curve raises naming the seed, instead of producing a stability verdict. Test tests/training/test_cluster27_cv_stability_rejects_nan_curve.py.
+- 27-F15: FIXED. The LightGBM factories return the lightgbm class when the shim is off, instead of the unbound module name. Test tests/training/test_cluster27_lgb_factory_without_shim.py.
+- 27-F16: FIXED. The MSLE to rmse substitution for LightGBM is logged at WARNING. Test tests/training/test_cluster27_lgb_msle_substitution_warns.py.

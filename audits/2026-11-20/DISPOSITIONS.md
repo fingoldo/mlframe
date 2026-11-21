@@ -781,3 +781,9 @@
 | 26-F20 | FIXED | An auto-keyed share() compares the content of the reused segment; a rewritten buffer gets its own segment and key, so pending tasks keep their snapshot. Tests tests/reporting/test_cluster26_shared_array_content_check.py; existing async render queue tests pass (26 passed, 1 skipped). |
 | 26-F22 | PARTIAL | The adversarial LightGBM fit now runs outside _ADVERSARIAL_LOCK; only the cache read and insert hold it. Test tests/reporting/test_cluster26_adversarial_fit_outside_lock.py. Not yet done: the _diagnostics_prep build() and psi_heatmap still run inside their locks. |
 | 26-F21 | DEFERRED | Sharing nested arrays inside a spec through SharedArrayPool needs a spec-tree walk and a descriptor format for nested fields. That is a design change to the process backend, deferred for its own pass. |
+| 27-F10 | FIXED | A non-finite value in any seed curve raises naming the seed, instead of producing a stability verdict. Test tests/training/test_cluster27_cv_stability_rejects_nan_curve.py. |
+| 27-F15 | FIXED | The LightGBM factories import the plain class when the shim is off, instead of returning the unbound module name. Test tests/training/test_cluster27_lgb_factory_without_shim.py. |
+| 27-F16 | FIXED | The MSLE to rmse substitution for LightGBM is logged at WARNING. Test tests/training/test_cluster27_lgb_msle_substitution_warns.py. |
+| 27-F10 | FIXED | A non-finite value in any seed curve raises naming the seed, instead of producing a stability verdict. Test tests/training/test_cluster27_cv_stability_rejects_nan_curve.py. |
+| 27-F15 | FIXED | The LightGBM factories return the lightgbm class when the shim is off, instead of the unbound module name. Test tests/training/test_cluster27_lgb_factory_without_shim.py. |
+| 27-F16 | FIXED | The MSLE to rmse substitution for LightGBM is logged at WARNING. Test tests/training/test_cluster27_lgb_msle_substitution_warns.py. |
