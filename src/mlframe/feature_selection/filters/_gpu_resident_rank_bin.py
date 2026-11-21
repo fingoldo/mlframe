@@ -269,7 +269,40 @@ def rank_bin_codes_batch_gpu_resident_reference(X_gpu: Any, n_bins: int) -> Any:
         return None
 
 
+#: Device bytes per element of a candidate block of the rank route at its peak: the float64 block, its argsort (int64), the rank codes (int64) and the sort scratch.
+_RANK_MI_BYTES_PER_ELEMENT = 48
+
+
 def plugin_mi_classif_batch_rank_cuda_resident(
+    X_gpu: Any, y_gpu: Any, n_bins: int = 20, *, y_min: int | None = None, n_classes: int | None = None,
+) -> Optional[np.ndarray]:
+    """:func:`_plugin_mi_classif_batch_rank_block` over column blocks sized from the room of the pool the thread allocates from (inside a stage slot a few hundred MB), so a wide candidate matrix is not
+    allocated whole into a pool that cannot hold it. Each column's MI depends on that column and the labels only: the blocks give the values of one call, and a matrix that fits is one call. ``None`` when a block fails."""
+    shape = getattr(X_gpu, "shape", None)
+    if shape is None or len(shape) != 2 or int(shape[1]) < 2:
+        return _plugin_mi_classif_batch_rank_block(X_gpu, y_gpu, n_bins, y_min=y_min, n_classes=n_classes)
+    try:
+        import cupy as cp
+
+        from ._fe_gpu_vram import pool_column_block
+
+        k = int(shape[1])
+        width = pool_column_block(cp, int(shape[0]), bytes_per_column_row=_RANK_MI_BYTES_PER_ELEMENT, budget_fraction=0.5, min_block=16, fallback=k, what="rank resident MI")
+    except Exception as exc:  # no cupy or no readable pool: one call
+        logger.debug("rank resident MI: block width unknown (%r); one call", exc)
+        return _plugin_mi_classif_batch_rank_block(X_gpu, y_gpu, n_bins, y_min=y_min, n_classes=n_classes)
+    if width >= k:
+        return _plugin_mi_classif_batch_rank_block(X_gpu, y_gpu, n_bins, y_min=y_min, n_classes=n_classes)
+    parts = []
+    for c0 in range(0, k, width):
+        part = _plugin_mi_classif_batch_rank_block(X_gpu[:, c0 : c0 + width], y_gpu, n_bins, y_min=y_min, n_classes=n_classes)
+        if part is None:
+            return None
+        parts.append(np.asarray(part))
+    return np.concatenate(parts)
+
+
+def _plugin_mi_classif_batch_rank_block(
     X_gpu: Any, y_gpu: Any, n_bins: int = 20, *, y_min: int | None = None, n_classes: int | None = None,
 ) -> Optional[np.ndarray]:
     """RANK-binned plug-in MI on ALREADY-RESIDENT cupy arrays - the rank twin of
