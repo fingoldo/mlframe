@@ -147,23 +147,46 @@ def _cushion_bytes(total_b: int) -> int:
     return cushion_b
 
 
+def _own_pools(cp: Any) -> list:
+    """Every cupy memory pool this process allocates from, each once: the default pool, the pool behind the calling thread's allocator and the private pools of the FE stage slots.
+
+    The device free memory that ``memGetInfo`` reports counts the idle cached blocks of all of them as used. Inside a concurrent stage the allocations go to a slot pool, so the default pool alone holds
+    nothing to give back and a cushion check that only looked at it declined with 1.1-1.3 GB free."""
+    pools = [cp.get_default_memory_pool(), current_memory_pool(cp)]
+    try:
+        from ._fe_device_scheduler import _SLOT_POOLS, _SLOT_POOLS_LOCK
+
+        with _SLOT_POOLS_LOCK:
+            pools.extend(_SLOT_POOLS.values())
+    except Exception as exc:
+        logger.debug("fe_gpu_has_vram_cushion: stage slot pools unreadable: %s", exc)
+    unique: list = []
+    seen: set = set()
+    for pool in pools:
+        if id(pool) not in seen:
+            seen.add(id(pool))
+            unique.append(pool)
+    return unique
+
+
 def _own_pool_free_bytes() -> int:
-    """Bytes our cupy default pool holds cached and unused (0 when cupy is missing or the pool cannot be read)."""
+    """Bytes our cupy pools (default and stage slots) hold cached and unused (0 when cupy is missing or a pool cannot be read)."""
     try:
         import cupy as cp
 
-        return int(cp.get_default_memory_pool().free_bytes())
+        return int(sum(int(p.free_bytes()) for p in _own_pools(cp)))
     except Exception as exc:
         log_throttle(logger, "_fe_gpu_vram.except_116", logging.INFO, "cupy pool free bytes unreadable (%r); 0", exc)
         return 0
 
 
 def _release_own_pool() -> None:
-    """Give the cached unused blocks of our default pool back to the device."""
+    """Give the cached unused blocks of our pools (default and stage slots) back to the device."""
     try:
         import cupy as cp
 
-        cp.get_default_memory_pool().free_all_blocks()
+        for pool in _own_pools(cp):
+            pool.free_all_blocks()
     except Exception as exc:
         logger.debug("fe_gpu_has_vram_cushion: releasing the pool blocks failed: %s", exc)
 
@@ -260,11 +283,10 @@ def fe_gpu_has_vram_cushion(bytes_needed: int = 0, *, free_b: "int | None" = Non
     # (free_b/total_b were not supplied), since a caller-supplied probe returns immediately above.
     try:
         import cupy as cp
-        pool = cp.get_default_memory_pool()
-        if int(pool.free_bytes()) <= 0:
+        if _own_pool_free_bytes() <= 0:
             _warn_cushion_refused(free_b, bytes_needed, total_b)
             return False
-        pool.free_all_blocks()
+        _release_own_pool()
         free_b2, total_b2 = cp.cuda.runtime.memGetInfo()
     except Exception as exc:
         logger.warning("fe_gpu_has_vram_cushion: pool free_all_blocks/re-probe failed (%s); declining", exc)
