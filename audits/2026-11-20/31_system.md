@@ -49,3 +49,4 @@ Public or key helpers with no direct test found under `tests/system/` or `tests/
 - 31-F6: FIXED. A failed cold-cache check records the registry keys as checked, so no new thread starts per fit, and logs at WARNING. Test tests/system/test_cluster31_cold_check_failure_is_recorded.py.
 - 31-F9: FIXED. refresh-all prints the count retune_all actually tuned and fails (exit 1) when nothing was tuned. Test tests/system/test_cluster31_refresh_all_reports_what_it_tuned.py.
 - 31-F4: FIXED. An unwritable location for the tuning lock's pid file logs a WARNING and takes no lock, instead of raising out of ensure. The _lock_path mkdir is unchanged. Test tests/system/test_cluster31_lock_write_failure_is_not_raised.py.
+- 31-F7: FIXED. Discovery captures a guarded module's state without importing it, as its docstring requires; an unloaded module stays unloaded. Test tests/system/test_cluster31_discovery_does_not_import_guarded.py.
