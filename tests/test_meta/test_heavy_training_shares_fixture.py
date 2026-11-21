@@ -43,8 +43,9 @@ def direct_suite_trainings(tree: ast.Module) -> list[str]:
     """
     out = []
     for func in (n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name.startswith("test_")):
-        probes = {id(c) for w in ast.walk(func) if _is_raises_block(w) for c in ast.walk(w)}
-        if any(_is_trainer_call(c) and id(c) not in probes for c in ast.walk(func)):
+        nodes = list(ast.walk(func))
+        probes = {id(c) for w in nodes if _is_raises_block(w) for c in ast.walk(w)}
+        if any(_is_trainer_call(c) and id(c) not in probes for c in nodes):
             out.append(func.name)
     return out
 
