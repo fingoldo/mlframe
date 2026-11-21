@@ -79,3 +79,4 @@ Grep-only verification: `pyproject.toml:13` (requires-python), callers of `creat
 - 29-F18: FIXED. A blank GloVe line is skipped instead of aborting the file, and skipped lines are counted in a WARNING. Test tests/utils/test_cluster29_glove_blank_and_bad_lines.py.
 - 29-F11: FIXED. An unpickling failure from a renamed or removed class (AttributeError, ImportError and similar) is a miss that drops the entry, instead of raising out of get(). Test tests/utils/test_cluster29_disk_cache_stale_class_is_a_miss.py.
 - 29-F9: FIXED. A hash-seed request logs a WARNING that PYTHONHASHSEED only reaches child processes started afterwards and leaves this process's string hashing unchanged. Test tests/utils/test_cluster29_hash_seed_warns.py.
+- 29-F26: FIXED. The fingerprint width is the reshaped matrix width, so a 3-D input reports the width its statistics use. Test tests/utils/test_cluster29_param_oracle_width_is_the_stat_width.py.
