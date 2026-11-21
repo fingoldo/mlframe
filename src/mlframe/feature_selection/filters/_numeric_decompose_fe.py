@@ -204,7 +204,7 @@ def generate_rounding_features(
     cols = _numeric_cols(X, num_cols)
     dev = _device_columns(X, cols, 0, list(precisions))
     if dev is not None:
-        return pd.DataFrame({engineered_name_rounding(c, p): dev[i, j].astype(_crit_np_dtype()) for i, c in enumerate(cols) for j, p in enumerate(precisions)}, index=X.index)
+        return fe_frame_from_columns({engineered_name_rounding(c, p): dev[i, j].astype(_crit_np_dtype()) for i, c in enumerate(cols) for j, p in enumerate(precisions)}, X.index)
     from ._edge_pool import map_on_edge_pool
 
     def _one_column(c):
@@ -231,7 +231,7 @@ def generate_digit_features(
     cols = _numeric_cols(X, num_cols)
     dev = _device_columns(X, cols, 1, list(digit_positions))
     if dev is not None:
-        return pd.DataFrame({engineered_name_digit(c, k): dev[i, j] for i, c in enumerate(cols) for j, k in enumerate(digit_positions)}, index=X.index)
+        return fe_frame_from_columns({engineered_name_digit(c, k): dev[i, j] for i, c in enumerate(cols) for j, k in enumerate(digit_positions)}, X.index)
     from ._edge_pool import map_on_edge_pool
 
     def _one_column(c):

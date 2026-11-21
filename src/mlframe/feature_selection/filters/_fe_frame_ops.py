@@ -287,7 +287,9 @@ def fe_append_columns(X: Any, cols: dict[str, np.ndarray]) -> Any:
     if not cols:
         return X
     if is_pandas(X):
-        add = pd.DataFrame(cols, index=X.index)
+        # no consolidation: ``pd.DataFrame(dict)`` copies the columns into blocks (at 1000000 rows the engineered columns of the replay, several hundred of 8 MB, took 2.6 GB twice over); the
+        # frame of ``fe_frame_from_columns`` holds the arrays themselves and the concat shares them, so the columns exist once
+        add = fe_frame_from_columns(cols, X.index)
         return pd.concat([X, add], axis=1)
     if is_polars(X):
         return X.with_columns([pl.Series(name, np.asarray(vals)) for name, vals in cols.items()])
