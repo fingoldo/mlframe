@@ -702,3 +702,4 @@
 | 04-F15 | DEFERRED | _probability_only is an allowlisted exploration helper (tests/test_meta/test_shared_uncalled_functions.py) with a wrong body per the audit. Fixing it needs the difficulty-sweep intent confirmed; deferred. |
 | 04-F21 | FIXED | Probe resampling keeps the donor's missing values, so probes match the donor's missingness. Test tests/data/test_cluster04_probe_keeps_donor_missingness.py. |
 | 04-F22 | FIXED | Probes built into one dict and appended with a single concat; donors converted once. Values unchanged (same per-probe streams). Test tests/data/test_cluster04_probes_built_in_one_pass.py. |
+| 04-F19 | FIXED | Removed the three never-populated FeatureTruth fields (marginal_mi, conditional_mi_given_rest, r2_to_source); the generator fills only role, region, source, cost. Test tests/data/test_cluster04_feature_truth_fields.py. |

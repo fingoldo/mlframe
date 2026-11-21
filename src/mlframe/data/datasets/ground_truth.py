@@ -239,21 +239,18 @@ class TargetSet:
 
 @dataclass(frozen=True)
 class FeatureTruth:
-    """Everything known about one column.
+    """Everything the generator knows about one column.
 
-    ``conditional_mi_given_rest`` is the operational statement of Markov-blanket membership, and it is the
-    form in which the suite's verification criterion is actually true: "conditional MI ranks blanket
-    members above probes" holds on parity scenarios, where the marginal-MI version is false by
-    construction. Both MI fields are ``Optional`` because they are statistical truth, filled in lazily by
-    the oracle rather than at construction.
+    Mutual-information truth is not stored here. Markov-blanket membership is checked through the conditional-MI
+    reference the oracle computes (``_oracle``), where "conditional MI ranks blanket members above probes" is the
+    criterion that holds on parity scenarios; the marginal version is false by construction there. The fields
+    that once promised a lazily filled MI and R^2 (``marginal_mi``, ``conditional_mi_given_rest``,
+    ``r2_to_source``) were never populated, so they were removed rather than left as silent ``None`` (audit 04-F19).
     """
 
     role: FeatureRole
-    marginal_mi: Optional[MIEstimate] = None
-    conditional_mi_given_rest: Optional[MIEstimate] = None
     region: Optional[GateSpec] = None
     source: Optional[str] = None
-    r2_to_source: Optional[float] = None
     cost: float = 1.0
     pre_standardization_scale: Optional[float] = None
 
