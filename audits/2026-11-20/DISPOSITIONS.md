@@ -811,3 +811,5 @@
 | 28-F44 | FIXED | Both CatBoost metric sites keep a user-set eval_metric and set only the loss when one exists; the MTR default is used only when none is set. Test tests/training/test_cluster28_cb_keeps_user_eval_metric.py covers the MTR site; the multilabel site uses the same guard. |
 | 28-F38 | DEFERRED | Owner decision: scale the Huber floor to the target's robust scale, or document it as a raw-unit floor. Either changes every booster's loss on small-scale targets. |
 | 28-F25 | FIXED | A bundle that cannot be digested fails the save with a WARNING, so no unverifiable sidecar is written and a later load does not raise. Test tests/training/test_cluster28_save_fails_without_digest.py; 5 related sidecar tests pass. |
+| 28-F27 | DEFERRED | The whole loader body sits inside _LOAD_MODEL_CACHE_LOCK, so narrowing the lock to the cache get and put means restructuring its control flow. A dedicated change, deferred. |
+| 28-F26 | DEFERRED | Streaming the hash and the unpickle from one handle changes the verified-open contract the loader relies on. Deferred to a dedicated change to the bundle reader. |
