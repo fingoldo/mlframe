@@ -33,6 +33,9 @@ def kendall_tau(df: pd.DataFrame) -> dict[str, float]:
 
 def agreement_rate(df: pd.DataFrame, k: int, top_k: bool = True) -> dict[str, float]:
     """Fraction of each method's top/bottom-``k`` models that also appear in the "AM" ranking's top/bottom-``k`` (clamped to the smallest available subset)."""
+    if k < 1:
+        # k=0 with top_k=False slices iloc[-0:], which is the whole subset, while the denominator stays 1: rates above 1.0 (audit 29-F21).
+        raise ValueError(f"agreement_rate: k must be at least 1, got {k}")
     # Clamp k to actual subset size so `iloc[-k:]` doesn't silently return the WHOLE subset
     # (and divide by k anyway, inflating the agreement rate vs AM). On a 3-row leaderboard with
     # k=10, unclamped code would count all 3 rows but still divide by 10 -- silently misreporting

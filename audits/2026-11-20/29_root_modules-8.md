@@ -74,3 +74,5 @@ Grep-only verification: `pyproject.toml:13` (requires-python), callers of `creat
 - 29-F4: FIXED. structured/void dtype hashes the whole buffer; same test file
 - 29-F5: FIXED. preprocess_glue NaN guard matches preprocess_sglue; no separate test (votenrank suite passed)
 - 29-F6: FIXED. array-likes are written as a frame, other types raise TypeError; same test file
+- 29-F21: FIXED. agreement_rate refuses k below 1 with a ValueError. Test tests/votenrank/test_cluster29_agreement_k_validation.py.
+- 29-F24: FIXED. create_experiment raises NotImplementedError instead of silently storing nothing; its stub test now expects the refusal. Tests tests/utils/test_experiments.py (23 pass with the votenrank test).

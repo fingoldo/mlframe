@@ -819,3 +819,5 @@
 | 28-F21 | FIXED | The pandas inf-to-NaN replacement writes into a shallow copy, so the caller's frame keeps its infinities. Test tests/training/test_cluster28_special_values_leave_caller_frame.py. |
 | 28-F19 | FIXED | When both refit paths fail, the saturated-best-iteration refit restores the model's parameters, as the degenerate path does. Verified by reading; no unit test, since it needs a CatBoost-shaped loss fallback. |
 | 28-F30 | FIXED | Eviction first adopts .pkl entries on disk that this process's ledger does not know, as the oldest, so they count against and can be evicted from the byte budget. Test tests/training/test_cluster28_cache_adopts_other_process_entries.py; 5 cache tests pass. |
+| 29-F21 | FIXED | agreement_rate refuses k below 1 with a ValueError. Test tests/votenrank/test_cluster29_agreement_k_validation.py. |
+| 29-F24 | FIXED | create_experiment raises NotImplementedError instead of silently storing nothing; its stub test now expects the refusal. Tests tests/utils/test_experiments.py (23 pass with the votenrank test). |
