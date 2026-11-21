@@ -76,3 +76,4 @@ Scope: 69 files from manifest `26_root_modules-5.txt` (preprocessing 25, reporti
 - 26-F23: FIXED. The PDP panels order importances with NaN last through one helper, the same key _ranked_top_features uses. Test tests/reporting/test_cluster26_pdp_nan_importance_last.py.
 - 26-F28: FIXED. Non-finite (time, value) pairs are dropped per entity before the GP fit; an entity with nothing finite is NaN. Test tests/signal/test_cluster26_gp_and_outlier_dtypes.py.
 - 26-F30: FIXED. The aggregate early-stopping selection is NaN-aware and raises when every round is NaN. Test tests/training/test_cluster26_aggregate_nan_and_fraction_probe.py.
+- 26-F10: FIXED. Nearest-mode imputation places its replacement by position, so a duplicated index no longer raises. Test tests/preprocessing/test_cluster26_unseen_nearest_duplicate_index.py.
