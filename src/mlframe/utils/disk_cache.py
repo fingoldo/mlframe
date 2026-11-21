@@ -112,7 +112,12 @@ def hash_array_content(arr: np.ndarray) -> str:
     try:
         import xxhash
 
-        return str(xxhash.xxh3_128_hexdigest(head + arr.tobytes()))
+        # Hash incrementally: ``head + arr.tobytes()`` made two full copies of the array per lookup. The digest is the same as the one-shot
+        # digest of the concatenation, so existing cache keys are unchanged (audit 29-F12).
+        hasher = xxhash.xxh3_128()
+        hasher.update(head)
+        hasher.update(arr.data.cast("B"))
+        return str(hasher.hexdigest())
     except ImportError:
         h = _hasher()
         h.update(head)
