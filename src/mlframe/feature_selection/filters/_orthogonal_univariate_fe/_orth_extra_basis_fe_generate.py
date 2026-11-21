@@ -15,7 +15,6 @@ import logging
 from typing import Any, Optional, Sequence
 
 import numpy as np
-from mlframe.utils.host_block_budget import reserves_host_block_budget
 from .._fe_frame_ops import fe_frame_from_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
@@ -558,7 +557,7 @@ def _extra_basis_peak_bytes(X: "pd.DataFrame", y: Any = None, *, cols: Any = Non
     return n_rows * n_cols * 8 * 14
 
 
-@reserves_host_block_budget(_extra_basis_peak_bytes)
+# Rejected (2026-11-21): decorating the family below with ``@reserves_host_block_budget(_extra_basis_peak_bytes)`` made the 100000 x 1000 fit slower (278-289 s against 247 s) and dropped selected column 4 ([2] against [2, 4]).
 def hybrid_orth_extra_basis_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
