@@ -3,8 +3,9 @@
 Run: python -m mlframe.data_valuation._benchmarks.profile_data_valuation
 
 Measures ``knn_shapley`` wall at ``n_train`` in {2000, 20000, 100000} x ``n_val`` in {200, 1000}
-(section 5's grid) and records whether the njit recursion kernel wins over a pure-numpy reference
-loop -- kept per the repo's acceleration-ladder convention (keep both backends if the win is real).
+(section 5's grid) and records how the njit recursion kernel compares with its own interpreted CPython body
+(``.py_func``). There is no separate pure-numpy backend in the package, so the second arm is the same
+algorithm run without the JIT, not a numpy reference (audit 05-F1).
 """
 
 from __future__ import annotations
@@ -38,27 +39,32 @@ def bench_wall_grid():
             print(f"{n_train}, {n_val}, {wall:.4f}")
 
 
-def bench_njit_vs_numpy_recursion():
-    """Compare the njit recursion kernel against a pure-numpy reference loop at realistic n_train widths."""
+def bench_njit_vs_interpreted_recursion(sizes=(2000, 20000, 100000), repeats=50):
+    """Compare the njit recursion kernel with its interpreted CPython body at the given n_train widths.
+
+    The label says what is measured: ``interpreted_py`` is ``_knn_shapley_recursion.py_func``, the same code
+    run by the interpreter, so the ratio is the JIT's gain on this kernel and not a comparison with a numpy backend.
+    """
     from mlframe.data_valuation._knn_shapley import _knn_shapley_recursion
 
     rng = np.random.default_rng(0)
-    for n_train in (2000, 20000, 100000):
+    for n_train in sizes:
         match = (rng.random(n_train) < 0.5).astype(np.float64)
         k = 5
         _knn_shapley_recursion(match, k)  # warm
 
         t0 = time.perf_counter()
-        for _ in range(50):
+        for _ in range(repeats):
             _knn_shapley_recursion(match, k)
-        wall_njit = (time.perf_counter() - t0) / 50
+        wall_njit = (time.perf_counter() - t0) / repeats
 
         t0 = time.perf_counter()
-        for _ in range(50):
+        for _ in range(repeats):
             _knn_shapley_recursion.py_func(match, k)
-        wall_numpy = (time.perf_counter() - t0) / 50
+        wall_interpreted = (time.perf_counter() - t0) / repeats
 
-        print(f"n_train={n_train}: njit={wall_njit * 1000:.4f}ms, numpy_loop={wall_numpy * 1000:.4f}ms, speedup={wall_numpy / wall_njit:.2f}x")
+        print(f"n_train={n_train}: njit={wall_njit * 1000:.4f}ms, interpreted_py={wall_interpreted * 1000:.4f}ms, speedup={wall_interpreted / wall_njit:.2f}x")
+
 
 
 def bench_cprofile():
@@ -78,6 +84,6 @@ def bench_cprofile():
 
 
 if __name__ == "__main__":
-    bench_njit_vs_numpy_recursion()
+    bench_njit_vs_interpreted_recursion()
     bench_wall_grid()
     bench_cprofile()
