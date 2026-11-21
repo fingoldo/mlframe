@@ -103,3 +103,4 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F24: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F25: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F26: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
+- 22-F3: DEFERRED. Still deferred: get_postcalibrators imports six optional libraries unguarded and builds each calibrator inline. Guarding each entry means restructuring the zoo list per library; deferred to a dedicated pass with a test that blocks each module in turn.

@@ -73,7 +73,7 @@ def create_fairness_subgroups(
         if not (0 < min_pop_cat_thresh <= len(df) // 2):
             raise ValueError(f"min_pop_cat_thresh (int) must be in (0, len(df)//2={len(df) // 2}]; " f"got {min_pop_cat_thresh!r}.")
 
-    subgroups = {}
+    subgroups: dict = {}
     for feature_name in features:
 
         # isinstance first: a pd.Series feature makes ``==`` return a Series and the tuple test raises (audit 25-F6)

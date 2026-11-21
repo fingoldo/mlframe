@@ -65,6 +65,7 @@ class CompositeCrossTargetEnsemble:
     # Per-column means of the component predictions, stashed at construction and read back at predict
     # time via getattr; declared so the write and the read are the same attribute.
     _component_col_means: list
+    _meta_model: Any  # optional meta model (set by a meta_ridge / meta stacking fit, dropped on a cap); declared so the assignments type-check
 
     def __init__(
         self,

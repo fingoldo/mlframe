@@ -182,6 +182,25 @@ def compute_area_profits(prices: np.ndarray, positions: np.ndarray) -> np.ndarra
 
 
 @numba.njit(fastmath=FASTMATH, cache=True)
+def _backtrack_positions(back: np.ndarray, best_final_idx: int, m: int) -> np.ndarray:  # pragma: no cover
+    """Walk the DP backpointers from the best final state to recover one position per interval (split out of find_best_mps_sequence)."""
+    positions = np.empty(m, dtype=np.int8)
+    cur_idx = best_final_idx
+    for t in range(m - 1, -1, -1):
+        positions[t] = _index_state(cur_idx)
+        cur_idx = back[t, cur_idx]
+    return positions
+
+
+def _left_shift_positions(positions: np.ndarray, shift: int) -> np.ndarray:  # pragma: no cover
+    """Shift positions ``shift`` steps left; the vacated tail takes the last shifted position (audit 24-F15), then backfills zeros."""
+    positions[:-shift] = positions[shift:]
+    # The vacated tail takes the last shifted position explicitly; it used to keep the stale pre-shift values (audit 24-F15).
+    if shift < positions.size:
+        positions[-shift:] = positions[-shift - 1]
+    return np.asarray(backfill_zeros(positions, direction="left"))
+
+
 def find_best_mps_sequence(
     prices: np.ndarray,
     raw_prices: np.ndarray,
@@ -272,22 +291,14 @@ def find_best_mps_sequence(
             best_final_idx = k
 
     # reconstruct positions per interval
-    positions = np.empty(m, dtype=np.int8)
-    cur_idx = best_final_idx
-    for t in range(m - 1, -1, -1):
-        positions[t] = _index_state(cur_idx)
-        cur_idx = back[t, cur_idx]
+    positions = _backtrack_positions(back, best_final_idx, m)
 
     if optimize_consecutive_regions:
         positions = backfill_zeros(positions, direction="right")
         positions = backfill_zeros(positions, direction="left")
 
     if shift > 0:
-        positions[:-shift] = positions[shift:]
-        # The vacated tail takes the last shifted position explicitly; it used to keep the stale pre-shift values (audit 24-F15).
-        if shift < positions.size:
-            positions[-shift:] = positions[-shift - 1]
-        positions = backfill_zeros(positions, direction="left")
+        positions = _left_shift_positions(positions, shift)
     # compute profits from current idx till the end of current area
     profits = compute_area_profits(prices=raw_prices, positions=positions)
 

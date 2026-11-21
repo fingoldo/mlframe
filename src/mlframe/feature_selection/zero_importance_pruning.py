@@ -67,7 +67,7 @@ def _zero_importance_mask_within_training_folds(estimator, X, y, cv, remaining, 
         n_folds += 1
     # Mean over training-fold importances: each term sees training rows only (25-F18). An all-folds AND was so strict
     # that noise columns with a small non-zero importance in one fold were never dropped.
-    return (totals / max(n_folds, 1)) <= importance_threshold
+    return np.asarray((totals / max(n_folds, 1)) <= importance_threshold)
 
 
 def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[np.ndarray, np.ndarray], float]) -> float:

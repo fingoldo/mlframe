@@ -125,3 +125,4 @@ Method: four parallel sub-audits read every listed file fully and grepped caller
 - 25-F18: FIXED. a column is a drop candidate only if unimportant in every training fold, importances on training rows only. Residual: the fold's held-out rows still shape the other folds' masks; a fully nested variant is a design option. Test: same test file
 - 25-F19: FIXED. NaN epochs are skipped before the baseline and weights; a RuntimeWarning fires when no epoch is finite; same test file
 - 25-F18: FIXED. correction: the drop mask is the mean of per-training-fold importances (each computed on training rows only) at or below the threshold; an all-folds AND broke biz_val pruning (26 of 43 survivors). Residual: held-out rows of one fold still shape other folds' masks
+- 25-F2: FIXED. Monotonicity is checked by comparison, not np.diff (which wraps on unsigned ids). Test tests/metrics/test_cluster25_unsigned_group_ids_unsorted.py.

@@ -70,3 +70,4 @@ Scope: 69 files from manifest `26_root_modules-5.txt` (preprocessing 25, reporti
 - 26-F3: FIXED. tree branch scores against supplied bounds as the non-tree branch does; same file
 - 26-F4: FIXED. expanding denominator is the per-feature observed count; same file (weak test: only augmented rows are exposed)
 - 26-F5: FIXED. auto-discovered non-numeric columns take mode under median/mean; same file
+- 26-F4: FIXED. Expanding mean and std use the observed count per feature. The earlier test only checked finiteness; a strict test now pins the value (tests/preprocessing/test_cluster26_expanding_uses_observed_count.py).

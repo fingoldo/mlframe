@@ -146,7 +146,15 @@ def default_store_dir() -> str:
 _NAN_BUCKET = "nan"  # bucket value for an unmeasurable dimension
 
 
-def log_bucket(v: float) -> float:
+def _round_bucket(bucket):
+    """Round a numeric bucket to 6 places; pass the ``_NAN_BUCKET`` marker through unchanged.
+
+    ``linear_bucket`` returns the marker string for an unmeasurable value, and ``round`` of a string raised TypeError (a latent crash on NaN dims).
+    """
+    return bucket if isinstance(bucket, str) else round(bucket, 6)
+
+
+def log_bucket(v: float) -> float | str:
     """Log-scale bucketiser for size-like dims (n, p, cardinality).
 
     ``round(log10(max(v, 1)) * 2) / 2`` -- half-decade buckets. Maps
@@ -167,7 +175,7 @@ def log_bucket(v: float) -> float:
     return round(math.log10(max(abs(f), 1.0)) * 2.0) / 2.0
 
 
-def linear_bucket(v: float, resolution: float = 0.1) -> float:
+def linear_bucket(v: float, resolution: float = 0.1) -> float | str:
     """Linear bucketiser for bounded / signed dims (correlation, sparsity,
     skew, excess kurtosis) where log10 would destroy resolution.
 
@@ -421,12 +429,12 @@ def bucketize_fingerprint(fp: Mapping[str, Any]) -> dict:
         elif k in _LOG_BUCKET_DIMS:
             out[k] = log_bucket(v)
         elif k in _LINEAR_BUCKET_DIMS:
-            out[k] = round(linear_bucket(v), 6)
+            out[k] = _round_bucket(linear_bucket(v))
         else:
             # Unknown extra dim: linear-bucket if numeric (safe for both
             # bounded and size-ish unknowns at 0.1 res), else pass through.
             if isinstance(v, (int, float)) and not isinstance(v, bool):
-                out[k] = round(linear_bucket(v), 6)
+                out[k] = _round_bucket(linear_bucket(v))
             else:
                 out[k] = v
     return out

@@ -39,7 +39,8 @@ def _noninformative_columns_vs_one_reference(
     # this entry wants to drop, just under the opposite name (there, "stable" means "safe to keep because it
     # didn't drift"; here the same condition means "no signal, drop it").
     # Raw labels, not str(): the cohort intersection below tests membership against df.columns labels (audit 24-F22).
-    return report.loc[report["stable"], "column"].tolist()
+    _kept: list[str] = report.loc[report["stable"], "column"].tolist()
+    return _kept
 
 
 def _summ_drop_noninformative_vs_reference(res, b):
