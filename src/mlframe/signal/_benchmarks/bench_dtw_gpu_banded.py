@@ -71,9 +71,8 @@ def _bench():
         old_ms = _best(dtw_cupy) * 1e3
         new_ms = _best(dtw_cupy_banded) * 1e3
 
-        # Analytic cost-buffer peak (the dominant device allocation): full vs banded.
-        old_mb = (L + 1) * (L + 1) * 4 / 1e6
-        new_mb = (L + 1) * (2 * W + 1) * 4 / 1e6
+        # old_mb / new_mb are the MEASURED pool bytes above; the analytic float32 figures that used to overwrite them halved the float64 reality
+        # and hid allocator overhead (audit 30-F1, 30-F2).
         d_cpu = float(_dtai.distance(x.astype(np.float64), y.astype(np.float64), window=W)) if _HAS_DTAI else float("nan")
         gap_gpu = abs(d_old - d_new)
         gap_cpu = abs(d_new - d_cpu)

@@ -839,3 +839,6 @@
 | 29-F8 | FIXED | The stability reference ranking comes from the unmodified table's rank_all, not from the first noised entry of exp_range. Verified by reading; no unit test, since the leaderboard setup is heavy. Test file tests/votenrank/test_cluster29_stability_axis_and_reference.py covers F7 only. |
 | 29-F25 | DEFERRED | The shared DMatrix must be mutated and trained inside one lock. That wraps the xgb.train call, and a threaded regression test needs a dedicated harness, so it is deferred to its own change. |
 | 29-F14 | DEFERRED | The param-oracle store's ML correctness needs a design decision about the recommendation contract, which is deferred with the store design (see 29-F13). |
+| 30-F1 | FIXED | The DTW bench prints measured pool bytes; the analytic float32 overwrite is removed. Bench output; verified by reading, not by a unit test (needs a GPU). |
+| 30-F2 | FIXED | The analytic overwrite of the measured memory is removed; the printed values are the measured pool numbers. Bench output; verified by reading. |
+| 30-F4 | FIXED | The GP bench builds its dataset before the timer, so the wall time covers smoothing only. Bench output; verified by compiling and reading. |
