@@ -60,7 +60,8 @@ def test_string_labels_are_refused_with_gaps_as_without(missing):
     """A gap must not let string labels past the integer check that refuses them in a fully labelled column."""
     for values in (["hi", "lo", "mid", "hi"], ["hi", "lo", missing, "hi"]):
         df = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0], "grade": pd.Series(values, dtype=object)})
-        with pytest.raises(ValueError, match="invalid literal"):
+        # numpy words the refusal differently across versions ("invalid literal" / "could not convert string to float"); both are the same refusal.
+        with pytest.raises(ValueError, match="invalid literal|could not convert string to float"):
             SimpleFeaturesAndTargetsExtractor(classification_targets=["grade"]).build_targets(df)
 
 
