@@ -235,7 +235,7 @@ def _confirm_pairs_bandit_ucb1(
     _burst_seed_base = np.uint64(0xDEADBEEF)
     _burst_counter = 0
 
-    from ._fe_deadline import fe_deadline_passed
+    from ._fe_deadline import fe_deadline_passed, warn_deadline_truncation
 
     while used < total_budget:
         # Optional-enrichment wall-clock budget: stop the adaptive UCB1 allocation once MRMR.fit's
@@ -244,6 +244,7 @@ def _confirm_pairs_bandit_ucb1(
         # active_mask). No-op without a budget (mirrors the orth-univariate/pair-cross/extra-basis
         # generators' internal deadline check).
         if fe_deadline_passed():
+            warn_deadline_truncation("cat_confirm_bandit", total_budget - used, total_budget)  # the pairs keep the shuffle counts they had: their p-values rest on fewer permutations
             break
         # Decide which pair to allocate next shuffle to. UCB1-style: pair with widest CI on current p_estimate, AMONG ACTIVES.
         best_j = _ucb1_pick(active_mask, nfailed, nshuf, used)

@@ -274,6 +274,11 @@ def _rff_analytic_mixed_partial_energy_gram(rbf, ridge, Xs: np.ndarray, pairs, c
     """The same energy through the Gram matrix of the cosine features: E[(Mcos @ coef_k)^2] = coef_k' G coef_k with ``G = Mcos' Mcos / n`` (D x D), so a chunk of pairs costs
     ``D x D x k`` instead of ``n x D x k`` plus the ``n x k`` square-and-sum (n = 2000 rows, D = 400 features: five times fewer multiply-adds, and the ``n x k`` intermediate is gone).
     Equal to the batched kernel up to float rounding (the products are summed in another order)."""
+    from ._rff_gram_energy_gpu import rff_gram_energies_device
+
+    on_device = rff_gram_energies_device(rbf, ridge, Xs, pairs, chunk)
+    if on_device is not None:
+        return on_device
     W = rbf.random_weights_
     b = rbf.random_offset_
     D = W.shape[1]
@@ -389,9 +394,19 @@ def rank_gradient_interaction_pairs(
 
     # (4) permutation-null floor on the MAX mixed-partial energy
     null_max = []
-    for s in range(k_perm):
+    _batched_null = None
+    _fits = None
+    if kernel != "finite_diff" and k_perm > 0:
+        # the permutation surrogates are independent fits; their Gram energies run together on the device (one batched pass for the whole null, only the maxima come back)
+        from ._rff_gram_energy_gpu import rff_gram_null_maxima_device
+
+        _fits = [_fit_rff_ridge(Xsub, np.random.default_rng(seed + 1000 + s).permutation(target), n_components, gamma, alpha, s) for s in range(k_perm)]
+        _batched_null = rff_gram_null_maxima_device([f[0] for f in _fits], [f[1] for f in _fits], Xsub, sub_pairs)
+    if _batched_null is not None:
+        null_max = [float(v) for v in _batched_null]
+    for s in (range(k_perm) if _batched_null is None else ()):
         tp = np.random.default_rng(seed + 1000 + s).permutation(target)
-        rbf_p, ridge_p = _fit_rff_ridge(Xsub, tp, n_components, gamma, alpha, s)
+        rbf_p, ridge_p = _fits[s] if _fits is not None else _fit_rff_ridge(Xsub, tp, n_components, gamma, alpha, s)
         if kernel == "finite_diff":
             def _predict_p(Z, _r=rbf_p, _g=ridge_p):
                 """Permutation-null RFF+ridge surrogate prediction at ``Z``, binding the per-permutation ``rbf_p``/``ridge_p`` as defaults so the closure captures the right pair inside the loop."""

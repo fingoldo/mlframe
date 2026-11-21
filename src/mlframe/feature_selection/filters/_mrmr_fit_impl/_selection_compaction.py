@@ -29,15 +29,26 @@ _MIN_ROWS_PER_CELL = 20  # a joint table with more occupied cells than n / this 
 
 def corrected_joint_mi(columns: "list[np.ndarray]", y_codes: np.ndarray) -> "tuple[float, int]":
     """``(bias-corrected joint MI in nats, occupied joint cells)`` of the integer-coded ``columns`` with ``y_codes``."""
+    from mlframe.feature_selection.filters._added_information_gate import _dense_small_ints
+
     n = int(y_codes.shape[0])
     joint = np.zeros(n, dtype=np.int64)
     for col in columns:
         c = np.asarray(col).astype(np.int64, copy=False)
         base = int(c.max()) + 1 if c.size else 1
-        _, joint = np.unique(joint * base + c, return_inverse=True)
-        joint = joint.astype(np.int64, copy=False)
+        key = joint * base + c
+        # dense ids in increasing value order, as ``np.unique(return_inverse=True)`` numbers them, from one counting pass instead of a sort (a sort of the rows for every column of every candidate)
+        dense, k = _dense_small_ints(np.ascontiguousarray(key).reshape(-1), 1 << 22)
+        if k >= 0:
+            joint = dense
+        else:
+            _, joint = np.unique(key, return_inverse=True)
+            joint = joint.astype(np.int64, copy=False)
     cells = int(joint.max()) + 1 if n else 1
-    _, y_dense = np.unique(y_codes, return_inverse=True)
+    y_flat = np.ascontiguousarray(np.asarray(y_codes).astype(np.int64, copy=False)).reshape(-1)
+    y_dense, ky = _dense_small_ints(y_flat, 1 << 22)
+    if ky < 0:
+        _, y_dense = np.unique(y_codes, return_inverse=True)
     n_y = int(y_dense.max()) + 1 if n else 1
     mi = float(_mi_codes_njit(joint, cells, y_dense.astype(np.int64).ravel(), n_y))
     return mi - (cells - 1.0) * (n_y - 1.0) / (2.0 * n), cells

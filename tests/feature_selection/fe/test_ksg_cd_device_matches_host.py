@@ -52,3 +52,68 @@ def test_device_mi_accepts_float32_input_without_reading_past_the_buffer():
     got = gpu.mi_cd_columns_device(X32, d, int(d.max()) + 1, 3)
     assert got is not None
     assert np.allclose(got, want, rtol=1e-9, atol=1e-9), (got, want)
+
+
+@pytest.fixture(autouse=True)
+def _exact_double_path(monkeypatch):
+    """The equality tests below compare to 1e-9, which is the float64 path; the float32 path has its own tests at the end of the file."""
+    monkeypatch.setenv("MLFRAME_KSG_F32", "0")
+
+
+def _tied_block(n, p, seed):
+    """A noised block whose columns take few distinct values, as a discretised feature does (the 1e-10 noise is lost in float32)."""
+    r = np.random.default_rng(seed)
+    d = r.integers(0, 3, n).astype(np.int64)
+    X = r.standard_normal((n, p))
+    X[:, : p // 2] += d[:, None] * 0.4
+    X = np.round(X * 8) / 8
+    X = X / X.std(axis=0)
+    X += 1e-10 * r.standard_normal(X.shape)
+    return np.ascontiguousarray(X), d
+
+
+def test_float32_path_agrees_with_host_on_tie_free_columns(monkeypatch):
+    """Continuous columns run in float32 and give the host MI to the rounding of the data, with the same ordering of informative above noise."""
+    monkeypatch.setenv("MLFRAME_KSG_F32", "1")
+    X, d = _block(20000, 3, 8, 0)
+    want = host._mi_cd_columns(X, d, int(d.max()) + 1, 3)
+    got = gpu.mi_cd_columns_device(X, d, int(d.max()) + 1, 3)
+    assert got is not None
+    np.testing.assert_allclose(got, want, rtol=0, atol=5e-4)
+    assert got[:4].min() > got[4:].max()
+
+
+def test_float32_path_leaves_tied_columns_to_float64(monkeypatch):
+    """Columns with equal neighbours after the float32 cast (heavy ties) are scored in float64, so they equal the host value exactly; in float32 the noise columns would score about 1.9."""
+    monkeypatch.setenv("MLFRAME_KSG_F32", "1")
+    X, d = _tied_block(20000, 6, 1)
+    want = host._mi_cd_columns(X, d, int(d.max()) + 1, 3)
+    got = gpu.mi_cd_columns_device(X, d, int(d.max()) + 1, 3)
+    assert got is not None
+    np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-9)
+    assert want[3:].max() < 0.1
+
+
+def test_packed_float32_order_sorts_every_row_like_argsort():
+    """The one-sort packed order of a float32 matrix (negative, positive and zero values) sorts each row exactly as a per-row argsort does."""
+    r = np.random.default_rng(3)
+    x = cp.asarray(r.standard_normal((7, 513)).astype(np.float32))
+    x[0, :5] = 0.0
+    order = gpu._packed_f32_order(cp, x)
+    assert order is not None
+    assert sorted(order[3].get().tolist()) == list(range(513))
+    got = cp.take_along_axis(x, order, axis=1)
+    np.testing.assert_array_equal(got.get(), np.sort(x.get(), axis=1))
+
+
+def test_one_byte_class_labels_give_the_four_byte_values(monkeypatch):
+    """The ``int8`` instance of the kernel (labels read as one byte) returns exactly the values of the ``int32`` instance, in both column types."""
+    for f32 in ("0", "1"):
+        monkeypatch.setenv("MLFRAME_KSG_F32", f32)
+        X, d = _block(9000, 3, 8, 2)
+        monkeypatch.setenv("MLFRAME_KSG_I8", "0")
+        want = gpu.mi_cd_columns_device(X, d, int(d.max()) + 1, 3)
+        monkeypatch.setenv("MLFRAME_KSG_I8", "1")
+        got = gpu.mi_cd_columns_device(X, d, int(d.max()) + 1, 3)
+        assert want is not None and got is not None
+        np.testing.assert_array_equal(got, want)

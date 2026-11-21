@@ -43,12 +43,12 @@ extern "C" __global__ void __launch_bounds__(512, MLF_THREADS_PER_SM / 512) root
                                              , unsigned int* __restrict__ scratch, const long long total
 #endif
 #ifdef ACCEPT_PRE
-                                             , const unsigned int* __restrict__ pre
+                                             , const unsigned int* __restrict__ pre, const int WP
 #endif
                                              ) {
 #ifdef ACCEPT_PRE
     // the sorted-space label sequences of all (column, permutation) pairs were built beforehand (``sorted_label_bits``): bit table word w of pair (j, b) is pre[(j * W + w) * B + b]
-#define BITW(k) pre[((long long)j * W + (k)) * B + b]
+#define BITW(k) pre[((long long)(j * B + b)) * WP + (k)]   // the words of one pair are contiguous (row stride WP, a multiple of 8)
 #else
 #define BITW(k) bits[k]
 #endif
@@ -263,6 +263,48 @@ extern "C" __global__ void sorted_label_bits(const int* __restrict__ order, cons
 }
 """
 _MODULE_SORTED = RawModuleCache(_SRC_SORTED_BITS)
+
+#: ``sorted_label_bits`` writing the tables pair-major: ``pre[(j * B + b) * WP + w]`` with the row stride ``WP`` a multiple of 8. A warp owns 8 words (256 sorted positions) of one block of 32 permutations:
+#: the lane of permutation ``b`` ends with its 8 words in registers and stores them as two 16-byte vectors, so the writes fill whole sectors; the scan then reads the words of a pair contiguously.
+_SRC_SORTED_BITS8 = r"""
+extern "C" __global__ void sorted_label_bits8(const int* __restrict__ order, const uint4* __restrict__ yt, unsigned int* __restrict__ pre,
+                                              const long long n, const int WP, const int B) {
+    // yt: one uint4 a row, the labels of the row under permutations 0..127 of the chunk (bit b of word q = permutation 32 q + b)
+    const int w0 = blockIdx.x * 8;
+    const int jj = blockIdx.y;
+    const int t = threadIdx.x;
+    unsigned int mine[4][8];
+#pragma unroll
+    for (int ww = 0; ww < 8; ++ww) {
+        const long long i = (long long)(w0 + ww) * 32 + t;
+        const int r = (i < n) ? order[(long long)jj * n + i] : -1;
+        const uint4 v4 = (r >= 0) ? yt[r] : make_uint4(0u, 0u, 0u, 0u);   // one sector for the four words of the row
+        const unsigned int vq[4] = {v4.x, v4.y, v4.z, v4.w};
+#pragma unroll
+        for (int q = 0; q < 4; ++q) {
+            // 32 x 32 bit transpose across the warp (lane = row, bit = column): five butterfly steps, each swapping the off-diagonal j x j blocks with the xor partner; afterwards lane t holds
+            // bit t of every lane's word, which is what 32 ballots gave one lane at a time
+            unsigned int x = vq[q];
+#pragma unroll
+            for (int j = 16, mk = 0x0000FFFF; j != 0; j >>= 1, mk ^= (mk << j)) {
+                const unsigned int y = __shfl_xor_sync(0xffffffffu, x, j);
+                x = (t & j) ? (((y >> j) & (unsigned int)mk) | (x & ~(unsigned int)mk)) : ((x & (unsigned int)mk) | ((y & (unsigned int)mk) << j));
+            }
+            mine[q][ww] = x;
+        }
+    }
+#pragma unroll
+    for (int q = 0; q < 4; ++q) {
+        const int b = q * 32 + t;
+        if (b < B) {
+            uint4* dst = (uint4*)(pre + ((long long)jj * B + b) * WP + w0);
+            dst[0] = make_uint4(mine[q][0], mine[q][1], mine[q][2], mine[q][3]);
+            dst[1] = make_uint4(mine[q][4], mine[q][5], mine[q][6], mine[q][7]);
+        }
+    }
+}
+"""
+_MODULE_SORTED8 = RawModuleCache(_SRC_SORTED_BITS8)
 _PERM_CHUNK = 128  # permutations per pass: the unpacked label matrix is rows x 128 bytes
 _PRE_BYTES = 192 * 1024 * 1024  # sorted-space bit tables held at a time
 
@@ -350,24 +392,24 @@ def _transposed_label_bits(cp: Any, yb: Any, n: int, pw: int) -> Any:
 def _launch_pre(cp: Any, d_order: Any, valid: Any, ybits: Any, tab_full: Any, thr: Any, n: int, words: int, m: int, n_perm: int, kc: int, h_full: float, d_gain: Any, d_ncand: Any, d_idx: Any) -> bool:
     """The scan over sorted-space label sequences built beforehand by gathering one B-bit vector per sorted position (``sorted_label_bits``): the scan kernel does no label lookup per (position,
     permutation), whatever the row count. Permutations go in chunks of ``_PERM_CHUNK`` and columns in chunks that keep the tables under ``_PRE_BYTES``."""
-    build = _MODULE_SORTED.get(cp).get_function("sorted_label_bits")
+    build = _MODULE_SORTED8.get(cp).get_function("sorted_label_bits8")
     scan = _MODULE_PRE.get(cp).get_function("root_split_accept")
     width = _block_width(scan, 0, n)
+    wp = ((words + 7) // 8) * 8
     g2, c2, i2 = d_gain.reshape(kc, n_perm), d_ncand.reshape(kc, n_perm), d_idx.reshape(kc, n_perm)
     for b0 in range(0, n_perm, _PERM_CHUNK):
         bc = min(_PERM_CHUNK, n_perm - b0)
-        pw = (bc + 31) // 32
-        yt = _transposed_label_bits(cp, ybits[b0 : b0 + bc], n, pw)
-        col_chunk = max(1, _PRE_BYTES // (words * bc * 4))
+        yt = _transposed_label_bits(cp, ybits[b0 : b0 + bc], n, 4)  # padded to four words a row (a chunk is at most 128 permutations): one 16-byte gather per row
+        col_chunk = max(1, _PRE_BYTES // (wp * bc * 4))
         for j0 in range(0, kc, col_chunk):
             jc = min(col_chunk, kc - j0)
-            pre = cp.empty((jc, words, bc), dtype=cp.uint32)
-            build((words, pw, jc), (32,), (d_order[j0 : j0 + jc], yt, pre, np.int64(n), np.int32(words), np.int32(pw), np.int32(bc)))  # launch-ok: one warp per block, the kernel ballots across the 32 lanes
+            pre = cp.empty((jc, bc, wp), dtype=cp.uint32)
+            build((wp // 8, jc), (32,), (d_order[j0 : j0 + jc], yt, pre, np.int64(n), np.int32(wp), np.int32(bc)))  # launch-ok: one warp per block, the kernel ballots across the 32 lanes
             tg, tc, ti = cp.empty(jc * bc, dtype=d_gain.dtype), cp.empty(jc * bc, dtype=cp.int32), cp.empty(jc * bc, dtype=cp.int32)
             scan(
                 (jc * bc,), (width,),
                 # Intentional float64: the kernel signature declares double
-                (d_order[j0 : j0 + jc], valid[j0 : j0 + jc], ybits, tab_full, thr, np.int64(n), np.int32(words), np.int32(ybits.shape[1]), np.int32(m), np.int32(bc), np.float64(h_full), np.float64(m / float(n)), tg, tc, ti, pre),
+                (d_order[j0 : j0 + jc], valid[j0 : j0 + jc], ybits, tab_full, thr, np.int64(n), np.int32(words), np.int32(ybits.shape[1]), np.int32(m), np.int32(bc), np.float64(h_full), np.float64(m / float(n)), tg, tc, ti, pre, np.int32(wp)),
             )
             g2[j0 : j0 + jc, b0 : b0 + bc] = tg.reshape(jc, bc)
             c2[j0 : j0 + jc, b0 : b0 + bc] = tc.reshape(jc, bc)
@@ -387,7 +429,10 @@ def root_split_accept_gpu(cp: Any, order: Any, tie: Any, y_raw_perm: Any, n: int
         mode = "global"
     shared_ok = accept_fits(n, y_raw_perm)
     use_global = mode == "global"
-    use_pre = mode == "pre" or (mode == "" and not shared_ok)
+    # the precomputed sorted-space tables are the default at every row count (``block`` keeps the kernel that fills a shared bit table per pair, the reference): at 100000 rows x 120 columns x 999
+    # permutations the fill phase was 69 percent of that kernel's cycles (random shared-memory lookups, 24 percent shared efficiency), and building the tables 32 permutations per gather is
+    # 2 times faster overall with the same outputs
+    use_pre = mode in ("pre", "")
     if mode == "off" and not shared_ok:
         return False
     if not shared_ok and not accept_fits_global(n, y_raw_perm):

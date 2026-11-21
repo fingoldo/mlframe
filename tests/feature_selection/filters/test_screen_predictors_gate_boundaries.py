@@ -179,3 +179,38 @@ class TestMaxTFloorUsesMarginalNotConditionalMi:
             cardinality_bias_correction=False,
         )
         assert passes, "maxT floor must be a no-op for interactions_order >= 2"
+
+
+def test_missing_marginal_with_an_active_maxt_floor_is_logged(caplog):
+    """A candidate with no cached marginal MI cannot be compared to the active maxT floor (audit 2026-11-20 A-F04): it still passes, but the bypass is logged."""
+    import logging
+
+    from mlframe.utils.log_throttle import reset_throttle_counts
+
+    reset_throttle_counts()
+    with caplog.at_level(logging.WARNING):
+        passes, _gain = _gate(fdr_gain_floor=0.05, cached_MIs={})
+    assert passes
+    assert any("no cached marginal MI" in r.getMessage() for r in caplog.records)
+
+
+def _su_gate(monkeypatch, cached_su, floor):
+    """Gate one binary candidate with the SU toggle on and the cached marginal ``cached_su`` (SU units) against the nat floor ``floor``."""
+    from mlframe.feature_selection.filters import _screen_predictors_gate as gate
+
+    monkeypatch.setattr(gate, "use_su_normalization", lambda: True)
+    rng = np.random.default_rng(0)
+    n = 4000
+    data = np.zeros((n, 2), dtype=np.int32)
+    data[:, 0] = rng.integers(0, 2, n)  # candidate: H = ln 2 nats
+    data[:, 1] = rng.integers(0, 2, n)  # target: H = ln 2 nats, so the SU factor 2 / (H + H) is 1 / ln 2
+    return gate.compute_selection_gate(
+        min_relevance_gain=0.0, interactions_order=1, best_candidate=(0,), best_gain=1.0, cardinality_bias_correction=False, factors_data=data, y=[1], factors_nbins=[2, 2],
+        min_relevance_gain_relative_to_first=0.0, selected_vars=[], predictors=[], fdr_gain_floor=floor, cached_MIs={(0,): cached_su},
+    )[0]
+
+
+def test_su_scaled_marginal_is_compared_with_the_floor_in_nats(monkeypatch):
+    """Audit 2026-11-20 A-F03: a cached SU value of 0.04 is a raw MI of 0.04 * ln 2 = 0.0277 nats: it clears a 0.02 floor but not a 0.03 floor (the SU number itself, 0.04, cleared both)."""
+    assert _su_gate(monkeypatch, 0.04, 0.02)
+    assert not _su_gate(monkeypatch, 0.04, 0.03)

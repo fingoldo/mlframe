@@ -679,7 +679,7 @@ def _run_fe_step_impl_part2(
             # cma_batch is the new default (20.58x faster than
             # optuna, 1.09x faster than per-solution cma, within_1%=1.00
             # on a 12-pair benchmark). See profiling/bench_polynom_optimizers.py.
-            fe_optimizer=getattr(self, "fe_optimizer", "cma_batch"),
+            fe_optimizer=getattr(self, "fe_optimizer", "cupy_kernel"),  # the constructor default (an instance built without __init__ must run what MRMR() runs)
             fe_warm_start=getattr(self, "fe_warm_start", True),
             fe_multi_fidelity=getattr(self, "fe_multi_fidelity", True),
             quantization_nbins=self.quantization_nbins,

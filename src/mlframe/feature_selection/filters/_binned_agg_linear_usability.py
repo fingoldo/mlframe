@@ -61,7 +61,8 @@ def _rows_to_host(a: Any, rows: Any) -> np.ndarray:
     if hasattr(a, "get"):
         import cupy as cp
 
-        return np.asarray(a[cp.asarray(rows)].get(), dtype=_crit_np_dtype())
+        idx = rows if hasattr(rows, "get") else cp.asarray(rows)
+        return np.asarray(a[idx].get(), dtype=_crit_np_dtype())
     picked: np.ndarray = _to_host(a)[rows]
     return picked
 
@@ -311,8 +312,13 @@ def linear_usability_keeps(X: Any, srcs: Any, cands: dict, y_cls: Any, cell_ids:
     prep, cells_s, n_cells = state["prep"], state["cells_s"], state["n_cells"]
     names, gains, means = [], [], []
     cell_counts = np.maximum(np.bincount(cells_s, minlength=n_cells), 1)
+    rows_dev = None
+    if any(hasattr(c, "get") for c in cands.values()):
+        import cupy as cp
+
+        rows_dev = cp.asarray(state["rows"])  # one index upload per pair instead of one per candidate
     for name, codes in cands.items():
-        cand = _standardised(_rows_to_host(codes, state["rows"]))
+        cand = _standardised(_rows_to_host(codes, rows_dev if rows_dev is not None and hasattr(codes, "get") else state["rows"]))
         if not cand.any():
             continue
         cand_s = cand[prep["order"]]

@@ -84,6 +84,14 @@ def _fingerprint(X: Any, columns: Sequence[str]) -> bytes:
     return h.to_bytes(8, "little", signed=True)
 
 
+def _column_checksum(a: np.ndarray) -> int:
+    """A wrap-around sum of the column's value words (one pass over the memory, no copy for a contiguous array): it changes when any value changes, whatever the 64 sampled rows of the frame fingerprint say."""
+    a = np.ascontiguousarray(a)
+    if a.dtype.itemsize not in (1, 2, 4, 8) or a.dtype.kind not in "iufb":
+        return hash(a.tobytes()) if a.dtype.kind != "O" else hash(tuple(a.tolist()))
+    return int(np.add.reduce(a.view(f"u{a.dtype.itemsize}"), dtype=np.uint64))
+
+
 def eligible_integer_columns(X: Any, cols: Optional[Sequence[str]] = None) -> list[str]:
     """The columns of ``X`` (restricted to ``cols`` when given, order kept) that are integer columns by ``is_integer_like_col``.
 
@@ -101,8 +109,14 @@ def eligible_integer_columns(X: Any, cols: Optional[Sequence[str]] = None) -> li
                 _cache.popitem(last=False)  # evict-ok: a miss only recomputes the per-column answers, nothing is pending in an evicted entry
         else:
             _cache.move_to_end(key)
+        result = []
         for c in wanted:
-            if c not in known:
-                known[c] = is_integer_like_col(np.asarray(X[c]))
-        result = [c for c in wanted if known[c]]
+            values = np.asarray(X[c])
+            # the frame fingerprint samples 64 rows, so a frame that agrees there but differs elsewhere reaches this entry: the verdict is kept with the checksum of the whole column it was computed on
+            checksum = _column_checksum(values)
+            hit = known.get(c)
+            if hit is None or hit[0] != checksum:
+                hit = known[c] = (checksum, is_integer_like_col(values))
+            if hit[1]:
+                result.append(c)
     return result

@@ -317,6 +317,9 @@ def _fused_kernel(real: str, version: Optional[str] = None):
         return kernel
 
 
+_RESIDENT_BLOCKS_BYTES = 256 * 1024 * 1024  # the int8 candidate blocks kept on the device for the whole pair loop (p x n bytes)
+
+
 def _block_best_gpu_fused(a_dev, b_dev, r_dev, cr_dev, k: int, kr: int, same: bool, real: str, version: Optional[str] = None) -> tuple:
     """One block pair scored by ONE fused kernel: a CUDA block per pair fills the joint histogram in shared memory and reduces the MI in place.
 
@@ -408,16 +411,32 @@ def best_pair_streamed(get_block: Callable[[int, int], np.ndarray], p: int, r: n
         xp = cp
         fused_real = gpu_real_type() if real is None else real
         r_dev, cr_dev = cp.asarray(r.astype(np.int32)), cp.asarray(cr)
+    # the int8 blocks stay on the device once uploaded (every block is the right operand of all the pairs with the earlier blocks: an upload per pair sent it about B times); the whole matrix is
+    # p x n bytes, and a set over the budget falls back to the upload per pair
+    dev_blocks: dict = {}
+    keep_resident = xp is not None and int(p) * int(r.shape[0]) <= _RESIDENT_BLOCKS_BYTES
     for ia, c0 in enumerate(starts):
         a_t = get_block(c0, min(c0 + block_cols, p))
-        a_dev = xp.asarray(a_t) if xp is not None else None
+        a_dev = dev_blocks.get(ia) if keep_resident else None
+        if a_dev is None and xp is not None:
+            a_dev = xp.asarray(a_t)
+            if keep_resident:
+                dev_blocks[ia] = a_dev
         for jb in range(ia, len(starts)):
             d0 = starts[jb]
             same = jb == ia
             b_t = a_t if same else get_block(d0, min(d0 + block_cols, p))
             try:
                 if backend == "gpu_fused":
-                    mi, (i, j) = _block_best_gpu_fused(a_dev, a_dev if same else xp.asarray(b_t), r_dev, cr_dev, k, kr, same, fused_real)
+                    if same:
+                        b_dev = a_dev
+                    else:
+                        b_dev = dev_blocks.get(jb) if keep_resident else None
+                        if b_dev is None:
+                            b_dev = xp.asarray(b_t)
+                            if keep_resident:
+                                dev_blocks[jb] = b_dev
+                    mi, (i, j) = _block_best_gpu_fused(a_dev, b_dev, r_dev, cr_dev, k, kr, same, fused_real)
                 elif backend == "gpu_dispatch":
                     mi, (i, j) = _block_best_gpu(a_t, b_t, r, k, kr, same)
                 else:

@@ -186,12 +186,13 @@ def build_target_aware_group_bin_recipe(
     )
 
 def build_lagged_diff_recipe(
-    *, name: str, time_col: str, value_col: str, period: int, entity_cols: "tuple[str, ...] | None" = None,
+    *, name: str, time_col: str, value_col: str, period: int, entity_cols: "tuple[str, ...] | None" = None, history: "dict | None" = None,
 ) -> EngineeredRecipe:
     """Frozen recipe for ``x_t - x_{t-period}`` after sorting by ``time_col`` (or ``(entity_cols, time_col)``
     when ``entity_cols`` is given).
     Replay re-sorts the test frame the same way and emits the per-row
-    difference; the first ``period`` rows of each (entity-scoped) sorted run get 0."""
+    difference; the first ``period`` rows of each (entity-scoped) sorted run get 0 unless ``history`` (the last ``period`` training observations of each entity, see
+    ``_ratio_delta_fe.lag_history``) holds an earlier observation: those precede a replay frame that starts after them."""
     from . import EngineeredRecipe
     if int(period) < 1:
         raise ValueError(f"lagged_diff period must be >= 1; got {period}")
@@ -204,5 +205,6 @@ def build_lagged_diff_recipe(
             "value_col": str(value_col),
             "period": int(period),
             "entity_cols": tuple(str(c) for c in entity_cols) if entity_cols else None,
+            **({"history": history} if history else {}),
         },
     )

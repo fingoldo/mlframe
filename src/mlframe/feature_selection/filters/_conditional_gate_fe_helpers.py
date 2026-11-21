@@ -42,14 +42,15 @@ _TAU_QUANTILES = tuple(np.round(np.linspace(0.1, 0.9, 17), 4))
 
 def _scan_gate_column(gate_cols, arrs, operand_cols, _add):
     """Score the conditional-gate candidates for one gate column."""
-    from mlframe.feature_selection.filters._fe_deadline import fe_deadline_passed
+    from mlframe.feature_selection.filters._fe_deadline import fe_deadline_passed, warn_deadline_truncation
 
-    for cgate in gate_cols:
+    for _gi, cgate in enumerate(gate_cols):
         # Optional-enrichment wall-clock budget: stop the O(k_gate * k_operand^2) gate sweep once
         # MRMR.fit's deadline passes; flush whatever candidates are already queued and return the hits
         # found so far. No-op without a budget (mirrors the orth-univariate/pair-cross/extra-basis
         # generators' internal deadline check).
         if fe_deadline_passed():
+            warn_deadline_truncation("conditional_gate", len(gate_cols) - _gi, len(gate_cols))
             break
         cv = arrs[cgate]
         taus = np.quantile(cv, _TAU_QUANTILES)

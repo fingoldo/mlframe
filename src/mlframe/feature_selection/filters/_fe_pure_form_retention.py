@@ -550,6 +550,15 @@ def _retain_usable_pure_f_step3_cross_mix_vs(_raw_base_set):
     return _raw_operands
 
 
+def _ols_projector_basis(X: np.ndarray) -> np.ndarray:
+    """Orthonormal basis of the span of the centred columns of ``X`` (the left singular vectors whose singular values pass the rank cut ``eps * s_max`` that ``scipy.linalg.lstsq`` applies): the residual of
+    ``LinearRegression().fit(X, y)`` is ``y_c - B (B' y_c)`` with ``y_c`` the centred target."""
+    Xc = np.asarray(X, dtype=np.float64) - np.asarray(X, dtype=np.float64).mean(axis=0)  # Intentional float64: least-squares residual in double, as the sklearn solve
+    u, sv, _vt = np.linalg.svd(Xc, full_matrices=False)
+    rank = int((sv > np.finfo(np.float64).eps * sv[0]).sum()) if sv.size and sv[0] > 0 else 0  # Intentional float64: machine epsilon of the double solve
+    return np.ascontiguousarray(u[:, :rank])
+
+
 def _retain_usable_pure_f_step4_bench_benchmarks_fs(min_resid_frac, min_resid_corr, _f64, _scrub, X_fit, _nrows, _basis_cache, _single_operand_basis, StandardScaler, LinearRegression, is_clf, _abscorr, _rel_y):
     """Step 4 of retain_usable_pure_forms: lines starting at ``def _adds_nonlinear_value(form_vals, nm_a, nm_b, min_resid_frac=min_re``."""
     def _adds_nonlinear_value(form_vals, nm_a, nm_b, min_resid_frac=min_resid_frac, min_resid_corr=min_resid_corr):
@@ -579,13 +588,15 @@ def _retain_usable_pure_f_step4_bench_benchmarks_fs(min_resid_frac, min_resid_co
                     resid = None
             if resid is None:
                 _pair_key = frozenset((nm_a, nm_b))
-                Xr_scaled = _basis_cache.get(_pair_key)
-                if Xr_scaled is None:
+                basis = _basis_cache.get(_pair_key)
+                if basis is None:
                     Xr = np.column_stack(_single_operand_basis(xa) + _single_operand_basis(xb))
-                    Xr_scaled = StandardScaler().fit_transform(Xr)
-                    _basis_cache[_pair_key] = Xr_scaled
-                lr = LinearRegression().fit(Xr_scaled, fv)
-                resid = fv - lr.predict(Xr_scaled)
+                    basis = _ols_projector_basis(StandardScaler().fit_transform(Xr))
+                    _basis_cache[_pair_key] = basis
+                # the residual of the least-squares fit with an intercept = the centred form minus its projection on the span of the centred basis (``LinearRegression().fit`` then ``predict`` gave the same
+                # residual through a solve per form; the span of the pair's basis is computed once)
+                fc = fv - fv.mean()
+                resid = fc - basis @ (basis.T @ fc)
             # (a) the form must be genuinely NON-separable in its operands (rejects a linear sum AND a
             #     separable cross-pair sum-of-single-operand-nonlinearities).
             if float(np.std(resid)) < min_resid_frac * f_std:

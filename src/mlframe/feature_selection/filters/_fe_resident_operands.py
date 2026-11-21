@@ -35,7 +35,7 @@ Pickle-safe: this cache is module-level and NEVER stored on an MRMR instance (mi
 import contextlib as _contextlib
 import functools
 import logging
-import os as _os
+from mlframe.utils.env_flags import env_reader
 import threading
 from collections import OrderedDict
 from typing import Any, Callable, Optional
@@ -170,6 +170,7 @@ def clear_hash_memo() -> None:
 # content signature (shape + dtype-str + content hash)  ->  device_array. OrderedDict gives O(1) LRU: hits
 # move-to-end (hot), overflow pops the front (coldest).
 _FE_RESIDENT_OPERANDS: "OrderedDict" = OrderedDict()
+_RESIDENT_BYTES = [0]  # bytes held by _FE_RESIDENT_OPERANDS, kept under its lock at every insert / pop / clear (the eviction check summed all entries on every upload: 245 us at 190 entries)
 _BIGGEST_SEEN = [0]  # the largest operand uploaded so far (an upper bound of any entry's size; only grows)
 
 # Bound: content-keyed, so entries == DISTINCT fit-constant operands live this fit. A 1M strict-resident fit
@@ -193,11 +194,15 @@ def _resident_bytes_budget(cp: Any) -> int:
         return 1 << 30
 
 
+_read_resident_operands_switch = env_reader("MLFRAME_FE_RESIDENT_OPERANDS")  # read on every resident_operand call (about 10 000 per fit): the live reader, not os.environ.get
+
+
 def _disabled() -> bool:
     """Whether the resident-operand cache is disabled via ``MLFRAME_FE_RESIDENT_OPERANDS`` (diagnostic A/B switch, default on)."""
     # Diagnostic A/B switch only (default ON): MLFRAME_FE_RESIDENT_OPERANDS=0 forces a fresh upload every call
     # to reproduce the pre-cache H2D churn for the wall/util A/B. NOT a perf gate - always on in prod.
-    return _os.environ.get("MLFRAME_FE_RESIDENT_OPERANDS", "1").strip().lower() in ("0", "false", "off", "no")
+    raw = _read_resident_operands_switch()
+    return raw is not None and raw.strip().lower() in ("0", "false", "off", "no")
 
 
 def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool = True) -> Any:
@@ -258,16 +263,17 @@ def resident_operand(arr: Any, key: Any, *, dtype: Any = None, contiguous: bool 
         if hit is not None:  # another thread uploaded the same content meanwhile
             return hit
         g = _FE_RESIDENT_OPERANDS.setdefault(sig, g)
+        _RESIDENT_BYTES[0] += int(getattr(g, "nbytes", 0))
         if len(_FE_RESIDENT_OPERANDS) > _MAX_ENTRIES:
             # evict-ok: a miss re-uploads the operand
-            _FE_RESIDENT_OPERANDS.popitem(last=False)  # evict ONLY the coldest entry, never the whole table
+            _RESIDENT_BYTES[0] -= int(getattr(_FE_RESIDENT_OPERANDS.popitem(last=False)[1], "nbytes", 0))  # evict ONLY the coldest entry, never the whole table
         # bounded in bytes as well: 192 entries were fine at 100000 rows but up to 15 GB of columns at 10 million on a 4 GB card; the coldest go first, the newest stays
         budget = _resident_bytes_budget(cp)
         biggest = max(_BIGGEST_SEEN[0], int(getattr(g, "nbytes", 0)))
         _BIGGEST_SEEN[0] = biggest
-        # the O(entries) byte sum is needed only when the table could exceed the budget at all: no entry seen so far is larger than ``biggest``
-        while len(_FE_RESIDENT_OPERANDS) * biggest > budget and len(_FE_RESIDENT_OPERANDS) > 1 and sum(int(getattr(v, "nbytes", 0)) for v in _FE_RESIDENT_OPERANDS.values()) > budget:
-            _FE_RESIDENT_OPERANDS.popitem(last=False)  # evict-ok: a miss re-uploads the operand
+        # the byte total is checked only when the table could exceed the budget at all: no entry seen so far is larger than ``biggest``
+        while len(_FE_RESIDENT_OPERANDS) * biggest > budget and len(_FE_RESIDENT_OPERANDS) > 1 and _RESIDENT_BYTES[0] > budget:
+            _RESIDENT_BYTES[0] -= int(getattr(_FE_RESIDENT_OPERANDS.popitem(last=False)[1], "nbytes", 0))  # evict-ok: a miss re-uploads the operand
         return g
 
 
@@ -287,7 +293,7 @@ def raised_capacity(entries: int) -> "Any":
         with _FE_RESIDENT_OPERANDS_LOCK:
             _MAX_ENTRIES = previous
             while len(_FE_RESIDENT_OPERANDS) > previous:
-                _FE_RESIDENT_OPERANDS.popitem(last=False)  # evict-ok: a miss re-uploads the operand
+                _RESIDENT_BYTES[0] -= int(getattr(_FE_RESIDENT_OPERANDS.popitem(last=False)[1], "nbytes", 0))  # evict-ok: a miss re-uploads the operand
 
 
 def with_raised_capacity(entries: int) -> "Any":
@@ -522,6 +528,7 @@ def clear_fe_resident_operands() -> None:
     """Drop the fit-constant FE operand + qbin-code device caches (call at FE-step teardown; mirrors mempool free)."""
     with _FE_RESIDENT_OPERANDS_LOCK:
         _FE_RESIDENT_OPERANDS.clear()
+        _RESIDENT_BYTES[0] = 0
         _FE_RESIDENT_QBIN_CODES.clear()
         _QBIN_HOST_CODES.clear()
         _SHARED_LEGS.clear()

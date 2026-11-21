@@ -190,9 +190,29 @@ def usability_greedy_gpu_resident(
         return None
 
 
+_ABSCORR_TAIL_KERNEL = None
+_ABSCORR_CACHE_MAX_BYTES = 256 * 1024 * 1024  # the centered candidate matrix is kept per row set while it fits
+
+
+def _abscorr_tail_kernel(cp):
+    """Elementwise kernel of the last steps of the |corr| score: ``r = num / sqrt(ssc * ssv)`` where the column and the residual are usable, else 0, then ``|r|`` with non-finite -> 0 (one launch
+    where the ``where`` / ``isfinite`` / ``abs`` chain was ten)."""
+    global _ABSCORR_TAIL_KERNEL
+    if _ABSCORR_TAIL_KERNEL is None:
+        _ABSCORR_TAIL_KERNEL = cp.ElementwiseKernel(
+            "float64 num, float64 ssc, float64 ssv, bool col_ok, bool resid_ok",  # Intentional float64: statistic vector, exact ties decide the selection
+            "float64 out",  # Intentional float64: statistic vector, exact ties decide the selection
+            "double denom = sqrt(ssc * ssv); double r = (col_ok && resid_ok && ssc > 0.0 && denom > 0.0) ? num / denom : 0.0; out = isfinite(r) ? fabs(r) : 0.0;",
+            "usability_abscorr_tail",
+        )
+    return _ABSCORR_TAIL_KERNEL
+
+
 def _usability_greedy_gpu_step1_known_output_size(Vdev, cp, P):
     """Step 1 of usability_greedy_gpu_resident: lines starting at ``def _abscorr_batch_resident(resid_dev, rows_mask) -> np.ndarray:``."""
-    def _abscorr_batch_resident(resid_dev, rows_mask) -> np.ndarray:
+    col_stats: dict = {}  # id(row set) -> (row set, centered candidate matrix, column ok mask): the candidates do not change between calls, the residual does
+
+    def _abscorr_batch_resident_reference(resid_dev, rows_mask) -> np.ndarray:
         """|corr(candidate_j, resid)| for EVERY candidate over ``rows_mask`` rows, on device. Mirrors
         the per-candidate ``_abscorr`` (centered dot / sqrt(ss), std<1e-12 -> 0) batched into one GEMV.
         Returns a host (P,) double score vector (a per-ROUND result, not per-candidate value data)."""
@@ -222,6 +242,32 @@ def _usability_greedy_gpu_step1_known_output_size(Vdev, cp, P):
         r = cp.where(valid, num / cp.where(denom > 0.0, denom, 1.0), 0.0)
         r = cp.where(cp.isfinite(r), cp.abs(r), 0.0)
         return np.asarray(cp.asnumpy(r))
+
+    def _abscorr_batch_resident(resid_dev, rows_mask) -> np.ndarray:
+        """:func:`_abscorr_batch_resident_reference` with the candidate side computed once per row set (the diversity filter and every round score the same candidates against a new residual: the
+        gather, the column standard deviations, the centred matrix and its squared sums were recomputed on every call) and the tail as one kernel; the same arithmetic, so the same scores."""
+        key = id(rows_mask) if rows_mask is not None else None
+        entry = col_stats.get(key)
+        if entry is None or (rows_mask is not None and entry[0] is not rows_mask):
+            M = Vdev if rows_mask is None else Vdev[rows_mask]
+            if int(M.shape[0]) == 0:
+                return np.zeros(P, dtype=np.float64)  # Intentional float64: statistic vector
+            Mc = M - M.mean(axis=0, keepdims=True)
+            ssc = (Mc * Mc).sum(axis=0)
+            col_ok = (M.std(axis=0) >= 1e-12) & (ssc > 0.0)
+            entry = (rows_mask, Mc, ssc, col_ok)
+            if int(Mc.nbytes) <= _ABSCORR_CACHE_MAX_BYTES:
+                col_stats[key] = entry
+        _rows, Mc, ssc, col_ok = entry
+        rv = resid_dev
+        v_std = rv.std()
+        vm = rv - rv.mean()
+        ssv = cp.dot(vm, vm)
+        resid_ok = (v_std >= 1e-12) & (ssv > 0.0)
+        num = Mc.T @ vm
+        return np.asarray(cp.asnumpy(_abscorr_tail_kernel(cp)(num, ssc, ssv, col_ok, resid_ok)))
+
+    _abscorr_batch_resident.reference = _abscorr_batch_resident_reference  # type: ignore[attr-defined]
     return _abscorr_batch_resident
 
 
@@ -314,7 +360,7 @@ def _usability_greedy_gpu_step2_def_shortlist_sel(va_masks, tr_masks, Vdev, ydev
 
 def _usability_greedy_gpu_step3_def_cv_candidates(nf, tr_masks, va_masks, ydev, Vdev, cp):
     """Step 3 of usability_greedy_gpu_resident: lines starting at ``def _cv_candidates(sel_idx, cand_list) -> dict:``."""
-    def _cv_candidates(sel_idx, cand_list) -> dict:
+    def _cv_candidates_loop(sel_idx, cand_list) -> dict:
         """{cand_i: per-fold MAE (nf,)} via the bordered normal equations, fully resident. Per fold the
         selected-set centered Gram + rhs are built ONCE; each candidate is a rank-1 border solved as a
         (k+1)x(k+1) system. A singular border for a candidate raises so the caller refits via the exact
@@ -414,7 +460,83 @@ def _usability_greedy_gpu_step3_def_cv_candidates(nf, tr_masks, va_masks, ydev, 
             for r, i in enumerate(cand_keys):
                 out[i] = errs_host[r]
         return out
+
+    def _cv_candidates(sel_idx, cand_list) -> dict:
+        """:func:`_cv_candidates_loop` for the whole shortlist at once (:func:`_cv_candidates_block`)."""
+        return _cv_candidates_block(cp, Vdev, tr_masks, va_masks, ydev, nf, sel_idx, cand_list)
+
+    _cv_candidates.reference = _cv_candidates_loop  # type: ignore[attr-defined]
     return _cv_candidates
+
+
+def _bordered_fold_pred(cp, Vdev, tr, va, sel_idx, ybar, yc, cc_tr, cc_va, d, bnew, m):
+    """Validation predictions of the ``m`` candidates of one fold when ``sel_idx`` is already selected: the ``m`` bordered normal systems solved in one batched ``cp.linalg.solve``; a failing solve raises ``_ResidentFallbackError``."""
+    Str = Vdev[tr][:, sel_idx]
+    mu = Str.mean(axis=0)
+    Sc_tr = Str - mu
+    Sc_va = Vdev[va][:, sel_idx] - mu
+    Gs = Sc_tr.T @ Sc_tr
+    bs = Sc_tr.T @ yc
+    g = Sc_tr.T @ cc_tr  # (k, m)
+    k = int(Gs.shape[0])
+    # Intentional float64: normal equations solved in double, as the host solve this device path mirrors
+    G = cp.empty((m, k + 1, k + 1), dtype=cp.float64)
+    G[:, :k, :k] = Gs
+    G[:, :k, k] = g.T
+    G[:, k, :k] = g.T
+    G[:, k, k] = d
+    rhs = cp.empty((m, k + 1), dtype=cp.float64)  # Intentional float64: normal equations solved in double
+    rhs[:, :k] = bs
+    rhs[:, k] = bnew
+    try:
+        beta = cp.linalg.solve(G, rhs[:, :, None])[:, :, 0]
+    except Exception as e:
+        log_throttle(logger, "usability_greedy_gpu_resident.hot_loop_warning", logging.WARNING, "cp.linalg.solve failed (likely a singular Gram matrix), stopping the greedy: %s", e)
+        raise _ResidentFallbackError() from e
+    pred = ybar + Sc_va @ beta[:, :k].T + cc_va * beta[:, k]
+    return pred
+
+
+def _cv_candidates_block(cp, Vdev, tr_masks, va_masks, ydev, nf, sel_idx, cand_list) -> dict:
+    """:func:`_cv_candidates_loop` for the whole shortlist at once: per fold the candidates are one ``(n, m)`` block, their borders are ``m`` systems of one batched solve and the fold errors one
+    reduction, instead of about 25 small launches per (candidate, fold). The values are the loop's (reductions in another order, so equal to rounding); a singular border or a non-finite
+    solution raises ``_ResidentFallbackError`` as the loop does."""
+    cand_list = list(cand_list)
+    if not cand_list:
+        return {}
+    m = len(cand_list)
+    C = Vdev[:, cp.asarray(np.asarray(cand_list, dtype=np.int64))]  # (n, m)
+    errs = cp.empty((nf, m), dtype=cp.float64)  # Intentional float64: statistic vector (fold error), exact ties decide the selection
+    mind = None
+    for fo in range(nf):
+        tr, va = tr_masks[fo], va_masks[fo]
+        ytr = ydev[tr]
+        ybar = ytr.mean()
+        yc = ytr - ybar
+        yva = ydev[va]
+        ctr = C[tr]
+        cmu = ctr.mean(axis=0)
+        cc_tr = ctr - cmu
+        cc_va = C[va] - cmu
+        d = (cc_tr * cc_tr).sum(axis=0)
+        bnew = yc @ cc_tr
+        if not sel_idx:
+            mind = d if mind is None else cp.minimum(mind, d)
+            pred = ybar + cc_va * (bnew / d)
+        else:
+            pred = _bordered_fold_pred(cp, Vdev, tr, va, sel_idx, ybar, yc, cc_tr, cc_va, d, bnew, m)
+        errs[fo] = cp.mean(cp.abs(yva[:, None] - pred), axis=0)
+    if mind is None:
+        host = cp.asnumpy(errs)  # (nf, m)
+        if not np.isfinite(host).all():
+            raise _ResidentFallbackError()
+    else:
+        both = cp.asnumpy(cp.concatenate([errs.ravel(), mind.astype(cp.float64)]))  # ONE D2H: the errors and the round-1 borders
+        host = both[: nf * m].reshape(nf, m)
+        if float(both[nf * m :].min()) <= 1e-12:
+            raise _ResidentFallbackError()
+    by_cand = np.ascontiguousarray(host.T)
+    return {i: by_cand[r] for r, i in enumerate(cand_list)}
 
 
 def _usability_greedy_g_range_min(K, P, _shortlist, selected, mae_cur, folds_cur, _cv_candidates, min_improving_folds, mae_improve_rel):

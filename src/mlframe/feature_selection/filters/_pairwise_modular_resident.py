@@ -39,7 +39,7 @@ from ._y_encoding import encode_y_for_classif_mi
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["perm_null_residue_mis_resident", "residue_grid_mis_resident", "combiner_mi_resident"]
+__all__ = ["perm_null_residue_mis_resident", "residue_grid_mis_resident", "combiner_mi_resident", "combiner_bases_and_grids_resident"]
 
 
 def combiner_mi_resident(
@@ -89,6 +89,74 @@ def combiner_mi_resident(
         return float(np.asarray(mi, dtype=np.float64)[0])  # Intentional float64: MI statistic scalar output
     except Exception as _exc:
         log_throttle(logger, "modular_resident.combiner", logging.WARNING, "combiner_mi_resident: GPU path failed (%s), using the host path", _exc)
+        return None
+
+
+_BATCH_BYTES = 48 * 1024 * 1024  # residues held on the device per chunk of combiners
+
+
+def combiner_bases_and_grids_resident(
+    combiners: Sequence[np.ndarray],
+    y: Any,
+    mods: Sequence[int],
+    *,
+    nbins: int,
+    rank_binning: bool,
+) -> "Optional[tuple[Optional[np.ndarray], np.ndarray]]":
+    """The per-combiner scan statistics of EVERY combiner in ``combiners`` from a few launches instead of ``1 + (groups of moduli)`` per combiner: ``(bases, grids)``.
+
+    ``grids[i, j]`` is ``MI(combiners[i] mod mods[j]; y)`` exactly as :func:`residue_grid_mis_resident` gives it for combiner ``i`` alone (each effective-nbins group of moduli is one resident plug-in call
+    over the residues of a whole chunk of combiners: the plug-in MI is computed per column, so a column's value does not depend on the columns beside it), and ``bases[i]`` is the raw-combiner baseline of
+    :func:`combiner_mi_resident` (``modulus=0``; ``None`` for the whole array when ``rank_binning`` is off, the caller then scores the baselines itself). ``None`` when the device-born modular path is off or
+    any device step fails; the caller then scans combiner by combiner as before."""
+    try:
+        from ._gpu_strict_fe import fe_gpu_device_born_modular_enabled
+
+        if not fe_gpu_device_born_modular_enabled():
+            return None
+    except Exception as e:
+        logger.debug("fe_gpu_device_born_modular_enabled() check failed, per-combiner scan: %s", e)
+        return None
+    mods = [int(k) for k in mods]
+    if not combiners or not mods:
+        return None
+    try:
+        import cupy as cp
+
+        from ._fe_resident_operands import resident_operand
+        from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
+        from ._gpu_resident_rank_bin import plugin_mi_classif_batch_rank_cuda_resident
+
+        n = int(np.asarray(combiners[0]).shape[0])
+        _yi = np.ascontiguousarray(encode_y_for_classif_mi(y))
+        yd = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
+        _ymin = int(_yi.min()) if _yi.size else 0
+        _ncls = (int(_yi.max()) - _ymin + 1) if _yi.size else 1
+        groups: dict = {}
+        for idx, k in enumerate(mods):
+            groups.setdefault(max(int(nbins), k), []).append(idx)
+        mods_dev = cp.asarray(np.asarray(mods, dtype=np.int64))
+        width = max(1, _BATCH_BYTES // max(1, len(mods) * n * 8))
+        grids = np.empty((len(combiners), len(mods)), dtype=np.float64)  # Intentional float64: grid MI statistic output
+        bases = np.empty(len(combiners), dtype=np.float64) if rank_binning else None  # Intentional float64: baseline MI statistic output
+        for a in range(0, len(combiners), width):
+            chunk = combiners[a : a + width]
+            host = np.ascontiguousarray(np.stack([np.asarray(c, dtype=np.int64).ravel() for c in chunk]))  # (C, n)
+            cg = cp.asarray(host)
+            if bases is not None:
+                base_x = cp.ascontiguousarray(cg.astype(cp.float64).T)  # (n, C) float64: the rank binner reads columns  # Intentional float64: GPU operand; kernel contract is float64
+                mi = plugin_mi_classif_batch_rank_cuda_resident(base_x, yd, int(nbins), y_min=_ymin, n_classes=_ncls)
+                if mi is None:
+                    return None
+                bases[a : a + len(chunk)] = np.asarray(mi, dtype=np.float64)  # Intentional float64: MI statistic output
+            for eff_nbins, idxs in groups.items():
+                sel = cp.asarray(np.asarray(idxs, dtype=np.int64))
+                residues = (cg[:, None, :] % mods_dev[sel][None, :, None]).astype(cp.float64).reshape(len(chunk) * len(idxs), n)  # Intentional float64: GPU residue operand; kernel contract is float64
+                mis = _plugin_mi_classif_batch_cuda_resident(residues, yd, int(eff_nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, x_is_cm=True)
+                grids[a : a + len(chunk), np.asarray(idxs)] = np.asarray(mis, dtype=np.float64).reshape(len(chunk), len(idxs))  # Intentional float64: MI statistic output
+        return bases, grids
+    except Exception as _exc:
+        logger.debug("combiner_bases_and_grids_resident: GPU path failed (%s); per-combiner scan", _exc)
         return None
 
 

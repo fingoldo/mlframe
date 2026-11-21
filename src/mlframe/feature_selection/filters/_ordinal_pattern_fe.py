@@ -26,6 +26,7 @@ from itertools import combinations
 from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 import numpy as np
+from numba import njit
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
@@ -60,6 +61,52 @@ def ordinal_pattern_lexicographic_rank(perm: tuple) -> int:
         rank += pos * fact[k - 1 - i]
         available.pop(pos)
     return rank
+
+
+@njit(nogil=True, cache=True)
+def _pattern_ids_njit(x: np.ndarray, tie_nan: bool, out: np.ndarray) -> None:
+    """Write the Bandt-Pompe id of every row of the ``(n, K)`` block ``x`` into ``out``: the lexicographic rank of the row's stable argsort (the Lehmer code of the permutation), NaN for a row with
+    a non-finite value and, when ``tie_nan``, for a row with exactly tied values. One pass over the rows with an insertion sort of the K indices, the same ids as ``np.argsort(..., kind="stable")``
+    followed by the Lehmer reduction, without the ``(n, K)`` index matrix and the ``K`` reductions over it."""
+    n = x.shape[0]
+    k = x.shape[1]
+    fact = np.ones(k + 1, dtype=np.int64)
+    for i in range(1, k + 1):
+        fact[i] = fact[i - 1] * i
+    order = np.empty(k, dtype=np.int64)
+    for r in range(n):
+        finite = True
+        for j in range(k):
+            if not np.isfinite(x[r, j]):
+                finite = False
+                break
+        if not finite:
+            out[r] = np.nan
+            continue
+        for j in range(k):
+            cur = j
+            pos = j
+            while pos > 0 and x[r, order[pos - 1]] > x[r, cur]:
+                order[pos] = order[pos - 1]
+                pos -= 1
+            order[pos] = cur
+        tied = False
+        if tie_nan:
+            for j in range(k - 1):
+                if x[r, order[j]] == x[r, order[j + 1]]:
+                    tied = True
+                    break
+        if tied:
+            out[r] = np.nan
+            continue
+        rank = 0
+        for i in range(k - 1):
+            less = 0
+            for j in range(i + 1, k):
+                if order[j] < order[i]:
+                    less += 1
+            rank += less * fact[k - 1 - i]
+        out[r] = rank
 
 
 def ordinal_pattern_ids(X_cols: np.ndarray, *, tie_policy: str = "nan") -> np.ndarray:
@@ -97,6 +144,15 @@ def ordinal_pattern_ids(X_cols: np.ndarray, *, tie_policy: str = "nan") -> np.nd
     if k < 2:
         raise ValueError(f"ordinal_pattern_ids: K must be >= 2; got K={k}")
 
+    out = np.empty(n, dtype=_crit_np_dtype())
+    _pattern_ids_njit(np.ascontiguousarray(X_cols), tie_policy == "nan", out)
+    return out
+
+
+def _ordinal_pattern_ids_numpy(X_cols: np.ndarray, *, tie_policy: str = "nan") -> np.ndarray:
+    """The numpy form of :func:`ordinal_pattern_ids` (its reference in the tests): stable argsort and a vectorised Lehmer reduction."""
+    X_cols = np.asarray(X_cols, dtype=_crit_np_dtype())
+    n, k = X_cols.shape
     # Vectorized Lehmer-code rank (replaces an earlier per-row Python dict-lookup loop, which
     # cProfiled as the dominant cost at n=100k - see bench_ordinal_pattern_cprofile.py). Loops only
     # over K (small, 3-5), never over n: for each position i, count how many of the REMAINING
@@ -128,6 +184,19 @@ def engineered_name_ordinal_pattern(cols: Sequence[str]) -> str:
     return "opat__" + "_".join(str(c) for c in cols)
 
 
+_SMALL_ID_LIMIT = 100_000
+
+
+def _small_int_ids(ids: np.ndarray) -> "tuple[np.ndarray, int] | None":
+    """``(ids as int64, max + 1)`` when every id is a non-negative integer below ``_SMALL_ID_LIMIT`` (the pattern ids), else ``None``."""
+    if ids.size == 0:
+        return None
+    as_int = ids.astype(np.int64)
+    if as_int.min() < 0 or as_int.max() >= _SMALL_ID_LIMIT or not np.array_equal(as_int, ids):
+        return None
+    return as_int, int(as_int.max()) + 1
+
+
 def _fit_perm_id_te_lookup(perm_id: np.ndarray, y: np.ndarray, *, smoothing: float) -> tuple[dict, float]:
     """Micci-Barreca-shrunk target-encoding lookup for an integer-coded categorical (the perm_id),
     mirroring ``_target_encoding_fe._smooth`` exactly so this fused recipe's replay-time arithmetic
@@ -138,10 +207,20 @@ def _fit_perm_id_te_lookup(perm_id: np.ndarray, y: np.ndarray, *, smoothing: flo
     global_mean = float(np.nanmean(y_arr))
     finite = np.isfinite(perm_id)
     lookup: dict = {}
-    # one pass over the rows: the group counts and sums by bincount over the inverse index of the distinct ids (a mask of all rows per distinct id was O(distinct * n))
-    uniq, inverse = np.unique(perm_id[finite], return_inverse=True)
-    counts = np.bincount(inverse, minlength=uniq.size).astype(np.float64)  # Intentional float64: group counts and sums of the shrinkage formula
-    sums = np.bincount(inverse, weights=y_arr[finite], minlength=uniq.size)
+    # one pass over the rows: the group counts and sums by bincount over the distinct ids (a mask of all rows per distinct id was O(distinct * n)). The ids are the small integers
+    # 0 .. K! - 1 (the common case), counted directly; anything else takes the sort of the distinct values, as before.
+    small = _small_int_ids(perm_id[finite])
+    if small is not None:
+        ids_i, width = small
+        full_counts = np.bincount(ids_i, minlength=width)
+        present = np.flatnonzero(full_counts)
+        uniq = present.astype(perm_id.dtype)
+        counts = full_counts[present].astype(np.float64)  # Intentional float64: group counts and sums of the shrinkage formula
+        sums = np.bincount(ids_i, weights=y_arr[finite], minlength=width)[present]
+    else:
+        uniq, inverse = np.unique(perm_id[finite], return_inverse=True)
+        counts = np.bincount(inverse, minlength=uniq.size).astype(np.float64)  # Intentional float64: group counts and sums of the shrinkage formula
+        sums = np.bincount(inverse, weights=y_arr[finite], minlength=uniq.size)
     for pid, cnt, total in zip(uniq, counts, sums):
         lookup[int(pid)] = _smooth(float(total / cnt), float(cnt), global_mean, smoothing)
     return lookup, global_mean
@@ -152,6 +231,12 @@ def _lookup_perm_ids(perm_ids: np.ndarray, lookup: dict, default: float) -> np.n
     out = np.full(perm_ids.shape[0], np.nan, dtype=_crit_np_dtype())
     finite = np.isfinite(perm_ids)
     if finite.any():
+        small = _small_int_ids(perm_ids[finite])
+        if small is not None:
+            ids_i, width = small
+            table = np.array([lookup.get(i, default) for i in range(width)], dtype=_crit_np_dtype())
+            out[finite] = table[ids_i]
+            return out
         uniq, inverse = np.unique(perm_ids[finite], return_inverse=True)
         table = np.array([lookup.get(int(u), default) for u in uniq], dtype=_crit_np_dtype())
         out[finite] = table[inverse]

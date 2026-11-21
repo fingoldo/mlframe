@@ -49,6 +49,70 @@ def _direct_cv_loss(x: np.ndarray, y: np.ndarray, y_enc: Any, classification: bo
     return float(np.mean(losses))
 
 
+class _DeviceFitFallbackError(Exception):
+    """Raised by the batched device fit when a Newton fit does not converge: the per-column scorer decides instead."""
+
+
+def cv_loss_columns_device(columns: "list[np.ndarray]", y: np.ndarray, classification: bool, n_folds: int, seed: int) -> "list[float] | None":
+    """:func:`cv_loss` of every single column of ``columns`` at once on the device (binary classification only), as a list in the order of ``columns`` (``inf`` where :func:`cv_loss` gives ``inf``);
+    ``None`` when the batched route does not apply (regression, more than two classes, no usable device, a fold with one class, a fit that does not converge) and the columns are scored one by one.
+
+    The fit is the scaled L2 logistic fit of :func:`_direct_cv_loss` (inverse strength 1, intercept unpenalised) run by ``logistic_cv_newton``: one block per column, the train standardization, the Newton
+    iteration to the step tolerance 1e-9 and the validation log-loss all inside the kernel, one launch a fold (about 30 small fits of 100000 rows each took 0.2 s through the host pool)."""
+    if not classification or not columns:
+        return None
+    try:
+        from ._gpu_policy import cuda_available_for_run, gpu_globally_disabled
+
+        if gpu_globally_disabled() or not cuda_available_for_run():
+            return None
+        import cupy as cp
+        from sklearn.model_selection import KFold
+
+        from ._usability_aware_selection import _scrub, _usability_scorers
+        from ._usability_greedy_clf_batched import cv_candidates_binary
+
+        scorers = _usability_scorers(True, y)
+        if scorers is None:
+            return [float("inf")] * len(columns)
+        _mk, _logloss, y_enc, n_classes = scorers
+        if n_classes != 2:
+            return None
+        y_enc = np.asarray(y_enc)
+        n = int(y_enc.shape[0])
+        out = [float("inf")] * len(columns)
+        usable: list = []
+        cols: list = []
+        for i, c in enumerate(columns):
+            x = _scrub(np.asarray(c, dtype=np.float64)).reshape(-1)  # Intentional float64: the retention gates score float64 columns
+            if x.shape[0] != n or not np.isfinite(x).all() or float(np.std(x)) <= 1e-12:
+                continue
+            usable.append(i)
+            cols.append(x)
+        if not cols:
+            return out
+        design = np.ascontiguousarray(np.stack(cols, axis=1))
+        folds = []
+        for tr, va in KFold(n_splits=n_folds, shuffle=True, random_state=seed).split(design):
+            if np.unique(y_enc[tr]).size < 2:
+                return None
+            folds.append((cp.asarray(tr.astype(np.int64)), cp.asarray(va.astype(np.int64)), True))
+        loss = cv_candidates_binary(
+            cp, cp.asarray(design), [], list(range(len(cols))), folds, cp.asarray(np.ascontiguousarray(y_enc, dtype=np.int64)), dtype=np.float64, newton_max_iter=200, tol=1e-9, lam=1.0,
+            logloss_eps=float(np.finfo(np.float64).eps), fallback_error=_DeviceFitFallbackError,
+        )  # Intentional float64: the log-loss clip of the pipeline path
+        for j, i in enumerate(usable):
+            out[i] = float(np.mean(loss[j]))
+        return out
+    except _DeviceFitFallbackError:
+        return None
+    except Exception as exc:  # best-effort: the per-column scorer gives the same verdicts
+        import logging
+
+        logging.getLogger(__name__).warning("batched device CV loss failed (%s: %s); the columns are scored one by one", type(exc).__name__, exc)
+        return None
+
+
 def cv_loss(design: np.ndarray, y: np.ndarray, classification: bool, n_folds: int, seed: int) -> float:
     """Mean CV loss of a scaled linear model on the columns of ``design``; ``inf`` when it cannot be fit (non-finite design, one class)."""
     from sklearn.model_selection import KFold

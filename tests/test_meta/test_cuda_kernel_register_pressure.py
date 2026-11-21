@@ -358,6 +358,31 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
         "kernel_clenshaw",
         ("float32", "float64"),
     ),
+    "bin_fingerprint_gpu.bin_fingerprints": (
+        "mlframe.feature_selection.filters._bin_fingerprint_gpu",
+        "kernel_bin_fingerprints",
+        ("int8", "int16", "int32", "int64"),
+    ),
+    "gpu_resident_rank_bin.rank_codes_from_sorted": (
+        "mlframe.feature_selection.filters._gpu_resident_rank_bin",
+        "kernel_rank_codes_from_sorted",
+        ("float32", "float64"),
+    ),
+    "usability_greedy_clf_batched.logistic_cv_newton": (
+        "mlframe.feature_selection.filters._usability_greedy_clf_batched",
+        "kernel_logistic_cv",
+        ("float32", "float64"),
+    ),
+    "binned_numeric_agg_resident.binagg_oof_gather_multi": (
+        "mlframe.feature_selection.filters._binned_numeric_agg_resident",
+        "kernel_oof_gather_multi",
+        ("float32", "float64"),
+    ),
+    "gpu_resident_basis.clenshaw_basis_fwd": (
+        "mlframe.feature_selection.filters._gpu_resident_basis_factories",
+        "kernel_clenshaw_fwd",
+        ("float32", "float64"),
+    ),
     "gpu_resident_basis.robust_scale_combine": (
         "mlframe.feature_selection.filters._gpu_resident_basis_factories",
         "kernel_robust_scale",
@@ -676,7 +701,12 @@ _REGISTRY: dict[str, tuple[str, str, tuple[str, ...]]] = {
     "ksg_cd_gpu.ksg_psi_m_sums": (
         "mlframe.feature_selection.filters._ksg_cd_gpu",
         "kernel",
-        ("float64",),
+        ("float32", "float64"),
+    ),
+    "ksg_cd_gpu.ksg_psi_m_sums_i8": (
+        "mlframe.feature_selection.filters._ksg_cd_gpu",
+        "kernel_small_classes",
+        ("float32", "float64"),
     ),
     "meta_fingerprint_gpu.column_moments_blocks": (
         "mlframe.feature_selection.filters._meta_fingerprint_gpu",

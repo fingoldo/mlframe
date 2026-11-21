@@ -138,24 +138,68 @@ def ksg_mi_discrete_target(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, ra
     return _mi_cd_columns_auto(np.ascontiguousarray(X), d, int(d.max()) + 1 if d.size else 0, int(n_neighbors))
 
 
+@njit(cache=True, nogil=True)
+def _prepare_columns(x: np.ndarray, draw: np.ndarray) -> np.ndarray:
+    """The columns of ``x`` scaled to unit population std (a constant column by 1) with the noise ``1e-10 * max(1, mean|x|) * draw`` added, in double precision.
+
+    The same arithmetic in the same order as :func:`_prepare_columns_numpy` (sequential sums over the rows, one division by the std, one product of the noise scale and the draw), so the result is bit-identical; the
+    passes run over the rows with the columns innermost, where the numpy form made about eight passes with temporaries of the block's size (33 ms against 10 ms at 20000 x 100)."""
+    n, p = x.shape
+    out = np.empty((n, p), dtype=np.float64)  # Intentional float64: the scaled columns and noise are double precision, as sklearn does
+    s = np.zeros(p)
+    for i in range(n):
+        for j in range(p):
+            s[j] += x[i, j]
+    mean = s / n
+    v = np.zeros(p)
+    for i in range(n):
+        for j in range(p):
+            d = x[i, j] - mean[j]
+            v[j] += d * d
+    std = np.sqrt(v / n)
+    for j in range(p):
+        if std[j] == 0.0:
+            std[j] = 1.0
+    m = np.zeros(p)
+    for i in range(n):
+        for j in range(p):
+            xi = x[i, j] / std[j]
+            out[i, j] = xi
+            m[j] += abs(xi)
+    c = np.empty(p)
+    for j in range(p):
+        c[j] = 1e-10 * max(1.0, m[j] / n)
+    for i in range(n):
+        di = draw[i]
+        for j in range(p):
+            out[i, j] += c[j] * di
+    return out
+
+
+def _prepare_columns_numpy(X: np.ndarray, one_draw: np.ndarray) -> np.ndarray:
+    """The numpy form of :func:`_prepare_columns` (the reference it is checked against)."""
+    # Intentional float64: reproduces sklearn mutual_info_classif, which scales and adds the noise in double precision
+    X = np.array(X, dtype=np.float64, copy=True)
+    std = X.std(axis=0)
+    std[std == 0.0] = 1.0
+    X /= std
+    means = np.maximum(1.0, np.mean(np.abs(X), axis=0))
+    X += 1e-10 * means * one_draw[:, None]
+    return X
+
+
 def ksg_mi_discrete_target_columns(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, random_state: int) -> np.ndarray:
     """``ksg_mi_discrete_target`` of every column of ``X`` in one call, bit-identical to calling it per column.
 
     The per-column call draws its Kraskov noise as one ``(n, 1)`` block from ``RandomState(random_state)``. A single ``(n, p)`` draw would give each column
     other values, so every column here draws from its own fresh ``RandomState(random_state)``, the same ``n`` values the one-column call draws.
     """
-    # Intentional float64: reproduces sklearn mutual_info_classif, which scales and adds the noise in double precision
-    X = np.array(X, dtype=np.float64, copy=True)
     n = X.shape[0]
-    std = X.std(axis=0)
-    std[std == 0.0] = 1.0
-    X /= std
-    means = np.maximum(1.0, np.mean(np.abs(X), axis=0))
-    # Intentional float64: the noise is drawn in double precision, as the per-column call draws it
     # every column draws from a fresh ``RandomState(random_state)``, so all columns get the SAME n values: one draw, broadcast
     # Intentional float64: the noise is drawn in double precision, as the per-column call draws it
     one_draw = np.asarray(np.random.RandomState(int(random_state)).standard_normal(size=n), dtype=np.float64)
-    X += 1e-10 * means * one_draw[:, None]
+    # Intentional float64: reproduces sklearn mutual_info_classif, which scales and adds the noise in double precision
+    X = _prepare_columns(np.ascontiguousarray(X), one_draw)
     _, d = np.unique(np.asarray(y).ravel(), return_inverse=True)
     d = np.ascontiguousarray(d, dtype=np.int64)
     return _mi_cd_columns_auto(np.ascontiguousarray(X), d, int(d.max()) + 1 if d.size else 0, int(n_neighbors))

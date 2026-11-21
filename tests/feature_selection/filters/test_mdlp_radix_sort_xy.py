@@ -61,11 +61,12 @@ def test_sort_xy_sorts_x_and_carries_y_with_its_value(n, kind):
 
 
 def test_other_dtypes_and_small_inputs_return_none():
-    """float64 ``x``, float label arrays, 2-D inputs, mismatched lengths and vectors under the switch-over size are left to numpy."""
+    """float16 ``x``, float label arrays, 2-D inputs, mismatched lengths and vectors under the switch-over size are left to numpy; a float64 ``x`` of the same size takes the float64 radix route."""
     rng = np.random.default_rng(1)
     x32 = rng.standard_normal(10_000).astype(np.float32)
     yi = rng.integers(0, 3, 10_000)
-    assert qr.sort_xy(x32.astype(np.float64), yi) is None
+    assert qr.sort_xy(x32.astype(np.float64), yi) is not None  # the float64 route (the engineered-column dtype)
+    assert qr.sort_xy(x32.astype(np.float16), yi) is None
     assert qr.sort_xy(x32, yi.astype(np.float64)) is None
     assert qr.sort_xy(x32[:100], yi[:100]) is None
     assert qr.sort_xy(x32, yi[:-1]) is None

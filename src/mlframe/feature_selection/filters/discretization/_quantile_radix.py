@@ -92,11 +92,117 @@ def _unique_counts_f32_njit(x: np.ndarray):
 _UNIQUE_COUNTS_MIN_SIZE = 4096
 
 
+@njit(nogil=True, cache=True)
+def _f64_order_keys(x: np.ndarray, keys: np.ndarray) -> None:
+    """Order-preserving unsigned 64-bit keys of the NaN-free float64 vector ``x`` (flip all bits of a negative, set the sign bit of a non-negative)."""
+    u = x.view(np.uint64)
+    sign = np.uint64(0x8000000000000000)
+    for i in range(x.shape[0]):
+        v = u[i]
+        if v & sign:
+            keys[i] = ~v
+        else:
+            keys[i] = v | sign
+
+
+@njit(nogil=True, cache=True)
+def _radix_argsort_f64(x: np.ndarray):
+    """``(sorted keys, order)`` of the NaN-free float64 vector ``x``: the stable ascending order by eight LSD passes of 8 bits over the order-preserving keys (an even pass count, so the
+    result is back in the first buffers). Equal values keep their input order; ``-0.0`` sorts before ``+0.0`` (they compare equal as values)."""
+    n = x.shape[0]
+    keys = np.empty(n, dtype=np.uint64)
+    k2 = np.empty(n, dtype=np.uint64)
+    idx = np.empty(n, dtype=np.int64)
+    i2 = np.empty(n, dtype=np.int64)
+    cnt = np.empty(256, dtype=np.int64)
+    _f64_order_keys(x, keys)
+    for i in range(n):
+        idx[i] = i
+    mask = np.uint64(0xFF)
+    for pass_no in range(8):
+        shift = np.uint64(8 * pass_no)
+        cnt[:] = 0
+        for i in range(n):
+            cnt[(keys[i] >> shift) & mask] += 1
+        s = 0
+        for b in range(256):
+            c = cnt[b]
+            cnt[b] = s
+            s += c
+        for i in range(n):
+            k = keys[i]
+            b = (k >> shift) & mask
+            p = cnt[b]
+            k2[p] = k
+            i2[p] = idx[i]
+            cnt[b] = p + 1
+        keys, k2 = k2, keys
+        idx, i2 = i2, idx
+    return keys, idx
+
+
+@njit(nogil=True, cache=True)
+def _unique_counts_f64_njit(x: np.ndarray):
+    """``(values, counts)`` of the NaN-free float64 vector ``x`` as ``np.unique(x, return_counts=True)`` gives them: a keys-only radix sort of a copy (eight passes of 8 bits, no index carried) and one
+    pass over the sorted run (the sign of an exact zero is the one thing the radix order may put differently)."""
+    n = x.shape[0]
+    keys = np.empty(n, dtype=np.uint64)
+    tmp = np.empty(n, dtype=np.uint64)
+    cnt = np.empty(256, dtype=np.int64)
+    _f64_order_keys(x, keys)
+    for pass_no in range(4):
+        _radix_pass_8bit(keys, tmp, cnt, np.uint64(16 * pass_no), n)
+        _radix_pass_8bit(tmp, keys, cnt, np.uint64(16 * pass_no + 8), n)
+    sign = np.uint64(0x8000000000000000)
+    srt = np.empty(n, dtype=np.uint64)  # the sorted values' bit patterns, decoded from the keys
+    for i in range(n):
+        k = keys[i]
+        if k & sign:
+            srt[i] = k ^ sign
+        else:
+            srt[i] = ~k
+    col = srt.view(np.float64)
+    m = 1
+    for i in range(1, n):
+        if col[i] != col[i - 1]:
+            m += 1
+    vals = np.empty(m, dtype=x.dtype)
+    counts = np.empty(m, dtype=np.int64)
+    j = 0
+    vals[0] = col[0]
+    counts[0] = 1
+    for i in range(1, n):
+        if col[i] != col[i - 1]:
+            j += 1
+            vals[j] = col[i]
+            counts[j] = 1
+        else:
+            counts[j] += 1
+    return vals, counts
+
+
+@njit(nogil=True, cache=True)
+def _sort_xy_f64_njit(x: np.ndarray, y: np.ndarray):
+    """``(x[order], y[order])`` for the stable ascending order of the NaN-free float64 vector ``x`` (the float64 twin of :func:`_sort_xy_f32_njit`)."""
+    n = x.shape[0]
+    _, idx = _radix_argsort_f64(x)
+    xs = np.empty(n, dtype=np.float64)  # Intentional float64: the MDLP cut search runs at the production binning width
+    ys = np.empty(n, dtype=y.dtype)
+    for i in range(n):
+        j = idx[i]
+        xs[i] = x[j]
+        ys[i] = y[j]
+    return xs, ys
+
+
 def unique_with_counts(values: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
     """``np.unique(values, return_counts=True)``: the radix sort-and-scan for a large NaN-free float32 vector (6x faster), numpy for anything else."""
     if values.dtype == np.float32 and values.ndim == 1 and values.size >= _UNIQUE_COUNTS_MIN_SIZE:
         radix: "tuple[np.ndarray, np.ndarray]" = _unique_counts_f32_njit(np.ascontiguousarray(values))
         return radix
+    if values.dtype == np.float64 and values.ndim == 1 and values.size >= _UNIQUE_COUNTS_MIN_SIZE and not np.isnan(values).any():  # Intentional float64: the engineered-column dtype
+        radix64: "tuple[np.ndarray, np.ndarray]" = _unique_counts_f64_njit(np.ascontiguousarray(values))
+        return radix64
     return np.unique(values, return_counts=True)
 
 
@@ -190,6 +296,9 @@ def sort_xy(x: np.ndarray, y: np.ndarray) -> "tuple[np.ndarray, np.ndarray] | No
     if x.dtype == np.float32 and x.ndim == 1 and x.size >= _UNIQUE_COUNTS_MIN_SIZE and y.ndim == 1 and y.shape[0] == x.shape[0] and y.dtype.kind in "iu":
         pair: "tuple[np.ndarray, np.ndarray]" = _sort_xy_f32_njit(np.ascontiguousarray(x), np.ascontiguousarray(y))
         return pair
+    if x.dtype == np.float64 and x.ndim == 1 and x.size >= _UNIQUE_COUNTS_MIN_SIZE and y.ndim == 1 and y.shape[0] == x.shape[0] and y.dtype.kind in "iu" and not np.isnan(x).any():  # Intentional float64: the engineered-column dtype
+        pair64: "tuple[np.ndarray, np.ndarray]" = _sort_xy_f64_njit(np.ascontiguousarray(x), np.ascontiguousarray(y))
+        return pair64
     return None
 
 

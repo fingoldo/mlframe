@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from mlframe.feature_selection.filters._fe_pure_form_sides import drop_forms_not_beating_their_sides
 from mlframe.feature_selection.filters._usability_aware_selection import UsableCandidate
@@ -68,7 +69,7 @@ def test_pool_and_single_thread_give_the_same_verdicts(monkeypatch):
 
 
 def test_a_side_shared_by_two_candidates_is_scored_once(monkeypatch):
-    """Candidates built on the same source column and unary share a side: its CV loss is computed once, and the verdicts equal the uncached ones."""
+    """Candidates built on the same source column and unary share a side: its CV loss is computed once, and the verdicts equal the uncached ones (the per-candidate route, the batched device route switched off)."""
     from types import SimpleNamespace
 
     from mlframe.feature_selection.filters import _fe_pure_form_sides as sides
@@ -82,6 +83,7 @@ def test_a_side_shared_by_two_candidates_is_scored_once(monkeypatch):
         rec = SimpleNamespace(kind="unary_binary", src_names=("s", other), unary_names=("identity", "identity"), unary_preset="all")
         cands.append(SimpleNamespace(name=f"s*{other}", recipe=rec, values=X["s"].to_numpy() * X[other].to_numpy()))
     monkeypatch.setattr(sides, "_side_values", lambda recipe, X_: [np.asarray(X_[s].to_numpy(), dtype=np.float64) for s in recipe.src_names])
+    monkeypatch.setattr(sides, "_batched_verdicts", lambda *a, **k: None)
     monkeypatch.setattr("mlframe.feature_selection.filters._edge_pool.map_on_edge_pool", lambda fn, items: [fn(i) for i in items])
     calls = []
     real = sides.cv_loss
@@ -89,3 +91,31 @@ def test_a_side_shared_by_two_candidates_is_scored_once(monkeypatch):
     kept = sides.drop_forms_not_beating_their_sides(cands, X, y, classification=True, seed=0)
     assert len(calls) == 2 + 3  # two forms and the three distinct sides s, u, v (not 2 + 4)
     assert {c.name for c in kept} <= {"s*u", "s*v"}
+
+
+def test_the_batched_route_scores_a_shared_side_once_and_agrees(monkeypatch):
+    """The batched device route sends the two forms and the three DISTINCT sides (s, u, v) to one pass, and its verdicts equal the per-candidate route's."""
+    pytest.importorskip("cupy")
+    from types import SimpleNamespace
+
+    from mlframe.feature_selection.filters import _fe_pure_form_sides as sides
+    from mlframe.feature_selection.filters import _linear_cv_loss as lcl
+
+    rng = np.random.default_rng(1)
+    n = 2000
+    X = pd.DataFrame({"s": rng.standard_normal(n), "u": rng.standard_normal(n), "v": rng.standard_normal(n)})
+    y = (X["s"].to_numpy() * X["u"].to_numpy() > 0).astype(int)
+    cands = []
+    for other in ("u", "v"):
+        rec = SimpleNamespace(kind="unary_binary", src_names=("s", other), unary_names=("identity", "identity"), unary_preset="all")
+        cands.append(SimpleNamespace(name=f"s*{other}", recipe=rec, values=X["s"].to_numpy() * X[other].to_numpy()))
+    monkeypatch.setattr(sides, "_side_values", lambda recipe, X_: [np.asarray(X_[s].to_numpy(), dtype=np.float64) for s in recipe.src_names])
+    sizes = []
+    real = lcl.cv_loss_columns_device
+    monkeypatch.setattr(lcl, "cv_loss_columns_device", lambda cols, *a, **k: (sizes.append(len(cols)), real(cols, *a, **k))[1])
+    batched = sides.drop_forms_not_beating_their_sides(cands, X, y, classification=True, seed=0)
+    assert sizes == [5]
+    monkeypatch.setattr(sides, "_batched_verdicts", lambda *a, **k: None)
+    monkeypatch.setattr("mlframe.feature_selection.filters._edge_pool.map_on_edge_pool", lambda fn, items: [fn(i) for i in items])
+    per_candidate = sides.drop_forms_not_beating_their_sides(cands, X, y, classification=True, seed=0)
+    assert [c.name for c in batched] == [c.name for c in per_candidate]

@@ -23,6 +23,7 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 _SHARED_BUDGET_BYTES = 32 * 1024  # the permutation tables of one launch
+_MAX_DYNAMIC_SHARED_BYTES = 48 * 1024  # the default dynamic shared-memory limit of a launch
 
 _SRC = r"""
 extern "C" __global__ void null_mi_perms(const {XT}* __restrict__ X, const {XT}* __restrict__ edges, const unsigned char* __restrict__ yp, const long long n,
@@ -209,9 +210,11 @@ class PermutationBlocks:
         self._next = self._count
 
 
-#: Packed permuted labels of the last ``labels_key`` (one key at a time, about 49 MB for 39 permutations of 10 million rows): a caller that scores many candidate blocks
-#: against the same permutations of the same labels (the binned-agg null redraws the same seeded permutations for every block) packs them once.
-_LABEL_BITS_CACHE: dict = {}
+#: Packed permuted labels of the last two ``labels_key`` values (about 49 MB each for 39 permutations of 10 million rows): a caller that scores many candidate blocks
+#: against the same permutations of the same labels (the binned-agg null redraws the same seeded permutations for every block) packs them once; two keys because two
+#: concurrent stages alternate keys, which a single slot repacked on every call. ``clear_label_bits_cache`` (a fit-end release) frees them.
+_LABEL_BITS_KEYS = 2
+_LABEL_BITS_CACHE: "dict[Any, dict[int, Any]]" = {}
 _LABEL_BITS_LOCK = threading.Lock()
 
 
@@ -234,24 +237,33 @@ def _cached_label_bits(key: Any, p0: int) -> Any:
     if key is None:
         return None
     with _LABEL_BITS_LOCK:
-        entry = _LABEL_BITS_CACHE.get("latest")
-        if entry is None or entry[0] != key:
+        blocks = _LABEL_BITS_CACHE.get(key)
+        if blocks is None:
             return None
-        return entry[1].get(int(p0))
+        return blocks.get(int(p0))
 
 
 def _store_label_bits(key: Any, p0: int, bits: Any) -> None:
-    """Keep the packed block of ``key`` starting at ``p0``; a new key replaces the previous one."""
+    """Keep the packed block of ``key`` starting at ``p0``; the least recently stored of more than ``_LABEL_BITS_KEYS`` keys is dropped."""
     if key is None:
         return
     with _LABEL_BITS_LOCK:
-        entry = _LABEL_BITS_CACHE.get("latest")
-        if entry is None or entry[0] != key:
-            _LABEL_BITS_CACHE.clear()  # evict-ok: only the latest labels are kept; a miss repacks them
-            blocks: "dict[int, Any]" = {}
-            entry = (key, blocks)
-            _LABEL_BITS_CACHE["latest"] = entry
-        entry[1][int(p0)] = bits
+        blocks = _LABEL_BITS_CACHE.pop(key, None)
+        if blocks is None:
+            blocks = {}
+        _LABEL_BITS_CACHE[key] = blocks  # most recent last
+        while len(_LABEL_BITS_CACHE) > _LABEL_BITS_KEYS:
+            _LABEL_BITS_CACHE.pop(next(iter(_LABEL_BITS_CACHE)))  # evict-ok: a miss repacks the labels
+        blocks[int(p0)] = bits
+
+
+def clear_label_bits_cache() -> None:
+    """Free the packed label blocks (the fit-end release: they are device arrays that nothing else holds, and every miss repacks)."""
+    with _LABEL_BITS_LOCK:
+        _LABEL_BITS_CACHE.clear()
+
+
+_PERM_UPLOAD_BYTES = 64 * 1024 * 1024  # host row ids held at once by _permuted_labels
 
 
 def _permuted_labels(cp: Any, y8: Any, perms: Any, p0: int, p1: int, width: "int | None" = None) -> Any:
@@ -260,9 +272,18 @@ def _permuted_labels(cp: Any, y8: Any, perms: Any, p0: int, p1: int, width: "int
     n = int(y8.shape[0])
     w = n if width is None else int(width)
     out = cp.zeros((p1 - p0, w), dtype=cp.uint8) if w > n else cp.empty((p1 - p0, n), dtype=cp.uint8)
-    for r, p in enumerate(range(p0, p1)):
-        perm = perms.one(p) if isinstance(perms, PermutationBlocks) else perms[p]
-        out[r, :n] = y8[perm if isinstance(perm, cp.ndarray) else cp.asarray(np.ascontiguousarray(perm))]
+    # the row ids cross the bus in sub-blocks of whole permutations (one upload, one gather and one copy per sub-block instead of per permutation: 64 x 3 launches a block at 100000 rows); the host
+    # holds at most ``_PERM_UPLOAD_BYTES`` of ids, which at 10 million rows is one permutation, as before
+    rows_per = max(1, _PERM_UPLOAD_BYTES // (4 * max(1, n)))
+    for s0 in range(p0, p1, rows_per):
+        s1 = min(p1, s0 + rows_per)
+        rows = [perms.one(p) if isinstance(perms, PermutationBlocks) else perms[p] for p in range(s0, s1)]
+        if any(isinstance(r, cp.ndarray) for r in rows):
+            for r, perm in enumerate(rows, start=s0 - p0):
+                out[r, :n] = y8[perm if isinstance(perm, cp.ndarray) else cp.asarray(np.ascontiguousarray(perm))]
+            continue
+        ids = cp.asarray(np.ascontiguousarray(np.stack([np.asarray(r) for r in rows])))  # (s1 - s0, n)
+        out[s0 - p0 : s1 - p0, :n] = y8[ids]
     return out
 
 
@@ -304,6 +325,10 @@ def null_max_mi_perms_gpu(cp: Any, x_cm: Any, interior: Any, y_shifted: Any, per
             out[p0 : p0 + block_len] = cp.asnumpy(cp.nanmax(res, axis=0))
             del ybits, res
         return out
+    if 4 * m > _MAX_DYNAMIC_SHARED_BYTES:
+        # one permutation's count table alone is over the default dynamic shared-memory limit: the launch would fail, so the caller keeps one launch per permutation
+        log_throttle(logger, "null_max_perm_gpu.table_too_large", logging.WARNING, "batched null maxima: %d bins x %d classes need %d bytes of shared memory a permutation, over the %d limit; per-permutation launches are used", int(nbins), int(n_classes), 4 * m, _MAX_DYNAMIC_SHARED_BYTES)
+        return None
     for p0 in range(0, len(perms), per_launch):
         block_len = min(per_launch, len(perms) - p0)
         yp = _permuted_labels(cp, y8, perms, p0, p0 + block_len)  # (P, n) permuted labels, built on the device one permutation at a time
