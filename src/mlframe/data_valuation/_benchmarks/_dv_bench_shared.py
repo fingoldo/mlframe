@@ -1,6 +1,7 @@
-"""Shared synthetic-fixture builder used by several ``_benchmarks/`` scripts in this directory:
-independently duplicated across those scripts, consolidated here so a fix can't silently drift out
-of sync across copies.
+"""Synthetic-fixture builder shared by the data-valuation benchmark scripts, so one fixture rule serves all of them.
+
+Consumers: ``profile_data_valuation.py`` and ``profile_training_weight_adapter.py`` (and
+``profile_adversarial_reweighting.py`` through its delegating helper). Audit 05-F3 wording.
 """
 from __future__ import annotations
 

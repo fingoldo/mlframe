@@ -11,11 +11,10 @@ algorithm run without the JIT, not a numpy reference (audit 05-F1).
 from __future__ import annotations
 
 import cProfile
+import functools
 import io
 import pstats
 import time
-
-import functools
 
 import numpy as np
 
