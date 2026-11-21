@@ -127,3 +127,5 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F16: FIXED (test pending). Validation cache hit re-applies init_score (lgb_shim). A test needs a full cached fit through fit(); not yet written.
 - 28-F42: FIXED. A failed text-feature probe logs at WARNING with its traceback. Test tests/training/test_cluster28_probe_and_names_warn.py (covers the names path; the probe path shares the same change).
 - 28-F49: FIXED. An unreadable feature-name list logs at WARNING, and the attribute read itself is inside the guard. Test tests/training/test_cluster28_probe_and_names_warn.py.
+- 28-F40: FIXED. The logging proxy raises AttributeError for its unset _inner slot instead of recursing. Test tests/training/test_cluster28_logging_proxy_and_rss.py.
+- 28-F39: FIXED. A failed post-call RSS re-read reports rss_mb and d_rss_mb as None, not as zero. Verified by reading the change; no unit test, since it needs a psutil failure mid-call.
