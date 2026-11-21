@@ -51,6 +51,7 @@ for any non-default value; 0.05 is the principled standard level. KEEP 0.05; opt
 from __future__ import annotations
 
 from typing import Any
+import zlib
 import os
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
 os.environ.setdefault("MLFRAME_NO_CUDA_AUTOCONFIG", "1")
@@ -162,7 +163,7 @@ def main():
 
     for sc in scenarios:
         for seed in seeds:
-            rng = np.random.default_rng(seed * 100 + hash(sc) % 1000)
+            rng = np.random.default_rng(seed * 100 + zlib.crc32(sc.encode()) % 1000)
             factors, nbins, labels, y_idx = _make_scenario(sc, n, rng)
             for a in ALPHAS:
                 res = _eval_alpha(factors, nbins, labels, y_idx, a, seed)

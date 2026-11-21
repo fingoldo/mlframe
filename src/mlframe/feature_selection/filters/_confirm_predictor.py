@@ -198,7 +198,7 @@ def confirm_candidate(ctx: ScreenContext, X: tuple, next_best_gain: float) -> tu
             # CPU branch always drew the identical base_seed=0 permutation stream for every candidate, and
             # the GPU branch drew fresh unseeded entropy every call - non-reproducible and unaffected by
             # ctx.random_seed either way).
-            _marginal_base_seed = int(((int(random_seed or 0) * 2654435761) + hash(X)) & 0xFFFFFFFF)
+            _marginal_base_seed = int(((int(random_seed or 0) * 2654435761) + hash(X)) & 0xFFFFFFFF)  # audit-exempt: salted_hash_seed -- hash of an int tuple is not salted (only str/bytes are), so the seed is stable
             # Route the confirm to CPU ``mi_direct`` (which carries the analytic large-n null - the
             # nperm->inf limit of the permutation test: faster, decision-equivalent) whenever the
             # analytic path would engage (n >= threshold) OR the GPU is globally disabled. The GPU

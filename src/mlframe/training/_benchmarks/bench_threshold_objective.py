@@ -20,6 +20,7 @@ cells on test balanced accuracy. Otherwise KEEP + record the reject verdict here
 from __future__ import annotations
 
 from typing import Any
+import zlib
 import json
 import os
 import sys
@@ -113,7 +114,7 @@ def run():
     for name, pr, sep, het in SCENARIOS:
         thr_star = _oracle_thr(np.random.default_rng(99), pr, sep, het)
         for seed in SEEDS:
-            rng = np.random.default_rng(1000 * seed + hash(name) % 997)
+            rng = np.random.default_rng(1000 * seed + zlib.crc32(name.encode()) % 997)
             yv, pv = _gen(rng, N_VAL, pr, sep, het)
             yt, pt = _gen(rng, N_TEST, pr, sep, het)
             thrs = {

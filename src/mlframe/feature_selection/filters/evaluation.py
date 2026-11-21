@@ -509,7 +509,7 @@ def evaluate_candidate(
     # hash of the current ``selected_vars`` content into the seed makes each round's null draw independent of
     # the others for the same candidate. ``random_seed`` is now also threaded in end-to-end (screen_predictors ->
     # confirm_predictor -> evaluate_candidate), so the ``random_seed=`` knob actually moves this component's draws.
-    _cmi_cpt_seed = hash(((int(random_seed) if random_seed is not None else 0), int(cand_idx), tuple(sorted(int(v) for v in selected_vars)))) & 0xFFFFFFFF
+    _cmi_cpt_seed = hash(((int(random_seed) if random_seed is not None else 0), int(cand_idx), tuple(sorted(int(v) for v in selected_vars)))) & 0xFFFFFFFF  # audit-exempt: salted_hash_seed -- hash of an int tuple is not salted (only str/bytes are), so the seed is stable
     current_gain = _apply_cmi_perm_stop(current_gain, cand_idx, selected_vars, partial_gains, expected_gains, _knob_columns, _cmi_cpt_seed)
 
     # D10 Conditional Permutation Test (Berrett, Wang, Barber, Samworth 2020). Default off -> skipped (byte-identical).
@@ -576,7 +576,7 @@ def _evaluate_candidate_candidate_any_good_target(X, cached_confident_MIs, y, fa
             # identical permutation for every seed, so a caller varying random_seed to probe selection stability
             # got a null that never changed - the one component that was supposed to vary. Derived per candidate
             # so two candidates in the same fit do not share a draw, mirroring the CMI component's own seed.
-            _baseline_seed = hash(((int(random_seed) if random_seed is not None else 0), int(cand_idx))) & 0xFFFFFFFF
+            _baseline_seed = hash(((int(random_seed) if random_seed is not None else 0), int(cand_idx))) & 0xFFFFFFFF  # audit-exempt: salted_hash_seed -- hash of an int tuple is not salted (only str/bytes are), so the seed is stable
             if use_gpu:
                 # Wrapped in try/except: this call previously had NO exception handling, unlike
                 # every sibling GPU dispatch point in this codebase (_cmi_cuda.py's circuit breaker, mi_direct's
