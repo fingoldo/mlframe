@@ -359,12 +359,19 @@ __all__ = [
 ]
 
 
+def current_memory_pool(cp: Any) -> Any:
+    """The memory pool the calling thread allocates from: the private pool of a stage slot inside ``stage_device_slot``, the default pool otherwise. Room checks must read this pool, not the default one: a
+    slot's limit is a fraction of the default pool's, and a block sized against the default pool does not fit the slot."""
+    pool = getattr(cp.cuda.get_allocator(), "__self__", None)
+    return pool if isinstance(pool, cp.cuda.MemoryPool) else cp.get_default_memory_pool()
+
+
 def pool_column_block(cp: Any, n_rows: int, *, bytes_per_column_row: int, budget_fraction: float, min_block: int, fallback: int, what: str, max_block: "int | None" = None) -> int:
     """Columns per launch such that a block's temporaries (``bytes_per_column_row`` per row of a column) stay within ``budget_fraction`` of what the memory pool can still
     hand out (the smaller of the device's free memory plus the pool's cached bytes, and the pool limit minus its used bytes); at least ``min_block`` and, when given, at
     most ``max_block``. ``fallback`` is returned when the device's memory cannot be read; ``what`` names the caller in that debug line."""
     try:
-        pool = cp.get_default_memory_pool()
+        pool = current_memory_pool(cp)
         free_device = int(cp.cuda.runtime.memGetInfo()[0]) + int(pool.free_bytes())
         limit = int(pool.get_limit())
         room = free_device if limit <= 0 else min(free_device, max(0, limit - int(pool.used_bytes())))

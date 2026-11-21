@@ -11,6 +11,8 @@ identically; the contract is pinned in ``_fe_mi_contract``).
 
 from __future__ import annotations
 
+from ._fe_gpu_vram import current_memory_pool
+
 import logging
 
 from mlframe.utils.log_throttle import log_throttle
@@ -268,7 +270,7 @@ def _radix_edges_in_column_blocks(cp, X_gpu, n_bins: int):
     from ._gpu_resident_select import _radix_select_interior_edges
 
     n, k = int(X_gpu.shape[0]), int(X_gpu.shape[1])
-    pool = cp.get_default_memory_pool()
+    pool = current_memory_pool(cp)
     try:
         pool.free_all_blocks()
         free = int(cp.cuda.Device().mem_info[0])
