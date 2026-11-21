@@ -38,7 +38,7 @@ import pandas as pd
 
 from mlframe.metrics import trapezoid
 from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec
-from mlframe.utils.array_shape import shape_of
+from mlframe.utils.array_shape import shape_of, size_of
 
 MAX_PLOT_POINTS: int = 2000
 
@@ -86,7 +86,7 @@ def _label_column_index(yt: np.ndarray, n_classes: int) -> np.ndarray:
     Labels already equal to ``0..K-1`` are their own column index; any other label set of exactly K distinct values (e.g. 3/5/7 or strings)
     is mapped through its sorted order. A label set that is neither raises, since the columns cannot be matched to labels.
     """
-    if np.asarray(yt).size == 0:
+    if size_of(yt) == 0:
         # Every row was dropped as non-finite: there is nothing to index, and the no-data path downstream reports it. classes.min() used to raise here.
         return np.empty(0, dtype=np.int64)
     classes, inverse = np.unique(yt, return_inverse=True)

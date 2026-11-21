@@ -65,6 +65,7 @@ from typing import Any, Sequence
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.utils.array_shape import length_of
 
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
@@ -354,8 +355,8 @@ def rank_gradient_interaction_pairs(
     cand = list(candidate_indices)
     rng = np.random.default_rng(seed)
     n = X.shape[0]
-    if np.asarray(y).shape[0] != n:
-        raise ValueError(f"rank_gradient_interaction_pairs: X has {n} rows but y has {np.asarray(y).shape[0]}")
+    if length_of(y) != n:
+        raise ValueError(f"rank_gradient_interaction_pairs: X has {n} rows but y has {length_of(y)}")
     if n > row_cap:
         rows = rng.choice(n, row_cap, replace=False)
         Xc, yc = X[rows], y[rows]

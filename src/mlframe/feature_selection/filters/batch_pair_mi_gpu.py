@@ -68,6 +68,7 @@ from ._batch_pair_mi_cuda_shared_fused import (
     shared_fused_kernel_fits_budget,
     check_codes_on_device,
 )
+from mlframe.utils.array_shape import length_of
 
 try:
     import cupy as _cp
@@ -116,7 +117,7 @@ def batch_pair_mi_cupy(
     from ._fe_resident_operands import resident_operand
     d_data = resident_operand(factors_data, "bpmi_cupy_factors_data", dtype=np.int32)
     d_classes_y = resident_operand(classes_y, "bpmi_cupy_classes_y", dtype=np.int32)
-    check_codes_on_device(d_data, d_classes_y, factors_data, classes_y, pair_a, pair_b, nbins, int(np.asarray(freqs_y).shape[0]))
+    check_codes_on_device(d_data, d_classes_y, factors_data, classes_y, pair_a, pair_b, nbins, int(length_of(freqs_y)))
     # Intentional float64: the float64 resident buffer is the one the CUDA twin binds to ``const double *`` (content-keyed, so both backends share one upload); the cast to the working dtype is a device-side copy of a
     # vector with one entry per class
     # Intentional float64: the CUDA kernel binds this buffer as const double *, so its signature fixes the element type.

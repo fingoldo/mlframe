@@ -48,6 +48,7 @@ import numba
 
 from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD, _check_equal_length
 from mlframe.utils.env_flags import env_int
+from mlframe.utils.array_shape import length_of
 
 # Max-error gets its own (higher) crossover: the prange ``max`` reduction carries more per-launch overhead than the ``+=``
 # reductions of MAE/MSE/R2, so it only nets positive at large n (~2-4x at 5-10M, a wash below ~1M -- bench
@@ -64,7 +65,7 @@ def _check_weights_length(w: np.ndarray, y_true) -> None:
 
     The kernels index the weight array with bounds checking off, so a short weight vector read past its buffer and returned garbage.
     """
-    n = int(np.asarray(y_true).shape[0])
+    n = int(length_of(y_true))
     if w.shape[0] != n:
         raise ValueError(f"sample_weight has {w.shape[0]} entries for {n} rows")
 

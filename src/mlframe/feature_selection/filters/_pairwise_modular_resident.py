@@ -36,6 +36,7 @@ import numpy as np
 from mlframe.utils.log_throttle import log_throttle
 
 from ._y_encoding import encode_y_for_classif_mi
+from mlframe.utils.array_shape import length_of
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ def combiner_bases_and_grids_resident(
         from ._hermite_fe_mi import _plugin_mi_classif_batch_cuda_resident
         from ._gpu_resident_rank_bin import plugin_mi_classif_batch_rank_cuda_resident
 
-        n = int(np.asarray(combiners[0]).shape[0])
+        n = int(length_of(combiners[0]))
         _yi = np.ascontiguousarray(encode_y_for_classif_mi(y))
         yd = resident_operand(_yi, "y_mi_classif", dtype=np.int64)
         _ymin = int(_yi.min()) if _yi.size else 0
