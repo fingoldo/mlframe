@@ -235,3 +235,136 @@ def fold_cell_moments(cp: ModuleType, codes_g: Any, v_safe: Any, finite_f: Any, 
     mean = s1 / cp.maximum(cnt, 1.0)
     k2((blocks,), (threads,), (codes, v_safe, finite_f, folds, mean, cp.int64(n), cp.int32(nc), cp.int32(nf), cm2, cm3, cm4), shared_mem=3 * nf * nc * 8)
     return cnt, mean, cm2, cm3, cm4
+
+
+# bench-rejected as the default (2026-11-21, GTX 1050 Ti): 0.5-2.3 ms more per call than the atomic kernels at 100000 rows, and the 100000 x 1000 fit still selected different sets run to run ([2, 4], [2], [2, 4]):
+# it was not the (only) source of the run-to-run variation. Kept as ``*_deterministic``.
+# --- deterministic form --------------------------------------------------------------------------------------------------------------------------------------------------------
+# The atomic kernels above add in thread-scheduling order, so two calls on the same device data differ in the last bits (about 1e-13 absolute on 100000 rows), and a near-tie of the greedy
+# that sits on such a table can flip from one fit to the next. Here one thread owns one (fold, cell) table cell of one row segment and adds the rows of its segment in ascending order;
+# the per-segment partial tables are then summed over the segments by ``cupy.sum`` (a fixed-order reduction). The per-row terms are the expressions of the atomic kernels, so the tables
+# are the same moments up to the order of the additions, and every call returns the same bits.
+_DET_PASS1_SRC = r"""
+extern "C" __global__ void det_cell_sums(const long long* codes, const double* v, const double* w, const long long* fold, int has_fold, long long n, long long seg_len, int nc, int nf,
+                                          double* part_cnt, double* part_sum) {
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int ncell = nf * nc;
+    if (j >= ncell) return;
+    int c = j % nc;
+    int f = j / nc;
+    long long s = blockIdx.y;
+    long long lo = s * seg_len;
+    long long hi = lo + seg_len;
+    if (hi > n) hi = n;
+    double cnt = 0.0, sum = 0.0;
+    for (long long i = lo; i < hi; ++i) {
+        if ((int)codes[i] != c) continue;
+        if (has_fold && (int)fold[i] == f) continue;
+        double wi = w[i];
+        cnt += wi;
+        sum += v[i] * wi;
+    }
+    part_cnt[s * ncell + j] = cnt;
+    part_sum[s * ncell + j] = sum;
+}
+"""
+
+_DET_PASS2_SRC = r"""
+extern "C" __global__ void det_cell_centred(const long long* codes, const double* v, const double* w, const long long* fold, int has_fold, const double* mean, long long n, long long seg_len,
+                                             int nc, int nf, double* part2, double* part3, double* part4) {
+    int j = blockIdx.x * blockDim.x + threadIdx.x;
+    int ncell = nf * nc;
+    if (j >= ncell) return;
+    int c = j % nc;
+    int f = j / nc;
+    long long s = blockIdx.y;
+    long long lo = s * seg_len;
+    long long hi = lo + seg_len;
+    if (hi > n) hi = n;
+    double m = mean[j];
+    double a2 = 0.0, a3 = 0.0, a4 = 0.0;
+    for (long long i = lo; i < hi; ++i) {
+        if ((int)codes[i] != c) continue;
+        if (has_fold && (int)fold[i] == f) continue;
+        double wi = w[i];
+        double d = v[i] - m;
+        double d2 = d * d;
+        a2 += d2 * wi;
+        a3 += d2 * d * wi;
+        a4 += d2 * d2 * wi;
+    }
+    part2[s * ncell + j] = a2;
+    part3[s * ncell + j] = a3;
+    part4[s * ncell + j] = a4;
+}
+"""
+
+_DET_KERNELS: Optional[tuple] = None
+_DET_TARGET_THREADS = 32768
+_DET_MAX_SEGMENTS = 512
+
+
+def _det_kernels(cp) -> Optional[tuple]:
+    """Compile (once) the deterministic kernels; ``None`` when the device cannot build them."""
+    global _DET_KERNELS
+    if _DET_KERNELS is not None:
+        return _DET_KERNELS
+    try:
+        k = (cp.RawKernel(_DET_PASS1_SRC, "det_cell_sums"), cp.RawKernel(_DET_PASS2_SRC, "det_cell_centred"))
+        k[0].compile()
+        k[1].compile()
+        _DET_KERNELS = k
+    except Exception as exc:
+        log_throttle(logger, "cell_moments.det_kernels", logging.WARNING, "deterministic cell-moment kernels failed to build (%s: %s); the atomic form is used for this call", type(exc).__name__, exc)
+    return _DET_KERNELS
+
+
+def _det_moments(cp: ModuleType, codes_g: Any, v: Any, w: Any, fold_g: Any, nf: int, nc: int) -> Optional[tuple]:
+    """``(cnt, mean, cm2, cm3, cm4)`` tables of shape ``(nf * nc,)`` (``nf`` == 1 without folds) by the deterministic kernels, or ``None`` when they cannot be built."""
+    kernels = _det_kernels(cp)
+    if kernels is None:
+        return None
+    k1, k2 = kernels
+    n = int(codes_g.shape[0])
+    ncell = nf * nc
+    codes = codes_g if codes_g.dtype == cp.int64 else codes_g.astype(cp.int64)
+    v = v if v.dtype == cp.float64 else v.astype(cp.float64)  # Intentional float64: kernel signature is double*
+    w = w if w.dtype == cp.float64 else w.astype(cp.float64)  # Intentional float64: kernel signature is double*
+    has_fold = fold_g is not None
+    folds = (fold_g if fold_g.dtype == cp.int64 else fold_g.astype(cp.int64)) if has_fold else codes
+    segs = int(max(1, min(_DET_MAX_SEGMENTS, _DET_TARGET_THREADS // max(1, ncell), n)))
+    seg_len = (n + segs - 1) // segs
+    segs = (n + seg_len - 1) // seg_len if n > 0 else 1
+    threads = min(256, max(32, ncell))
+    grid = ((ncell + threads - 1) // threads, segs)
+    pc = cp.empty((segs, ncell), dtype=cp.float64)  # Intentional float64: per-segment partial sums
+    ps = cp.empty((segs, ncell), dtype=cp.float64)  # Intentional float64: per-segment partial sums
+    k1(grid, (threads,), (codes, v, w, folds, cp.int32(1 if has_fold else 0), cp.int64(n), cp.int64(seg_len), cp.int32(nc), cp.int32(nf), pc, ps))
+    cnt = pc.sum(axis=0)
+    mean = ps.sum(axis=0) / cp.maximum(cnt, 1.0)
+    p2 = cp.empty((segs, ncell), dtype=cp.float64)  # Intentional float64: per-segment partial sums
+    p3 = cp.empty((segs, ncell), dtype=cp.float64)  # Intentional float64: per-segment partial sums
+    p4 = cp.empty((segs, ncell), dtype=cp.float64)  # Intentional float64: per-segment partial sums
+    k2(grid, (threads,), (codes, v, w, folds, cp.int32(1 if has_fold else 0), mean, cp.int64(n), cp.int64(seg_len), cp.int32(nc), cp.int32(nf), p2, p3, p4))
+    return cnt, mean, p2.sum(axis=0), p3.sum(axis=0), p4.sum(axis=0)
+
+
+def masked_cell_moments_deterministic(cp: ModuleType, codes_g: Any, v_safe: Any, w: Any, n_cells: int) -> Optional[tuple]:
+    """:func:`masked_cell_moments` (atomic) with a fixed order of additions: the same ``(cnt, mean, cm2, cm3, cm4)`` per cell up to rounding, and the same bits on every call. ``None`` as the atomic form for
+    too many cells."""
+    nc = int(n_cells)
+    if nc > MAX_CELLS or nc < 1:
+        return masked_cell_moments(cp, codes_g, v_safe, w, n_cells)
+    out = _det_moments(cp, codes_g, v_safe, w, None, 1, nc)
+    return out if out is not None else masked_cell_moments(cp, codes_g, v_safe, w, n_cells)
+
+
+def fold_cell_moments_deterministic(cp: ModuleType, codes_g: Any, v_safe: Any, finite_f: Any, fold_g: Any, n_folds: int, n_cells: int) -> Optional[tuple]:
+    """:func:`fold_cell_moments` (atomic) with a fixed order of additions: ``(n_folds, n_cells)`` tables, the same bits on every call."""
+    nf, nc = int(n_folds), int(n_cells)
+    if nf < 1 or nc < 1 or 3 * nf * nc > _SHARED_DOUBLES:
+        return fold_cell_moments(cp, codes_g, v_safe, finite_f, fold_g, n_folds, n_cells)
+    out = _det_moments(cp, codes_g, v_safe, finite_f, fold_g, nf, nc)
+    if out is None:
+        return fold_cell_moments(cp, codes_g, v_safe, finite_f, fold_g, n_folds, n_cells)
+    return tuple(t.reshape(nf, nc) for t in out)
