@@ -680,3 +680,4 @@
 | 28-F17 | FIXED | set_label applies the fitted label encoder, so the cached Dataset matches what fit trained on. Test tests/training/test_cluster28_set_label_encodes_like_fit.py. |
 | 28-F7 | FIXED | save_split_artifacts rewrites every artifact (the existing-name skip is gone). Test tests/training/test_cluster28_split_artifacts_rewritten.py. |
 | 28-F11 | FIXED | The auto-wrap switch is carried on the control config the training loop reads (set by _build_control_config), so False is honoured. Test tests/training/test_cluster28_wrap_flag_reaches_control.py. |
+| 28-F14 | FIXED | An existing bundle that cannot be read raises instead of falling back to an unverified reopen. Test tests/training/test_cluster28_unreadable_bundle_raises.py. |

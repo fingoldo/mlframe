@@ -134,3 +134,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 28-F17 | 28_root_modules-7.md | FIXED | set_label applies the fitted label encoder. Test test_cluster28_set_label_encodes_like_fit.py. |
 | 28-F7 | 28_root_modules-7.md | FIXED | Split artifacts always rewritten. Test test_cluster28_split_artifacts_rewritten.py. |
 | 28-F11 | 28_root_modules-7.md | FIXED | Auto-wrap switch carried on the control config. Test test_cluster28_wrap_flag_reaches_control.py. |
+| 28-F14 | 28_root_modules-7.md | FIXED | Unreadable existing bundle raises. Test test_cluster28_unreadable_bundle_raises.py. |
