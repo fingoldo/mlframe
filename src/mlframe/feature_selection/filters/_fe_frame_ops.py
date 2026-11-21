@@ -172,10 +172,17 @@ def fe_subsample_to_pandas(X: Any, idx: np.ndarray) -> Any:
     raise TypeError(f"fe_subsample_to_pandas: unsupported frame type {type(X)!r}")
 
 
+class _FrameColumns(dict):
+    """``{name: 1-D array}`` of columns taken from a pandas frame, remembering the frame: appending them to another pandas frame concatenates the frame's own columns (copy-on-write sharing) instead of copying the read-only views."""
+
+    source: Any = None
+
+
 def fe_extract_columns(X: Any, names: Iterable[str]) -> dict[str, np.ndarray]:
     """Extract the named columns of ``X`` (pandas / polars) as ``{name: 1d numpy array}`` - per-column views, no
     whole-frame copy. Used to move engineered columns off an augmented frame for a native re-append onto another frame."""
-    out: dict[str, np.ndarray] = {}
+    out: dict[str, np.ndarray] = _FrameColumns()
+    out.source = X if is_pandas(X) else None
     for nm in names:
         if is_pandas(X):
             out[nm] = fe_column_values(X, nm)
@@ -289,6 +296,10 @@ def fe_append_columns(X: Any, cols: dict[str, np.ndarray]) -> Any:
     if is_pandas(X):
         # no consolidation: ``pd.DataFrame(dict)`` copies the columns into blocks (at 1000000 rows the engineered columns of the replay, several hundred of 8 MB, took 2.6 GB twice over); the
         # frame of ``fe_frame_from_columns`` holds the arrays themselves and the concat shares them, so the columns exist once
+        src = getattr(cols, "source", None)
+        if src is not None and src.index.equals(X.index) and not src.columns.duplicated().any():
+            # the columns are views of ``src``'s blocks (read-only): the frame's own columns are shared under copy-on-write, where wrapping the views would copy each one
+            return pd.concat([X, src[list(cols)]], axis=1)
         add = fe_frame_from_columns(cols, X.index)
         return pd.concat([X, add], axis=1)
     if is_polars(X):
