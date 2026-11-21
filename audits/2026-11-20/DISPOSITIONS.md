@@ -800,3 +800,5 @@
 | 28-F39 | FIXED | A failed post-call RSS re-read reports rss_mb and d_rss_mb as None, not as zero. Verified by reading the change; no unit test, since it needs a psutil failure mid-call. |
 | 28-F28 | FIXED | A digest mismatch on read logs at WARNING and deletes the entry. Test tests/training/test_cluster28_suite_cache_keys_and_tamper.py. |
 | 28-F29 | FIXED | The default key builder digests array and frame arguments from their bytes; repr elided the middle of large arrays. Test tests/training/test_cluster28_suite_cache_keys_and_tamper.py. |
+| 28-F41 | FIXED | Every grid label is planned and checked before the first variant runs, so a duplicate refuses the grid with nothing trained. Test tests/training/test_cluster28_grid_labels_checked_before_runs.py. |
+| 28-F43 | FIXED | A rejected CatBoost set_params is logged at WARNING before the private _init_params fallback is written. Test tests/training/test_cluster28_cb_set_params_fallback_logged.py. |

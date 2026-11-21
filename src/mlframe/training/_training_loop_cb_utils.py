@@ -136,7 +136,8 @@ def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
         return
     try:
         model.set_params(loss_function="MultiRMSE", eval_metric="MultiRMSE")
-    except Exception:
+    except Exception as _set_exc:
+        logger.warning("CatBoost set_params rejected the loss/metric (%s); writing the private _init_params fallback instead", _set_exc)
         try:
             model._init_params["loss_function"] = "MultiRMSE"
             model._init_params["eval_metric"] = "MultiRMSE"
@@ -207,7 +208,8 @@ def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
         return
     try:
         model.set_params(loss_function="MultiLogloss", eval_metric="HammingLoss")
-    except Exception:
+    except Exception as _set_exc:
+        logger.warning("CatBoost set_params rejected the loss/metric (%s); writing the private _init_params fallback instead", _set_exc)
         try:
             model._init_params["loss_function"] = "MultiLogloss"
             model._init_params["eval_metric"] = "HammingLoss"
