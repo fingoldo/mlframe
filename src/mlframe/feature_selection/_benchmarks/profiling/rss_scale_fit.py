@@ -289,6 +289,7 @@ try:
     _sel = MRMR(verbose=0, random_seed=0, n_jobs=1, **kwargs).fit(X, y)
     _sup = sorted(int(v) for v in np.asarray(getattr(_sel, 'support_', [])).ravel())
     print(f'selected {len(_sup)} columns, sum {sum(_sup)}: {_sup[:20]}', flush=True)
+    print(f'engineered {len(getattr(_sel, "_engineered_features_", None) or [])} features', flush=True)  # support_ lists raw columns only: a fit whose raws are all covered by engineered columns has support_ == []
     if os.environ.get("RSS_FAMILY_WALLS", "").strip():  # the fit's own per-family wall table (summed over threads, so it exceeds the fit wall under concurrency)
         _fw = getattr(_sel, "fe_family_wall_", None) or {}
         print("FAMILY_WALLS " + "; ".join(f"{k}={v['wall_s']:.1f}s/{v['calls']}" for k, v in list(_fw.items())[:45]), flush=True)

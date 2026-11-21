@@ -39,7 +39,8 @@ def run_cell(rows: int, cols: int, target: str, strategy: str, timeout_s: float)
     for marker in ("ABORTED", "Traceback", "ValueError", "KeyError"):
         if marker in out and status == "ok":
             status = marker.lower()
-    return {"wall_s": round(wall, 1), "status": status, "growth_mb": growth.group(1) if growth else "", "selected": f"{sel.group(1)}/{sel.group(2)}" if sel else ""}
+    eng = re.search(r"engineered (\d+) features", out)
+    return {"wall_s": round(wall, 1), "status": status, "growth_mb": growth.group(1) if growth else "", "selected": f"{sel.group(1)}/{sel.group(2)}" if sel else "", "engineered": eng.group(1) if eng else ""}
 
 
 def main() -> None:
