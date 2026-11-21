@@ -154,3 +154,4 @@ Method: four parallel sub-audits read every listed file fully and grepped caller
 - 25-F44: FIXED. Integer multilabel input is validated by its min and max instead of a float64 copy; the 0/1 rule and the uint8 result are unchanged. Test tests/metrics/test_cluster25_multilabel_coerce_integer_range.py.
 - 25-F20: FIXED. The three remaining cache=True numba kernels in mi.py are cache=False, as the module comment requires. Test tests/feature_selection/test_cluster25_structure_op_symbols.py.
 - 25-F22: FIXED. Both the live modular report and the recipe report use one op-to-symbol helper, so diff reads as a minus. Test tests/feature_selection/test_cluster25_structure_op_symbols.py.
+- 25-F39: FIXED. numba_warmup guards each kernel separately, so one signature mismatch no longer skips the other compiles. The function is public and stays. Test tests/metrics/test_cluster25_numba_warmup_per_kernel.py.
