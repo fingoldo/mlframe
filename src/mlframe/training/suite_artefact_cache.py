@@ -277,12 +277,37 @@ class SuiteArtefactCache:
             return 0
         return total
 
+    def _adopt_unknown_disk_entries(self) -> None:
+        """Add ``.pkl`` entries present on disk but absent from the ledger to the front (oldest end) of the LRU, ordered by mtime."""
+        try:
+            names = os.listdir(self.cache_dir)
+        except OSError as exc:
+            logger.debug("SuiteArtefactCache: could not list %s to adopt entries: %s", self.cache_dir, exc)
+            return
+        unknown = []
+        for name in names:
+            if not name.endswith(".pkl"):
+                continue
+            key = name[: -len(".pkl")]
+            if key in self._lru or not _SAFE_KEY.fullmatch(key) or ".." in key:
+                continue
+            try:
+                unknown.append((os.path.getmtime(os.path.join(self.cache_dir, name)), key))
+            except OSError:
+                continue
+        for mtime, key in sorted(unknown, reverse=True):
+            self._lru[key] = mtime
+            self._lru.move_to_end(key, last=False)
+
     def _evict_lru_locked(self) -> int:
         """Evict oldest entries until under both byte + entry caps. Returns count evicted.
 
         Both the .pkl and its .pkl.sha256 sidecar are dropped together and BOTH sizes count against ``total`` -- pre-fix the sidecar removal failure path was a silent ``except OSError: pass`` which would leave an orphan sidecar on disk that no later eviction would ever clean up. ``_total_bytes_locked`` also now counts sidecars so the budget figure is honest.
         """
         removed = 0
+        # Entries another process wrote are not in this process's ledger, so they were never evicted while the on-disk total counted them.
+        # Adopt the unknown ones as the oldest (by mtime) before choosing what to drop (audit 28-F30).
+        self._adopt_unknown_disk_entries()
         # Take a snapshot of LRU keys (oldest first; OrderedDict insertion order = touch order).
         keys_ordered = list(self._lru.keys())
         total = self._total_bytes_locked()
