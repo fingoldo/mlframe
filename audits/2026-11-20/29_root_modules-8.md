@@ -76,3 +76,4 @@ Grep-only verification: `pyproject.toml:13` (requires-python), callers of `creat
 - 29-F6: FIXED. array-likes are written as a frame, other types raise TypeError; same test file
 - 29-F21: FIXED. agreement_rate refuses k below 1 with a ValueError. Test tests/votenrank/test_cluster29_agreement_k_validation.py.
 - 29-F24: FIXED. create_experiment raises NotImplementedError instead of silently storing nothing; its stub test now expects the refusal. Tests tests/utils/test_experiments.py (23 pass with the votenrank test).
+- 29-F18: FIXED. A blank GloVe line is skipped instead of aborting the file, and skipped lines are counted in a WARNING. Test tests/utils/test_cluster29_glove_blank_and_bad_lines.py.
