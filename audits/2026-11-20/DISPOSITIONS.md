@@ -790,3 +790,7 @@
 | 27-F11 | DEFERRED | Hashing every row needs a content hash that keeps the documented pandas and polars equality invariant, and a per-row Python hash is too slow on large frames. A design pass on the fingerprint is needed; the 64-row sample stays until then. |
 | 27-F9 | FIXED | The pandas NaN fill works on a shallow copy, so the caller's frame keeps its NaNs, as the polars branch already did. Test tests/training/test_cluster27_nan_fill_leaves_caller_frame.py. |
 | 27-F7 | FIXED | A weighted fit's permutation importances skip the unweighted CUDA kernel and use the weighted CPU path. Test tests/training/test_cluster27_weighted_fi_skips_cuda.py. |
+| 27-F8 | DEFERRED | Owner decision: signed or magnitude coef_ importances. The two branches disagree today; choosing either changes the reported numbers for one of them. |
+| 27-F12 | DEFERRED | Owner decision: raise when trainset_aging_limit is set without timestamps, or define positional order as the age. Raising could break existing configs. |
+| 27-F13 | DEFERRED | Owner decision: refit on the full train, or correct the documented contract. The dichotomic path keeps the 90 percent model today, and history has mixed types. |
+| 27-F14 | DEFERRED | Owner decision: rename the pooled-residual band to a label with no proven bound, or implement the fold-specific CV+ construction. The current label claims a guarantee the construction does not give. |
