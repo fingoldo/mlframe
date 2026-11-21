@@ -304,11 +304,14 @@ def _binary_column_fill(nunique, col_is_datetime, col_unique_values, col_is_obje
             repl_instructions = {na_val: repl_value}
 
             features_transforms[col].update(repl_instructions)
-            features_dtypes.setdefault(col, st.head[col].dtype.name)
+            # The column's CURRENT dtype: st.head was snapshotted before step 3 converts object columns to category, so restoring
+            # head's dtype turned a category back into object (audit 26-F8).
+            current_dtype = df[col].dtype.name
+            features_dtypes.setdefault(col, current_dtype)
             if update_data:
                 if col_is_categorical:
                     df[col] = df[col].astype("object")
-                df[col] = df[col].replace(repl_instructions).astype(st.head[col].dtype.name)
+                df[col] = df[col].replace(repl_instructions).astype(current_dtype)
                 col_unique_values, nunique = _update_sub_df_col(
                     df=df, sub_df=st.sub_df, analyse_mask=analyse_mask, col=col, col_unique_values=col_unique_values, nunique=nunique
                 )
