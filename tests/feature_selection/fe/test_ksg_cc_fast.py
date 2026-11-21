@@ -54,3 +54,13 @@ def test_degenerate_inputs_do_not_crash():
     X2 = np.column_stack([np.ones(50), np.arange(50.0)])
     out = ksg_mi_continuous_target(X2, np.arange(50.0), n_neighbors=3, random_state=0)
     assert out[0] < out[1]
+
+
+def test_columns_call_equals_one_call_per_column():
+    """The all-columns call is bit-identical to calling the one-column kernel on each column (every column draws the same noise)."""
+    from mlframe.feature_selection.filters._ksg_cc_fast import ksg_mi_continuous_target_columns
+
+    X, y = _frame(500, 7, seed=11)
+    together = ksg_mi_continuous_target_columns(X, y, n_neighbors=3, random_state=5)
+    one_by_one = np.array([ksg_mi_continuous_target(X[:, [j]], y, n_neighbors=3, random_state=5)[0] for j in range(X.shape[1])])
+    np.testing.assert_array_equal(together, one_by_one)

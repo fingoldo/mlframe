@@ -132,3 +132,27 @@ def ksg_mi_continuous_target(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, 
     y /= ystd if ystd != 0.0 else 1.0
     y += 1e-10 * max(1.0, float(np.mean(np.abs(y)))) * rng.standard_normal(size=n)
     return np.asarray(_mi_cc_columns(np.ascontiguousarray(X), np.ascontiguousarray(y), int(n_neighbors)), dtype=np.float64)
+
+
+def ksg_mi_continuous_target_columns(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, random_state: int) -> np.ndarray:
+    """``ksg_mi_continuous_target`` of every column of ``X`` in one call, bit-identical to calling it once per column.
+
+    The one-column call draws its Kraskov noise from a fresh ``RandomState(random_state)``: ``n`` values for the column, then ``n`` for the target. Every column therefore gets the same two draws, so they
+    are drawn once here and broadcast, where a single ``(n, p)`` draw would give each column other values.
+    """
+    # Intentional float64: reproduces sklearn mutual_info_regression, which scales and adds the noise in double precision
+    X = np.array(X, dtype=np.float64, copy=True)
+    y = np.array(np.asarray(y).ravel(), dtype=np.float64, copy=True)
+    n = X.shape[0]
+    rng = np.random.RandomState(int(random_state))
+    draw_x = rng.standard_normal(size=n)
+    draw_y = rng.standard_normal(size=n)
+    std = X.std(axis=0)
+    std[std == 0.0] = 1.0
+    X /= std
+    means = np.maximum(1.0, np.mean(np.abs(X), axis=0))
+    X += (1e-10 * means) * draw_x[:, None]
+    ystd = y.std()
+    y /= ystd if ystd != 0.0 else 1.0
+    y += 1e-10 * max(1.0, float(np.mean(np.abs(y)))) * draw_y
+    return np.asarray(_mi_cc_columns(np.ascontiguousarray(X), np.ascontiguousarray(y), int(n_neighbors)), dtype=np.float64)

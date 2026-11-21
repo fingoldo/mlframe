@@ -30,15 +30,15 @@ def test_batched_bootstrap_scores_equal_the_per_column_path(monkeypatch, target,
     assert got.equals(ref)
 
 
-def test_a_continuous_target_batches_the_float_label_scorers_only():
-    """A float target is batched for the scorers whose kernels take float labels; plug-in and KSG need integer labels and are left to the per-column path."""
+def test_a_continuous_target_batches_every_scorer_but_plug_in():
+    """A float target with many values is batched for every scorer but the plug-in, which needs integer labels and is left to the per-column path."""
     cols = [np.random.default_rng(2).normal(size=300)]
     y = np.random.default_rng(3).normal(size=300)
     boot = [np.arange(300)]
     hyper = {"nbins": 10, "n_neighbors": 3, "copula_n_bins": 20, "dcor_n_sample": 100, "n_jobs": 1}
     got = auto._batched_bootstrap_values(cols, y, boot, 0, hyper)
     assert got is not None
-    assert set(got) == {"copula", "dcor", "hsic", "xi", "tail_dep"}
+    assert set(got) == {"ksg", "copula", "dcor", "hsic", "xi", "tail_dep"}
 
 
 @pytest.mark.parametrize("ties", [False, True])
