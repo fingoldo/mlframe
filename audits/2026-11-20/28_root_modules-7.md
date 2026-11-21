@@ -133,3 +133,4 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F29: FIXED. The default key builder digests array and frame arguments from their bytes; repr elided the middle of large arrays. Test tests/training/test_cluster28_suite_cache_keys_and_tamper.py.
 - 28-F41: FIXED. Every grid label is planned and checked before the first variant runs, so a duplicate refuses the grid with nothing trained. Test tests/training/test_cluster28_grid_labels_checked_before_runs.py.
 - 28-F43: FIXED. A rejected CatBoost set_params is logged at WARNING before the private _init_params fallback is written. Test tests/training/test_cluster28_cb_set_params_fallback_logged.py.
+- 28-F35: FIXED. The drift helper converts nullable pandas columns to float with NaN for pd.NA, so the sensor is not dropped. Test tests/training/test_cluster28_drift_nullable_column.py.
