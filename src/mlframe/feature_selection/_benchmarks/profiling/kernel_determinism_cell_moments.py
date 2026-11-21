@@ -8,5 +8,5 @@ outs=[masked_cell_moments(cp,codes,v,w,nc) for _ in range(20)]
 print(type(outs[0]), None if outs[0] is None else len(outs[0]))
 if outs[0] is not None:
     for j in range(len(outs[0])):
-        arrs=[cp.asnumpy(o[j]) for o in outs]
-        print(j, sum(not np.array_equal(arrs[0],a) for a in arrs[1:]), max(float(np.max(np.abs(arrs[0]-a))) for a in arrs[1:]))
+        arrs = [cp.asnumpy(o[j]) for o in outs]
+        print(j, sum(not np.array_equal(arrs[0], a) for a in arrs[1:]), max(float(np.max(np.abs(arrs[0] - a))) for a in arrs[1:]))
