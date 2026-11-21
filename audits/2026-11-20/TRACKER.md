@@ -154,3 +154,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 04-F16 | 04_data.md | FIXED | Caveat threshold from the spec's ceiling tolerance. Test test_cluster04_ceiling_tolerance_drives_caveat.py. |
 | 04-F18 | 04_data.md | FIXED | Renamed to coverage_adjusted_plugin. Test test_cluster04_oracle_estimator_names_are_honest.py. |
 | 04-F15 | 04_data.md | DEFERRED | Allowlisted exploration helper with a wrong body; intent needs confirming. |
+| 04-F21 | 04_data.md | FIXED | Probes keep donor missingness. Test test_cluster04_probe_keeps_donor_missingness.py. |

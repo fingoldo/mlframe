@@ -81,10 +81,11 @@ def _resample_column(values: np.ndarray, rng: np.random.Generator) -> np.ndarray
     fit would smooth all of that away and leave a probe a marginal test could separate from the real
     columns without ever consulting the target.
     """
-    finite = values[np.isfinite(values)] if np.issubdtype(values.dtype, np.floating) else values
-    if finite.size == 0:
+    # The donor pool keeps its missing values: dropping them left probes with no NaN whatever the donor's missingness, so a probe
+    # could not match the real column's marginal (audit 04-F21).
+    if values.size == 0:
         return np.zeros_like(values)
-    return np.asarray(rng.choice(finite, size=values.shape[0], replace=True), dtype=values.dtype)
+    return np.asarray(rng.choice(values, size=values.shape[0], replace=True), dtype=values.dtype)
 
 
 def inject_matched_probes(
