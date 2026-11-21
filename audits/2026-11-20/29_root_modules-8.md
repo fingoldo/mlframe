@@ -92,3 +92,5 @@ Grep-only verification: `pyproject.toml:13` (requires-python), callers of `creat
 - 29-F13: DEFERRED. Each record rewrites the whole parquet store under a lock, and each recommend reads all of it. Fixing that means a change to the store's storage design (append-only or indexed), which needs its own design pass.
 - 29-F7: FIXED. The stability figure passes the x-axis range once, not repeated 100 times. Test tests/votenrank/test_cluster29_stability_axis_and_reference.py.
 - 29-F8: FIXED. The stability reference ranking comes from the unmodified table's rank_all, not from the first noised entry of exp_range. Verified by reading; no unit test, since the leaderboard setup is heavy. Test file tests/votenrank/test_cluster29_stability_axis_and_reference.py covers F7 only.
+- 29-F25: DEFERRED. The shared DMatrix must be mutated and trained inside one lock. That wraps the xgb.train call, and a threaded regression test needs a dedicated harness, so it is deferred to its own change.
+- 29-F14: DEFERRED. The param-oracle store's ML correctness needs a design decision about the recommendation contract, which is deferred with the store design (see 29-F13).
