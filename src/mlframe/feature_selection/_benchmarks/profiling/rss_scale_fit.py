@@ -97,6 +97,25 @@ def innermost(frame):
     return "(outside mlframe)"
 
 
+def _stack_snapshot() -> "tuple[str, list[str]]":
+    """Where the main thread is and where the other threads are, without keeping any stack frame alive afterwards.
+
+    ``sys._current_frames()`` includes the frame of the calling thread itself; a dict of frames held in a local of that very frame is a reference cycle, and every cycle of this kind kept the
+    whole stack of every thread, with all its locals (the legs frames of the running families, 300 MB each at 100000 x 1000), alive until the next garbage collection. The sampler's own
+    frame is dropped from the dict and the dict lives only inside this function, so the memory the benchmark reports is the fit's, not the sampler's."""
+    frames = sys._current_frames()
+    frames.pop(threading.get_ident(), None)
+    main_where = innermost(frames.get(main_id))
+    others: list = []
+    for tid, fr in frames.items():
+        if tid == main_id:
+            continue
+        where = innermost(fr)
+        if where != "(outside mlframe)" and "threading" not in where:
+            others.append(where.split("/")[-1])
+    return main_where, others
+
+
 def sampler():
     """Track the RSS peak and name the step at each new peak above the previous one by 50 MB."""
     t0 = time.perf_counter()
@@ -137,15 +156,8 @@ def sampler():
                 trace.snapshots.append((rss, (rss - base) / 1e6, snap.statistics("traceback")[:14]))
             if rss - last_logged > 50e6:
                 last_logged = rss
-                _frames = sys._current_frames()
-                _others = []
-                for _tid, _fr in _frames.items():
-                    if _tid in (main_id, threading.get_ident()):
-                        continue
-                    _w = innermost(_fr)
-                    if _w != "(outside mlframe)" and "threading" not in _w:
-                        _others.append(_w.split("/")[-1])
-                events.append((time.perf_counter() - t0, (rss - base) / 1e6, innermost(_frames.get(main_id)) + ("   | threads: " + "; ".join(sorted(set(_others))[:4]) if _others else "")))
+                _main_where, _others = _stack_snapshot()
+                events.append((time.perf_counter() - t0, (rss - base) / 1e6, _main_where + ("   | threads: " + "; ".join(sorted(set(_others))[:4]) if _others else "")))
 
 
 _CUSHION_CALLS: list = []
@@ -301,8 +313,77 @@ def _rss_growth_mb():
 print(f"RSS growth right after the fit: {_rss_growth_mb():.0f} MB")
 import gc
 
+
+def _census_after_fit(label: str) -> None:
+    """The heaviest live containers that hold numpy arrays at this point (``RSS_CENSUS_AFTER_FIT=1``): what keeps the memory of the finished fit."""
+    from mlframe.feature_selection._benchmarks.profiling import mem_census
+
+    rows = mem_census.name_owners(mem_census.census(top=14))
+    print(f"CENSUS {label} (RSS growth {_rss_growth_mb():.0f} MB):")
+    print(mem_census.render(rows), flush=True)
+
+
+if os.environ.get("RSS_CENSUS_AFTER_FIT", "").strip():
+    _census_after_fit("right after the fit, before gc")
+if os.environ.get("RSS_STEPS_AFTER_FIT", "").strip():  # which step gives the memory of the finished fit back: waiting, the collector, or a heap trim
+    print(f"STEPS threads={threading.active_count()} gc objects={len(gc.get_objects())} rss growth={_rss_growth_mb():.0f} MB", flush=True)
+    time.sleep(5)
+    print(f"STEPS after 5 s of waiting: {_rss_growth_mb():.0f} MB", flush=True)
+    _n = gc.collect()
+    print(f"STEPS after gc.collect() ({_n} unreachable): {_rss_growth_mb():.0f} MB; gc objects={len(gc.get_objects())}", flush=True)
+    try:
+        import ctypes
+
+        ctypes.CDLL("msvcrt")._heapmin()
+        print(f"STEPS after _heapmin: {_rss_growth_mb():.0f} MB", flush=True)
+    except Exception as _exc:  # not Windows or no msvcrt
+        print("STEPS _heapmin unavailable:", _exc, flush=True)
+if os.environ.get("RSS_GARBAGE_AFTER_FIT", "").strip():  # what sits in reference cycles at the end of the fit: types of the unreachable objects, and what holds the biggest frames
+    import collections as _co
+
+    gc.set_debug(gc.DEBUG_SAVEALL)
+    gc.collect()
+    gc.set_debug(0)
+    _garbage = list(gc.garbage)
+    _types = _co.Counter(type(o).__name__ for o in _garbage)
+    _arr_bytes = 0
+    _seen = set()
+    for _o in _garbage:
+        if isinstance(_o, np.ndarray):
+            _root = _o
+            while isinstance(_root.base, np.ndarray):
+                _root = _root.base
+            if id(_root) not in _seen:
+                _seen.add(id(_root))
+                _arr_bytes += int(_root.nbytes)
+    print(f"GARBAGE {len(_garbage)} unreachable objects holding {_arr_bytes / 1e6:.0f} MB of arrays; types: " + ", ".join(f"{k}={v}" for k, v in _types.most_common(14)), flush=True)
+    _frames = [o for o in _garbage if isinstance(o, pd.DataFrame)]
+    print(f"GARBAGE DataFrames: {len(_frames)}", flush=True)
+    _ids = {id(o) for o in _garbage}
+    for _fr in sorted(_frames, key=lambda d: -d.shape[1])[:3]:
+        _refs = [r for r in gc.get_referrers(_fr) if id(r) in _ids and r is not _garbage]
+        print("  frame", _fr.shape, "held by", [(type(r).__name__, (list(r.keys())[:4] if isinstance(r, dict) else getattr(r, "__name__", ""))) for r in _refs][:6], flush=True)
+    _frame_objs = [o for o in _garbage if type(o).__name__ == "frame"]
+    _ref_types = _co.Counter(type(r).__name__ for fo in _frame_objs for r in gc.get_referrers(fo) if id(r) in _ids and r is not _garbage)
+    print("GARBAGE what refers to the stack frames:", dict(_ref_types.most_common(8)), flush=True)
+    _exc = _co.Counter(type(o).__name__ for o in _garbage if isinstance(o, BaseException))
+    print("GARBAGE exceptions:", dict(_exc.most_common(8)), "| tracebacks:", sum(1 for o in _garbage if type(o).__name__ == "traceback"), flush=True)
+    _holders = _co.Counter()
+    for fo in _frame_objs:
+        _big = [k for k, v in fo.f_locals.items() if isinstance(v, (pd.DataFrame, np.ndarray)) and getattr(v, "nbytes", 0) + (getattr(v, "memory_usage", lambda **k: 0)(deep=False).sum() if isinstance(v, pd.DataFrame) else 0) > 50e6]
+        if _big:
+            _holders[(fo.f_code.co_name, tuple(_big[:3]))] += 1
+    print("GARBAGE frames holding a local over 50 MB:", dict(_holders.most_common(8)), flush=True)
+    for _t in ("frame", "traceback", "function", "cell", "method"):
+        _items = [o for o in _garbage if type(o).__name__ == _t]
+        if _items and _t in ("frame", "traceback"):
+            print(f"  {_t}: {len(_items)}; first: " + str([(getattr(o, "f_code", None) and o.f_code.co_name) or getattr(getattr(o, "tb_frame", None), "f_code", None) for o in _items[:5]]), flush=True)
+    del _garbage, _types, _seen, _frames, _ids
+    gc.garbage.clear()
 gc.collect()
 print(f"after gc.collect(): {_rss_growth_mb():.0f} MB")
+if os.environ.get("RSS_CENSUS_AFTER_FIT", "").strip():
+    _census_after_fit("after gc.collect()")
 try:
     import cupy as _cp
 
