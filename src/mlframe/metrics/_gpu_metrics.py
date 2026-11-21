@@ -73,6 +73,9 @@ _GPU_BATCH_THRESHOLD_M: int = 5
 
 # Sentinels: None = unchecked, True/False = cached result.
 _GPU_AVAILABLE: Optional[bool] = None
+# The kernel tuning cache, loaded once per process: every RMSE call used to re-read it (audit 25-F36). A failed load is not cached,
+# so it is retried on the next call, as before.
+_KERNEL_TUNING_CACHE: Any = None
 
 # numba.cuda used by the RMSE fast-path; cupy ReductionKernel stays as fallback when
 # numba CUDA isn't usable (no toolkit, mismatched runtime, etc.).
@@ -326,9 +329,7 @@ def gpu_multiple_rmse_scores(actual: Any, predicted: Any) -> Any:
         # back to 256 when the cache helper is unavailable or no entry
         # exists for the live HW yet.
         try:
-            from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
-
-            _cache = KernelTuningCache.load_or_create()
+            _cache = _load_kernel_tuning_cache()
             _choice = _cache.lookup(
                 "rmse_partial_sum",
                 n_samples=int(N),
@@ -393,6 +394,16 @@ def _fractional_ranks_block(cp: Any, predicted: Any, order: Any) -> Any:
     ranks_flat = cp.empty(b * n, dtype=cp.float64)  # Intentional float64: rank sums need full precision
     ranks_flat[(order_t + (cp.arange(b, dtype=order_t.dtype) * n)[:, None]).ravel()] = avg_rank_per_run[run_id]
     return ranks_flat.reshape(b, n).T
+
+
+def _load_kernel_tuning_cache() -> Any:
+    """The process-wide KernelTuningCache, loaded on first use (audit 25-F36)."""
+    global _KERNEL_TUNING_CACHE
+    if _KERNEL_TUNING_CACHE is None:
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+
+        _KERNEL_TUNING_CACHE = KernelTuningCache.load_or_create()
+    return _KERNEL_TUNING_CACHE
 
 
 def gpu_multiple_roc_auc_scores(actual: Any, predicted: Any) -> Any:

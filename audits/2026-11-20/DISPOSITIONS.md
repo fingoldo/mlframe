@@ -758,3 +758,4 @@
 | 25-F20 | FIXED | The three remaining cache=True numba kernels in mi.py are cache=False, as the module comment requires. Test tests/feature_selection/test_cluster25_structure_op_symbols.py. |
 | 25-F22 | FIXED | Both the live modular report and the recipe report use one op-to-symbol helper, so diff reads as a minus. Test tests/feature_selection/test_cluster25_structure_op_symbols.py. |
 | 25-F39 | FIXED | numba_warmup guards each kernel separately, so one signature mismatch no longer skips the other compiles. The function is public and stays. Test tests/metrics/test_cluster25_numba_warmup_per_kernel.py. |
+| 25-F36 | FIXED | The kernel tuning cache is loaded once per process; a failed load is retried, as before. Test tests/metrics/test_cluster25_kernel_tuning_cache_loaded_once.py. |
