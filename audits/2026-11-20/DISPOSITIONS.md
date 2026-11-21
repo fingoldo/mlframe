@@ -817,3 +817,4 @@
 | 28-F36 | FIXED | A host-RAM fallback from a failed GPU memory probe is returned but not cached under the cuda:N key. Test tests/training/test_cluster28_mem_probe_fallback_not_cached_as_gpu.py; 19 tests pass with the existing memory-probe tests. |
 | 28-F37 | DEFERRED | The predict batch resolver still probes device 0. Adding device_id is simple; wiring the training device into its only caller (neural/base/_base_predict.py) needs the owner of that device state to say where it lives. |
 | 28-F21 | FIXED | The pandas inf-to-NaN replacement writes into a shallow copy, so the caller's frame keeps its infinities. Test tests/training/test_cluster28_special_values_leave_caller_frame.py. |
+| 28-F19 | FIXED | When both refit paths fail, the saturated-best-iteration refit restores the model's parameters, as the degenerate path does. Verified by reading; no unit test, since it needs a CatBoost-shaped loss fallback. |

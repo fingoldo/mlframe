@@ -355,6 +355,12 @@ def _maybe_refit_on_saturated_best_iter(
             model_obj.__dict__.clear()
             model_obj.__dict__.update(_new_model.__dict__)
         except Exception as _rebuild_err:
+            # Undo the set_params that already ran, as the degenerate path does: otherwise the model reports the robust-loss parameters while it
+            # holds the saturated fit (audit 28-F19).
+            try:
+                model_obj.set_params(**_cur_params)
+            except Exception as _restore_err:
+                logger_.warning("[saturated-ES] could not restore %s parameters after the rejected refit: %s", model_type_name, _restore_err)
             logger_.warning(
                 "[saturated-ES] %s refit rejected on both set_params (%s) and fresh-instance (%s) paths. Keeping "
                 "the saturated fit; the reported R^2 will show the truth.",
