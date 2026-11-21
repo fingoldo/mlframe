@@ -18,6 +18,7 @@ A placebo (a permuted base) gives the right null for this construction: it keeps
 from __future__ import annotations
 
 import logging
+from time import perf_counter
 from typing import Any, Mapping
 
 import numpy as np
@@ -27,6 +28,7 @@ from mlframe.utils.log_throttle import log_throttle
 
 from ._analytic_mi_null import analytic_null_min_n_lowered
 from ._fe_deadline import fe_deadline_passed
+from ._fe_family_timing import record_fe_family_wall
 
 logger = logging.getLogger(__name__)
 
@@ -130,12 +132,16 @@ def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design
         if not target_has_structure(X_train, mixed, scan_rows=scan_rows):
             logger.debug("target-mix base %r leaves no structure in T; second pass skipped", name)
             continue
+        child_wall = 0.0
         try:
             child = _child(estimator)
             # The child only proposes candidates (the parent re-tests every one on held-out rows), and it runs on the scan rows: at 20000 rows the chi-square null is within its validated range, so it
             # scores them as the parent does at its own size instead of running 99 shuffles per candidate.
+            t_child = perf_counter()
             with analytic_null_min_n_lowered(_CHILD_ANALYTIC_NULL_MIN_N):
                 child.fit(X_train, pd.Series(mixed, name="y"))
+            child_wall = perf_counter() - t_child
+            record_fe_family_wall("stage:target_mix_child_fit", child_wall)
         except Exception:
             log_throttle(logger, "target_mix_fe.second_pass_failed", logging.WARNING, "MRMR target-mix second pass on the base %r failed; skipped.", name, exc_info=True)
             continue
@@ -144,5 +150,5 @@ def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design
             if str(feature) not in found:
                 found[str(feature)] = recipe
                 own.append(str(feature))
-        provenance.append({"base": str(name), "beta": float(beta), "features": own})
+        provenance.append({"base": str(name), "beta": float(beta), "features": own, "child_fit_s": float(child_wall), "child_rows": len(X_train)})
     return found, provenance

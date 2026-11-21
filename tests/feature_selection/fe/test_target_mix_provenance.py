@@ -31,3 +31,43 @@ def test_no_base_gives_empty_provenance():
     found, provenance = TM.second_pass_recipes(MRMR(fe_max_steps=1), pd.DataFrame({"u": u}), y, {"u": u}, max_bases=1, scan_rows=n, min_relative_gain=0.001)
     assert found == {}
     assert provenance == []
+
+
+def test_provenance_entries_record_the_child_fit_wall_and_rows():
+    """Every base's provenance entry carries the wall and the row count of its child fit, so the cost of the second pass is visible per base."""
+    import numpy as np
+    import pandas as pd
+
+    from mlframe.feature_selection.filters import _target_mix_fe as tm
+
+    class _Child:
+        """Stand-in child selector: fits instantly, finds nothing."""
+
+        _engineered_features_: list = []
+        _engineered_recipes_: list = []
+
+        def fit(self, X, y):
+            """Fit nothing."""
+            return self
+
+    rng = np.random.default_rng(0)
+    n = 400
+    X = pd.DataFrame(rng.normal(size=(n, 3)), columns=["a", "b", "c"])
+    y = rng.normal(size=n)
+    u = rng.normal(size=n)
+    orig = (tm.choose_bases, tm._child)
+    try:
+        tm.choose_bases = lambda design, y_, max_bases, min_relative_gain=0.0: [("u", u, 0.5)]
+        tm._child = lambda estimator: _Child()
+        import mlframe.feature_selection.filters._target_mix_gate as gate
+
+        orig_gate = gate.target_has_structure
+        gate.target_has_structure = lambda *a, **k: True
+        try:
+            _, prov = tm.second_pass_recipes(object(), X, y, {"u": u}, max_bases=1, scan_rows=1000, min_relative_gain=0.0)
+        finally:
+            gate.target_has_structure = orig_gate
+    finally:
+        tm.choose_bases, tm._child = orig
+    assert len(prov) == 1
+    assert prov[0]["child_rows"] == 200 and prov[0]["child_fit_s"] >= 0.0
