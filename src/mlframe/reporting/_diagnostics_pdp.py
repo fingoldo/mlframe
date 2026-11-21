@@ -16,6 +16,15 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger("mlframe.reporting.diagnostics_dispatch")
 
 
+def _descending_importance_order(feature_importances):
+    """Indices of the importances from largest to smallest, with NaN last.
+
+    A reversed argsort put NaN FIRST (argsort sorts NaN to the end, the reversal moved it to the front), so a NaN feature was
+    reported as the most important one. The key maps NaN to +inf so it sinks in the descending order (audit 26-F23).
+    """
+    importances = np.asarray(feature_importances, dtype=np.float64)
+    return np.argsort(np.where(np.isnan(importances), np.inf, -importances))
+
 def render_pdp_ice_diagnostic(
     *,
     model: Any,
@@ -47,7 +56,7 @@ def render_pdp_ice_diagnostic(
         return False
     # Rank by importance when available, else take the first columns; cap to the top-N legible features.
     if feature_importances is not None and len(feature_importances) == len(names):
-        order = np.argsort(np.asarray(feature_importances, dtype=np.float64))[::-1]
+        order = _descending_importance_order(feature_importances)
         ranked = [names[i] for i in order]
     else:
         ranked = names
@@ -99,7 +108,7 @@ def render_pdp_2d_diagnostic(
     # Rank by importance when available so the SHAP-less fallback pair is the top-2 most important, mirroring pdp_ice.
     feat_x = feat_y = None
     if feature_importances is not None and len(feature_importances) == len(names):
-        order = np.argsort(np.asarray(feature_importances, dtype=np.float64))[::-1]
+        order = _descending_importance_order(feature_importances)
         feat_x, feat_y = names[int(order[0])], names[int(order[1])]
     try:
         from mlframe.reporting.charts.pdp_2d import compose_pdp_2d_figure
@@ -195,7 +204,7 @@ def render_interaction_strength_diagnostic(
     if not names or len(names) < 2:
         return False
     if feature_importances is not None and len(feature_importances) == len(names):
-        order = np.argsort(np.asarray(feature_importances, dtype=np.float64))[::-1]
+        order = _descending_importance_order(feature_importances)
         ranked = [names[int(i)] for i in order]
     else:
         ranked = names

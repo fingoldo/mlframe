@@ -764,3 +764,8 @@
 | 25-F52 | DEFERRED | Duplicated bodies in _multilabel_extras.py: merging them needs an equivalence test per copy first. Deferred to a dedicated refactor pass. |
 | 25-F53 | DEFERRED | Duplicated logical-constraint loops: merging them needs an equivalence test per copy first. Deferred to a dedicated refactor pass. |
 | 25-F35 | DEFERRED | Keeping labels on the device changes cupy semantics for every caller and needs a GPU benchmark on real hardware before it can be called safe. |
+| 26-F7 | FIXED | The fractional-digit probe refuses max_fract_digits below 2 with a ValueError, not an UnboundLocalError. Test tests/training/test_cluster26_aggregate_nan_and_fraction_probe.py. |
+| 26-F11 | FIXED | float16 input is widened to float32 before the numba outlier kernels. Test tests/signal/test_cluster26_gp_and_outlier_dtypes.py. |
+| 26-F23 | FIXED | The PDP panels order importances with NaN last through one helper, the same key _ranked_top_features uses. Test tests/reporting/test_cluster26_pdp_nan_importance_last.py. |
+| 26-F28 | FIXED | Non-finite (time, value) pairs are dropped per entity before the GP fit; an entity with nothing finite is NaN. Test tests/signal/test_cluster26_gp_and_outlier_dtypes.py. |
+| 26-F30 | FIXED | The aggregate early-stopping selection is NaN-aware and raises when every round is NaN. Test tests/training/test_cluster26_aggregate_nan_and_fraction_probe.py. |

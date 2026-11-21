@@ -70,8 +70,12 @@ def select_best_iteration_by_aggregate_cv(
     else:
         raise ValueError(f"select_best_iteration_by_aggregate_cv: unknown aggregation {aggregation!r}; expected 'mean', 'median', or 'trimmed_mean'")
 
-    best_round = int(np.argmax(aggregate_curve)) if maximize else int(np.argmin(aggregate_curve))
-    per_fold_best_rounds = curves.argmax(axis=1) if maximize else curves.argmin(axis=1)
+    # NaN-aware: a diverged fold makes that round's aggregate NaN, and argmax/argmin would treat it as the best round (audit 26-F30).
+    if np.isnan(aggregate_curve).all():
+        raise ValueError("select_best_iteration_by_aggregate_cv: every round's aggregate metric is NaN; no best round exists")
+    best_round = int(np.nanargmax(aggregate_curve)) if maximize else int(np.nanargmin(aggregate_curve))
+    per_fold = np.nanargmax if maximize else np.nanargmin
+    per_fold_best_rounds = np.array([per_fold(fold_curve) if not np.isnan(fold_curve).all() else -1 for fold_curve in curves], dtype=np.int64)
 
     return {
         "best_round": best_round,

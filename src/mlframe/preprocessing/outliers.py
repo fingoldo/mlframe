@@ -201,7 +201,10 @@ _NANMINMAX_PARALLEL_MIN_ELEMS = 20_000
 def _as_floating(a: np.ndarray) -> np.ndarray:
     """``a`` as an ndarray, unchanged when it is already float16/32/64 and cast to float64 otherwise (ints, bools, objects)."""
     arr = np.asarray(a)
-    return arr if arr.dtype.kind == "f" else arr.astype(np.float64)
+    if arr.dtype.kind != "f":
+        return arr.astype(np.float64)
+    # numba has no float16 typing, so the kernels would fail on a half-precision frame: widen it to float32 (audit 26-F11).
+    return arr.astype(np.float32) if arr.dtype == np.float16 else arr
 
 
 def compute_naive_outlier_score(X_train: np.ndarray, X_test: np.ndarray) -> np.ndarray:

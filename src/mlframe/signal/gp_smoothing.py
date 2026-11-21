@@ -211,9 +211,18 @@ def compute_gp_smoothed_features(
     std_rows = np.zeros((len(entities), len(query_arr)), dtype=np.float64)
     for i, entity in enumerate(entities):
         sub = grouped[entity]
+        # A non-finite time or value cannot be fitted: the GP raised "Input contains NaN" for the whole call. Drop such pairs for this
+        # entity, and report the entity as NaN when nothing finite is left (audit 26-F28).
+        times = np.asarray(sub[time_col].to_numpy(), dtype=np.float64)
+        values = np.asarray(sub[value_col].to_numpy(), dtype=np.float64)
+        finite = np.isfinite(times) & np.isfinite(values)
+        if not finite.any():
+            mean_rows[i] = np.nan
+            std_rows[i] = np.nan
+            continue
         mean, std = gp_smooth_irregular_series(
-            sub[time_col].to_numpy(),
-            sub[value_col].to_numpy(),
+            times[finite],
+            values[finite],
             query_arr,
             length_scale=length_scale,
             nu=nu,

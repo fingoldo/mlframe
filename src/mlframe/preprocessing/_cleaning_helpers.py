@@ -120,6 +120,9 @@ def _log_continuity_verdict(verbose, var_is_numeric, cur_fract_digits, var_is_da
 def _probe_fractional_digits(max_fract_digits, _sorted_fract, _count_rounded, fract_part, last_n_unique_fracts, min_fract_level_increase_perecent, n_unique_ints, nz_fract_digits):
     """Probe the number of fractional digits the values carry."""
     from .cleaning import _get_nunique  # lazy: the original module owns these (monkeypatch-visible)
+    if max_fract_digits < 2:
+        # The probe loops over 1..max_fract_digits-1; with fewer than two digits it never assigns the value it returns (audit 26-F7).
+        raise ValueError(f"max_fract_digits must be at least 2 to probe fractional digits; got {max_fract_digits}")
     for cur_fract_digits in range(1, max_fract_digits):
 
         if _sorted_fract is not None:
