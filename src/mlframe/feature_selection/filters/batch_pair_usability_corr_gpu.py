@@ -436,6 +436,10 @@ def _cuda_kernel_warp_factory(ft=np.float64):  # Intentional float64: the usabil
         return None
 
     _warp_mean_sums, _warp_centered_sums = _warp_pass_helpers(ft)
+    # the cache key of the kernel below hashes its closure cells, the two device helpers among them: pin their ids (and those of the device functions they reach) so the key is the same in every process
+    from ._numba_stable_keys import pin_dispatcher_uuids
+
+    pin_dispatcher_uuids(_warp_mean_sums, _warp_centered_sums, tag=np.dtype(ft).name)
 
     @_nb_cuda.jit(cache=True)
     def _kernel_warp(y, operand_matrix, pair_a, pair_b, form_ids, eps, cv2, out):
