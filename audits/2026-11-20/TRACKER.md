@@ -134,6 +134,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 34-F12 | 34_training-3.md | FIXED | Column set rebuilt per candidate column in warm-start rescore; built once per spec. Test test_cluster34_incremental_column_set_built_once.py. |
 | 34-F18 | 34_training-3.md | FIXED | Degenerate fits skipped bookkeeping; elapsed_seconds_ etc raised AttributeError. Test test_cluster34_degenerate_fit_publishes_attributes.py. |
 | 34-F24 | 34_training-3.md | FIXED | domain_check numeric mask indexed rows wrongly; cast to bool at both sites. Test test_cluster34_domain_mask_is_boolean.py. |
+| 34-F22 | 34_training-3.md | FIXED | logger and _UNARY_BASE_SENTINEL defined twice. Test test_cluster34_fit_steps_single_definitions.py. |
 | 40-F9 | 40_training-9.md | FIXED | All-null categorical maps to unknown code at predict. Test test_cluster40_all_null_categorical_predicts.py. |
 | 40-F10 | 40_training-9.md | FIXED | Unequal hidden_layers refused at construction (default choice; per-layer sizes not supported by the builder). Test test_cluster40_ranker_refuses_unequal_hidden_layers.py. |
 | 40-F15 | 40_training-9.md | FIXED | Entity-time module refuses an unaligned split (test test_cluster40_entity_time_refuses_unaligned_split.py). Latent-SVD, MA no-group path and nearest-past-join still open. |
