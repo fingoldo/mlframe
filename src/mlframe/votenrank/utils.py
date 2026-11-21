@@ -6,6 +6,9 @@ import scipy.stats as stats
 import os
 import pandas as pd
 from pyutilz.system import tqdmu as tqdm
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def ranking2top(ranking: pd.Series) -> list:
@@ -95,7 +98,14 @@ def get_tracker_table(data: pd.DataFrame, dirpath: str) -> pd.DataFrame:
     tracker_cols = list(set(tracker_cols))
     tracker_res = pd.DataFrame(columns=tracker_cols, index=data.index)
 
+    skipped_runs: list[str] = []
     for f in tqdm(os.listdir(dirpath)):
+        # Only run 0 is read: the file names it, and a later run's directory used to be read as run 0 and overwrite it. Other runs are
+        # listed in a WARNING instead (audit 29-F22).
+        run_index = f.rsplit("_", 1)[-1]
+        if run_index.isdigit() and run_index != "0":
+            skipped_runs.append(f)
+            continue
         parsed = _parse_tracker_dirname(f, data.index)
         if parsed is None:
             continue
@@ -111,4 +121,6 @@ def get_tracker_table(data: pd.DataFrame, dirpath: str) -> pd.DataFrame:
         for attr in info_attrs:
             tracker_res.loc[model, f"{task}_{attr}"] = add_info[attr]
 
+    if skipped_runs:
+        logger.warning("tracker results: skipped %d run(s) other than run 0 (%s); only run 0 is read", len(skipped_runs), ", ".join(sorted(skipped_runs))[:300])
     return tracker_res
