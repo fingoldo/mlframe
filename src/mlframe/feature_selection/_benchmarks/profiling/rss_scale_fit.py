@@ -123,7 +123,15 @@ def sampler():
                 trace.snapshots.append((rss, (rss - base) / 1e6, snap.statistics("traceback")[:14]))
             if rss - last_logged > 50e6:
                 last_logged = rss
-                events.append((time.perf_counter() - t0, (rss - base) / 1e6, innermost(sys._current_frames().get(main_id))))
+                _frames = sys._current_frames()
+                _others = []
+                for _tid, _fr in _frames.items():
+                    if _tid in (main_id, threading.get_ident()):
+                        continue
+                    _w = innermost(_fr)
+                    if _w != "(outside mlframe)" and "threading" not in _w:
+                        _others.append(_w.split("/")[-1])
+                events.append((time.perf_counter() - t0, (rss - base) / 1e6, innermost(_frames.get(main_id)) + ("   | threads: " + "; ".join(sorted(set(_others))[:4]) if _others else "")))
 
 
 th = threading.Thread(target=sampler, daemon=True)

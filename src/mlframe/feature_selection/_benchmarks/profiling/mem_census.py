@@ -17,13 +17,38 @@ import numpy as np
 _MIN_BYTES = 16 * 1024 * 1024
 
 
-def _array_bytes(v: Any) -> int:
-    """Bytes of the memory the value owns: an ndarray that owns its buffer, or the arrays directly in a tuple / list of them."""
+def _owner(a: np.ndarray) -> np.ndarray:
+    """The array that owns the buffer ``a`` is a view of."""
+    while isinstance(a.base, np.ndarray):
+        a = a.base
+    return a
+
+
+def _array_bytes(v: Any, seen: "set[int] | None" = None) -> int:
+    """Bytes of the buffers the value holds that were not counted yet (``seen`` holds the ids of the owning arrays counted so far): an ndarray or the arrays directly in a tuple / list of them, a view counted through its owner."""
+    seen = set() if seen is None else seen
+    arrays: "list[np.ndarray]" = []
     if isinstance(v, np.ndarray):
-        return int(v.nbytes) if v.base is None else 0
-    if isinstance(v, (tuple, list)) and 0 < len(v) <= 64:
-        return sum(int(x.nbytes) for x in v if isinstance(x, np.ndarray) and x.base is None)
-    return 0
+        arrays = [v]
+    elif isinstance(v, (tuple, list)) and 0 < len(v) <= 64:
+        arrays = [x for x in v if isinstance(x, np.ndarray)]
+    total = 0
+    for a in arrays:
+        o = _owner(a)
+        if id(o) not in seen:
+            seen.add(id(o))
+            total += int(o.nbytes)
+    return total
+
+
+def _frame_bytes(df: Any, seen: "set[int]") -> int:
+    """Bytes of the buffers behind the blocks of a pandas frame that were not counted yet (frames share blocks under copy-on-write)."""
+    total = 0
+    for blk in df._mgr.blocks:
+        v = blk.values
+        if isinstance(v, np.ndarray):
+            total += _array_bytes(v, seen)
+    return total
 
 
 def _module_labels() -> "dict[int, str]":
@@ -45,6 +70,7 @@ def census(top: int = 25) -> "list[tuple[int, int, str, str]]":
 
     labels = _module_labels()
     rows: "list[tuple[int, int, str, str]]" = []
+    seen: "set[int]" = set()
     for o in gc.get_objects():
         try:
             isinstance(o, dict)  # a dead weakref proxy raises here
@@ -55,19 +81,19 @@ def census(top: int = 25) -> "list[tuple[int, int, str, str]]":
         kind = type(o).__name__
         if isinstance(o, dict):
             for v in list(o.values()):
-                b = _array_bytes(v)
+                b = _array_bytes(v, seen)
                 if b:
                     total += b
                     n += 1
         elif isinstance(o, (list, collections.deque)) and len(o) > 0:
             for v in list(o):
-                b = _array_bytes(v)
+                b = _array_bytes(v, seen)
                 if b:
                     total += b
                     n += 1
         elif isinstance(o, pd.DataFrame):
             try:
-                total = int(o.memory_usage(deep=False).sum())
+                total = _frame_bytes(o, seen)
             except Exception:  # a frame that cannot report is skipped
                 continue
             n = int(o.shape[1])

@@ -66,4 +66,8 @@ def append_code_columns(data: np.ndarray, new: np.ndarray) -> np.ndarray:
         if lo < info.min or hi > info.max:
             widened = narrowest_code_dtype(min(lo, int(info.min)), max(hi, int(info.max)))
             target = np.dtype(widened if widened is not None else np.int64)
+            logger.warning(
+                "append_code_columns: %d new column(s) hold codes in [%d, %d], outside %s; the %d x %d code matrix (%.0f MB) is widened to %s (%.0f MB)",
+                int(new.shape[1]), lo, hi, data.dtype.name, int(data.shape[0]), int(data.shape[1]), data.nbytes / 1e6, target.name, data.size * target.itemsize / 1e6,
+            )
     return np.concatenate((data, new), axis=1, dtype=target, casting="unsafe")
