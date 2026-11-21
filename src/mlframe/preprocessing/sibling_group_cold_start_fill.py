@@ -30,6 +30,10 @@ def sibling_group_cold_start_fill(
     """Per-row value: the row's own group's last known value, or (if the whole group is missing) a value
     borrowed from its known sibling groups, ordered by ``order_col``.
 
+    Caller contract (audit 26-F9): "last known" is the group's last non-null value in ROW order, not in ``order_col`` order. For a
+    partially-missing group that value can come from a LATER row in time, so apply the result only to all-null groups (fill the
+    missing cells of the entirely-empty groups); filling a partially-missing group's gaps with it leaks the future.
+
     Parameters
     ----------
     df
