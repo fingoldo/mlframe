@@ -60,6 +60,7 @@ import math
 from typing import Any, Optional, Sequence
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
@@ -214,7 +215,7 @@ def generate_rounding_features(
     out: dict[str, np.ndarray] = {}
     for emitted in map_on_edge_pool(_one_column, cols):
         out.update(emitted)
-    return pd.DataFrame(out, index=X.index)
+    return fe_frame_from_columns(out, X.index)
 
 
 @fe_timed("digit")
@@ -241,7 +242,7 @@ def generate_digit_features(
     out: dict[str, np.ndarray] = {}
     for emitted in map_on_edge_pool(_one_column, cols):
         out.update(emitted)
-    return pd.DataFrame(out, index=X.index)
+    return fe_frame_from_columns(out, X.index)
 
 
 def score_decompose_by_bootstrap_mi(

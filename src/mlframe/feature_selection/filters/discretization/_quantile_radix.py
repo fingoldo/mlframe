@@ -195,6 +195,31 @@ def _sort_xy_f64_njit(x: np.ndarray, y: np.ndarray):
     return xs, ys
 
 
+@njit(nogil=True, cache=True)
+def _sorted_runs_njit(xs: np.ndarray):
+    """``(distinct values, their counts)`` of a non-decreasing vector in one pass: what ``np.unique(xs, return_counts=True)`` returns for a sorted input."""
+    n = xs.shape[0]
+    vals = np.empty(n, dtype=xs.dtype)
+    cnts = np.empty(n, dtype=np.int64)
+    m = 0
+    i = 0
+    while i < n:
+        j = i + 1
+        while j < n and xs[j] == xs[i]:
+            j += 1
+        vals[m] = xs[i]
+        cnts[m] = j - i
+        m += 1
+        i = j
+    return vals[:m].copy(), cnts[:m].copy()
+
+
+def sorted_unique_with_counts(xs: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
+    """:func:`unique_with_counts` of a vector that is already sorted ascending and NaN-free (the sorted column an MDLP search holds): one linear pass instead of a second radix sort."""
+    runs: "tuple[np.ndarray, np.ndarray]" = _sorted_runs_njit(np.ascontiguousarray(xs))
+    return runs
+
+
 def unique_with_counts(values: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
     """``np.unique(values, return_counts=True)``: the radix sort-and-scan for a large NaN-free float32 vector (6x faster), numpy for anything else."""
     if values.dtype == np.float32 and values.ndim == 1 and values.size >= _UNIQUE_COUNTS_MIN_SIZE:
@@ -234,6 +259,34 @@ def _sorted_quantiles_f32_njit(x: np.ndarray, quantiles: np.ndarray) -> np.ndarr
             else:
                 out[qi] = a + diff * t
     return out
+
+
+@njit(nogil=True, cache=True)
+def _quantiles_of_sorted_njit(xs: np.ndarray, quantiles: np.ndarray) -> np.ndarray:
+    """:func:`_sorted_quantiles_f32_njit` for a vector that is already sorted ascending (any float width): numpy's linear quantile with its double precision ``_lerp``, no sort."""
+    n = xs.shape[0]
+    out = np.empty(quantiles.shape[0], dtype=np.float64)  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
+    for qi in range(quantiles.shape[0]):
+        v = quantiles[qi] * (n - 1)
+        lo = math.floor(v)
+        if lo >= n - 1:
+            out[qi] = np.float64(xs[n - 1])  # Intentional float64: the interpolation runs in double, as numpy's
+        else:
+            a = np.float64(xs[lo])  # Intentional float64: operands widened exactly before the interpolation
+            b = np.float64(xs[lo + 1])  # Intentional float64: operands widened exactly before the interpolation
+            t = v - lo
+            diff = b - a
+            if t >= 0.5:
+                out[qi] = b - diff * (1.0 - t)
+            else:
+                out[qi] = a + diff * t
+    return out
+
+
+def quantiles_of_sorted(xs: np.ndarray, quantiles: np.ndarray) -> np.ndarray:
+    """Float64 quantiles (fractions in ``[0, 1]``) of a NaN-free vector already sorted ascending, as ``np.quantile`` gives them (method ``linear``)."""
+    found: np.ndarray = _quantiles_of_sorted_njit(np.ascontiguousarray(xs), np.ascontiguousarray(quantiles, dtype=np.float64))  # Intentional float64: statistic / reference vector in double precision
+    return found
 
 
 def sorted_quantiles(values: np.ndarray, quantiles: np.ndarray) -> "np.ndarray | None":

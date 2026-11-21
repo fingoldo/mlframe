@@ -20,7 +20,7 @@ import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
-from ._device_sort_safe import device_argsort, device_room
+from ._device_sort_safe import device_argsort, device_room, device_exclusive
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._raw_module_cache import RawModuleCache
 from mlframe.utils.log_throttle import log_throttle
@@ -118,6 +118,7 @@ def column_block(kk: int, free: float, per_col: int) -> int:
     return int(max(1, min(kk, _MAX_GRID_Y, (_BUDGET_FRACTION * free) // per_col)))
 
 
+@device_exclusive
 def copula_columns_device(cols_rows: np.ndarray, vi: np.ndarray, nb: int) -> Optional[np.ndarray]:
     """Copula MI of each row of the all-finite ``cols_rows`` (columns, n; numpy, or a resident cupy array that is used as is) against the target bin codes ``vi``; ``None`` when the device cannot take it (the caller runs the host kernel)."""
     kk, n = cols_rows.shape

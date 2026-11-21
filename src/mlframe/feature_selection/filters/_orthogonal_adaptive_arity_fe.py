@@ -64,6 +64,7 @@ from itertools import combinations
 from typing import Callable, Optional, Sequence
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
@@ -311,7 +312,7 @@ def generate_adaptive_arity_cross_basis(
     # Emit kept winners.
     _emit_kept_arity_winners(winners, eclipsed, valid_src, tuple_best, out_cols, rows, X, basis_per_col)
 
-    eng_X = pd.DataFrame(out_cols, index=X.index)
+    eng_X = fe_frame_from_columns(out_cols, X.index)
     score_df = pd.DataFrame(rows)
     if not score_df.empty:
         score_df = score_df.sort_values("uplift", ascending=False).reset_index(drop=True)

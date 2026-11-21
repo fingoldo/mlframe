@@ -57,6 +57,7 @@ import os
 from typing import TYPE_CHECKING, Optional, Sequence
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 from mlframe.utils.array_shape import size_of
 from mlframe._numerical_floors import VARIANCE_FLOOR
 import pandas as pd
@@ -708,7 +709,7 @@ def generate_hinge_features(
                     name_ind = f"{col}__ind_gt{tau:g}"
                     out_cols[name_ind] = ind
                     meta[name_ind] = {"src": col, "tau": float(tau), "side": "ind", "fill": float(np.mean(x))}
-    return pd.DataFrame(out_cols, index=X.index), meta
+    return fe_frame_from_columns(out_cols, X.index), meta
 
 
 def build_hinge_basis_recipe(

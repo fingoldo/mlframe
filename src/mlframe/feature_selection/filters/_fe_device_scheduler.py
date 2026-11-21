@@ -130,9 +130,11 @@ def stage_device_slot(slot: DeviceSlot, key: int = 0) -> "Iterator[Any]":
     """Run the calling thread on ``slot.device_id`` with the persistent memory pool of stage ``key``, limited to ``slot.budget_bytes``; the pool's unused blocks are released on exit (its in-use blocks stay valid for the arrays that outlive the slot)."""
     import cupy as cp
 
+    from ._gpu_alloc_trace import traced_allocator
+
     pool = _slot_pool(slot, key)
     try:
-        with cp.cuda.Device(slot.device_id), cp.cuda.using_allocator(pool.malloc):
+        with cp.cuda.Device(slot.device_id), cp.cuda.using_allocator(traced_allocator(pool)):
             yield pool
     finally:
         pool.free_all_blocks()

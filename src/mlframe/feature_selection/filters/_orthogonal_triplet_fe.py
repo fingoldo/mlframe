@@ -50,6 +50,7 @@ from typing import Optional, cast
 from collections.abc import Sequence
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe._numba_parallel_guard import parallel_kernel_entry
@@ -254,7 +255,7 @@ def generate_triplet_cross_basis_features(
             )
             continue
         _triplet_cross_products(x_i, x_j, x_k, col_i, col_j, col_k, basis_i, basis_j, basis_k, min_d, max_d, cache, out_cols)
-    return pd.DataFrame(out_cols, index=X.index)
+    return fe_frame_from_columns(out_cols, X.index)
 
 
 _TRIPLET_CMI_COLS = [

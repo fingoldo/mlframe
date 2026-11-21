@@ -662,25 +662,30 @@ def _greedy_cmi_fe_constr_step1_content_hash_already(cand_names, engineered, nbi
             from ._qbin_block_gpu import resident_qbin_codes_block
 
             _cand_cols = [np.asarray(fe_column_values(engineered, _name), dtype=_crit_np_dtype()) for _name in cand_names]
-            _block_codes = resident_qbin_codes_block(_cand_cols, nbins, _qbin_float_dtype()) if len(_cand_cols) > 1 else None  # one sort for the whole pool
-            if _block_codes is not None:
-                cand_bins_dev.update(zip(cand_names, _block_codes))
+            _binned = None
+            if len(_cand_cols) > 1:  # one sort per block of the pool; narrow codes (device, then host) are kept, not the int64 pool
+                from ._bin_fingerprint_gpu import pool_fingerprints
+                from ._cand_code_pool import bin_candidate_pool
+                from ._device_sort_safe import device_room
+
+                _binned = bin_candidate_pool(_cp, cand_names, _cand_cols, nbins, _qbin_float_dtype(), resident_qbin_codes_block, pool_fingerprints, int(device_room(_cp)) // 6)
+            if _binned is not None:
+                _pool, _fps = _binned
+                cand_bins_dev = _pool
+                st.cand_fp.update(_fps)
             else:
+                from ._bin_fingerprint_gpu import pool_fingerprints
+
                 for _name, _col in zip(cand_names, _cand_cols):
                     _codes_dev = _quantile_bin_gpu_resident(_col, nbins)
                     if _codes_dev is None:
                         cand_bins_dev = {}
                         break
                     cand_bins_dev[_name] = _codes_dev
+                if cand_bins_dev:
+                    for _name, _fp in zip(cand_names, pool_fingerprints(_cp, [cand_bins_dev[_name] for _name in cand_names])):
+                        st.cand_fp[_name] = int(_fp)
             if cand_bins_dev:
-                # cupy (this version) has no ``bitwise_xor.reduce`` - a weighted-sum reduction is an
-                # equally-cheap, equally-accepted (see module docstring) content hash: same n for every
-                # candidate this fit, so the odd-prime weight vector is built once and reused.
-                # the whole pool in one launch and one D2H read (``pool_fingerprints``: the same wrap-around int64 sum, four to five launches a candidate before)
-                from ._bin_fingerprint_gpu import pool_fingerprints
-
-                for _name, _fp in zip(cand_names, pool_fingerprints(_cp, [cand_bins_dev[_name] for _name in cand_names])):
-                    st.cand_fp[_name] = int(_fp)
                 st._resident_fp_ok = True
     except Exception:
         logger.warning("resident candidate binning failed; host fingerprint fallback", exc_info=True)

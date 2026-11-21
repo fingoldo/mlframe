@@ -45,7 +45,7 @@ class MRMRParams(BaseModel):
     quantization_method: Literal["quantile", "uniform"] = "quantile"
     quantization_nbins: int = 10
     quantization_dtype: Any = None
-    max_categorical_cardinality: int | None = None
+    max_categorical_cardinality: int | None = 255
     nbins_strategy: Optional[
         Literal[
             "auto",

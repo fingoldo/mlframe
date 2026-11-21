@@ -6,6 +6,8 @@ import logging
 from functools import partial
 
 import numpy as np
+from mlframe.feature_selection.filters.discretization._code_storage_plan import code_alloc_dtype
+from mlframe.feature_selection.filters.discretization._code_dtype import append_code_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.cv_policy import get_cv_policy
@@ -149,7 +151,7 @@ def _discretise_survivor_block(self, transformed_vals, n_rows, _n_forms, discret
         # prevent everywhere else it's used (``discretize_array``/``discretize_2d_quantile_batch``/
         # ``discretize_2d_array``).
         from mlframe.feature_selection.filters.discretization.shared import safe_code_dtype as _safe_code_dtype
-        _safe_dtype = _safe_code_dtype(self.quantization_nbins, self.quantization_dtype, reserve_nan_slot=(self.quantization_method == "uniform"))
+        _safe_dtype = _safe_code_dtype(self.quantization_nbins, code_alloc_dtype(self), reserve_nan_slot=(self.quantization_method == "uniform"))
         new_vals = np.empty(shape=(n_rows, _n_forms), dtype=_safe_dtype)
         for j in range(_n_forms):
             new_vals[:, j] = discretize_array(
@@ -522,7 +524,7 @@ def _materialise_escalation_admitted(self, st, _esc_admitted, X, data, cols, nbi
     # for quantization_nbins > 127 under quantization_dtype=int8 (same bug already fixed
     # above at the unary/binary materialize block via _safe_code_dtype).
     from mlframe.feature_selection.filters.discretization.shared import safe_code_dtype as _safe_code_dtype
-    _esc_safe_dtype = _safe_code_dtype(self.quantization_nbins, self.quantization_dtype, reserve_nan_slot=(self.quantization_method == "uniform"))
+    _esc_safe_dtype = _safe_code_dtype(self.quantization_nbins, code_alloc_dtype(self), reserve_nan_slot=(self.quantization_method == "uniform"))
     _esc_new_codes: np.ndarray = np.empty(
         shape=(len(X), len(_esc_admitted)), dtype=_esc_safe_dtype,
     )
@@ -536,7 +538,7 @@ def _materialise_escalation_admitted(self, st, _esc_admitted, X, data, cols, nbi
     _n_cols_before_esc = len(cols)
     # Preserve the compact codes dtype (COMPACT CODES STORAGE in _fit_impl_core): nbins-bounded codes,
     # cast down to data.dtype rather than upcasting the whole matrix back to int32.
-    data = np.append(data, _esc_new_codes.astype(data.dtype, copy=False), axis=1)
+    data = append_code_columns(data, _esc_new_codes)
     nbins = np.concatenate([
         np.asarray(nbins),
         np.asarray([self.quantization_nbins] * len(_esc_admitted), dtype=np.asarray(nbins).dtype),
@@ -603,7 +605,7 @@ def _fused_compound_codes(self, X, fused, discretize_array) -> np.ndarray:
     from mlframe.feature_selection.filters.discretization.shared import safe_code_dtype as _safe_code_dtype
 
     # Pre-widen to _safe_code_dtype so discretize_array's internally-widened return value isn't silently downcast on assignment.
-    _fz_safe_dtype = _safe_code_dtype(self.quantization_nbins, self.quantization_dtype, reserve_nan_slot=(self.quantization_method == "uniform"))
+    _fz_safe_dtype = _safe_code_dtype(self.quantization_nbins, code_alloc_dtype(self), reserve_nan_slot=(self.quantization_method == "uniform"))
     _fz_codes: np.ndarray = np.empty(shape=(len(X), len(fused)), dtype=_fz_safe_dtype)
     for _jf, _fc in enumerate(fused):
         _dev_codes = _device_codes_to_host(_fc["values"], self.quantization_nbins, self.quantization_dtype) if self.quantization_method == "quantile" else None
@@ -659,7 +661,7 @@ def _materialise_and_fina_step4_contract_stay_off(self, engineered_recipes, st, 
                 # isn't silently downcast back on assignment.
                 _fz_codes = _fused_compound_codes(self, X, _fused, discretize_array)
                 _n_cols_before_fz = len(cols)
-                data = np.append(data, _fz_codes.astype(data.dtype, copy=False), axis=1)
+                data = append_code_columns(data, _fz_codes)
                 nbins = np.concatenate([
                     np.asarray(nbins),
                     np.asarray([self.quantization_nbins] * len(_fused), dtype=np.asarray(nbins).dtype),

@@ -9,6 +9,7 @@ import hashlib
 import logging
 
 import numpy as np
+from mlframe.feature_selection.filters.discretization._code_storage_plan import code_alloc_dtype as _code_alloc_dtype
 from mlframe._array_buffer import array_buffer
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import os
@@ -70,12 +71,10 @@ def _compact_code_storage(data):
         try:
             _dmin = int(data.min())
             _dmax = int(data.max())
-            _store_dt: Optional[type]
-            if -128 <= _dmin and _dmax <= 127:
-                _store_dt = np.int8
-            elif -32768 <= _dmin and _dmax <= 32767:
-                _store_dt = np.int16
-            else:
+            from mlframe.feature_selection.filters.discretization._code_dtype import narrowest_code_dtype
+
+            _store_dt: Optional[type] = narrowest_code_dtype(_dmin, _dmax)  # int8 up to 127, uint8 for 0..255 (a 256-cardinality categorical), int16 above
+            if _store_dt in (np.int32, np.int64):
                 _store_dt = None
             if _store_dt is not None and data.dtype.itemsize > np.dtype(_store_dt).itemsize:
                 data = data.astype(_store_dt, copy=False)
@@ -252,7 +251,7 @@ def _make_null_binner(self: Any, nbins_strategy: Any, x_for_cat: Any, cols: Any,
     dep_df = x_for_cat if fixed_codes is None else x_for_cat[[c for c in x_for_cat.columns if str(c) in dependent]]
     if not PermutedTargetBinner.supported(dep_df):
         return None
-    binner = PermutedTargetBinner(dep_df, strategy_for_categorize, nbins_strategy, strategy_kwargs, self.quantization_dtype, out_cols=[str(c) for c in cols], fixed=fixed_codes)
+    binner = PermutedTargetBinner(dep_df, strategy_for_categorize, nbins_strategy, strategy_kwargs, _code_alloc_dtype(self), out_cols=[str(c) for c in cols], fixed=fixed_codes)
     return binner if binner.ok else None
 
 
@@ -287,7 +286,7 @@ def _install_honest_null_hook(
             df=_x_for_cat if _fixed_codes is None else _x_for_cat[[c for c in _x_for_cat.columns if str(c) in _dependent]],
             method=self.quantization_method,
             n_bins=self.quantization_nbins,
-            dtype=self.quantization_dtype,
+            dtype=_code_alloc_dtype(self),
             max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None),
             missing_strategy=_strategy_for_categorize,
             nbins_strategy=_nbins_strategy,
@@ -385,7 +384,7 @@ def _strategy_kwargs(self: Any, _nbins_strategy: Any) -> Any:
     # user pinned max_depth explicitly). This makes max_categorical_cardinality a single knob for a universally-narrow
     # codes matrix - categorical tail folded AND numeric intervals bounded.
     _cap = getattr(self, "max_categorical_cardinality", None)
-    if _cap and str(_nbins_strategy).lower() in ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated"):
+    if _cap and int(_cap) < 255 and str(_nbins_strategy).lower() in ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated"):  # at the default cap the default depth (<= 256 intervals) already fits
         _md = max(2, int(np.floor(np.log2(int(_cap)))))
         _nbins_strategy_kwargs = dict(_nbins_strategy_kwargs or {})
         _nbins_strategy_kwargs.setdefault("max_depth", _md)
@@ -400,11 +399,47 @@ def _strategy_kwargs(self: Any, _nbins_strategy: Any) -> Any:
     return _nbins_strategy_kwargs
 
 
+def _categorical_cardinalities(x_for_cat: Any, limit: int = 64) -> "list[int] | None":
+    """Distinct counts of the categorical columns of the frame (the first ``limit`` of them), ``None`` when they cannot be read."""
+    try:
+        if hasattr(x_for_cat, "select_dtypes"):
+            cat = x_for_cat.select_dtypes(include=("category", "object", "string", "bool"))
+            return [int(cat[c].nunique(dropna=True)) for c in list(cat.columns)[:limit]]
+        import polars as pl
+
+        if isinstance(x_for_cat, pl.DataFrame):
+            return [int(x_for_cat[c].n_unique()) for c, dt in list(x_for_cat.schema.items()) if dt in (pl.Utf8, pl.String, pl.Categorical, pl.Boolean)][:limit]
+    except Exception as exc:  # the plan then bounds the categorical codes by the cap alone
+        logger.debug("mrmr: categorical cardinalities unavailable for the code-storage plan: %r", exc)
+    return None
+
+
+def _plan_code_storage_for_fit(self: Any, nbins_strategy: Any, nbins_strategy_kwargs: Any, x_for_cat: Any) -> Any:
+    """Resolve the code dtype from this fit's binning settings, record it as ``code_storage_plan_`` and return the plan (``quantization_dtype`` is a hint: see ``plan_code_storage``)."""
+    from mlframe.feature_selection.filters.discretization._code_storage_plan import plan_code_storage
+
+    plan = plan_code_storage(
+        n_bins=int(self.quantization_nbins),
+        method=str(self.quantization_method),
+        nbins_strategy=None if nbins_strategy is None else str(nbins_strategy),
+        nbins_strategy_kwargs=nbins_strategy_kwargs,
+        max_adaptive_nbins=int(getattr(self, "max_adaptive_nbins", 256) or 256),
+        max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None),
+        categorical_cardinalities=_categorical_cardinalities(x_for_cat),
+        user_dtype=self.quantization_dtype,
+    )
+    self.code_storage_plan_ = plan.as_dict()
+    self._code_alloc_dtype = plan.alloc_dtype
+    logger.info("mrmr: code storage %s (max code %d): %s", np.dtype(plan.storage_dtype).name, plan.bound, "; ".join(plan.reasons))
+    return plan
+
+
 def _discretize_inputs_part1(
     self: Any, _nbins_strategy: Any, target_names: Any, _x_for_cat: Any, categorize_dataset: Any, _strategy_for_categorize: Any,
 ) -> tuple[Any, ...]:
     """Extracted block of ``_discretize_inputs`` (part 1); returns the names the caller still uses."""
     _nbins_strategy_kwargs = _strategy_kwargs(self, _nbins_strategy)
+    _plan_code_storage_for_fit(self, _nbins_strategy, _nbins_strategy_kwargs, _x_for_cat)
     # The supervised strategies (mdlp / optimal_joint) need y. Pull the raw
     # target column from the input frame - categorize_dataset is called with
     # _x_for_cat which is a DataFrame; the target column is one of its members
@@ -436,7 +471,7 @@ def _discretize_inputs_part1(
         df=_x_for_cat,
         method=self.quantization_method,
         n_bins=self.quantization_nbins,
-        dtype=self.quantization_dtype,
+        dtype=_code_alloc_dtype(self),
         max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None),
         missing_strategy=_strategy_for_categorize,
         nbins_strategy=_nbins_strategy,

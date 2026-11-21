@@ -267,6 +267,14 @@ def fe_drop_columns(X: Any, names: Iterable[str]) -> Any:
     return X.drop(columns=drop) if is_pandas(X) else X.drop(drop)
 
 
+def fe_frame_from_columns(cols: dict, index: Any) -> "pd.DataFrame":
+    """A pandas frame over the column arrays of ``cols`` (``name -> 1-D array``, in dict order) WITHOUT copying them: the frame holds the arrays themselves (one block per column).
+
+    ``pd.DataFrame(dict)`` consolidates the columns into blocks, which copies every array once and, with mixed dtypes, about twice more (an extra-basis frame of 30000 x 5100 legs peaked at 3.9 GB for a 0.94 GB result).
+    The caller hands the arrays over: they must not be modified through other references afterwards. A read-only array (a view of another frame's block) is copied, so the frame never shares memory it cannot write."""
+    return pd.DataFrame({name: (arr if getattr(arr, "flags", None) is None or arr.flags.writeable else arr.copy()) for name, arr in cols.items()}, index=index, copy=False)
+
+
 @fe_timed("stage:append_columns")
 def fe_append_columns(X: Any, cols: dict[str, np.ndarray]) -> Any:
     """Append engineered numpy columns ``{name: 1d-array}`` to ``X`` in ITS OWN framework (no whole-frame conversion).

@@ -74,6 +74,19 @@ def _batched_resident_codes(self, tvals, n_cols: int, gate_stride: int):
         return None
 
 
+def _batched_marginal_mi(self, codes, y_dense):
+    """Miller-Madow marginal MI of every column of the resident code matrix ``codes`` against ``y_dense`` in one batched pass (``batched_cmi_gpu`` without a conditioning column: the entropies of every
+    column in column blocks and one host read), as a host ``(columns,)`` array equal to the per-column ``_cmi_from_binned(codes[:, j], y, None)`` to about 1e-15 (another summation order); ``None`` on any
+    failure, and the per-column calls then run. The loop it replaces made one fused-entropy launch and one blocking read per column of the pool."""
+    try:
+        from .._fe_batched_mi_blocks import batched_cmi_gpu
+
+        return np.asarray(batched_cmi_gpu(codes, y_dense, None, codes_trusted=True, kx=int(self.quantization_nbins)), dtype=np.float64)  # Intentional float64: MI statistic vector
+    except Exception as e:  # best-effort: the per-column marginal MI is the reference path
+        logger.debug("batched marginal MI failed, per-column fallback: %s", e)
+        return None
+
+
 def _score_candidates_one_by_one(self, st, prospective_additions, _gate_stride, _y_dense_g) -> None:
     """Per-candidate device-or-host quantile binning and marginal MI of the CMI-gate pool, written into ``st._cmi_cands``."""
     from .._mi_greedy_cmi_fe import _cmi_from_binned, _quantile_bin
@@ -84,6 +97,7 @@ def _score_candidates_one_by_one(self, st, prospective_additions, _gate_stride, 
         # Resident codes of every admitted column in one batched binning (one upload, one sort, one comparison), equal column for column to the per-column
         # resident binner it replaces; None falls back to the per-column path below.
         _batch_codes = _batched_resident_codes(self, _tvals, len(_ncols), _gate_stride) if st._gate_resident else None
+        _batch_margs = _batched_marginal_mi(self, _batch_codes, _y_dense_g) if _batch_codes is not None else None
         for _jc, _cname in enumerate(_ncols):
             if _tvals.shape[1] <= _jc:
                 continue
@@ -102,7 +116,10 @@ def _score_candidates_one_by_one(self, st, prospective_additions, _gate_stride, 
                     _vb = None
             if _vb is None:
                 _vb = _quantile_bin(_vals, nbins=int(self.quantization_nbins))
-            _marg = float(_cmi_from_binned(_vb, _y_dense_g, None, kx=int(self.quantization_nbins)))
+            if _batch_margs is not None and _jc < len(_batch_margs):
+                _marg = float(_batch_margs[_jc])
+            else:
+                _marg = float(_cmi_from_binned(_vb, _y_dense_g, None, kx=int(self.quantization_nbins)))
             st._cmi_cands[_cname] = (_vals, _marg)
 
 

@@ -287,11 +287,31 @@ def raw_mi_noise_floor(
 
     blocks = column_blocks(num_cols, len(raw_X))
     if len(blocks) > 1:
-        # The raw matrix does not fit the free memory in one piece: the MI of a column does not depend on the others, so the vector is scored block by block (no memo: the key hashes the whole matrix).
+        # The raw matrix does not fit the free memory in one piece: the MI of a column does not depend on the others, so the vector is scored block by block.
         # Each block's MI is taken exactly as the whole-matrix call returns it (no cast here): a cast to the crit dtype
         # rounds the blocks differently from the whole matrix, and the floor moves in the last digits.
-        blocked_mi = np.concatenate([_mi_classif_batch(np.column_stack([_column_values(raw_X, c, _crit_np_dtype()) for c in block]), y_bin, nbins=nbins) for block in blocks])
-        return _floor_from_raw_mi(blocked_mi, len(raw_X), nbins, y_bin, mad_mult)
+        # The memo key of this branch is a hash of an even sample of the rows of every column (the whole matrix is never held): four gates ask for this floor within one fit, and each scan of 1000 columns x 500000 rows took
+        # a minute of host scoring. The raw columns and ``y`` do not change inside a fit; the lock stays held while the first caller computes, so concurrent callers wait for the value instead of repeating the scan.
+        _blocked_key = None
+        try:
+            _step = max(1, len(raw_X) // 2048)
+            _sample = np.stack([np.asarray(_column_values(raw_X, c, _crit_np_dtype()))[::_step] for c in num_cols])
+            _blocked_key = ("blocked", tuple(num_cols), len(raw_X), _buffer_hash(np.ascontiguousarray(_sample)), _buffer_hash(y_bin), int(nbins), float(mad_mult))
+        except Exception as e:
+            logger.warning("blocked raw-MI-floor memo key computation failed, skipping the memo: %s", e)
+        with _FE_GATE_MEMO_LOCK:
+            if _blocked_key is not None:
+                _blocked_hit = _RAW_MI_FLOOR_MEMO.get(_blocked_key)
+                if _blocked_hit is not None:
+                    return _blocked_hit
+            blocked_mi = np.concatenate([_mi_classif_batch(np.column_stack([_column_values(raw_X, c, _crit_np_dtype()) for c in block]), y_bin, nbins=nbins) for block in blocks])
+            _blocked_floor = _floor_from_raw_mi(blocked_mi, len(raw_X), nbins, y_bin, mad_mult)
+            if _blocked_key is not None:
+                if len(_RAW_MI_FLOOR_MEMO) > 8:
+                    # evict-ok: memo; a miss recomputes the value
+                    _RAW_MI_FLOOR_MEMO.pop(next(iter(_RAW_MI_FLOOR_MEMO)))
+                _RAW_MI_FLOOR_MEMO[_blocked_key] = _blocked_floor
+            return _blocked_floor
     # Stack column by column: raw_X[num_cols] would copy a sub-frame before the float64 matrix copy the scorer needs.
     # The columns are collected as contiguous rows and hashed in that layout; the (n, k) matrix the scorer needs is built (by tiles) only on a memo miss, since stacking it column by column
     # writes with a stride of k items (0.28 s per call at 100000 x 100).

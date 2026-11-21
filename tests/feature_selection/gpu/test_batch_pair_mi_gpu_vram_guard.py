@@ -139,6 +139,7 @@ def test_forced_cuda_vram_insufficient_uses_row_chunked_not_bare_fallback(monkey
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs()
     monkeypatch.setattr(bpmg, "_CUDA_AVAIL", True)
     monkeypatch.setattr(bpmg, "_gpu_upload_fits", lambda required_bytes, **kw: False)
+    monkeypatch.setattr(bpmg._PairMiDispatch, "try_feature_major", lambda self: None)  # these tests pin the row-chunked -> CPU chain; the feature-major kernel (tried first) has its own test
 
     def _boom_full(*a, **kw):
         """Boom full."""
@@ -166,6 +167,7 @@ def test_falls_back_to_cpu_only_when_row_chunked_also_fails(monkeypatch, caplog)
     data, nbins, classes_y, freqs_y, pair_a, pair_b = _build_pair_inputs()
     monkeypatch.setattr(bpmg, "_CUDA_AVAIL", True)
     monkeypatch.setattr(bpmg, "_gpu_upload_fits", lambda required_bytes, **kw: False)
+    monkeypatch.setattr(bpmg._PairMiDispatch, "try_feature_major", lambda self: None)  # these tests pin the row-chunked -> CPU chain; the feature-major kernel (tried first) has its own test
 
     def _boom_full(*a, **kw):
         """Boom full."""

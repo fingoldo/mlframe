@@ -12,6 +12,7 @@ import logging
 from typing import Any
 
 import numpy as np
+from mlframe.feature_selection.filters.discretization._code_dtype import append_code_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._lazy_host_codes import LazyHostCodes
 
@@ -84,11 +85,7 @@ def _friend_graph_and_redundancy_passes_group2(
                     _hybrid_orth_pre_recipes[_hn] = _r
                     engineered_recipes[_hn] = _r
             if _new_hinge_codes:
-                data = np.append(
-                    data,
-                    np.hstack(_new_hinge_codes).astype(data.dtype),
-                    axis=1,
-                )
+                data = append_code_columns(data, np.hstack(_new_hinge_codes))
                 nbins = np.concatenate(
                     [
                         np.asarray(nbins),

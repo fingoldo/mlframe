@@ -22,7 +22,8 @@ import logging
 import os
 import threading
 import time
-from typing import Any, Iterator, Optional
+from collections.abc import Callable
+from typing import Any, Iterator, Optional, TypeVar, cast
 
 from mlframe.utils.log_throttle import log_throttle
 
@@ -64,6 +65,48 @@ def device_room(cp: Any) -> int:
     """Bytes the calling thread's allocations can still get: the room under the limit of the pool behind its allocator (a stage slot's pool or the default one) and the device's free memory plus
     that pool's cached free blocks. Block sizes for streamed device work should be taken from this, not from the device-wide free memory: a concurrent stage runs under a fraction of the card."""
     return _room(cp, _current_pool(cp))
+
+
+_EXCLUSIVE_LOCKS: "dict[int, tuple[Any, threading.RLock]]" = {}
+_EXCLUSIVE_GUARD = threading.Lock()
+
+
+def _exclusive_lock(pool: Any) -> "threading.RLock":
+    """One re-entrant lock per memory pool (the entry keeps the pool alive, so its ``id`` cannot be reused while the entry lives)."""
+    with _EXCLUSIVE_GUARD:
+        entry = _EXCLUSIVE_LOCKS.get(id(pool))
+        if entry is None or entry[0] is not pool:
+            entry = _EXCLUSIVE_LOCKS[id(pool)] = (pool, threading.RLock())
+        return entry[1]
+
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def device_exclusive(fn: _F) -> _F:
+    """Run ``fn`` with the calling thread's memory pool to itself.
+
+    A streamed device routine sizes its column blocks from :func:`device_room` at its start. Several threads of one pool doing that at once (the auto scorer's resample threads) each take the
+    whole room for themselves, ask for about twice what is there together and fall back to the host kernels one after the other: 500000 x 1000 lost the device KSG, the tail dependence and the
+    binning of the candidate pool to out-of-memory this way while the card was 40 % used. The device runs their kernels one after another on the default stream anyway, so taking turns costs
+    nothing but the host work between launches; the lock is re-entrant, so a routine that calls another decorated one does not wait for itself."""
+    import functools
+
+    @functools.wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        """``fn`` under the pool's exclusive lock."""
+        try:
+            import cupy as cp
+
+            pool = _current_pool(cp)
+        except Exception:
+            return fn(*args, **kwargs)  # no cupy: nothing shares a device
+        if pool is None:
+            return fn(*args, **kwargs)
+        with _exclusive_lock(pool):
+            return fn(*args, **kwargs)
+
+    return cast(_F, wrapper)
 
 
 _POOL_LOCKS: "dict[int, tuple[Any, threading.Lock]]" = {}

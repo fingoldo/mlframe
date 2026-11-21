@@ -81,6 +81,48 @@ def _presort_by_keys(cp, raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
     return order, tie
 
 
+_TWO_SORT_BYTES_PER_COLUMN_ROW = 96  # ordered keys 8, element ids 8, column ids 2, second order 8, final order 8, sorted keys 8, flags, and the sorts' own temporaries
+
+
+def _presort_by_two_sorts(cp, raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray] | None":
+    """The order and tie flags of :func:`presort_and_ties_gpu` for a block of columns of ANY float width in two stable 1-D sorts instead of one sort per column (a float64 column does not fit the 64-bit
+    composite key of :func:`_presort_by_keys`: its ordered value alone is 64 bits).
+
+    The first sort orders every element of the ``(columns, n)`` block by its ordered value (stable, so equal values keep element order = column, then row); the second, stable, orders those
+    elements by their column, which gathers each column's elements in value order with ties in row order, the permutation of the stable per-column sort. A tie is two neighbours of the same column with
+    the same ordered value (-0.0 is mapped to +0.0 first). ``None`` for dtypes other than float32 / float64 and for more than 65535 columns in a block."""
+    n, k = int(raw_cont.shape[0]), int(raw_cont.shape[1])
+    if raw_cont.dtype not in (np.float32, np.float64):  # Intentional float64: the widths the ordered-bits trick below covers
+        return None
+    wide = raw_cont.dtype == np.float64  # Intentional float64: the 64-bit ordered key
+    uint_t, shift, sign = (cp.uint64, 63, np.uint64(0x8000000000000000)) if wide else (cp.uint32, 31, np.uint32(0x80000000))
+    full = uint_t(np.iinfo(np.uint64 if wide else np.uint32).max)
+    block = max(1, min(65535, _presort_column_block_bytes(cp, n, _TWO_SORT_BYTES_PER_COLUMN_ROW)))
+    order = np.empty((k, n), dtype=np.int32)
+    tie = np.zeros((k, n), dtype=np.uint8)
+    for c0 in range(0, k, block):
+        c1 = min(k, c0 + block)
+        kc = c1 - c0
+        cm = _transpose_to_cm(cp.asarray(np.ascontiguousarray(raw_cont[:, c0:c1])))  # (kc, n), one row per column
+        bits = (cm + raw_cont.dtype.type(0.0)).view(uint_t)  # -0.0 becomes +0.0
+        ordered = (bits ^ ((bits >> uint_t(shift)) * full | sign)).ravel()  # unsigned order of the float order
+        del cm, bits
+        first = device_argsort(ordered)  # stable: equal values keep the element order (column, row)
+        col_of = (first // n).astype(cp.uint16)
+        second = device_argsort(col_of)  # stable: each column's elements, still in value order, ties in row order
+        del col_of
+        final = first[second]
+        del first, second
+        order[c0:c1] = cp.asnumpy((final % n).astype(cp.int32).reshape(kc, n))
+        sv = ordered[final]
+        col_sorted = final // n
+        flags = cp.zeros(kc * n, dtype=cp.uint8)
+        flags[:-1] = (sv[:-1] == sv[1:]) & (col_sorted[:-1] == col_sorted[1:])
+        tie[c0:c1] = cp.asnumpy(flags.reshape(kc, n))
+        del ordered, final, sv, col_sorted, flags
+    return order, tie
+
+
 def _presort_column_block_bytes(cp, n_rows: int, bytes_per_column_row: int) -> int:
     """Columns per launch within ``_BUDGET_FRACTION`` of what the memory pool can still hand out, for ``bytes_per_column_row`` bytes a column row."""
     return pool_column_block(cp, n_rows, bytes_per_column_row=bytes_per_column_row, budget_fraction=_BUDGET_FRACTION, min_block=4, fallback=8, what="device presort")
@@ -101,6 +143,8 @@ def presort_and_ties_gpu(raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
         return None
     try:
         got = _presort_by_keys(cp, raw_cont)
+        if got is None:
+            got = _presort_by_two_sorts(cp, raw_cont)  # float64 columns (a column with NaN is median-filled in double): two sorts a block instead of one per column
         if got is not None:
             cp.get_default_memory_pool().free_all_blocks()
             return got

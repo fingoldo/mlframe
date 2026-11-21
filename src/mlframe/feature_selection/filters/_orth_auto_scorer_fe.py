@@ -16,7 +16,8 @@ from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engine
 
 import functools
 import logging
-from typing import Any, Callable, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any, Callable, Optional
 
 import numpy as np
 
@@ -301,6 +302,7 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
     from ._orthogonal_tail_dependence_fe import tail_dependence_columns
     from ._orthogonal_xi_fe import xi_correlation_batch
     from ._ksg_cd_fast import ksg_mi_discrete_target_columns
+    from mlframe.utils.host_block_budget import host_block_budget
 
     if not columns or not np.issubdtype(np.asarray(y_arr).dtype, np.integer):
         return None
@@ -311,7 +313,14 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
     # Intentional float64: the scorer values are kept as double precision vectors (ranking ties)
     out = {s: np.empty((len(columns), len(boot_idx)), dtype=np.float64) for s in _BATCHED_BOOTSTRAP_SCORERS if s != "ksg" or ksg_ok}
     def one_resample(b: int) -> None:
-        """All batched scorers of resample ``b`` for every column, written into column ``b`` of the result."""
+        """All batched scorers of resample ``b`` for every column, written into column ``b`` of the result; the resamples that run together share the host block budget (``utils.host_block_budget``)."""
+        # the block and the float64 working copies of the scorers (KSG, copula, xi, dCor, HSIC) are about four blocks; 8 workers at 3000 columns x 30000 rows held 8 x 1.4 GB at once
+        est = len(columns) * len(boot_idx[b]) * int(np.dtype(dt).itemsize) * 4
+        with host_block_budget().reserve(est):
+            _one_resample_body(b)
+
+    def _one_resample_body(b: int) -> None:
+        """The scorers of resample ``b`` (see ``one_resample``)."""
         idx = boot_idx[b]
         block = np.column_stack([np.asarray(c[idx], dtype=dt) for c in columns])
         yb = y_arr[idx]

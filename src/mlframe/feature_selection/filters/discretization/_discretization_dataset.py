@@ -272,6 +272,16 @@ def _assign_nan_bin_codes(
     data[_rows, _c] = nan_codes_per_col[_c].astype(data.dtype)
 
 
+def _array_has_nan(arr: np.ndarray, tile_rows: int = 65536) -> bool:
+    """Whether the float array ``arr`` holds a NaN, read in row tiles (no temporary of the array's size); a non-float array has none."""
+    if arr.dtype.kind != "f" or arr.size == 0:
+        return False
+    for r0 in range(0, int(arr.shape[0]), tile_rows):
+        if np.isnan(arr[r0 : r0 + tile_rows]).any():
+            return True
+    return False
+
+
 def _narrow_code_dtype(dtype: type, max_bins: int) -> type:
     """The dtype the numeric code matrix is allocated in: the smallest of int8 / int16 that holds every code (below ``max_bins``) and the dedicated NaN code (one past a column's highest
     regular code, so at most ``max_bins``), when that is narrower than the requested ``dtype``; ``dtype`` itself with ``MLFRAME_MRMR_COMPACT_CODES=0``. ``MRMR.fit`` narrows the finished
@@ -509,11 +519,15 @@ def categorize_dataset(
     # 'separate_bin' so NaN positions get re-routed to the dedicated NaN
     # bin instead of silently colliding with the top real bin via
     # np.searchsorted(NaN -> ej.size).
-    _nan_mask = np.isnan(arr) if (missing_strategy in ("separate_bin", "propagate") and arr.size > 0) else None
+    # A frame without a NaN needs neither the mask (500 MB of booleans at 500000 x 1000, alive for the whole categorisation) nor the fill: ``_handle_missing`` returns ``arr`` untouched then, whatever the
+    # strategy. The check runs in row tiles, so no full-size temporary is made to answer it.
+    _any_nan = _array_has_nan(arr)
+    _nan_mask = np.isnan(arr) if (_any_nan and missing_strategy in ("separate_bin", "propagate") and arr.size > 0) else None
 
     # Unified NaN handling for both pandas and polars. Pass the already-computed ``_nan_mask`` (when
     # available) so _handle_missing does not rescan ``arr`` for NaN a second time.
-    arr = _handle_missing(arr, strategy=missing_strategy, nan_mask=_nan_mask)
+    if _any_nan:
+        arr = _handle_missing(arr, strategy=missing_strategy, nan_mask=_nan_mask)
 
     # per-column adaptive bin chooser.
     # When ``nbins_strategy`` is provided, compute per-column edges via the

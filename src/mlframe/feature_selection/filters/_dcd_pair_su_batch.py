@@ -125,6 +125,29 @@ try:
             out[i] = -h
         return out
 
+    @njit(nogil=True, cache=True, parallel=True)
+    def _batch_column_histograms(cols, nb_arr):
+        """Counts of the codes of every row of ``cols`` (one contiguous column per row), prange over the columns: ``(k, max_nb)`` int64 with ``counts[j, v]`` the number of rows of column ``j`` holding ``v``.
+
+        ``bad[j]`` is set when a column holds a code outside ``[0, nb_arr[j])`` (the caller then leaves that column to the serial path, which raises as it always did)."""
+        k = cols.shape[0]
+        n = cols.shape[1]
+        max_nb = 1
+        for j in range(k):
+            if nb_arr[j] > max_nb:
+                max_nb = nb_arr[j]
+        counts = np.zeros((k, max_nb), dtype=np.int64)
+        bad = np.zeros(k, dtype=np.bool_)
+        for j in prange(k):
+            nb = nb_arr[j]
+            for r in range(n):
+                v = np.int64(cols[j, r])
+                if v < 0 or v >= nb:
+                    bad[j] = True
+                    break
+                counts[j, v] += 1
+        return counts, bad
+
     _HAVE_NUMBA = True
 except ImportError:  # pragma: no cover - numba always present in prod
     _HAVE_NUMBA = False
@@ -173,6 +196,38 @@ def _joint_entropies_host(fd: np.ndarray, a_arr: np.ndarray, b_arr: np.ndarray, 
     return joint
 
 
+_BATCH_MARGINALS_MIN_COLUMNS = 8
+_BATCH_MARGINALS_BLOCK_BYTES = 64 * 1024 * 1024
+
+
+def _warm_marginals_in_blocks(ec: dict, cols: list, fd: np.ndarray, fn_arr: np.ndarray, entropy: Any) -> list:
+    """Marginal entropies of ``cols`` into ``ec`` from batched histograms; the columns it could not do (a code out of its declared range, or a failed block) are returned for the serial path.
+
+    The columns go through in blocks of contiguous copies (the strided read of one column of an (n, p) matrix costs a cache line a row): one parallel histogram pass per block, then the entropy of each column from the
+    same frequencies ``merge_vars`` returns (non-empty classes in ascending order, counts / n) through the same ``entropy``, so every value equals the serial one bit for bit."""
+    n = int(fd.shape[0])
+    leftover: list = []
+    if n == 0:
+        return list(cols)
+    step = max(1, int(_BATCH_MARGINALS_BLOCK_BYTES // max(1, n * int(fd.dtype.itemsize))))
+    for i0 in range(0, len(cols), step):
+        block = cols[i0 : i0 + step]
+        try:
+            idx = np.asarray(block, dtype=np.int64)
+            counts, bad = _batch_column_histograms(np.ascontiguousarray(fd[:, idx].T), np.ascontiguousarray(fn_arr[idx], dtype=np.int64))
+        except Exception as e:  # nosec B110 - best effort: the serial path does the block
+            logger.debug("batched marginal-entropy block failed (%s: %s); serial path", type(e).__name__, e)
+            leftover.extend(block)
+            continue
+        for j, col in enumerate(block):
+            if bad[j]:
+                leftover.append(col)
+                continue
+            c = counts[j, : int(fn_arr[col])]
+            ec[int(col)] = float(entropy(c[c > 0] / n, 0.0))
+    return leftover
+
+
 def _warm_marginal_entropies(state: Any, pairs_list: list, fd: Optional[np.ndarray], fn: Optional[np.ndarray], dtype: type) -> None:
     """Populate ``state.column_entropy_cache`` for every column of the requested pairs that is not cached yet (best-effort; ``pair_su`` fills misses itself)."""
     # Batched marginal-entropy warmup: collect the unique column indices
@@ -212,7 +267,10 @@ def _warm_marginal_entropies(state: Any, pairs_list: list, fd: Optional[np.ndarr
                 if pair_buf is None:
                     pair_buf = np.empty(2, dtype=np.int64)
                     state._pair_idx_buf = pair_buf
-                for col_idx in needed:
+                serial_cols: "Iterable[int]" = needed
+                if _HAVE_NUMBA and len(needed) >= _BATCH_MARGINALS_MIN_COLUMNS and fd.dtype.kind in "iu":
+                    serial_cols = _warm_marginals_in_blocks(ec, sorted(needed), fd, fn_arr, entropy)  # what the batch could not do stays for the loop below
+                for col_idx in serial_cols:
                     pair_buf[0] = int(col_idx)
                     # no argument left to its default: numba's dispatcher then resolves the call in the interpreter every time (60 us instead of 1 us, see ``evaluate_gain``'s call)
                     _, freqs_c, _ = merge_vars(fd, pair_buf[:1], None, fn_arr, dtype, 1, None, False)

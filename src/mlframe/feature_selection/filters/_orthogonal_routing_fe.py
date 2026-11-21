@@ -73,6 +73,7 @@ import logging
 from typing import Any, Optional, Sequence
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
@@ -182,7 +183,7 @@ def _routing_winners_output(index: pd.Index, winners: list, cand_values: list) -
             "engineered_mi": float(info["engineered_mi"]),
             "baseline_mi": float(info["baseline_mi"]),
         }
-    return pd.DataFrame(out_cols, index=index), meta
+    return fe_frame_from_columns(out_cols, index), meta
 
 
 def _routing_abs_floor(raw_mi_map: dict, best_per_source: dict, min_abs_mi_frac: float) -> float:

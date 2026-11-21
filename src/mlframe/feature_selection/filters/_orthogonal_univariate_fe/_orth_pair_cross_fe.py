@@ -17,6 +17,7 @@ import logging
 from typing import Any, Optional, Sequence
 
 import numpy as np
+from .._fe_frame_ops import fe_frame_from_columns
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
@@ -227,7 +228,7 @@ def generate_pair_cross_basis_features(
             )
             continue
         _pair_cross_products(x_i, x_j, col_i, col_j, basis_i, basis_j, min_d, max_d, cache, out_cols)
-    return pd.DataFrame(out_cols, index=X.index)
+    return fe_frame_from_columns(out_cols, X.index)
 
 def _crossbasis_device_born_on() -> bool:
     """Device-born cross-basis scoring engages ONLY under STRICT-residency (+ the per-family opt-out). Read live

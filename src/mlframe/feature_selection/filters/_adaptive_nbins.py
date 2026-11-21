@@ -335,7 +335,7 @@ def edges_mah(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.ndarra
 def edges_fayyad_irani(
     x: np.ndarray, y: np.ndarray, *, max_depth: int = 8, min_split_size: int = 5, backend: str = "njit", scaled_min_split: bool = False,
     max_y_classes: int = 64, fast_mode: bool = False, alpha: float = 0.05, n_permutations: int = 15, bonferroni: bool = False,
-    validated_seed: int = 0, y_pseudo_classes: int = 16,
+    validated_seed: int = 0, y_pseudo_classes: int = 16, presorted: "tuple[np.ndarray, np.ndarray] | None" = None,
 ) -> np.ndarray:
     """Fayyad-Irani MDLP supervised edges. Flags forwarded:
 
@@ -370,6 +370,7 @@ def edges_fayyad_irani(
         bonferroni: forwarded to ``mdlp_bin_edges``'s validated-splitting path (ignored when ``fast_mode=True``).
         validated_seed: forwarded to ``mdlp_bin_edges``'s validated-splitting path (ignored when ``fast_mode=True``).
         y_pseudo_classes: pseudo-class count for a target above ``max_y_classes`` distinct values (default 16; see ``mdlp_bin_edges``).
+        presorted: ``(x_sorted, y_sorted)`` of the finite rows when the caller already sorted the column (forwarded to ``mdlp_bin_edges``, which then skips its own sort).
 
     Returns:
         1-D double array of the finite inner cut points (outer boundaries dropped); empty when no split was accepted.
@@ -377,7 +378,7 @@ def edges_fayyad_irani(
     full_edges = mdlp_bin_edges(
         np.asarray(x), np.asarray(y), max_depth=max_depth, min_split_size=min_split_size, backend=backend, scaled_min_split=scaled_min_split,
         max_y_classes=max_y_classes, fast_mode=fast_mode, alpha=alpha, n_permutations=n_permutations, bonferroni=bonferroni,
-        validated_seed=validated_seed, y_pseudo_classes=y_pseudo_classes,
+        validated_seed=validated_seed, y_pseudo_classes=y_pseudo_classes, presorted=presorted,
     )
     if full_edges.size <= 2:
         return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
@@ -751,9 +752,9 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
         return np.asarray(X[:, j].astype(np.float64, copy=False))  # Intentional float64: per-column float64 view consumed by the statistic loop
 
     for j in range(n_features):
-        col = _col_of(j)
         _col_cache_key = None
         if _cache is not None:
+            col = _col_of(j)  # only the cache key reads the column here; phase 2 makes it again for the columns that miss
             try:
                 from mlframe.utils.disk_cache import hash_array_content, compose_key
 

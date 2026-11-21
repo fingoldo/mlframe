@@ -52,6 +52,7 @@ from typing import Any, Optional
 from collections.abc import Sequence
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 import pandas as pd
 
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
@@ -276,7 +277,7 @@ def generate_modular_features(
 
     for emitted in map_on_edge_pool(_one_column, cols):  # independent columns on the edge-jobs pool, folded in column order
         out.update(emitted)
-    return pd.DataFrame(out, index=X.index)
+    return fe_frame_from_columns(out, X.index)
 
 
 def modular_candidate_block(X: pd.DataFrame, num_cols: Sequence[str], periods: Sequence[float]) -> "tuple[list[str], np.ndarray]":

@@ -35,3 +35,39 @@ def _safe_code_dtype(n_bins: int, dtype: type, reserve_nan_slot: bool = False) -
         if top_code <= np.iinfo(cand).max:
             return cand
     return np.int64
+
+
+_CODE_DTYPES = (np.int8, np.uint8, np.int16, np.int32, np.int64)
+
+
+def narrowest_code_dtype(lo: int, hi: int) -> "type | None":
+    """The narrowest of int8 / uint8 / int16 / int32 / int64 that holds every integer in ``[lo, hi]`` (signed int8 first, so codes up to 127 keep the layout they always had); ``None`` when none does."""
+    for cand in _CODE_DTYPES:
+        info = np.iinfo(cand)
+        if info.min <= lo and hi <= info.max:
+            return cand
+    return None
+
+
+def append_code_columns(data: np.ndarray, new: np.ndarray) -> np.ndarray:
+    """``data`` with the code columns ``new`` appended, never wrapping a value: ``astype(data.dtype)`` turned a code of 128 into -128 on int8 data and a -1 into 255 on uint8 data, silently.
+
+    When ``new`` has a value outside the range of ``data.dtype`` the result takes the narrowest integer dtype that holds both the whole range of ``data.dtype`` and the values of ``new``; otherwise the result keeps ``data.dtype``.
+    A non-integer ``data`` or ``new`` falls back to the plain ``np.append`` cast to ``data.dtype``."""
+    new = np.asarray(new)
+    if new.ndim == 1:
+        new = new[:, None]
+    if data.dtype.kind not in "iu" or new.dtype.kind not in "iub":
+        return np.append(data, new.astype(data.dtype, copy=False), axis=1)
+    target = data.dtype
+    if new.size:
+        lo, hi = int(new.min()), int(new.max())
+        info = np.iinfo(data.dtype)
+        if lo < info.min or hi > info.max:
+            widened = narrowest_code_dtype(min(lo, int(info.min)), max(hi, int(info.max)))
+            target = np.dtype(widened if widened is not None else np.int64)
+            logger.warning(
+                "append_code_columns: %d new column(s) hold codes in [%d, %d], outside %s; the %d x %d code matrix (%.0f MB) is widened to %s (%.0f MB)",
+                int(new.shape[1]), lo, hi, data.dtype.name, int(data.shape[0]), int(data.shape[1]), data.nbytes / 1e6, target.name, data.size * target.itemsize / 1e6,
+            )
+    return np.concatenate((data, new), axis=1, dtype=target, casting="unsafe")

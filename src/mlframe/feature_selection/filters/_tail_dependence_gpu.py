@@ -24,7 +24,7 @@ from typing import Any, Optional
 import numpy as np
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
-from ._device_sort_safe import device_argsort, device_room, sort_room
+from ._device_sort_safe import device_argsort, device_room, sort_room, device_exclusive
 from ._kernel_types import render
 from ._ktc_fallback import host_device_sweep, rows_fallback
 from ._raw_module_cache import RawModuleCache
@@ -160,6 +160,7 @@ def _slice_counts(cols_rows: Any, c0: int, block: int, resident: bool, packed: b
     return _block_counts_packed(cp, part, vflag, n, hi, lo) if packed else _block_counts_chain(cp, part, v_d, n, hi, lo)
 
 
+@device_exclusive
 def tail_dependence_columns_device(cols_rows: Any, v: np.ndarray, q: float) -> Optional[np.ndarray]:
     """Floored tail dependence of every row of ``cols_rows`` ``(k, n)`` against the rank-uniformised target ``v``, as the host kernel gives it; ``None`` when the device cannot take it.
 

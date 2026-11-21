@@ -436,6 +436,10 @@ def _cuda_kernel_warp_factory(ft=np.float64):  # Intentional float64: the usabil
         return None
 
     _warp_mean_sums, _warp_centered_sums = _warp_pass_helpers(ft)
+    # the cache key of the kernel below hashes its closure cells, the two device helpers among them: pin their ids (and those of the device functions they reach) so the key is the same in every process
+    from ._numba_stable_keys import pin_dispatcher_uuids
+
+    pin_dispatcher_uuids(_warp_mean_sums, _warp_centered_sums, tag=np.dtype(ft).name)
 
     @_nb_cuda.jit(cache=True)
     def _kernel_warp(y, operand_matrix, pair_a, pair_b, form_ids, eps, cv2, out):
@@ -646,13 +650,17 @@ def _required_gpu_bytes(operand_matrix: np.ndarray, n_pairs: int, n_forms: int) 
 
 
 def _try_blocked_backend(
-    y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray, force_backend: "str | None"
+    y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray, force_backend: "str | None", limit_divisor: int = 1
 ) -> "tuple[np.ndarray, str] | None":
-    """The whole operand matrix does not fit the card: stream it in operand blocks when at least two columns fit (``(table, "cuda_warp_blocked")``), else ``None`` for the CPU backend."""
+    """The whole operand matrix does not fit the card: stream it in operand blocks when at least two columns fit (``(table, "cuda_warp_blocked")``), else ``None`` for the CPU backend.
+
+    ``limit_divisor`` shrinks the operand block (a retry after the host ran out of memory for the gather of a block): at least two operands per block stay."""
     n_pairs, n_forms = int(pair_a.shape[0]), int(form_ids.shape[0])
     n_used = int(np.unique(np.concatenate([np.asarray(pair_a), np.asarray(pair_b)])).shape[0])
     row_bytes = int(operand_matrix.shape[1]) * int(operand_matrix.dtype.itemsize)
     limit = operand_block_limit(n_used, row_bytes, n_forms * 8 * max(1, n_pairs // max(1, n_used)))
+    if limit and limit_divisor > 1:
+        limit = max(2, int(limit) // int(limit_divisor))
     if limit and force_backend != "cuda":
         try:
             return batch_pair_usability_corr_cuda_warp_blocked(y, operand_matrix, pair_a, pair_b, form_ids, limit), "cuda_warp_blocked"
@@ -685,6 +693,22 @@ def _vram_verdict(
     except Exception as exc:
         logger.debug("batch_pair_usability_corr: VRAM cushion check unavailable (%s); proceeding.", exc)
         return True, None
+
+
+def _retry_blocked_after_memory_error(
+    exc: BaseException, y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray, force_backend: "str | None"
+) -> "tuple[np.ndarray, str] | None":
+    """After a CUDA failure ``exc``: when it was the host running out of memory for a gather of the operand matrix (the machine was at the edge of its RAM) the CPU backend would take minutes (160 s of a 250000 x 1000 fit, the
+    GPU idle). The device path with smaller operand blocks (1/8, then 1/64) needs a fraction of that memory: ``(table, "cuda_warp_blocked")`` from the first size that completes, ``None`` for any other failure or when no size
+    completes (the caller then gives the work to the CPU)."""
+    if not isinstance(exc, MemoryError):
+        return None
+    for divisor in (8, 64):
+        retry = _try_blocked_backend(y, operand_matrix, pair_a, pair_b, form_ids, force_backend, limit_divisor=divisor)
+        if retry is not None:
+            logger.warning("batch_pair_usability_corr: the CUDA backend ran out of host memory; completed on the device with operand blocks 1/%d the size", divisor)
+            return retry
+    return None
 
 
 def _dispatch_batch_pair_usability_corr_uncached(
@@ -773,6 +797,9 @@ def _dispatch_batch_pair_usability_corr_uncached(
                 type(exc).__name__,
                 exc,
             )
+            retry = _retry_blocked_after_memory_error(exc, y, operand_matrix, pair_a, pair_b, form_ids, force_backend)
+            if retry is not None:
+                return retry
 
     # y/operand_matrix keep the CALLER's dtype (mirrors batch_pair_tail_concentration_rankaware's
     # "caller already applied _crit_np_dtype()" contract) instead of force-upcasting to float64 -

@@ -37,6 +37,7 @@ import logging
 from typing import Callable, Iterable, Iterator, Optional, Sequence
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
@@ -449,7 +450,7 @@ def generate_mi_greedy_features(
             continue
         out_cols[name] = arr
         parsed.append((src_cols, tname))
-    return pd.DataFrame(out_cols, index=X.index), parsed
+    return fe_frame_from_columns(out_cols, X.index), parsed
 
 def _greedy_score_and_select(
     raw_X: pd.DataFrame,

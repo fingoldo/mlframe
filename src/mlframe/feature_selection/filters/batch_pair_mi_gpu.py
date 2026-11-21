@@ -476,6 +476,10 @@ class _PairMiDispatch:
     def _forced_cuda(self) -> tuple[np.ndarray, str] | None:
         """A forced CUDA request: the full-upload kernel when it fits VRAM, with the shared-fused / row-chunked fallbacks."""
         if not self.vram_ok:
+            # the int32 row-major upload is what does not fit; the feature-major kernel moves bytes and streams column blocks itself (about 20x the row-chunked kernel per pair)
+            fm = self.try_feature_major()
+            if fm is not None:
+                return fm
             return self.try_row_chunked("forced CUDA backend requested but full upload does not fit VRAM")
         fm = self.try_feature_major()
         if fm is not None:
@@ -538,6 +542,10 @@ class _PairMiDispatch:
     def _tuned_cuda(self) -> tuple[np.ndarray, str] | None:
         """The size-heuristic CUDA pick: the full-upload kernel when it fits VRAM, with the shared-fused / row-chunked fallbacks."""
         if not self.vram_ok:
+            # the int32 row-major upload is what does not fit; the feature-major kernel moves bytes and streams column blocks itself (about 20x the row-chunked kernel per pair)
+            fm = self.try_feature_major()
+            if fm is not None:
+                return fm
             return self.try_row_chunked("size-heuristic picked CUDA but full upload does not fit VRAM")
         fm = self.try_feature_major()
         if fm is not None:

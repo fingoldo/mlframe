@@ -33,6 +33,7 @@ import re
 from typing import Any
 
 import numpy as np
+from numba import njit
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 
 from ._safe_scale import standardise
@@ -59,8 +60,41 @@ def _gpu_usability_on() -> bool:
         return False
 
 
+@njit(cache=True, nogil=True)
+def _finite_std_kernel(v: np.ndarray) -> float:
+    """Population standard deviation of the finite entries of the 1-D float array ``v`` in two passes (double accumulators, no copy of the column); 0.0 when none is finite."""
+    count = 0
+    total = 0.0
+    for i in range(v.shape[0]):
+        x = v[i]
+        if np.isfinite(x):
+            count += 1
+            total += x
+    if count == 0:
+        return 0.0
+    mean = total / count
+    sq = 0.0
+    for i in range(v.shape[0]):
+        x = v[i]
+        if np.isfinite(x):
+            d = x - mean
+            sq += d * d
+    return float(np.sqrt(sq / count))
+
+
 def _finite_std(values: np.ndarray) -> float:
-    """Standard deviation over the finite entries of ``values``; 0.0 for a column with none, so it never poisons a sort key with NaN."""
+    """Standard deviation over the finite entries of ``values``; 0.0 for a column with none, so it never poisons a sort key with NaN.
+
+    One compiled pass over the native float column without the interpreter lock (the numpy form, ``_finite_std_numpy``, copies the column to double, builds the finite mask and a masked copy:
+    about 1 ms a column, 100 columns on the serial tail)."""
+    arr = np.asarray(values)
+    if arr.ndim == 1 and arr.dtype in (np.float32, np.float64):
+        return float(_finite_std_kernel(np.ascontiguousarray(arr)))
+    return _finite_std_numpy(values)
+
+
+def _finite_std_numpy(values: np.ndarray) -> float:
+    """The numpy form of :func:`_finite_std` (its reference, and the route of a non-float column)."""
     v = np.asarray(values, dtype=np.float64)  # Intentional float64: ranking statistic
     v = v[np.isfinite(v)]
     return float(v.std()) if v.size else 0.0

@@ -291,10 +291,10 @@ extern "C" __global__ void binagg_oof_gather_multi(const unsigned long long* __r
 _OOF_GATHER_MULTI_KERNELS: dict = {}
 
 
-def kernel_oof_gather_multi(cp, out_dtype):
-    """``binagg_oof_gather_multi`` for the output type ``out_dtype`` (float32 or double): every column of the OOF block in one launch, each column reading its own stat table through its own row index
+def kernel_oof_gather_multi(cp, real):
+    """``binagg_oof_gather_multi`` for the output type ``real`` (float32 or double): every column of the OOF block in one launch, each column reading its own stat table through its own row index
     (compile point of the launch and of the register-pressure registry)."""
-    key = cp.dtype(out_dtype).name
+    key = cp.dtype(real).name
     with _OOF_GATHER_INTO_KERNELS_LOCK:
         kern = _OOF_GATHER_MULTI_KERNELS.get(key)
         if kern is None:
