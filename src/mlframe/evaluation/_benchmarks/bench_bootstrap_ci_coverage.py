@@ -22,8 +22,9 @@ must probe the skewed regime, not pad the count with near-symmetric cells):
 Run:
     python -m mlframe.evaluation._benchmarks.bench_bootstrap_ci_coverage
 
-Verdict (recorded in tests/perf/results/_quality_loop_log.md): BCa is closer to nominal on the MAJORITY
-of (scenario x seed) cells -> flip the default ``method`` to "bca"; else honest REJECT.
+The verdict rule was "flip the default method to bca if BCa is closer to nominal on the majority of (scenario x seed)
+cells". bootstrap_metric already defaults to "bca", so the flip is in place; the iteration log is
+tests/perf/results/_loop_iter_log.md (audit 07-F7).
 """
 from __future__ import annotations
 

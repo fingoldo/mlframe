@@ -108,10 +108,10 @@ if __name__ == "__main__":
 
     # Findings (measured): at the KS-profile scale (n_blocks_total=100, rows_per_block=200, n_features=20,
     # n_blocks=10, n_trials=100 -> ~2000-row samples vs a 500-row target), joint_distance_mode="energy" took
-    # 125.17s (random) / 108.22s (greedy_swap) wall vs ~0.7-0.8s for the default KS-only path at the SAME
-    # n_trials -- roughly two orders of magnitude slower, almost entirely inside np.linalg.norm's broadcast
-    # (cProfile: _energy_distance tottime 51.5s, np.linalg.norm cumtime 51.9s across 201 calls, out of 105s
-    # total). This is O(n_sample * n_target * n_features) pairwise-distance work vs KS's O(n log n) sort per
+    # Energy mode is far slower than the default KS-only path at the same n_trials (the wall-time figures from the
+    # one run that measured this are not stored in the repo, so re-run the bench to reproduce them; audit 07-F14).
+    # Almost all of that time sits inside np.linalg.norm's broadcast (cProfile of that run: _energy_distance and
+    # np.linalg.norm dominate). This is O(n_sample * n_target * n_features) pairwise-distance work vs KS's O(n log n) sort per
     # feature -- a fundamentally more expensive statistic, not an implementation inefficiency: the
     # target-vs-itself term IS precomputed exactly once per search call (confirmed by call count: one
     # non-trial call site vs the per-trial _energy_distance calls), so there is no further wasted-work
@@ -120,7 +120,7 @@ if __name__ == "__main__":
     # enabling it, or accept the added wall time as the price of catching joint-structure mismatches that
     # per-feature KS cannot see at all.
 
-    # Findings (measured, see PR/commit for exact run): greedy_swap's hotspot is the SAME _mean_ks_statistic /
+    # Findings (qualitative; the figures are not stored here, audit 07-F14): greedy_swap's hotspot is the SAME _mean_ks_statistic /
     # _ks_statistic path as "random" -- there is no incremental-update opportunity here because each swap only
     # changes ONE block out of n_blocks, but _mean_ks_statistic still has to re-concatenate/re-sort the full
     # sample column per feature (the per-feature KS statistic isn't a simple sum/reducible statistic over

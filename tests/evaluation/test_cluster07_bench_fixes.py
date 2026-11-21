@@ -52,3 +52,14 @@ def test_coverage_run_refuses_to_report_when_trials_fail(monkeypatch):
     monkeypatch.setattr(coverage, "bootstrap_metric", always_fails)
     with pytest.raises(RuntimeError, match="bootstrap trials failed"):
         coverage.run_scenario("t", draw, lambda a, b: 0.5, 0.5, seed=1, n_sample=10, n_trials=4, n_bootstrap=5)
+
+
+def test_stratify_bench_times_the_production_book():
+    """The bench's rebuild is the production helper's book: a list of per-class index arrays with sizes and offsets."""
+    from mlframe.evaluation._benchmarks import bench_stratify_groups_cache as stratify_bench
+
+    strat = np.array([0, 1, 1, 0, 2, 2, 2], dtype=np.int64)
+    groups_list, class_sizes, class_offsets, total_n = stratify_bench._rebuild(strat)
+    assert [g.tolist() for g in groups_list] == [[0, 3], [1, 2], [4, 5, 6]]
+    assert class_sizes.tolist() == [2, 2, 3] and total_n == 7
+    assert class_offsets.tolist() == [0, 2, 4, 7]

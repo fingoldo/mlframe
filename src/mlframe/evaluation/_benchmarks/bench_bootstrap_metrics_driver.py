@@ -48,8 +48,10 @@ def build_kwargs(y_true, y_f64, p_f64):
     )
 
 
-def run_once(y_true, y_f64, p_f64, n_bootstrap=1000, seed=12345):
-    kw = build_kwargs(y_true, y_f64, p_f64)
+def run_once(y_true, y_f64, p_f64, n_bootstrap=1000, seed=12345, kw=None):
+    """One bootstrap_metrics call. Pass ``kw`` built once outside the timer, so the resampler setup is not in the figure (audit 07-F13)."""
+    if kw is None:
+        kw = build_kwargs(y_true, y_f64, p_f64)
     return bootstrap_metrics(
         y_f64, p_f64, kw["metric_fns"], n_bootstrap=n_bootstrap, alpha=0.05,
         stratify=y_true, random_state=seed,
@@ -60,11 +62,12 @@ def run_once(y_true, y_f64, p_f64, n_bootstrap=1000, seed=12345):
 
 def bench(n, reps=5, n_bootstrap=1000):
     y_true, y_f64, p_f64 = build_inputs(n)
-    run_once(y_true, y_f64, p_f64, n_bootstrap=min(50, n_bootstrap))  # warm numba
+    kw = build_kwargs(y_true, y_f64, p_f64)
+    run_once(y_true, y_f64, p_f64, n_bootstrap=min(50, n_bootstrap), kw=kw)  # warm numba
     times = []
     for _ in range(reps):
         t0 = time.perf_counter()
-        res = run_once(y_true, y_f64, p_f64, n_bootstrap=n_bootstrap)
+        res = run_once(y_true, y_f64, p_f64, n_bootstrap=n_bootstrap, kw=kw)
         times.append(time.perf_counter() - t0)
     return median(times), res
 

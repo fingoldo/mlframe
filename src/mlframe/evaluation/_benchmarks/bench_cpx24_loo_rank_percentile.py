@@ -74,14 +74,10 @@ def bench_loo(n, max_n=2000):
 
 
 # ---------------- (2) rankdata x3 sharing feasibility ----------------
-def bench_rank(n_pos, n_neg, ties=False):
+def bench_rank(n_pos, n_neg):
     rng = np.random.default_rng(1)
-    if ties:
-        x = rng.integers(0, 10, size=n_pos).astype(float)
-        y = rng.integers(0, 10, size=n_neg).astype(float)
-    else:
-        x = rng.standard_normal(n_pos)
-        y = rng.standard_normal(n_neg)
+    x = rng.standard_normal(n_pos)
+    y = rng.standard_normal(n_neg)
 
     def old3():
         ranks_all = stats.rankdata(np.concatenate([x, y]), method="average")
