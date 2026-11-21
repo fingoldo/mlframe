@@ -867,3 +867,5 @@
 | 36-F8 | DEFERRED | Stage-2 is trained on OOF meta-features but predicts from full-refit ones, a train/serve skew in the stacking design. Fixing it changes the stacker's method, an owner decision. |
 | 34-F7 | FIXED | Under 50 valid rows the spec still passes unscored, but now logs a WARNING naming the spec and row count (test_cluster34_discovery_silent_skips_are_logged) |
 | 34-F8 | FIXED | Residual-std probe failure logged at WARNING with base and transform (test_cluster34_discovery_silent_skips_are_logged) |
+| 34-F5 | FIXED | Negative train/val/test positions are wrapped by len(df) and bounds-checked before the overlap test (test_cluster34_negative_indices_are_positions) |
+| 34-F6 | FIXED | Docstring corrected: the holdout X_remaining is not the in-screen dedup/carry-masked set, so the two stamped numbers are not directly comparable. Feature-set alignment not implemented (design change). |

@@ -122,6 +122,8 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 40-F7 | 40_training-9.md | FIXED | Scaling copies before the block write. Test test_cluster40_scaling_does_not_mutate_input.py. |
 | 34-F7 | 34_training-3.md | FIXED | Spec under 50 valid rows passes the RMSE gate unscored; now logs WARNING naming spec and row count. Test test_cluster34_discovery_silent_skips_are_logged.py. |
 | 34-F8 | 34_training-3.md | FIXED | Residual-std probe failure logged at DEBUG; now WARNING with base and transform. Test test_cluster34_discovery_silent_skips_are_logged.py. |
+| 34-F5 | 34_training-3.md | FIXED | Negative train/test positions were not bounds-checked or normalised before the overlap test; now wrapped by len(df) and checked. Test test_cluster34_negative_indices_are_positions.py. |
+| 34-F6 | 34_training-3.md | FIXED | Holdout docstring claimed the same quantity as in-screen MI; now states the feature sets differ. Feature-set alignment not implemented. |
 | 40-F9 | 40_training-9.md | FIXED | All-null categorical maps to unknown code at predict. Test test_cluster40_all_null_categorical_predicts.py. |
 | 40-F10 | 40_training-9.md | FIXED | Unequal hidden_layers refused at construction (default choice; per-layer sizes not supported by the builder). Test test_cluster40_ranker_refuses_unequal_hidden_layers.py. |
 | 40-F15 | 40_training-9.md | FIXED | Entity-time module refuses an unaligned split (test test_cluster40_entity_time_refuses_unaligned_split.py). Latent-SVD, MA no-group path and nearest-past-join still open. |

@@ -10,11 +10,14 @@ The cure is a fresh holdout the discovery never touched: ``_fit.py`` carves
 ``honest_holdout_frac`` of the train rows out BEFORE screening (so the screening
 sample, FDR gate, tiny-rerank, multi-base promotion and opt-in steps all consume
 only the disjoint screening pool), and this module RE-SCORES only the FINAL
-selected spec(s) on the holdout -- recomputing the exact same
-``MI(T, X_remaining) - MI(y, X_remaining)`` quantity that ``eval_one_transform``
-computed in-screen, but on rows no selection decision ever saw. The result is an
-honest, materially less biased generalisation gain, stamped onto each spec
-alongside (NOT replacing) the in-screen ``mi_gain``.
+selected spec(s) on the holdout -- recomputing ``MI(T, X_remaining) - MI(y, X_remaining)``
+on rows no selection decision ever saw. The feature set is NOT identical to the
+in-screen one: the holdout keeps every usable feature except the base's parents,
+while in-screen ``X_remaining`` is also de-duplicated (near-collinear drop) and
+loses base-carrying columns. So the honest number and the in-screen ``mi_gain``
+are not directly comparable (audit 34-F6). The result is an honest, materially
+less biased generalisation gain, stamped onto each spec alongside (NOT replacing)
+the in-screen ``mi_gain``.
 
 100GB-frame rule: the holdout is referenced by INDEX (a row-index slice of
 ``train_idx``); only the narrow per-column gathers on those holdout rows are
