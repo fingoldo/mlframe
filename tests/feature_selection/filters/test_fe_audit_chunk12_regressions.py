@@ -108,9 +108,11 @@ def test_fused_entropy_force_scopes_overlap_restore_env(monkeypatch):
     fb._force_fused_enter()
     fb._force_fused_enter()
     fb._force_fused_exit()
-    assert os.environ[fb._FORCE_ENV] == "1"
+    forced = os.environ.get(fb._FORCE_ENV) == "1"
+    assert forced, f"{fb._FORCE_ENV} is not '1' while forced"
     fb._force_fused_exit()
-    assert fb._FORCE_ENV not in os.environ
+    unset = fb._FORCE_ENV not in os.environ
+    assert unset, f"{fb._FORCE_ENV} left set after the last exit"
 
 
 def test_fused_entropy_backend_selection_failure_warns(monkeypatch, caplog):

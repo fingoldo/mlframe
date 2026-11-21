@@ -108,7 +108,8 @@ def test_cmi_sweep_host_concurrent_calls_restore_env(monkeypatch):
     state["thread"].join(5)
     import os
 
-    assert "MLFRAME_CMI_GPU" not in os.environ and "MLFRAME_FE_GPU_STRICT" not in os.environ
+    leaked = [name for name in ("MLFRAME_CMI_GPU", "MLFRAME_FE_GPU_STRICT") if name in os.environ]
+    assert not leaked, f"env flags left set after the sweep: {leaked}"
 
 
 def test_qbin_gpu_failure_warns(monkeypatch, caplog):
