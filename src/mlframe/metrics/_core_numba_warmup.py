@@ -51,25 +51,29 @@ def numba_warmup() -> None:
     _y_pred_NK = _np.array([[0.1, 0.9], [0.4, 0.6]], dtype=_np.float64)
     _y_true_NK = _np.array([[0, 1], [1, 0]], dtype=_np.int8)
     _desc_idx_NK = _np.ascontiguousarray(_np.argsort(-_y_pred_NK, axis=0).astype(_np.int64))
-    try:
-        _cb_logits_to_probs_binary_seq(_logits1)
-        _cb_logits_to_probs_binary_par(_logits1)
-        _cb_logits_to_probs_multiclass_seq(_logits2)
-        _cb_logits_to_probs_multiclass_par(_logits2)
-        # Both dispatch targets of _ice_kernel_dispatch need a warm compile -- the serial variant
-        # is what small/realistic (N, K) calls actually hit (see _ICE_KERNEL_PARALLEL_MIN_TOTAL_WORK).
-        _batch_per_class_ice_kernel(
-            _y_true_NK, _y_pred_NK, _desc_idx_NK, 10, True,
-            3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0, 0.0,
-        )
-        _batch_per_class_ice_kernel_serial(
-            _y_true_NK, _y_pred_NK, _desc_idx_NK, 10, True,
-            3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0, 0.0,
-        )
-    except Exception as _exc:
-        # Warmup is best-effort; if a kernel signature mismatches a future
-        # numba version, the next-suite cold compile will still recover.
-        logger.debug("numba_warmup: skipped kernel due to %s", _exc)
+    # Each kernel has its own guard (audit 25-F39): the old single try meant one signature mismatch skipped the other five compiles.
+    # Both dispatch targets of _ice_kernel_dispatch need a warm compile -- the serial variant is what small/realistic (N, K) calls
+    # actually hit (see _ICE_KERNEL_PARALLEL_MIN_TOTAL_WORK).
+    warmups = (
+        ("_cb_logits_to_probs_binary_seq", lambda: _cb_logits_to_probs_binary_seq(_logits1)),
+        ("_cb_logits_to_probs_binary_par", lambda: _cb_logits_to_probs_binary_par(_logits1)),
+        ("_cb_logits_to_probs_multiclass_seq", lambda: _cb_logits_to_probs_multiclass_seq(_logits2)),
+        ("_cb_logits_to_probs_multiclass_par", lambda: _cb_logits_to_probs_multiclass_par(_logits2)),
+        (
+            "_batch_per_class_ice_kernel",
+            lambda: _batch_per_class_ice_kernel(_y_true_NK, _y_pred_NK, _desc_idx_NK, 10, True, 3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0, 0.0),
+        ),
+        (
+            "_batch_per_class_ice_kernel_serial",
+            lambda: _batch_per_class_ice_kernel_serial(_y_true_NK, _y_pred_NK, _desc_idx_NK, 10, True, 3.0, 2.0, 0.8, 1.5, 0.1, 0.54, 0.0, 0.0),
+        ),
+    )
+    for kernel_name, warm in warmups:
+        try:
+            warm()
+        except Exception as _exc:  # noqa: PERF203 - per-kernel isolation is the point: one kernel failing must not skip the others
+            # Warmup is best-effort; if a kernel signature mismatches a future numba version, the next-suite cold compile still recovers.
+            logger.debug("numba_warmup: skipped %s due to %s", kernel_name, _exc)
 
 
 def _assert_numba_nogil_active() -> bool:
@@ -822,9 +826,9 @@ def _prewarm_numba_cach_skip_heavy(_skip_heavy):
             if module_available("shap"):
                 try:
                     import shap
-                    import shap.utils.transformers
-                    # Match the runtime monkeypatch so prewarm leaves shap in the state the suite expects.
-                    shap.utils.transformers.is_transformers_lm = lambda model: False
+                    import shap.utils.transformers  # noqa: F401 - the import is the warmup
+                    # The import is the warmup. The is_transformers_lm patch is NOT applied here: it replaced a function on the shared shap
+                    # module for every process that imported shap after prewarm. The SHAP use site applies it where the suite needs it (audit 25-F40).
                 except Exception as e:  # nosec B110 - optional dependency import guard
                     logger.debug("shap.utils.transformers import/monkeypatch warmup failed, skipping: %s", e)
             try:

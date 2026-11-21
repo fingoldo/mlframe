@@ -120,3 +120,8 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F12: FIXED. A class_weight key absent from the training labels is skipped at fit. Test tests/training/test_cluster28_class_weight_absent_key_skipped.py.
 - 28-F2: FIXED (test pending). The multilabel decision uses the array shape only (evaluation.py). A regression test needs the full per-class calibrator run inside a nine-argument function; no targeted helper exists yet.
 - 28-F6: FIXED. The fail-loud inf check also runs on the batched path when fix_infinities is False. Test tests/training/test_cluster28_polars_inf_guard_runs_when_not_fixing.py.
+- 28-F17: FIXED. set_label applies the fitted label encoder, so the cached Dataset matches what fit trained on. Test tests/training/test_cluster28_set_label_encodes_like_fit.py.
+- 28-F7: FIXED. save_split_artifacts rewrites every artifact (the existing-name skip is gone). Test tests/training/test_cluster28_split_artifacts_rewritten.py.
+- 28-F11: FIXED. The auto-wrap switch is carried on the control config the training loop reads (set by _build_control_config), so False is honoured. Test tests/training/test_cluster28_wrap_flag_reaches_control.py.
+- 28-F14: FIXED. An existing bundle that cannot be read raises instead of falling back to an unverified reopen. Test tests/training/test_cluster28_unreadable_bundle_raises.py.
+- 28-F16: FIXED (test pending). Validation cache hit re-applies init_score (lgb_shim). A test needs a full cached fit through fit(); not yet written.

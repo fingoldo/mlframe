@@ -1,3 +1,5 @@
+"""Regression tests for the audit findings in this module."""
+import pytest
 """Audit 2026-11-20 finding 40-F7: preparing a dataset does not scale the caller's feature array in place."""
 
 from types import SimpleNamespace
@@ -5,6 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 
+pytest.importorskip("lightning")
 from mlframe.training.neural._recurrent_wrappers import RecurrentClassifierWrapper
 
 

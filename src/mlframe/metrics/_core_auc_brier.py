@@ -163,6 +163,7 @@ def reset_gpu_argsort_probe() -> None:
 
 def _argsort_desc_for_metrics(y_score: np.ndarray) -> np.ndarray:
     """Descending argsort used by every metric kernel; stable-opt-in via env, GPU-dispatched for very large N."""
+    global _GPU_ARGSORT_AVAILABLE
     if _os.environ.get("MLFRAME_METRICS_STABLE_SORT") == "1":
         return np.argsort(y_score, kind="stable")[::-1]
     n = y_score.shape[0] if hasattr(y_score, "shape") else len(y_score)
@@ -172,7 +173,10 @@ def _argsort_desc_for_metrics(y_score: np.ndarray) -> np.ndarray:
             from mlframe.feature_selection.filters import shared as _safe_sort  # local: metrics must not import the filters package at module load
             return np.asarray(cp.asnumpy(_safe_sort.device_argsort(cp.asarray(y_score))[::-1]))
         except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
-            logger.debug("GPU argsort failed, falling back to the exact CPU path: %s", e)  # GPU OOM / transient device error -> exact CPU fallback
+            # Latch the GPU path off for the rest of the process: one WARNING, then the exact CPU path on every call, with no retry
+            # of a device that has already failed (audit 25-F41). Reset with the availability cache.
+            _GPU_ARGSORT_AVAILABLE = False
+            logger.warning("GPU argsort failed (%s); falling back to the exact CPU path for the rest of this process", e)
     if n >= _PAR_BUCKET_ARGSORT_MIN_N:
         return _argsort_desc_par_bucket(y_score)
     return np.argsort(y_score)[::-1]
@@ -705,8 +709,11 @@ def fast_roc_curve(y_true: np.ndarray, y_score: np.ndarray, *, sample_weight: np
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
     y_score = np.ascontiguousarray(y_score, dtype=np.float64)
-    # sklearn treats the positive class as ``y_true == 1``; normalise to {0.0, 1.0} so {-1,1} / bool inputs match.
-    y_true = np.ascontiguousarray(np.asarray(y_true) == 1, dtype=np.float64)
+    # Same label rule as fast_roc_auc (the larger of two labels is positive, as sklearn does), so the curve and the AUC agree on {1, 2} and
+    # {-1, 1} inputs. A NaN score would sort first and corrupt the curve, so refuse it as sklearn does (audit 25-F33).
+    y_true = np.ascontiguousarray(_binary_labels_01(y_true), dtype=np.float64)
+    if _has_nan_score(np.asarray(y_score)):
+        raise ValueError("fast_roc_curve: y_score contains NaN; sklearn refuses it and so does this curve")
     _check_equal_length(y_true, y_score)
 
     n = y_score.shape[0]

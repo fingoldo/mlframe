@@ -44,7 +44,7 @@ __all__ = [
 
 # Named families this oracle uses. Kept explicit so the disjointness assertion has something to compare
 # against, and so a reader can see at a glance that none of them is the arms' binned-MI backend.
-ORACLE_ESTIMATORS: Tuple[str, ...] = ("exact_conditional_entropy", "equal_width_plugin", "miller_madow", "chao_shen")
+ORACLE_ESTIMATORS: Tuple[str, ...] = ("exact_conditional_entropy", "equal_width_plugin", "miller_madow", "coverage_adjusted_plugin")
 
 # Above this, the estimators disagree by more than any effect the benchmark measures, so the bundle refuses
 # to be used for a rank correlation rather than reporting a number that depends on which estimator ran.
@@ -168,7 +168,7 @@ def _miller_madow(column: np.ndarray, labels: np.ndarray, n_bins: int) -> float:
     return float(plugin + correction)
 
 
-def _chao_shen(column: np.ndarray, labels: np.ndarray, n_bins: int) -> float:
+def _coverage_adjusted_plugin(column: np.ndarray, labels: np.ndarray, n_bins: int) -> float:
     """Coverage-adjusted MI: the plug-in scaled by the Chao-Shen sample-coverage estimate.
 
     A third family rather than a third tuning of the same one -- the point of the bundle is disagreement
@@ -245,7 +245,7 @@ def reference_mi(
             for n_bins in bin_counts
         ]
         estimates.append(MIEstimate(value=_miller_madow(values, labels, 10), estimator="miller_madow", n_bins=10, n_samples=int(values.size)))
-        estimates.append(MIEstimate(value=_chao_shen(values, labels, 10), estimator="chao_shen", n_bins=10, n_samples=int(values.size)))
+        estimates.append(MIEstimate(value=_coverage_adjusted_plugin(values, labels, 10), estimator="coverage_adjusted_plugin", n_bins=10, n_samples=int(values.size)))
 
         exact: Optional[MIEstimate] = None
         if true_prob is not None:

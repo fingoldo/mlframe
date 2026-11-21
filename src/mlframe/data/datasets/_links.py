@@ -265,8 +265,7 @@ def link_score(
         score = score + interaction_score(link.kind, link.interactions, link.interaction_weights, columns, n, tail_quantile=link.tail_quantile, tail_direction=link.tail_direction)
     if link.kind == "polynomial":
         score = score + np.square(score) * 0.25
-    if link.kind == "threshold":
-        score = np.where(score > 0.0, 1.0, -1.0) * np.abs(score)
+    # A threshold link needs no transform here: sign(score) * |score| is the score itself, so the law comes from the probability step below (audit 04-F17).
 
     if link.region is not None:
         # A regional effect is present inside its region and absent outside it, rather than merely weaker:

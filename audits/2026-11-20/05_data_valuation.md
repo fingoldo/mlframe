@@ -33,3 +33,7 @@ No P0 or P1 findings in this subset.
 - 05-F3: DEFERRED. benchmark-script cleanup not done in this pass; low impact
 - 05-F4: DEFERRED. benchmark-script cleanup not done in this pass; low impact
 - 05-F5: DEFERRED. benchmark-script cleanup not done in this pass; low impact
+- 05-F1: FIXED. The recursion benchmark's second arm is labelled interpreted_py and the docstring says it is the CPython body of the njit kernel, not a numpy backend (no such backend exists). Test tests/data_valuation/test_cluster05_recursion_bench_labels_the_interpreted_arm.py.
+- 05-F3: FIXED. The shared fixture's docstring is rewritten to name its consumers. Docs only.
+- 05-F5: FIXED. functools moved into the stdlib import group. Import order only.
+- 05-F6: FIXED. Smoke test imports each benchmark script and builds its fixtures at tiny sizes, so signature drift surfaces in the test run. Test tests/data_valuation/test_cluster05_benchmark_helpers_smoke.py.

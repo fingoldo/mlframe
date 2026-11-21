@@ -160,7 +160,11 @@ def _search_runs_by_name(run_name, parent_run_id, experiment_name, experiment_id
 
 
 def _start_run_with_retries(run_name, experiment_id, run_tags):
-    """Start a run, retrying transient failures; returns None once retries are exhausted and re-raises a scrubbed error for non-retryable ones."""
+    """Start a run, retrying transient failures. Once retries are exhausted, or a non-retryable error occurs, raise a scrubbed error.
+
+    Returning None on exhaustion (the old behaviour) handed the caller a run of None that failed far from the outage at ``run.info``;
+    the failure is now raised where it happens (audit 25-F26).
+    """
     nfailed = 0
     while True:
         try:
@@ -171,7 +175,7 @@ def _start_run_with_retries(run_name, experiment_id, run_tags):
             scrubbed = _strip_userinfo(e)
             if nfailed > 5:
                 logger.error("mlflow.start_run failed after %d retries: %s", nfailed, scrubbed, exc_info=_scrubbed_exc_info(e))
-                return None
+                raise RuntimeError(f"mlflow.start_run failed after {nfailed} retries: {scrubbed}") from None
             if "already active" in str(e):
                 active = mlflow.active_run()
                 if active is not None:

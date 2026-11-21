@@ -76,7 +76,8 @@ def _fit_fold_model(model_instance: Any, pipeline_cls: Any, X_train: Any, X_test
             if "eval_fraction" in generated_params:
                 model_instance.fit(X_train, y_train, est__plot=plot)  # eval_fraction splits WITHIN train; the test fold stays out (audit 25-F15)
             else:
-                model_instance.fit(X_train, y_train, est__eval_set=(X_test, y_test), est__plot=plot)
+                # Never the scored fold as eval_set: CatBoost would pick its best iteration on the rows the OOS score is measured on (audit 25-F30).
+                model_instance.fit(X_train, y_train, est__plot=plot)
         else:
             if "eval_fraction" in generated_params:
                 model_instance.fit(X_train, y_train)  # eval_fraction splits WITHIN train; the test fold stays out (audit 25-F15)
@@ -84,7 +85,8 @@ def _fit_fold_model(model_instance: Any, pipeline_cls: Any, X_train: Any, X_test
                 model_instance.fit(X_train, y_train)
     else:
         if "CatBoost" in type(model_instance).__name__:
-            model_instance.fit(X_train, y_train, eval_set=(X_test, y_test), plot=plot)
+            # Fit on the training rows only, so the test fold is not used to choose the best iteration (audit 25-F30).
+            model_instance.fit(X_train, y_train, plot=plot)
         else:
             model_instance.fit(X_train, y_train)
 

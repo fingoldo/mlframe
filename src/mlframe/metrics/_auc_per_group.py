@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 from typing import Dict, Optional, Tuple
 
+from itertools import repeat
 import numpy as np
 import numba
 
@@ -104,13 +105,13 @@ def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group
         pos_counts = np.bincount(inverse, weights=y_true, minlength=len(unique_groups))
         valid_mask = (counts >= 2) & (pos_counts > 0) & (pos_counts < counts)
 
-        group_aucs: Dict[int, Tuple[float, float]] = {}
         # Emit NaN entries for all doomed groups up front -- preserves the
         # full output contract so downstream (compute_mean_aucs_per_group +
         # the >=50 % NaN warning below) sees the same dict keys as before.
+        # One C-level construction instead of a Python loop per group (audit 25-F37).
         invalid_group_ids = unique_groups[~valid_mask]
-        for gid in invalid_group_ids:
-            group_aucs[int(gid)] = (np.nan, np.nan)
+        group_aucs: Dict[int, Tuple[float, float]] = dict(zip(invalid_group_ids.astype(np.int64).tolist(), repeat((np.nan, np.nan))))
+        valid_group_aucs: Dict[int, Tuple[float, float]] = {}
 
         if valid_mask.any():
             # Mask samples belonging to valid groups only (typically 5 % of
@@ -134,7 +135,8 @@ def fast_aucs_per_group_optimized(y_true: np.ndarray, y_score: np.ndarray, group
         # are single-sample" without reading every entry.
         if group_aucs:
             n_total = len(group_aucs)
-            n_nan_roc = sum(1 for (r, _p) in group_aucs.values() if np.isnan(r))
+            # Every invalid group is NaN; only the valid groups can carry a NaN of their own, so count those alone (audit 25-F37).
+            n_nan_roc = len(invalid_group_ids) + sum(1 for (r, _p) in valid_group_aucs.values() if np.isnan(r))
             if n_nan_roc and n_nan_roc * 2 >= n_total:
                 import logging as _logging
                 _logging.getLogger(__name__).warning(

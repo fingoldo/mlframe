@@ -21,6 +21,7 @@ Run:
   python -m mlframe.training.composite._benchmarks.bench_conformal_normalized_vs_absolute
 """
 
+import zlib
 import json
 import os
 
@@ -97,7 +98,7 @@ def run(alpha=0.1, n_cal=2000, n_eval=4000, seeds=(0, 1, 2, 3, 4)):
     rows = []
     for sc in scenarios:
         for seed in seeds:
-            rng = np.random.default_rng(1000 * seed + hash(sc) % 997)
+            rng = np.random.default_rng(1000 * seed + zlib.crc32(sc.encode()) % 997)
             _xc, yhc, yc = _make_scenario(sc, n_cal, rng)
             xe, the, ye = _make_scenario(sc, n_eval, rng)
             res_c = yc - yhc

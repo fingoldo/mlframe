@@ -222,7 +222,8 @@ def plot_search_state(
 
     axMain.scatter(next_cand, new_y, color="red", marker="D", label="Next candidate")
 
-    axMain.set_title(f"Iteration #{nsteps}, mode={mode} {additional_info}, best={best_evaluation:.6f}@{best_candidate:_}")
+    best_text = "None" if best_candidate is None else f"{best_candidate:_}"  # None until a finite evaluation exists (audit 25-F32)
+    axMain.set_title(f"Iteration #{nsteps}, mode={mode} {additional_info}, best={best_evaluation:.6f}@{best_text}")
     axMain.legend(loc=legend_location)
     # Non-blocking show: ``plt.show()`` (default block=True) made the Qt
     # window MODAL, freezing the optimisation loop until the user closed

@@ -37,15 +37,19 @@ if __name__ == "__main__":
     ci_ser = _ci(r_ser)
     print(f"serial (n_jobs=1): {t_ser:.1f}s  " + "  ".join(f"{k}=[{lo:.5f},{hi:.5f}]" for k, (lo, hi) in ci_ser.items()))
 
-    # seed-to-seed MC variability of the SERIAL path (the reference for "statistically equivalent")
-    alt = _ci(bootstrap_metrics(**_build(43), n_jobs=1))
-    mc_ref = {k: (abs(alt[k][0] - ci_ser[k][0]), abs(alt[k][1] - ci_ser[k][1])) for k in ci_ser}
+    # seed-to-seed MC variability of the SERIAL path (the reference for "statistically equivalent"). Several alternate seeds, so one
+    # unlucky seed does not set the bar; the worst of them does (audit 07-F6).
+    alts = [_ci(bootstrap_metrics(**_build(seed), n_jobs=1)) for seed in (43, 44, 45, 46)]
+    mc_ref = {k: (max(abs(alt[k][0] - ci_ser[k][0]) for alt in alts), max(abs(alt[k][1] - ci_ser[k][1]) for alt in alts)) for k in ci_ser}
+    failures: list[str] = []
 
     for nj in (4, 8, 16):
         t = time.perf_counter(); r_par = bootstrap_metrics(**_build(42), n_jobs=nj); t_par = time.perf_counter() - t
         ci_par = _ci(r_par)
         drift = {k: (abs(ci_par[k][0] - ci_ser[k][0]), abs(ci_par[k][1] - ci_ser[k][1])) for k in ci_ser}
         ok = all(max(drift[k]) <= 3 * max(mc_ref[k]) + 1e-9 for k in ci_ser)
+        if not ok:
+            failures.append(f"parallel x{nj} drifts beyond 3x the seed-to-seed spread")
         print(f"parallel x{nj:<2}: {t_par:.1f}s  speedup {t_ser/t_par:.1f}x  "
               + "  ".join(f"{k}:drift={max(drift[k]):.2e}(mc {max(mc_ref[k]):.2e})" for k in ci_ser)
               + f"  {'OK' if ok else 'CHECK'}")
@@ -57,3 +61,8 @@ if __name__ == "__main__":
     same_repro = all(np.allclose(a[k], b[k]) for k in a)
     same_workers = all(np.allclose(a[k], c[k]) for k in a)
     print(f"reproducible (x8 twice): {same_repro}   worker-count-independent (x8 vs x4): {same_workers}")
+    if not (same_repro and same_workers):
+        failures.append("reproducibility or worker-count independence failed")
+    if failures:
+        # A CHECK must fail the run, not only print (audit 07-F6).
+        raise SystemExit("bench_bootstrap_metrics_parallel: " + "; ".join(failures))

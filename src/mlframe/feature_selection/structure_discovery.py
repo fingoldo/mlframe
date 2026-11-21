@@ -216,6 +216,19 @@ def _modular_kind(op: str, modulus: int) -> str:
     return "modular"
 
 
+def _modular_op_text(op: str, cols: tuple) -> str:
+    """The operand expression for a modular op, written with its symbol: ``a - b`` for diff, not ``a diff b`` (audit 25-F22).
+
+    Shared by the live detector and the recipe report, so a fit that found ``a - b mod 7`` reads the same from either path.
+    """
+    if op == "self":
+        return str(cols[0])
+    symbols = {"sum": " + ", "sum3": " + ", "diff": " - ", "prod": " * "}
+    if op in symbols:
+        return symbols[op].join(cols)
+    return " ? ".join(cols)
+
+
 def _modular_relations(X, y, names_ok, nbins, seed, max_int_cols, n_perm):
     """Run the cheap modular scan (``(a+b) mod m`` / parity / hidden period) over the integer-eligible columns and
     turn every ``responded`` hit into a :class:`DiscoveredRelation`, escalating to the best modulus found and
@@ -236,8 +249,7 @@ def _modular_relations(X, y, names_ok, nbins, seed, max_int_cols, n_perm):
         lift = _lift(best_mi, h.baseline_mi)
         cols = tuple(str(c) for c in h.cols)
         pval = _modulus_search_pvalue(X, y, h, best_mi, nbins, n_perm, seed)
-        opdesc = {"self": cols[0], "sum": " + ".join(cols), "diff": " - ".join(cols),
-                  "prod": " * ".join(cols), "sum3": " + ".join(cols)}.get(h.op, " ? ".join(cols))
+        opdesc = _modular_op_text(h.op, cols)
         desc = f"y depends on ({opdesc}) mod {best_m}  [{kind}, MI {best_mi:.3f}, lift {_fmt_lift(lift)}{_fmt_p(pval, n_perm)}]"
         out.append(DiscoveredRelation(kind, cols, float(best_m), float(best_mi), float(h.baseline_mi), lift, desc, pval))
     return out
@@ -399,23 +411,30 @@ def discover_structure(
     include = tuple(include)
     n_perm = int(significance_n_perm)
     relations: list[DiscoveredRelation] = []
-    try:
-        if "modular" in include:
-            relations += _modular_relations(X, yb, names, nbins, seed, max_int_cols, n_perm)
-        if "lattice" in include:
-            relations += _lattice_relations(X, yb, names, nbins, seed, max_int_cols, n_perm)
-        if "argmax" in include:
-            relations += _argmax_relations(X, yb, names, nbins, seed, n_perm)
-        if "gate" in include:
-            relations += _gate_relations(X, yb, names, nbins, seed, n_perm)
-    except Exception as exc:  # pragma: no cover - best-effort: a detector failure must not break the EDA call
-        logger.warning("discover_structure: detector raised (%s); returning partial report", exc)
+    families = (
+        ("modular", lambda: _modular_relations(X, yb, names, nbins, seed, max_int_cols, n_perm)),
+        ("lattice", lambda: _lattice_relations(X, yb, names, nbins, seed, max_int_cols, n_perm)),
+        ("argmax", lambda: _argmax_relations(X, yb, names, nbins, seed, n_perm)),
+        ("gate", lambda: _gate_relations(X, yb, names, nbins, seed, n_perm)),
+    )
+    # Each family runs under its own guard, so one failing detector does not skip the others, and a failed family is named in the
+    # report rather than making an empty result look like "nothing found" (audit 25-F21).
+    failed: list[str] = []
+    for family, build in families:
+        if family not in include:
+            continue
+        try:
+            relations += build()
+        except Exception as exc:  # best-effort: a detector failure must not break the EDA call
+            failed.append(family)
+            logger.warning("discover_structure: %s detector raised (%s); the other families still run", family, exc)
 
     relations.sort(key=lambda r: (r.mi, r.lift if np.isfinite(r.lift) else 1e18), reverse=True)
     return StructureReport(
         relations=relations[: int(top_k)],
         n_columns=n_columns,
         n_integer_columns=int(n_int),
+        skipped=("failed detector famil" + ("y" if len(failed) == 1 else "ies") + ": " + ", ".join(failed)) if failed else None,
     )
 
 
@@ -434,7 +453,7 @@ def structure_report_from_recipes(recipes: Sequence[Any], *, n_columns: int = 0)
         if kind == "pairwise_modular":
             op, m = str(extra.get("op", "")), int(extra.get("modulus", 0) or 0)
             fine = _modular_kind(op, m) if m else "modular"
-            opdesc = " ".join(cols) if op == "self" else f" {op} ".join(cols)
+            opdesc = _modular_op_text(op, cols)
             desc = f"y depends on ({opdesc}) mod {m}  [{fine}]"
             relations.append(DiscoveredRelation(fine, cols, float(m), float("nan"), float("nan"), float("nan"), desc))
         elif kind == "pairwise_integer_lattice":

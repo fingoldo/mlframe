@@ -45,3 +45,8 @@ Scope: the 25 `.py` files plus `__init__.py` in `src/mlframe/calibration/_benchm
 - 01-F11: DEFERRED. not changed in the P2/P3 pass yet; benchmark-only, low impact
 - 01-F13: DEFERRED. not changed in the P2/P3 pass yet; benchmark-only, low impact
 - 01-F3: WON'T FIX. Production keeps the np.unique + per-bin scan. probabilities.py:292-298 records a bench of this exact argsort/contiguous variant: bit-identical but 0.43x (n=1e6, n_bins=10: 96ms old vs 220-223ms). Porting it would slow the default path.
+- 01-F1: FIXED. Bench groups are derived from the same codes that index the bias multiplier (bench_group_bias_correction). Bench-only; verified by reading, no test.
+- 01-F2: FIXED. Bench seeds use zlib.crc32 instead of salted hash() (bench_ece_nbins). Bench-only; verified by reading, no test.
+- 01-F4: DEFERRED. Bench re-implements the ECI histogram and entropy instead of calling the shipped function. Bench-only rewrite; deferred.
+- 01-F6: DEFERRED. Bench draws labels with a per-row Python loop (performance only). Bench-only; deferred.
+- 01-F8: DEFERRED. Bench verdict rests on a parallel-vs-serial comparison that needs re-measuring. Bench-only; deferred.

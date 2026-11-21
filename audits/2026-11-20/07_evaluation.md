@@ -46,3 +46,17 @@ Scope: 24 files under `src/mlframe/evaluation/_benchmarks/` from `audits/2026-11
 - 07-F12: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
 - 07-F13: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
 - 07-F14: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 07-F1: FIXED. The docstring names _two_sided_t and its lru_cache thrash, not the nonexistent uncached norm.ppf. Docs only; the bench is cost-only.
+- 07-F2: FIXED. The dead argsort and empty rank array are removed from _fast_auc; ranks are still rankdata. Test tests/evaluation/test_cluster07_bench_fixes.py.
+- 07-F3: FIXED. Failed bootstrap trials are logged at WARNING and counted, and a run with more than 5% failures raises instead of reporting coverage over the survivors. Test tests/evaluation/test_cluster07_bench_fixes.py.
+- 07-F4: FIXED. Only the constructed leak is swallowed; any other ValueError from the guard propagates. Test tests/evaluation/test_cluster07_bench_fixes.py.
+- 07-F6: FIXED. The parallel bench raises SystemExit when a parallel run drifts or reproducibility fails, and derives its tolerance from four alternate seeds instead of one. Script-level check; the exit path is exercised by the bench, not a unit test.
+- 07-F5: FIXED. The stratify bench times the production _stratified_class_book (the same helper bootstrap_metric calls). Test tests/evaluation/test_cluster07_bench_fixes.py::test_stratify_bench_times_the_production_book.
+- 07-F7: FIXED. The docstring names the real iteration log and drops the flip instruction, which is already in place. Docs only.
+- 07-F8: FIXED. The DeLong bench reads samples directly, so a missing key raises instead of silently crediting bootstrap. Bench-only, no unit test.
+- 07-F9: FIXED. One condition feeds both win counters. Bench-only, no unit test.
+- 07-F10: PARTIAL. The no-op numba import is removed. The cupy pin is kept on purpose to force the CPU bootstrap path, so moving it is a behaviour change to decide separately.
+- 07-F11: FIXED. The unused ties branch of bench_rank is removed. Bench-only, no unit test.
+- 07-F12: FIXED. The bench is labelled cost-only in the code that builds the identical variants.
+- 07-F13: FIXED. run_once takes kwargs built once outside the timer, so the median excludes resampler setup. Bench-only, no unit test.
+- 07-F14: FIXED. The unverifiable timings in the code comments are replaced with a note that they are not stored and need a re-run. Comments only.

@@ -1,5 +1,8 @@
+"""Regression tests for the audit findings in this module."""
+import pytest
 """Audit 2026-11-20 finding 40-F3: multi-target regression monitors RMSE, not the classification metric ICE."""
 
+pytest.importorskip("lightning")
 from mlframe.training.neural.base._base_fit_steps import _metric_branch_for
 
 

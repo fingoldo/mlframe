@@ -249,9 +249,14 @@ class _PerClassIsotonicCalibrator:
 
         calibrators: dict = {}
         for k in range(K):
+            # Alignment unknown: calibrating column k against a guessed label would calibrate the wrong column, so it stays identity (audit 26-F31).
+            if is_exclusive and col_labels is None:
+                calibrators[k] = None
+                continue
             # Per-class binary target
             if is_exclusive:
-                y_k = (y == (col_labels[k] if col_labels is not None else k)).astype(_np.int8)
+                assert col_labels is not None  # the branch above continues when the labels cannot be aligned
+                y_k = (y == col_labels[k]).astype(_np.int8)
             else:
                 # Multilabel: y is (N, K)
                 y_k = y[:, k].astype(_np.int8)

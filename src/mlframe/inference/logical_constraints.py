@@ -155,9 +155,10 @@ def apply_logical_constraints(
     -------
     np.ndarray
         A copy of ``preds`` with, for every violating row and rule, the child/parent columns swapped (hard)
-        or blended (soft). Rules are applied in order and the pass is repeated until nothing changes, so a
-        chain such as tier3->tier2, tier2->tier1 ends consistent whatever order it is declared in (a single
-        pass can leave it violated: the later swap undoes the earlier one).
+        or blended (soft). In hard mode the ordered pass is repeated until nothing changes, so a chain such as
+        tier3->tier2, tier2->tier1 ends consistent whatever order it is declared in (a single pass can leave it
+        violated: the later swap undoes the earlier one). Soft mode is ONE ordered pass with no fixpoint, so a
+        chain can stay violated after it (audit 25-F27).
 
     Notes
     -----

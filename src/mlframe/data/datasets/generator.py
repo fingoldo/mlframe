@@ -254,7 +254,9 @@ def generate(spec: DatasetSpec, target_name: Optional[str] = None) -> GeneratedD
     if caveat:
         caveats.append(caveat)
     requested, achieved = calibration["requested"], calibration["achieved_auc"]
-    if requested is not None and achieved is not None and abs(float(achieved) - float(requested)) > 0.01:
+    # The caveat threshold is the spec's own ceiling tolerance, not a hard-coded 0.01 that ignored it (audit 04-F16).
+    _tolerance = float(target.calibrate_to.tolerance) if target.calibrate_to is not None else 0.005
+    if requested is not None and achieved is not None and abs(float(achieved) - float(requested)) > _tolerance:
         caveats.append(f"requested ceiling AUC {float(requested):.3f} was not reachable; achieved {float(achieved):.3f}")
     # A latent that drives the target and that no column reflects is part of the Bayes probability but not of anything an
     # arm can observe, so the reported Bayes AUC overstates what the columns can reach. Say so where the number is read.

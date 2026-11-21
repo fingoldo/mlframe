@@ -80,7 +80,8 @@ def id_trap_spec(n_noise: int = 25, n_samples: int = 6000, ceiling: float = 0.80
     The identifier is declared as a probe. There is no edge from it to the target, because there is no
     relationship; a method that selects it has recorded a false positive of the most expensive kind.
     """
-    identifier = FeatureSpec(name="row_id", family="uniform", params={"low": 0.0, "high": 1.0e6}, dtype="int", standardize=False)
+    # A permutation (family "id"): every row gets a distinct value. A uniform draw on 0..1e6 repeats values (about 18 pairs at 6000 rows) (audit 04-F20).
+    identifier = FeatureSpec(name="row_id", family="id", dtype="int", standardize=False)
     informative = tuple(FeatureSpec(name=f"s{i}") for i in range(4))
     weights = {f"s{i}": float(1.1 * (0.8**i)) for i in range(4)}
     return DatasetSpec(

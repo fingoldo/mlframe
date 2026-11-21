@@ -73,6 +73,9 @@ _GPU_BATCH_THRESHOLD_M: int = 5
 
 # Sentinels: None = unchecked, True/False = cached result.
 _GPU_AVAILABLE: Optional[bool] = None
+# The kernel tuning cache, loaded once per process: every RMSE call used to re-read it (audit 25-F36). A failed load is not cached,
+# so it is retried on the next call, as before.
+_KERNEL_TUNING_CACHE: Any = None
 
 # numba.cuda used by the RMSE fast-path; cupy ReductionKernel stays as fallback when
 # numba CUDA isn't usable (no toolkit, mismatched runtime, etc.).
@@ -326,9 +329,7 @@ def gpu_multiple_rmse_scores(actual: Any, predicted: Any) -> Any:
         # back to 256 when the cache helper is unavailable or no entry
         # exists for the live HW yet.
         try:
-            from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
-
-            _cache = KernelTuningCache.load_or_create()
+            _cache = _load_kernel_tuning_cache()
             _choice = _cache.lookup(
                 "rmse_partial_sum",
                 n_samples=int(N),
@@ -395,6 +396,16 @@ def _fractional_ranks_block(cp: Any, predicted: Any, order: Any) -> Any:
     return ranks_flat.reshape(b, n).T
 
 
+def _load_kernel_tuning_cache() -> Any:
+    """The process-wide KernelTuningCache, loaded on first use (audit 25-F36)."""
+    global _KERNEL_TUNING_CACHE
+    if _KERNEL_TUNING_CACHE is None:
+        from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
+
+        _KERNEL_TUNING_CACHE = KernelTuningCache.load_or_create()
+    return _KERNEL_TUNING_CACHE
+
+
 def gpu_multiple_roc_auc_scores(actual: Any, predicted: Any) -> Any:
     """Vectorized ROC AUC across columns on GPU (cupy), tie-correct.
 
@@ -443,6 +454,9 @@ def gpu_multiple_roc_auc_scores(actual: Any, predicted: Any) -> Any:
         ranks[:, c0:c1] = _fractional_ranks_block(cp, predicted[:, c0:c1], order[:, c0:c1])
 
     aucs = (cp.sum(ranks[actual == 1, :], axis=0) - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg)
+    # A column whose scores hold a NaN has no defined AUC: NaN, as the CPU batch path reports it, instead of an order-dependent number (audit 25-F34).
+    nan_columns = cp.isnan(predicted).any(axis=0)
+    aucs = cp.where(nan_columns, cp.nan, aucs)
     return aucs
 
 

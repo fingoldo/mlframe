@@ -131,3 +131,27 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 28-F12 | 28_root_modules-7.md | FIXED | Absent class_weight key skipped. Test test_cluster28_class_weight_absent_key_skipped.py. |
 | 28-F2 | 28_root_modules-7.md | FIXED (test pending) | Multilabel decided from shape only; no targeted test yet (needs full calibrator run). |
 | 28-F6 | 28_root_modules-7.md | FIXED | Inf guard runs on the batched path. Test test_cluster28_polars_inf_guard_runs_when_not_fixing.py. |
+| 28-F17 | 28_root_modules-7.md | FIXED | set_label applies the fitted label encoder. Test test_cluster28_set_label_encodes_like_fit.py. |
+| 28-F7 | 28_root_modules-7.md | FIXED | Split artifacts always rewritten. Test test_cluster28_split_artifacts_rewritten.py. |
+| 28-F11 | 28_root_modules-7.md | FIXED | Auto-wrap switch carried on the control config. Test test_cluster28_wrap_flag_reaches_control.py. |
+| 28-F14 | 28_root_modules-7.md | FIXED | Unreadable existing bundle raises. Test test_cluster28_unreadable_bundle_raises.py. |
+| 28-F16 | 28_root_modules-7.md | FIXED (test pending) | Validation cache hit re-applies init_score. Needs a full cached fit to test. |
+| 01-F1 | 01_calibration.md | FIXED | Bench groups from the bias-index codes. Bench-only, no test. |
+| 01-F2 | 01_calibration.md | FIXED | Bench seeds via zlib.crc32. Bench-only, no test. |
+| 01-F4 | 01_calibration.md | DEFERRED | Bench re-implements shipped ECI code. Bench-only rewrite. |
+| 01-F6 | 01_calibration.md | DEFERRED | Bench per-row label loop (perf). Bench-only. |
+| 01-F8 | 01_calibration.md | DEFERRED | Bench verdict needs re-measuring. Bench-only. |
+| 02-F1 | 02_competition.md | FIXED | Wall time from an un-profiled call. Bench-only. |
+| 02-F2 | 02_competition.md | DEFERRED | Bench-only group, not read. |
+| 02-F3 | 02_competition.md | DEFERRED | Bench-only group, not read. |
+| 03-F1 | 03_core.md | DEFERRED | Bench-only perf. |
+| 03-F2 | 03_core.md | DEFERRED | Bench-only; production covered by test. |
+| 03-F3 | 03_core.md | FIXED | Production parallel-vs-serial test passing (test_robust_mean_parallel_matches_serial.py). |
+| 04-F25 | 04_data.md | FIXED | SAPP shape-then-loc/scale. Test test_cluster04_sapp_shape_then_loc_scale.py. |
+| 04-F20 | 04_data.md | FIXED | id_trap row_id is a permutation; test asserts exact uniqueness. |
+| 04-F23 | 04_data.md | FIXED | Coerced non-numeric counted in notes. Test test_cluster04_sapp_args_and_coerce.py (passing). |
+| 04-F17 | 04_data.md | FIXED | No-op threshold line removed (behaviour identical). Existing link tests pass. |
+| 04-F16 | 04_data.md | FIXED | Caveat threshold from the spec's ceiling tolerance. Test test_cluster04_ceiling_tolerance_drives_caveat.py. |
+| 04-F18 | 04_data.md | FIXED | Renamed to coverage_adjusted_plugin. Test test_cluster04_oracle_estimator_names_are_honest.py. |
+| 04-F15 | 04_data.md | DEFERRED | Allowlisted exploration helper with a wrong body; intent needs confirming. |
+| 04-F21 | 04_data.md | FIXED | Probes keep donor missingness. Test test_cluster04_probe_keeps_donor_missingness.py. |

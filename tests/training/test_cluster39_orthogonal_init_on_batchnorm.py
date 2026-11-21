@@ -1,8 +1,11 @@
+"""Regression tests for the audit findings in this module."""
+import pytest
 """Audit 2026-11-20 finding 39-F54: an orthogonal initialiser applied to a BatchNorm model does not crash on the 1-D gamma."""
 
 import torch
 from torch import nn
 
+pytest.importorskip("lightning")
 from mlframe.training.neural._flat_generate_helpers import _generate_mlp_weights_init_fcn
 
 
