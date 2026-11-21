@@ -1,8 +1,11 @@
+"""Regression tests for the audit findings in this module."""
+import pytest
 """Audit 2026-11-20 finding 40-F9: an all-null categorical column at fit does not crash predict; every row maps to the unknown code."""
 
 import numpy as np
 import pandas as pd
 
+pytest.importorskip("lightning")
 from mlframe.training.neural.base._base_fit_prep import _FitPrepMixin
 
 

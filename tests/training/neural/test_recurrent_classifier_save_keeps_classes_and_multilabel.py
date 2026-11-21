@@ -1,6 +1,9 @@
+"""Regression tests for the audit findings in this module."""
+import pytest
 """A saved recurrent classifier keeps its label mapping and multilabel flag across save() and load() (audit 2026-11-20, finding 40-F1)."""
 import numpy as np
 
+pytest.importorskip("lightning")
 from mlframe.training.neural._recurrent_config import InputMode, RecurrentConfig
 from mlframe.training.neural.recurrent import RecurrentClassifierWrapper, RecurrentTorchModel
 

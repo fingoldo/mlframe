@@ -1,3 +1,5 @@
+"""Regression tests for the audit findings in this module."""
+import pytest
 """Audit 2026-11-20 finding 39-F67: the L1 norm-parameter exclusion is not stored on the module, so a pickle cannot carry stale ids."""
 
 import pickle
@@ -5,6 +7,7 @@ import pickle
 import torch
 from torch import nn
 
+pytest.importorskip("lightning")
 from mlframe.training.neural._flat_torch_module import MLPTorchModel
 
 

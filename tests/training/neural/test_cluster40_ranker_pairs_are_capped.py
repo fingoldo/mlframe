@@ -1,7 +1,10 @@
+"""Regression tests for the audit findings in this module."""
+import pytest
 """Audit 2026-11-20 finding 40-F11: the precomputed ranking pairs are capped per query, like the loss, and stay valid pairs."""
 
 import torch
 
+pytest.importorskip("lightning")
 from mlframe.training.neural.ranker import _cap_pair_indices
 
 
