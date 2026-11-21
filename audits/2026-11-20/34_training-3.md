@@ -63,3 +63,7 @@ Scope: the 88 files in `audits/2026-11-20/manifests/34_training-3.txt` under wor
 - 34-F8: FIXED. Residual-std probe failure logged at WARNING with base and transform (test_cluster34_discovery_silent_skips_are_logged)
 - 34-F5: FIXED. Negative train/val/test positions are wrapped by len(df) and bounds-checked before the overlap test (test_cluster34_negative_indices_are_positions)
 - 34-F6: FIXED. Docstring corrected: the holdout X_remaining is not the in-screen dedup/carry-masked set, so the two stamped numbers are not directly comparable. Feature-set alignment not implemented (design change).
+- 34-F1: FIXED. Trailing mean skips NaN and divides by the finite count (commit 9c32cf0b1). Test tests/training/test_cluster34_trailing_mean_nan.py.
+- 34-F2: FIXED. Hints dropped by the finite filter are removed before slots and before the return (commit 9c32cf0b1). Test test_cluster34_auto_base_mrmr_and_collinear.py.
+- 34-F3: FIXED. Demoted candidates ranked after the MRMR pass, outside the relevance scale (commit 9c32cf0b1). Test test_cluster34_auto_base_mrmr_and_collinear.py.
+- 34-F4: FIXED. Collinear replay re-checks every column exactly (commit 9c32cf0b1). Test test_cluster34_auto_base_mrmr_and_collinear.py.
