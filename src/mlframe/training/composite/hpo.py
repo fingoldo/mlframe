@@ -386,6 +386,9 @@ def _resolve_splits(
     n_splits = int(cv) if isinstance(cv, (int, np.integer)) else 5
     if n_splits < 2:
         n_splits = 2
+    if n_splits > n_rows:
+        # More folds than rows gives empty test folds, which score inf for every candidate and return an arbitrary winner (audit 36-F6).
+        raise ValueError(f"optimize_composite: cv={n_splits} folds need at least {n_splits} rows, got {n_rows}")
 
     if time_ordering is not None:
         order = np.argsort(np.asarray(time_ordering), kind="stable")
