@@ -657,7 +657,7 @@ def _stash_prescreen_universe(self, _prescreen, original_features, X, y, verbose
         if getattr(self, "prescreen_nested", True):
             self._prescreen_full_features = list(original_features)
         _kept = _apply_prescreen(
-            self, X=X, y=y, candidate_features=original_features, verbose=verbose,
+            self, X=X, y=y, candidate_features=original_features,
         )
         if len(_kept) > 0 and list(_kept) != list(original_features):
             if verbose:
