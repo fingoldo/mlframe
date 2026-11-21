@@ -829,3 +829,4 @@
 | 29-F17 | FIXED | The numba cache dependency scan reads 'from . import b' as a dependency on b, as well as 'from .b import x'. Test tests/utils/test_cluster29_numba_guard_sees_bare_package_imports.py. |
 | 29-F16 | FIXED | The cuBLAS probe failure is logged once per process, so the library lookup no longer runs on every matmul check after a failed probe. Test tests/utils/test_cluster29_cublas_failure_logs_once.py. |
 | 29-F23 | FIXED | preprocess_glue and preprocess_sglue copy the frame before renaming duplicate models, so the caller's Model column is unchanged. Test tests/votenrank/test_cluster29_glue_preprocess_keeps_caller_frame.py (glue path; the sglue path is the same change). |
+| 29-F19 | FIXED | The bare asserts in geometric_weight_blend are explicit ValueErrors naming the cause (all restarts non-finite, or alpha missing). Test tests/votenrank/test_cluster29_geometric_blend_refuses_nan_loss.py. |
