@@ -82,3 +82,4 @@ Grep-only verification: `pyproject.toml:13` (requires-python), callers of `creat
 - 29-F26: FIXED. The fingerprint width is the reshaped matrix width, so a 3-D input reports the width its statistics use. Test tests/utils/test_cluster29_param_oracle_width_is_the_stat_width.py.
 - 29-F10: FIXED. put catches any pickling failure, removes its temp file and logs at WARNING, so an unpicklable value neither raises nor leaves an unreclaimable tmp_ file. Test tests/utils/test_cluster29_disk_cache_unpicklable_value.py.
 - 29-F17: FIXED. The numba cache dependency scan reads 'from . import b' as a dependency on b, as well as 'from .b import x'. Test tests/utils/test_cluster29_numba_guard_sees_bare_package_imports.py.
+- 29-F16: FIXED. The cuBLAS probe failure is logged once per process, so the library lookup no longer runs on every matmul check after a failed probe. Test tests/utils/test_cluster29_cublas_failure_logs_once.py.
