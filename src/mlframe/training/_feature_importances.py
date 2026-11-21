@@ -774,11 +774,12 @@ def _non_native_importances(model, X, y, nn_fi_method, sample_weight):
             # Captum unavailable -> try CUDA-batched permutation when
             # n_features justifies the warmup amortisation.
             _n_feats = _net_X.shape[1] if _net_X is not None and hasattr(_net_X, "shape") and len(_net_X.shape) == 2 else None
-            if net is not None and _n_feats is not None and _n_feats >= _CUDA_PERM_MIN_FEATURES:
+            # The CUDA kernel scores with an unweighted R2, so a weighted fit must not use it (audit 27-F7).
+            if net is not None and _n_feats is not None and _n_feats >= _CUDA_PERM_MIN_FEATURES and sample_weight is None:
                 feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, _net_X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
             if feature_importances is None:
                 feature_importances, feature_importances_std = _permutation_feature_importances(model, X, y, return_std=True, sample_weight=sample_weight)  # type: ignore[misc]  # return_std=True always returns the tuple form
-    elif nn_fi_method == "permutation_cuda" and net is not None and X is not None and y is not None:
+    elif nn_fi_method == "permutation_cuda" and net is not None and X is not None and y is not None and sample_weight is None:
         feature_importances, feature_importances_std = _cuda_batched_permutation_importance(net, _net_X, y, return_std=True)  # type: ignore[misc]  # return_std=True always returns the tuple form
         if feature_importances is None:
             logger.info("CUDA-batched FI unavailable; falling back to threading permutation.")
