@@ -516,6 +516,39 @@ def _strict_mi_keeps_float32(X: Any) -> bool:
         logger.warning("_strict_mi_keeps_float32: crit_dtype_relaxed unavailable (%s); double operand", exc)
         return False
 
+#: Device bytes the resident MI holds per element of a candidate block at its peak: the block, its column-major copy and the select / sort scratch (float32 candidates; float64 ones are charged by ``itemsize``).
+_STRICT_MI_BYTES_PER_ELEMENT_FACTOR = 6
+_STRICT_MI_BUDGET_FRACTION = 0.5
+
+
+def _strict_mi_in_room_blocks(X: Any, y: Any, nbins: int, rank_binning: bool) -> Optional[np.ndarray]:
+    """The resident MI of ``X``, scored in column blocks sized from the room of the pool the thread allocates from when the whole matrix would not fit it (inside a stage slot the room is a few hundred MB): each column's
+    MI depends on that column and the labels only, so the blocks give the values of one call. A matrix that fits is scored in one call, as before; ``None`` (the caller's CPU path) when a block fails."""
+    if X.ndim < 2 or int(X.shape[1]) < 2:
+        return _strict_resident_mi(X, y, nbins, rank_binning)
+    try:
+        import cupy as cp
+
+        from .._fe_gpu_vram import pool_column_block
+
+        k = int(X.shape[1])
+        width = pool_column_block(
+            cp, int(X.shape[0]), bytes_per_column_row=_STRICT_MI_BYTES_PER_ELEMENT_FACTOR * int(X.dtype.itemsize), budget_fraction=_STRICT_MI_BUDGET_FRACTION, min_block=16, fallback=k, what="strict resident MI"
+        )
+    except Exception as exc:  # no cupy or no readable pool: one call, as before
+        logger.debug("strict resident MI: block width unknown (%r); one call", exc)
+        return _strict_resident_mi(X, y, nbins, rank_binning)
+    if width >= k:
+        return _strict_resident_mi(X, y, nbins, rank_binning)
+    parts = []
+    for c0 in range(0, k, width):
+        part = _strict_resident_mi(X[:, c0 : c0 + width], y, nbins, rank_binning)
+        if part is None:
+            return None
+        parts.append(np.asarray(part, dtype=np.float64))  # Intentional float64: MI statistic vector, as the single call returns it
+    return np.concatenate(parts)
+
+
 def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_binning: bool = False) -> np.ndarray:
     """Batch MI(X_j; y) for classification target.
 
@@ -561,7 +594,7 @@ def _mi_classif_batch(X: np.ndarray, y: np.ndarray, *, nbins: int = 10, rank_bin
             cb = _mi_classif_batch_balanced(X, y, class_w, nbins=nbins)
             if cb is not None:
                 return np.asarray(cb)
-    strict_mi = _strict_resident_mi(X, y, nbins, rank_binning)
+    strict_mi = _strict_mi_in_room_blocks(X, y, nbins, rank_binning)
     if strict_mi is not None:
         return strict_mi
     # A RESIDENT-INPUT caller (device-born matrix or the gate / row-argmax scorer that threads a resident cupy
