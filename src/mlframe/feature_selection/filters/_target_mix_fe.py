@@ -109,7 +109,9 @@ def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design
 
     Fitted on the even positions of ``X`` (at most ``scan_rows`` of them), so the held-out test of the rescue, which fits the design on the same positions, scores the candidates on the odd ones."""
     n = len(y)
+    t_bases = perf_counter()
     bases = choose_bases(design, y, max_bases, min_relative_gain=min_relative_gain)
+    record_fe_family_wall("stage:target_mix_choose_bases", perf_counter() - t_bases)
     if not bases:
         return {}, []
     train = np.arange(0, n, 2)
@@ -130,7 +132,10 @@ def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design
         if float(np.var(mixed)) < float(min_relative_gain) * float(np.var(y[train])):
             logger.debug("target-mix base %r explains all but %.5f of the target variance; second pass skipped", name, float(np.var(mixed)) / max(float(np.var(y[train])), 1e-300))
             continue
-        if not target_has_structure(X_train, mixed, scan_rows=scan_rows):
+        t_gate = perf_counter()
+        has_structure = target_has_structure(X_train, mixed, scan_rows=scan_rows)
+        record_fe_family_wall("stage:target_mix_structure_gate", perf_counter() - t_gate)
+        if not has_structure:
             logger.debug("target-mix base %r leaves no structure in T; second pass skipped", name)
             continue
         child_wall = 0.0
