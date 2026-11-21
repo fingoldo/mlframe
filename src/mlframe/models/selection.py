@@ -70,13 +70,16 @@ class GroupTimeSeriesSplit(_BaseKFold):
         u, ind = np.unique(groups, return_index=True)
         unique_groups = u[np.argsort(ind)]
         n_groups = _num_samples(unique_groups)
+        # Per-group sample indices, ascending within each group, built by one stable sort instead of a Python loop over every sample
+        # (audit 25-F31). The keys are the same group values the loop produced.
         group_dict: dict = {}
-        for idx in range(n_samples):
-            g = groups[idx]
-            if g in group_dict:
-                group_dict[g].append(idx)
-            else:
-                group_dict[g] = [idx]
+        if n_samples:
+            order = np.argsort(groups, kind="stable")
+            sorted_groups = groups[order]
+            starts = np.flatnonzero(np.concatenate(([True], sorted_groups[1:] != sorted_groups[:-1])))
+            ends = np.append(starts[1:], n_samples)
+            for start, end in zip(starts, ends):
+                group_dict[sorted_groups[start]] = order[start:end]
         if n_folds > n_groups:
             raise ValueError(f"Cannot have number of folds={n_folds} greater than" f" the number of groups={n_groups}")
         group_test_size = n_groups // n_folds
