@@ -75,3 +75,6 @@ Scope: the 88 files in `audits/2026-11-20/manifests/34_training-3.txt` under wor
 - 34-F24: FIXED. domain_check output cast to bool at both unguarded eval sites (test_cluster34_domain_mask_is_boolean)
 - 34-F22: FIXED. Duplicate logger and _UNARY_BASE_SENTINEL definitions removed; single-definition test (test_cluster34_fit_steps_single_definitions)
 - 34-F13: FIXED. Per-group loops use one stable argsort and contiguous slices; routing extracts each base column once (test_cluster34_route_extracts_base_once)
+- 34-F31: FIXED. Cap checked before appending, so a full hint list logs 0 MI candidates (test_cluster34_auto_base_log_and_wording)
+- 34-F25: FIXED. Messages now say skipping spec. Wording only; no behaviour change, so no separate test.
+- 34-F23: FIXED. Comment corrected: np.argsort places non-finite keys last. Comment only; no behaviour change, so no separate test.

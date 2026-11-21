@@ -205,11 +205,12 @@ def combine_hint_and_ranked(ranked: list, hint_kept: list[str], top_k: int) -> l
     if hint_kept:
         mi_tail: list[str] = []
         for _, c in ranked:
+            # Check the cap before appending, so a hint list that already fills top_k adds no MI candidate to the log (audit 34-F31).
+            if len(hint_kept) + len(mi_tail) >= top_k:
+                break
             if c in hint_kept:
                 continue
             mi_tail.append(c)
-            if len(hint_kept) + len(mi_tail) >= top_k:
-                break
         top = hint_kept + mi_tail
         top = top[:top_k]
         mi_lookup = {c: mi for mi, c in ranked}
