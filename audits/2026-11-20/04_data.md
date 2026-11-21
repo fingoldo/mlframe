@@ -86,3 +86,12 @@ Scope: the 42 files in `audits/2026-11-20/manifests/04_data.txt`, all read in fu
 - 04-F26: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
 - 04-F11: FIXED. Decision (default taken): the beds are approximations, not published functions; provenance now says so instead of claiming the published formula. Tests tests/data/test_cluster04_friedman_provenance_is_honest.py. Exact Friedman forms need new basis kinds (separate work).
 - 04-F13: FIXED. Graded-cardinality weights are 1/(levels-1). Test tests/data/test_cluster04_graded_cardinality_weights.py.
+- 04-F25: FIXED. SAPP passes shape parameters positionally and loc/scale by keyword. Test tests/data/test_cluster04_sapp_shape_then_loc_scale.py.
+- 04-F20: FIXED. id_trap row_id uses the permutation (id) family, so every row is distinct; the test now asserts exact uniqueness. Test tests/data/test_datasets_observation_layers.py::test_the_id_trap_column_is_unique_and_declared_irrelevant.
+- 04-F23: FIXED. Non-numeric values coerced to NaN are counted in the notes. Test in tests/data/test_cluster04_sapp_args_and_coerce.py (passing).
+- 04-F17: FIXED. Removed the no-op threshold line: sign(score)*|score| equals score, so behaviour is unchanged. Existing link tests pass (test_link_region_reaches_feature_truth.py, 2).
+- 04-F16: FIXED. The shortfall caveat uses the spec's CeilingTarget.tolerance instead of a hard-coded 0.01. Test tests/data/test_cluster04_ceiling_tolerance_drives_caveat.py.
+- 04-F18: FIXED. Renamed the coverage-adjusted plug-in estimator to coverage_adjusted_plugin (it is not Chao-Shen entropy). Test tests/data/test_cluster04_oracle_estimator_names_are_honest.py.
+- 04-F15: DEFERRED. _probability_only is an allowlisted exploration helper (tests/test_meta/test_shared_uncalled_functions.py) with a wrong body per the audit. Fixing it needs the difficulty-sweep intent confirmed; deferred.
+- 04-F21: FIXED. Probe resampling keeps the donor's missing values, so probes match the donor's missingness. Test tests/data/test_cluster04_probe_keeps_donor_missingness.py.
+- 04-F22: FIXED. Probes built into one dict and appended with a single concat; donors converted once. Values unchanged (same per-probe streams). Test tests/data/test_cluster04_probes_built_in_one_pass.py.

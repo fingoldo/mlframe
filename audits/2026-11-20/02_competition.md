@@ -35,3 +35,6 @@ P0: 0. P1: 0. P2: 3 (02-F1, 02-F2, 02-F3). P3: 3 (02-F4, 02-F5, 02-F6).
 - 02-F4: DEFERRED. benchmark-script cleanup not done in this pass; low impact
 - 02-F5: DEFERRED. benchmark-script cleanup not done in this pass; low impact
 - 02-F6: DEFERRED. benchmark-script cleanup not done in this pass; low impact
+- 02-F1: FIXED. The reported wall time comes from an un-profiled call (_cprofile_bench_shared). Bench-only; verified by reading.
+- 02-F2: DEFERRED. Bench-only group of scripts (seeding and setup); not read in this pass. Deferred to a bench pass.
+- 02-F3: DEFERRED. Bench-only group of scripts; not read in this pass. Deferred to a bench pass.

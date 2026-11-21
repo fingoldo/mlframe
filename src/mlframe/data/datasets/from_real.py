@@ -119,14 +119,21 @@ def inject_matched_probes(
     if not numeric:
         raise ValueError(f"{source!r} has no numeric column whose marginal a probe could match")
 
-    out = frame.copy()
+    # Each donor is converted once and every probe is built into one dict, then appended in a single concat: adding columns one
+    # at a time fragmented the frame's blocks (PerformanceWarning, a copy per probe) for large probe counts (audit 04-F22).
+    donors: dict[str, np.ndarray] = {}
+    probes: dict[str, np.ndarray] = {}
     probe_names: List[str] = []
     for index in range(max(0, int(n_probes))):
         donor = numeric[index % len(numeric)]
+        if donor not in donors:
+            donors[donor] = np.asarray(frame[donor].to_numpy())
         name = f"{PROBE_PREFIX}{index:04d}"
         stream = stream_for(seed, source, "matched_probe", name)
-        out[name] = _resample_column(np.asarray(frame[donor].to_numpy()), stream)
+        probes[name] = _resample_column(donors[donor], stream)
         probe_names.append(name)
+
+    out = pd.concat([frame, pd.DataFrame(probes, index=frame.index)], axis=1) if probes else frame.copy()
 
     logger.info("injected %d matched probes into %r (%d real columns)", len(probe_names), source, frame.shape[1])
     return RealBedWithProbes(
