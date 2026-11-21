@@ -826,3 +826,4 @@
 | 29-F9 | FIXED | A hash-seed request logs a WARNING that PYTHONHASHSEED only reaches child processes started afterwards and leaves this process's string hashing unchanged. Test tests/utils/test_cluster29_hash_seed_warns.py. |
 | 29-F26 | FIXED | The fingerprint width is the reshaped matrix width, so a 3-D input reports the width its statistics use. Test tests/utils/test_cluster29_param_oracle_width_is_the_stat_width.py. |
 | 29-F10 | FIXED | put catches any pickling failure, removes its temp file and logs at WARNING, so an unpicklable value neither raises nor leaves an unreclaimable tmp_ file. Test tests/utils/test_cluster29_disk_cache_unpicklable_value.py. |
+| 29-F17 | FIXED | The numba cache dependency scan reads 'from . import b' as a dependency on b, as well as 'from .b import x'. Test tests/utils/test_cluster29_numba_guard_sees_bare_package_imports.py. |
