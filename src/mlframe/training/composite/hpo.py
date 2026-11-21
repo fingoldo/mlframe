@@ -340,7 +340,9 @@ def _cv_score_candidate(
             if oof is not None:
                 oof[test_idx] = pred
         except Exception as err:  # -- penalise, don't crash search
-            logger.debug("optimize_composite: candidate %r/%r fold failed: %r", transform_name, inner_params, err)
+            # WARNING with the exception class: a genuine bug (a TypeError in the scorer, say) used to make every candidate inf with nothing
+            # visible above DEBUG (audit 36-F5).
+            logger.warning("optimize_composite: candidate %r/%r fold failed (%s: %s)", transform_name, inner_params, type(err).__name__, err)
             fold_scores.append(float("inf"))
         if trial is not None and fold_idx < len(splits) - 1:
             running_score = float(np.mean(fold_scores))

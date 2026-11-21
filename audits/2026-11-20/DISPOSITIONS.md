@@ -861,3 +861,5 @@
 | 32-F7 | DEFERRED | Building the class universe from train alone changes how unseen validation and test labels are encoded downstream, and that encoding is not yet checked. Deferred until the encoding path is read end to end. |
 | 32-F26 | FIXED | The smoke script exits 1 when the suite raises instead of printing a pass line and returning 0. Verified by reading; the smoke run is a manual end-to-end script, not a unit test. |
 | 33-F3 | FIXED | The conformal rank rule lives in one helper (conformal_rank), used by the split, signed and online calibrations. Two further copies in conformal_classification.py and conformal_glm.py are outside the finding and are not yet changed. Tests: tests/training/composite/test_biz_val_conformal_ood.py (16 pass). |
+| 36-F5 | FIXED | A failed candidate fold logs at WARNING with the exception class, not DEBUG. Verified by reading; no unit test (the optimiser path needs a full composite fit). |
+| 36-F7 | FIXED | Imputed NaN meta-feature rows in the stacker are counted and logged at WARNING. Verified by reading; no unit test. |
