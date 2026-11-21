@@ -404,7 +404,9 @@ def _legacy_per_class_loop(probs: Any, y_true: Any, labels: Any, multilabel: boo
                 logger.info("\t class_id=%s, brier_loss=%s", class_id, f"{class_error:.{ndigits}f}")
         elif method == "precision":
             from .core import fast_precision  # lazy: import-cycle avoidance, see module top
-            class_error = fast_precision(y_true=correct_class, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0)
+            # Reported as 1 - precision so it is an error like every other method (higher is worse) and the aggregate does not move the
+            # wrong way (audit 25-F47). The value is the error of the positive predictions, not precision itself.
+            class_error = 1.0 - fast_precision(y_true=correct_class, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0)
 
         # Assign weights
 

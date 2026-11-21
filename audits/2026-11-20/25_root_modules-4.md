@@ -147,3 +147,4 @@ Method: four parallel sub-audits read every listed file fully and grepped caller
 - 25-F25: DEFERRED. Needs an owner decision on the run lifecycle: _start_run_with_retries ends the run before returning it, so the caller's handle is already closed. Removing end_run changes when runs close for every caller.
 - 25-F49: FIXED. compute_all_metrics returns {} for learning_to_rank rather than regression metrics under ranking keys. Test tests/metrics/test_cluster25_ranking_round_has_no_regression_block.py.
 - 25-F40: FIXED. Prewarm imports shap without replacing is_transformers_lm on the shared module; the SHAP use site keeps its own scoped patch. No unit test: the cold shap import is too slow for the unit suite.
+- 25-F47: FIXED. The precision method reports 1 - precision, an error like the other methods, so the aggregate moves the right way. Test tests/metrics/test_cluster25_ice_precision_is_an_error.py.
