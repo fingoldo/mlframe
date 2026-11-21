@@ -147,3 +147,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 03-F1 | 03_core.md | DEFERRED | Bench-only perf. |
 | 03-F2 | 03_core.md | DEFERRED | Bench-only; production covered by test. |
 | 03-F3 | 03_core.md | FIXED | Production parallel-vs-serial test passing (test_robust_mean_parallel_matches_serial.py). |
+| 04-F25 | 04_data.md | FIXED | SAPP shape-then-loc/scale. Test test_cluster04_sapp_shape_then_loc_scale.py. |
