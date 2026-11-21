@@ -142,6 +142,18 @@ try:
     _sel = MRMR(verbose=0, random_seed=0, n_jobs=1, **kwargs).fit(X, y)
     _sup = sorted(int(v) for v in np.asarray(getattr(_sel, 'support_', [])).ravel())
     print(f'selected {len(_sup)} columns, sum {sum(_sup)}: {_sup[:20]}', flush=True)
+    _dump = os.environ.get("RSS_DUMP_JSON", "").strip()
+    if _dump:  # the fitted state that differs between runs (which stage produced which survivor), for run-to-run diffs
+        import json
+
+        _state = {k: getattr(_sel, k, None) for k in ("support_", "feature_names_out_", "selected_features_")}
+        _prov = getattr(_sel, "fe_provenance_", None)
+        _led = getattr(_sel, "fe_rejection_ledger_", None)
+        if hasattr(_led, "to_csv"):  # the per-candidate verdicts, for the first-divergence diff of two runs
+            _led.to_csv(_dump + ".ledger.csv", index=False)
+        _state["fe_provenance_"] = _prov.to_dict("records") if hasattr(_prov, "to_dict") else repr(_prov)  # the full survivor table, not its truncated repr
+        with open(_dump, "w", encoding="utf-8") as _fh:
+            json.dump(_state, _fh, default=lambda o: o.tolist() if hasattr(o, "tolist") else repr(o), indent=1, sort_keys=True)
 except BaseException as exc:  # reported with the peak: a MemoryError at scale is the finding
     status = f"{type(exc).__name__}: {str(exc)[:120]}"
 wall = time.perf_counter() - t
