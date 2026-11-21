@@ -28,6 +28,8 @@ import re
 
 import functools
 import hashlib
+
+import numpy as np
 import logging
 import os
 import threading
@@ -328,7 +330,15 @@ class SuiteArtefactCache:
         path = self._path(key)
         try:
             value = _safe_pickle_load(path)
-        except (FileNotFoundError, OSError, EOFError, PickleVerificationError) as _exc:
+        except PickleVerificationError as _exc:
+            # A digest mismatch means the entry was altered: say so, and delete it, so it is not silently recomputed on every run (audit 28-F28).
+            logger.warning("suite artefact %s failed verification (%s); deleting the entry", key, _exc)
+            try:
+                Path(path).unlink(missing_ok=True)
+            except OSError as _unlink_exc:
+                logger.debug("could not delete the tampered entry %s: %s", path, _unlink_exc)
+            return default
+        except (FileNotFoundError, OSError, EOFError) as _exc:
             logger.debug("get fell back to its default after %s", type(_exc).__name__)
             return default
         except Exception as exc:
@@ -462,6 +472,17 @@ _DEFAULT_CACHE_LOCK = threading.Lock()
 _DEFAULT_CACHE: Optional[SuiteArtefactCache] = None
 
 
+def _arg_fingerprint(value: Any) -> str:
+    """A key fragment for one argument. Arrays and array-likes are digested from their BYTES: ``repr`` elides the middle of a large
+    array, so two different arrays with the same head and tail produced one key and the wrong artefact (audit 28-F29)."""
+    if hasattr(value, "to_numpy") or isinstance(value, np.ndarray):
+        arr = np.ascontiguousarray(value.to_numpy() if hasattr(value, "to_numpy") else value)
+        if arr.dtype.hasobject:
+            return repr(value)
+        return f"array:{arr.dtype.str}:{arr.shape}:{hashlib.blake2b(arr.tobytes(), digest_size=16).hexdigest()}"
+    return repr(value)
+
+
 def get_default_cache() -> SuiteArtefactCache:
     """Lazy process-wide singleton; honours env vars at FIRST construction.
 
@@ -515,7 +536,7 @@ def cache_artefact(
         Coarse fallback: hash the args/kwargs repr. Adequate for cheap-to-rebuild artefacts; callers needing precise content-keying provide their own builder.
         """
         try:
-            blob = _canonical_dump({"args": [repr(a) for a in args], "kwargs": {k: repr(v) for k, v in sorted(kwargs.items())}})
+            blob = _canonical_dump({"args": [_arg_fingerprint(a) for a in args], "kwargs": {k: _arg_fingerprint(v) for k, v in sorted(kwargs.items())}})
         except Exception as e:
             logger.debug("canonical dump for cache-key computation failed, falling back to repr(): %s", e)
             blob = repr((args, sorted(kwargs.items()))).encode("utf-8")

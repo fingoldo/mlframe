@@ -129,3 +129,5 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F49: FIXED. An unreadable feature-name list logs at WARNING, and the attribute read itself is inside the guard. Test tests/training/test_cluster28_probe_and_names_warn.py.
 - 28-F40: FIXED. The logging proxy raises AttributeError for its unset _inner slot instead of recursing. Test tests/training/test_cluster28_logging_proxy_and_rss.py.
 - 28-F39: FIXED. A failed post-call RSS re-read reports rss_mb and d_rss_mb as None, not as zero. Verified by reading the change; no unit test, since it needs a psutil failure mid-call.
+- 28-F28: FIXED. A digest mismatch on read logs at WARNING and deletes the entry. Test tests/training/test_cluster28_suite_cache_keys_and_tamper.py.
+- 28-F29: FIXED. The default key builder digests array and frame arguments from their bytes; repr elided the middle of large arrays. Test tests/training/test_cluster28_suite_cache_keys_and_tamper.py.
