@@ -18,6 +18,7 @@ def preprocess_glue(glue: pd.DataFrame, head: int | None = None) -> tuple[pd.Dat
     STS-B/QQP scores into separate ``_n1``/``_n2`` columns (each weighted 0.5 so the pair counts as
     one metric), and zeroes the diagnostic AX column's weight.
     """
+    glue = glue.copy()  # the dedup below rewrites the Model column; the caller's frame must keep its names (audit 29-F23)
     for model, count in glue["Model"].value_counts().items():
         if count == 1:
             break
@@ -56,6 +57,7 @@ def preprocess_sglue(sglue: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, float
     Same shape as :func:`preprocess_glue` but for SuperGLUE's CB/MultiRC/ReCoRD/AX-g composite
     columns (also NaN-safe: unlike GLUE, SuperGLUE rows can have missing "x/y" scores).
     """
+    sglue = sglue.copy()  # the same rewrite as preprocess_glue: the caller's frame keeps its names (audit 29-F23)
     for model, count in sglue["Model"].value_counts().items():
         if count == 1:
             break
