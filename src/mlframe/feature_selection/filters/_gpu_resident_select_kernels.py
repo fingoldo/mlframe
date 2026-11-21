@@ -420,6 +420,21 @@ def _get_transpose_f64_kernel():
     return _TRANSPOSE_F64_KERNEL
 
 
+def _raise_if_pool_too_small(cp, nbytes: int) -> None:
+    """Raise cupy's ``OutOfMemoryError`` at once when the current pool's limit leaves less than ``nbytes`` above what is in use: the allocation cannot succeed even after the pool frees its cached blocks, and trying it
+    costs two failed mallocs (the pool flushes its cache and retries) and a logged traceback. The callers already turn this error into their column-block path."""
+    from ._device_sort_safe import _current_pool
+    if getattr(cp, "cuda", None) is None:  # a numpy stand-in for cupy (tests)
+        return
+
+    pool = _current_pool(cp)
+    if pool is None:
+        return
+    limit = int(pool.get_limit())
+    if limit > 0 and limit - int(pool.used_bytes()) < nbytes:
+        raise cp.cuda.memory.OutOfMemoryError(nbytes, int(pool.used_bytes()))
+
+
 def _transpose_to_cm(cand_gpu):
     """Return a (K, n) C-contiguous (== column-major over the original (n,K)) copy of the row-major f32
     ``cand_gpu`` via the coalesced tiled-transpose kernel (6.9x faster than cp.ascontiguousarray(cand.T)
@@ -431,6 +446,7 @@ def _transpose_to_cm(cand_gpu):
     if (K == 1 or n == 1) and cand_gpu.flags.c_contiguous:
         # one column (or one row): the (K, n) C-order buffer has exactly the bytes of the (n, K) one, so the transpose is a view, not a copy
         return cand_gpu.reshape(K, n)
+    _raise_if_pool_too_small(cp, int(cand_gpu.nbytes))
     if cand_gpu.dtype == cp.float32 and cand_gpu.flags.c_contiguous:
         _ker, _dt = _get_transpose_f32_kernel(), cp.float32
     elif cand_gpu.dtype == cp.float64 and cand_gpu.flags.c_contiguous:  # Intentional float64: dtype dispatch selects the f64 kernel, no cast
