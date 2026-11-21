@@ -135,3 +135,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 28-F7 | 28_root_modules-7.md | FIXED | Split artifacts always rewritten. Test test_cluster28_split_artifacts_rewritten.py. |
 | 28-F11 | 28_root_modules-7.md | FIXED | Auto-wrap switch carried on the control config. Test test_cluster28_wrap_flag_reaches_control.py. |
 | 28-F14 | 28_root_modules-7.md | FIXED | Unreadable existing bundle raises. Test test_cluster28_unreadable_bundle_raises.py. |
+| 28-F16 | 28_root_modules-7.md | FIXED (test pending) | Validation cache hit re-applies init_score. Needs a full cached fit to test. |
