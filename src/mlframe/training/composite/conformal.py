@@ -39,6 +39,15 @@ import numpy as np
 from numpy.typing import ArrayLike
 
 
+def conformal_rank(n: int, alpha: float) -> Optional[int]:
+    """The 1-indexed order statistic ``ceil((n+1)(1-alpha))`` that bounds 1-alpha mass, or ``None`` when ``n`` is too small to certify it.
+
+    One place for the rule: the split, signed, and online calibrations all read it, so a change of rule cannot leave one copy behind (audit 33-F3).
+    """
+    rank = math.ceil((n + 1) * (1.0 - alpha))
+    return rank if rank <= n else None
+
+
 def conformal_quantile(residuals: np.ndarray, alpha: float) -> float:
     """Split-conformal radius: the finite-sample ``(1-alpha)`` quantile of the
     absolute residuals.
@@ -62,8 +71,8 @@ def conformal_quantile(residuals: np.ndarray, alpha: float) -> float:
     if not (0.0 < alpha < 1.0):
         raise ValueError(f"conformal alpha must be in (0, 1), got {alpha!r}")
     # 1-indexed rank of the order statistic that bounds 1-alpha mass.
-    rank = math.ceil((n + 1) * (1.0 - alpha))
-    if rank > n:
+    rank = conformal_rank(n, alpha)
+    if rank is None:
         # Not enough calibration points to certify this level at finite n.
         return float("inf")
     r_sorted = np.sort(r)
@@ -304,8 +313,8 @@ def _signed_finite_sample_quantile(scores: np.ndarray, alpha: float) -> float:
         return float("inf")
     if not (0.0 < alpha < 1.0):
         raise ValueError(f"conformal alpha must be in (0, 1), got {alpha!r}")
-    rank = math.ceil((n + 1) * (1.0 - alpha))
-    if rank > n:
+    rank = conformal_rank(n, alpha)
+    if rank is None:
         return float("inf")
     return float(np.sort(s)[rank - 1])
 
