@@ -75,6 +75,7 @@ from ._batch_kernels import (
     batch_mi_with_noise_gate_v2,
     batch_pair_mi_perm_batched,
     batch_pair_mi_prange,
+    batch_pair_mi_prange_cols,
     batch_triple_mi_perm_batched,
     batch_triple_mi_prange,
 )
@@ -127,6 +128,7 @@ __all__ = [
     "mi_or_su_from_classes",
     "batch_pair_mi_perm_batched",
     "batch_pair_mi_prange",
+    "batch_pair_mi_prange_cols",
     "batch_triple_mi_perm_batched",
     "batch_triple_mi_prange",
     "batch_mi_with_noise_gate",
