@@ -11,11 +11,13 @@ nested use cannot deadlock). The budget is ``min(3 GiB, a third of the available
 from __future__ import annotations
 
 import contextlib
+import functools
 import logging
 import os
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from typing import Any, TypeVar, cast
 
 logger = logging.getLogger(__name__)
 
@@ -103,3 +105,30 @@ def reset_host_block_budget() -> None:
     global _BUDGET
     with _BUDGET_LOCK:
         _BUDGET = None
+
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def reserves_host_block_budget(estimate: "Callable[..., int]") -> "Callable[[_F], _F]":
+    """Decorator: the call holds ``estimate(*args, **kwargs)`` bytes of the shared host block budget while it runs, so a family that builds a large frame of candidate columns does not run next to others doing the same.
+
+    ``estimate`` gets the call's own arguments and returns the bytes the call keeps alive at its peak (an upper bound is fine: a request above the whole budget runs alone)."""
+
+    def decorate(fn: _F) -> _F:
+        """Wrap ``fn``."""
+
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            """``fn`` under a reservation of its estimated bytes."""
+            try:
+                nbytes = int(estimate(*args, **kwargs))
+            except Exception as exc:  # a failing estimate must not stop the call
+                logger.debug("host block budget: estimate failed (%r); no reservation", exc)
+                nbytes = 0
+            with host_block_budget().reserve(nbytes):
+                return fn(*args, **kwargs)
+
+        return cast(_F, wrapper)
+
+    return decorate

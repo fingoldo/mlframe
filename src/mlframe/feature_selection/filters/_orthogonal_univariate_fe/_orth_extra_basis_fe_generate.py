@@ -12,9 +12,10 @@ from __future__ import annotations
 
 from ._fourier_block_host import sincos_legs
 import logging
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
+from mlframe.utils.host_block_budget import reserves_host_block_budget
 from .._fe_frame_ops import fe_frame_from_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
@@ -550,6 +551,14 @@ def _build_recipe_from_meta(name: str, meta_entry: dict):
         )
     return None
 
+def _extra_basis_peak_bytes(X: "pd.DataFrame", y: Any = None, *, cols: Any = None, subsample_n: int = 0, **_ignored: Any) -> int:
+    """Bytes the extra-basis family keeps alive at its peak: its legs for every scanned column on the decision rows (about 17 legs a column, float32 and float64 mixed, about 14 times a float64 column of the decision rows)."""
+    n_rows = int(subsample_n) if isinstance(subsample_n, int) and 0 < subsample_n < len(X) else len(X)
+    n_cols = len(cols) if cols is not None else int(X.shape[1])
+    return n_rows * n_cols * 8 * 14
+
+
+@reserves_host_block_budget(_extra_basis_peak_bytes)
 def hybrid_orth_extra_basis_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
