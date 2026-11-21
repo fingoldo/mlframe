@@ -885,3 +885,4 @@
 | 34-F25 | FIXED | Messages now say skipping spec. Wording only; no behaviour change, so no separate test. |
 | 34-F23 | FIXED | Comment corrected: np.argsort places non-finite keys last. Comment only; no behaviour change, so no separate test. |
 | 34-F19 | FIXED | Null permutes the base over the scored rows only (per column), so NaN base entries cannot enter the null (test_cluster34_base_carry_null_rows; the test is behavioural and may not fail on the old code) |
+| 34-F27 | FIXED | Shared-fold cache keys use a blake2b digest of the rows instead of 64-bit hash() (test_cluster34_fold_cache_row_digest; 13 existing shared-fold tests pass) |

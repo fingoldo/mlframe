@@ -140,6 +140,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 34-F25 | 34_training-3.md | FIXED | Skipped-spec messages said fell back to its default. Wording only. |
 | 34-F23 | 34_training-3.md | FIXED | Comment said non-finite keys sort first; they sort last. Comment only. |
 | 34-F19 | 34_training-3.md | FIXED | Carry-null permuted the whole base, so NaN base entries could fall inside the scored rows. Permutes the scored rows only. Test test_cluster34_base_carry_null_rows.py. |
+| 34-F27 | 34_training-3.md | FIXED | Shared-fold cache keyed on a 64-bit hash() of row bytes. Now a blake2b digest. Test test_cluster34_fold_cache_row_digest.py. |
 | 40-F9 | 40_training-9.md | FIXED | All-null categorical maps to unknown code at predict. Test test_cluster40_all_null_categorical_predicts.py. |
 | 40-F10 | 40_training-9.md | FIXED | Unequal hidden_layers refused at construction (default choice; per-layer sizes not supported by the builder). Test test_cluster40_ranker_refuses_unequal_hidden_layers.py. |
 | 40-F15 | 40_training-9.md | FIXED | Entity-time module refuses an unaligned split (test test_cluster40_entity_time_refuses_unaligned_split.py). Latent-SVD, MA no-group path and nearest-past-join still open. |
