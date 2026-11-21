@@ -24,18 +24,28 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 
 logger = logging.getLogger(__name__)
 
 _warmup_done = False
+_WARMUP_LOCK = threading.Lock()
 
 
 def warmup_typed_dict() -> None:
-    """Force-compile the ``unicode -> double precision`` typed.Dict method suite once."""
+    """Force-compile the ``unicode -> double precision`` typed.Dict method suite once; a second caller waits for the first one to finish instead of returning while the compile still runs."""
     global _warmup_done
     if _warmup_done or os.environ.get("MLFRAME_SKIP_NUMBA_WARMUP") == "1":
         return
-    _warmup_done = True
+    with _WARMUP_LOCK:
+        if _warmup_done:
+            return
+        _compile_typed_dict_suite()
+        _warmup_done = True
+
+
+def _compile_typed_dict_suite() -> None:
+    """The compile itself: every operation the ``screen_predictors`` caches use, on a throw-away dict."""
     try:
         import numba
         from numba.core import types
@@ -89,3 +99,22 @@ def start_background_prewarm() -> None:
             logger.debug("background numba.cuda probe failed: %r", exc)
 
     threading.Thread(target=_run, daemon=True, name="mlframe-fit-prewarm").start()
+
+
+def start_import_time_warmup() -> None:
+    """Compile the typed.Dict suite (about 5 s, not cacheable on disk) on a daemon thread started when the module is imported, so it overlaps with whatever the caller does between the import and the first fit (loading and
+    preparing the data); a fit that starts at once waits on the lock for the same time the in-fit compile took. ``MLFRAME_SKIP_NUMBA_WARMUP=1`` or ``MLFRAME_IMPORT_PREWARM=0`` turn it off."""
+    if os.environ.get("MLFRAME_SKIP_NUMBA_WARMUP") == "1" or os.environ.get("MLFRAME_IMPORT_PREWARM", "1").strip() == "0":
+        return
+
+    def _run() -> None:
+        """The compile, a failure logged and ignored (the fit compiles on first use otherwise)."""
+        try:
+            warmup_typed_dict()
+        except Exception as exc:  # nosec B110 - best effort: the first fit compiles on first use otherwise
+            logger.debug("import-time typed.Dict warmup failed: %r", exc)
+
+    threading.Thread(target=_run, daemon=True, name="mlframe-typed-dict-warmup").start()
+
+
+start_import_time_warmup()
