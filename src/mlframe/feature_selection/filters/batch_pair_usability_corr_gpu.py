@@ -695,6 +695,22 @@ def _vram_verdict(
         return True, None
 
 
+def _retry_blocked_after_memory_error(
+    exc: BaseException, y: np.ndarray, operand_matrix: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, form_ids: np.ndarray, force_backend: "str | None"
+) -> "tuple[np.ndarray, str] | None":
+    """After a CUDA failure ``exc``: when it was the host running out of memory for a gather of the operand matrix (the machine was at the edge of its RAM) the CPU backend would take minutes (160 s of a 250000 x 1000 fit, the
+    GPU idle). The device path with smaller operand blocks (1/8, then 1/64) needs a fraction of that memory: ``(table, "cuda_warp_blocked")`` from the first size that completes, ``None`` for any other failure or when no size
+    completes (the caller then gives the work to the CPU)."""
+    if not isinstance(exc, MemoryError):
+        return None
+    for divisor in (8, 64):
+        retry = _try_blocked_backend(y, operand_matrix, pair_a, pair_b, form_ids, force_backend, limit_divisor=divisor)
+        if retry is not None:
+            logger.warning("batch_pair_usability_corr: the CUDA backend ran out of host memory; completed on the device with operand blocks 1/%d the size", divisor)
+            return retry
+    return None
+
+
 def _dispatch_batch_pair_usability_corr_uncached(
     y: np.ndarray,
     operand_matrix: np.ndarray,
@@ -781,14 +797,9 @@ def _dispatch_batch_pair_usability_corr_uncached(
                 type(exc).__name__,
                 exc,
             )
-            if isinstance(exc, MemoryError):
-                # the host had no room for a gather of the operand matrix (the machine was at the edge of its RAM); the CPU backend then took minutes (160 s of a 250000 x 1000 fit, the GPU idle). The device path
-                # with smaller operand blocks needs a fraction of that memory: retry it before giving the work to the CPU.
-                for divisor in (8, 64):
-                    retry = _try_blocked_backend(y, operand_matrix, pair_a, pair_b, form_ids, force_backend, limit_divisor=divisor)
-                    if retry is not None:
-                        logger.warning("batch_pair_usability_corr: the CUDA backend ran out of host memory; completed on the device with operand blocks 1/%d the size", divisor)
-                        return retry
+            retry = _retry_blocked_after_memory_error(exc, y, operand_matrix, pair_a, pair_b, form_ids, force_backend)
+            if retry is not None:
+                return retry
 
     # y/operand_matrix keep the CALLER's dtype (mirrors batch_pair_tail_concentration_rankaware's
     # "caller already applied _crit_np_dtype()" contract) instead of force-upcasting to float64 -

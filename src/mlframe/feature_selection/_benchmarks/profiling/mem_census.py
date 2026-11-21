@@ -119,7 +119,7 @@ def name_owners(rows: "list[tuple[int, int, str, str]]") -> "list[tuple[int, int
                 pool[id(o)] = o
         except ReferenceError:  # a dead weakref proxy
             continue
-    by_size = {}
+    by_size: "dict[int, list[dict]]" = {}
     for o in pool.values():
         t = sum(_array_bytes(v) for v in list(o.values()))
         by_size.setdefault(t, []).append(o)

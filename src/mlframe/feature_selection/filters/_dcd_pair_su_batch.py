@@ -267,9 +267,10 @@ def _warm_marginal_entropies(state: Any, pairs_list: list, fd: Optional[np.ndarr
                 if pair_buf is None:
                     pair_buf = np.empty(2, dtype=np.int64)
                     state._pair_idx_buf = pair_buf
+                serial_cols: "Iterable[int]" = needed
                 if _HAVE_NUMBA and len(needed) >= _BATCH_MARGINALS_MIN_COLUMNS and fd.dtype.kind in "iu":
-                    needed = _warm_marginals_in_blocks(ec, sorted(needed), fd, fn_arr, entropy)
-                for col_idx in needed:
+                    serial_cols = _warm_marginals_in_blocks(ec, sorted(needed), fd, fn_arr, entropy)  # what the batch could not do stays for the loop below
+                for col_idx in serial_cols:
                     pair_buf[0] = int(col_idx)
                     # no argument left to its default: numba's dispatcher then resolves the call in the interpreter every time (60 us instead of 1 us, see ``evaluate_gain``'s call)
                     _, freqs_c, _ = merge_vars(fd, pair_buf[:1], None, fn_arr, dtype, 1, None, False)

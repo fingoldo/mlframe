@@ -22,7 +22,8 @@ import logging
 import os
 import threading
 import time
-from typing import Any, Iterator, Optional
+from collections.abc import Callable
+from typing import Any, Iterator, Optional, TypeVar, cast
 
 from mlframe.utils.log_throttle import log_throttle
 
@@ -79,7 +80,10 @@ def _exclusive_lock(pool: Any) -> "threading.RLock":
         return entry[1]
 
 
-def device_exclusive(fn: Any) -> Any:
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def device_exclusive(fn: _F) -> _F:
     """Run ``fn`` with the calling thread's memory pool to itself.
 
     A streamed device routine sizes its column blocks from :func:`device_room` at its start. Several threads of one pool doing that at once (the auto scorer's resample threads) each take the
@@ -102,7 +106,7 @@ def device_exclusive(fn: Any) -> Any:
         with _exclusive_lock(pool):
             return fn(*args, **kwargs)
 
-    return wrapper
+    return cast(_F, wrapper)
 
 
 _POOL_LOCKS: "dict[int, tuple[Any, threading.Lock]]" = {}
