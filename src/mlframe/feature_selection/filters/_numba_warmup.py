@@ -106,7 +106,10 @@ def start_import_time_warmup() -> None:
     preparing the data); a fit that starts at once waits on the lock for the same time the in-fit compile took. ``MLFRAME_SKIP_NUMBA_WARMUP=1`` or ``MLFRAME_IMPORT_PREWARM=0`` turn it off.
 
     bench-attempt-rejected (2026-11-21, 100000 x 100 all families, fresh process per run, 3 alternating pairs): importing the heavy modules a fit loads lazily (cupy 2.1 s, ``training.composite`` 1.1 s, GPUtil 0.4 s) on the same thread
-    after the compile: without 44.0 / 44.8 / 44.7 s, with 44.4 / 44.6 / 44.5 s. No gain: those imports run Python module bodies and take the GIL from the main thread's own work."""
+    after the compile: without 44.0 / 44.8 / 44.7 s, with 44.4 / 44.6 / 44.5 s. No gain: those imports run Python module bodies and take the GIL from the main thread's own work.
+
+    bench-attempt-rejected (2026-11-21, same protocol): also compiling the ``numba.typed.List`` of 1-D float arrays (float32 / float64, C and A layouts) and running the threading-layer probe on that thread: without 44.1 / 44.7 / 44.9 s,
+    with 46.9 / 47.1 / 46.9 s, slower by 2.5 s (the probe starts the TBB worker threads and the list compiles take the GIL while the main thread prepares the data)."""
     if os.environ.get("MLFRAME_SKIP_NUMBA_WARMUP") == "1" or os.environ.get("MLFRAME_IMPORT_PREWARM", "1").strip() == "0":
         return
 
