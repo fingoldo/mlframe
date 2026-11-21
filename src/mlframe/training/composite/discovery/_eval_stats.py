@@ -534,14 +534,18 @@ def base_carrying_keep_mask(
         return keep
     rng = np.random.default_rng(seed)
     base = np.asarray(base_values, dtype=np.float64).ravel()
-    perms = [rng.permutation(base) for _ in range(int(n_permutations))]
     for j in range(n_cols):
         col = np.asarray(x_matrix[:, j], dtype=np.float64)
         ok = np.isfinite(col) & np.isfinite(base)
         if int(ok.sum()) < 50:
             continue
-        mi_j = _mi_pair_bin(col[ok], base[ok], nbins=nbins)
-        null = max(_mi_pair_bin(col[ok], p[ok], nbins=nbins) for p in perms)
+        # Shuffle only the base values on the rows the column is scored on. Permuting the whole base and then indexing with ``ok``
+        # let NaN base entries land inside the mask, where the binned MI silently dropped them, so the null was computed on fewer
+        # rows than mi_j (audit 34-F19).
+        base_ok = base[ok]
+        col_ok = col[ok]
+        mi_j = _mi_pair_bin(col_ok, base_ok, nbins=nbins)
+        null = max(_mi_pair_bin(col_ok, rng.permutation(base_ok), nbins=nbins) for _ in range(int(n_permutations)))
         keep[j] = not (mi_j > null)
     return keep
 

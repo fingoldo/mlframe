@@ -78,3 +78,4 @@ Scope: the 88 files in `audits/2026-11-20/manifests/34_training-3.txt` under wor
 - 34-F31: FIXED. Cap checked before appending, so a full hint list logs 0 MI candidates (test_cluster34_auto_base_log_and_wording)
 - 34-F25: FIXED. Messages now say skipping spec. Wording only; no behaviour change, so no separate test.
 - 34-F23: FIXED. Comment corrected: np.argsort places non-finite keys last. Comment only; no behaviour change, so no separate test.
+- 34-F19: FIXED. Null permutes the base over the scored rows only (per column), so NaN base entries cannot enter the null (test_cluster34_base_carry_null_rows; the test is behavioural and may not fail on the old code)
