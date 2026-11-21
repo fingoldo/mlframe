@@ -676,3 +676,4 @@
 | 26-F4 | FIXED | Expanding mean and std use the observed count per feature. The earlier test only checked finiteness; a strict test now pins the value (tests/preprocessing/test_cluster26_expanding_uses_observed_count.py). |
 | 28-F12 | FIXED | A class_weight key absent from the training labels is skipped at fit. Test tests/training/test_cluster28_class_weight_absent_key_skipped.py. |
 | 28-F2 | FIXED (test pending) | The multilabel decision uses the array shape only (evaluation.py). A regression test needs the full per-class calibrator run inside a nine-argument function; no targeted helper exists yet. |
+| 28-F6 | FIXED | The fail-loud inf check also runs on the batched path when fix_infinities is False. Test tests/training/test_cluster28_polars_inf_guard_runs_when_not_fixing.py. |
