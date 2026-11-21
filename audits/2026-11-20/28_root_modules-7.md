@@ -145,3 +145,5 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F27: DEFERRED. The whole loader body sits inside _LOAD_MODEL_CACHE_LOCK, so narrowing the lock to the cache get and put means restructuring its control flow. A dedicated change, deferred.
 - 28-F26: DEFERRED. Streaming the hash and the unpickle from one handle changes the verified-open contract the loader relies on. Deferred to a dedicated change to the bundle reader.
 - 28-F31: FIXED. The multiclass split summary drops non-finite labels before counting and reports them as n_missing, as the binary summary does. Test tests/training/test_cluster28_multiclass_summary_drops_missing_labels.py.
+- 28-F36: FIXED. A host-RAM fallback from a failed GPU memory probe is returned but not cached under the cuda:N key. Test tests/training/test_cluster28_mem_probe_fallback_not_cached_as_gpu.py; 19 tests pass with the existing memory-probe tests.
+- 28-F37: DEFERRED. The predict batch resolver still probes device 0. Adding device_id is simple; wiring the training device into its only caller (neural/base/_base_predict.py) needs the owner of that device state to say where it lives.
