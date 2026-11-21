@@ -564,8 +564,9 @@ def _batch_pair_usability_corr_cuda_warp_typed(
 
     from ._fe_resident_operands import resident_operand
 
-    y_d = resident_operand(y, "batch_pair_usability_corr_y", dtype=None)
-    operand_d = resident_operand(operand_matrix, "batch_pair_usability_corr_operand", dtype=None)
+    # the kernel converts every loaded value to ``ft`` (round to nearest); the same conversion done once on the host halves the bytes of a float32 launch, drops the per-element convert and gives the same bits
+    y_d = resident_operand(y, "batch_pair_usability_corr_y", dtype=ft)
+    operand_d = resident_operand(operand_matrix, "batch_pair_usability_corr_operand", dtype=ft)
     pair_a_d = _nb_cuda.to_device(np.ascontiguousarray(pair_a, dtype=np.int64))
     pair_b_d = _nb_cuda.to_device(np.ascontiguousarray(pair_b, dtype=np.int64))
     form_ids_d = _nb_cuda.to_device(np.ascontiguousarray(form_ids, dtype=np.int64))
@@ -574,6 +575,12 @@ def _batch_pair_usability_corr_cuda_warp_typed(
     n_forms = form_ids.shape[0]
     out_d = _nb_cuda.device_array((n_pairs, n_forms), dtype=ft)
 
+    if n_pairs > 0 and n_forms > 0 and os.environ.get("MLFRAME_USABILITY_CORR_KERNEL", "generic").strip().lower() == "specialised":
+        from ._pair_usability_specialised import launch_specialised
+
+        # opt-in: one launch per form with the form id as a compile-time constant (bit-identical; bench-rejected as the default, see _pair_usability_specialised)
+        if launch_specialised(ft, y_d, operand_d, pair_a_d, pair_b_d, form_ids, ft(_EPS_DENOM_FLOOR), ft(_CV2_DEGENERATE_FLOOR), out_d, _WARP_BLOCK_THREADS, _WARP_SIZE):
+            return np.asarray(out_d.copy_to_host(), dtype=crit_float_dtype())
     total_warps = n_pairs * n_forms
     threads_per_block = _WARP_BLOCK_THREADS
     warps_per_block = threads_per_block // _WARP_SIZE
