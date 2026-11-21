@@ -81,15 +81,17 @@ def rank_percentile_transform(
             raise ValueError(f"rank_percentile_transform: smoothing must be strictly positive, got {smoothing}")
         std = np.std(oof_pred)
         bandwidth = smoothing * std if std > 0 else smoothing
+        # Clamp to the same [0.5/n, (n-0.5)/n] band as the hard mode: 0 and 1 are outside the scale the stacker was trained on (audit 29-F20).
+        lo, hi = 0.5 / n_oof, (n_oof - 0.5) / n_oof
         oof_percentile = _gaussian_smoothed_percentile(oof_pred, oof_pred, bandwidth)
-        oof_percentile = np.clip(oof_percentile, 0.0, 1.0)
+        oof_percentile = np.clip(oof_percentile, lo, hi)
 
         if test_pred is None:
             return oof_percentile, None
 
         test_pred = np.asarray(test_pred, dtype=np.float64)
         test_percentile = _gaussian_smoothed_percentile(test_pred, oof_pred, bandwidth)
-        test_percentile = np.clip(test_percentile, 0.0, 1.0)
+        test_percentile = np.clip(test_percentile, lo, hi)
         return oof_percentile, test_percentile
 
     oof_ranks = rankdata(oof_pred, method="average")
