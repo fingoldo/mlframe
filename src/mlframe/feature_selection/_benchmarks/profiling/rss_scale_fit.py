@@ -55,7 +55,29 @@ for _r0 in range(0, rows, 50000):
 X = pd.DataFrame(_buf, columns=[f"x{i}" for i in range(cols)], copy=False)
 del _buf
 signal = X["x0"].to_numpy() * X["x1"].to_numpy() + 0.7 * X["x2"].to_numpy() - 0.5 * X["x3"].to_numpy() ** 2 + 0.3 * X["x4"].to_numpy()
-y = pd.Series((signal + 0.5 * rng.standard_normal(rows, dtype=np.float32) > np.median(signal)).astype(np.int8), name="y")
+_noisy = signal + 0.5 * rng.standard_normal(rows, dtype=np.float32)
+TARGET_KIND = os.environ.get("BENCH_TARGET", "binary")  # binary | multiclass | regression | count | multilabel | multitarget | heavy_tail | zero_inflated
+if TARGET_KIND == "binary":
+    y = pd.Series((_noisy > np.median(signal)).astype(np.int8), name="y")
+elif TARGET_KIND == "multiclass":  # four classes cut at the quartiles of the noisy signal
+    y = pd.Series(np.searchsorted(np.quantile(_noisy, [0.25, 0.5, 0.75]), _noisy).astype(np.int8), name="y")
+elif TARGET_KIND == "regression":
+    y = pd.Series(_noisy.astype(np.float32), name="y")
+elif TARGET_KIND == "count":  # Poisson counts with a log-linear rate in the signal
+    y = pd.Series(rng.poisson(np.exp(0.3 * np.clip(_noisy, -4.0, 4.0))).astype(np.int32), name="y")
+elif TARGET_KIND == "multilabel":  # three binary labels, each driven by other columns
+    _l1 = X["x5"].to_numpy() + 0.5 * X["x6"].to_numpy() + 0.5 * rng.standard_normal(rows, dtype=np.float32)
+    _l2 = X["x7"].to_numpy() * X["x8"].to_numpy() + 0.5 * rng.standard_normal(rows, dtype=np.float32)
+    y = pd.DataFrame({"l0": (_noisy > np.median(_noisy)).astype(np.int8), "l1": (_l1 > np.median(_l1)).astype(np.int8), "l2": (_l2 > np.median(_l2)).astype(np.int8)})
+elif TARGET_KIND == "multitarget":  # two continuous outputs
+    y = pd.DataFrame({"o0": _noisy.astype(np.float32), "o1": (X["x5"].to_numpy() - 0.5 * X["x6"].to_numpy() + 0.3 * rng.standard_normal(rows, dtype=np.float32)).astype(np.float32)})
+elif TARGET_KIND == "heavy_tail":  # a continuous target with Cauchy-like tails
+    y = pd.Series((signal + 0.5 * rng.standard_cauchy(rows)).astype(np.float32), name="y")
+elif TARGET_KIND == "zero_inflated":  # most rows zero, the rest a positive function of the signal
+    y = pd.Series(np.where(rng.random(rows) < 0.7, 0.0, np.exp(0.5 * np.clip(_noisy, -4.0, 4.0))).astype(np.float32), name="y")
+else:
+    raise SystemExit(f"unknown BENCH_TARGET {TARGET_KIND!r}")
+del _noisy
 frame_mb = X.memory_usage(deep=False).sum() / 1e6
 
 import tracemalloc
