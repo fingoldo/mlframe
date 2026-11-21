@@ -112,6 +112,18 @@ def fit_select(X, y, **kw):
     return list(h.raw_selected_), h
 
 
+def decide_flip(deltas) -> bool:
+    """Flip a default only when the new arm wins most cells AND its mean delta is positive (12-F26).
+
+    Sign counts alone flipped the default for a knob whose mean delta was negative (cluster_rep, -0.0029): a few large losses
+    were outweighed by many tiny wins.
+    """
+    deltas = [float(d) for d in deltas]
+    wins = sum(1 for d in deltas if d > 1e-9)
+    losses = sum(1 for d in deltas if d < -1e-9)
+    return wins > losses and wins > len(deltas) / 2.0 and float(np.mean(deltas)) > 0.0
+
+
 def run():
     n = int(os.environ.get("HYB_N", "2000"))
     rows = []
@@ -141,7 +153,7 @@ def run():
         ties = sum(1 for r in sub if abs(r["delta"]) <= 1e-9)
         losses = sum(1 for r in sub if r["delta"] < -1e-9)
         mean_d = float(np.mean([r["delta"] for r in sub]))
-        flip = wins > losses and wins > len(sub) / 2.0
+        flip = decide_flip([r["delta"] for r in sub])
         decision[knob] = dict(wins=wins, ties=ties, losses=losses, cells=len(sub),
                               mean_delta=round(mean_d, 4), flip=flip,
                               new_default=(sub[0]["new"] if flip else sub[0]["old"]))

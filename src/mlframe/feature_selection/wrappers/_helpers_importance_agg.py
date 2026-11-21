@@ -291,12 +291,20 @@ def aggregate_importances_dispatched(
                     vote (we cannot recover sign from abs'd values).
         'kernel' / other -> legacy vote.
     """
-    from ._helpers_importance import get_actual_features_ranking
+    from ._helpers_importance import _impute_ragged_fi_table, get_actual_features_ranking
+
+    # Complete the ragged per-run tables with the same policy the legacy path applies, before the family aggregator reads them. The
+    # dispatcher used to pass fi_missing_policy only to the ranking helper, so a feature absent from some runs was ranked on its
+    # present runs alone (a tie with a full-coverage feature).
+    def _impute_runs(importances):
+        """Return the per-run dicts with their ragged gaps completed by ``fi_missing_policy``."""
+        table = _impute_ragged_fi_table(pd.DataFrame(importances), fi_missing_policy)
+        return {run: table[run].dropna().to_dict() for run in table.columns}
 
     if family == "tree" and feature_importances:
-        scores = aggregate_tree(feature_importances, k_cv=k_cv, run_weights=run_weights)
+        scores = aggregate_tree(_impute_runs(feature_importances), k_cv=k_cv, run_weights=run_weights)
     elif family == "linear" and signed_importances:
-        scores = aggregate_linear(signed_importances, run_weights=run_weights)
+        scores = aggregate_linear(_impute_runs(signed_importances), run_weights=run_weights)
     else:
         return get_actual_features_ranking(
             feature_importances=feature_importances,

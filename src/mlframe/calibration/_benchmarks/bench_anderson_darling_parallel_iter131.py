@@ -19,6 +19,7 @@ if __name__ == "__main__":
         return min(ts), v
     ms,vs=best(ad_serial); mp,vp=best(ad_par)
     # sort cost
-    t=time.perf_counter(); np.sort(rng.random(n)); tsort=time.perf_counter()-t
+    sample = rng.random(n)  # generated before the timer starts, so the sort time excludes RNG cost (audit 01-F9)
+    t=time.perf_counter(); np.sort(sample); tsort=time.perf_counter()-t
     print(f"serial={ms*1000:.2f}ms par={mp*1000:.2f}ms speedup={ms/mp:.2f}x sort={tsort*1000:.2f}ms")
     print(f"identity diff={abs(vs-vp):.3e} rel={abs(vs-vp)/abs(vs):.3e}")

@@ -128,8 +128,11 @@ def bootstrap_ndcg_ci(
     rng = np.random.default_rng(seed)
     n_eff = min(nq, _BOOTSTRAP_QUERY_CAP)
     # Resample n_eff query indices WITH replacement per bootstrap; one (n_boot, n_eff) gather, mean across queries.
-    idx = rng.integers(0, nq, size=(n_boot, n_eff))
-    boot_means = vals[idx].mean(axis=1)
+    # The (n_boot, n_eff) gather is built in row blocks: a full one at 1000 x 50k was ~400 MB of indices plus the same again for the gather.
+    rows_per_block = max(1, int(2e7 // max(1, n_eff)))
+    boot_means = np.concatenate(
+        [vals[rng.integers(0, nq, size=(min(rows_per_block, n_boot - start), n_eff))].mean(axis=1) for start in range(0, n_boot, rows_per_block)]
+    )
     lo = float(np.percentile(boot_means, 100.0 * alpha / 2.0))
     hi = float(np.percentile(boot_means, 100.0 * (1.0 - alpha / 2.0)))
     mean = float(vals.mean())

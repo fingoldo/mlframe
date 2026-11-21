@@ -30,7 +30,7 @@ real property of the scenario, so it is recorded as a caveat on the target set r
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 from mlframe.data.datasets.ground_truth import (
     Edge,
@@ -285,8 +285,13 @@ def _declared_kind_role(graph: CausalGraph, node: str) -> Optional[FeatureRole]:
     Returns:
         The declared role, or ``None`` when every incoming edge is a plain ``direct`` / ``latent`` arrow.
     """
+    # Convention: a copy or proxy kind marks its TARGET (the redundant copy, the proxy), while an instrument marks its SOURCE, because
+    # ``instrument -> treatment`` is a causal arrow and the instrument is the node that carries the role.
     for edge in graph.edges:
-        if edge.target == node and edge.kind in _KIND_TO_ROLE:
+        if edge.kind not in _KIND_TO_ROLE:
+            continue
+        marked = edge.source if edge.kind == "instrument" else edge.target
+        if marked == node:
             return _KIND_TO_ROLE[edge.kind]
     return None
 
@@ -495,12 +500,33 @@ def graph_from_spec(spec: DatasetSpec, target_name: Optional[str] = None) -> Cau
     chosen = target_name if target_name is not None else declared[0]
     if chosen not in declared:
         raise ValueError(f"target {chosen!r} is not declared by spec {spec.name!r}; declared: {declared}")
+    edges = list(edges_from_specs(spec.edges))
+    # A latent reflected into a column is an arrow from the latent to that column. Without it the graph never connects a latent to the
+    # column it generates, so an M-bias collider's arm through a reflection (u_right -> y_parent -> y) was invisible to the structure.
+    present = {(edge.source, edge.target) for edge in edges}
+    for latent in spec.latents:
+        for reflected in latent.reflections:
+            if (latent.name, reflected) not in present:
+                edges.extend([Edge(source=latent.name, target=reflected, kind="latent")])
     return CausalGraph(
-        edges=edges_from_specs(spec.edges),
+        edges=tuple(edges),
         target=chosen,
         observed=spec.feature_names(),
         latents=tuple(latent.name for latent in spec.latents),
     )
+
+
+def link_regions(link: Any) -> Optional[Dict[str, GateSpec]]:
+    """Per-column gates for every column the link uses, from its ``region``; ``None`` when the link has no region.
+
+    The region is declared on the link (one gate for the whole link score), but ``FeatureTruth.region`` is per column. Each column the
+    link reads is given the same gate, so a feature whose effect is regional is recorded as regional rather than as a weak global one.
+    """
+    region = getattr(link, "region", None)
+    if region is None:
+        return None
+    columns = set(link.coefficients) | {name for term in link.interactions for name in term} | {name for term in link.basis_terms for name in term.columns}
+    return {name: region for name in sorted(columns)}
 
 
 def build_ground_truth(

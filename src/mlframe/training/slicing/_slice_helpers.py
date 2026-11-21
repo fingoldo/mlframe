@@ -224,7 +224,11 @@ def build_slice_eval_sets(
                 "half to GroupKFold so query boundaries are preserved (ranker-safe shards)", source,
             )
             gkf = GroupKFold(n_splits=k)
-            row_idx_lists = [test_idx for _, test_idx in gkf.split(np.arange(n), groups=np.asarray(group_ids))]
+            try:
+                row_idx_lists = [test_idx for _, test_idx in gkf.split(np.arange(n), groups=np.asarray(group_ids))]
+            except ValueError:
+                # Fewer distinct groups than k: the documented outcome is no shards, not a crash (audit 41-F6).
+                row_idx_lists = []
         else:
             row_idx_lists = _random_shards(n, k, y_arr, random_state=random_state)
         out.extend(_materialize(val_X, y_arr, row_idx_lists, prefix="valid_shard_r", sample_weight=sample_weight, base_margin=base_margin, group_ids=group_ids))

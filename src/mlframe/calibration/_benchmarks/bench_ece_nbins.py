@@ -28,6 +28,8 @@ Run:  PYTHONPATH=src python -m mlframe.calibration._benchmarks.bench_ece_nbins
 
 from __future__ import annotations
 
+import zlib
+
 import numpy as np
 
 from mlframe.calibration.policy import _ece_score
@@ -93,7 +95,8 @@ def run(seeds=12, ns=(1000, 5000, 20000), nbins_grid=(5, 10, 15, 20, 30, 50), ve
         for n in ns:
             est = {nb: [] for nb in nbins_grid}
             for seed in range(seeds):
-                rng = np.random.default_rng(10_000 * seed + n + hash(name) % 1000)
+                # zlib.crc32, not hash(): str hashing is salted per process, so the seeds (and the verdict) changed between runs (audit 01-F2).
+                rng = np.random.default_rng(10_000 * seed + n + zlib.crc32(name.encode("utf-8")) % 1000)
                 y, s = _sample(g, sa, sb, n, rng)
                 y = np.ascontiguousarray(y)
                 s = np.ascontiguousarray(s)

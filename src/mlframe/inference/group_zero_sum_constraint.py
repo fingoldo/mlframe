@@ -197,14 +197,16 @@ def apply_group_zero_sum_constraint(
     order = np.argsort(preds, kind="stable")
     inv_order = np.empty_like(order)
     inv_order[order] = np.arange(order.shape[0])
+    # Sort once by (group, pred) and slice each group's contiguous segment; the former per-group mask scanned all n rows
+    # for every group, O(n_groups * n) (audit 25-F17).
+    sorted_by_group = np.lexsort((preds, group_codes))
+    seg_bounds = np.searchsorted(group_codes[sorted_by_group], np.arange(n_groups + 1))
     for code in range(n_groups):
-        member_mask = group_codes == code
-        if member_mask.sum() < 2:
+        start, stop = int(seg_bounds[code]), int(seg_bounds[code + 1])
+        if stop - start < 2:
             continue
-        member_idx = np.flatnonzero(member_mask)
-        local_order = member_idx[np.argsort(preds[member_idx], kind="stable")]
-        iso_vals = _weighted_pava(corrected[local_order], weights[local_order], ascending=True)
-        iso_target[local_order] = iso_vals
+        local_order = sorted_by_group[start:stop]
+        iso_target[local_order] = _weighted_pava(corrected[local_order], weights[local_order], ascending=True)
 
     r_iso = np.zeros((n_groups, n_constraints), dtype=np.float64)
     for j in range(n_constraints):

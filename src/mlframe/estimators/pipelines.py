@@ -112,13 +112,14 @@ def replay_cv_results(fname: str, trusted_root: Optional[str] = None) -> dict:
     # The payload still goes through the restricted joblib unpickler, so a gadget in a rewritten dump cannot run.
     from mlframe.training.io import safe_joblib_load
 
-    cv_results = safe_joblib_load(fname)
-    for title, runs in cv_results.items():
+    loaded = safe_joblib_load(fname)
+    for title, runs in loaded.items():
         logger.info("Dataset: %s", title)
-        for paramset_hash, cv_results in runs.items():
+        for paramset_hash, run_results in runs.items():
             logger.info("Pipeline: %s", paramset_hash)
-            compare_cv_metrics(cv_results=cv_results, extended=False)
-    return cast(dict[str, Any], cv_results)
+            compare_cv_metrics(cv_results=run_results, extended=False)
+    # Return the loaded mapping. The loop variable used to shadow it, so the function returned the last per-config run instead.
+    return cast(dict[str, Any], loaded)
 
 
 def optimize_pipeline_by_gridsearch(

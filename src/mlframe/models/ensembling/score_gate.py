@@ -23,6 +23,17 @@ logger = logging.getLogger("mlframe.models.ensembling")
 _ENSEMBLE_LABEL_RE = re.compile(r"\[[^\]]+\]")
 
 
+def _as_gate_vector(pred, n: int) -> np.ndarray:
+    """Return a member prediction as a length-``n`` float vector: a binary ``(n, 2)`` predict_proba contributes its positive column.
+
+    Flattening ``(n, 2)`` gave ``2n`` values, which never matched the target, so the member's MAE was NaN and the whole gate block was skipped.
+    """
+    arr = np.asarray(pred)
+    if arr.ndim == 2 and arr.shape[0] == n and arr.shape[1] == 2:
+        arr = arr[:, 1]
+    return arr.reshape(-1).astype(np.float64)
+
+
 def _calib_target_of(members) -> Optional[np.ndarray]:
     """Calib-slice target stamped on the members (the slice is shared, so the first member's copy is the target for all)."""
     _t = getattr(members[0], "calib_target", None) if members else None
@@ -221,7 +232,7 @@ def catastrophic_drop_kn(
         _t_kn = _gate_target_arr_kn.reshape(-1).astype(np.float64)
         _maes = []
         for _p in _gate_preds_for_check:
-            _p_arr = np.asarray(_p).reshape(-1).astype(np.float64)
+            _p_arr = _as_gate_vector(_p, _t_kn.shape[0])
             if _p_arr.shape == _t_kn.shape:
                 _maes.append(float(np.nanmean(np.abs(_p_arr - _t_kn))))
             else:
@@ -344,8 +355,8 @@ def catastrophic_drop_k2(
         return level_models_and_predictions, _ensemble_member_tags, _ensemble_short_tags, ensemble_name, False
     try:
         _t = _gate_target_arr.reshape(-1).astype(np.float64)
-        _p0 = np.asarray(_gate_preds_for_check[0]).reshape(-1).astype(np.float64)
-        _p1 = np.asarray(_gate_preds_for_check[1]).reshape(-1).astype(np.float64)
+        _p0 = _as_gate_vector(_gate_preds_for_check[0], _t.shape[0])
+        _p1 = _as_gate_vector(_gate_preds_for_check[1], _t.shape[0])
         if _p0.shape == _t.shape and _p1.shape == _t.shape:
             # Use nanmean so a NaN-poisoned member doesn't make the gate skip.
             _mae_a = float(np.nanmean(np.abs(_p0 - _t)))

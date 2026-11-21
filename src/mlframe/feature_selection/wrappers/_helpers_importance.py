@@ -450,9 +450,18 @@ def get_feature_importances(
             random_state=random_state,
         )
     else:
+        # Choose the call from the callable's signature. A TypeError raised INSIDE a user callable used to trigger a second
+        # full run without the target, and the original error was lost (audit 15-F9).
+        import inspect
+
         try:
+            _params = inspect.signature(importance_getter).parameters
+            _takes_target = "target" in _params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in _params.values())
+        except (TypeError, ValueError):
+            _takes_target = True
+        if _takes_target:
             res = importance_getter(model=model, data=data, reference_data=reference_data, target=target)
-        except TypeError:
+        else:
             res = importance_getter(model=model, data=data, reference_data=reference_data)
 
     if len(res) != len(current_features):

@@ -169,7 +169,8 @@ def _post_calibrate_multi_output(
     # Infer target_type from labels: if y_true is (N, K) indicator
     # matrix -> multilabel; otherwise multiclass.
     y_test_full = target_series.iloc[test_idx].values
-    if y_test_full.ndim == 2 or (hasattr(y_test_full, "dtype") and y_test_full.dtype == object):
+    # Decide from the shape only: object dtype also holds string class labels of a multiclass target (audit 28-F2).
+    if y_test_full.ndim == 2:
         _target_type = TargetTypes.MULTILABEL_CLASSIFICATION
     else:
         _target_type = TargetTypes.MULTICLASS_CLASSIFICATION
@@ -683,14 +684,19 @@ def _fixed_freq_bin_slices(ts_ns: np.ndarray, span_ns: int) -> Tuple[np.ndarray,
     is NOT stable but the downstream per-bin metrics (roc_auc / AP / mse / brier) are order-invariant, so the
     output stays byte-identical to ``pd.Grouper``. Caller must ensure ``span_ns`` evenly divides one day.
     """
-    floored = (ts_ns.astype("datetime64[ns]").view("int64") // span_ns) * span_ns
+    raw = ts_ns.astype("datetime64[ns]").view("int64")
+    # NaT is the int64 minimum: flooring it and subtracting the minimum overflowed and wrapped every bin. NaT rows are
+    # dropped, as pd.Grouper does, and ``order`` still indexes the original rows (audit 28-F1).
+    valid_rows = np.flatnonzero(raw != np.iinfo(np.int64).min)
+    floored = (raw[valid_rows] // span_ns) * span_ns
     if floored.size == 0:
         empty = np.empty(0, dtype=np.int64)
         return empty, np.empty(0, dtype="datetime64[ns]"), empty, empty
     fmin = floored.min()
     bin_idx = (floored - fmin) // span_ns
-    order = np.argsort(bin_idx)
-    sorted_idx = bin_idx[order]
+    key_order = np.argsort(bin_idx, kind="stable")
+    order = valid_rows[key_order]
+    sorted_idx = bin_idx[key_order]
     uniq_idx, starts = np.unique(sorted_idx, return_index=True)
     ends = np.append(starts[1:], len(sorted_idx))
     bin_labels = (fmin + uniq_idx * span_ns).astype("datetime64[ns]")

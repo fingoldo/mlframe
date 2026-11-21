@@ -53,6 +53,7 @@ SUPPORTED_FAMILIES: Tuple[str, ...] = (
     "gamma",
     "beta",
     "bernoulli",
+    "rademacher",
     "poisson",
     "zipf",
     "zero_inflated_normal",
@@ -131,6 +132,9 @@ def draw_family(family: str, params: Dict[str, float], size: int, rng: np.random
         return rng.beta(_param(params, "a", 2.0), _param(params, "b", 5.0), size)
     if family == "bernoulli":
         return (rng.random(size) < _param(params, "p", 0.5)).astype(np.float64)
+    if family == "rademacher":
+        # Fair sign, -1 or +1: a centred two-level code, so an interaction with it reverses sign between the two groups.
+        return (rng.random(size) < 0.5).astype(np.float64) * 2.0 - 1.0
     if family == "poisson":
         return rng.poisson(_param(params, "lam", 3.0), size).astype(np.float64)
     if family == "zipf":

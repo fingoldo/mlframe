@@ -88,10 +88,12 @@ def fit_missing_indicator_imputation(
         if col in fill_values:
             columns_state[col] = {"kind": "explicit", "value": fill_values[col]}
             continue
+        # median/mean need a numeric column; a string or categorical one takes the mode (the documented categorical fill, audit 26-F5).
+        col_strategy = strategy if (strategy == "mode" or pd.api.types.is_numeric_dtype(df[col])) else "mode"
 
-        if strategy == "median":
+        if col_strategy == "median":
             global_fill = df[col].median()
-        elif strategy == "mean":
+        elif col_strategy == "mean":
             global_fill = df[col].mean()
         else:  # mode
             global_fill = _mode_or_nan(df[col])
@@ -100,9 +102,9 @@ def fit_missing_indicator_imputation(
             columns_state[col] = {"kind": "global", "value": global_fill}
         else:
             assert group_by is not None
-            if strategy == "median":
+            if col_strategy == "median":
                 group_stat = group_by[col].median()
-            elif strategy == "mean":
+            elif col_strategy == "mean":
                 group_stat = group_by[col].mean()
             else:  # mode: no vectorized groupby reduction
                 group_stat = group_by[col].agg(_mode_or_nan)

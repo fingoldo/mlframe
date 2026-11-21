@@ -183,7 +183,9 @@ def _metric_panel(
             title += "\n" + f"val-train gap {_gap_stop:+.3g} at {_where}, {_gap_last:+.3g} at iter {_last} ({_verdict})"
         # Mark the validation optimum: the iteration the early-stopping rule was trying to find.
         if np.isfinite(_va).any():
-            _lower_is_better = str(metric).lower() not in _HIGHER_IS_BETTER_METRICS
+            # Ranking metrics carry a cutoff ('ndcg@10', 'map@5'); the family name decides the direction (audit 21-F16).
+            _family = str(metric).lower().split("@", 1)[0].strip()
+            _lower_is_better = _family not in _HIGHER_IS_BETTER_METRICS
             _best = int(np.nanargmin(_va) if _lower_is_better else np.nanargmax(_va))
             point_markers = ((float(_best), float(_va[_best]), f"val optimum @ {_best}", "darkorange", "*"),)
 

@@ -293,6 +293,11 @@ class FeatureCache:
             # would replay the orphan entry's stale ``DiskKey`` mapping.
             self._key_xref.pop(evict_key, None)
             self._evictions += 1
+            # Low system RAM alone evicts ONE entry, then yields: psutil's 'available' does not drop as soon as a Python object is freed,
+            # so re-reading it inside this loop drained the whole cache for a reserve that the next insert would re-check (39-F19).
+            # A cache over its own size limit still evicts until it is back under the limit.
+            if not over_size:
+                return
 
     def _select_eviction_victim(
         self,

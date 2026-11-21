@@ -222,6 +222,11 @@ def compute_extra_aggregates(
     # The non-finite-logit and degenerate-sum fallbacks to a uniform 1/k row are preserved; einsum reorders the float32 reduction so weights differ by <=1 ULP.
     gathered = k_proj[topk_ids]  # (n_queries, k, head_dim)
     # Same guard as the fused kernel: a temperature at or below 1e-12 means 1.0, otherwise the logits overflow and the weights degrade to uniform.
+    if softmax_temp <= SOFTMAX_TEMP_FLOOR:
+        # The caller's temperature is replaced by 1.0 here; say so instead of ignoring it silently (audit 08-F11).
+        import warnings as _warnings
+
+        _warnings.warn(f"softmax_temp={softmax_temp!r} is at or below the floor {SOFTMAX_TEMP_FLOOR!r}; using 1.0", RuntimeWarning, stacklevel=2)
     inv_temp = 1.0 / softmax_temp if softmax_temp > SOFTMAX_TEMP_FLOOR else 1.0
     logits = np.einsum("qkd,qd->qk", gathered, q_proj) * inv_temp
     row_max = logits.max(axis=1, keepdims=True)

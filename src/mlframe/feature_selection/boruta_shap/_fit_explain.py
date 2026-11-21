@@ -221,6 +221,7 @@ def _fit_with_subsample_stability(self, X, y):
     params = self.get_params(deep=False)  # shallow: deep=True yields model__* nested keys __init__ rejects
     params["stability_subsamples"] = 0  # recursion guard: each sub-fit is a single pass
     params["verbose"] = False
+    params["premerge_clusters"] = False  # the parent already collapsed X; a sub-fit re-collapsing on its own rows lost votes (audit 13-F3)
 
     # ``get_params`` copies ``stratify`` verbatim, so every sub-fit would carry the original length-n
     # stratify array while running on a ``size``-row subsample. When train_or_test='test',
@@ -596,12 +597,19 @@ def fit(self, X: pd.DataFrame | pl.DataFrame, y: pd.Series | pl.Series | np.ndar
     self._premerge_active_ = bool(getattr(self, "premerge_clusters", False)) and getattr(X, "shape", (0, 0))[1] >= 2
     if self._premerge_active_:
         self._premerge_original_cols_ = list(X.columns)
+        self._premerge_original_frame_ = X  # the pre-collapse frame: Subset() must index it, not the representative-only frame
         X, self._premerge_members_ = _premerge_collapse(X, float(getattr(self, "premerge_corr_thr", 0.92)))
 
     # Cross-subsample stability gate (opt-in). See BorutaShap class docstring: a single-sample shadow
     # comparison leaks the top finite-sample-spurious real-noise column; majority vote across distinct
     # row-subsamples (WITHOUT replacement) removes it. >1 guards against a degenerate single-subsample.
     if int(getattr(self, "stability_subsamples", 0) or 0) > 1:
+        # The stability path returns before the shared fit state is built, so Subset(), results_to_csv() and plot() read attributes that
+        # were never set. Build the state first; the stability gate then sets the decisions on top of it.
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
+            warnings.filterwarnings("ignore", category=DeprecationWarning, module="sklearn")
+            _prepare_fit_state(self, X, y)
         return _fit_with_subsample_stability(self, X, y)
 
     with warnings.catch_warnings():

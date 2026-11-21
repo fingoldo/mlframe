@@ -59,6 +59,16 @@ _MAX_ERROR_PAR_THRESHOLD: int = env_int("MLFRAME_MAX_ERROR_PAR_THRESHOLD", 50000
 
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
+def _check_weights_length(w: np.ndarray, y_true) -> None:
+    """Raise when ``sample_weight`` does not have one entry per row of ``y_true``.
+
+    The kernels index the weight array with bounds checking off, so a short weight vector read past its buffer and returned garbage.
+    """
+    n = int(np.asarray(y_true).shape[0])
+    if w.shape[0] != n:
+        raise ValueError(f"sample_weight has {w.shape[0]} entries for {n} rows")
+
+
 def _fast_mae_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Sequential (single-thread) MAE kernel: mean of ``|y_true - y_pred|``. Wins over the parallel variant below ``_PARALLEL_REDUCTION_THRESHOLD``, where prange spawn overhead dominates."""
     n = len(y_true)
@@ -107,7 +117,7 @@ def _fast_max_error_seq(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     m = 0.0
     for i in range(n):
         d = abs(y_true[i] - y_pred[i])
-        if d > m:
+        if d > m or d != d:  # a NaN residual makes the maximum NaN, as it does for MAE/MSE
             m = d
     return m
 
@@ -354,6 +364,7 @@ def fast_mean_absolute_error(
         raise ValueError(f"Found array with 0 sample(s) (shape={yt.shape}) while a minimum of 1 is required.")
     if sample_weight is not None:
         w = np.ascontiguousarray(np.asarray(sample_weight), dtype=np.float64)
+        _check_weights_length(w, y_true)
     else:
         w = None
 
@@ -396,6 +407,7 @@ def fast_mean_squared_error(
         raise ValueError(f"Found array with 0 sample(s) (shape={yt.shape}) while a minimum of 1 is required.")
     if sample_weight is not None:
         w = np.ascontiguousarray(np.asarray(sample_weight), dtype=np.float64)
+        _check_weights_length(w, y_true)
     else:
         w = None
 
@@ -501,6 +513,7 @@ def fast_r2_score(
         raise ValueError(f"Found array with 0 sample(s) (shape={yt.shape}) while a minimum of 1 is required.")
     if sample_weight is not None:
         w = np.ascontiguousarray(np.asarray(sample_weight), dtype=np.float64)
+        _check_weights_length(w, y_true)
     else:
         w = None
 
@@ -545,9 +558,9 @@ def fast_r2_score(
                 wmean = float((col_yt * w).sum() / wsum)
                 ss_tots[j] = float(((col_yt - wmean) ** 2 * w).sum())
         if ss_tots.sum() == 0.0:
-            # Degenerate: all outputs constant. sklearn returns 0.0
-            # when all SS_tot are zero (otherwise raises).
-            return 0.0
+            # Degenerate: every output is constant, so there is no weight to average with. Each output's own score already follows
+            # sklearn (1.0 for a zero residual, 0.0 otherwise); the earlier constant 0.0 scored a perfect fit as 0.
+            return float(np.mean(per_out))
         return float(np.average(per_out, weights=ss_tots))
 
     return _aggregate_multioutput(per_out, multioutput)
@@ -605,7 +618,7 @@ def _fused_regression_pass1_seq(y_true: np.ndarray, y_pred: np.ndarray):
         abs_err = err if err >= 0.0 else -err
         sum_abs += abs_err
         sum_sqr += err * err
-        if abs_err > max_abs:
+        if abs_err > max_abs or abs_err != abs_err:  # a NaN residual makes the maximum NaN, as it does for MAE/MSE
             max_abs = abs_err
         sum_y += y_true[i]
     return sum_abs, sum_sqr, max_abs, sum_y
@@ -654,7 +667,7 @@ def _fused_regression_pass1_par(y_true: np.ndarray, y_pred: np.ndarray, n_thread
     for tid in range(n_threads):
         sum_abs += local_sum_abs[tid]
         sum_sqr += local_sum_sqr[tid]
-        if local_max_abs[tid] > max_abs:
+        if local_max_abs[tid] > max_abs or local_max_abs[tid] != local_max_abs[tid]:  # propagate a NaN thread maximum
             max_abs = local_max_abs[tid]
         sum_y += local_sum_y[tid]
     return sum_abs, sum_sqr, max_abs, sum_y
@@ -683,7 +696,7 @@ def _fused_regression_welford_seq(y_true: np.ndarray, y_pred: np.ndarray):
         abs_err = err if err >= 0.0 else -err
         sum_abs += abs_err
         sum_sqr += err * err
-        if abs_err > max_abs:
+        if abs_err > max_abs or abs_err != abs_err:  # a NaN residual makes the maximum NaN, as it does for MAE/MSE
             max_abs = abs_err
         v = y_true[i]
         delta = v - mean
@@ -745,7 +758,7 @@ def _fused_regression_welford_par(y_true: np.ndarray, y_pred: np.ndarray, n_thre
     for tid in range(n_threads):
         sum_abs += local_sum_abs[tid]
         sum_sqr += local_sum_sqr[tid]
-        if local_max_abs[tid] > max_abs:
+        if local_max_abs[tid] > max_abs or local_max_abs[tid] != local_max_abs[tid]:  # propagate a NaN thread maximum
             max_abs = local_max_abs[tid]
         cb = local_count[tid]
         if cb > 0.0:

@@ -18,7 +18,10 @@ def _make_dataset(n: int, n_groups: int, seed: int) -> tuple[np.ndarray, np.ndar
     rng = np.random.default_rng(seed)
     groups = rng.integers(0, n_groups, n).astype(str)
     y_true = rng.uniform(50, 150, n)
-    y_pred = y_true * rng.uniform(0.7, 1.3, n_groups)[rng.integers(0, n_groups, n)]
+    # The bias is indexed by each row's OWN group code (the same codes as ``groups``); an independent draw made it uncorrelated (audit 01-F1).
+    codes = rng.integers(0, n_groups, n)
+    groups = codes.astype(str)
+    y_pred = y_true * rng.uniform(0.7, 1.3, n_groups)[codes]
     return y_true, y_pred, groups
 
 

@@ -27,9 +27,10 @@ def test_the_explained_rows_are_the_training_slice(monkeypatch):
             seen["rows"] = len(data)
             return np.zeros((len(data), data.shape[1]))
 
-    import shap
+    # BorutaShap explains through mlframe.inference.tree_shap.TreeExplainer (imported at call time), not shap's.
+    import mlframe.inference.tree_shap as _mlf_tree_shap
 
-    monkeypatch.setattr(shap, "TreeExplainer", _Spy)
+    monkeypatch.setattr(_mlf_tree_shap, "TreeExplainer", _Spy)
     selector = BorutaShap(
         model=lightgbm.LGBMClassifier(n_estimators=10, verbose=-1), importance_measure="shap", classification=True,
         n_trials=1, train_or_test="test", random_state=0,

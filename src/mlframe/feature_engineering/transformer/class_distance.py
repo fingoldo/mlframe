@@ -173,9 +173,9 @@ def compute_class_distance_features(
     if exclude_self_ids is not None:
         raise ValueError("exclude_self_ids is only meaningful in Mode B (X_query given); Mode A is leakage-safe via per-fold class slices.")
     n_train = X_train_f.shape[0]
-    out_pos: np.ndarray = np.zeros((n_train, len(_K_SCALES)), dtype=dtype)
-    out_neg: np.ndarray = np.zeros((n_train, len(_K_SCALES)), dtype=dtype)
-    out_gap: np.ndarray = np.zeros((n_train, len(_K_SCALES)), dtype=dtype)
+    out_pos: np.ndarray = np.full((n_train, len(_K_SCALES)), np.nan, dtype=dtype)
+    out_neg: np.ndarray = np.full((n_train, len(_K_SCALES)), np.nan, dtype=dtype)
+    out_gap: np.ndarray = np.full((n_train, len(_K_SCALES)), np.nan, dtype=dtype)
     splits = list(splitter.split(X_train_f))
     for fold_idx, (train_idx, val_idx) in enumerate(splits):
         pos_d, neg_d, log_gap = _process(X_train_f[train_idx], X_train_f[val_idx], y_train_f[train_idx])

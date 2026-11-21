@@ -419,7 +419,7 @@ def _ltr_train_flavors(
         if verbose:
             logger.info(
                 "  %s: val NDCG@10=%.4f / test NDCG@10=%.4f",
-                flavor, val_metrics["ndcg@10"], test_metrics["ndcg@10"],
+                flavor, val_metrics.get("ndcg@10", float("nan")), test_metrics.get("ndcg@10", float("nan")),  # eval_at may omit k=10 (audit 41-F2)
             )
 
         # Auto-emit LTR panel grid per (flavor, split). No-op when caller
@@ -518,7 +518,7 @@ def _ltr_build_ensemble(
                 "  ensemble (%s, N=%d): val NDCG@10=%.4f / test NDCG@10=%.4f  "
                 "[test_metrics for reporting only -- do NOT use to pick ensemble method]",
                 method, len(flavor_order),
-                ens_val_metrics["ndcg@10"], ens_test_metrics["ndcg@10"],
+                ens_val_metrics.get("ndcg@10", float("nan")), ens_test_metrics.get("ndcg@10", float("nan")),
             )
 
         if plot_file and plot_outputs and ltr_panels:

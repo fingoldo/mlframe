@@ -31,6 +31,10 @@ def apply_cutpoints(y_pred: np.ndarray, thresholds: np.ndarray, n_classes: int) 
     """Digitize continuous ``y_pred`` into integer grades ``0..n_classes-1`` at the sorted ``thresholds`` (length n_classes-1)."""
     yp = np.ascontiguousarray(y_pred, dtype=np.float64)
     thr = np.sort(np.ascontiguousarray(thresholds, dtype=np.float64))
+    if not np.isfinite(yp).all():
+        # np.digitize sorts NaN past every threshold, so a missing prediction was graded as the top class. Integer grades cannot carry NaN,
+        # so refuse the input rather than score it.
+        raise ValueError("apply_cutpoints: y_pred has non-finite values; an ordinal grade is undefined for a missing prediction")
     return np.clip(np.digitize(yp, thr), 0, n_classes - 1).astype(np.int64)
 
 

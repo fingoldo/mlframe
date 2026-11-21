@@ -62,6 +62,9 @@ def apply_nearest_past_join_composite_fe(
         metadata["nearest_past_join_fallback_by_chain"] = fallback_by_chain
         metadata["nearest_past_join_min_group_size"] = min_group_size
 
+    # The columns the train split carries are the schema every other split must carry too (40-F15).
+    _train_pd = to_pandas(train_df)
+    _ref_ok = _train_pd is not None and on in _train_pd.columns and all(c in _train_pd.columns for c in by)
     out: dict = {}
     for split_name, df in (("train", train_df), ("val", val_df), ("test", test_df)):
         if df is None:
@@ -69,6 +72,9 @@ def apply_nearest_past_join_composite_fe(
             continue
         left_pd = to_pandas(df)
         if left_pd is None or on not in left_pd.columns or not all(c in left_pd.columns for c in by):
+            if split_name != "train" and _ref_ok and left_pd is not None and len(left_pd) > 0:
+                # The train split got these columns; a split without them would come back without the join features (40-F15). Refuse.
+                raise ValueError(f"nearest-past-join: the {split_name} split lacks the join columns {[on, *by]} that the train split has; refusing an inconsistent schema across splits")
             out[split_name] = df
             continue
         try:

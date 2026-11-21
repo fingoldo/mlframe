@@ -93,7 +93,12 @@ def to_numpy(frame: pd.DataFrame, spec: Optional[DatasetSpec] = None) -> Tuple[n
             notes.append(f"{name!r}: encoded as integer codes, so a consumer reading this matrix treats a NOMINAL column as ordinal")
             columns.append(np.asarray(series.cat.codes, dtype=np.float64))
         else:
-            columns.append(np.asarray(pd.to_numeric(series, errors="coerce"), dtype=np.float64))
+            coerced = pd.to_numeric(series, errors="coerce")
+            n_bad = int((coerced.isna() & series.notna()).sum())
+            if n_bad:
+                # Non-numeric values became NaN silently; say how many (audit 04-F23).
+                notes.append(f"{name!r}: {n_bad} non-numeric value(s) coerced to NaN")
+            columns.append(np.asarray(coerced, dtype=np.float64))
     if spec is not None and list(spec.feature_names()) != names:
         notes.append("the frame's column order differs from the spec's, which is expected when a bed shuffles its columns per seed")
     return np.column_stack(columns) if columns else np.empty((len(frame), 0)), names, notes

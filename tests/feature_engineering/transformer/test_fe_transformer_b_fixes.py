@@ -490,9 +490,10 @@ def test_f29_nn_dist_empty_subset_sentinel_is_documented():
     from mlframe.feature_engineering.transformer import trust_score_oof as mod
 
     tree = ast.parse(Path(mod.__file__).read_bytes())
-    nn_dist = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_nn_dist"]
+    nn_dist = [node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_nn_dist_to_subset"]
     assert nn_dist
-    assert all("sentinel fill values" in (ast.get_docstring(node) or "") for node in nn_dist)
+    # The empty-subset fill is now _FAR (audit 09-F12); the docstring must keep documenting it.
+    assert all("An empty subset gives ``_FAR``" in (ast.get_docstring(node) or "") for node in nn_dist)
 
 
 # ---------------------------------------------------------------------------

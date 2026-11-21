@@ -8,7 +8,10 @@ hard_synth.make_hard_dataset. If the hybrid beats BOTH mrmr_fe and rfecv, the co
 from __future__ import annotations
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings
+# Only the library-deprecation noise is silenced; UserWarning (e.g. "HybridRFECV degraded") must stay visible (12-F31).
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 import numpy as np, pandas as pd
 from sklearn.model_selection import train_test_split
 import lightgbm as lgb

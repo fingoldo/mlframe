@@ -16,7 +16,10 @@ logger = logging.getLogger(__name__)
 
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings
+# Only the library-deprecation noise is silenced; UserWarning (e.g. "HybridRFECV degraded") must stay visible (12-F31).
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 import numpy as np, pandas as pd
 from collections import defaultdict
 from sklearn.model_selection import train_test_split, cross_val_score

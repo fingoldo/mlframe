@@ -396,9 +396,10 @@ def _fit_score_one_estimator(
 def _commit_fold_scores(est_scores: list, est_fi_runs: list, scores: list, feature_importances: dict, nfold: Any = None) -> float:
     """Aggregate the per-estimator scores into the fold score, publish it and every FI run under the fold-state lock; returns the score."""
     # Aggregate fold score via worst-case (min) across estimators given sklearn's "higher is better". Mean would let one strong estimator (e.g. RF on 2 informative features) mask the fact that another (e.g. LR) needs more features to converge; worst-case forces N to be where ALL estimators agree it's sufficient. For the singular path (len-1 list), min == mean.
-    if est_scores:
-        valid_scores = [s for s in est_scores if not np.isnan(s)]
-        score = float(np.min(valid_scores)) if valid_scores else float("nan")
+    # Worst case over estimators: an estimator that produced no score is unknown, not a pass, so a NaN makes the fold NaN rather than
+    # dropping the failing estimator and letting the rest decide the fold.
+    if est_scores and not any(np.isnan(s) for s in est_scores):
+        score = float(np.min(est_scores))
     else:
         score = float("nan")
     with _FOLD_STATE_LOCK:

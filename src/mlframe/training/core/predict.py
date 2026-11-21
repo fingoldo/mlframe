@@ -563,14 +563,15 @@ def _resolve_chosen_ensemble_params(metadata: dict, target_type: Any = None, tar
                     _params = _by_tt.get(str(target_name))
                 if isinstance(_params, dict):
                     return _params
-            # single-entry fallback
-            if len(_by_tt) == 1:
+            # single-entry fallback: only when no target was asked for; another target's params are not this target's (audit 39-F4)
+            if target_name is None and len(_by_tt) == 1:
                 _only = next(iter(_by_tt.values()))
                 if isinstance(_only, dict):
                     return _only
     # suite-wide fallback when only one (tt, tname) entry exists across the map
     _all_params: list[dict] = [_vv for _v in _ep.values() if isinstance(_v, dict) for _vv in _v.values() if isinstance(_vv, dict)]
-    if len(_all_params) == 1:
+    # Only when no target was asked for: a named target absent from the map must not borrow another target's params (39-F4).
+    if target_name is None and len(_all_params) == 1:
         return _all_params[0]
     return {}
 
@@ -803,20 +804,15 @@ def _run_batched(
         merged["partial_models"] = sorted(_partial)
     for _key in ("ensemble_predictions", "ensemble_probabilities"):
         _parts: list = [b.get(_key) for b in batch_outs if b.get(_key) is not None]
+        if _parts and len(_parts) != len(batch_outs):
+            # Some batches produced no output for this key: the rest would no longer line up with the input rows (audit 39-F2).
+            raise RuntimeError(f"_run_batched: {_key!r} is missing from {len(batch_outs) - len(_parts)} of {len(batch_outs)} batches; refusing to concatenate misaligned rows")
         if _parts:
             try:
                 merged[_key] = np.concatenate(_parts, axis=0)
             except ValueError as _ce:
-                _total_rows = sum(len(p) for p in _parts)
-                log_throttle(
-                    logger,
-                    "run_batched_concatenate_failed",
-                    logging.WARNING,
-                    "_run_batched: np.concatenate(%r) failed across %d batches (%s); result TRUNCATED to "
-                    "batch 0's %d rows (of %d total input rows). Shapes: %s.",
-                    _key, len(_parts), _ce, len(_parts[0]), _total_rows, [np.shape(p) for p in _parts],
-                )
-                merged[_key] = _parts[0]
+                # A truncated result looked complete to the caller (audit 39-F3): fail loudly with the shapes instead.
+                raise RuntimeError(f"_run_batched: np.concatenate({_key!r}) failed across {len(_parts)} batches: {_ce}. Shapes: {[np.shape(p) for p in _parts]}") from _ce
     # input_df concatenated row-wise so consumers reading the post-extensions frame from the result still see all rows.
     _input_parts: list = [b.get("input_df") for b in batch_outs if b.get("input_df") is not None]
     if _input_parts:

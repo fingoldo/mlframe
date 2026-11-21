@@ -109,7 +109,8 @@ def _polars_rate_expr(target_col: str, target_type: str, alias: str):
         # rate by roughly the null fraction -- mirrors the fix already applied to the
         # pandas twin (_aggregate_by_time_pandas). sum/count of an all-null
         # bin is 0.0/0.0 = NaN, matching the pandas twin's explicit NaN-for-empty-bin.
-        col = pl.col(target_col)
+        # NaN is missing here: polars evaluates NaN > 0 as True, so a NaN label counted as a positive (audit 41-F3).
+        col = pl.col(target_col).cast(pl.Float64).fill_nan(None)
         return ((col.fill_null(0) > 0).cast(pl.Float64).sum() / col.is_not_null().sum().cast(pl.Float64)).alias(alias)
     return pl.col(target_col).cast(pl.Float64).mean().alias(alias)
 

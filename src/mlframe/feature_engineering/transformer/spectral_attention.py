@@ -194,8 +194,8 @@ def compute_spectral_attention(
         W, _ids, graph_dists = _build_knn_graph(Xt_s, k_graph=k_graph_eff)
         graph_sigma = float(np.median(graph_dists[:, -1])) + 1e-9  # the training graph's bandwidth, reused for every query batch
         eigvals, eigvecs, d_inv_sqrt = _eigvecs_from_graph(W, n_eigvecs=n_eigvecs)
-        eigvecs_normalised = eigvecs * d_inv_sqrt[:, None]
-        embedding = _nystrom_extend(Xt_s, Xq_s, eigvals=eigvals, eigvecs_normalised=eigvecs_normalised, d_inv_sqrt=d_inv_sqrt, k_graph=k_graph_eff, sigma=graph_sigma)
+        # eigvecs are the eigenvectors of A = D^{-1/2} W D^{-1/2}; _nystrom_extend applies d_i^{-1/2} itself, so they are passed unscaled.
+        embedding = _nystrom_extend(Xt_s, Xq_s, eigvals=eigvals, eigvecs_normalised=eigvecs, d_inv_sqrt=d_inv_sqrt, k_graph=k_graph_eff, sigma=graph_sigma)
         return embedding
 
     if X_query is not None:

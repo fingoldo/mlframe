@@ -19,11 +19,16 @@ from hard_synth import make_hard_dataset
 from hybrid_selector import HybridSelector
 
 
+# ``None`` lets MRMR use its own default, which is 250 (the same as the hybrid's cap), so the earlier None-vs-250 pair ran identical fits. The
+# comparison is the old MRMR width (60) against the hybrid's 250.
+ARMS = (("cap60", 60), ("cap250", 250))
+
+
 def run(name, X, y, seeds=(0, 1, 2)):
     rows = []
     for sd in seeds:
         Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=sd, stratify=y)
-        for tag, cap in (("default", None), ("cap250", 250)):
+        for tag, cap in ARMS:
             t0 = time.time()
             h = HybridSelector(vote=1, use_fe=True, mrmr_synergy_cap=cap, random_state=sd).fit(Xtr, ytr)
             a = downstream(h.transform(Xtr), h.transform(Xte), ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)

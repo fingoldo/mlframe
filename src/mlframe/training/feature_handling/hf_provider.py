@@ -334,8 +334,8 @@ class HuggingFaceProvider:
         # crash; Unicode round-trip safety relies on the underlying tokenizer.
         clean_texts: List[str] = []
         for t in texts:
-            if t is None:
-                clean_texts.append("")
+            if t is None or (isinstance(t, float) and t != t):
+                clean_texts.append("")  # NaN is missing, not the text "nan" (audit 39-F18)
             elif not isinstance(t, str):
                 clean_texts.append(str(t))
             else:

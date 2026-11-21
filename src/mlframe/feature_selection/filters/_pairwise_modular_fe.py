@@ -732,22 +732,35 @@ def escalate_modulus(
         c_arr = _combine(arrs, hit.op)
     yi = encode_y_for_classif_mi(y)
 
+    n_rows, n_classes = len(yi), int(np.unique(yi).size)
+    best_m, best_mi = select_modulus(modulus_grid(k0, span), lambda m: _residue_mi(c_arr, yi, m, nbins), k0, n_rows, n_classes)
+    residue = np.mod(c_arr, best_m).astype(_crit_np_dtype())
+    return best_m, best_mi, residue
+
+
+def modulus_grid(k0: int, span: int = 6) -> list[int]:
+    """Ascending moduli :func:`escalate_modulus` searches around the coarse winner ``k0``: the window ``[k0 - span, k0 + span]``, the small multiples ``{2*k0, 3*k0}`` and the divisors of ``k0``."""
     grid = set(range(max(2, k0 - span), k0 + span + 1))
     grid.update({2 * k0, 3 * k0})
     grid.update(d for d in range(2, k0) if k0 % d == 0)  # the coarse winner can itself be a multiple of the true modulus (24 for 12): its divisors are candidates too
-    # A multiple of the true modulus splits the same classes into more residues: its population MI is the same, its plug-in MI is higher by the Miller-Madow bias of the larger table,
-    # (m - 1)(Ky - 1) / (2 n), which is about 1e-3 nats at 2000 rows. Taking the largest plug-in MI therefore returned a multiple (14 or 21 for 7, 72 for 12) in most seeds. The moduli are compared on the MI
-    # net of that bias, ascending, and a larger one replaces the best only when it gains more than ``_MODULUS_REFINE_Z`` standard deviations of the chi-square increment its extra cells add.
-    n_rows, n_classes = len(yi), int(np.unique(yi).size)
+    return sorted(grid)
+
+
+def select_modulus(grid: Sequence[int], mi_of: Any, k0: int, n_rows: int, n_classes: int) -> tuple[int, float]:
+    """Pick the modulus from ``grid`` (ascending) whose residue MI, ``mi_of(m)``, is best net of the Miller-Madow bias; returns ``(best_m, best_mi)``.
+
+    A multiple of the true modulus splits the same classes into more residues: its population MI is the same, its plug-in MI is higher by the Miller-Madow bias of the larger table,
+    (m - 1)(Ky - 1) / (2 n), which is about 1e-3 nats at 2000 rows. Taking the largest plug-in MI therefore returned a multiple (14 or 21 for 7, 72 for 12) in most seeds. The moduli are compared on the MI
+    net of that bias, ascending, and a larger one replaces the best only when it gains more than ``_MODULUS_REFINE_Z`` standard deviations of the chi-square increment its extra cells add.
+    """
     best_m, best_mi, best_net = k0, -1.0, -np.inf
-    for m in sorted(grid):
-        mi = _residue_mi(c_arr, yi, m, nbins)
+    for m in grid:
+        mi = mi_of(m)
         net = mi - (m - 1) * (n_classes - 1) / (2.0 * n_rows)
         extra_cells = max(0, m - best_m) * max(1, n_classes - 1)
         if best_net == -np.inf or net > best_net + _MODULUS_REFINE_Z * np.sqrt(2.0 * extra_cells) / (2.0 * n_rows):
             best_mi, best_m, best_net = mi, m, net
-    residue = np.mod(c_arr, best_m).astype(_crit_np_dtype())
-    return best_m, best_mi, residue
+    return best_m, best_mi
 
 def detect_pairwise_modular(
     X: pd.DataFrame | pl.DataFrame,

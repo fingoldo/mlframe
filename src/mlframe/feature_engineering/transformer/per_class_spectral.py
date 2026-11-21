@@ -46,7 +46,8 @@ def _compute_spectral_for_subset(
     eigvals, eigvecs, d_inv_sqrt = _eigvecs_from_graph(W, n_eigvecs=min(n_eigvecs, n_sub - 2))
     # Pad eigvals/eigvecs if subset returned fewer than n_eigvecs.
     actual_e = eigvecs.shape[1]
-    eigvecs_normalised = eigvecs * d_inv_sqrt[:, None]
+    # Unscaled: _nystrom_extend applies d_i^{-1/2} itself (see spectral_attention._nystrom_extend).
+    eigvecs_normalised = eigvecs
     embedding = _nystrom_extend(X_subset_std, X_query_std, eigvals=eigvals, eigvecs_normalised=eigvecs_normalised, d_inv_sqrt=d_inv_sqrt, k_graph=k_used)
     if actual_e < n_eigvecs:
         padded = np.zeros((embedding.shape[0], n_eigvecs), dtype=np.float32)

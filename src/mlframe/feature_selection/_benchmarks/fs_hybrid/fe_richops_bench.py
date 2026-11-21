@@ -147,7 +147,7 @@ def run_designed():
     print("\n########## PART 1: DESIGNED BEDS (non-product interactions) ##########", flush=True)
     _checkpoint("[ckpt] PART1 designed beds start")
     # which operator class is the "right" one for each bed (for reading the table)
-    right_op = {"gated": "gated0", "proximity": "proximity/absdiff", "ratio": "ratio", "signed": "signed", "thr_and": "thr_and"}
+    right_op = DESIGNED_RIGHT_OP
     rows = []
     pairs = [("a", "b")]
     for kind in ["gated", "proximity", "ratio", "signed", "thr_and"]:
@@ -174,6 +174,17 @@ def run_designed():
             print(f"  {tag:14s} n={int(Ztr.shape[1]):3d} {rows[-1]['fit_s']:5.1f}s mean={am} {a}", flush=True)
     _checkpoint("[ckpt] PART1 done")
     return rows
+
+
+# The operator that generated each designed bed, fixed before any run. The verdict reads THIS operator, not the max over test AUCs:
+# a max over the test split selected the operator on the data it is then judged on (12-F29).
+DESIGNED_RIGHT_OP = {"gated": "gated0", "proximity": "proximity/absdiff", "ratio": "ratio", "signed": "signed", "thr_and": "thr_and"}
+
+
+def designed_recovery(rich, kind):
+    """``(operator, test AUC)`` of the pre-specified right operator for a designed bed (NaN when that operator is absent)."""
+    op = DESIGNED_RIGHT_OP[kind]
+    return op, float(rich.get(op, float("nan")))
 
 
 # ================================================================== PART 2: REAL BEDS
@@ -251,8 +262,7 @@ def main():
             prod = float(col.get("product", float("nan")))
             raw = float(col.get("raw_only", float("nan")))
             rich = {op: float(col[op]) for op in REAL_OPS if op != "product" and op in col.index}
-            best_rich_op = max(rich, key=lambda _k: rich[_k])
-            best_rich = rich[best_rich_op]
+            best_rich_op, best_rich = designed_recovery(rich, kind)
             tag = ""
             if metric == "logit":
                 recovered = best_rich > 0.80

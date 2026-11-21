@@ -394,7 +394,7 @@ def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_trai
         y_train=y_train,
         base_train=base_train,
         group_column=group_column,
-        groups_train=groups_train,
+        groups_train=groups_train, X_train=None if raw_rows is None else (raw_rows if valid is None else (raw_rows.iloc[np.flatnonzero(valid)] if hasattr(raw_rows, "iloc") else np.asarray(raw_rows)[valid])),
     )
 
 from ._oof_external import _compute_oof_with_external_holdout  # re-exported; carved to keep this module under 1000 lines
@@ -405,7 +405,28 @@ def _full_array_digest(a: np.ndarray) -> int:
     import hashlib
 
     arr = np.ascontiguousarray(a) if a.dtype != object else np.asarray(a.astype(str))
-    return int.from_bytes(hashlib.blake2b(arr.tobytes() if arr.dtype.kind != "U" else "".join(arr.ravel().tolist()).encode(), digest_size=8).digest(), "little")
+    h = hashlib.blake2b(digest_size=8)
+    if arr.dtype.kind == "U":
+        # Length-prefix every element: a bare join made ["ab", "c"] and ["a", "bc"] collide (audit 35-F8).
+        for item in arr.ravel().tolist():
+            encoded = item.encode("utf-8", "surrogatepass")
+            h.update(len(encoded).to_bytes(8, "little"))
+            h.update(encoded)
+    else:
+        h.update(arr.tobytes())
+    return int.from_bytes(h.digest(), "little")
+
+
+def _holdout_x_digest(X: Any) -> int:
+    """Content digest of the external holdout frame (0 when absent), so equal-length holdouts get distinct keys (audit 35-F9)."""
+    if X is None:
+        return 0
+    if hasattr(X, "hash_rows"):  # polars
+        rows = np.asarray(X.hash_rows().to_numpy())
+    else:  # pandas or array-like
+        import pandas as pd
+        rows = pd.util.hash_pandas_object(pd.DataFrame(X), index=False).to_numpy()
+    return _full_array_digest(rows) ^ _full_array_digest(np.asarray(np.shape(X), dtype=np.int64))
 
 
 def _oof_full_cache_key(cache_key, kfold, random_state, holdout_frac, time_ordering, external_holdout_X, external_holdout_y, group_ids) -> tuple:
@@ -420,7 +441,7 @@ def _oof_full_cache_key(cache_key, kfold, random_state, holdout_frac, time_order
     time_fp = _full_array_digest(np.asarray(time_ordering)) if time_ordering is not None else 0
     return (
         cache_key, int(kfold), int(random_state), round(float(holdout_frac), 6), time_fp,
-        int(external_holdout_X is not None), (len(external_holdout_y) if external_holdout_y is not None else -1), group_fp,
+        _holdout_x_digest(external_holdout_X), (_full_array_digest(np.asarray(external_holdout_y)) if external_holdout_y is not None else -1), group_fp,
     )
 
 

@@ -42,7 +42,8 @@ def test_lock_is_created_with_the_pid_already_in_it(lock_dir):
     """While this process holds the lock its file already names the pid, so no reader can see it empty."""
     with _ensure.single_flight() as acquired:
         assert acquired is True
-        assert (lock_dir / ".ensure.lock").read_text(encoding="utf-8").strip() == str(os.getpid())
+        # The lock now records "pid:start-token" so a reused pid is not mistaken for the holder (audit 31-F3); the pid is the first field.
+        assert (lock_dir / ".ensure.lock").read_text(encoding="utf-8").strip().split(":", 1)[0] == str(os.getpid())
     assert not (lock_dir / ".ensure.lock").exists()
 
 

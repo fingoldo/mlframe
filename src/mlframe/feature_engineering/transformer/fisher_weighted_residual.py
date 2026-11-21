@@ -9,6 +9,10 @@ weighted residuals; emit weighted band id + per-band agg_y + raw Fisher + raw re
 Train-side residuals (the statistic that sets the quantile-band thresholds) come from an inner-KFold(3)
 OOF pass, not the full-fit model's in-sample predictions -- see ``_oof_train_predictions``.
 
+Regression residual: a query row carries no label, so the band statistic cannot be ``|y - p|`` on the query side. For regression
+both sides use the label-free proxy ``|p - median(y_train)|`` (prediction dispersion around the training median); classification uses
+the probability residual. The train side keeps the same proxy on OOF predictions so the thresholds describe the rows they are applied to.
+
 5 features. Second-order curvature info (none of iter 60-80 used it).
 """
 from __future__ import annotations

@@ -362,8 +362,10 @@ def _train_model_with_f_base_estimator_cloned_per(model_type_name, model, _effec
                 n_cols=(train_df.shape[1] if hasattr(train_df, "shape") else None),
                 retry=True,
             ):
+                # The retry goes through the same phase as the first attempt, so the wrap, eval_set strip and pin apply
+                # again; a bare model.fit here used the pre-wrap model with eval_set still in fit_params (audit 28-F13).
                 with _suppress_catboost_noise(), hgb_fit_thread_cap(model):
-                    model.fit(train_df, train_target, **fit_params)
+                    fit_params, model = _train_model_with_f_phase(model_type_name, train_df, _cb_pool, fit_params, model, train_target)
         else:
             raise e
 

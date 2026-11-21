@@ -172,6 +172,9 @@ def _bin_matrix(mat: np.ndarray, nbins: int, row_mask: Optional[np.ndarray] = No
         finite = col[~nan_mask]
         if finite.size == 0:
             all_edges.append(np.array([0.0, 1.0]))
+            if any_missing:
+                # An all-missing column gets the missingness code, not bin 0 with a numeric range (audit 21-F5).
+                codes[nan_mask, j] = 1
             continue
         edges = np.unique(np.quantile(finite, np.linspace(0.0, 1.0, nbins + 1)))
         all_edges.append(edges)
@@ -293,7 +296,9 @@ def find_weak_slices(
     codes, all_edges, has_missing = _bin_matrix(mat, nbins, row_mask=row_mask)
     nbins_per = [max(1, all_edges[j].size - 1) + (1 if has_missing[j] else 0) for j in range(p)]
 
-    combos = _build_combos(mat, err, names, p, max_arity, max_combos, three_way_top_features, seed, capped)
+    # err was filtered to the finite rows; the feature matrix the combo builder reads must be filtered the same way or its rows misalign with err.
+    mat_fit = mat if row_mask is None else mat[row_mask]
+    combos = _build_combos(mat_fit, err, names, p, max_arity, max_combos, three_way_top_features, seed, capped)
 
     # Batch the arity-2 pair aggregations (the dominant ~thousands of combos) into one prange-parallel pass; singles
     # and triples (far fewer) stay on the serial per-combo path. Bit-identical to the serial path by construction.

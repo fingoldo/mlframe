@@ -43,6 +43,33 @@ class PruningRound:
     became_best: bool
 
 
+def _zero_importance_mask_within_training_folds(estimator, X, y, cv, remaining, importance_threshold, importance_fn, has_columns) -> np.ndarray:
+    """Drop mask for one round: a column is a candidate when its importance, averaged over the training folds, is at or below the threshold.
+
+    Each importance is computed on that fold's training rows alone, so the rows a fold is scored on never shape the
+    importance used to score it. The former single fit on all rows let the held-out rows pick the drops (audit 25-F18).
+    """
+    row_select = (lambda idx: X.iloc[idx]) if hasattr(X, "iloc") else (lambda idx: X[idx])
+    y_select = (lambda idx: y.iloc[idx]) if hasattr(y, "iloc") else (lambda idx: y[idx])
+    cols_of = (lambda Z: Z[remaining]) if has_columns else (lambda Z: Z[:, remaining])
+    totals = np.zeros(len(remaining), dtype=np.float64)
+    n_folds = 0
+    for train_idx, _test_idx in cv.split(X, np.asarray(y)):
+        X_tr = cols_of(row_select(train_idx))
+        fitted = clone(estimator).fit(X_tr, y_select(train_idx))
+        if importance_fn is None:
+            importances = np.asarray(fitted.feature_importances_)
+        else:
+            importances = np.asarray(importance_fn(fitted, X_tr, y_select(train_idx)))
+        if importances.shape != (len(remaining),):
+            raise ValueError(f"importances must have shape ({len(remaining)},), one value per column; got {importances.shape}")
+        totals += importances
+        n_folds += 1
+    # Mean over training-fold importances: each term sees training rows only (25-F18). An all-folds AND was so strict
+    # that noise columns with a small non-zero importance in one fold were never dropped.
+    return np.asarray((totals / max(n_folds, 1)) <= importance_threshold)
+
+
 def _cv_score(estimator, X: pd.DataFrame, y: np.ndarray, cv, scoring: Callable[[np.ndarray, np.ndarray], float]) -> float:
     """Fit a cloned estimator on each CV fold and return the mean out-of-fold score."""
     row_select = (lambda idx: X.iloc[idx]) if hasattr(X, "iloc") else (lambda idx: X[idx])
@@ -136,14 +163,7 @@ def iterative_zero_importance_pruning(
     trace: List[PruningRound] = []
 
     for _ in range(max_rounds):
-        full_fit_estimator = clone(estimator).fit(col_select(remaining), y)
-        if importance_fn is None:
-            importances = np.asarray(full_fit_estimator.feature_importances_)
-        else:
-            importances = np.asarray(importance_fn(full_fit_estimator, col_select(remaining), y))
-        if importances.shape != (len(remaining),):
-            raise ValueError(f"importances must have shape ({len(remaining)},), one value per column; got {importances.shape}")
-        zero_mask = importances <= importance_threshold
+        zero_mask = _zero_importance_mask_within_training_folds(estimator, X, y, cv, remaining, importance_threshold, importance_fn, has_columns)
         if not zero_mask.any():
             break
 

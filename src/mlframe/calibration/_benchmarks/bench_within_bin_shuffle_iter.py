@@ -1,10 +1,10 @@
-from typing import Any
 """Bench PERF#2: within-bin shuffle in generate_similar_probs_by_ranking.
 
 Old path: per bin does np.unique + full-array np.where scan -> O(n_bins*N).
 New path: single argsort-by-bin + contiguous-slice walk (bins ascending, same
 draw order per bin as np.unique -> bit-identical shuffled output).
 """
+from typing import Any
 import time
 import numpy as np
 from sklearn.utils import check_random_state

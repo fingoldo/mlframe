@@ -760,8 +760,8 @@ def _compute_multi_output_regression(
                 )
                 primary_value = float("nan")
             # Normalized aggregation: RMSE / std(y_train_per_target)
-            std_k = float(np.std(sub_train)) if sub_train.size > 1 else 1.0
-            normalized = primary_value / std_k if std_k > 1e-12 else float("nan")
+            std_k = float(np.nanstd(sub_train)) if sub_train.size > 1 else 1.0
+            normalized = primary_value / std_k if np.isfinite(std_k) and std_k > 1e-12 else float("nan")
             per_output_strongest.append({
                 "output": k,
                 "name": sub_rep.strongest,
@@ -778,8 +778,8 @@ def _compute_multi_output_regression(
         baseline_norm_means: dict[str, list[float]] = {}
         for k, sub_rep in enumerate(sub_reports):
             sub_train_k = train_y_arr[:, k]
-            std_k = float(np.std(sub_train_k)) if sub_train_k.size > 1 else 1.0
-            if std_k <= 1e-12:
+            std_k = float(np.nanstd(sub_train_k)) if sub_train_k.size > 1 else 1.0
+            if not np.isfinite(std_k) or std_k <= 1e-12:
                 continue
             for baseline_name in sub_rep.table.index:
                 v = sub_rep.table.loc[baseline_name].get(sub_rep.primary_metric)
@@ -789,7 +789,7 @@ def _compute_multi_output_regression(
         if baseline_norm_means:
             mean_norms = {
                 name: float(np.mean(vals)) for name, vals in baseline_norm_means.items()
-                if len(vals) >= max(1, K // 2)  # require coverage on >= half of outputs
+                if len(vals) >= max(1, K // 2) and np.isfinite(np.mean(vals))  # coverage on >= half of outputs, finite only (audit 32-F6)
             }
             if mean_norms:
                 best_name = min(mean_norms, key=lambda _n: mean_norms[_n])

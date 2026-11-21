@@ -66,8 +66,8 @@ def _coerce_label_for_cb_pool(target):
             try:
                 arr = np.stack([np.asarray(c) for c in arr], axis=0)
             except Exception as e:
-                logger.debug("swallowed exception in _cb_pool.py: %s", e)
-                pass
+                # The label was passed through without the float32/float64 narrowing: say so at WARNING (audit 33-F2).
+                logger.warning("CB pool label stacking failed (%s: %s); passing the label through unnarrowed", type(e).__name__, e)
     if arr.dtype.kind in ("i", "u", "b", "f") and arr.dtype != np.float32:
         arr = arr.astype(np.float32) if _label_float32_is_lossless(arr) else arr.astype(np.float64)
     return arr
@@ -434,8 +434,8 @@ def _fill_cb_cat_nan_sentinel(model: Any, X: pd.DataFrame) -> pd.DataFrame:
                             X[_c] = X[_c].astype("category")
                 X._mlframe_filled = True
     except Exception as e:
-        logger.debug("swallowed exception in _cb_pool.py: %s", e)
-        pass
+        # A failed fill leaves NaN categories in the frame CatBoost predicts on: say so at WARNING, not DEBUG (audit 33-F1).
+        logger.warning("CatBoost categorical NaN fill failed (%s: %s); the frame may still hold NaN categories", type(e).__name__, e)
     return X
 
 

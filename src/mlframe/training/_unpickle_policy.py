@@ -29,7 +29,7 @@ _DENIED_NAMES: frozenset[str] = frozenset({
 })
 
 # Name prefixes that denote IO entry points in the data libraries (pandas.read_csv, polars.scan_parquet, NDFrame.to_pickle, ...).
-_DENIED_NAME_PREFIXES: tuple[str, ...] = ("read_", "scan_", "to_", "from_pickle")
+_DENIED_NAME_PREFIXES: tuple[str, ...] = ("read_", "scan_", "to_", "write_", "from_pickle")  # write_* reaches polars/pandas file writers (audit 28-F9)
 
 # Module (sub)trees that expose code evaluation, IO, process or network capability.
 _DENIED_MODULE_PREFIXES: tuple[str, ...] = (

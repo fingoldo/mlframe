@@ -219,8 +219,8 @@ def compute_positional_encoding(
 
     CPU only - eltwise compute is ~50 ms for N=10M, d_model=16 on a single core, and the cupy launch overhead alone is ~10 ms. No ``use_gpu`` parameter.
 
-    Positions are clamped at ``pos %% 1_000_000`` to keep ``pos / base^(0)`` within fp32 safe range; for the typical use case (session / day / ticker index) this
-    is never approached, but the clamp prevents silent fp32 overflow if a caller accidentally feeds raw unix timestamps.
+    Positions are used as given (no modulus): a modulus aliased distinct positions onto each other. Very large positions lose precision in a float32
+    ``dtype``; pass ``dtype=np.float64`` for raw unix timestamps.
 
     For position-equals-row-index inputs (a contiguous ``[0..N-1]``), this is a foot-gun - trees are permutation-invariant so a raw row index encodes nothing
     predictive. We emit an INFO log so the caller sees it; for genuinely time-ordered data the warning is harmless.
@@ -252,7 +252,9 @@ def compute_positional_encoding(
 
     # Clamp against fp32 overflow. Compute the modulo directly in the caller's float dtype (typically float32) so we skip the prior float64 intermediate (80MB on N=10M when dtype=float32, accumulates GC pressure across ticker-group loops).
     _np_dtype: np.dtype = np.dtype(dtype)
-    pos_f = np.fmod(pos_arr.astype(_np_dtype, copy=False), _np_dtype.type(1_000_000.0))
+    # No modulus: a wrapped position encoded exactly like a smaller one (1_000_500 read as 500). Large positions lose precision in a
+    # float32 ``dtype``, which the caller controls; they are not aliased.
+    pos_f = pos_arr.astype(_np_dtype, copy=False)
 
     half = d_model // 2
     # div_term[i] = 1 / base^(2i / d_model) for i = 0..half-1

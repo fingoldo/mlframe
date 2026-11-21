@@ -564,8 +564,11 @@ def rolling_longest_monotone_run(
         # np.diff(wins) gives the longest strictly-monotone subsequence
         # (length = run_of_signs + 1). The per-row scan is njit + parallel.
         d = np.ascontiguousarray(np.diff(wins, axis=1))
-        max_run = _longest_monotone_run_kernel(d, direction_code)
-        out[write_idx] = max_run.astype(np.float64)
+        max_run = _longest_monotone_run_kernel(d, direction_code).astype(np.float64)
+        # A window with a missing value has no defined monotone run. NaN differences would otherwise reset the
+        # run and return a finite count, so such windows return NaN, as the other rolling shape features do (audit 24-F12).
+        max_run[~np.isfinite(wins).all(axis=1)] = np.nan
+        out[write_idx] = max_run
     return out
 
 

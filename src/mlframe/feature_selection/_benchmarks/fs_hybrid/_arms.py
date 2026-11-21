@@ -209,8 +209,13 @@ def _integer_bins(values: np.ndarray, n_bins: int) -> np.ndarray:
         return np.zeros(v.shape[0], dtype=np.int64)
     if uniq.size <= n_bins:
         return np.searchsorted(uniq, v).astype(np.int64)
-    ranks = np.argsort(np.argsort(v, kind="stable"), kind="stable")
-    return np.asarray(np.minimum((ranks * n_bins) // max(1, v.shape[0]), n_bins - 1), dtype=np.int64)
+    # Ranks over the finite values only: argsort puts NaN last, so missing rows used to land in the top bin. Missing rows take bin 0.
+    finite = np.isfinite(v)
+    n_finite = int(finite.sum())
+    finite_ranks = np.argsort(np.argsort(v[finite], kind="stable"), kind="stable")
+    codes = np.zeros(v.shape[0], dtype=np.int64)
+    codes[finite] = np.minimum((finite_ranks * n_bins) // max(1, n_finite), n_bins - 1)
+    return codes
 
 
 # ------------------------------------------------------------------------------------------------- base

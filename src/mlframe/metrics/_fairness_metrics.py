@@ -73,10 +73,11 @@ def create_fairness_subgroups(
         if not (0 < min_pop_cat_thresh <= len(df) // 2):
             raise ValueError(f"min_pop_cat_thresh (int) must be in (0, len(df)//2={len(df) // 2}]; " f"got {min_pop_cat_thresh!r}.")
 
-    subgroups = {}
+    subgroups: dict = {}
     for feature_name in features:
 
-        if feature_name in ("**ORDER**", "**RANDOM**"):
+        # isinstance first: a pd.Series feature makes ``==`` return a Series and the tuple test raises (audit 25-F6)
+        if isinstance(feature_name, str) and feature_name in ("**ORDER**", "**RANDOM**"):
             subgroups[feature_name] = feature_name
             continue
 
@@ -126,6 +127,8 @@ def create_fairness_subgroups(
             else:
                 if exclude_terminal_lowpop_cats:
                     cats_to_use = val_cnts[val_cnts >= min_pop_cat_thresh].index.values.tolist()
+                    # Excluded bins become missing so no downstream subgroup is built from them (audit 25-F7; bins_names was never read).
+                    feature_vals = feature_vals.where(feature_vals.isin(cats_to_use))
                     logger.info("For feature %s, had to exclude %s bins %s, %s records.", feature_name, f"{len(cats):_}", ",".join(map(str, cats)), f"{rarecats.sum():_}")
                 else:
                     # neither merging nor excluding was requested or possible: every bin stays, rare ones included

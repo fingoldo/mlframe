@@ -25,6 +25,14 @@ from .._base_tensor_helpers import to_tensor_any
 logger = __import__("logging").getLogger("mlframe.training.neural.base")
 
 
+def _metric_branch_for(num_classes: int, is_multi_target_regression: bool) -> tuple:
+    """``(metric_name, is_ice)`` for the early-stopping metric. ICE is for true classification only: multi-target regression sets
+    ``num_classes=K`` for its K heads, and ICE would then monitor a classification score on continuous targets (audit 40-F3)."""
+    if num_classes > 1 and not is_multi_target_regression:
+        return "ICE", True
+    return "RMSE", False
+
+
 class _FitStepsMixin:
     """Coherent blocks of the training run, called in order by ``_FitMixin._fit_common``."""
 
@@ -194,7 +202,9 @@ class _FitStepsMixin:
         if getattr(self, "network", None) is None:
             self.network = generate_mlp(num_features=X.shape[1], num_classes=_network_output_dim, **_net_params)
 
-        if num_classes > 1:
+        # Multi-target regression sets num_classes=K for the K output heads, but it is NOT classification: ICE would monitor val_ICE on
+        # continuous targets and drive early stopping and checkpoint selection (audit 40-F3). Only true classification takes the ICE branch.
+        if _metric_branch_for(num_classes, getattr(self, "_is_multi_target_regression", False))[1]:
             metric_name = "ICE"
             metrics = [MetricSpec(name=metric_name, fcn=compute_probabilistic_multiclass_error, requires_probs=True)]
         else:

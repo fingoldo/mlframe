@@ -149,9 +149,12 @@ def _pinball_by_alpha_panel(y_true, preds_NK, alphas) -> PanelSpec:
     """Pinball loss per alpha as a line plot. Lower = better."""
     from mlframe.metrics.quantile import pinball_loss_per_alpha
     P = np.asarray(preds_NK, dtype=np.float64)
-    if P.shape[0] == 0 or not np.any(_finite_rows(np.asarray(y_true, dtype=np.float64).ravel(), P)):
+    yt = np.asarray(y_true, dtype=np.float64).ravel()
+    if P.shape[0] == 0 or not np.any(_finite_rows(yt, P)):
         return _no_rows_annotation("Pinball loss by alpha", int(P.shape[0]))
-    losses_dict = pinball_loss_per_alpha(y_true, preds_NK, alphas)
+    # Drop non-finite rows first, as the sibling panels do: one NaN prediction made the whole per-alpha mean NaN (audit 20-F17).
+    _keep = _finite_rows(yt, P)
+    losses_dict = pinball_loss_per_alpha(yt[_keep], P[_keep], alphas)
     a_arr = np.asarray(alphas, dtype=np.float64)
     # Index losses by column position: pinball_loss_per_alpha keys by float(alpha), so a
     # float-key lookup is fragile to representation drift; the dict is ordered by alpha column.

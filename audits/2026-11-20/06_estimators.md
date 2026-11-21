@@ -1,0 +1,30 @@
+# Cluster 06 "estimators" read-only audit
+
+Scope: 1 file from `audits/2026-11-20/manifests/06_estimators.txt` (master dd0284ce9): `src/mlframe/estimators/_benchmarks/bench_cpx39_decorrelator.py` (76 lines, read fully). Production `src/mlframe/estimators/custom.py` was read only to verify what the bench compares against; it is not in this manifest.
+
+| ID | Severity | file:line | Class | Finding | Failure scenario | Suggested fix |
+|----|----------|-----------|-------|---------|------------------|---------------|
+| 06-F1 | P2 | src/mlframe/estimators/_benchmarks/bench_cpx39_decorrelator.py:5, :30-31, :34-43 | correctness / benchmark validity | Docstring and comment say the OLD side is loaded from `git show HEAD:...` for a real A/B. The `git show` output is decoded and discarded (L31). `old_fit` is a from-memory replica of the pre-vectorization loop (L34-43). HEAD `custom.py:416-429` already contains the vectorized code (commit 4bfc3c616 era), so the bench never compares HEAD code against anything real. | Run the bench on current HEAD: the printed "speedup" compares a replica of the old loop against a replica of the new code. It says nothing about the committed `MyDecorrelator.fit`. A regression in `custom.py` would not change any printed number, and the "identity" gate checks replica vs replica. | Load the old source text from `git show <pre-change-sha>:src/mlframe/estimators/custom.py` and exec/extract its `fit` body, or import `MyDecorrelator` for the NEW side. Fix the docstring to match what is actually measured. |
+| 06-F2 | P2 | src/mlframe/estimators/_benchmarks/bench_cpx39_decorrelator.py:47-52 | duplication | `_new_fit` re-implements the production algorithm (same triu/abs/threshold logic as `custom.py:416-429`) instead of calling `MyDecorrelator(threshold).fit(X)`. | When production changes (e.g. NaN handling, `feature_names_in_`), the bench keeps timing and gating a stale copy and still reports identical/faster. | Time `MyDecorrelator(threshold).fit(X)` directly and compare `correlated_features_` for identity. |
+| 06-F3 | P3 | src/mlframe/estimators/_benchmarks/bench_cpx39_decorrelator.py:31 | dead code | The `subprocess.check_output(["git", "show", ...])` result is never used. It only spawns a git process per `_old_fit_factory()` call, and its only effect is an error if git or the path is missing. | None, maintainability: a silent no-op subprocess reads as if HEAD were being loaded (see 06-F1). | Delete the call together with the fix for 06-F1. |
+| 06-F4 | P3 | src/mlframe/estimators/_benchmarks/bench_cpx39_decorrelator.py:51-52 | performance | `_new_fit` loops over p columns in Python, each doing a strided column slice `upper[:, c] > threshold` plus `.any()`. The same pattern is in production `custom.py:429`. | None, perf only: for p=200 this is a 200-iteration Python loop over a 200x200 array. A single `(upper > threshold).any(axis=0)` gives the same set. | Replace with `np.flatnonzero((upper > threshold).any(axis=0))` and map to column labels. Apply the same change in `custom.py` if the bench is kept as the reference. |
+| 06-F5 | P3 | src/mlframe/estimators/_benchmarks/bench_cpx39_decorrelator.py:60-68 | test coverage gap | The identity gate covers only Gaussian data with one threshold (0.9) and no constant or all-NaN columns. For those, `X.corr()` gives NaN and both paths treat `NaN > threshold` as False, but nothing checks that. | No detection if `custom.py` changes NaN or constant-column handling. The gate still prints `ALL identical: True`. | Add a seed with a constant column and a column with NaNs to the identity loop. Assert on the flagged set only. |
+
+## Checked, no finding
+
+- Manifest has one entry; the file was read in full (76 lines). No other manifest entries exist.
+- `from mlframe._bench_timing_shared import best_of_seconds` (L13) resolves to `src/mlframe/_bench_timing_shared.py:55`, `best_of_seconds(fn, *args, reps=5)`. The call `_best_of(old_fit, X, threshold)` matches that signature.
+- `REPO` (L15) is computed as four `..` levels up from `_benchmarks/`, which reaches the repo root. The `cwd=REPO` for `git show` is correct.
+- `_new_fit` flagging logic is equivalent to the lower-triangle loop in the old replica: `corr` is symmetric and column `c` is flagged when any earlier row exceeds the threshold, which matches `for j in range(i)` flagging `columns[i]`.
+- NaN correlations (constant columns) give `False` in both paths, since `abs(NaN) > threshold` is False. The paths agree on this, even though it is untested (see 06-F5).
+- The benchmark module has no callers in package code. Grep shows only self-references and sibling `_benchmarks` helpers, so no public API is affected.
+- The bench only reads data and prints results. It writes no files and runs no git write commands.
+
+
+## Dispositions
+
+- 06-F1: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 06-F2: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 06-F3: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 06-F4: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 06-F5: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup

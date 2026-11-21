@@ -91,6 +91,9 @@ class PolynomialFeatureExpander:
         if the unary case (degree=1) still exceeds the cap, the whole step is skipped and ``transform``
         returns input untouched. Each tuning step is WARN-logged. Never raises on cap exceedance."""
         X_np = np.asarray(X, dtype=np.float32)
+        if not np.isfinite(X_np).all():
+            # sklearn's PolynomialFeatures rejects NaN/inf with an opaque message; refuse here with the fix (39-F37).
+            raise ValueError(f"PolynomialFeatureExpander: X has {int((~np.isfinite(X_np)).sum())} non-finite values; impute NaN/inf before polynomial expansion")
         if X_np.ndim != 2:
             raise ValueError(f"X must be 2-D, got shape {X_np.shape}")
         self._n_features_in = X_np.shape[1]
@@ -194,6 +197,8 @@ class PolynomialFeatureExpander:
         X_np = np.asarray(X, dtype=np.float32)
         if self._skipped:
             return X_np
+        if not np.isfinite(X_np).all():
+            raise ValueError(f"PolynomialFeatureExpander: X has {int((~np.isfinite(X_np)).sum())} non-finite values; impute NaN/inf before polynomial expansion")
         assert self._impl is not None, "PolynomialFeatureExpander: _impl must be fitted before transform"
         return np.asarray(self._impl.transform(X_np).astype(np.float32, copy=False))
 

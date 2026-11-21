@@ -161,3 +161,13 @@ def mrmr_sel_transform(self, X):
     df = self.m_.transform(X).copy()
     df.columns = [self.ren_[c] for c in df.columns]
     return df
+
+
+def run_counts_by_key(rows, key="config"):
+    """Per ``key``: completed and failed run counts (12-F39). Means printed next to this cover completed runs only."""
+    import pandas as pd
+
+    frame = pd.DataFrame(rows)
+    failed = frame["error"].notna() if "error" in frame else pd.Series(False, index=frame.index)
+    frame = frame.assign(failed=failed.to_numpy())
+    return frame.groupby(key).agg(completed=("failed", lambda f: int((~f).sum())), failed=("failed", "sum")).astype(int)

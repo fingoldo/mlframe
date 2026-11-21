@@ -80,6 +80,9 @@ def make_regime_dataset(
     R_names_src = []
     rho_keep = np.sqrt(max(1e-9, 1 - redundancy_rho**2))
     for j in range(n_redundant):
+        if n_informative <= 0:
+            # A redundant column copies an informative one; with none there is nothing to copy. Fail with that reason (audit 10-F8).
+            raise ValueError("redundant columns need at least one informative column to copy from (n_informative > 0)")
         src = int(rng.integers(0, n_informative))
         X[:, n_informative + j] = (redundancy_rho * Z[:, src] + rho_keep * rng.standard_normal(n_samples)).astype(np.float32, copy=False)
         R_names_src.append(src)

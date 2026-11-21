@@ -437,6 +437,7 @@ def _build_configs_from_params(
     callback_params=None,
     model_category=None,
     slice_stable_es=None,
+    auto_wrap_partial_fit_es=True,
     row_wise_extensions_config=None,
     # Metrics params
     nbins=10,
@@ -515,7 +516,7 @@ def _build_configs_from_params(
     data_config = _build_data_config(df, train_df, val_df, test_df, target, train_target, val_target, test_target, train_idx, val_idx, test_idx, calib_df, calib_target, calib_idx, calib_df_pre_pipeline, group_ids, sample_weight, timestamps, merged_drop_columns, target_label_encoder, skip_infinity_checks, n_features, target_type)
 
     from mlframe.training._trainer_config_builders import _build_control_config
-    control_config = _build_control_config(verbose, use_cache, just_evaluate, compute_trainset_metrics, compute_valset_metrics, compute_testset_metrics, pre_pipeline, skip_pre_pipeline_transform, skip_preprocessing, fit_params, callback_params, model_category, slice_stable_es, row_wise_extensions_config)
+    control_config = _build_control_config(verbose, use_cache, just_evaluate, compute_trainset_metrics, compute_valset_metrics, compute_testset_metrics, pre_pipeline, skip_pre_pipeline_transform, skip_preprocessing, fit_params, callback_params, model_category, slice_stable_es, row_wise_extensions_config, auto_wrap_partial_fit_es)
 
     from mlframe.training._trainer_config_builders import _build_metrics_config
     metrics_config = _build_metrics_config(nbins, custom_ice_metric, custom_rice_metric, subgroups, train_details, val_details, test_details)

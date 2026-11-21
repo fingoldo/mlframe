@@ -807,7 +807,18 @@ class BorutaShap(BorutaShapProtocolMixin, TransformerMixin, BaseEstimator):
     def Subset(self, tentative=False):
         """
         Returns the subset of desired features
+
+        With ``premerge_clusters`` the accepted set holds cluster representatives, so the members the selection includes are expanded back in
+        and the pre-collapse frame is indexed (the representative-only frame dropped the members).
         """
+        if getattr(self, "_premerge_active_", False) and getattr(self, "_premerge_original_frame_", None) is not None:
+            from ._fit_explain import _premerge_expand
+
+            reps = list(self.accepted_) + (list(self.tentative_) if tentative else [])
+            kept, _support = _premerge_expand(reps, self._premerge_members_, self._premerge_original_cols_)
+            kept_set = set(kept)
+            cols = [c for c in self._premerge_original_cols_ if c in kept_set]
+            return self._premerge_original_frame_[cols]
         if tentative:
             return self.starting_X_[self.accepted_ + list(self.tentative_)]
         else:

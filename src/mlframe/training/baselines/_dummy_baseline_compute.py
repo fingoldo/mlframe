@@ -218,8 +218,10 @@ def _empirical_bayes_pseudocounts(y: np.ndarray, group_sizes: np.ndarray, group_
         # No within-group replication (every group a singleton): nothing supports trusting a group over the global
         # mean, so shrink as hard as the ceiling allows.
         return PER_GROUP_SMOOTHING_MAX_PSEUDOCOUNTS
-    ss_total = float(np.sum((y - global_mean) ** 2))
-    ss_between = float(np.sum(group_sizes * (group_means - global_mean) ** 2))
+    if not np.isfinite(global_mean):
+        return PER_GROUP_SMOOTHING_MIN_PSEUDOCOUNTS  # a NaN target poisoned every group; no estimate is possible (audit 32-F4)
+    ss_total = float(np.nansum((y - global_mean) ** 2))
+    ss_between = float(np.nansum(group_sizes * (group_means - global_mean) ** 2))
     ms_within = max(ss_total - ss_between, 0.0) / (n_total - n_groups)
     ms_between = ss_between / (n_groups - 1)
     n_bar = (n_total - float(np.sum(group_sizes**2)) / n_total) / (n_groups - 1)

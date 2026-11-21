@@ -73,7 +73,8 @@ def apply_prediction_band_correction(y_pred: np.ndarray, lo: float, hi: float, f
     mask = (pred_arr > lo) & (pred_arr <= hi)
     corrected = np.where(mask, pred_arr * factor, pred_arr)
     if clip is not None:
-        corrected = np.clip(corrected, clip[0], clip[1])
+        # Clip the corrected in-band values only: out-of-band predictions are unchanged by contract, and clipping them moved e.g. -0.3 to 0.
+        corrected = np.where(mask, np.clip(corrected, clip[0], clip[1]), corrected)
     return np.asarray(corrected)
 
 

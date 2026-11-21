@@ -81,8 +81,19 @@ def drop_near_noise_univariate_auc(
     X = df[cols].to_numpy(dtype=_crit_np_dtype())
 
     if n_bootstrap is None:
-        aucs = batch_univariate_auc(X, y_arr)
-        return [col for col, auc in zip(cols, aucs) if abs(auc - 0.5) <= tolerance]
+        if np.isfinite(X).all():
+            aucs = batch_univariate_auc(X, y_arr)
+        else:
+            # batch_univariate_auc refuses non-finite cells (a missing value sorts last and would bias the AUC), so each column is scored on
+            # its own finite rows. A column whose finite rows are single-class has no defined AUC and is kept (never dropped on no evidence).
+            aucs = np.full(len(cols), np.nan, dtype=np.float64)
+            for j in range(len(cols)):
+                finite = np.isfinite(X[:, j])
+                try:
+                    aucs[j] = batch_univariate_auc(X[finite, j : j + 1], y_arr[finite])[0]
+                except ValueError:
+                    aucs[j] = np.nan
+        return [col for col, auc in zip(cols, aucs) if np.isfinite(auc) and abs(auc - 0.5) <= tolerance]
 
     if n_bootstrap <= 0:
         raise ValueError(f"n_bootstrap must be a positive int when provided, got {n_bootstrap}")

@@ -100,6 +100,10 @@ def apply_ma_crossover_composite_fe(
             continue
         n_rows = pd_df.shape[0]
         g, t = _slice(idx, n_rows)
+        if group_ids is not None and g is None:
+            # Without an aligned index the per-entity means cannot be formed, and computing one global rolling mean would average
+            # across entities (40-F18). Refuse, naming the split.
+            raise ValueError(f"ma_crossover: the {split_name} split has no row index aligned with group_ids (idx={None if idx is None else len(idx)}, rows={n_rows}); refusing to mix entities")
         order = t if t is not None else np.arange(n_rows, dtype=np.float64)
         try:
             new_cols = pd.DataFrame(index=range(n_rows))

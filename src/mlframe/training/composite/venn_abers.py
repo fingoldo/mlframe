@@ -263,11 +263,18 @@ def _lookup_interval(self, scores: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     if not va:
         raise RuntimeError("predict_proba_interval / venn-abers predict_proba called before " "calibrate_venn_abers(X_cal, y_cal) on a held-out set.")
     grid = va["grid"]
-    s = np.clip(np.asarray(scores, dtype=np.float64).reshape(-1), 0.0, 1.0)
+    raw = np.asarray(scores, dtype=np.float64).reshape(-1)
+    s = np.clip(raw, 0.0, 1.0)
     # nearest grid index on the right-continuous step (idx of last grid point <= s).
     idx = np.searchsorted(grid, s, side="right") - 1
     idx = np.clip(idx, 0, grid.shape[0] - 1)
-    return va["p0"][idx], va["p1"][idx]
+    p0, p1 = va["p0"][idx], va["p1"][idx]
+    # A NaN score used to land on the top grid bin and return its probabilities with no warning; it now yields NaN (audit 37-F3).
+    missing = ~np.isfinite(raw)
+    if missing.any():
+        p0 = np.where(missing, np.nan, p0)
+        p1 = np.where(missing, np.nan, p1)
+    return p0, p1
 
 
 def predict_proba_interval(self, X: ArrayLike) -> tuple[np.ndarray, np.ndarray]:

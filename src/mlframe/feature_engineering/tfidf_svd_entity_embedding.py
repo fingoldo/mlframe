@@ -28,7 +28,9 @@ def _build_documents(df: pd.DataFrame, entity_col: str, token_col: str) -> Tuple
     # column to str ONCE before grouping, then joining via the canned ``" ".join`` aggregation, does the
     # same work in a single pass instead of len(entities) small ones.
     token_str = df[token_col].astype(str)
-    grouped = token_str.groupby(df[entity_col], sort=False).agg(" ".join)
+    # dropna=False keeps a NaN entity as its own group; the default dropped it, so reindex produced a NaN document
+    # that TfidfVectorizer rejects (audit 24-F18).
+    grouped = token_str.groupby(df[entity_col], sort=False, dropna=False).agg(" ".join)
     documents = grouped.reindex(entities).to_numpy()
     return entities, documents
 
@@ -60,13 +62,15 @@ class FittedTfidfSvdEntityEmbedding:
         entities, documents = _build_documents(df, entity_col, token_col)
 
         vocabulary = self.tfidf.vocabulary_
+        # Vocabulary keys are the vectorizer's preprocessed tokens (lowercased by default), so compare the same form (audit 24-F19).
+        lowercase = bool(getattr(self.tfidf, "lowercase", False))
         oov_fraction = np.empty(len(documents), dtype=float)
         for i, doc in enumerate(documents):
             tokens = doc.split()
             if not tokens:
                 oov_fraction[i] = 1.0
                 continue
-            n_oov = sum(1 for tok in tokens if tok not in vocabulary)
+            n_oov = sum(1 for tok in tokens if (tok.lower() if lowercase else tok) not in vocabulary)
             oov_fraction[i] = n_oov / len(tokens)
 
         tfidf_matrix = self.tfidf.transform(documents)

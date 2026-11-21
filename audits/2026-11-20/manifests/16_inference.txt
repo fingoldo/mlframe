@@ -1,0 +1,7 @@
+src/mlframe/inference/_benchmarks/bench_entity_prediction_collapse.py
+src/mlframe/inference/_benchmarks/bench_group_zero_sum_constraint.py
+src/mlframe/inference/_benchmarks/bench_logical_constraints.py
+src/mlframe/inference/_benchmarks/bench_recursive_forecast.py
+src/mlframe/inference/_benchmarks/bench_shap_oof_per_fold.py
+src/mlframe/inference/_benchmarks/bench_time_budget_ensemble.py
+src/mlframe/inference/_benchmarks/profile_native_gpu_shap.py

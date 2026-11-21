@@ -16,7 +16,7 @@ import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd
 from sklearn.model_selection import train_test_split
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _downstream_shared import downstream_on_cols
+from _downstream_shared import downstream_on_cols, run_counts_by_key
 from synth import make_dataset
 from scenarios import make
 from mlframe.feature_selection.shap_proxied_fs import ShapProxiedFS
@@ -55,12 +55,14 @@ def main():
                            base=len(set(sel) & base), oper=len(set(sel) & oper), n_oper=len(oper),
                            fit_s=round(dt, 1), auc=a, auc_mean=am)
             except Exception as e:
-                logger.debug("case=%s_sd%s config=%s failed: %s: %s", name, sd, cname, type(e).__name__, e)
+                logger.warning("case=%s_sd%s config=%s failed: %s: %s", name, sd, cname, type(e).__name__, e)
                 row = dict(case=f"{name}_sd{sd}", config=cname, error=f"{type(e).__name__}: {e}")
             rows.append(row)
             print(f"{row['case']:16s} {cname:15s} " + (str(row.get("error")) if row.get("error") else
                   f"n={row['n']:2d} base={row['base']}/{len(base)} oper={row['oper']}/{row['n_oper']} {row['fit_s']:5.1f}s mean={row['auc_mean']} auc={row['auc']}"), flush=True)
     df = pd.DataFrame([r for r in rows if not r.get("error")])
+    print("\ncompleted and failed runs per config (means below use completed runs only)")
+    print(run_counts_by_key(rows).to_string())
     print("\n=== mean over cases ===")
     print(df.groupby("config").agg(auc_mean=("auc_mean", "mean"), base=("base", "mean"),
                                    oper=("oper", "mean"), n=("n", "mean"), fit_s=("fit_s", "mean")).round(4).to_string())

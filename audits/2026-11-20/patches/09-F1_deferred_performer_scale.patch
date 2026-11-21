@@ -1,0 +1,52 @@
+diff --git a/src/mlframe/feature_engineering/transformer/performer_attention.py b/src/mlframe/feature_engineering/transformer/performer_attention.py
+index 488ccf784..681c7c6ef 100644
+--- a/src/mlframe/feature_engineering/transformer/performer_attention.py
++++ b/src/mlframe/feature_engineering/transformer/performer_attention.py
+@@ -45,6 +45,16 @@ from ._utils import require_seed, validate_numeric_input
+ logger = logging.getLogger(__name__)
+
+
++def _performer_directions(rng: np.random.Generator, d_input: int, n_features: int) -> np.ndarray:
++    """Unscaled Gaussian directions ``W ~ N(0, I)`` of shape ``(d_input, n_features)`` for the positive random features.
++
++    With ``phi(x) = exp(W^T x - ||x||^2 / 2)`` and unscaled ``W``, ``E[phi(q) . phi(k)] = exp(q . k)`` exactly (the softmax kernel the
++    module describes). Dividing ``W`` by ``sqrt(d_input)`` made the kernel ``exp(q . k / d)`` times a norm-dependent factor, so the estimate
++    was neither the softmax kernel nor a constant rescaling of it.
++    """
++    return rng.standard_normal((d_input, n_features)).astype(np.float32)
++
++
+ def _performer_features(X: np.ndarray, W: np.ndarray, shift: Optional[float] = None) -> tuple[np.ndarray, float]:
+     """Performer positive RFF: φ(x) = exp(W^T x − ||x||²/2).
+
+@@ -106,7 +116,7 @@ def compute_performer_attention_features(
+         d_input = Xt_s.shape[1]
+         rng = np.random.default_rng(fold_seed)
+         # Random Gaussian projection directions, scaled for Performer kernel approximation.
+-        W = rng.standard_normal((d_input, n_features)).astype(np.float32) / np.sqrt(d_input)
++        W = _performer_directions(rng, d_input, n_features)
+         phi_k, key_shift = _performer_features(Xt_s, W)  # (n_train, M)
+         phi_q, _ = _performer_features(Xq_s, W, shift=key_shift)  # (n_query, M)
+         # Pre-aggregate K-side: A (numerator) and B (denominator).
+diff --git a/tests/feature_engineering/transformer/test_performer_attention_key_side_stabilization.py b/tests/feature_engineering/transformer/test_performer_attention_key_side_stabilization.py
+index 95e1d5abb..b7941ce8b 100644
+--- a/tests/feature_engineering/transformer/test_performer_attention_key_side_stabilization.py
++++ b/tests/feature_engineering/transformer/test_performer_attention_key_side_stabilization.py
+@@ -22,7 +22,7 @@ def _exact_performer_reference(X_train, y_train, X_query, seed, n_features):
+     match up to a numerical-stabilization-only tolerance."""
+     d_input = X_train.shape[1]
+     rng = np.random.default_rng(seed)
+-    W = rng.standard_normal((d_input, n_features)) / np.sqrt(d_input)
++    W = rng.standard_normal((d_input, n_features))  # unscaled: E[phi(q).phi(k)] = exp(q.k) (see _performer_directions)
+
+     def phi(X):
+         """Unstabilized Performer random-feature map exp(X@W - 0.5*||x||^2)."""
+@@ -80,7 +80,7 @@ def test_performer_attention_query_side_shift_choice_is_close_regardless(seed):
+     X_query = rng.standard_normal((n_query, d)) * rng.uniform(0.3, 3.0, size=n_query)[:, None]
+
+     d_input = d
+-    W = np.random.default_rng(seed).standard_normal((d_input, M)) / np.sqrt(d_input)
++    W = np.random.default_rng(seed).standard_normal((d_input, M))  # unscaled, as in _performer_directions
+
+     def phi_global_shift(X):
+         """Performer feature map stabilized by a single global scalar shift (the fix)."""

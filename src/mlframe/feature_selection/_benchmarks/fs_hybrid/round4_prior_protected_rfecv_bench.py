@@ -55,26 +55,36 @@ def downstream(Xtr, Xte, ytr, yte, sel):
 
 def high_conf_core(Xtr, ytr):
     """Boruta-accepted UNION MRMR raw selected -- the high-confidence core both selectors agree carries signal."""
-    core = set()
+    boruta_set: set = set()
+    mrmr_set: set = set()
     try:
         bs = S.BorutaSel(); bs.fit(Xtr, ytr)
-        core |= set(c for c in bs.b_.accepted_ if c in Xtr.columns)
+        boruta_set = set(c for c in bs.b_.accepted_ if c in Xtr.columns)
     except Exception as e:
         logger.debug("boruta core failed: %s: %s", type(e).__name__, e)
         print(f"  (boruta core skip: {type(e).__name__})", flush=True)
     try:
         mr = S.MRMRSel(fe=False); mr.fit(Xtr, ytr)
-        core |= set(c for c in mr.raw_selected_ if c in Xtr.columns)
+        mrmr_set = set(c for c in mr.raw_selected_ if c in Xtr.columns)
     except Exception as e:
         logger.debug("mrmr core failed: %s: %s", type(e).__name__, e)
         print(f"  (mrmr core skip: {type(e).__name__})", flush=True)
-    return [c for c in Xtr.columns if c in core]
+    return agreed_core(Xtr.columns, boruta_set, mrmr_set)
+
+
+def agreed_core(columns, boruta_set, mrmr_set) -> list:
+    """Columns both selectors accepted, in frame order: the high-confidence core is their intersection.
+
+    The earlier code took the union, so a feature only one selector chose was pinned into the protected run and the advantage was inflated.
+    """
+    both = set(boruta_set) & set(mrmr_set)
+    return [c for c in columns if c in both]
 
 
 def protected_rfecv(Xtr, ytr, core):
     from mlframe.feature_selection.wrappers import RFECV, FIConfig, SearchConfig
     fi = FIConfig(importance_getter="auto", n_features_selection_rule="one_se_min")
-    sc = SearchConfig(max_refits=18, max_runtime_mins=3)
+    sc = SearchConfig(max_refits=18, max_runtime_mins=None)
     est = lgb.LGBMClassifier(n_estimators=150, num_leaves=31, learning_rate=0.06, n_jobs=4, verbose=-1)
     r = RFECV(estimator=est, cv=3, scoring=None, verbose=0, fi_config=fi, search_config=sc, random_state=0, must_include=list(core))
     r.fit(Xtr, ytr)

@@ -87,15 +87,18 @@ def _find_next_cumsum_left_index_njit(
         right_index = len(window_var_values)
     if right_index <= 0:
         return 0, total
-    for i in range(1, right_index):
-        if not np.isnan(window_var_values[right_index - i]):
-            total += window_var_values[right_index - i]
+    # Element ``k`` is summed on step ``right_index - k``; the returned start is the inclusive
+    # index of the last summed element, so ``arr[start:right_index]`` holds exactly ``total``.
+    for k in range(right_index - 1, -1, -1):
+        if not np.isnan(window_var_values[k]):
+            total += window_var_values[k]
+            steps = right_index - k
             if use_abs:
-                if np.abs(total) >= amount and i >= min_samples:
-                    return right_index - i, total
+                if np.abs(total) >= amount and steps >= min_samples:
+                    return k, total
             else:
-                if total >= amount and i >= min_samples:
-                    return right_index - i, total
+                if total >= amount and steps >= min_samples:
+                    return k, total
     return 0, total
 
 
@@ -126,18 +129,22 @@ def _find_next_cumsum_right_index_njit(
     """Numba kernel: walk right from ``left_index`` accumulating (NaN-skipping) cumulative sum until it reaches ``amount`` (or ``|cumsum|`` when ``use_abs``) after at least ``min_samples`` steps; returns ``(length-1, total)`` when the threshold is never reached."""
     total = 0.0
     length = len(window_var_values)
-    if left_index >= length - 1:
-        return length - 1, total
-    for i in range(1, (length - left_index)):
-        if not np.isnan(window_var_values[left_index + i]):
-            total += window_var_values[left_index + i]
+    if left_index >= length:
+        return length, total
+    # Element ``k`` (starting at ``left_index`` itself) is summed on step ``k - left_index + 1``;
+    # the returned end is exclusive and includes the crossing element, so ``arr[left:end]`` holds
+    # exactly ``total``.
+    for k in range(left_index, length):
+        if not np.isnan(window_var_values[k]):
+            total += window_var_values[k]
+            steps = k - left_index + 1
             if use_abs:
-                if np.abs(total) >= amount and i >= min_samples:
-                    return left_index + i, total
+                if np.abs(total) >= amount and steps >= min_samples:
+                    return k + 1, total
             else:
-                if total >= amount and i >= min_samples:
-                    return left_index + i, total
-    return length - 1, total
+                if total >= amount and steps >= min_samples:
+                    return k + 1, total
+    return length, total
 
 
 def find_next_cumsum_right_index(
@@ -802,6 +809,10 @@ def create_ts_features_parallel(
             return None, None
         end_index = end_index // nrecords_per_period
 
+    if end_index <= start_index:
+        # An empty span has no chunks to split; this also keeps the step division below from dividing by zero (audit 24-F14).
+        return None, None
+
     if not n_chunks or n_chunks <= 0:
         # Honour the caller's `logical` flag rather than hard-coding `logical=True`.
         cpu_count = psutil.cpu_count(logical=logical) or psutil.cpu_count(logical=True) or 1
@@ -824,10 +835,14 @@ def create_ts_features_parallel(
     res = applyfunc_parallel(args, partial(ts_func, **kwargs), return_dataframe=False, logical=logical, n_cores=n_cores)
     X_parts, Y_parts = [], []
     for X_part, Y_part in res:
+        if X_part is None or Y_part is None:
+            continue  # an empty chunk yields (None, None); pd.concat on a list of Nones raised (audit 24-F31)
         X_parts.append(X_part)
         Y_parts.append(Y_part)
 
     del res
+    if not X_parts:
+        return None, None
     return pd.concat(X_parts, ignore_index=True), pd.concat(Y_parts, ignore_index=True)
 
 

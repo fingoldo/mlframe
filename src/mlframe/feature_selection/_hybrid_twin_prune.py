@@ -37,8 +37,13 @@ def _row_losses(Z: np.ndarray, y: np.ndarray, classification: bool, folds: np.nd
                 return None
             model = (HistGradientBoostingClassifier(max_iter=60, max_depth=4, random_state=0) if model_kind == "hgb" else LogisticRegression(max_iter=300)).fit(Z[tr], y[tr])
             proba = np.clip(model.predict_proba(Z[va]), 1e-12, 1.0)
-            idx = np.searchsorted(model.classes_, y[va])
-            out[va] = -np.log(proba[np.arange(proba.shape[0]), np.clip(idx, 0, proba.shape[1] - 1)])
+            # A label the fold never trained on has no probability column: it gets the probability floor, not the column of a
+            # neighbouring class that searchsorted landed on (audit 24-F48).
+            classes_arr = np.asarray(model.classes_)
+            seen = np.isin(y[va], classes_arr)
+            idx = np.clip(np.searchsorted(classes_arr, y[va]), 0, proba.shape[1] - 1)
+            p_true = np.where(seen, proba[np.arange(proba.shape[0]), idx], 1e-12)
+            out[va] = -np.log(p_true)
         else:
             model = (HistGradientBoostingRegressor(max_iter=60, max_depth=4, random_state=0) if model_kind == "hgb" else Ridge(alpha=1.0)).fit(Z[tr], y[tr])
             out[va] = np.abs(y[va] - model.predict(Z[va]))

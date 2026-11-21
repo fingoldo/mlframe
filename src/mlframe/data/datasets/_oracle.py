@@ -205,13 +205,16 @@ def _exact_mi_independent(column: np.ndarray, true_prob: np.ndarray, n_bins: int
     p_finite = p[finite]
 
     weights = np.bincount(codes, minlength=n_bins).astype(np.float64)
-    sums = np.bincount(codes, weights=p_finite, minlength=n_bins)
     occupied = weights > 0
-    conditional = np.zeros(n_bins, dtype=np.float64)
-    conditional[occupied] = sums[occupied] / weights[occupied]
+    # H(Y | X in bin) = mean over the bin's rows of H(p(x_i)): entropy is averaged, not taken at the average probability. Taking it at the
+    # average was biased low by concavity whenever a bin mixed rows with different p.
+    row_entropy = binary_entropy(p_finite)
+    entropy_sums = np.bincount(codes, weights=row_entropy, minlength=n_bins)
+    conditional_entropy = np.zeros(n_bins, dtype=np.float64)
+    conditional_entropy[occupied] = entropy_sums[occupied] / weights[occupied]
     share = weights / weights.sum()
     marginal = float(np.mean(p_finite))
-    return float(binary_entropy(np.array([marginal]))[0] - np.sum(share[occupied] * binary_entropy(conditional[occupied])))
+    return float(binary_entropy(np.array([marginal]))[0] - np.sum(share[occupied] * conditional_entropy[occupied]))
 
 
 def reference_mi(

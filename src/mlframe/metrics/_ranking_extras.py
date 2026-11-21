@@ -63,7 +63,8 @@ def _split_by_group(
     # array is exactly ``arange(n)``, so ``y_true[order]`` / ``y_score[order]`` are no-op copies and the
     # boundaries come straight from ``diff(gids)``. Detect that case with one O(n) monotonicity scan and
     # skip the O(n log n) argsort + two full gathers entirely -- bit-identical to the sorted slow path.
-    if n == 1 or (diffs >= 0).all():
+    # Compare, do not difference: np.diff wraps on unsigned ids, so ``diffs >= 0`` was always true (audit 25-F2).
+    if n == 1 or (gids[1:] >= gids[:-1]).all():
         boundaries = np.concatenate((
             np.array([0]),
             np.nonzero(diffs)[0] + 1,

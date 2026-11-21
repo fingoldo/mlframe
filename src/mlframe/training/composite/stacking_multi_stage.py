@@ -46,6 +46,10 @@ class _ProbaAsPredictWrapper:
     def fit(self, X: Any, y: Any, **fit_kwargs: Any) -> "_ProbaAsPredictWrapper":
         """Fit the wrapped classifier."""
         self.estimator.fit(X, y, **fit_kwargs)
+        classes = getattr(self.estimator, "classes_", None)
+        if classes is not None and len(classes) != 2:
+            # predict returns column 1 of predict_proba, which is only the positive-class probability for a binary target (audit 36-F4).
+            raise ValueError(f"_ProbaAsPredictWrapper supports binary classification only; got {len(classes)} classes")
         return self
 
     def predict(self, X: Any) -> np.ndarray:
@@ -193,7 +197,8 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
 
         X_meta = self._concat_meta(X, meta_cols)
         self.stage2_model_ = clone(self.stage2_estimator)
-        fit_kwargs = {"sample_weight": sample_weight} if sample_weight is not None else {}
+        # Gated like stage 1: an estimator whose fit has no sample_weight would raise on the keyword (audit 36-F3).
+        fit_kwargs = {"sample_weight": sample_weight} if (sample_weight is not None and _model_fit_accepts_sample_weight(self.stage2_model_)) else {}
         self.stage2_model_.fit(X_meta, y_primary, **fit_kwargs)
         return self
 

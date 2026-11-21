@@ -453,6 +453,14 @@ def resolve_binning_strategy(y_true: Any, strategy: str = "auto") -> str:
     return "quantile" if 0.0 < base_rate < _QUANTILE_BINNING_MAX_BASE_RATE else "uniform"
 
 
+def _integer_labels_or_raise(y_true) -> np.ndarray:
+    """Labels as int64, refusing non-integer values: a soft or probability label was truncated to 0/1 by a plain cast (audit 17-F13)."""
+    arr = np.asarray(y_true)
+    if arr.dtype.kind == "f" and not np.all(np.isfinite(arr) & (np.mod(arr, 1.0) == 0.0)):
+        raise ValueError("calibration_binning: the quantile branch needs integer class labels; got non-integer values")
+    return arr.astype(np.int64, copy=False)
+
+
 def calibration_binning(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -495,7 +503,7 @@ def calibration_binning(
     return cast(
         tuple[np.ndarray, np.ndarray, np.ndarray],
         _quantile_binning_kernel(
-            np.asarray(y_true).astype(np.int64, copy=False),
+            _integer_labels_or_raise(y_true),
             np.asarray(y_pred, dtype=np.float64),
             edges.astype(np.float64),
         ),

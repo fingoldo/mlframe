@@ -14,6 +14,11 @@ from typing import Iterable, Optional, Tuple
 import numpy as np
 
 
+def _is_missing_group(g) -> bool:
+    """True for a missing group id (NaN or None)."""
+    return g is None or (isinstance(g, float) and g != g)
+
+
 def assert_no_group_leakage(
     cv_splits: Iterable[Tuple[np.ndarray, np.ndarray]],
     groups: np.ndarray,
@@ -60,14 +65,16 @@ def assert_no_group_leakage(
         the count of flagged test rows, and the closest observed distance/similarity.
     """
     groups = np.asarray(groups)
+    # NaN != NaN, so missing group ids never matched in the sets and a leak through them passed silently. All missing ids are one group.
+    keys = np.array(["<missing>" if _is_missing_group(g) else g for g in groups.tolist()], dtype=object)
     cv_splits = list(cv_splits)
     for fold_idx, (train_idx, test_idx) in enumerate(cv_splits):
-        train_groups = set(groups[train_idx].tolist())
-        test_groups = set(groups[test_idx].tolist())
+        train_groups = set(keys[train_idx].tolist())
+        test_groups = set(keys[test_idx].tolist())
         overlap = train_groups & test_groups
         if overlap:
             overlap_list = sorted(overlap, key=str)[:5]
-            leaked_rows = int(np.isin(groups[test_idx], list(overlap)).sum())
+            leaked_rows = int(sum(1 for k in keys[test_idx].tolist() if k in overlap))
             raise ValueError(
                 f"assert_no_group_leakage: fold {fold_idx} places {len(overlap)} group id(s) on both sides of the "
                 f"train/test split (e.g. {overlap_list}), leaking {leaked_rows} test row(s) from an entity already "

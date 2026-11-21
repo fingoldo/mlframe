@@ -35,7 +35,7 @@ import numpy as np
 from .._numba_params import _PARALLEL_REDUCTION_THRESHOLD, NUMBA_NJIT_PARAMS, _check_equal_length
 
 # ---------- helpers ----------
-from ._confusion_kernels import _confusion_counts_binary_par, _multiclass_confusion_kernel
+from ._confusion_kernels import _confusion_counts_binary_par, _multiclass_confusion_kernel, check_labels_in_range
 from ._confusion_kernels import _confusion_counts_binary as _binary_confusion_block_kernel_seq
 
 
@@ -331,6 +331,7 @@ def fast_multiclass_confusion_metrics_block(
     yt = np.ascontiguousarray(y_true).astype(np.int64, copy=False)
     yp = np.ascontiguousarray(y_pred).astype(np.int64, copy=False)
     K = int(n_classes)
+    check_labels_in_range(yt, yp, K)
     C = _multiclass_confusion_kernel(yt, yp, K)
     n = int(C.sum())
     if n == 0 or K < 2:

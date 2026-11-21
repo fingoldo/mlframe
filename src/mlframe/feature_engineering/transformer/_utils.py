@@ -205,7 +205,8 @@ def validate_numeric_input(
     # high-cardinality hash IDs, monotone counters. Surface this at validation time
     # so the caller can promote to float64 or rescale upstream.
     if X.dtype.kind in ("i", "u"):
-        _abs_max = int(np.abs(X).max()) if X.size else 0
+        # max(|min|, |max|) without a full abs() copy; Python ints cannot overflow on the most negative int64 (audit 08-F10).
+        _abs_max = max(abs(int(X.max())), abs(int(X.min()))) if X.size else 0
         _F32_SAFE_MAX = 1 << 24  # 16_777_216 -- float32 mantissa
         if _abs_max >= _F32_SAFE_MAX:
             import warnings as _w

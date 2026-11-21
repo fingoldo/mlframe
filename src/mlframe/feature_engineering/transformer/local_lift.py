@@ -119,6 +119,8 @@ def compute_local_lift_features(
 
     X_train_f = np.asarray(X_train, dtype=np.float32)
     y_train_f = np.asarray(y_train, dtype=np.float32).ravel()
+    if task == "binary":
+        y_train_f = (y_train_f > 0.5).astype(np.float32)  # the same {0,1} view as the neighbour labels (audit 09-F24)
     y_global_mean = float(y_train_f.mean()) if y_train_f.size > 0 else 0.0
 
     def _process(Xt: np.ndarray, Xq: np.ndarray, y_t: np.ndarray, global_mean: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -134,6 +136,9 @@ def compute_local_lift_features(
         # _knn_helper auto-dispatches to hnswlib at N>=50000, falls back to sklearn otherwise.
         dists, ids = knn_search(Xt_s, Xq_s, k=k)
         y_neighbors = y_t[ids]  # (n_q, k_used)
+        if task == "binary":
+            # Positive = the larger label, as elsewhere: a {-1, 1} target made the cumulative sums negative (audit 09-F24).
+            y_neighbors = (y_neighbors > 0.5).astype(np.float32)
         return _local_lift_and_pr_auc(y_neighbors, dists, global_mean, task=task)
 
     if X_query is not None:

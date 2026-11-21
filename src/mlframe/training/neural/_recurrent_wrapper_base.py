@@ -85,6 +85,16 @@ def _monitor_mode(monitor: str) -> str:
 # ----------------------------------------------------------------------------------------------------------------------------
 
 
+def _class_weight_vector(class_weight: dict, classes, num_classes: int) -> list:
+    """Per-POSITION weights for the model's output head, from a dict keyed by ORIGINAL labels (40-F5).
+
+    Labels are encoded to positions 0..k-1 via ``classes`` (the sorted unique labels), so position i is the class ``classes[i]``.
+    Keying the lookup by position read the weight of the wrong label. Without ``classes`` the positions are the labels.
+    """
+    order = list(classes) if classes is not None else list(range(num_classes))
+    return [float(class_weight.get(label, 1.0)) for label in order]
+
+
 class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
     """
     Base class for sklearn-compatible recurrent model wrappers.
@@ -222,7 +232,8 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
             n_cat = self._n_cat_features_ if self._cat_cardinalities_ else 0
             if n_cat > 0:
                 # Scale ONLY the trailing numeric block; the leading cat-code columns pass through unscaled so they stay valid embedding indices.
-                scaled_features = np.ascontiguousarray(scaled_features, dtype=np.float32)
+                # A real copy: ascontiguousarray returns the caller's own float32 array unchanged, and the block write below would scale it in place (40-F7).
+                scaled_features = np.array(scaled_features, dtype=np.float32, copy=True)
                 if scaled_features.shape[1] > n_cat:
                     scaled_features[:, n_cat:] = self._feature_scaler.transform(scaled_features[:, n_cat:]).astype(np.float32)
             else:
@@ -384,7 +395,7 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         weight_tensor = None
         if class_weight and not self._is_regression:
             weight_tensor = torch.tensor(
-                [class_weight.get(i, 1.0) for i in range(self._cfg.num_classes)],
+                _class_weight_vector(class_weight, getattr(self, "classes_", None), self._cfg.num_classes),
                 dtype=torch.float32,
             )
 
@@ -623,6 +634,10 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
             "cat_cols": self._cat_cols_,
             "cat_cardinalities": self._cat_cardinalities_,
             "n_cat_features": self._n_cat_features_,
+            # Classifier label mapping and multilabel flag: predict() maps argmax positions back through classes_, and the flag selects the
+            # multilabel loss head. Stored as plain Python values so they survive torch.load(weights_only=True).
+            "classes": np.asarray(self.classes_).tolist() if getattr(self, "classes_", None) is not None else None,
+            "is_multilabel": bool(getattr(self, "_is_multilabel", False)),
         }
         torch.save(state, path)
 
@@ -652,6 +667,10 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         wrapper._cat_cols_ = state.get("cat_cols")
         wrapper._cat_cardinalities_ = state.get("cat_cardinalities")
         wrapper._n_cat_features_ = state.get("n_cat_features", 0)
+        _classes = state.get("classes")
+        if _classes is not None:
+            wrapper.classes_ = np.asarray(_classes)
+        wrapper._is_multilabel = bool(state.get("is_multilabel", False))
 
         _sd = state.get("feature_scaler_dict")
         if _sd is not None:
@@ -672,8 +691,11 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
             is_regression=state.get("is_regression", wrapper._is_regression),
             aux_categorical_cardinalities=list(wrapper._cat_cardinalities_) if wrapper._cat_cardinalities_ else None,
             aux_categorical_embed_dim=wrapper.categorical_embed_dim,
+            task_type="multilabel" if wrapper._is_multilabel else None,
         )
-        wrapper.model.load_state_dict(state["model_state_dict"])
+        # Checkpoints written before class_weight became non-persistent carry that key; the rebuilt model has no such buffer (40-F8).
+        _model_sd = {k: v for k, v in state["model_state_dict"].items() if k != "class_weight"}
+        wrapper.model.load_state_dict(_model_sd)
         wrapper.model.eval()
 
         return wrapper

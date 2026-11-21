@@ -286,8 +286,14 @@ def _confidence_estimates(
         else:
             uncertainty = std_preds.mean(axis=1)
 
-        threshold = np.quantile(uncertainty, uncertainty_quantile)
-        confident_indices = np.where(uncertainty <= threshold)[0]
+        # A NaN member prediction makes its row's uncertainty NaN. Including it poisoned the quantile (NaN) and emptied the confident set; the
+        # threshold is taken over the rows that have a finite uncertainty, and an undefined row is never confident.
+        finite = np.isfinite(uncertainty)
+        if finite.any():
+            threshold = np.quantile(uncertainty[finite], uncertainty_quantile)
+            confident_indices = np.where(finite & (uncertainty <= threshold))[0]
+        else:
+            confident_indices = np.array([], dtype=np.int64)
     else:
         uncertainty = None
     return uncertainty, confident_indices

@@ -22,12 +22,14 @@ def _exact_performer_reference(X_train, y_train, X_query, seed, n_features):
     match up to a numerical-stabilization-only tolerance."""
     d_input = X_train.shape[1]
     rng = np.random.default_rng(seed)
-    W = rng.standard_normal((d_input, n_features)) / np.sqrt(d_input)
+    W = rng.standard_normal((d_input, n_features))  # unscaled; the 1/sqrt(d) scale is on the inputs (see the production module)
+    s = d_input**-0.25
 
     def phi(X):
-        """Unstabilized Performer random-feature map exp(X@W - 0.5*||x||^2)."""
-        x_norm_sq = (X**2).sum(axis=1, keepdims=True)
-        return np.exp(X @ W - 0.5 * x_norm_sq)
+        """Unstabilized Performer map exp(Xs@W - 0.5*||xs||^2) on the d^{-1/4}-scaled inputs, kernel exp(q.k/sqrt(d))."""
+        Xs = X * s
+        x_norm_sq = (Xs**2).sum(axis=1, keepdims=True)
+        return np.exp(Xs @ W - 0.5 * x_norm_sq)
 
     phi_k = phi(X_train.astype(np.float64))
     phi_q = phi(X_query.astype(np.float64))

@@ -99,15 +99,18 @@ def make_bed(kind: str, n: int, p_noise: int, seed: int):
     return X, y, set(inf), list(X.columns)
 
 
-def honest_auc(X, y, sel_names, seed):
+def honest_auc(Xs, ys, Xh, yh, sel_names, seed):
+    """Held-out AUC of a refit on the selector's search rows, scored on the holdout rows the selector never saw.
+
+    The earlier version re-split the full frame, so the refit was scored partly on rows the selector had been fit on.
+    """
     if not sel_names:
         return 0.5
-    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=seed, stratify=y)
-    m = _xgb(); m.set_params(random_state=seed + 1)
-    m.fit(Xtr[sel_names], ytr)
-    if len(np.unique(yte)) < 2:
+    if len(np.unique(yh)) < 2:
         return 0.5
-    return float(roc_auc_score(yte, m.predict_proba(Xte[sel_names])[:, 1]))
+    m = _xgb(); m.set_params(random_state=seed + 1)
+    m.fit(Xs[sel_names], ys)
+    return float(roc_auc_score(yh, m.predict_proba(Xh[sel_names])[:, 1]))
 
 
 def pick_from_candidates(cands, col_names):
@@ -140,8 +143,9 @@ def run():
         for seed in seeds:
             X, y, inf, _names = make_bed(bed, n, p_noise, seed)
             # SHAP + interaction tensor from the selector's own machinery (search split only).
-            Xs, _Xh, ys, _yh = train_test_split(X, y, test_size=0.25, random_state=seed, stratify=y)
+            Xs, Xh, ys, yh = train_test_split(X, y, test_size=0.25, random_state=seed, stratify=y)
             Xs = Xs.reset_index(drop=True); ys = np.asarray(ys)
+            Xh = Xh.reset_index(drop=True); yh = np.asarray(yh)
             phi, base, y_phi = compute_shap_matrix(
                 _xgb(), Xs, ys, classification=True, out_of_fold=True, n_splits=3, n_models=1, rng=np.random.default_rng(seed), n_jobs=1
             )
@@ -156,8 +160,8 @@ def run():
                 candidate_subsets=[c for _l, c in add_c])
             add_sel = pick_from_candidates(add_c, list(Xs.columns))
             int_sel = pick_from_candidates(int_c, list(Xs.columns))
-            a_auc = honest_auc(X, y, add_sel, seed)
-            i_auc = honest_auc(X, y, int_sel, seed)
+            a_auc = honest_auc(Xs, ys, Xh, yh, add_sel, seed)
+            i_auc = honest_auc(Xs, ys, Xh, yh, int_sel, seed)
             a_rec = len(set(add_sel) & inf) / max(1, len(inf))
             i_rec = len(set(int_sel) & inf) / max(1, len(inf))
 
@@ -168,7 +172,7 @@ def run():
             add_full_sel = list(sel_add.selected_features_)
             n_kept = int(sel_auto.shap_proxy_report_.get("su_seeded_interactions", {}).get("n_kept_pairs", 0))
             identical = sorted(auto_sel) == sorted(add_full_sel)
-            au_auc = honest_auc(X, y, auto_sel, seed)
+            au_auc = honest_auc(Xs, ys, Xh, yh, auto_sel, seed)
             au_rec = len(set(auto_sel) & inf) / max(1, len(inf))
             overhead_pct = 100.0 * (wall_auto - wall_add) / wall_auto if wall_auto > 0 else float("nan")
 

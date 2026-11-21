@@ -167,7 +167,9 @@ class RecurrentTorchModel(L.LightningModule):
 
         # Register class_weight as buffer so it moves with model to device
         if class_weight is not None:
-            self.register_buffer("class_weight", class_weight)
+            # Non-persistent: class weights shape the training loss only. Persisting them put a "class_weight" key in every state_dict, and
+            # load() rebuilt the model without it, so load_state_dict failed for any class-weighted fit (audit 40-F8).
+            self.register_buffer("class_weight", class_weight, persistent=False)
         else:
             self.class_weight = None
 

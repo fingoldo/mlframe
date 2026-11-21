@@ -98,7 +98,9 @@ def augment_temporal_drift(
     # entity groups" cost class as the per_group_apply anti-pattern found elsewhere. groupby().cumsum() uses
     # a flat Cython segment-restart scan instead and computes the identical expanding mean/std algebraically.
     rank_within_entity = entity_groups.cumcount()
-    n = (rank_within_entity + 1).astype(np.float64)
+    # Observed (non-NaN) count per feature and entity: the sums below skip NaN, so the divisor must too (audit 26-F4).
+    n_obs = ordered[feature_cols].notna().groupby(ordered[entity_col], sort=False).cumsum().astype(np.float64)
+    n_safe = n_obs.where(n_obs > 0)
     # Shift each entity's series by its OWN first observed value before accumulating sums: variance is
     # shift-invariant, so this is exact, but on realistic large-offset/small-spread columns (e.g. a
     # revenue-scale feature with offset~1e9, spread~0.5) it is the difference between a well-conditioned
@@ -110,9 +112,9 @@ def augment_temporal_drift(
     shifted = ordered[feature_cols] - shift
     cumsum_xs = shifted.groupby(ordered[entity_col], sort=False).cumsum()
     cumsum_xs2 = (shifted**2).groupby(ordered[entity_col], sort=False).cumsum()
-    expanding_mean = cumsum_xs.div(n, axis=0).add(shift)
+    expanding_mean = cumsum_xs.div(n_safe).add(shift)
     # sample variance (ddof=1) of an expanding window from its running sum/sum-of-squares; undefined (NaN) at n=1.
-    var = cumsum_xs2.sub(cumsum_xs.pow(2).div(n, axis=0)).div((n - 1).where(n > 1, np.nan), axis=0)
+    var = cumsum_xs2.sub(cumsum_xs.pow(2).div(n_safe)).div((n_obs - 1).where(n_obs > 1))
     expanding_std = var.clip(lower=0).pow(0.5)
 
     count_within_entity = entity_groups[entity_col].transform("size")

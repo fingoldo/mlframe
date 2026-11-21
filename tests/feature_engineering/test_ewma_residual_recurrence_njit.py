@@ -22,9 +22,13 @@ def _old_ewma_single(seg, hl, adjust=False):
     for i in range(1, seg_f.size):
         ewma[i] = alpha * seg_f[i] + (1.0 - alpha) * ewma[i - 1]
     if adjust:
-        w = (1.0 - alpha) ** np.arange(seg_f.size)
-        w_cum = np.cumsum(w[::-1])
-        ewma = ewma * w[::-1] / w_cum
+        # Pandas adjust=True, causal (audit 24-F5): zero-seed numerator over (1 - (1-alpha)^(t+1)).
+        numer = np.empty_like(seg_f)
+        prev = 0.0
+        for i in range(seg_f.size):
+            prev = alpha * seg_f[i] + (1.0 - alpha) * prev
+            numer[i] = prev
+        ewma = numer / (1.0 - (1.0 - alpha) ** np.arange(1, seg_f.size + 1))
     return seg - ewma
 
 
@@ -59,13 +63,13 @@ def test_ewma_with_nans_bit_identical():
     assert np.array_equal(new, old, equal_nan=True)
 
 
-def test_ewma_adjust_bit_identical():
-    """Ewma adjust bit identical."""
+def test_ewma_adjust_matches_causal_reference():
+    """Adjust=True matches the causal pandas-form reference (not bit-identical: the numerator is computed in a different order)."""
     rng = np.random.default_rng(3)
     x = rng.standard_normal(400).cumsum()
     new = ewma_residual(x, half_life=30.0, adjust=True)
     old = _old_ewma_single(x, 30.0, adjust=True)
-    assert np.array_equal(new, old, equal_nan=True)
+    np.testing.assert_allclose(new, old, rtol=1e-12, atol=1e-12)
 
 
 def test_ewma_grouped_bit_identical():

@@ -270,7 +270,7 @@ class TextColumnEncoder:
                 self._vectorizer.fit(texts)
                 out = None
         except ValueError as exc:
-            if isinstance(self.params, TfidfParams) and "empty vocabulary" in str(exc):
+            if isinstance(self.params, TfidfParams) and ("empty vocabulary" in str(exc) or "no terms remain" in str(exc)):  # min_df can prune every term (39-F35)
                 logger.warning(
                     "TextColumnEncoder(%r): empty vocabulary (all-empty/all-missing " "text column); emitting 0-width matrix.",
                     self.column,

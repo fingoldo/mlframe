@@ -180,13 +180,13 @@ def noise_frame_no_structure(p: int, n: int, seed: int = 0):
 
 def logreg_holdout_auc(Xtr, ytr, Xte, yte, cols) -> float:
     """Fit a max_iter=1000 ``LogisticRegression`` on the ``cols`` subset of ``Xtr`` and return its held-out AUC
-    on ``Xte`` -- the cross-selector-family cluster-reduction benchmarks' shared evaluation step. Falls back to
-    the full column set when ``cols`` is empty."""
+    on ``Xte`` -- the cross-selector-family cluster-reduction benchmarks' shared evaluation step. Returns
+    chance (0.5) when ``cols`` is empty: a selector that kept nothing must not be scored with every column, which is what the earlier fallback did."""
     from sklearn.linear_model import LogisticRegression
     from sklearn.metrics import roc_auc_score
 
     if len(cols) == 0:
-        cols = np.arange(Xtr.shape[1])
+        return 0.5
     clf = LogisticRegression(max_iter=1000).fit(Xtr.iloc[:, cols], ytr)
     return float(roc_auc_score(yte, clf.predict_proba(Xte.iloc[:, cols])[:, 1]))
 
@@ -268,8 +268,11 @@ def make_tee_print(orig: Callable, fp: TextIO) -> Callable:
             kw2["file"] = fp
             kw2["flush"] = True
             orig(*a, **kw2)
-        except (OSError, ValueError):
-            pass
+        except (OSError, ValueError) as _log_exc:
+            # The console keeps printing while the log stops: say so once on stderr (audit 10-F9).
+            import sys as _sys
+
+            print(f"log file write failed ({_log_exc}); further output goes to the console only", file=_sys.stderr)
 
     return _tee_print
 

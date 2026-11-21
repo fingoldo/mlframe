@@ -29,6 +29,9 @@ VARIANTS = {
 
 
 def downstream(Xtr, Xte, ytr, yte, cols):
+    """Test AUC of LGBM / logistic / kNN on ``cols``; an empty selection gives NaN (12-F38), not a crash that aborts the run."""
+    if not cols:
+        return {"lgbm": float("nan"), "logit": float("nan"), "knn": float("nan")}
     o = {}
     o["lgbm"] = roc_auc_score(yte, np.asarray(lgb.LGBMClassifier(n_estimators=300, verbose=-1).fit(Xtr[cols], ytr).predict_proba(Xte[cols]))[:, 1])
     o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])

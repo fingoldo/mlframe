@@ -134,7 +134,7 @@ def friedman2_spec(n_probes: int = 6, n_samples: int = 5000, ceiling: float = 0.
             ),
         ),
         edges=tuple(EdgeSpec(source=name, target="y") for name in ("x0", "x1", "x2", "x3")),
-        provenance={"family": "reference", "source": "Friedman 1991, Annals of Statistics 19(1)", "purpose": "unequal column ranges, published rather than invented"},
+        provenance={"family": "reference", "source": "Friedman 1991, Annals of Statistics 19(1)", "purpose": "Friedman-inspired approximation (x1*x2 + x0/x3), NOT the published Friedman-2 function; the link vocabulary cannot express it exactly (04-F11)"},
     )
 
 
@@ -166,7 +166,7 @@ def friedman3_spec(n_probes: int = 6, n_samples: int = 5000, ceiling: float = 0.
         update={
             "name": "friedman3" if n_probes == 6 else f"friedman3_p{4 + n_probes}",
             "targets": (target,),
-            "provenance": {"family": "reference", "source": "Friedman 1991, Annals of Statistics 19(1)", "purpose": "a ratio as the entire signal"},
+            "provenance": {"family": "reference", "source": "Friedman 1991, Annals of Statistics 19(1)", "purpose": "Friedman-inspired approximation (x1/x0 - x1*x2), NOT the published Friedman-3 function; the link vocabulary cannot express it exactly (04-F11)"},
         }
     )
 

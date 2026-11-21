@@ -47,7 +47,7 @@ def _compute_quantile_baselines(
     if K == 0:
         return val_preds, test_preds, extras
 
-    train_median = float(np.median(train_y))
+    train_median = float(np.nanmedian(train_y))  # nan-safe like the regression path (audit 32-F5)
     boundary_log: list[tuple[float, float]] = []  # (orig, clamped)
     n_eff_val: dict[float, int] = {}
     n_eff_test: dict[float, int] = {}
@@ -60,7 +60,7 @@ def _compute_quantile_baselines(
         clamped_a = float(min(max(a, 1e-3), 1 - 1e-3))
         if clamped_a != a:
             boundary_log.append((float(a), clamped_a))
-        c = float(np.quantile(train_y, clamped_a, method="linear"))
+        c = float(np.nanquantile(train_y, clamped_a, method="linear"))
         consts_per_alpha.append(c)
         if val_y is not None:
             n_eff_val[a] = int(np.sum(val_y < c))

@@ -426,7 +426,7 @@ def _infer_multilabel_from_labels(labels, multilabel, probs, y_true):
     if (
         labels is None
         and not multilabel
-        and len(probs) > 2
+        and len(probs) >= 2  # binary too: labels {1,2} with two columns must map column j -> label j (audit 25-F5)
         and isinstance(y_true, np.ndarray)
         and y_true.ndim == 1
         and y_true.dtype.kind in ("i", "u")

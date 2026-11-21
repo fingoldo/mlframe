@@ -34,6 +34,7 @@ import os, sys, time, pickle  # nosec B403 - pickle used only for trusted same-p
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd
+from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
 import lightgbm as lgb
 
@@ -115,8 +116,12 @@ def _mk_model():
     return lgb.LGBMClassifier(n_estimators=120, num_leaves=31, learning_rate=0.06, n_jobs=4, verbose=-1)
 
 
-def cv_curve(X, y, ranked, n_grid, cv, permute=False, n_perm=1, base_seed=100):
+def cv_curve(X, y, ranked, n_grid, cv, permute=False, n_perm=1, base_seed=100, ranker=None):
     """Per-N CV ROC-AUC on the top-N features by `ranked`. If permute, average over n_perm shuffles of y.
+
+    With ``ranker`` (a callable ``(X_train, y_train) -> ordered column names``) each fold ranks its own training rows and the
+    held-out rows are scored on that fold's top-N. Without it the single global ``ranked`` order is used, which was fit on every row
+    the CV then scores, so the N* selection saw its own test folds.
 
     Returns, for permute=False: array of real cv-mean per N.
     For permute=True: (mean_curve, all_perm_curves [n_perm x len(n_grid)]).
@@ -130,6 +135,18 @@ def cv_curve(X, y, ranked, n_grid, cv, permute=False, n_perm=1, base_seed=100):
         else:
             yy = y
         row = []
+        if ranker is not None:
+            folds = list(cv.split(X, yy))
+            fold_orders = [ranker(X.iloc[tr], yy.iloc[tr]) for tr, _te in folds]
+            for n in n_grid:
+                scores = []
+                for (tr, te), order in zip(folds, fold_orders):
+                    cols = list(order[:n])
+                    model = _mk_model().fit(X.iloc[tr][cols], yy.iloc[tr])
+                    scores.append(roc_auc_score(yy.iloc[te], model.predict_proba(X.iloc[te][cols])[:, 1]))
+                row.append(float(np.mean(scores)))
+            curves.append(row)
+            continue
         for n in n_grid:
             cols = ranked[:n]
             sc = cross_val_score(_mk_model(), X[cols], yy, cv=cv, scoring="roc_auc", n_jobs=1)
@@ -210,10 +227,10 @@ def lgbm_gain_ranking(Xtr, ytr):
 def _curves(Xtr, ytr, ranked, n_grid, n_perm):
     cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=0)
     t0 = time.time()
-    real_curve = cv_curve(Xtr, ytr, ranked, n_grid, cv, permute=False)
+    real_curve = cv_curve(Xtr, ytr, ranked, n_grid, cv, permute=False, ranker=lgbm_gain_ranking)
     t_real = round(time.time() - t0, 1)
     t0 = time.time()
-    perm_mean, perm_curves = cv_curve(Xtr, ytr, ranked, n_grid, cv, permute=True, n_perm=n_perm)
+    perm_mean, perm_curves = cv_curve(Xtr, ytr, ranked, n_grid, cv, permute=True, n_perm=n_perm, ranker=lgbm_gain_ranking)
     t_perm = round(time.time() - t0, 1)
     return real_curve, perm_mean, perm_curves, t_real, t_perm
 

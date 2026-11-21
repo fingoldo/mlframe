@@ -148,7 +148,8 @@ def _auto_base(
     # ``CompositeTargetDiscoveryConfig.auto_base_dedup_corr_threshold``;
     # set to 1.0 to disable.
     ranked = _auto_base_step7_set_disable(self, ranked, hint_kept, usable_features, x_matrix, finite)
-    return combine_hint_and_ranked(ranked, hint_kept, top_k)
+    _surviving = set(usable_features)
+    return combine_hint_and_ranked(ranked, [c for c in hint_kept if c in _surviving], top_k)  # audit 34-F2
 
 
 def _auto_base_step1_bit_exact_benchmark(self, use_per_pair, x_matrix_for_mi, y_screen, x_matrix, finite):
@@ -570,6 +571,10 @@ def _auto_base_step5_last_resort(self, demote_set, usable_features, mi_for_ranki
     # "mi" leaves this path dormant and byte-identical to the legacy ranking.
     if getattr(self.config, "base_ranking_criterion", "mi") == "mrmr" and len(ranked) > 1:
         from mlframe.training.composite.discovery._mrmr_base_rank import mrmr_rank_bases
+        # Demoted candidates carry a -1e6 shift; in the MRMR relevance scale that made every other relevance ~1e-6, so their
+        # order was decided by redundancy alone. They are ranked after the MRMR pass instead (audit 34-F3).
+        _demoted_tail = [(m, c) for m, c in ranked if demote_set and c in demote_set]
+        ranked = [(m, c) for m, c in ranked if not (demote_set and c in demote_set)]
         _mrmr_names = [c for _m, c in ranked]
         _mrmr_rel = [m for m, _c in ranked]
         _mrmr_col = {name: i for i, name in enumerate(usable_features)}
@@ -592,7 +597,7 @@ def _auto_base_step5_last_resort(self, demote_set, usable_features, mi_for_ranki
             beta=_mrmr_beta,
         )
         _rel_lookup = dict(zip(_mrmr_names, _mrmr_rel))
-        ranked = [(_rel_lookup[c], c) for c in _mrmr_order]
+        ranked = [(_rel_lookup[c], c) for c in _mrmr_order] + _demoted_tail
         logger.info(
             "[CompositeTargetDiscovery] auto-base MRMR reranked %d candidate(s) " "(beta=%.3g); top: %s",
             len(ranked),

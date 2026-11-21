@@ -33,11 +33,8 @@ def test_lrap_matches_sklearn():
     from sklearn.metrics import label_ranking_average_precision_score
 
     y, _, s = _rand_ml(seed=1)
-    # sklearn skips rows where n_true is 0 or K - we must filter to compare.
-    mask = (y.sum(axis=1) > 0) & (y.sum(axis=1) < y.shape[1])
-    if mask.sum() < 10:
-        return  # not enough comparable rows; sample again would be flaky
-    expected = label_ranking_average_precision_score(y[mask], s[mask])
+    # sklearn keeps degenerate rows (scored 1.0) in the mean, so the full array is compared (audit 25-F3).
+    expected = label_ranking_average_precision_score(y, s)
     assert label_ranking_average_precision(y, s) == pytest.approx(expected, abs=1e-10)
 
 
@@ -56,10 +53,8 @@ def test_ranking_loss_matches_sklearn():
     from sklearn.metrics import label_ranking_loss as skl_rl
 
     y, _, s = _rand_ml(seed=3)
-    mask = (y.sum(axis=1) > 0) & (y.sum(axis=1) < y.shape[1])
-    if mask.sum() < 10:
-        return
-    expected = skl_rl(y[mask], s[mask])
+    # sklearn scores degenerate rows 0 and averages over all rows (audit 25-F4): compare on the full array.
+    expected = skl_rl(y, s)
     assert label_ranking_loss(y, s) == pytest.approx(expected, abs=1e-10)
 
 

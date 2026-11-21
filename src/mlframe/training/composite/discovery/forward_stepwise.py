@@ -148,13 +148,14 @@ def _stepwise_cv_rmse_with_folds(
         y_pred_val = base_matrix[val_idx].astype(np.float64) @ alphas + beta
         diff = y_pred_val - y[val_idx]
         finite = np.isfinite(diff)
-        if finite.sum() == 0:
-            continue
-        fold_rmses.append(float(np.sqrt(np.mean(diff[finite] * diff[finite]))))
-    if not fold_rmses:
-        return float("nan"), []
+        # One slot per fold: the paired sign test zips candidate and baseline BY POSITION, so a dropped fold shifted every later
+        # pair. A fold with no finite diff keeps a NaN slot that the paired test skips (audit 35-F5).
+        fold_rmses.append(float(np.sqrt(np.mean(diff[finite] * diff[finite]))) if finite.sum() else float("nan"))
+    usable_folds = [v for v in fold_rmses if np.isfinite(v)]
+    if not usable_folds:
+        return float("nan"), fold_rmses
     aggregated = aggregate_fold_scores(
-        fold_rmses,
+        usable_folds,
         mode=cv_selector_mode,  # type: ignore[arg-type]
         direction="min",
         alpha=cv_selector_alpha,

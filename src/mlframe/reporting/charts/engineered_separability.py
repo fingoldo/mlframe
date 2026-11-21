@@ -122,13 +122,15 @@ def _implied_auc(fisher_j: float) -> float:
     """Best AUC a linear rule could reach at this Fisher J, under a two-Gaussian model with a shared covariance.
 
     Fisher J is unbounded and scale-free, so "J = 3.1" tells a reader nothing on its own. Under the Gaussian model
-    the optimal separation is ``Phi(sqrt(J)/2)`` -- a number every data scientist already reads fluently.
+    the optimal separation is ``Phi(sqrt(J)/sqrt(2))`` -- a number every data scientist already reads fluently.
     """
     if not np.isfinite(fisher_j) or fisher_j <= 0.0:
         return 0.5
     from math import erf, sqrt
 
-    return float(0.5 * (1.0 + erf(sqrt(fisher_j) / 2.0 / sqrt(2.0))))
+    # J is the squared Mahalanobis distance D^2, so AUC = Phi(D / sqrt(2)) = Phi(sqrt(J) / sqrt(2)) = 0.5 * (1 + erf(sqrt(J) / 2)).
+    # The earlier Phi(sqrt(J) / 2) understated every separability figure.
+    return float(0.5 * (1.0 + erf(sqrt(fisher_j) / 2.0)))
 
 
 def _separability_verdict(fisher_j: float) -> str:

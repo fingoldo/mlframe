@@ -137,16 +137,25 @@ def summarize(rows: Sequence[Dict[str, Any]]) -> List[str]:
         if not here:
             continue
         per_config: Dict[Tuple[str, str], List[float]] = {}
+        failed_configs = set()
         for row in here:
-            per_config.setdefault((str(row["voting_rule"]), str(row["missing_policy"])), []).append(float(row["recall"]))
-        means = {config: float(np.mean(values)) for config, values in per_config.items() if values}
+            config = (str(row["voting_rule"]), str(row["missing_policy"]))
+            recall = float(row["recall"])
+            if np.isfinite(recall):
+                per_config.setdefault(config, []).append(recall)
+            else:
+                failed_configs.add(config)  # a failed run is a missing value, not a recall of 0 or NaN in the mean (12-F36)
+        # A configuration with any failed run is reported incomplete rather than ranked on the runs that happened to finish (12-F36).
+        means = {config: float(np.mean(values)) for config, values in per_config.items() if values and config not in failed_configs}
+        for config in sorted(failed_configs):
+            lines.append(f"{bed}: {config[0]}/{config[1]} INCOMPLETE: at least one seed failed; excluded from the ranking below")
         if not means:
             continue
 
         # A record written before the width was stored cannot support the select-everything check, and
         # saying "of 0 columns" would read as a bed with no features rather than as a missing field.
         widths = [float(row["n_features"]) for row in here if row.get("n_features")]
-        sizes = [float(row["n_selected"]) for row in here]
+        sizes = [float(row["n_selected"]) for row in here if np.isfinite(float(row["recall"]))]  # a failed run has no selection to count (12-F37)
         precisions = [float(row["precision"]) for row in here if np.isfinite(float(row["precision"]))]
         mean_width = float(np.mean(widths)) if widths else float("nan")
         kept_share = float(np.mean(sizes)) / mean_width if np.isfinite(mean_width) and mean_width else float("nan")

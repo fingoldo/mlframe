@@ -134,8 +134,15 @@ def apply_outlier_policy(
         # convention for large (100+GB) frames.
         out = X.copy(deep=False)
         col_arr = X[columns].to_numpy(dtype=np.float64)
-        mins = np.nanquantile(col_arr, cap_quantiles[0], axis=0)
-        maxs = np.nanquantile(col_arr, cap_quantiles[1], axis=0)
+        if bounds is None:
+            mins = np.nanquantile(col_arr, cap_quantiles[0], axis=0)
+            maxs = np.nanquantile(col_arr, cap_quantiles[1], axis=0)
+        else:
+            # Score against the supplied (train) bounds, as the non-tree branch does; quantiles of the frame being scored made
+            # every frame sit at about 2% outside its own range (audit 26-F3).
+            lower, upper = bounds
+            mins = lower[columns].to_numpy(dtype=np.float64)
+            maxs = upper[columns].to_numpy(dtype=np.float64)
         out_of_range_counts = count_num_outofranges(col_arr, mins, maxs)
         out["outlier_score"] = out_of_range_counts.astype(np.float64) / max(len(columns), 1)
         return out

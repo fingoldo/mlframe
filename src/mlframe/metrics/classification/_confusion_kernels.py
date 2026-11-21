@@ -65,6 +65,17 @@ def _confusion_counts_binary_par(
     return int(tp_a.sum()), int(fp_a.sum()), int(tn_a.sum()), int(fn_a.sum())
 
 
+def check_labels_in_range(y_true: np.ndarray, y_pred: np.ndarray, K: int) -> None:
+    """Raise when a label falls outside ``[0, K)``: the kernel skips such rows, which would silently shrink the confusion total.
+
+    The kernel itself stays silent (it is compiled); the public wrappers call this first.
+    """
+    if y_true.size and (int(y_true.min()) < 0 or int(y_true.max()) >= K):
+        raise ValueError(f"y_true has labels outside [0, {K}); a multiclass confusion matrix cannot count them")
+    if y_pred.size and (int(y_pred.min()) < 0 or int(y_pred.max()) >= K):
+        raise ValueError(f"y_pred has labels outside [0, {K}); a multiclass confusion matrix cannot count them")
+
+
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def _multiclass_confusion_kernel(
     y_true: np.ndarray,

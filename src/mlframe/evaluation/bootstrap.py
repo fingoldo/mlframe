@@ -502,7 +502,12 @@ def _confidence_intervals_per_metric(_all_active, valid, n_bootstrap, first_err,
         jackknife = None
         jackknife = _bca_confidence_intervals(method, jackknife_fns, name, y_true, y_pred, active, per_row_fns, metric_fns, n, metric_fns_idx, jackknife)
         lo, hi = _ci_from_samples(s, points[name], alpha, method, jackknife)
-        results[name] = {"point": points[name], "lo": lo, "hi": hi, "samples": s}
+        degraded = failures[name] > n_bootstrap // 4
+        if degraded:
+            # Too few resamples survived for a percentile interval to mean much: the documented answer is the full surviving range, not a
+            # narrow band over the few that happened to succeed.
+            lo, hi = float(np.min(s)), float(np.max(s))
+        results[name] = {"point": points[name], "lo": lo, "hi": hi, "samples": s, "degraded": degraded}
 
 
 def _point_estimates(active, metric_fns, yt, yp, failures, first_err, samples, valid):

@@ -38,7 +38,8 @@ def _old_reference(X_train: np.ndarray, X_query: np.ndarray, k_neighbors: int) -
     nn = NearestNeighbors(n_neighbors=k_eff, n_jobs=-1).fit(Xt_s)
     _, idx = nn.kneighbors(Xq_s)
     neighbor_X = Xt_s[idx]
-    deviations = neighbor_X - Xq_s[:, None, :]
+    # Centred on the neighbour mean, the local PCA centre (see local_intrinsic_dim.py; finding 09-F13).
+    deviations = neighbor_X - neighbor_X.mean(axis=1, keepdims=True)
     n_q, _, _d = deviations.shape
     out = np.zeros((n_q, N_FEATURES), dtype=np.float32)
     for q in range(n_q):

@@ -72,7 +72,9 @@ def ma_crossover_features(
     out: Dict[str, np.ndarray] = {}
     vote_sum: Optional[np.ndarray] = None
     for short, long in combinations(windows, 2):
-        diff = (moving_averages[short] - moving_averages[long]).to_numpy()
+        # Align the long average to the short one's index: a plain subtraction matched labels, but the output frame takes the
+        # short index, so differently ordered inputs shifted rows (audit 24-F36).
+        diff = (moving_averages[short] - moving_averages[long].reindex(moving_averages[short].index)).to_numpy()
         vote = np.sign(diff)
         out[f"{column_prefix}_diff_{short}_{long}"] = diff
         out[f"{column_prefix}_vote_{short}_{long}"] = vote

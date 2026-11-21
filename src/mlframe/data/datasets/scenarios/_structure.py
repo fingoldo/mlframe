@@ -39,8 +39,8 @@ N_GROUPS = 40
 def simpson_reversal_spec(n_noise: int = 28, n_samples: int = 6000, ceiling: float = 0.80, seed: int = 0) -> DatasetSpec:
     """Return the sign-reversal bed: a strong column with zero marginal association.
 
-    The group indicator is a fair coin, so the two subgroups are the same size and the effects cancel
-    exactly rather than approximately. An unbalanced version would leave a residual marginal association
+    The group indicator is a fair sign (-1 or +1), so the two subgroups are the same size, the effect reverses sign
+    between them, and the effects cancel exactly rather than approximately. An unbalanced version would leave a residual marginal association
     and the bed would be testing attenuation rather than reversal.
     """
     return DatasetSpec(
@@ -49,7 +49,7 @@ def simpson_reversal_spec(n_noise: int = 28, n_samples: int = 6000, ceiling: flo
         root_seed=seed,
         features=(
             FeatureSpec(name="x_reversing"),
-            FeatureSpec(name="group", family="bernoulli", params={"p": 0.5}),
+            FeatureSpec(name="group", family="rademacher"),
             FeatureSpec(name="x_plain"),
             *probes(n_noise),
         ),

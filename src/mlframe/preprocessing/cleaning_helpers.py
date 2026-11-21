@@ -44,7 +44,8 @@ def map_elementwise_dedup(s: pd.Series, fcn: Callable, *, sample: int = 20_000, 
     # So the fast path is restricted to what it was written for -- string-valued object columns (countries,
     # statuses, codes), where no value can hash-collide with an unequal-typed one. Everything else takes the
     # row-wise map, which is correct by construction.
-    if not all(v is None or isinstance(v, str) or v != v for v in u):
+    # ``v != v`` is ``pd.NA`` for a missing NA-scalar and ``bool()`` on that raises; only a float NaN is a NaN here (audit 26-F2).
+    if not all(v is None or isinstance(v, str) or (isinstance(v, float) and v != v) for v in u):
         return s.map(fcn)
     mapping = {v: fcn(v) for v in u}
     return s.map(mapping)

@@ -16,6 +16,9 @@ def _binary_labels_01(y_true):
         # sklearn takes the LARGER of two labels as positive ({1, 2}: 2; {0, 2}: 2; {-1, 1}: 1). A label set that is not exactly two values keeps ``== 1``.
         present = y[~np.isnan(y)] if y.dtype.kind == "f" else y
         values = np.unique(present)
+        if values.size > 2:
+            # Silently reducing a multiclass set to "class 1 vs rest" returned a plausible but meaningless AUC (audit 25-F11).
+            raise ValueError(f"binary AUC needs exactly two label values; got {values.size} distinct labels")
         positive = values.max() if values.size == 2 else 1
         return np.ascontiguousarray(y == positive, dtype=np.float64)
     return y

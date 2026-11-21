@@ -81,6 +81,20 @@ def mrmr_fe_variant(fe_strict):
     return _Sel()
 
 
+FLIP_SPLIT_SEEDS = 5
+
+
+def flip_verdict(deltas, tol=0.003):
+    """(holds, mean, se) for paired strict-minus-default deltas; holds only when the lower 95% bound of the mean is at least -tol.
+
+    A single split with a fixed tolerance (12-F33) could not tell a real 0.002 gap from noise.
+    """
+    d = np.asarray(deltas, dtype=np.float64)
+    mean = float(d.mean())
+    se = float(d.std(ddof=1) / np.sqrt(len(d))) if len(d) > 1 else float("inf")
+    return bool(mean - 1.96 * se >= -tol), mean, se
+
+
 def main():
     X, y, name = load_real()
     print(f"REAL dataset: {name}  shape={X.shape}  pos_rate={round(float(y.mean()),3)}", flush=True)
@@ -109,10 +123,20 @@ def main():
     df = pd.DataFrame(rows).sort_values("auc_mean", ascending=False)
     print("\n=== ranked (real data) ===")
     print(df.to_string(index=False))
-    fe_d = df.loc[df.strategy == "mrmr_fe_default", "auc_mean"].iloc[0]
-    fe_s = df.loc[df.strategy == "mrmr_fe_strict", "auc_mean"].iloc[0]
-    print(f"\nfe_strict generalisation: strict {fe_s} vs default {fe_d} (delta {round(fe_s-fe_d,4)}) "
-          f"-> {'fe_strict holds/helps -> safe to flip MRMR default' if fe_s >= fe_d - 0.003 else 'fe_strict HURTS on real data -> do NOT flip global default'}")
+    # 12-F33: one split with a fixed tolerance decided the flip. Re-run both variants over several splits and judge the paired delta.
+    deltas = []
+    for split_seed in range(FLIP_SPLIT_SEEDS):
+        Xa, Xb, ya, yb = train_test_split(X, y, test_size=0.4, random_state=split_seed, stratify=y)
+        pair = {}
+        for tag, strict in (("default", False), ("strict", True)):
+            sel = mrmr_fe_variant(fe_strict=strict)
+            sel.fit(Xa, ya)
+            Za, Zb = sel.transform(Xa), sel.transform(Xb)
+            pair[tag] = float(np.nanmean(list(downstream(Za, Zb, ya, yb).values())))
+        deltas.append(pair["strict"] - pair["default"])
+    holds, mean_d, se_d = flip_verdict(deltas)
+    print(f"\nfe_strict vs default over {FLIP_SPLIT_SEEDS} splits: mean delta {mean_d:+.4f} (se {se_d:.4f})"
+          f" -> {'fe_strict holds/helps -> safe to flip MRMR default' if holds else 'fe_strict NOT shown to hold -> do NOT flip global default'}")
 
 
 if __name__ == "__main__":

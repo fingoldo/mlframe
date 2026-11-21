@@ -185,7 +185,11 @@ class TreeExplainer:
             if name.startswith("XGB"):
                 import xgboost as xgb
 
-                contribs = est.get_booster().predict(xgb.DMatrix(frame), pred_interactions=True)
+                from .native_gpu_shap import native_contrib_kwargs
+
+                # Same missing/categorical/best_iteration as the model's predict (audit 25-F14), not the raw booster defaults.
+                matrix_kw, predict_kw = native_contrib_kwargs(est)
+                contribs = est.get_booster().predict(xgb.DMatrix(frame, **matrix_kw), pred_interactions=True, **predict_kw)
                 self.backend_ = "xgboost_native"
                 self.expected_value = float(contribs[0, -1, -1])
                 return np.asarray(contribs[:, :-1, :-1], dtype=np.float64)  # Intentional float64: the interaction tensor contract

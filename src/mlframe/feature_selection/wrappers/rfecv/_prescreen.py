@@ -94,6 +94,9 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
         except Exception as exc:
             log_throttle(logger, "rfecv_prescreen_callable_failed", logging.WARNING, "Prescreen callable failed (%s); skipping prescreen.", exc)
             return candidate_features
+        # Keep only names the outer search offered: a stray name or an index would enter the fold universe (audit 15-F8).
+        _offered = set(candidate_features)
+        _kept = [f for f in _kept if f in _offered]
         if _topk is not None and len(_kept) > _topk:
             _kept = _kept[: int(_topk)]
         return _kept

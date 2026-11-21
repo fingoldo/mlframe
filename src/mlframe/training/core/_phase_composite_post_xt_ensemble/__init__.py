@@ -61,11 +61,13 @@ def _oof_subsample_positions(n: int, groups, cap: int, seed: int):
     if groups is not None:
         g = np.asarray(groups)
         if g.shape[0] == n:
-            uniq = rng.permutation(np.unique(g))
+            uniq_all, counts_all = np.unique(g, return_counts=True)  # one pass for every group size (audit 37-F7)
+            count_of = dict(zip(uniq_all.tolist(), counts_all.tolist()))
+            uniq = rng.permutation(uniq_all)
             keep, total = [], 0
             for gid in uniq:
                 keep.append(gid)
-                total += int(np.count_nonzero(g == gid))
+                total += int(count_of[gid.item() if hasattr(gid, "item") else gid])
                 if total >= cap:
                     break
             pos = np.nonzero(np.isin(g, keep))[0]
@@ -439,12 +441,12 @@ def _build_cross_target_e_step1_oof_residuals_redundancy(_ce_strategy, st, compo
         elif _ce_strategy == "linear_stack":
             st._ensemble = _CrossEns.from_linear_stack(
                 component_models=st._oof_components, component_names=st._oof_names, component_predictions=_pred_matrix, y_train=_y_for_stack,
-                sample_weight=st._oof_sw if _pred_matrix is st._oof_pred_matrix else None,
+                sample_weight=getattr(st, "_oof_sw", None),  # per-row weights: unaffected by column pruning (audit 37-F5)
             )
         else:  # nnls_stack
             st._ensemble = _CrossEns.from_nnls_stack(
                 component_models=st._oof_components, component_names=st._oof_names, component_predictions=_pred_matrix, y_train=_y_for_stack,
-                sample_weight=st._oof_sw if _pred_matrix is st._oof_pred_matrix else None,
+                sample_weight=getattr(st, "_oof_sw", None),  # per-row weights: unaffected by column pruning (audit 37-F5)
             )
     else:  # "oof_weighted"
         # Pipe OOF rmses through component_oof_rmse= so from_train_metrics ranks on the honest holdout signal,
@@ -806,7 +808,10 @@ def _build_cross_target_e_step3_optional_top_cap(composite_target_discovery_conf
         "max_inference_components", None,
     )
     if st._max_components is not None and st._max_components > 0 and isinstance(st._ensemble, _CrossEns):
-        st._ensemble = refit_capped_stack(_CrossEns, _ce_strategy, st._ensemble.cap_inference_components(int(st._max_components)), st._oof_names, st._oof_pred_matrix, st._oof_y_holdout)
+        st._ensemble = refit_capped_stack(
+            _CrossEns, _ce_strategy, st._ensemble.cap_inference_components(int(st._max_components)), st._oof_names, st._oof_pred_matrix, st._oof_y_holdout,
+            sample_weight=getattr(st, "_oof_sw", None),  # the gate validated a WEIGHTED fit; the refit must match it (audit 37-F6)
+        )
     # SimpleNamespace shim for downstream iterators expecting .model/.columns; columns=None since each component knows its own.
     st._ens_entry = SimpleNamespace(
         model=st._ensemble,

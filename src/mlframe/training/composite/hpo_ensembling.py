@@ -122,6 +122,12 @@ def select_oof_pool_ensemble(
 
     stacked = np.stack([np.asarray(pool[i])[covered] for i in valid_indices], axis=0)
     y_arr = y_arr[covered]
+    if time_ordering is not None:
+        # The time order must follow the same covered rows as the OOF columns, or the nested split indexes past its own length (audit 36-F1).
+        time_ordering = np.asarray(time_ordering)
+        if time_ordering.shape[0] != covered.shape[0]:
+            raise ValueError(f"select_oof_pool_ensemble: time_ordering has {time_ordering.shape[0]} rows; the OOF pool has {covered.shape[0]}")
+        time_ordering = time_ordering[covered]
     resolved_metric = metric if metric is not None else _rmse
 
     selection = stepwise_ensemble_selection(

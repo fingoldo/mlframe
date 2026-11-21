@@ -351,8 +351,12 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         recurrence_continuation: bool = False,
         target_name: str | None = None,
         groups_train: np.ndarray | None = None,
+        X_train: Any = None,
     ) -> CompositeTargetEstimator:
         """Build a wrapper around an ALREADY-FITTED inner model.
+
+        ``X_train`` (the train features, row-aligned with ``y_train``) lets the wrapper stamp the residual smearing quantiles
+        that ``fit()`` stamps, so predict returns the same conditional mean on this path. Without it smearing is off.
 
         This is the path used by the suite-level integration: the
         per-target training loop trains models on the T-scale composite
@@ -420,6 +424,7 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
                 recurrence_continuation=recurrence_continuation,
                 target_name=target_name,
                 groups_train=groups_train,
+                X_train=X_train,
             ),
         )
 

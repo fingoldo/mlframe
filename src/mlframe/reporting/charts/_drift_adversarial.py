@@ -92,6 +92,9 @@ def adversarial_auc(
             _enc.append(e)
             _kept_names.append(nm)
     names = tuple(_kept_names)
+    if not _enc:
+        # No scalar column to validate (every candidate is an embedding or nested): report it as absent rather than fitting a 0-feature model.
+        return float("nan"), np.array([0.0, 1.0]), np.array([0.0, 1.0]), np.array([]), ()
     Xa = np.column_stack([e[0][ia] for e in _enc]) if _enc else np.empty((len(ia), 0))
     Xb = np.column_stack([e[1][ib] for e in _enc]) if _enc else np.empty((len(ib), 0))
     X_arr = np.vstack([Xa, Xb])
@@ -170,6 +173,9 @@ def adversarial_validation(
         train_frame, test_frame, feature_names=feature_names,
         max_rows_per_side=max_rows_per_side, n_splits=n_splits, seed=seed, lgbm_params=lgbm_params,
     )
+    if not names:
+        ann = AnnotationPanelSpec(text="Adversarial validation skipped: no scalar feature to validate (every candidate is an embedding or nested).", title="Adversarial validation")
+        return FigureSpec(suptitle="", panels=((ann,),), figsize=figsize)
 
     series_x = [fpr_tt, np.array([0.0, 1.0])]
     series_y = [tpr_tt, np.array([0.0, 1.0])]

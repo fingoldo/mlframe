@@ -106,8 +106,10 @@ def member_residual_correlation(member_probs: np.ndarray, clip: float = 1e-7) ->
     # A constant-logit member (denom~0) has no defined correlation; it is left out of the summary instead of being scored 0, which would
     # dilute the mean and let redundant members pass the threshold.
     finite = np.isfinite(per_member)
-    mean_abs = float(np.mean(np.abs(per_member[finite]))) if finite.any() else 0.0
-    max_abs = float(np.max(np.abs(per_member[finite]))) if finite.any() else 0.0
+    # Every member constant (no finite correlation): that is maximal redundancy, not independence, so the summary reads 1.0. The earlier 0.0
+    # reported a fully redundant ensemble as independent and the combiner did not warn.
+    mean_abs = float(np.mean(np.abs(per_member[finite]))) if finite.any() else 1.0
+    max_abs = float(np.max(np.abs(per_member[finite]))) if finite.any() else 1.0
     return {"mean_abs_residual_correlation": mean_abs, "max_abs_residual_correlation": max_abs, "per_member_consensus_correlation": per_member}
 
 

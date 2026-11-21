@@ -173,6 +173,19 @@ def _group_filtered_neighbours(
     return labels_arr, compact_dist, compact_mask
 
 
+def _drop_self_match(indices: np.ndarray, distances: np.ndarray, k: int) -> tuple:
+    """Keep each query's ``k`` nearest neighbours after removing one distance-0 self-match (audit 24-F9/24-F10).
+
+    Used only when the query pool IS the reference pool; the KDTree lists the query point itself at rank 0, so the
+    plain ``[:, :k]`` truncation of a ``k + 1`` query otherwise keeps the point as its own neighbour.
+    """
+    is_zero = distances <= 0.0
+    first_zero = is_zero & (np.cumsum(is_zero, axis=1) == 1)
+    sorted_mask = np.where(first_zero, np.iinfo(np.int64).max, np.arange(distances.shape[1]))
+    keep_idx = np.argsort(sorted_mask, axis=1)[:, :k]
+    return np.take_along_axis(indices, keep_idx, axis=1), np.take_along_axis(distances, keep_idx, axis=1)
+
+
 def _self_excluded_neighbours(
     indices: np.ndarray,
     distances: np.ndarray,
@@ -456,6 +469,7 @@ def knn_within_bucket_aggregate(
     except Exception as e:
         raise ImportError("knn_within_bucket_aggregate requires scikit-learn") from e
 
+    query_is_ref = query_coords is ref_coords  # identity must be read before any copy (audit 24-F10)
     ref_coords = np.ascontiguousarray(ref_coords, dtype=np.float64)
     ref_labels = np.ascontiguousarray(ref_labels, dtype=np.float64)
     query_coords = np.ascontiguousarray(query_coords, dtype=np.float64)
@@ -503,8 +517,11 @@ def knn_within_bucket_aggregate(
                 indices, distances, labels_b, bucket_to_groups[b], np.asarray(q_group_ids)[q_idx], k,
             )
         else:
-            compact_indices = indices[:, :k]
-            compact_dist = distances[:, :k]
+            if query_is_ref:
+                compact_indices, compact_dist = _drop_self_match(indices, distances, k)
+            else:
+                compact_indices = indices[:, :k]
+                compact_dist = distances[:, :k]
             labels_arr = labels_b[compact_indices]
             use_nan = False
         for name in agg_fns:
@@ -540,6 +557,7 @@ def local_density_features(
         from sklearn.neighbors import KDTree
     except Exception as e:
         raise ImportError("local_density_features requires scikit-learn") from e
+    query_is_ref = q_coords is ref_coords  # read before any copy (audit 24-F23)
     ref = np.ascontiguousarray(ref_coords, dtype=np.float64)
     q = np.ascontiguousarray(q_coords, dtype=np.float64)
     if q.ndim != 2 or ref.ndim != 2 or q.shape[1] != ref.shape[1]:
@@ -566,6 +584,9 @@ def local_density_features(
         order = np.argsort(sorted_mask, axis=1)
         keep_idx = order[:, :k]
         compact_dist = np.take_along_axis(distances, keep_idx, axis=1)
+    elif query_is_ref:
+        # The self distance 0 is one of the k distances: drop it, so dist_to_kth is the k-th OTHER point (audit 24-F23).
+        _, compact_dist = _drop_self_match(indices, distances, k)
     else:
         compact_dist = distances[:, :k]
 
@@ -621,6 +642,7 @@ def inverse_distance_weighted_aggregate(
         from sklearn.neighbors import KDTree
     except Exception as e:
         raise ImportError("inverse_distance_weighted_aggregate requires scikit-learn") from e
+    query_is_ref = q_coords is ref_coords  # read before any copy (audit 24-F9)
     ref = np.ascontiguousarray(ref_coords, dtype=np.float64)
     q = np.ascontiguousarray(q_coords, dtype=np.float64)
     labels = np.ascontiguousarray(ref_labels, dtype=np.float64)
@@ -644,6 +666,8 @@ def inverse_distance_weighted_aggregate(
         keep_idx = order[:, :k]
         compact_indices = np.take_along_axis(indices, keep_idx, axis=1)
         compact_dist = np.take_along_axis(distances, keep_idx, axis=1)
+    elif query_is_ref:
+        compact_indices, compact_dist = _drop_self_match(indices, distances, k)
     else:
         compact_indices = indices[:, :k]
         compact_dist = distances[:, :k]
@@ -703,6 +727,7 @@ def knn_label_dispersion_features(
 
     Cheap regime detector: stable submarket vs heterogeneous boundary.
     """
+    query_is_ref = q_coords is ref_coords  # read before any copy (audit 24-F9)
     if task not in {"regression", "classification"}:
         raise ValueError(f"task={task!r}")
     try:
@@ -734,6 +759,8 @@ def knn_label_dispersion_features(
         order = np.argsort(sorted_mask, axis=1)
         keep_idx = order[:, :k]
         compact_indices = np.take_along_axis(indices, keep_idx, axis=1)
+    elif query_is_ref:
+        compact_indices, _ = _drop_self_match(indices, distances, k)
     else:
         compact_indices = indices[:, :k]
     label_arr = labels[compact_indices]
@@ -874,6 +901,7 @@ def knn_gradient_features(
         from sklearn.neighbors import KDTree
     except Exception as e:
         raise ImportError("knn_gradient_features requires scikit-learn") from e
+    query_is_ref = q_coords is ref_coords  # read before any copy (audit 24-F9)
     ref = np.ascontiguousarray(ref_coords, dtype=np.float64)
     q = np.ascontiguousarray(q_coords, dtype=np.float64)
     labels = np.ascontiguousarray(ref_labels, dtype=np.float64)
@@ -897,6 +925,8 @@ def knn_gradient_features(
         keep_idx = order[:, :k]
         compact_indices = np.take_along_axis(indices, keep_idx, axis=1)
         compact_dist = np.take_along_axis(distances, keep_idx, axis=1)
+    elif query_is_ref:
+        compact_indices, compact_dist = _drop_self_match(indices, distances, k)
     else:
         compact_indices = indices[:, :k]
         compact_dist = distances[:, :k]
@@ -909,7 +939,9 @@ def knn_gradient_features(
     # Batched weighted normal equations: build (n_q, k, d+1) design tensor,
     # batch-solve all queries at once. ~10-50x vs per-row Python loop.
     valid = np.isfinite(q).all(axis=1)
-    x_diff_all = ref[compact_indices] - q[:, None, :]
+    # Non-finite query rows use the zero-filled coordinates, so no NaN reaches the batched SVD/solve (audit 24-F11);
+    # those rows are forced onto the singular path below and their outputs stay NaN.
+    x_diff_all = ref[compact_indices] - q_clean[:, None, :]
     y_all = labels[compact_indices]
     w_all = 1.0 / (compact_dist + 1.0)
     X_all = np.concatenate([np.ones((n_q, k, 1), dtype=np.float64), x_diff_all], axis=2)
@@ -931,7 +963,7 @@ def knn_gradient_features(
     # raises, then overwrite exactly those rows' betas with NaN afterward -- every other query still gets a
     # normal, fully-vectorized batched solve.
     sv = np.linalg.svd(XtX_reg, compute_uv=False)
-    singular = (sv[:, -1] <= 0) | (sv[:, 0] / np.maximum(sv[:, -1], 1e-300) > 1e12)
+    singular = (sv[:, -1] <= 0) | (sv[:, 0] / np.maximum(sv[:, -1], 1e-300) > 1e12) | ~valid
     if singular.any():
         XtX_reg = XtX_reg.copy()
         XtX_reg[singular] = np.eye(d + 1, dtype=np.float64)

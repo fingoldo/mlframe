@@ -15,6 +15,7 @@ this session), with a numpy fallback.
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 
 try:
     import numba
@@ -120,7 +121,9 @@ def time_since_state_change(state: np.ndarray, group_ids: np.ndarray, include_ac
     """
     from mlframe.feature_engineering.grouped import iter_group_segments
 
-    state_arr = np.ascontiguousarray(state).astype(np.bool_)
+    state_np = np.asarray(state)
+    # A missing state is not possession: NaN/None would otherwise cast to True (audit 24-F7).
+    state_arr = np.ascontiguousarray(state_np.astype(np.bool_) & ~pd.isna(state_np))
     sort_idx, starts, ends = iter_group_segments(group_ids)
     state_sorted = state_arr[sort_idx]
 

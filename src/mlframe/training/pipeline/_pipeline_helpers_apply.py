@@ -174,7 +174,14 @@ def _apply_pre_pipeline_transforms(
             key=_cache_key_entry,
         )
         if _cache_hit is not None and not skip_pre_pipeline_transform and not skip_preprocessing and not _is_fitted(pre_pipeline):
-            return _apply_pre_pipeline_restore_cached(_cache_hit, pre_pipeline, verbose, t0_pre)
+            _restored = _apply_pre_pipeline_restore_cached(_cache_hit, pre_pipeline, verbose, t0_pre)
+            # The fit path stamps the fitted pre_pipeline on the model; a cache hit must too, or the feature-importance replay
+            # (_net_input_frame) finds no stamp and reads the raw un-encoded frame (audit 40-F13).
+            try:
+                model._mlframe_pre_pipeline = pre_pipeline
+            except Exception as e:  # nosec B110 - optional/best-effort path, as on the fit path below
+                logger.debug("could not stamp _mlframe_pre_pipeline on non-writable model: %s", e)
+            return _restored
         train_df, val_df = _apply_pre_pipeline_phase_pre_pipeline_fit(
             skip_pre_pipeline_transform,
             verbose,

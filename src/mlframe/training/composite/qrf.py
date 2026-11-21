@@ -55,6 +55,7 @@ import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 from sklearn.ensemble import ExtraTreesRegressor, RandomForestRegressor
 
+from .distributional import _crps_cell_weights
 from .estimator import CompositeTargetEstimator
 from .transforms import get_transform
 from ._composite_utils import sklearn_set_params
@@ -638,7 +639,7 @@ class CompositeQRFEstimator(RegressorMixin, BaseEstimator):
     def crps(self, X: Any, y_true: Any, reduce: str = "mean") -> Any:
         """CRPS from the QRF quantile representation (quantile decomposition).
 
-        ``CRPS(F_i, y_i) = (2 / K) * sum_k rho_{q_k}(y_i - Q_i(q_k))`` with the pinball
+        ``CRPS(F_i, y_i) = sum_k w_k * rho_{q_k}(y_i - Q_i(q_k))``, ``w_k`` the cell width of level ``q_k`` times 2, with the pinball
         loss ``rho_q(u) = u * (q - 1{u < 0})`` over the dense level grid (Gneiting &
         Raftery 2007). Lower is better; strictly proper, so a calibrated SHARP
         distribution scores below a wider one. Identical formula to
@@ -654,7 +655,7 @@ class CompositeQRFEstimator(RegressorMixin, BaseEstimator):
             raise ValueError(f"CompositeQRFEstimator.crps: y_true length {y.shape[0]} != n_samples {qmat.shape[0]}.")
         u = y[:, None] - qmat  # (n, K)
         rho = u * (levels[None, :] - (u < 0.0).astype(np.float64))
-        per_row = (2.0 / levels.shape[0]) * rho.sum(axis=1)
+        per_row = (rho * _crps_cell_weights(levels)[None, :]).sum(axis=1)
         if reduce == "none":
             return per_row
         if reduce == "mean":

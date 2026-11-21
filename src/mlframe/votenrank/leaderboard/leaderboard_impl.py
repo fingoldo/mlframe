@@ -241,7 +241,8 @@ class Leaderboard:
 
         result_df = pd.DataFrame(result).rename(columns=PRETTY_NAMES)
         result_df.index = pd.Series(result_df.index + 1, name="Ranking position")
-        tie_numbers = {PRETTY_NAMES[key]: value for key, value in tie_numbers.items()}
+        # same tolerant lookup as the result frame's rename (audit 42-F1)
+        tie_numbers = {PRETTY_NAMES.get(key, key): value for key, value in tie_numbers.items()}
 
         if not return_tie_numbers:
             return result_df
@@ -272,7 +273,8 @@ class Leaderboard:
 
         meta_table = pd.DataFrame(np.nan, index=self.table.index, columns=list(task_groups.keys()), dtype=np.float64)
         for key, tasks in task_groups.items():
-            sub_lb = Leaderboard(self.table[tasks], weights=self.weights[tasks].to_dict())
+            # The parent's partial-table settings apply to every group; dropping them made two_step_ranking silently use the defaults (audit 42-F2).
+            sub_lb = Leaderboard(self.table[tasks], weights=self.weights[tasks].to_dict(), allow_partial=self.allow_partial, partial_fill=self.partial_fill)
 
             func = getattr(sub_lb, f"{ranking_method}_ranking")
             ranking_params = ranking_params or {}

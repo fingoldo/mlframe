@@ -154,23 +154,26 @@ def count_ceiling(means: np.ndarray) -> Dict[str, float]:
     and its expectation has a closed form only through the distribution itself, so it is computed from the
     law rather than from any sample. Reporting zero would make every real model look infinitely far from
     a ceiling nothing can reach.
-    """
-    lam = np.asarray(means, dtype=np.float64)
-    # E[2(y log(y/mu) - (y - mu))] under y ~ Poisson(mu), summed over the support that carries the mass.
-    total = 0.0
-    for index, raw in enumerate(lam):
-        value = float(raw)
-        upper = int(max(10, value + 8.0 * np.sqrt(max(value, 1e-9))))
-        counts = np.arange(0, upper + 1, dtype=np.float64)
-        from scipy import stats
 
-        weights = stats.poisson.pmf(counts, value)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            terms = np.where(counts > 0, counts * np.log(np.maximum(counts, 1e-12) / max(value, 1e-12)), 0.0)
-        total += float(np.sum(weights * 2.0 * (terms - (counts - value))))
-        if index > 2000:
-            # The mean converges long before every row is visited; walking a million rows to refine the
-            # fourth decimal of a ceiling nothing reaches is not worth the generation time.
-            total *= len(lam) / float(index + 1)
-            break
-    return {"poisson_deviance": total / float(len(lam)), "mean": float(np.mean(lam))}
+    Every row is summed exactly, in blocks sized to keep the (rows x support) pmf matrix bounded. An earlier
+    version stopped after 2001 rows and scaled the partial sum up, which estimated the ceiling from a prefix
+    of the rows instead of the law the docstring promises.
+    """
+    from scipy import stats
+
+    lam = np.asarray(means, dtype=np.float64).ravel()
+    uppers = np.maximum(10, (lam + 8.0 * np.sqrt(np.maximum(lam, 1e-9))).astype(np.int64))
+    support_max = int(uppers.max())
+    counts = np.arange(0, support_max + 1, dtype=np.float64)
+    log_counts = np.log(np.maximum(counts, 1e-12))
+    block_rows = max(1, int(2e7 // (support_max + 1)))
+    total = 0.0
+    for start in range(0, lam.size, block_rows):
+        block = lam[start : start + block_rows]
+        block_uppers = uppers[start : start + block_rows]
+        weights = stats.poisson.pmf(counts[None, :], block[:, None])
+        weights = np.where(counts[None, :] <= block_uppers[:, None], weights, 0.0)
+        mu = np.maximum(block, 1e-12)[:, None]
+        terms = np.where(counts[None, :] > 0, counts[None, :] * (log_counts[None, :] - np.log(mu)), 0.0)
+        total += float(np.sum(weights * 2.0 * (terms - (counts[None, :] - block[:, None]))))
+    return {"poisson_deviance": total / float(lam.size), "mean": float(np.mean(lam))}

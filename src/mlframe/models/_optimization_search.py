@@ -151,7 +151,8 @@ class MBHOptimizer:
         if seeded_inputs is None:
             seeded_inputs = []
         if model_params is None:
-            model_params = {"iterations": 150}
+            # ETR is a sklearn estimator: 'iterations' is a CatBoost key and would reach ExtraTreesRegressor(**kwargs) (audit 25-F16).
+            model_params = {} if model_name == "ETR" else {"iterations": 150}
 
         self._validate_params(search_space, quantile, acquisition_method, skip_best_candidate_prob, dist_scaling_coefficient, exploitation_probability)
 

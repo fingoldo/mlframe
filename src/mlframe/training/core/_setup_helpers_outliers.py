@@ -231,6 +231,11 @@ def _apply_outlier_detection_global(
         # the detector raises on the val frame (e.g. NaN inputs without an imputer
         # wrapper). Train-side OD already succeeded by this point, so don't fail the
         # whole suite on the val-side raise.
+        if not hasattr(outlier_detector, "predict"):
+            # fit_predict-only detectors (LocalOutlierFactor with novelty=False) cannot score new rows; skip the val filter
+            # explicitly instead of calling a missing method and catching the AttributeError (audit 38-F3).
+            logger.warning("Outlier detector %s has no predict(); skipping the val-side OD filter", type(outlier_detector).__name__)
+            return filtered_train_df, val_df, filtered_train_idx, val_idx, train_od_idx, None
         try:
             is_inlier = outlier_detector.predict(_numeric_only_view(val_df))
         except (ValueError, TypeError, ImportError, RuntimeError, MemoryError, AttributeError) as _od_exc:

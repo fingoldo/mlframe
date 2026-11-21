@@ -182,6 +182,17 @@ def _cv_selector_knobs(self) -> tuple[str, float, float, float]:
     )
 
 
+def _base_varies(arr) -> bool:
+    """True when a base column takes more than one value. A constant or all-zero placeholder (a unary spec) is trivially
+    "non-decreasing" and used to set the time-aware flag for every CV (audit 35-F3)."""
+    try:
+        values = np.asarray(arr, dtype=np.float64).ravel()
+    except (TypeError, ValueError):
+        return False
+    finite = values[np.isfinite(values)]
+    return finite.size > 1 and float(finite.max()) > float(finite.min())
+
+
 def _early_raw_baseline(
     self,
     kept_specs: list[CompositeSpec],
@@ -210,7 +221,7 @@ def _early_raw_baseline(
     # One fold scheme for raw-y and every spec (per-spec schemes made the threshold and Wilcoxon compare different fold RMSEs).
     _early_any_base_monotone = bool(getattr(self, "_screen_time_ordered_", False) or (
         groups_screen is None
-        and any(_is_monotone_nondecreasing(_base_arr) for spec in kept_specs if (_base_arr := per_base_cache.base_screen(spec.base_column)) is not None)
+        and any(_is_monotone_nondecreasing(_base_arr) and _base_varies(_base_arr) for spec in kept_specs if (_base_arr := per_base_cache.base_screen(spec.base_column)) is not None)
     ))
     if bool(getattr(self.config, "require_beats_raw_baseline", False)):
         n_seed_repeats_raw = max(1, int(getattr(
@@ -434,6 +445,11 @@ def _apply_raw_baseline_gate(
         return None
     self._raw_y_baseline_rmse = float(raw_baseline) if math.isfinite(raw_baseline) else float("nan")
     if not math.isfinite(raw_baseline):
+        # The raw-y and Wilcoxon gates cannot run; with the gate requested the composite would ship unchecked. Fail closed (audit 35-F4).
+        if bool(getattr(self.config, "require_beats_raw_baseline", False)):
+            logger.warning("[CompositeTargetDiscovery] require_beats_raw_baseline is set but the raw baseline is not finite; no spec is admitted")
+            return [], agg_scores
+        logger.warning("[CompositeTargetDiscovery] the raw baseline is not finite; the raw-y gate did not run")
         return kept_specs, agg_scores
     survivors: list[Any] = []
     gate_alpha = float(getattr(self.config, "gate_alpha", 0.05))

@@ -116,6 +116,10 @@ def score_candidates(
         except Exception as exc:
             log_throttle(logger, "calib_policy_oof_predict_failed", logging.WARNING, "pick_best_calibrator: %s.predict on OOF failed: %s", name, exc)
             continue
+        if not np.isfinite(cal_oof).all():
+            # A calibrator that returns NaN has failed on these rows: it is not a candidate, rather than a near-zero ECE the pick could choose.
+            log_throttle(logger, "calib_policy_oof_nonfinite", logging.WARNING, "pick_best_calibrator: %s produced non-finite OOF probabilities; excluded", name)
+            continue
         # ``rank_ece`` drives selection: held-out (honest) for inner_cv, same-OOF (legacy) otherwise.
         rank_ece: float
         ece_ci: tuple

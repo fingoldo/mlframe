@@ -165,7 +165,7 @@ def hash_array_summary(arr: np.ndarray, n_summary_rows: int = _DEFAULT_SUMMARY_R
         h.update(array_buffer(arr[-tail_n:]))
     # Fixed-width strings, bytes and datetimes have no numeric reduction below, so head/tail would be the only content-bearing input and every middle-row
     # difference would collide (as for object arrays above): hash the whole buffer.
-    if arr.dtype.kind in ("U", "S", "M", "m"):
+    if arr.dtype.kind in ("U", "S", "M", "m", "V"):  # "V": structured/void rows have no numeric reduction either (audit 29-F4)
         h.update(array_buffer(np.ascontiguousarray(arr)))
         return str(h.hexdigest())
     if arr.dtype.kind == "b":

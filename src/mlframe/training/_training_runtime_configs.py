@@ -399,6 +399,8 @@ class TrainingControlConfig(BaseConfig):
     # Built and propagated by the suite layer (``train_mlframe_models_suite``) from
     # ``TrainingConfig.slice_stable_es``; not commonly set by hand.
     slice_stable_es: Optional[SliceStableESConfig] = None
+    # Gates the sklearn partial_fit early-stopping wrap; populated from TrainingBehaviorConfig by the suite (audit 28-F11).
+    auto_wrap_partial_fit_es: bool = True
 
     # Row-wise extension replay config (row_summary_*/row_extreme_* columns), mirrored from
     # ``metadata["row_wise_extensions_config"]`` stamped by ``apply_preprocessing_extensions`` at fit

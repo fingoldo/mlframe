@@ -101,16 +101,20 @@ def _honest_score(name, seed, importance_agg):
         importance_getter="permutation" if name == "kernel" else None,
     )
     sel.fit(X_tr, y_tr)
-    kept = sel._selected_cols_cache if sel._selected_cols_cache else list(Xdf.columns)
-    from sklearn.base import clone
-    m = clone(est)
-    m.fit(X_tr[kept], y_tr)
-    if hasattr(m, "predict_proba"):
-        s = m.predict_proba(X_te[kept])[:, 1]
-    elif hasattr(m, "decision_function"):
-        s = m.decision_function(X_te[kept])
+    kept = list(sel._selected_cols_cache) if sel._selected_cols_cache else []
+    if not kept:
+        # A selector that kept nothing scores chance. The earlier fallback refit on every column and credited the empty selection with its AUC.
+        s = np.full(len(y_te), 0.5)
     else:
-        s = m.predict(X_te[kept])
+        from sklearn.base import clone
+        m = clone(est)
+        m.fit(X_tr[kept], y_tr)
+        if hasattr(m, "predict_proba"):
+            s = m.predict_proba(X_te[kept])[:, 1]
+        elif hasattr(m, "decision_function"):
+            s = m.decision_function(X_te[kept])
+        else:
+            s = m.predict(X_te[kept])
     try:
         auc = roc_auc_score(y_te, s)
     except Exception as e:

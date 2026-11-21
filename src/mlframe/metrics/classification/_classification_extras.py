@@ -41,6 +41,7 @@ from ._confusion_kernels import (  # the kernels live in the leaf module; re-exp
     _confusion_counts_binary,
     _confusion_counts_binary_par,
     _multiclass_confusion_kernel,
+    check_labels_in_range,
 )
 
 
@@ -277,7 +278,8 @@ def cohen_kappa_binary(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     col_pos = (tp + fp) / n
     p_e = row_pos * col_pos + (1.0 - row_pos) * (1.0 - col_pos)
     if 1.0 - p_e == 0:
-        return 0.0
+        # One class throughout: chance agreement is already 1. Perfect observed agreement is kappa 1 (as sklearn), not 0 (audit 17-F16).
+        return 1.0 if p_o >= 1.0 else 0.0
     return (p_o - p_e) / (1.0 - p_e)
 
 
@@ -593,6 +595,7 @@ def matthews_corrcoef_multiclass(
         K = int(n_classes)
     if K < 2:
         return np.nan
+    check_labels_in_range(yt, yp, K)
     C = _multiclass_confusion_kernel(yt, yp, K)
     n = int(C.sum())
     if n == 0:

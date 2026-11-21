@@ -132,6 +132,9 @@ class DirectHorizonBucketForecaster:
         one of the two buckets sharing that boundary; each side's prediction is still that model's own
         unmodified output on the row's own features -- only the final scalar combination changes.
         """
+        # Blend from the hard predictions, never from values already blended at a neighbouring edge: a bucket narrower than
+        # 2 * edge_blend_width sits in two blend zones at once (audit 27-F1).
+        hard = preds.copy()
         sorted_buckets = sorted(self.horizon_buckets, key=lambda b: b[0])
         for left, right in zip(sorted_buckets, sorted_buckets[1:]):
             if right[0] != left[1] + 1:
@@ -149,14 +152,14 @@ class DirectHorizonBucketForecaster:
                 other_pred = right_model.predict(X.loc[left_zone, feature_cols])
                 dist = boundary - horizon_day[left_zone]  # 0 at boundary .. edge_blend_width-1 at far end
                 own_weight = 0.5 + 0.5 * dist / edge_blend_width
-                preds[left_zone] = own_weight * preds[left_zone] + (1 - own_weight) * other_pred
+                preds[left_zone] = own_weight * hard[left_zone] + (1 - own_weight) * other_pred
 
             right_zone = group_mask & (horizon_day >= boundary + 1) & (horizon_day < boundary + 1 + edge_blend_width)
             if right_zone.any():
                 other_pred = left_model.predict(X.loc[right_zone, feature_cols])
                 dist = horizon_day[right_zone] - (boundary + 1)  # 0 at boundary .. edge_blend_width-1 at far end
                 own_weight = 0.5 + 0.5 * dist / edge_blend_width
-                preds[right_zone] = own_weight * preds[right_zone] + (1 - own_weight) * other_pred
+                preds[right_zone] = own_weight * hard[right_zone] + (1 - own_weight) * other_pred
 
 
 __all__ = ["DirectHorizonBucketForecaster"]

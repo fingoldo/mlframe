@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 from typing import Any, Optional, Tuple
 
-import numpy as np, pandas as pd
+import numpy as np
 from pyutilz.system import tqdmu
 from mlframe.calibration.quality import make_custom_calibration_plot as show_custom_calibration_plot
 from mlframe.metrics.core import format_classification_report
@@ -74,12 +74,12 @@ def _fit_fold_model(model_instance: Any, pipeline_cls: Any, X_train: Any, X_test
     if isinstance(model_instance, pipeline_cls):
         if "CatBoost" in type(model_instance.named_steps["est"]).__name__:
             if "eval_fraction" in generated_params:
-                model_instance.fit(pd.concat([X_train, X_test]), pd.concat([y_train, y_test]), est__plot=plot)
+                model_instance.fit(X_train, y_train, est__plot=plot)  # eval_fraction splits WITHIN train; the test fold stays out (audit 25-F15)
             else:
                 model_instance.fit(X_train, y_train, est__eval_set=(X_test, y_test), est__plot=plot)
         else:
             if "eval_fraction" in generated_params:
-                model_instance.fit(pd.concat([X_train, X_test]), pd.concat([y_train, y_test]))
+                model_instance.fit(X_train, y_train)  # eval_fraction splits WITHIN train; the test fold stays out (audit 25-F15)
             else:
                 model_instance.fit(X_train, y_train)
     else:

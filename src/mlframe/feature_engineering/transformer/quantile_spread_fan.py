@@ -93,6 +93,8 @@ def compute_quantile_spread_fan_features(
                 )
                 m.fit(Xt_s, y_t)
                 preds[:, i] = np.asarray(m.predict(Xq_s)).astype(np.float32)
+            # Three independently fit quantile models can cross; sort each row so the fan is ordered (the distributional_moments module does the same).
+            preds = np.sort(preds, axis=1)
             q10, q50, q90 = preds[:, 0], preds[:, 1], preds[:, 2]
         spread = (q90 - q10).astype(np.float32)
         skew_proxy = ((q90 + q10 - 2.0 * q50) / np.maximum(spread, np.float32(1e-9))).astype(np.float32)

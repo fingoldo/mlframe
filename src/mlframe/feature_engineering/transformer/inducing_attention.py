@@ -52,7 +52,8 @@ logger = logging.getLogger(__name__)
 def _fit_anchors_kmeans(X: np.ndarray, M: int, seed: int) -> np.ndarray:
     """K-means anchor initialization. M anchors over all X."""
     from sklearn.cluster import KMeans
-    M_eff = min(M, max(2, X.shape[0] // 4))
+    # KMeans needs at least as many samples as clusters: a one-row fold made n_clusters=2 raise (audit 09-F26).
+    M_eff = max(1, min(M, max(2, X.shape[0] // 4), X.shape[0]))
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         km = KMeans(n_clusters=M_eff, random_state=seed, n_init=5, max_iter=100)

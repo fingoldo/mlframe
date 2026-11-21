@@ -39,7 +39,8 @@ def tta_predict(
     if n <= 1 or sigma_scale <= 0:
         return clean
     if feature_std is None:
-        feature_std = Xf.std(axis=0)
+        # nanstd: a plain std is NaN for any column holding a NaN, which made that column's jittered passes all NaN (audit 28-F5).
+        feature_std = np.nan_to_num(np.nanstd(Xf, axis=0))
     feature_std = np.asarray(feature_std, dtype=np.float64).reshape(1, -1)
     # Per-pass independent RNG streams via SeedSequence.spawn: each jittered
     # augmentation draws statistically independent noise (proper diversity),
@@ -73,7 +74,8 @@ def tta_predict_spread(
     """
     Xf = np.asarray(X, dtype=np.float64)
     if feature_std is None:
-        feature_std = Xf.std(axis=0)
+        # nanstd: a plain std is NaN for any column holding a NaN, which made that column's jittered passes all NaN (audit 28-F5).
+        feature_std = np.nan_to_num(np.nanstd(Xf, axis=0))
     feature_std = np.asarray(feature_std, dtype=np.float64).reshape(1, -1)
     # Per-pass independent RNG streams via SeedSequence.spawn (see tta_predict).
     child_rngs = np.random.default_rng(seed).spawn(max(0, n - 1))
@@ -112,7 +114,8 @@ def tta_point_mean_spread(
     if n <= 1 or sigma_scale <= 0:
         return point, point.copy(), np.zeros_like(point)
     if feature_std is None:
-        feature_std = Xf.std(axis=0)
+        # nanstd: a plain std is NaN for any column holding a NaN, which made that column's jittered passes all NaN (audit 28-F5).
+        feature_std = np.nan_to_num(np.nanstd(Xf, axis=0))
     feature_std = np.asarray(feature_std, dtype=np.float64).reshape(1, -1)
     # Per-pass independent RNG streams via SeedSequence.spawn (see tta_predict);
     # identical spawn scheme to tta_predict / tta_predict_spread, so mean and

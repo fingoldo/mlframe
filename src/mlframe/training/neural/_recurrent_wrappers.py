@@ -138,7 +138,11 @@ class RecurrentClassifierWrapper(ClassifierMixin, _RecurrentWrapperBase):
         train_dataset = self._create_dataset(sequences, features, labels, sample_weight)
         # Encode the eval_set labels through the same ``classes_`` mapping so the val CrossEntropy head sees in-range 0..k-1 positions too.
         if eval_set is not None and _is_single_label:
-            eval_set = (*eval_set[:-1], np.searchsorted(self.classes_, np.asarray(eval_set[-1])).astype(np.int64))
+            _val_labels = np.asarray(eval_set[-1])
+            if not np.isin(_val_labels, self.classes_).all():
+                # searchsorted maps an unseen label to a neighbouring class or to k (audit 40-F6): refuse it instead.
+                raise ValueError("eval_set contains labels that do not occur in the training labels")
+            eval_set = (*eval_set[:-1], np.searchsorted(self.classes_, _val_labels).astype(np.int64))
         val_dataset = self._create_eval_dataset(eval_set, eval_sample_weight) if eval_set else None
 
         train_loader = self._create_dataloader(train_dataset, shuffle=True)
@@ -225,6 +229,10 @@ class RecurrentClassifierWrapper(ClassifierMixin, _RecurrentWrapperBase):
             (n_samples,) array of predictions
         """
         proba = self.predict_proba(features, sequences)
+        # Multilabel: each column is an independent sigmoid, so argmax over columns is meaningless. Return the thresholded
+        # indicator matrix instead; and a multilabel fit never sets classes_ (40-F4), so this must not reach the classes_ lookup.
+        if getattr(self, "_is_multilabel", False):
+            return (np.asarray(proba) >= 0.5).astype(np.int64)
         positions = proba.argmax(axis=1)
         # Map argmax POSITIONS back through ``classes_`` so the returned labels are the original ones (sklearn ClassifierMixin contract); a raw
         # argmax would return 0..(k-1) positional indices, mislabelling any non-0..k-1 label set and breaking cross_val_predict / CalibratedClassifierCV / Stacking.

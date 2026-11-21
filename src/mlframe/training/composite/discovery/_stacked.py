@@ -235,7 +235,8 @@ def fit_stacked(
     from ..ensemble.feature_stacking import composite_oof_predictions
 
     _train_idx_arr = np.asarray(train_idx)
-    y_full = _extract_column_array(df, target_col)
+    # float64: a float32 target made the residual y - pass1_pred inherit float32 rounding (audit 35-F6).
+    y_full = _extract_column_array(df, target_col).astype(np.float64)
     y_train = y_full[_train_idx_arr]
     # Slice the train frame ONCE -- X_train is invariant across specs, so the
     # prior per-spec rebuild materialised the same train slice N times (the
@@ -364,7 +365,8 @@ def fit_stacked_on_residual(
     from ..ensemble.feature_stacking import composite_oof_predictions
 
     _train_idx_arr = np.asarray(train_idx)
-    y_full = _extract_column_array(df, target_col)
+    # float64: a float32 target made the residual y - pass1_pred inherit float32 rounding (audit 35-F6).
+    y_full = _extract_column_array(df, target_col).astype(np.float64)
     y_train = y_full[_train_idx_arr]
 
     X_train = _slice_train_frame(df, _train_idx_arr)

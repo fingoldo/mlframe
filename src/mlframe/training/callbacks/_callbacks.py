@@ -475,7 +475,13 @@ class UniversalCallback:
         # reads single-val (legacy path).
         slice_value: float | None = None
         slice_shards: list[float] | None = None
-        if int(self.slice_k) > 0:
+        if int(self.slice_k) > 0 and len(self._resolve_slice_dataset_names()) < 2:
+            # One shard gives no aggregate, so the slice path would return None on every round and patience would never fire.
+            # Fall back to single-validation early stopping, warning once (audit 32-F3).
+            if not getattr(self, "_slice_single_shard_warned", False):
+                self._slice_single_shard_warned = True
+                logger.warning("slice early stopping needs at least 2 validation shards; falling back to single-validation early stopping")
+        elif int(self.slice_k) > 0:
             slice_value = self._compute_slice_aggregate()
             if slice_value is None and not self.slice_diagnostic_only:
                 return None

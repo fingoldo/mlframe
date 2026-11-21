@@ -113,7 +113,9 @@ def test_m_bias_collider_is_detected():
 def test_edge_kind_declares_the_roles_shape_alone_cannot_determine(kind, expected):
     """An instrument and a plain ancestor have the same shape; the edge kind resolves them."""
     graph = _graph([("x1", "y"), ("x1", "r"), ("r", "y")], observed=("x1", "r"))
-    graph_with_kind = _graph([("x1", "y"), ("x1", "r", kind), ("r", "y")], observed=("x1", "r"))
+    # An instrument marks its SOURCE (the arrow is causal: instrument -> treatment); every other kind marks its target.
+    kind_edge = ("r", "x1", kind) if kind == "instrument" else ("x1", "r", kind)
+    graph_with_kind = _graph([("x1", "y"), kind_edge, ("r", "y")], observed=("x1", "r"))
     assert derive_roles(graph)["r"] is not expected
     assert derive_roles(graph_with_kind)["r"] is expected
 

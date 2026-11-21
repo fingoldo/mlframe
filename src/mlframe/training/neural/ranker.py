@@ -62,6 +62,17 @@ from ._ranker_sampler import GroupBatchSampler  # re-exported for existing calle
 from sklearn.utils.validation import check_is_fitted
 
 
+def _cap_pair_indices(i_idx, j_idx, cap: int | None = None):
+    """Uniformly subsample ``(i_idx, j_idx)`` down to ``cap`` pairs (deterministic seed), as the loss does per query (40-F11)."""
+    limit = int(_RANKNET_MAX_PAIRS_PER_QUERY if cap is None else cap)
+    n_pairs = int(i_idx.numel())
+    if n_pairs <= limit:
+        return i_idx, j_idx
+    gen = torch.Generator().manual_seed(0)
+    keep = torch.randperm(n_pairs, generator=gen)[:limit].sort().values
+    return i_idx[keep], j_idx[keep]
+
+
 class _RankerDataset(Dataset):
     """Row-level dataset for (X, y); the GroupBatchSampler controls query grouping."""
 
@@ -168,6 +179,9 @@ class _RankerDataset(Dataset):
                 cache[key] = (None, None)
                 batch_cache[key] = (x_slice, rel)
                 continue
+            # The loss caps a query's pairs at _RANKNET_MAX_PAIRS_PER_QUERY; the precomputed path must cap the same way, or a large query stores
+            # every pair in the cache (40-F11).
+            i_idx, j_idx = _cap_pair_indices(i_idx, j_idx)
             i_long = i_idx.to(torch.long)
             j_long = j_idx.to(torch.long)
             cache[key] = (i_long, j_long)
@@ -535,6 +549,10 @@ class MLPRanker(RegressorMixin, BaseEstimator):
         self.n_estimators = n_estimators
         self.n_epochs = n_epochs
         self.learning_rate = learning_rate
+        # The network builder takes one width for every layer, so differing sizes would be silently flattened to the first (40-F10).
+        # Refuse here rather than train an architecture other than the one asked for.
+        if hidden_layers and len(set(int(h) for h in hidden_layers)) > 1:
+            raise ValueError(f"MLPRanker: hidden_layers={tuple(hidden_layers)} has differing sizes, but the network uses one width for every layer; pass equal sizes, e.g. (64, 64)")
         self.hidden_layers = hidden_layers
         self.dropout = dropout
         self.early_stopping_patience = early_stopping_patience

@@ -291,6 +291,8 @@ class FeaturesAndTargetsExtractor:
             # string it crashes the numeric FE (e.g. the DCD PCA "could not convert string to float"). Exclude it from
             # features -- same pattern as targets above -- so it neither leaks into selection nor bloats the codes matrix.
             self.columns_to_drop.add(self.group_field)
+        elif self.group_field is not None:
+            logger.warning("group_field %r is configured but not a column of the frame; the grouping is dropped (audit 39-F5)", self.group_field)
 
         artifacts = self.prepare_artifacts(df)
 

@@ -485,6 +485,21 @@ class TargetSpec(_DatasetSubSpec):
     noise: NoiseSpec = Field(default_factory=NoiseSpec)
     calibrate_to: Optional[CeilingTarget] = None
 
+    @model_validator(mode="after")
+    def _check_binary_metric(self) -> "TargetSpec":
+        """Reject a non-AUC ceiling on a binary target, which the generator cannot bisect on and would otherwise ignore.
+
+        Returns:
+            ``self``, unchanged, when the ceiling is usable.
+
+        Raises:
+            ValueError: If a binary target asks for a logloss or accuracy ceiling. The generator only bisects on AUC for binary targets,
+                so such a ceiling used to be silently replaced by the plain link scale.
+        """
+        if self.kind == "binary" and self.calibrate_to is not None and self.calibrate_to.metric != "auc":
+            raise ValueError(f"binary target {self.name!r}: calibrate_to.metric {self.calibrate_to.metric!r} is not implemented; use 'auc'")
+        return self
+
     @field_validator("n_classes")
     @classmethod
     def _check_n_classes(cls, value: int) -> int:

@@ -25,7 +25,10 @@ def _rw_apply(_fn, _df, _rw_cols):
     if _df is None or not isinstance(_df, pd.DataFrame) or _df.shape[1] == 0:
         return _df
     _new = _fn(_df, [c for c in _rw_cols if c in _df.columns])
-    return _df.join(_new)
+    # Positional, like attach_new_columns: _new has _df's row order, and a duplicated index label made join() multiply rows (audit 40-F14).
+    _out = pd.concat([_df.reset_index(drop=True), _new.reset_index(drop=True)], axis=1)
+    _out.index = _df.index
+    return _out
 
 
 def _apply_row_wise_summary_stats(train, val, test, config, verbose, _rw_cols):

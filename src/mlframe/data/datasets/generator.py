@@ -36,10 +36,11 @@ from mlframe.data.datasets._columns import draw_features, standardize
 from mlframe.data.datasets._derived import derived_order, realize_derived
 from mlframe.data.datasets._latent import realize_latents
 from mlframe.data.datasets._links import apply_heteroscedasticity, link_score
+from mlframe.data.datasets._targets_nonbinary import rotate_weights
 from mlframe.data.datasets._missing import apply_missingness
 from mlframe.data.datasets._noise import apply_corruption
 from mlframe.data.datasets._rng import stream_for
-from mlframe.data.datasets._scm import build_ground_truth, graph_from_spec
+from mlframe.data.datasets._scm import build_ground_truth, graph_from_spec, link_regions
 from mlframe.data.datasets._target import bayes_auc, bayes_brier, calibrate_scale, probability_from_score, sample_labels, shift_to_prevalence
 from mlframe.data.datasets.ground_truth import GroundTruth
 from mlframe.data.datasets.spec import DatasetSpec, TargetSpec, resolve_knob
@@ -248,7 +249,7 @@ def generate(spec: DatasetSpec, target_name: Optional[str] = None) -> GeneratedD
     # the recorded ceiling the ceiling of a half-observed world, which nothing here computes.
     columns, missing_caveats = apply_missingness(spec.missingness, columns, spec.root_seed, spec.name, knob_rng)
 
-    structural = build_ground_truth(spec, target_name=target.name, redundancy_groups=redundancy_groups)
+    structural = build_ground_truth(spec, target_name=target.name, redundancy_groups=redundancy_groups, regions=link_regions(target.link))
     caveats = list(structural.caveats) + missing_caveats
     if caveat:
         caveats.append(caveat)
@@ -289,6 +290,21 @@ def _probability_only(spec: DatasetSpec, target: TargetSpec, columns: Dict[str, 
     knob_rng = stream_for(spec.root_seed, spec.name, "knobs", target.name)
     score = scale * link_score(target.link, columns, int(spec.n_samples), knob_rng=knob_rng, scale_override=1.0)
     return probability_from_score(score, target.link.kind)
+
+
+def multiclass_class_scores(link: Any, columns: Dict[str, np.ndarray], n: int, n_classes: int, scale: float, knob_rng: Any = None) -> np.ndarray:
+    """Return the ``(n, n_classes)`` class-score matrix of a multiclass link.
+
+    Each class uses its own rotation of the declared additive weights, while the interactions and basis terms of the link apply to every
+    class unchanged. Before this, the class scores came from the rotated additive weights alone, so a multiclass target silently dropped
+    its interaction and nonlinear terms.
+    """
+    per_class = rotate_weights(link.coefficients, n_classes)
+    columns_out = []
+    for weights in per_class:
+        class_link = link.model_copy(update={"coefficients": dict(weights), "intercept": 0.0})
+        columns_out.append(scale * link_score(class_link, columns, n, knob_rng=knob_rng, scale_override=1.0))
+    return np.column_stack(columns_out)
 
 
 def _generate_non_binary(
@@ -338,7 +354,6 @@ def _generate_non_binary(
         count_mean,
         multiclass_probabilities,
         ordinal_probabilities,
-        rotate_weights,
         sample_categorical,
         sample_count,
     )
@@ -350,10 +365,7 @@ def _generate_non_binary(
     caveats: List[str] = []
 
     if target.kind == "multiclass":
-        from mlframe.data.datasets._links import additive_score
-
-        per_class = rotate_weights(target.link.coefficients, int(target.n_classes))
-        class_scores = np.column_stack([scale * additive_score(weights, columns, n) if weights else np.zeros(n) for weights in per_class])
+        class_scores = multiclass_class_scores(target.link, columns, n, int(target.n_classes), scale, knob_rng)
         law = multiclass_probabilities(class_scores)
         labels = sample_categorical(law, labels_stream)
         calibration.update(categorical_ceiling(law))
@@ -371,7 +383,8 @@ def _generate_non_binary(
         calibration["cut_points"] = [float(value) for value in cut_points]
         caveats.append(f"ordinal target with {law.shape[1]} ordered classes on one latent axis: a method treating them as unordered discards most of the signal")
     elif target.kind == "count":
-        law = count_mean(scale * unit_score + float(target.link.intercept))
+        # unit_score already carries the link intercept (link_score adds it), so the scaled score is the whole exponent.
+        law = count_mean(scale * unit_score)
         labels = sample_count(law, labels_stream)
         calibration.update(count_ceiling(law))
         caveats.append("count target: the variance of a Poisson is its mean, so this bed is heteroscedastic by construction and a constant-variance scorer is mis-weighted on the largest rows")
@@ -382,7 +395,7 @@ def _generate_non_binary(
         realize_derived(after_target, graph, columns, scales, target.name, {target.name: labels}, spec.root_seed, spec.name, latent_values=factors)
     columns, missing_caveats = apply_missingness(spec.missingness, columns, spec.root_seed, spec.name, knob_rng)
 
-    structural = build_ground_truth(spec, target_name=target.name, redundancy_groups=redundancy_groups)
+    structural = build_ground_truth(spec, target_name=target.name, redundancy_groups=redundancy_groups, regions=link_regions(target.link))
     truth = replace(
         structural,
         features={name: replace(entry, pre_standardization_scale=scales.get(name)) for name, entry in structural.features.items()},

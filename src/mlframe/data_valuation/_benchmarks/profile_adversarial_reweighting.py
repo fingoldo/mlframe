@@ -17,9 +17,10 @@ import numpy as np
 
 def _make_fixture(n: int, n_features: int = 8, seed: int = 0):
     """Synthetic binary-classification fixture of the given (n, n_features) shape."""
-    rng = np.random.default_rng(seed)
-    X = rng.standard_normal((n, n_features))
-    y = (X[:, 0] + X[:, 1] > 0).astype(np.int64)
+    # Delegates to the shared builder (audit 05-F2): with zero validation rows it draws the same training block as this copy did.
+    from mlframe.data_valuation._benchmarks._dv_bench_shared import make_blob_fixture
+
+    X, y, _, _ = make_blob_fixture(n, 0, n_features, seed)
     return X, y
 
 

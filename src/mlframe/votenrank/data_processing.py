@@ -30,8 +30,9 @@ def preprocess_glue(glue: pd.DataFrame, head: int | None = None) -> tuple[pd.Dat
 
     double_columns = ["MRPC", "STS-B", "QQP"]
     for column in double_columns:
-        glue[column + "_n1"] = glue[column].apply(lambda x: x.split("/")[0])
-        glue[column + "_n2"] = glue[column].apply(lambda x: x.split("/")[1])
+        # Same NaN guard as preprocess_sglue: a '-' cell became NaN and ``.split`` raised on it (audit 29-F5).
+        glue[column + "_n1"] = glue[column].apply(lambda x: np.nan if x != x else x.split("/")[0])
+        glue[column + "_n2"] = glue[column].apply(lambda x: np.nan if x != x else x.split("/")[1])
 
     glue = glue.drop(columns=double_columns)
     glue = glue.astype(float)

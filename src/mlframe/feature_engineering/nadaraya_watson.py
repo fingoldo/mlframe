@@ -205,7 +205,9 @@ def nadaraya_watson_smooth(
     if x.shape[0] != y.shape[0]:
         raise ValueError("nadaraya_watson_smooth: x and y length mismatch.")
     if x.shape[0] == 0:
-        return np.empty(0, dtype=np.float64)
+        # No support points: every query gets NaN, one per query point (audit 24-F25).
+        n_q = 0 if x_query is None else int(np.asarray(x_query).reshape(-1).shape[0])
+        return np.full(n_q, np.nan, dtype=np.float64)
     xq = x if x_query is None else np.ascontiguousarray(x_query, dtype=np.float64)
     h = float(bandwidth) if bandwidth > 0.0 else _silverman_bandwidth(x)
     use_w = sample_weight is not None

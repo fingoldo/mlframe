@@ -65,6 +65,7 @@ class CompositeCrossTargetEnsemble:
     # Per-column means of the component predictions, stashed at construction and read back at predict
     # time via getattr; declared so the write and the read are the same attribute.
     _component_col_means: list
+    _meta_model: Any  # optional meta model (set by a meta_ridge / meta stacking fit, dropped on a cap); declared so the assignments type-check
 
     def __init__(
         self,
@@ -720,9 +721,10 @@ class CompositeCrossTargetEnsemble:
                 "_linear_stack_intercept", "_linear_stack_train_preds",
                 "_linear_stack_train_y", "_linear_stack_ridge_alpha",
                 "_nnls_stack_train_preds", "_nnls_stack_train_y",
+                "_meta_model", "_meta_col_means", "_meta_stack_kind", "_component_col_means",
             ):
                 if hasattr(self, _attr):
-                    setattr(copy_inst, _attr, getattr(self, _attr))
+                    setattr(copy_inst, _attr, getattr(self, _attr))  # the meta model must survive a no-op cap too (audit 35-F10)
             # No trim: the blend is unchanged, so the output calibrator (fit on that blend) is
             # still valid and carries over.
             copy_inst._output_calibrator = getattr(self, "_output_calibrator", None)
@@ -761,6 +763,20 @@ class CompositeCrossTargetEnsemble:
         # assertion, which expects the train-matrix columns to match the component ordering.
         if self.strategy == "linear_stack" and hasattr(self, "_linear_stack_intercept"):
             new._linear_stack_intercept = self._linear_stack_intercept
+        # The meta model was fit on the FULL component set; after a trim its input width no longer matches, so it is dropped
+        # explicitly (predict then uses the blend), rather than silently routed to a mismatched model (audit 35-F10).
+        if getattr(self, "_meta_model", None) is not None:
+            logger.warning(
+                "[CompositeCrossTargetEnsemble] cap_inference_components(%d): dropping the meta model (fit on %d components, now %d); "
+                "predict falls back to the blend of the kept components.",
+                int(max_components), len(self.component_models), len(keep),
+            )
+        new._meta_model = None
+        # Per-component OOF means feed the dropout stand-in in predict; keep the ones for the kept components so a capped
+        # linear_stack does not halve its served forecast when a component drops out.
+        _cmeans = getattr(self, "_component_col_means", None)
+        if _cmeans is not None:
+            new._component_col_means = [float(_cmeans[i]) for i in keep]
         for _attr in (
             "_linear_stack_train_preds", "_linear_stack_train_y", "_linear_stack_ridge_alpha",
             "_nnls_stack_train_preds", "_nnls_stack_train_y",

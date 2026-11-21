@@ -22,6 +22,14 @@ from .base import _per_member_mae_std
 logger = logging.getLogger("mlframe.models.ensembling")
 
 
+def _weighted_mean_or_nan(values, weights):
+    """np.average, but NaN when every weight is zero: an all-zero weight vector used to raise ZeroDivisionError mid-gate (audit 18-F9)."""
+    w = np.asarray(weights, dtype=np.float64)
+    if not np.any(w > 0):
+        return np.nan
+    return np.average(values, weights=w)
+
+
 def _exclude_if_non_finite(i: int, tot_mae: float, tot_std: float, excluded: list) -> bool:
     """Record member ``i`` as excluded (and warn) when its distance statistic is not a number; True when it was.
 
@@ -148,12 +156,12 @@ def _weighted_member_stats(
             _sw_b = sw_by_group
             diffs = np.abs(_arr_eff - _med_eff)
             if _arr_eff.ndim == 2:
-                per_member_mae = np.array([float(np.average(diffs[i], weights=_sw_b)) for i in range(diffs.shape[0])])
-                per_member_std = np.array([float(np.sqrt(np.average((diffs[i] - per_member_mae[i]) ** 2, weights=_sw_b))) for i in range(diffs.shape[0])])
+                per_member_mae = np.array([float(_weighted_mean_or_nan(diffs[i], weights=_sw_b)) for i in range(diffs.shape[0])])
+                per_member_std = np.array([float(np.sqrt(_weighted_mean_or_nan((diffs[i] - per_member_mae[i]) ** 2, weights=_sw_b))) for i in range(diffs.shape[0])])
             else:
-                per_member_mae = np.array([float(np.average(diffs[i].mean(axis=-1), weights=_sw_b)) for i in range(diffs.shape[0])])
+                per_member_mae = np.array([float(_weighted_mean_or_nan(diffs[i].mean(axis=-1), weights=_sw_b)) for i in range(diffs.shape[0])])
                 per_member_std = np.array(
-                    [float(np.sqrt(np.average((diffs[i].mean(axis=-1) - per_member_mae[i]) ** 2, weights=_sw_b))) for i in range(diffs.shape[0])]
+                    [float(np.sqrt(_weighted_mean_or_nan((diffs[i].mean(axis=-1) - per_member_mae[i]) ** 2, weights=_sw_b))) for i in range(diffs.shape[0])]
                 )
         else:
             _sw_b = np.asarray(sample_weight, dtype=np.float64).reshape(-1)
@@ -161,13 +169,13 @@ def _weighted_member_stats(
                 # Recompute per-member MAE using np.average to honour the weights.
                 diffs = np.abs(arr - median_preds)
                 if arr.ndim == 2:
-                    per_member_mae = np.array([float(np.average(diffs[i], weights=_sw_b)) for i in range(diffs.shape[0])])
-                    per_member_std = np.array([float(np.sqrt(np.average((diffs[i] - per_member_mae[i]) ** 2, weights=_sw_b))) for i in range(diffs.shape[0])])
+                    per_member_mae = np.array([float(_weighted_mean_or_nan(diffs[i], weights=_sw_b)) for i in range(diffs.shape[0])])
+                    per_member_std = np.array([float(np.sqrt(_weighted_mean_or_nan((diffs[i] - per_member_mae[i]) ** 2, weights=_sw_b))) for i in range(diffs.shape[0])])
                 else:
                     # (K, N, C) -- average over (N, C) with broadcasted sample_weight on the N axis.
-                    per_member_mae = np.array([float(np.average(diffs[i].mean(axis=-1), weights=_sw_b)) for i in range(diffs.shape[0])])
+                    per_member_mae = np.array([float(_weighted_mean_or_nan(diffs[i].mean(axis=-1), weights=_sw_b)) for i in range(diffs.shape[0])])
                     per_member_std = np.array(
-                        [float(np.sqrt(np.average((diffs[i].mean(axis=-1) - per_member_mae[i]) ** 2, weights=_sw_b))) for i in range(diffs.shape[0])]
+                        [float(np.sqrt(_weighted_mean_or_nan((diffs[i].mean(axis=-1) - per_member_mae[i]) ** 2, weights=_sw_b))) for i in range(diffs.shape[0])]
                     )
 
     return per_member_mae, per_member_std

@@ -220,7 +220,6 @@ def build_nca_projection(
     - NCA's W is OPTIMIZED VIA GRADIENT to a target-aware objective. The projection function ITSELF is learned.
     """
     from sklearn.neighbors import NeighborhoodComponentsAnalysis
-    from sklearn.preprocessing import StandardScaler
     seed = require_seed(seed)
     n_samples, d_input = X.shape
     if y.shape[0] != n_samples:
@@ -240,8 +239,10 @@ def build_nca_projection(
         logger.info("build_nca_projection: degenerate class counts; falling back to random projection.")
         return build_random_projections(d_input=d_input, n_heads=n_heads, head_dim=head_dim, seed=seed, dtype=dtype)
 
-    scaler = StandardScaler().fit(X)
-    X_s = scaler.transform(X)
+    # NCA learns its transformation in the space it is fit on, and the caller applies the returned projection to ``X`` itself. The earlier
+    # internal StandardScaler was fit and then discarded, so the learned projection was for standardised rows and was applied to the
+    # caller's rows instead. Fit on ``X`` directly so the projection is valid in the space it is used in.
+    X_s = np.asarray(X, dtype=np.float64)
     n_components_eff = min(head_dim, d_input)
     nca = NeighborhoodComponentsAnalysis(
         n_components=n_components_eff,

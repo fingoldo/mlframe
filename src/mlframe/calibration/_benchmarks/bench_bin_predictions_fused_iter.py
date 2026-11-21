@@ -1,5 +1,5 @@
-from typing import Any
 """Bench PERF#5: fuse 2 np.nanmean passes in bin_predictions into one nan-aware loop."""
+from typing import Any
 import time
 import numpy as np
 from numba import njit

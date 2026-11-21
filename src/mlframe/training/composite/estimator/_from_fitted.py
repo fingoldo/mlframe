@@ -14,6 +14,7 @@ import numpy as np
 from ._estimator_helpers import _y_quantile_grid
 
 from ._input_extract import _y_train_clip_bounds
+from ._smearing import SMEARED_TRANSFORMS, residual_quantiles
 from ._routing import resolve_transform as get_transform
 from mlframe.utils.array_shape import shape_of
 
@@ -107,6 +108,7 @@ def from_fitted_inner(
     recurrence_continuation: bool = False,
     target_name: str | None = None,
     groups_train: np.ndarray | None = None,
+    X_train: Any = None,
 ) -> Any:
     """Body of ``CompositeTargetEstimator.from_fitted_inner`` (see its docstring)."""
     instance = cls(
@@ -181,6 +183,20 @@ def from_fitted_inner(
     instance.inner_pre_pipeline_ = inner_pre_pipeline
     if target_name:
         instance.target_name_ = str(target_name)
+    # Residual smearing, stamped the way fit() does it: the quantiles of T - inner(X) over the train rows. Without it predict
+    # returns the plain inverse (the geometric mean for log_y), biased low on right-skewed y, while the gate scored the smeared mean.
+    # Needs the train features (``X_train``); a caller that cannot supply them keeps the plain inverse, as before.
+    _smear_q = None
+    if X_train is not None and transform_name in SMEARED_TRANSFORMS and getattr(instance, "smearing", True) and int(finite.sum()) >= 10:
+        _t_full = _reconstruct_t_train(get_transform(transform_name), transform_name, y_train, finite, transform_fitted_params, base_train, groups_train)
+        if _t_full is not None:
+            _fin_idx = np.flatnonzero(finite)
+            _keep = np.isfinite(_t_full)
+            _rows = _fin_idx[_keep]
+            _X_rows = X_train.iloc[_rows] if hasattr(X_train, "iloc") else np.asarray(X_train)[_rows]
+            if group_column and getattr(get_transform(transform_name), "requires_groups", False) and hasattr(_X_rows, "drop") and group_column in _X_rows.columns:
+                _X_rows = _X_rows.drop(columns=[group_column])  # fit() trained the inner without the grouping key; mirror that
+            _smear_q = residual_quantiles(fitted_inner, _X_rows, _t_full[_keep], seed=0)
     instance.fitted_params_ = {
         **dict(transform_fitted_params),
         "y_clip_low": y_clip_low,
@@ -190,6 +206,8 @@ def from_fitted_inner(
         "t_clip_low": t_clip_low,
         "t_clip_high": t_clip_high,
     }
+    if _smear_q is not None:
+        instance.fitted_params_["smearing_quantiles"] = _smear_q
     if recurrence_continuation:
         instance.fitted_params_["recurrence_continuation"] = True
     # Same base calibration range fit() captures, so the default-ON soft base-shrink and its deep-OOD fallback are live on the

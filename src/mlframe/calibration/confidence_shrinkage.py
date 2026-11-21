@@ -113,9 +113,6 @@ def apply_confidence_shrinkage(
     dict
         ``{output_name: shrunk_predictions}``, same shape as ``preds``.
     """
-    if not confidences:
-        return {name: np.asarray(p, dtype=np.float64) for name, p in preds.items()}
-
     if max_confidence is not None:
         hi = max_confidence
     else:
@@ -133,15 +130,20 @@ def apply_confidence_shrinkage(
             seg_arr = np.asarray(seg_arr)
             weight_arr = np.empty(pred.shape[0], dtype=np.float64)
             for seg in np.unique(seg_arr):
-                seg_conf = conf.get(seg, min_confidence)
-                if span <= 0:
-                    seg_weight = 1.0 if seg_conf >= hi else 0.0
+                if seg not in conf:
+                    seg_weight = 0.0  # a segment without a confidence is fully shrunk, as the docstring states
                 else:
-                    seg_weight = float(np.clip((seg_conf - min_confidence) / span, 0.0, 1.0))
+                    seg_conf = conf[seg]
+                    if span <= 0:
+                        seg_weight = 1.0 if seg_conf >= hi else 0.0
+                    else:
+                        seg_weight = float(np.clip((seg_conf - min_confidence) / span, 0.0, 1.0))
                 weight_arr[seg_arr == seg] = seg_weight
             shrunk[name] = weight_arr * pred + (1.0 - weight_arr) * neutral_value
             continue
-        if span <= 0:
+        if name not in confidences:
+            weight = 0.0  # a missing output is fully shrunk (the documented fallback), including when there are no confidences at all
+        elif span <= 0:
             weight = 1.0 if conf >= hi else 0.0  # type: ignore[operator]
         else:
             weight = float(np.clip((conf - min_confidence) / span, 0.0, 1.0))  # type: ignore[operator]

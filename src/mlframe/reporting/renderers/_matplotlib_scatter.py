@@ -8,6 +8,7 @@ bound onto the class at the bottom of ``matplotlib.py``, so ``MatplotlibRenderer
 from __future__ import annotations
 
 import logging
+import dataclasses
 from typing import Any
 
 import numpy as np
@@ -111,6 +112,35 @@ def _draw_scatter_overlays(ax, p, n):
         ax.plot(np.asarray(ox_grid), np.asarray(oy_grid), color=OVERLAY_LINE, linestyle="-", linewidth=1.8, zorder=4, label=olabel)
 
 
+def _subsample_scatter(x, y, p, size_arr, color_arr, n):
+    """Cap a scatter at ``_SCATTER_MAX_POINTS`` (keeping the extremes) and slice the per-point arrays with the same rows.
+
+    Returns ``(x, y, size_arr, color_arr, p, rasterized)``; ``rasterized`` is True only when the cap applied.
+    """
+    if n <= _SCATTER_MAX_POINTS:
+        return x, y, size_arr, color_arr, p, False
+    from mlframe.reporting.charts import subsample_preserving_extremes
+    idx = subsample_preserving_extremes(x, y, sample_size=_SCATTER_MAX_POINTS)
+    x, y = x[idx], y[idx]
+    if size_arr is not None and len(size_arr) == n:
+        size_arr = size_arr[idx]
+    if color_arr is not None and len(color_arr) == n:
+        color_arr = color_arr[idx]
+    # Per-point error bars must follow the same rows: slicing only x/y left y_err/x_err at full length and errorbar raised on the mismatch.
+    _sub = {}
+    for _name in ("y_err", "x_err"):
+        _err = getattr(p, _name, None)
+        if isinstance(_err, tuple):  # asymmetric (lower, upper) pair
+            if all(np.ndim(e) > 0 and np.shape(e)[0] == n for e in _err):
+                _sub[_name] = tuple(np.asarray(e)[idx] for e in _err)
+        elif _err is not None and np.ndim(_err) > 0 and np.shape(_err)[0] == n:
+            _sub[_name] = np.asarray(_err)[idx]
+    if _sub:
+        p = dataclasses.replace(p, **_sub)
+    # capped scatter still rasterized so a vector export stays small.
+    return x, y, size_arr, color_arr, p, True
+
+
 def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
     """Render a scatter panel: subsamples above ``_SCATTER_MAX_POINTS`` (preserving extremes, rasterized), then layers optional error bars, highlighted worst-K points, trend line, overlay band/line, y=x reference and inline labels/colorbar/legend on top."""
     # Lazy, function-local, matching the plotly sibling: the parent module imports this one at its own bottom,
@@ -123,16 +153,7 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
     size_arr = p.point_size if isinstance(p.point_size, np.ndarray) else None
     color_arr = p.point_color if isinstance(p.point_color, np.ndarray) else None
 
-    rasterized = False
-    if n > _SCATTER_MAX_POINTS:
-        from mlframe.reporting.charts import subsample_preserving_extremes
-        idx = subsample_preserving_extremes(x, y, sample_size=_SCATTER_MAX_POINTS)
-        x, y = x[idx], y[idx]
-        if size_arr is not None and len(size_arr) == n:
-            size_arr = size_arr[idx]
-        if color_arr is not None and len(color_arr) == n:
-            color_arr = color_arr[idx]
-        rasterized = True  # capped scatter still rasterized so a vector export stays small.
+    x, y, size_arr, color_arr, p, rasterized = _subsample_scatter(x, y, p, size_arr, color_arr, n)
 
     # Per-point error bars (e.g. Wilson CIs on reliability bins). Drawn before the scatter so the markers
     # sit on top. Subsample never reorders for these CI panels (n is bin-count, well under the cap), so the

@@ -95,9 +95,12 @@ def _safe_int_cast_numpy(arr: np.ndarray, target_name: str) -> np.ndarray:
     elif np.issubdtype(arr.dtype, np.bool_):
         return arr.astype(np.int8, copy=False)
     else:
-        # Object / string -- pandas/numpy will surface an error from astype itself; let it propagate
-        # rather than introducing a separate error path here.
-        return arr.astype(np.int8, copy=False)
+        # Object targets: convert to float first (non-numeric raises here, as before) and refuse non-integer values, which the
+        # int8 cast used to truncate silently, as the float branch does (audit 39-F1).
+        as_float = arr.astype(np.float64)
+        if not np.all(np.isfinite(as_float)) or not np.all(as_float == np.floor(as_float)):
+            raise ValueError("object-dtype target has non-integer or non-finite values; cannot cast to an integer dtype")
+        return as_float.astype(np.int8)
     _dtype = _smallest_safe_int_dtype(_min, _max)
     if arr.dtype == _dtype:
         return arr
@@ -243,4 +246,8 @@ def get_sample_weights_by_recency(
     # base folds every loop-invariant term of ``min_weight + max_drop - (log(days_from_max) - log_min_age) * wdpy``
     # so the fused kernel only does the per-element ``base - log(d) * wdpy``.
     base = min_weight + max_drop + _log_min_age * weight_drop_per_year
-    return np.asarray(_recency_weights_fused(np.ascontiguousarray(_delta_secs, dtype=np.float64), base, _log_min_age, _min_age_days, weight_drop_per_year))
+    _weights = np.asarray(_recency_weights_fused(np.ascontiguousarray(_delta_secs, dtype=np.float64), base, _log_min_age, _min_age_days, weight_drop_per_year))
+    # A row with a missing timestamp has no age: its NaN weight used to reach the training weights. It gets the floor weight (treated as
+    # the oldest row, the least influential) so every weight is finite (audit 39-F6).
+    _weights[~np.isfinite(_delta_secs)] = float(min_weight)
+    return _weights

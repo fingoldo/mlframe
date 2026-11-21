@@ -17,6 +17,12 @@ from round4_noise_floor_bench import cv_curve, noise_floor_plateau, noise_floor_
 OUT = "D:/Temp/rfecv_floor_robust.txt"
 
 
+def _gain_order(Xt, yt):
+    """Column names of ``Xt`` ordered by LightGBM gain importance (seed 0): the ranker ``cv_curve`` calls on each fold's training rows."""
+    m = lgb.LGBMClassifier(n_estimators=300, num_leaves=31, learning_rate=0.05, n_jobs=4, importance_type="gain", random_state=0, verbose=-1).fit(Xt, yt)
+    return [Xt.columns[i] for i in np.argsort(m.feature_importances_)[::-1]]
+
+
 def log(msg):
     with open(OUT, "a", encoding="utf-8") as fh:
         fh.write(msg + "\n")
@@ -44,13 +50,14 @@ def main():
     ranked = rankings[0]
     n_grid = sorted(set([1, 2, 3, 5, 8, 12, 16, 20, 25, 30, 40, 50, 75, 100, 150, 200, 251, p]))
     cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=0)
-    real_curve = cv_curve(Xtr, ytr, ranked, n_grid, cv, permute=False)
+    # Each CV fold ranks its own training rows (seed-0 gain order), so the held-out rows never shape the ordering (finding 12-F22).
+    real_curve = cv_curve(Xtr, ytr, ranked, n_grid, cv, permute=False, ranker=_gain_order)
 
     # N* stability across n_perm and permutation base_seed
     log("\nN* (plateau) vs n_perm / base_seed:")
     for n_perm in (1, 3, 5):
         for bs in (100, 200, 300):
-            _, perm_curves = cv_curve(Xtr, ytr, ranked, n_grid, cv, permute=True, n_perm=n_perm, base_seed=bs)
+            _, perm_curves = cv_curve(Xtr, ytr, ranked, n_grid, cv, permute=True, n_perm=n_perm, base_seed=bs, ranker=_gain_order)
             Np, _, _, _ = noise_floor_plateau(n_grid, real_curve, perm_curves, pct=95.0)
             Nf, _, _, _ = noise_floor_first(n_grid, real_curve, perm_curves, pct=95.0)
             log(f"  n_perm={n_perm} base_seed={bs}: plateau N*={Np}  first N*={Nf}")

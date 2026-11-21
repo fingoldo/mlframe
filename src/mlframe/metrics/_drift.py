@@ -16,10 +16,14 @@ from __future__ import annotations
 from typing import cast
 from math import log
 
+import logging
+
 import numpy as np
 import numba
 
 from ._numba_params import NUMBA_NJIT_PARAMS
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_quantile_bins(
@@ -335,6 +339,15 @@ def _wasserstein_1d_fused(a_s: np.ndarray, b_s: np.ndarray) -> float:
     return total
 
 
+def _finite_pair(a: np.ndarray, b: np.ndarray, name: str) -> tuple[np.ndarray, np.ndarray]:
+    """Drop non-finite values from both samples, WARNING with the counts so the drop is never silent (audit 25-F12)."""
+    n_bad_a = int(a.size - np.count_nonzero(np.isfinite(a)))
+    n_bad_b = int(b.size - np.count_nonzero(np.isfinite(b)))
+    if n_bad_a or n_bad_b:
+        logger.warning("%s: dropped %d non-finite reference and %d non-finite target values before comparing distributions", name, n_bad_a, n_bad_b)
+    return a[np.isfinite(a)], b[np.isfinite(b)]
+
+
 def wasserstein_1d(reference: np.ndarray, target: np.ndarray) -> float:
     """1-D Wasserstein-1 distance (earth mover's distance).
 
@@ -356,7 +369,7 @@ def wasserstein_1d(reference: np.ndarray, target: np.ndarray) -> float:
     b = np.asarray(target, dtype=np.float64)
     if a.size == 0 or b.size == 0:
         return np.nan
-    a = a[np.isfinite(a)]; b = b[np.isfinite(b)]
+    a, b = _finite_pair(a, b, "wasserstein_1d")
     if a.size == 0 or b.size == 0:
         return np.nan
     return float(_wasserstein_1d_fused(np.sort(a), np.sort(b)))
@@ -408,7 +421,7 @@ def ks_distribution_distance(
     b = np.asarray(target, dtype=np.float64)
     if a.size == 0 or b.size == 0:
         return np.nan
-    a = a[np.isfinite(a)]; b = b[np.isfinite(b)]
+    a, b = _finite_pair(a, b, "ks_distribution_distance")
     if a.size == 0 or b.size == 0:
         return np.nan
     return float(_ks_distance_fused(np.sort(a), np.sort(b)))

@@ -299,6 +299,25 @@ def _numpy_logloss_bootstrap_deltas(deltas, primary_metric, y_ref, p1, n_resampl
     return deltas
 
 
+def _multiclass_logloss_ci(y, p, n_resamples, seed):
+    """Bootstrap CI for a multiclass log loss: the per-row loss uses the probability of the true class (audit 32-F2).
+
+    ``y`` holds class indices into the columns of ``p``. The former ``np.where(is_pos, ...)`` broadcast over (n, K) failed and
+    the CI was silently dropped.
+    """
+    eps = 1e-15
+    idx = np.asarray(y).astype(int)
+    p_true = np.clip(np.asarray(p, dtype=np.float64)[np.arange(p.shape[0]), idx], eps, 1.0 - eps)
+    elem = -np.log(p_true)
+    point = float(np.mean(elem))
+    if not np.isfinite(point) or n_resamples < 1:
+        return _UNHANDLED
+    rng = np.random.default_rng(int(seed))
+    n = elem.shape[0]
+    samples = np.fromiter((elem[rng.integers(0, n, n)].mean() for _ in range(int(n_resamples))), dtype=np.float64)
+    return _percentile_ci(samples, point)
+
+
 def _vectorized_bootstrap_logloss_samples(
     y: np.ndarray,
     p: np.ndarray,
@@ -470,6 +489,8 @@ def _vectorized_logloss_ci(primary_metric: str, y: np.ndarray, p: np.ndarray, n_
     """
     if "log_loss" not in primary_metric:
         return _UNHANDLED
+    if p.ndim == 2:
+        return _multiclass_logloss_ci(y, p, n_resamples, seed)
     try:
         samples = _vectorized_bootstrap_logloss_samples(
             y, p, int(n_resamples), int(seed),

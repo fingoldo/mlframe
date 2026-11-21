@@ -193,10 +193,12 @@ def _series_tokens_polars(values) -> Optional[np.ndarray]:
         out = values.cast(pl.Utf8).to_numpy().astype(object)
     if mask_null.any():
         out[mask_null] = _NULL_SENTINEL
-    # Float NaN cells survive cast as ``"NaN"``; rebrand to sentinel for parity with pandas path.
-    nan_mask = out == "NaN"
-    if nan_mask.any():
-        out[nan_mask] = _NULL_SENTINEL
+    # Only real float NaN cells become the null sentinel (for parity with the pandas path). The string ``"NaN"`` is data and stays as-is
+    # (39-F32): the old string comparison rebranded it to the missing-value token.
+    if values.dtype in (pl.Float32, pl.Float64):
+        nan_mask = values.is_nan().fill_null(False).to_numpy()
+        if nan_mask.any():
+            out[nan_mask] = _NULL_SENTINEL
     return out
 
 
@@ -369,3 +371,10 @@ __all__ = [
     "_coerce_y_to_float64",
     "_compute_prior",
 ]
+
+
+def _require_binary_woe_target(y_arr) -> None:
+    """Raise unless the target is binary {0, 1}; WoE is undefined for any other label set (shared by fit and fit_transform, audit 39-F17)."""
+    unique_y = np.unique(y_arr)
+    if not (set(unique_y).issubset({0.0, 1.0}) and len(unique_y) <= 2):
+        raise ValueError("method='woe' requires binary {0, 1} target; got " f"{sorted(unique_y)[:5]}")

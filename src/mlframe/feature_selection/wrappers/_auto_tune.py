@@ -69,7 +69,9 @@ def _target_type_and_imbalance(y_arr: np.ndarray, n: int) -> tuple[str, float]:
     if target_type in ("binary", "multiclass"):
         # np.unique handles negative / non-contiguous integer labels; np.bincount(astype(int)) would raise
         # on negative labels and silently allocate up-to-max_label bins on sparse high integer codes.
-        counts = np.unique(y_arr, return_counts=True)[1]
+        # Missing labels are not a class: counting NaN as one would deflate the minority share for a float target with gaps.
+        labels = y_arr[~np.isnan(y_arr)] if y_arr.dtype.kind == "f" else y_arr
+        counts = np.unique(labels, return_counts=True)[1]
         counts = counts[counts > 0]
         target_imbalance = float(counts.min() / counts.sum()) if counts.size else 0.0
     else:

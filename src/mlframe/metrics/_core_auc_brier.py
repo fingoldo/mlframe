@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import threading
 
 import numba
 from typing import Callable
@@ -427,6 +428,9 @@ def bootstrap_auc_distribution_parallel(y_true: np.ndarray, y_score: np.ndarray,
         y_score = y_score.to_numpy()
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
+    _check_equal_length(y_true, y_score)
+    if _has_nan_score(y_score):
+        return np.full(n_bootstrap, np.nan)  # same NaN convention as fast_roc_auc (audit 25-F8)
     y_true = np.ascontiguousarray(_binary_labels_01(y_true))
     y_score = np.ascontiguousarray(y_score)
     n = y_score.shape[0]
@@ -482,6 +486,9 @@ def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray) -> Cal
         y_score = y_score.to_numpy()
     if y_score.ndim == 2:
         y_score = y_score[:, -1]
+    _check_equal_length(y_true, y_score)
+    if _has_nan_score(y_score):
+        return lambda idx: float("nan")  # same NaN convention as fast_roc_auc (audit 25-F8)
     y_true = np.ascontiguousarray(_binary_labels_01(y_true))
     y_score = np.ascontiguousarray(y_score)
     n = y_score.shape[0]
@@ -514,12 +521,15 @@ def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray) -> Cal
             group_of_base = np.empty(n, dtype=np.int64)
             group_of_base[asc_order] = group_by_rank
             y_base = np.ascontiguousarray(y_int.astype(np.int64))
-            _grouped_counts = np.zeros(ngroups, dtype=np.int64)
-            _grouped_ones = np.zeros(ngroups, dtype=np.int64)
+            _grouped_tls = threading.local()
 
             def _resampler_grouped(idx: np.ndarray) -> float:
                 """Fast bootstrap AUC resampler for tied scores: groups by distinct score value so ties are counted correctly without re-sorting the resampled indices."""
-                return float(_fused_resample_auc_grouped(idx, group_of_base, y_base, ngroups, _grouped_counts, _grouped_ones))
+                bufs = getattr(_grouped_tls, "bufs", None)
+                if bufs is None:
+                    bufs = (np.zeros(ngroups, dtype=np.int64), np.zeros(ngroups, dtype=np.int64))
+                    _grouped_tls.bufs = bufs  # per-thread scratch, see 25-F9
+                return float(_fused_resample_auc_grouped(idx, group_of_base, y_base, ngroups, bufs[0], bufs[1]))
             return _resampler_grouped
 
         return functools.partial(exact_bootstrap_auc_resample, y_true, y_score)
@@ -529,13 +539,17 @@ def make_bootstrap_auc_resampler(y_true: np.ndarray, y_score: np.ndarray) -> Cal
     base_rank[asc_order] = np.arange(n, dtype=np.int64)
     # y_by_rank[r] = label of the base element at ascending rank r (gather once)
     y_by_rank = np.ascontiguousarray(y_true[asc_order].astype(np.int64))
-    # Scratch buffers allocated ONCE and reset in-kernel per call (see _fused_resample_auc's docstring).
-    _fast_counts = np.zeros(n, dtype=np.int64)
-    _fast_ones = np.zeros(n, dtype=np.int64)
+    # Scratch buffers are reset in-kernel per call (see _fused_resample_auc's docstring). They are per THREAD: the
+    # resampler is called from joblib's thread backend, and one shared buffer would be written by two resamples at once (audit 25-F9).
+    _tls = threading.local()
 
     def _resampler_fast(idx: np.ndarray) -> float:
         """Fast bootstrap AUC resampler for the no-ties case: reuses the pre-computed base ranking so each resample avoids a fresh full sort."""
-        return float(_fused_resample_auc(idx, base_rank, y_by_rank, n, _fast_counts, _fast_ones))
+        bufs = getattr(_tls, "fast", None)
+        if bufs is None:
+            bufs = (np.zeros(n, dtype=np.int64), np.zeros(n, dtype=np.int64))
+            _tls.fast = bufs
+        return float(_fused_resample_auc(idx, base_rank, y_by_rank, n, bufs[0], bufs[1]))
 
     return _resampler_fast
 

@@ -24,11 +24,30 @@ import logging
 from typing import Any, Literal, Optional
 
 import numpy as np
+from sklearn.neighbors import NearestNeighbors
 import polars as pl
 
 from ._utils import require_seed, validate_numeric_input
 
 logger = logging.getLogger(__name__)
+
+
+_FAR = 1e6  # the package's "very far" sentinel for an empty subset (see _knn_helper.py)
+
+
+def _nn_dist_to_subset(Xt_s: np.ndarray, target_idx_mask: np.ndarray, X_query: np.ndarray, k_neighbors: int) -> tuple[np.ndarray, np.ndarray]:
+    """Mean and nearest kNN distance from each query row to the train subset selected by ``target_idx_mask``.
+
+    An empty subset gives ``_FAR`` for both (nothing is close to nothing). The earlier fill used 0.0 for the nearest distance, which read as
+    "on top of the subset" and inverted the trust ratio for the empty case.
+    """
+    idx = np.where(target_idx_mask)[0]
+    if idx.size == 0:
+        return np.full(X_query.shape[0], _FAR, dtype=np.float32), np.full(X_query.shape[0], _FAR, dtype=np.float32)
+    k_eff = min(k_neighbors, idx.size)
+    nn = NearestNeighbors(n_neighbors=k_eff, n_jobs=-1).fit(Xt_s[idx])
+    d, _ = nn.kneighbors(X_query)
+    return d.mean(axis=1).astype(np.float32), d[:, 0].astype(np.float32)
 
 
 def compute_trust_score_oof_features(
@@ -88,21 +107,10 @@ def compute_trust_score_oof_features(
             pos_correct = correct_mask & (y_t > float(np.median(y_t)))
             neg_correct = correct_mask & (y_t <= float(np.median(y_t)))
 
-        # kNN distances to "correct" subsets
-        def _nn_dist(target_idx_mask, X_query):
-            """Mean and nearest-neighbor kNN distance from each row of ``X_query`` to the train subset selected by ``target_idx_mask``; returns sentinel fill values (mean=1.0, nearest=0.0) when the subset is empty."""
-            idx = np.where(target_idx_mask)[0]
-            if idx.size == 0:
-                return np.full(X_query.shape[0], 1.0, dtype=np.float32), np.full(X_query.shape[0], 0.0, dtype=np.float32)
-            k_eff = min(k_neighbors, idx.size)
-            nn = NearestNeighbors(n_neighbors=k_eff, n_jobs=-1).fit(Xt_s[idx])
-            d, _ = nn.kneighbors(X_query)
-            return d.mean(axis=1).astype(np.float32), d[:, 0].astype(np.float32)
-
-        d_pos_mean, d_pos_min = _nn_dist(pos_correct, Xq_s)
-        d_neg_mean, _ = _nn_dist(neg_correct, Xq_s)
-        d_corr_mean, _ = _nn_dist(correct_mask, Xq_s)
-        d_incorr_mean, _ = _nn_dist(~correct_mask, Xq_s)
+        d_pos_mean, d_pos_min = _nn_dist_to_subset(Xt_s, pos_correct, Xq_s, k_neighbors)
+        d_neg_mean, _ = _nn_dist_to_subset(Xt_s, neg_correct, Xq_s, k_neighbors)
+        d_corr_mean, _ = _nn_dist_to_subset(Xt_s, correct_mask, Xq_s, k_neighbors)
+        d_incorr_mean, _ = _nn_dist_to_subset(Xt_s, ~correct_mask, Xq_s, k_neighbors)
         log_trust_ratio = np.log(np.maximum(d_neg_mean, 1e-6) / np.maximum(d_pos_mean, 1e-6)).astype(np.float32)
         # frac correct among top-k overall
         nn = NearestNeighbors(n_neighbors=min(k_neighbors, Xt_s.shape[0]), n_jobs=-1).fit(Xt_s)
