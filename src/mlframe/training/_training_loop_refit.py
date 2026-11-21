@@ -265,6 +265,14 @@ def _r2_on(model_obj: Any, x_val: Any, y_val: Any) -> float:
     return float(1.0 - np.sum((y - pred) ** 2) / ss_tot)
 
 
+def _restore_refit_params(model_obj: Any, cur_params: dict, model_type_name: str, logger_: logging.Logger) -> None:
+    """Undo the set_params a rejected saturated refit already applied, so the model reports the parameters it holds (audit 28-F19)."""
+    try:
+        model_obj.set_params(**cur_params)
+    except Exception as restore_err:
+        logger_.warning("[saturated-ES] could not restore %s parameters after the rejected refit: %s", model_type_name, restore_err)
+
+
 def _maybe_refit_on_saturated_best_iter(
     *,
     model_obj: Any,
@@ -355,12 +363,7 @@ def _maybe_refit_on_saturated_best_iter(
             model_obj.__dict__.clear()
             model_obj.__dict__.update(_new_model.__dict__)
         except Exception as _rebuild_err:
-            # Undo the set_params that already ran, as the degenerate path does: otherwise the model reports the robust-loss parameters while it
-            # holds the saturated fit (audit 28-F19).
-            try:
-                model_obj.set_params(**_cur_params)
-            except Exception as _restore_err:
-                logger_.warning("[saturated-ES] could not restore %s parameters after the rejected refit: %s", model_type_name, _restore_err)
+            _restore_refit_params(model_obj, _cur_params, model_type_name, logger_)
             logger_.warning(
                 "[saturated-ES] %s refit rejected on both set_params (%s) and fresh-instance (%s) paths. Keeping "
                 "the saturated fit; the reported R^2 will show the truth.",

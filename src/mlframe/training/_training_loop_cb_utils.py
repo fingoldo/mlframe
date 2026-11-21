@@ -67,6 +67,26 @@ def _maybe_disable_cb_plot(model_type_name: str, fit_params: dict, verbose: bool
     fit_params["plot"] = False
 
 
+def _set_cb_loss(model, loss_function: str, default_metric: str, owner: str) -> None:
+    """Set a CatBoost loss, and its metric only when the user has not chosen one (audit 28-F44).
+
+    When set_params refuses, the rejection is logged (audit 28-F43) and the same values are written to the private ``_init_params`` map.
+    """
+    try:
+        user_metric = (model.get_params() or {}).get("eval_metric") if hasattr(model, "get_params") else None
+        if user_metric is None:
+            model.set_params(loss_function=loss_function, eval_metric=default_metric)
+        else:
+            model.set_params(loss_function=loss_function)
+    except Exception as set_exc:
+        logger.warning("CatBoost set_params rejected the loss/metric (%s); writing the private _init_params fallback instead", set_exc)
+        try:
+            model._init_params["loss_function"] = loss_function
+            model._init_params["eval_metric"] = default_metric
+        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+            log_throttle(logger, owner, logging.WARNING, "suppressed: %s", e)
+
+
 def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
     """When target is (N, K>=2) continuous but CatBoostRegressor lacks an
     MTR-compatible ``loss_function``, set ``loss_function='MultiRMSE'``
@@ -134,21 +154,7 @@ def _ensure_cb_mtr_loss(model, train_target, pool=None) -> None:
     # and handled by ``_ensure_cb_multilabel_loss`` instead.
     if label_arr.dtype.kind not in ("f",):
         return
-    try:
-        # A metric the user chose (eval_metric="AUC", say) is kept; only an unset one takes the MTR default (audit 28-F44).
-        _user_metric = (model.get_params() or {}).get("eval_metric") if hasattr(model, "get_params") else None
-        if _user_metric is None:
-            model.set_params(loss_function="MultiRMSE", eval_metric="MultiRMSE")
-        else:
-            model.set_params(loss_function="MultiRMSE")
-    except Exception as _set_exc:
-        logger.warning("CatBoost set_params rejected the loss/metric (%s); writing the private _init_params fallback instead", _set_exc)
-        try:
-            model._init_params["loss_function"] = "MultiRMSE"
-            model._init_params["eval_metric"] = "MultiRMSE"
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            log_throttle(logger, "_training_loop_cb_utils._ensure_cb_mtr_loss", logging.WARNING, "suppressed: %s", e)
-            pass
+    _set_cb_loss(model, "MultiRMSE", "MultiRMSE", "_training_loop_cb_utils._ensure_cb_mtr_loss")
 
 
 def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
@@ -211,20 +217,7 @@ def _ensure_cb_multilabel_loss(model, train_target, pool=None) -> None:
                 label_arr = None
     if label_arr is None or label_arr.ndim != 2:
         return
-    try:
-        _user_metric = (model.get_params() or {}).get("eval_metric") if hasattr(model, "get_params") else None
-        if _user_metric is None:
-            model.set_params(loss_function="MultiLogloss", eval_metric="HammingLoss")
-        else:
-            model.set_params(loss_function="MultiLogloss")
-    except Exception as _set_exc:
-        logger.warning("CatBoost set_params rejected the loss/metric (%s); writing the private _init_params fallback instead", _set_exc)
-        try:
-            model._init_params["loss_function"] = "MultiLogloss"
-            model._init_params["eval_metric"] = "HammingLoss"
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            log_throttle(logger, "_training_loop_cb_utils._ensure_cb_multilabel_loss", logging.WARNING, "suppressed: %s", e)
-            pass
+    _set_cb_loss(model, "MultiLogloss", "HammingLoss", "_training_loop_cb_utils._ensure_cb_multilabel_loss")
 
 
 def _handle_oom_error(model_obj, model_type_name: str) -> bool:
