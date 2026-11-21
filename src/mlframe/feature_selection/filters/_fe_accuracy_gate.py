@@ -121,6 +121,12 @@ def _held_out_probe_score(Xfull, *, tr, va, y_enc, classification, binary):
         # Multiclass accuracy (fraction correct); accuracy_ratio is CAP-AR (2*AUC-1),
         # a different quantity, so compute the exact hit-rate directly.
         return float(np.mean(y_enc[va] == m.predict(Xv)))
+    from ._fe_probe_ridge import fit_ridge_closed_form
+
+    _ridge = fit_ridge_closed_form(Xt, y_enc[tr], 1.0)
+    if _ridge is not None:
+        # Intentional float64: the closed-form weights are double precision, so the held-out score is computed in that precision
+        return fast_r2_score(y_enc[va], np.asarray(Xv, dtype=np.float64) @ _ridge[0] + _ridge[1])
     m = Ridge(alpha=1.0)
     m.fit(Xt, y_enc[tr])
     return fast_r2_score(y_enc[va], m.predict(Xv))
