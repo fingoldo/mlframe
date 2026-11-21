@@ -48,7 +48,12 @@ else:
     kwargs = {}
 
 rng = np.random.default_rng(0)
-X = pd.DataFrame(rng.standard_normal((rows, cols), dtype=np.float32), columns=[f"x{i}" for i in range(cols)])
+# drawn in row chunks of the same generator stream (the same values as one (rows, cols) draw) straight into a column-major buffer: one frame in memory, not the draw plus pandas' copy of it
+_buf = np.empty((rows, cols), dtype=np.float32, order="F")
+for _r0 in range(0, rows, 50000):
+    _buf[_r0 : _r0 + 50000] = rng.standard_normal((min(50000, rows - _r0), cols), dtype=np.float32)
+X = pd.DataFrame(_buf, columns=[f"x{i}" for i in range(cols)], copy=False)
+del _buf
 signal = X["x0"].to_numpy() * X["x1"].to_numpy() + 0.7 * X["x2"].to_numpy() - 0.5 * X["x3"].to_numpy() ** 2 + 0.3 * X["x4"].to_numpy()
 y = pd.Series((signal + 0.5 * rng.standard_normal(rows, dtype=np.float32) > np.median(signal)).astype(np.int8), name="y")
 frame_mb = X.memory_usage(deep=False).sum() / 1e6

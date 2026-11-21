@@ -284,7 +284,7 @@ def _fe_stage_cascade_mid_a_part1(
                         for _r in _il_recipes if _r.name in _il_appended
                     }
                     X_acc = pd.concat(
-                        [X_acc, pd.DataFrame(_il_new, index=X.index)], axis=1,
+                        [X_acc, pd.DataFrame(_il_new, index=X.index, copy=False)], axis=1,
                     )
                     self.integer_lattice_features_ = list(_il_appended)
                     self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_il_appended)
@@ -775,7 +775,7 @@ def _stage_pairwise_modular(self, X, _y_class_mi_applicable, _y_class_mi_binned,
                     for _r in _pm_recipes if _r.name in _pm_appended
                 }
                 X = pd.concat(
-                    [X, pd.DataFrame(_pm_new, index=X.index)], axis=1,
+                    [X, pd.DataFrame(_pm_new, index=X.index, copy=False)], axis=1,
                 )
                 self.pairwise_modular_features_ = list(_pm_appended)
                 self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_pm_appended)
@@ -835,7 +835,7 @@ def _stage_row_argmax(self, X, _y_class_mi_applicable, _y_class_mi_binned, _row_
             if _am_appended:
                 _am_new = {_r.name: apply_row_argmax(X, _r.src_names) for _r in _am_recipes if _r.name in _am_appended}
                 X = pd.concat(
-                    [X, pd.DataFrame(_am_new, index=X.index)], axis=1,
+                    [X, pd.DataFrame(_am_new, index=X.index, copy=False)], axis=1,
                 )
                 self.row_argmax_features_ = list(_am_appended)
                 self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_am_appended)
@@ -919,7 +919,7 @@ def _stage_conditional_gate(self, _discrete_fe_master, _fe_family_on, X, _y_clas
                         for _r in _cg_recipes if _r.name in _cg_appended
                     }
                     X = pd.concat(
-                        [X, pd.DataFrame(_cg_new, index=X.index)], axis=1,
+                        [X, pd.DataFrame(_cg_new, index=X.index, copy=False)], axis=1,
                     )
                     self.conditional_gate_features_ = list(_cg_appended)
                     self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_cg_appended)
