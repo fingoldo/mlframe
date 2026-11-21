@@ -436,8 +436,9 @@ class DiskCache:
         try:
             with open(tmp_path, "wb") as f:
                 pickle.dump(value, f, protocol=_PICKLE_PROTOCOL)
-        except (OSError, pickle.PicklingError) as exc:
-            logger.debug("DiskCache: put failed for key=%s: %s", key, exc)
+        except Exception as exc:  # any pickling failure (a TypeError on a lock included), not only the two it was written for (audit 29-F10)
+            # The temp file is removed here: eviction never reclaims tmp_ files, so a leftover one would stay in the cache dir for good.
+            logger.warning("DiskCache: could not pickle the value for key=%s (%s); nothing was cached", key, exc)
             try:
                 tmp_path.unlink()
             except OSError:
