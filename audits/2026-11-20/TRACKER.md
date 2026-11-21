@@ -149,3 +149,4 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 03-F3 | 03_core.md | FIXED | Production parallel-vs-serial test passing (test_robust_mean_parallel_matches_serial.py). |
 | 04-F25 | 04_data.md | FIXED | SAPP shape-then-loc/scale. Test test_cluster04_sapp_shape_then_loc_scale.py. |
 | 04-F20 | 04_data.md | FIXED | id_trap row_id is a permutation; test asserts exact uniqueness. |
+| 04-F23 | 04_data.md | FIXED | Coerced non-numeric counted in notes. Test test_cluster04_sapp_args_and_coerce.py (passing). |
