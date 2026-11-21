@@ -2984,6 +2984,10 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         fe_target_mix_enable: bool = True,
         fe_target_mix_max_bases: int = 2,
         fe_target_mix_scan_rows: int = 20000,
+        # The candidate search of the mix (one child MRMR fit per base, each about the cost of the whole fit) is OFF by default: on six continuous datasets (additive, interaction, two interactions, level plus
+        # interaction, periodic plus trend, noise; 10000 x 12) and the 20000 x 20 benchmark it proposed 30 candidates and the rescue admitted none, with identical selections, at 3.5-7.5 times the wall of the fit
+        # without it. The bases and their provenance (what ``TargetOffsetRegressor`` reads) are still recorded. ``True`` restores the candidate search.
+        fe_target_mix_candidates: bool = False,
         # With ``redundancy_policy='drop'`` the same held-out evidence prunes a selected engineered column, or a raw column no engineered column is built from, that does not lower the held-out
         # residual of the rest of the selection significantly. A raw operand of an engineered column (``fe_drop_redundant_raw_operands``) is pruned unless it improves the held-out fit of a LINEAR
         # model on the other columns, significantly and by at least this share of the target variance (a private linear term the engineered column cannot give a linear model).

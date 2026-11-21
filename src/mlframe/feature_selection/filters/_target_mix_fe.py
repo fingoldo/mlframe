@@ -101,7 +101,7 @@ def _child(estimator: Any):
     return child
 
 
-def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design: Mapping[str, np.ndarray], *, max_bases: int, scan_rows: int, min_relative_gain: float) -> "tuple[dict[str, Any], list[dict]]":
+def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design: Mapping[str, np.ndarray], *, max_bases: int, scan_rows: int, min_relative_gain: float, propose: bool = True) -> "tuple[dict[str, Any], list[dict]]":
     """Engineered recipes the second pass found on ``T = y - beta u`` for each base, by name (the first base that finds a name wins), and the provenance of the mix.
 
     The provenance is one entry per base that was used, ``{"base", "beta", "features"}``: the design column ``u`` (by its design name), the OLS slope on the even positions, and the candidate names
@@ -139,6 +139,10 @@ def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design
             logger.debug("target-mix base %r leaves no structure in T; second pass skipped", name)
             continue
         child_wall = 0.0
+        if not propose:
+            # the bases and their provenance are what the offset target reads; the candidate search (one child fit per base) is not run
+            provenance.append({"base": str(name), "beta": float(beta), "features": [], "child_fit_s": 0.0, "child_rows": 0})
+            continue
         try:
             child = _child(estimator)
             # The child only proposes candidates (the parent re-tests every one on held-out rows), and it runs on the scan rows: at 20000 rows the chi-square null is within its validated range, so it

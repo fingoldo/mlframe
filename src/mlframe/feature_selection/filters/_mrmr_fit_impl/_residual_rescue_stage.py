@@ -133,6 +133,7 @@ def _target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_
         design,
         max_bases=int(self.fe_target_mix_max_bases),
         scan_rows=int(self.fe_target_mix_scan_rows),
+        propose=bool(getattr(self, "fe_target_mix_candidates", False)),
         min_relative_gain=float(self.fe_residual_rescue_min_relative_gain),
     )
     record_fe_family_wall("stage:target_mix_second_pass", perf_counter() - t_second)

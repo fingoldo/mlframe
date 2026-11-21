@@ -332,6 +332,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_target_mix_enable": False,
     "fe_target_mix_max_bases": 2,
     "fe_target_mix_scan_rows": 20000,
+    "fe_target_mix_candidates": False,
     "fe_residual_rescue_operand_min_linear_gain": 0.001,
     "offset_product_features_": [],
     # Haar wavelet basis. Pre-#13 pickles default OFF so the

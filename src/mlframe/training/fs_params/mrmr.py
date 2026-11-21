@@ -45,7 +45,7 @@ class MRMRParams(BaseModel):
     quantization_method: Literal["quantile", "uniform"] = "quantile"
     quantization_nbins: int = 10
     quantization_dtype: Any = None
-    max_categorical_cardinality: int | None = 255
+    max_categorical_cardinality: int | None = 127
     nbins_strategy: Optional[
         Literal[
             "auto",
@@ -70,7 +70,7 @@ class MRMRParams(BaseModel):
         ]
     ] = "mdlp"
     nbins_strategy_kwargs: dict | None = None
-    max_adaptive_nbins: int = 256
+    max_adaptive_nbins: int = 127
     adaptive_nbins_large_n_reg: bool = True
     adaptive_nbins_large_n_reg_threshold: int = 50000
     adaptive_nbins_large_n_reg_nbins: int = 20
@@ -574,6 +574,7 @@ class MRMRParams(BaseModel):
     fe_target_mix_enable: bool = True
     fe_target_mix_max_bases: int = 2
     fe_target_mix_scan_rows: int = 20000
+    fe_target_mix_candidates: bool = False
     fe_residual_rescue_operand_min_linear_gain: float = 0.001
     fe_wavelet_enable: bool = True
     fe_wavelet_max_cols: int | None = 100
