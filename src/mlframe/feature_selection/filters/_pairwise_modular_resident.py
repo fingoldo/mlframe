@@ -156,7 +156,7 @@ def combiner_bases_and_grids_resident(
                 grids[a : a + len(chunk), np.asarray(idxs)] = np.asarray(mis, dtype=np.float64).reshape(len(chunk), len(idxs))  # Intentional float64: MI statistic output
         return bases, grids
     except Exception as _exc:
-        logger.debug("combiner_bases_and_grids_resident: GPU path failed (%s); per-combiner scan", _exc)
+        log_throttle(logger, "modular_resident.combiner_bases_grids", logging.WARNING, "combiner_bases_and_grids_resident: GPU path failed (%s), per-combiner scan", _exc)
         return None
 
 
