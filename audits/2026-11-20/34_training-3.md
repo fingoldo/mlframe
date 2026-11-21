@@ -59,3 +59,5 @@ Scope: the 88 files in `audits/2026-11-20/manifests/34_training-3.txt` under wor
 - 34-F2: FIXED. hints dropped by the finite-cell filter are removed from the hint slots on both paths; no separate test
 - 34-F3: FIXED. demoted candidates are kept out of the MRMR relevance scale and ranked after the MRMR pass; no separate test
 - 34-F4: FIXED. once any borderline column exists the collinear replay re-checks every column exactly. Cost: exact replay is O(n_cols * kept) in that case; no separate test
+- 34-F7: FIXED. Under 50 valid rows the spec still passes unscored, but now logs a WARNING naming the spec and row count (test_cluster34_discovery_silent_skips_are_logged)
+- 34-F8: FIXED. Residual-std probe failure logged at WARNING with base and transform (test_cluster34_discovery_silent_skips_are_logged)
