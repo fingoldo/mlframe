@@ -314,7 +314,7 @@ def _host_replay(recipe: Any, X_fold: Any, n_rows: int) -> Optional[np.ndarray]:
     try:
         eng_fold = np.asarray(apply_recipe(recipe, X_fold)).ravel()
     except Exception as exc:
-        logger.debug("Stability vote: recipe failed to replay on a fold (%s: %s); left to the per-job path.", type(exc).__name__, exc)
+        log_throttle(logger, "_fe_stability_vote.host_replay", logging.WARNING, "Stability vote: recipe failed to replay on a fold (%s: %s); left to the per-job path.", type(exc).__name__, exc)
         return None
     if eng_fold.shape[0] != n_rows:
         return None
