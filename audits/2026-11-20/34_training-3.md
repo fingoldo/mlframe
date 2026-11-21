@@ -74,3 +74,4 @@ Scope: the 88 files in `audits/2026-11-20/manifests/34_training-3.txt` under wor
 - 34-F18: FIXED. Degenerate fits (disabled, or under 50 rows) publish specs_, report_, val/test idx, elapsed_seconds_ and signature bookkeeping via _fit_publish_empty (test_cluster34_degenerate_fit_publishes_attributes)
 - 34-F24: FIXED. domain_check output cast to bool at both unguarded eval sites (test_cluster34_domain_mask_is_boolean)
 - 34-F22: FIXED. Duplicate logger and _UNARY_BASE_SENTINEL definitions removed; single-definition test (test_cluster34_fit_steps_single_definitions)
+- 34-F13: FIXED. Per-group loops use one stable argsort and contiguous slices; routing extracts each base column once (test_cluster34_route_extracts_base_once)

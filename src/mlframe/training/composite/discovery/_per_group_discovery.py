@@ -62,8 +62,20 @@ def route_spec_column_by_group(
     out = np.full(n, np.nan, dtype=np.float64)
 
     raw_groups = _extract_raw(df, group_column)
-    for group_value in np.unique(raw_groups):
-        row_mask = raw_groups == group_value
+    # Sort row positions by group once and take each group's rows as a contiguous slice, and extract each base column once for the
+    # whole frame. A full-length mask per group and a base re-extraction per group cost groups x rows (audit 34-F13).
+    order = np.argsort(raw_groups, kind="stable")
+    uniq_groups, starts, counts = np.unique(raw_groups[order], return_index=True, return_counts=True)
+    base_cache: dict[str, np.ndarray] = {}
+
+    def _base_full(col: str) -> np.ndarray:
+        """The whole-frame array of ``col``, extracted on first use."""
+        if col not in base_cache:
+            base_cache[col] = _extract_column_array(df, col)
+        return base_cache[col]
+
+    for group_value, start, count in zip(uniq_groups, starts, counts):
+        rows = order[start : start + count]
         group_specs = specs_by_group.get(group_value)
         spec = next((s for s in group_specs if s.name == spec_name), None) if group_specs else None
         if spec is None:
@@ -76,14 +88,14 @@ def route_spec_column_by_group(
         if not transform.requires_base:
             base_rows = None
         elif extra:
-            base_rows = np.column_stack([_extract_column_array(df, c)[row_mask] for c in (spec.base_column, *extra)])
+            base_rows = np.column_stack([_base_full(c)[rows] for c in (spec.base_column, *extra)])
         else:
-            base_rows = _extract_column_array(df, spec.base_column)[row_mask]
-        y_rows = y_full[row_mask]
+            base_rows = _base_full(spec.base_column)[rows]
+        y_rows = y_full[rows]
         valid = transform.domain_check(y_rows, base_rows)  # type: ignore[arg-type]
         t_rows = np.full(y_rows.shape[0], np.nan, dtype=np.float64)
         if valid.any():
             _base_valid = None if base_rows is None else base_rows[valid]
             t_rows[valid] = call_transform(transform, "forward", y_rows[valid], _base_valid, spec.fitted_params)
-        out[row_mask] = t_rows
+        out[rows] = t_rows
     return out
