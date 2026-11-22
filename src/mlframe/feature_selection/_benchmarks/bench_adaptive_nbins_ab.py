@@ -76,20 +76,20 @@ TREATMENTS: Dict[str, Dict] = {
     },
     "bb_midpoint": {
         "mm": False,
-        "kwargs_by_method": {"blocks": {"bb_edge_placement": "midpoint"}},
+        "kwargs_by_method": {"bayesian_blocks": {"bb_edge_placement": "midpoint"}},
     },
     "bb_p010": {
         "mm": False,
-        "kwargs_by_method": {"blocks": {"p0": 0.10}},
+        "kwargs_by_method": {"bayesian_blocks": {"p0": 0.10}},
     },
     "bb_subsample1000": {
         "mm": False,
-        "kwargs_by_method": {"blocks": {"bb_subsample_threshold": 1000}},
+        "kwargs_by_method": {"bayesian_blocks": {"bb_subsample_threshold": 1000}},
     },
     "bb_combo": {
         "mm": False,
         "kwargs_by_method": {
-            "blocks": {
+            "bayesian_blocks": {
                 "bb_edge_placement": "midpoint",
                 "p0": 0.10,
                 "bb_subsample_threshold": 1000,
@@ -98,26 +98,26 @@ TREATMENTS: Dict[str, Dict] = {
     },
     "mdlp_njit": {
         "mm": False,
-        "kwargs_by_method": {"fayyad_irani": {"mdlp_backend": "njit"}},
+        "kwargs_by_method": {"mdlp": {"mdlp_backend": "njit"}},
     },
     "mdlp_scaled": {
         "mm": False,
-        "kwargs_by_method": {"fayyad_irani": {"mdlp_scaled_min_split": True}},
+        "kwargs_by_method": {"mdlp": {"mdlp_scaled_min_split": True}},
     },
     "mdlp_combo": {
         "mm": False,
-        "kwargs_by_method": {"fayyad_irani": {"mdlp_backend": "njit", "mdlp_scaled_min_split": True}},
+        "kwargs_by_method": {"mdlp": {"mdlp_backend": "njit", "mdlp_scaled_min_split": True}},
     },
     "ALL_FIXES": {  # the bundled patch the user would ship as a single new default
         "mm": True,
         "kwargs_by_method": {
             "knuth": {"knuth_edge_type": "quantile", "knuth_m_max_cap": 64},
-            "blocks": {
+            "bayesian_blocks": {
                 "bb_edge_placement": "midpoint",
                 "p0": 0.10,
                 "bb_subsample_threshold": 1000,
             },
-            "fayyad_irani": {"mdlp_backend": "njit", "mdlp_scaled_min_split": True},
+            "mdlp": {"mdlp_backend": "njit", "mdlp_scaled_min_split": True},
         },
     },
 }
@@ -146,8 +146,8 @@ METHODS_BASE = [
     "sturges",
     "freedman_diaconis",
     "knuth",
-    "blocks",
-    "fayyad_irani",
+    "bayesian_blocks",
+    "mdlp",
     "optimal_joint",
 ]
 

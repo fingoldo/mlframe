@@ -30,8 +30,8 @@ def test_per_feature_edges_keys_on_the_full_column(tmp_path):
     y = (x[:, 0] > 0).astype(np.int64)
     y_swapped = np.concatenate([y[:500], y[1000:1500], y[500:1000], y[1500:]])  # same head, tail, sum, min, max
     assert hash_array_summary(y) == hash_array_summary(y_swapped), "precondition: the summary cannot see this change"
-    first = per_feature_edges(x, y=y, method="fayyad_irani", cache_dir=str(tmp_path))
-    second = per_feature_edges(x, y=y_swapped, method="fayyad_irani", cache_dir=str(tmp_path))
-    fresh = per_feature_edges(x, y=y_swapped, method="fayyad_irani")
+    first = per_feature_edges(x, y=y, method="mdlp", cache_dir=str(tmp_path))
+    second = per_feature_edges(x, y=y_swapped, method="mdlp", cache_dir=str(tmp_path))
+    fresh = per_feature_edges(x, y=y_swapped, method="mdlp")
     assert [e.tolist() for e in second] == [e.tolist() for e in fresh], "the second call replayed the first call's edges"
     assert first is not None

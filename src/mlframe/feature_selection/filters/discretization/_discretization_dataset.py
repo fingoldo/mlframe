@@ -335,12 +335,10 @@ def _discretize_with_nbins_strategy(
 ) -> tuple[np.ndarray, list]:
     """Per-column adaptive-bin discretisation (``nbins_strategy``): edges per column, one batched searchsorted, padded to the global max bin count; returns ``(data, per_col_bins)``."""
     from .._adaptive_nbins import per_feature_edges
+    from .._nbins_strategy_names import SUPERVISED_NBINS_STRATEGIES
     _strategy_kwargs = dict(nbins_strategy_kwargs or {})
     # Pass y if the strategy is supervised.
-    _needs_y = str(nbins_strategy).lower() in (
-        "mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated", "optimal_joint", "cv",
-        "mah",
-    )
+    _needs_y = str(nbins_strategy) in SUPERVISED_NBINS_STRATEGIES
     _y_arr = None
     if _needs_y and y_for_strategy is not None:
         _y_arr = np.asarray(y_for_strategy).ravel()

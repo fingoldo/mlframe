@@ -130,10 +130,10 @@ BINNING_KWARGS = {
     "quantile10": {},
     "sturges": {},
     "freedman_diaconis": {},
-    "qs": {},
+    "quantile_spacing": {},
     "knuth": {"knuth_edge_type": "quantile", "knuth_m_max_cap": 64},
-    "blocks": {"bb_edge_placement": "midpoint", "p0": 0.10, "bb_subsample_threshold": 1000},
-    "fayyad_irani": {"mdlp_backend": "njit", "mdlp_scaled_min_split": True},
+    "bayesian_blocks": {"bb_edge_placement": "midpoint", "p0": 0.10, "bb_subsample_threshold": 1000},
+    "mdlp": {"mdlp_backend": "njit", "mdlp_scaled_min_split": True},
     "optimal_joint": {},
 }
 
@@ -148,7 +148,7 @@ def _binning_scorer(method: str, kw: Dict[str, Any], *, miller_madow: bool) -> C
 # same _score_binning; KSG / MINE / fastMI / aggregator each have their own.
 def _make_scorers() -> Dict[str, Callable]:
     scorers: Dict[str, Callable] = {}
-    for method in ["quantile10", "sturges", "freedman_diaconis", "qs", "knuth", "blocks", "fayyad_irani", "optimal_joint"]:
+    for method in ["quantile10", "sturges", "freedman_diaconis", "quantile_spacing", "knuth", "bayesian_blocks", "mdlp", "optimal_joint"]:
         kw = BINNING_KWARGS[method]
         scorers[f"{method}_w1fixes"] = _binning_scorer(method, kw, miller_madow=True)
         # Also include the no-MM legacy for reference on the same row.

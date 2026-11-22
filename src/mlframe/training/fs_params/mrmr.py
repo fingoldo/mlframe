@@ -49,24 +49,7 @@ class MRMRParams(BaseModel):
     categorical_fold_strategy: str = "frequency"
     categorical_fold_min_support: int = 5
     nbins_strategy: (
-        Literal[
-            "auto",
-            "sturges",
-            "freedman_diaconis",
-            "fd",
-            "qs",
-            "quantile",
-            "uniform",
-            "knuth",
-            "blocks",
-            "mdlp",
-            "fayyad_irani",
-            "mdlp_validated",
-            "fayyad_irani_validated",
-            "optimal_joint",
-            "cv",
-            "mah",
-        ]
+        Literal["sturges", "freedman_diaconis", "quantile_spacing", "uniform", "knuth", "bayesian_blocks", "mdlp", "mdlp_validated", "optimal_joint", "mah"]
         | None
     ) = "mdlp"
     nbins_strategy_kwargs: dict | None = None

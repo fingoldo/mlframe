@@ -12,17 +12,16 @@ sample size, or signal strength. That's a one-size-fits-all compromise that:
 This module ships per-feature adaptive bin selection via six methods:
 
 * **'sturges'**  - `ceil(1 + log2(n))`. Simplest formula; assumes Gaussian-ish.
-* **'freedman_diaconis'** (= `'fd'`, DEFAULT for auto) - `ceil((max-min) / (2*IQR/n^(1/3)))`.
+* **'freedman_diaconis'** - `ceil((max-min) / (2*IQR/n^(1/3)))`.
   Robust to outliers/skew; the recommended default for MI estimation
   on natural data per Freedman & Diaconis 1981.
 * **'knuth'**  - Bayesian-posterior optimum over M in [1, sqrt(N)*4].
   Native impl in ``discretization.py``. Returns 1 bin for featureless uniform.
-* **'blocks'**  - Bayesian Blocks (Scargle 2013). Variable-width edges, no n_bins.
-* **'fayyad_irani'** (= `'mdlp'`)  - SUPERVISED MDLP from Fayyad & Irani 1993.
+* **'bayesian_blocks'**  - Bayesian Blocks (Scargle 2013). Variable-width edges, no n_bins.
+* **'mdlp'**  - SUPERVISED MDLP from Fayyad & Irani 1993.
   Returns 3-8 bins typically, signal-aware. **Target-leak-safe via CV-fold splits**.
-* **'optimal_joint'** (= `'cv'`) - CV-based: train binning on fold-train, score
+* **'optimal_joint'** - CV-based: train binning on fold-train, score
   MI on fold-val, average across folds. Most expensive but no overfitting risk.
-* **'auto'** - alias for 'freedman_diaconis'.
 
 The dispatcher ``per_feature_nbins`` returns bin EDGES per column (jagged list since
 each feature may have a different bin count). MRMR's downstream ``np.searchsorted``
@@ -48,6 +47,7 @@ import numba
 from numba import njit, prange
 
 from mlframe.utils.log_throttle import log_throttle
+from ._nbins_strategy_names import NBINS_STRATEGIES, SUPERVISED_NBINS_STRATEGIES, unknown_nbins_strategy_message
 from mlframe.feature_selection.filters.discretization.shared import sorted_quantiles
 from mlframe.feature_selection.filters.discretization.shared import (
     knuth_bin_edges as _knuth_bin_edges, bayesian_blocks_bin_edges as _bayesian_blocks_bin_edges,
@@ -67,7 +67,7 @@ from ._mdlp_validated_split import edges_fayyad_irani_validated  # noqa: F401  #
 MAX_ADAPTIVE_NBINS = 256
 
 # Default cap for the Bayesian-Blocks DP at the ``per_feature_edges`` dispatch layer. BB is O(N^2)-per-column;
-# without a subsample cap ``nbins_strategy='blocks'`` pays unbounded quadratic cost on ordinary column sizes.
+# without a subsample cap ``nbins_strategy='bayesian_blocks'`` pays unbounded quadratic cost on ordinary column sizes.
 # When N exceeds this, the BB DP fits on a uniform sub-sample of this many rows (the block EDGES it returns
 # still apply to the full column). Direct low-level ``edges_bayesian_blocks`` callers keep the 0-means-exact
 # contract; only this auto dispatch layer defaults a safe bound (per CLAUDE.md "enable corrective mechanisms
@@ -98,11 +98,8 @@ __all__ = [
     "edges_knuth", "edges_bayesian_blocks",
     "edges_fayyad_irani", "edges_mah",
     "edges_optimal_joint",
-    "per_feature_edges", "AUTO_METHOD_DEFAULT",
+    "per_feature_edges",
 ]
-
-
-AUTO_METHOD_DEFAULT = "freedman_diaconis"
 
 
 # -----------------------------------------------------------------------------
@@ -505,37 +502,10 @@ def _plug_in_mi(x_binned: np.ndarray, y: np.ndarray, miller_madow: bool = False,
 # -----------------------------------------------------------------------------
 
 
-_METHOD_ALIASES = {
-    "auto": AUTO_METHOD_DEFAULT,
-    "fd": "freedman_diaconis",
-    "freedman-diaconis": "freedman_diaconis",
-    "freedman_diaconis": "freedman_diaconis",
-    "sturges": "sturges",
-    "knuth": "knuth",
-    "blocks": "bayesian_blocks",
-    "bayesian_blocks": "bayesian_blocks",
-    "bb": "bayesian_blocks",
-    "fayyad_irani": "fayyad_irani",
-    "fayyad-irani": "fayyad_irani",
-    "mdlp": "fayyad_irani",
-    "fayyad_irani_validated": "fayyad_irani_validated",
-    "fayyad-irani-validated": "fayyad_irani_validated",
-    "mdlp_validated": "fayyad_irani_validated",
-    "optimal_joint": "optimal_joint",
-    "cv": "optimal_joint",
-    "qs": "qs",
-    "quantile": "qs",
-    "quantile_spacing": "qs",
-    "gupta": "qs",
-    "uniform": "uniform",
-    "mah": "mah",
-}
-
-
 def per_feature_edges(
     X: np.ndarray,
     y: Optional[np.ndarray] = None,
-    method: str = "auto",
+    method: str = "freedman_diaconis",
     base: str = "quantile",
     cache_dir: Optional[str] = None,
     n_jobs: int = -1,
@@ -545,10 +515,9 @@ def per_feature_edges(
 
     Args:
         X: 2-D ndarray of shape (n_samples, n_features). May contain NaN.
-        y: Target array, required for supervised methods ('fayyad_irani', 'optimal_joint').
-        method: One of 'auto' (= 'freedman_diaconis'), 'sturges', 'freedman_diaconis' / 'fd',
-            'knuth', 'bayesian_blocks' / 'blocks' / 'bb', 'fayyad_irani' / 'mdlp',
-            'optimal_joint' / 'cv'.
+        y: Target array, required for supervised methods ('mdlp', 'mdlp_validated', 'optimal_joint', 'mah').
+        method: One of ``NBINS_STRATEGIES``: 'sturges', 'freedman_diaconis', 'quantile_spacing', 'uniform',
+            'knuth', 'bayesian_blocks', 'mdlp', 'mdlp_validated', 'optimal_joint', 'mah' (one name each, no aliases).
         base: For 'sturges' / 'freedman_diaconis' / 'optimal_joint' — 'quantile' (default)
             or 'uniform'.
         cache_dir: Optional directory for a per-column content-addressable disk cache. ``None``
@@ -627,10 +596,10 @@ def _per_feature_edges_np_asarray(X, method, y):
     if X.ndim != 2:
         raise ValueError(f"per_feature_edges: X must be 2-D; got shape {X.shape}")
     n_features = X.shape[1]
-    method_resolved = _METHOD_ALIASES.get(method.lower() if isinstance(method, str) else method)
-    if method_resolved is None:
-        raise ValueError(f"per_feature_edges: unknown method={method!r}. Expected one of " f"{sorted(set(_METHOD_ALIASES.values()))}.")
-    needs_y = method_resolved in ("fayyad_irani", "fayyad_irani_validated", "optimal_joint", "mah")
+    if not isinstance(method, str) or method not in NBINS_STRATEGIES:
+        raise ValueError(f"per_feature_edges: {unknown_nbins_strategy_message(method)}")
+    method_resolved = method
+    needs_y = method_resolved in SUPERVISED_NBINS_STRATEGIES
     if needs_y and y is None:
         raise ValueError(f"per_feature_edges: method={method_resolved!r} is supervised and requires y.")
     if y is not None:

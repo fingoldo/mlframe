@@ -147,7 +147,7 @@ def _rebin_continuous_targets(self, _nbins_strategy, target_indices, cols, _x_fo
                 nbins[int(_ti)] = _t_nb
 
 
-_SUPERVISED_STRATEGIES = ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated", "optimal_joint", "cv", "mah")
+_SUPERVISED_STRATEGIES = ("mdlp", "mdlp_validated", "optimal_joint", "mah")
 _WARMUPS: "dict[int, Any]" = {}
 _WARMUPS_LOCK = threading.Lock()  # guards the table only (the dict operations), never the warm-up or the join
 
@@ -163,7 +163,7 @@ def start_discretization_warmup(self: Any, X: Any, y: Any) -> None:
     from mlframe.feature_selection.filters._mrmr_fit_impl._fe_stage_concurrency import concurrency_enabled
 
     strategy = getattr(self, "nbins_strategy", None)
-    if not concurrency_enabled() or strategy is None or str(strategy).lower() not in _SUPERVISED_STRATEGIES:
+    if not concurrency_enabled() or strategy is None or str(strategy) not in _SUPERVISED_STRATEGIES:
         return
     if not isinstance(X, pd.DataFrame) or self.nan_strategy in ("ffill_bfill",):
         return
@@ -236,7 +236,7 @@ def _discretize_inputs(self, _is_polars_input, X, target_names):
 
 def _null_strategy_kwargs_with_plan_cache(nbins_strategy: Any, kwargs: Any) -> Any:
     """``kwargs`` of the supervised binning of a permutation, with an ``OptimalJointPlanCache`` added for ``optimal_joint`` (MLFRAME_OJ_PLAN_CACHE=0 keeps the plain search)."""
-    if str(nbins_strategy).lower() in ("optimal_joint", "cv") and os.environ.get("MLFRAME_OJ_PLAN_CACHE", "1") != "0":
+    if str(nbins_strategy) == "optimal_joint" and os.environ.get("MLFRAME_OJ_PLAN_CACHE", "1") != "0":
         from mlframe.feature_selection.filters._adaptive_nbins import OptimalJointPlanCache
 
         return {**(kwargs or {}), "optimal_joint_plan_cache": OptimalJointPlanCache()}
@@ -259,9 +259,9 @@ def _attach_column_hook(codes_fn: Any, binner: Any, y_raw: np.ndarray, n_cols: i
     codes_fn.y_raw = y_raw
 
 
-#: Strategies whose honest null re-bins through ``PermutedTargetBinner``: ``optimal_joint`` / ``cv`` (a handful of edge sets per column) and the mah family (edges from the column and the permuted target
+#: Strategies whose honest null re-bins through ``PermutedTargetBinner``: ``optimal_joint`` (a handful of edge sets per column) and the mah family (edges from the column and the permuted target
 #: alone; the binner skips the whole-frame ``categorize_dataset`` pass of every permutation and memoises the code column of each edge set).
-_NULL_BINNER_STRATEGIES = ("optimal_joint", "cv", "mah")
+_NULL_BINNER_STRATEGIES = ("optimal_joint", "mah")
 
 
 def _make_null_binner(self: Any, nbins_strategy: Any, x_for_cat: Any, cols: Any, dependent: set, fixed_codes: Any, strategy_for_categorize: Any, strategy_kwargs: Any) -> Any:
@@ -269,7 +269,7 @@ def _make_null_binner(self: Any, nbins_strategy: Any, x_for_cat: Any, cols: Any,
 
     ``optimal_joint`` takes a handful of edge sets per column over the permutations: a binner that prepares the frame once and memoises the code column of each edge set replaces the whole-frame
     ``categorize_dataset`` pass per permutation (MLFRAME_OJ_NULL_BINNER=0 restores it)."""
-    if str(nbins_strategy).lower() not in _NULL_BINNER_STRATEGIES or os.environ.get("MLFRAME_OJ_NULL_BINNER", "1") == "0":
+    if str(nbins_strategy) not in _NULL_BINNER_STRATEGIES or os.environ.get("MLFRAME_OJ_NULL_BINNER", "1") == "0":
         return None
     from mlframe.feature_selection.filters.discretization.shared import PermutedTargetBinner
 
@@ -369,18 +369,18 @@ def _install_honest_null_hook(
     # covered by the njit chain, whose identity with categorize_dataset was verified on continuous columns; other strategies keep
     # the categorise-per-permutation path.
     _kw_keys = set((_nbins_strategy_kwargs or {}).keys())
-    _strategy_lc = str(_nbins_strategy).lower()
+    _strategy_lc = str(_nbins_strategy)
     # ``mdlp_fast_mode=False`` is the production default, so spelling it out selects the same categorisation; only ``True`` (the
     # depth-capped path) is outside the njit chain.
     _fast_mode_off = not bool((_nbins_strategy_kwargs or {}).get("mdlp_fast_mode", False))
     if (
-        _strategy_lc in ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated")
+        _strategy_lc in ("mdlp", "mdlp_validated")
         and _kw_keys <= {"max_depth", "max_adaptive_nbins", "mdlp_fast_mode"}
         and (_fast_mode_off or _kw_keys <= {"max_depth", "max_adaptive_nbins"})
     ):
         from mlframe.feature_selection.filters._honest_spec import build_honest_spec
 
-        _validated = _strategy_lc in ("mdlp_validated", "fayyad_irani_validated")
+        _validated = _strategy_lc == "mdlp_validated"
         # The validated strategy bins against at most 64 target classes: a target with more distinct values is first cut into 64 quantile classes
         # (mdlp_bin_edges_oos_validated). The class of a row does not depend on the row order, so the permuted target's classes are the permuted
         # classes of the observed target and the null can run on those.
@@ -409,7 +409,7 @@ def _strategy_kwargs(self: Any, _nbins_strategy: Any) -> Any:
     # user pinned max_depth explicitly). This makes max_categorical_cardinality a single knob for a universally-narrow
     # codes matrix - categorical tail folded AND numeric intervals bounded.
     _cap = getattr(self, "max_categorical_cardinality", None)
-    if _cap and int(_cap) < 255 and str(_nbins_strategy).lower() in ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated"):  # at the default cap the default depth (<= 256 intervals) already fits
+    if _cap and int(_cap) < 255 and str(_nbins_strategy) in ("mdlp", "mdlp_validated"):  # at the default cap the default depth (<= 256 intervals) already fits
         _md = max(2, int(np.floor(np.log2(int(_cap)))))
         _nbins_strategy_kwargs = dict(_nbins_strategy_kwargs or {})
         _nbins_strategy_kwargs.setdefault("max_depth", _md)
@@ -470,15 +470,7 @@ def _discretize_inputs_part1(
     # _x_for_cat which is a DataFrame; the target column is one of its members
     # (target injection happens upstream in _mrmr_fit_impl).
     _y_for_strategy = None
-    if _nbins_strategy is not None and str(_nbins_strategy).lower() in (
-        "mdlp",
-        "fayyad_irani",
-        "mdlp_validated",
-        "fayyad_irani_validated",
-        "optimal_joint",
-        "cv",
-        "mah",
-    ):
+    if _nbins_strategy is not None and str(_nbins_strategy) in _SUPERVISED_STRATEGIES:
         # Use the first target column as the supervised signal.
         if target_names:
             try:
@@ -508,15 +500,7 @@ def _discretize_inputs_part1(
     # Supervised binning fits its cut points on the target, so the significance null must re-bin on every permuted target with the SAME
     # production categorisation; a null that permutes y over fixed codes cannot see the in-sample bias of those cuts. The closure is
     # stripped from pickles (see MRMR.__getstate__).
-    _supervised = _y_for_strategy is not None and str(_nbins_strategy).lower() in (
-        "mdlp",
-        "fayyad_irani",
-        "mdlp_validated",
-        "fayyad_irani_validated",
-        "optimal_joint",
-        "cv",
-        "mah",
-    )
+    _supervised = _y_for_strategy is not None and str(_nbins_strategy) in _SUPERVISED_STRATEGIES
     if _supervised:
         _install_honest_null_hook(
             self,

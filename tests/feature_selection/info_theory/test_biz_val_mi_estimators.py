@@ -173,7 +173,7 @@ class TestNbinsStrategyEndToEnd:
         rng = np.random.default_rng(0)
         n = 500
         X = pd.DataFrame({"a": rng.standard_normal(n), "b": rng.lognormal(size=n)})
-        _data, _, nbins = categorize_dataset(X, dtype=np.int32, nbins_strategy="fd")
+        _data, _, nbins = categorize_dataset(X, dtype=np.int32, nbins_strategy="freedman_diaconis")
         assert nbins.size == 2
         # FD adapts per column; expect strictly different counts for skewed
         # vs gaussian.
@@ -191,7 +191,7 @@ class TestNbinsStrategyEndToEnd:
             (X["f0"] + 0.5 * X["f1"] + rng.standard_normal(n) > 0).astype(np.int64),
             name="y",
         )
-        sel = MRMR(nbins_strategy="fd", verbose=0)
+        sel = MRMR(nbins_strategy="freedman_diaconis", verbose=0)
         sel.fit(X, y)
         out = sel.get_feature_names_out()
         # FD should at least find f0 (the strongest signal).
@@ -293,7 +293,7 @@ class TestMixedTypeWithNbinsStrategy:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = self._make_mixed_frame()
-        sel = MRMR(nbins_strategy="fd", verbose=0)
+        sel = MRMR(nbins_strategy="freedman_diaconis", verbose=0)
         sel.fit(X, y)
         selected = set(sel.get_feature_names_out())
         assert "cont_strong" in selected, f"FD-strategy MRMR missed cont_strong on mixed data: {selected}"
@@ -330,7 +330,7 @@ class TestMixedTypeWithNbinsStrategy:
         X, y = self._make_mixed_frame(n=200)
         with _w.catch_warnings(record=True) as caught:
             _w.simplefilter("always")
-            sel = MRMR(nbins_strategy="blocks", verbose=0)
+            sel = MRMR(nbins_strategy="bayesian_blocks", verbose=0)
             sel.fit(X, y)
         msgs = [str(x.message) for x in caught]
-        assert any("DEMOTED" in m and "blocks" in m.lower() for m in msgs), f"AccuracyWarning missing for nbins_strategy='blocks': {msgs}"
+        assert any("DEMOTED" in m and "blocks" in m.lower() for m in msgs), f"AccuracyWarning missing for nbins_strategy='bayesian_blocks': {msgs}"

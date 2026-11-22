@@ -4,7 +4,7 @@ Better small-sample / sparse-contingency entropy estimator than Miller-Madow.
 Per the Pawluszek-Filipiak 2025 *Information* 16(9):724 empirical study,
 Chao-Shen and James-Stein shrinkage estimators outperform Miller-Madow on
 sparse contingency tables that arise when bin count rises with the
-``nbins_strategy='fd'`` / ``'qs'`` defaults.
+``nbins_strategy='freedman_diaconis'`` / ``'quantile_spacing'`` defaults.
 
 Algorithm (Chao & Shen 2003, *Environmental and Ecological Statistics* 10:429):
 

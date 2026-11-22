@@ -54,10 +54,10 @@ from mlframe.feature_selection.filters._adaptive_nbins import (
 METHODS = [
     "sturges",
     "freedman_diaconis",
-    "qs",
+    "quantile_spacing",
     "knuth",
-    "blocks",
-    "fayyad_irani",
+    "bayesian_blocks",
+    "mdlp",
     "optimal_joint",
     "mah",
 ]

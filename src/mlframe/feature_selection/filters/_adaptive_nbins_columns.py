@@ -17,6 +17,7 @@ from typing import Any, Callable, Optional
 import numpy as np
 
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.feature_selection.filters._nbins_strategy_names import SUPERVISED_NBINS_STRATEGIES
 from mlframe.feature_selection.filters.discretization._quantile_radix import quantiles_of_sorted, sorted_unique_with_counts
 from mlframe.feature_selection.filters.discretization.shared import unique_with_counts
 
@@ -24,7 +25,7 @@ logger = logging.getLogger("mlframe.feature_selection.filters._adaptive_nbins")
 
 __all__ = ["compute_col_edges", "clear_edge_memo"]
 
-_SUPERVISED_METHODS = ("fayyad_irani", "fayyad_irani_validated", "optimal_joint", "mah")
+_SUPERVISED_METHODS = SUPERVISED_NBINS_STRATEGIES
 
 
 def _an() -> Any:
@@ -156,11 +157,11 @@ def _uniform(col: np.ndarray, y: Optional[np.ndarray], base: str, kwargs: dict) 
 _EDGE_BUILDERS: dict[str, Callable[[np.ndarray, Optional[np.ndarray], str, dict], Any]] = {
     "sturges": _sturges,
     "freedman_diaconis": _freedman_diaconis,
-    "qs": _qs,
+    "quantile_spacing": _qs,
     "knuth": _knuth,
     "bayesian_blocks": _bayesian_blocks,
-    "fayyad_irani": _fayyad_irani,
-    "fayyad_irani_validated": _fayyad_irani_validated,
+    "mdlp": _fayyad_irani,
+    "mdlp_validated": _fayyad_irani_validated,
     "uniform": _uniform,
     "mah": _mah,
     "optimal_joint": _optimal_joint,
@@ -367,7 +368,7 @@ def compute_col_edges(col: np.ndarray, method_resolved: str, base: str, kwargs: 
 def _presort_for_mdlp(col: np.ndarray, finite: np.ndarray, finite_mask: np.ndarray, method_resolved: str, y: Optional[np.ndarray], kwargs: dict) -> "tuple[np.ndarray, np.ndarray] | None":
     """``(x_sorted, y_sorted)`` of the finite rows of ``col`` for the MDLP (``fayyad_irani``) search, or ``None`` when the radix sort does not apply (small or non-float input, a non-integer
     label vector) and the search sorts for itself. The labels are the ones ``mdlp_bin_edges`` encodes ``y`` to, so the search gives the edges it gives unsorted."""
-    if method_resolved != "fayyad_irani" or y is None or finite.size == 0:
+    if method_resolved != "mdlp" or y is None or finite.size == 0:
         return None
     from .discretization._quantile_radix import sort_xy
     from .supervised_binning import _encode_mdlp_target

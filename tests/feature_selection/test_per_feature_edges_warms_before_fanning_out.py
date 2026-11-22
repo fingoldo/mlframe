@@ -53,7 +53,7 @@ def test_the_first_column_is_computed_before_any_pool_thread_starts(monkeypatch)
 
     clear_edge_memo()  # the content-keyed edge memo serves a column an earlier fit of the session already binned without calling the builder at all
     monkeypatch.setattr(_adaptive_nbins, "_EDGES_WARMED", False)  # a cold process: any earlier fit in the session has already warmed the kernels and skips the serial column
-    _adaptive_nbins.per_feature_edges(cols, y, method="fayyad_irani", n_jobs=4)
+    _adaptive_nbins.per_feature_edges(cols, y, method="mdlp", n_jobs=4)
 
     assert threads, "no column was computed; the fixture no longer reaches the per-column path"
     assert threads[0] == threading.main_thread().name, (
@@ -65,8 +65,8 @@ def test_the_first_column_is_computed_before_any_pool_thread_starts(monkeypatch)
 def test_the_threaded_and_serial_paths_still_agree(monkeypatch):
     """Warming must not change a single edge: it moves where the work happens, not what it computes."""
     cols, y = _numeric_columns(5)
-    threaded = _adaptive_nbins.per_feature_edges(cols, y, method="fayyad_irani", n_jobs=4)
-    serial = _adaptive_nbins.per_feature_edges(cols, y, method="fayyad_irani", n_jobs=1)
+    threaded = _adaptive_nbins.per_feature_edges(cols, y, method="mdlp", n_jobs=4)
+    serial = _adaptive_nbins.per_feature_edges(cols, y, method="mdlp", n_jobs=1)
     assert len(threaded) == len(serial) == cols.shape[1]
     assert list(enumerate(zip(threaded, serial)))
     for i, (a, b) in enumerate(zip(threaded, serial)):

@@ -25,9 +25,9 @@ _VALID_MRMR_REDUNDANCY_ALGOS = ("fleuret", "pld_max", "pld_mean")
 # intentionally NOT routed into the MRMR hot loop.
 _VALID_NBINS_STRATEGIES = (
     None,
-    "auto", "sturges", "freedman_diaconis", "fd", "qs", "quantile", "uniform",
-    "knuth", "blocks",  # demoted to research-only with AccuracyWarning
-    "mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated", "optimal_joint", "cv",
+    "sturges", "freedman_diaconis", "quantile_spacing", "uniform",
+    "knuth", "bayesian_blocks",  # demoted to research-only with AccuracyWarning
+    "mdlp", "mdlp_validated", "optimal_joint",
     "mah",  # Marx 2021 multi-dimensional adaptive histogram (SCI-guided merging of the feature's bins)
 )
 # opt-in validation sets.
@@ -44,7 +44,7 @@ _VALID_STABILITY_SELECTION_METHODS = (
 # for research / reproduction work but emit an ``AccuracyWarning`` so
 # downstream callers can opt-in explicitly.
 _DEMOTED_NBINS_STRATEGIES = (
-    "knuth", "blocks",
+    "knuth", "bayesian_blocks",
 )
 _VALID_FE_UNARY_PRESETS = ("minimal", "medium", "maximal")
 _VALID_FE_BINARY_PRESETS = ("minimal", "medium", "maximal")

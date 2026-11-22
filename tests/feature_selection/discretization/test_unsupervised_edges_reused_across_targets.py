@@ -12,7 +12,7 @@ import pytest
 from mlframe.feature_selection.filters import _adaptive_nbins_columns as cols
 from mlframe.feature_selection.filters._adaptive_nbins import per_feature_edges
 
-UNSUPERVISED = ["quantile", "qs", "uniform", "fd", "freedman_diaconis", "sturges", "auto"]
+UNSUPERVISED = ["quantile_spacing", "uniform", "freedman_diaconis", "sturges"]
 
 
 @pytest.fixture()

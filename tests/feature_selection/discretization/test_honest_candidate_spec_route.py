@@ -54,9 +54,7 @@ def _fit_capturing(monkeypatch):
     X, y = _fixture()
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        sel = MRMR(
-            nbins_strategy="fayyad_irani", quantization_nbins=8, full_npermutations=5, baseline_npermutations=5, fe_max_steps=0, random_state=0, verbose=0
-        )
+        sel = MRMR(nbins_strategy="mdlp", quantization_nbins=8, full_npermutations=5, baseline_npermutations=5, fe_max_steps=0, random_state=0, verbose=0)
         sel.fit(X, y)
     return calls
 
