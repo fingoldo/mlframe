@@ -298,6 +298,7 @@ def kernel_oof_gather_multi(cp, real):
     with _OOF_GATHER_INTO_KERNELS_LOCK:
         kern = _OOF_GATHER_MULTI_KERNELS.get(key)
         if kern is None:
+            # Intentional float64: maps the output dtype key to its CUDA C type, both of which the caller selects
             kern = cp.RawKernel(_OOF_GATHER_MULTI_SRC.replace("OUT_T", {"float32": "float", "float64": "double"}[key]), "binagg_oof_gather_multi")
             _OOF_GATHER_MULTI_KERNELS[key] = kern
     return kern
@@ -489,12 +490,13 @@ def build_binagg_oof_matrix_gpu(
         cc = code_cache.get(gcol)
         if cc is None:
             # Intentional float64: per-bin aggregate sums/means and the values binned against float64 edges (bin assignment must match the host)
+            # Intentional float64: group values are binned at float64, since float32 collapses nearby values onto one edge.
             gvals = np.asarray(X[gcol].to_numpy(), dtype=np.float64)
             edges = np.asarray(spec["edges"], dtype=np.float64)  # Intentional float64: bin-edge / cut vector, compared against values at full precision
             # Intentional float64: per-bin aggregate sums/means and the values binned against float64 edges (bin assignment must match the host)
-            gvals_g = resident_operand(np.ascontiguousarray(gvals), ("binagg_g", gcol), dtype=cp.float64)
+            gvals_g = resident_operand(np.ascontiguousarray(gvals), ("binagg_g", gcol), dtype=cp.float64)  # Intentional float64: device operands match the host double-precision binning and accumulation
             # Intentional float64: bin-edge / cut vector, compared against values at full precision
-            edges_g = resident_operand(np.ascontiguousarray(edges), ("binagg_edges", gcol), dtype=cp.float64)
+            edges_g = resident_operand(np.ascontiguousarray(edges), ("binagg_edges", gcol), dtype=cp.float64)  # Intentional float64: device operands match the host double-precision binning and accumulation
             codes_g = cp.searchsorted(edges_g, gvals_g, side="right").astype(cp.int64)
             # n_cells from the edge count, not int(codes_g.max()) (a D2H sync): searchsorted(side="right")
             # yields codes in [0, len(edges)], so len(edges)+1 is the exact upper bound. Any trailing empty
@@ -510,9 +512,10 @@ def build_binagg_oof_matrix_gpu(
             ac = acol_cache.get(acol)
             if ac is None:
                 # Intentional float64: per-bin aggregate sums/means and the values binned against float64 edges (bin assignment must match the host)
+                # Intentional float64: value columns accumulate in float64, matching the host per-cell statistics.
                 av = np.asarray(X[acol].to_numpy(), dtype=np.float64)
                 # Intentional float64: per-bin aggregate sums/means and the values binned against float64 edges (bin assignment must match the host)
-                av_g = resident_operand(np.ascontiguousarray(av), ("binagg_a", acol), dtype=cp.float64)
+                av_g = resident_operand(np.ascontiguousarray(av), ("binagg_a", acol), dtype=cp.float64)  # Intentional float64: device operands match the host double-precision binning and accumulation
                 finite_g = cp.isfinite(av_g)
                 # v_safe: non-finite entries zeroed once so the masked scatter-add never forms inf*0=nan on the
                 # rows excluded by the 0/1 weight (the weight already carries finite_g, so their contribution is 0).
