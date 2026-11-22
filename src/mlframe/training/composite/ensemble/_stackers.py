@@ -261,6 +261,8 @@ def fit_gbm_meta_stacker(
     l2_regularization: float = 1.0,
     random_state: int = 0,
     sample_weight: np.ndarray | None = None,
+    group_ids: np.ndarray | None = None,
+    time_ordered: bool = False,
 ) -> Any:
     """Fit a SHALLOW ``HistGradientBoostingRegressor`` meta-model on the leakage-free OOF component matrix.
 
@@ -280,14 +282,19 @@ def fit_gbm_meta_stacker(
         raise ValueError(
             f"fit_gbm_meta_stacker: only {X.shape[0]} finite OOF rows; need >= {max(n_components + 2, 30)} to fit a GBM stacker without over-fitting."
         )
-    # early_stopping on a small held-out fraction guards against memorising the K-column OOF design.
+    # sklearn's early-stopping carve is a random row split. With groups or a time order requested, a random carve would put
+    # same-group or future rows in the stopping set, so early stopping is turned off and the round count stays at max_iter.
+    # Forwarding the arguments and ignoring them was the audit 35-F20 defect.
+    _group_or_time_aware = group_ids is not None or bool(time_ordered)
+    if _group_or_time_aware:
+        logger.warning("fit_gbm_meta_stacker: group/time-aware fit requested; the GBM stacker uses a fixed max_iter (no row-random early stopping).")
     model = HistGradientBoostingRegressor(
         max_depth=int(max_depth),
         max_iter=int(max_iter),
         learning_rate=float(learning_rate),
         min_samples_leaf=int(min_samples_leaf),
         l2_regularization=float(l2_regularization),
-        early_stopping=True,
+        early_stopping=not _group_or_time_aware,
         validation_fraction=0.15,
         n_iter_no_change=15,
         random_state=int(random_state),
@@ -387,6 +394,8 @@ def build_meta_stack_ensemble(
                 learning_rate=gbm_learning_rate,
                 random_state=random_state,
                 sample_weight=sample_weight,
+                group_ids=group_ids,
+                time_ordered=time_ordered,
             )
     except Exception as exc:
         logger.warning(

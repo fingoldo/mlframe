@@ -113,3 +113,5 @@ Coverage and method:
 - 35-F16: FIXED. Group counts from one np.unique pass via _group_counts; equivalence test (test_cluster35_group_counts_one_pass)
 - 35-F17: FIXED. predict logs a WARNING naming the component and the count of non-finite rows; blend still NaN on those rows (test_cluster35_predict_nonfinite_component_warns)
 - 35-F18: FIXED. GPU probe failures (xgboost, catboost) and the refit-groups fallback now log at WARNING; xgboost probe path tested (test_cluster35_gpu_probe_failure_warns); refit-groups path not separately tested
+- 35-F19: DEFERRED. Composite refit is implemented three times with different group handling (kfold, single-split, external OOF). Consolidating changes behaviour; needs an owner decision on the correct group semantics first.
+- 35-F20: FIXED. GBM stacker honours group_ids and time_ordered: row-random early stopping is off when either is set; dispatcher forwards both (test_cluster35_gbm_stacker_group_aware, 3 pass)
