@@ -108,7 +108,8 @@ def _get_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
         dead = [k for k, v in _Y_BINNING_CACHE.items() if v[0]() is None]
         for k in dead:
             del _Y_BINNING_CACHE[k]
-        result = _compute_y_binning(y, K)
+        by_multiset = _y_binning_by_multiset(y, K)
+        result = by_multiset if by_multiset is not None else _compute_y_binning(y, K)
         try:
             ref = weakref.ref(y)
         except TypeError as _exc:
@@ -127,6 +128,84 @@ def clear_mah_y_binning_cache() -> None:
     # racing a concurrent _get_y_binning raises "dictionary changed size during iteration".
     with _Y_BINNING_LOCK:
         _Y_BINNING_CACHE.clear()
+
+
+# X-SIDE PLAN CACHE: the quantile cut points of a column and its bin index depend on the column alone, yet the honest null of a supervised ``nbins_strategy`` asks for the edges of the SAME column under
+# every permutation of the target. Keyed by the content digest of the column and ``K``; bounded (a plan is an int16 vector of the column's length plus a short edge vector).
+_X_PLAN_CACHE: "OrderedDict[tuple[bytes, int, int], tuple[np.ndarray, np.ndarray, int]]" = OrderedDict()
+_X_PLAN_CACHE_MAX_ENTRIES = 512
+_X_PLAN_LOCK = threading.Lock()
+
+
+def _x_plan(x: np.ndarray, K: int) -> "tuple[np.ndarray, np.ndarray, int] | None":
+    """``(initial_inner, xb, K_x)`` of the float64 column ``x`` (its K-quantile inner cuts, the bin index of every row, the number of bins), or ``None`` when fewer than three distinct cuts exist.
+
+    The numbers are those ``mah_bin_edges`` derives inline; they are memoised by the content of the column."""
+    import hashlib
+
+    key = (hashlib.blake2b(np.ascontiguousarray(x), digest_size=16).digest(), int(x.size), int(K))
+    with _X_PLAN_LOCK:
+        hit = _X_PLAN_CACHE.get(key)
+        if hit is not None:
+            _X_PLAN_CACHE.move_to_end(key)
+            return hit if hit[2] > 0 else None
+    qx = np.quantile(x, np.linspace(0, 1, K + 1))
+    qx_unique = np.unique(qx)
+    if qx_unique.size < 3:
+        plan = (np.empty(0, dtype=np.float64), np.empty(0, dtype=np.int16), 0)
+    else:
+        initial_inner = qx_unique[1:-1].astype(np.float64)  # Intentional float64: initial inner edges for the MAH statistic
+        xb = np.searchsorted(initial_inner, x, side="right")
+        plan = (initial_inner, xb.astype(np.int16), int(xb.max()) + 1)
+    with _X_PLAN_LOCK:
+        _X_PLAN_CACHE[key] = plan
+        while len(_X_PLAN_CACHE) > _X_PLAN_CACHE_MAX_ENTRIES:
+            _X_PLAN_CACHE.popitem(last=False)  # evict-ok: a miss recomputes the plan
+    return plan if plan[2] > 0 else None
+
+
+# CONTENT-KEYED Y-BINNING for integer targets: the binning of ``y`` (label encode when at most K distinct values, else K-quantile bins) is a function of the MULTISET of its values, and a permuted target
+# has the multiset of the raw one. For an integer target of small range the exact multiset is its bincount, so the value -> bin map is kept per bincount and a permutation costs one searchsorted.
+_Y_MAP_CACHE: "OrderedDict[tuple, tuple[np.ndarray, bool, int]]" = OrderedDict()
+_Y_MAP_CACHE_MAX_ENTRIES = 16
+_Y_MAP_MAX_RANGE = 1 << 20
+_Y_MAP_LOCK = threading.Lock()  # its own lock: ``_get_y_binning`` calls this function while it holds ``_Y_BINNING_LOCK``
+
+
+def _y_binning_by_multiset(y: np.ndarray, K: int) -> "tuple[np.ndarray, int] | None":
+    """``_compute_y_binning(y, K)`` through a map kept per multiset of an integer ``y``, or ``None`` when ``y`` is not an integer vector of small range."""
+    if y.dtype.kind not in "iub" or y.size == 0:
+        return None
+    lo, hi = int(y.min()), int(y.max())
+    if hi - lo >= _Y_MAP_MAX_RANGE:
+        return None
+    counts = np.bincount(y.astype(np.int64) - lo)
+    key = (counts.tobytes(), lo, int(K))
+    with _Y_MAP_LOCK:
+        hit = _Y_MAP_CACHE.get(key)
+        if hit is not None:
+            _Y_MAP_CACHE.move_to_end(key)
+    if hit is None:
+        _, K_y = _compute_y_binning(y, K)
+        if K_y == 0:
+            hit = (np.empty(0, dtype=np.float64), False, 0)
+        else:
+            uniq_y = np.unique(y)
+            if uniq_y.size <= K:
+                hit = (uniq_y, True, K_y)  # label encode: the rank of the value among the distinct values
+            else:
+                qy_unique = np.unique(np.quantile(y.astype(np.float64), np.linspace(0, 1, K + 1)))  # Intentional float64: target quantile edges for the MAH statistic
+                hit = (qy_unique[1:-1], False, K_y)
+        with _Y_MAP_LOCK:
+            _Y_MAP_CACHE[key] = hit
+            while len(_Y_MAP_CACHE) > _Y_MAP_CACHE_MAX_ENTRIES:
+                _Y_MAP_CACHE.popitem(last=False)  # evict-ok: a miss recomputes the map
+    table, label_encode, K_y = hit
+    if K_y == 0:
+        return np.array([], dtype=np.int64), 0
+    if label_encode:
+        return np.searchsorted(table, y).astype(np.int64), K_y
+    return np.searchsorted(table, y.astype(np.float64), side="right").astype(np.int64), K_y  # Intentional float64: target bin search for the MAH statistic
 
 
 @njit(nogil=True, cache=True)
@@ -341,17 +420,15 @@ def mah_bin_edges(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.nd
     if n < 16:
         return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
     K = int(initial_k)
-    qx = np.quantile(x, np.linspace(0, 1, K + 1))
-    qx_unique = np.unique(qx)
-    if qx_unique.size < 3:
+    plan = _x_plan(x, K)
+    if plan is None:
         return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
-    initial_inner = qx_unique[1:-1].astype(np.float64)  # Intentional float64: initial inner edges for the MAH statistic
-    xb = np.searchsorted(initial_inner, x, side="right").astype(np.int64)
-    # y is fit-constant across the whole per_feature_edges column dispatch -> cached binning (see _get_y_binning).
+    initial_inner, xb16, K_x = plan
+    xb = xb16.astype(np.int64)
+    # y is fit-constant across the whole per_feature_edges column dispatch -> cached binning (see _get_y_binning); a permuted integer target reuses the map of its multiset.
     yb, K_y = _get_y_binning(y, K)
     if K_y == 0:
         return cast("np.ndarray", initial_inner)
-    K_x = int(xb.max()) + 1
     if K_x < 2 or K_y < 2:
         return cast("np.ndarray", initial_inner)
     joint = np.bincount(xb * K_y + yb, minlength=K_x * K_y).reshape(K_x, K_y).astype(np.float64)  # Intentional float64: joint-count accumulator for the MAH statistic

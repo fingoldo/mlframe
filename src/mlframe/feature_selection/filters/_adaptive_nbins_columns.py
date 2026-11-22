@@ -292,6 +292,33 @@ def _edge_memo_key(col: np.ndarray, method_resolved: str, base: str, kwargs: dic
     return (operand_signature(np.ascontiguousarray(col)), y_sig, method_resolved, str(base), int(low_card_cap), tuple(items))
 
 
+# DISTINCT-VALUE FACTS of a column by content: the honest null of a supervised strategy asks for the edges of the same column under every permutation of the target, and the sorted distinct values
+# and counts depend on the column alone (a radix sort of the column, a tenth of the time of a mah-family fit). Bounded; a miss recomputes.
+_UNIQUE_FACTS: "OrderedDict[tuple, tuple[np.ndarray, np.ndarray]]" = OrderedDict()
+_UNIQUE_FACTS_MAX = 256
+_UNIQUE_FACTS_LOCK = threading.Lock()
+_UNIQUE_FACTS_MIN_ROWS = 2048
+
+
+def _unique_facts(finite: np.ndarray, col_sig: Optional[tuple]) -> "tuple[np.ndarray, np.ndarray]":
+    """``unique_with_counts(finite)``, served from the content-keyed memo when the signature of the column is known and the column is long enough to be worth keeping."""
+    if col_sig is None or finite.size < _UNIQUE_FACTS_MIN_ROWS:
+        return unique_with_counts(finite)
+    with _UNIQUE_FACTS_LOCK:
+        hit = _UNIQUE_FACTS.get(col_sig)
+        if hit is not None:
+            _UNIQUE_FACTS.move_to_end(col_sig)
+            return hit
+    facts = unique_with_counts(finite)
+    for arr in facts:
+        arr.setflags(write=False)  # shared between calls: a caller that wrote into them would corrupt the next column's edges
+    with _UNIQUE_FACTS_LOCK:
+        _UNIQUE_FACTS[col_sig] = facts
+        while len(_UNIQUE_FACTS) > _UNIQUE_FACTS_MAX:
+            _UNIQUE_FACTS.popitem(last=False)  # evict-ok: a miss recomputes the facts
+    return facts
+
+
 def compute_col_edges(col: np.ndarray, method_resolved: str, base: str, kwargs: dict, y: Optional[np.ndarray], low_card_cap: int) -> tuple[Any, bool]:
     """``_compute_col_edges_uncached`` through a content-keyed memo: the same column, labels and settings give the same edges, so a warm-up pass over the raw columns (run while the feature
     engineering cascades work) serves the real discretisation without computing them again. Returned arrays are copies."""
@@ -303,7 +330,7 @@ def compute_col_edges(col: np.ndarray, method_resolved: str, base: str, kwargs: 
                 _EDGE_MEMO.move_to_end(key)
         if hit is not None:
             return (hit[0].copy() if isinstance(hit[0], np.ndarray) else hit[0]), hit[1]
-    edges, low = _compute_col_edges_uncached(col, method_resolved, base, kwargs, y, low_card_cap)
+    edges, low = _compute_col_edges_uncached(col, method_resolved, base, kwargs, y, low_card_cap, None if key is None else key[0])
     if key is not None:
         with _EDGE_MEMO_LOCK:
             _EDGE_MEMO[key] = (edges.copy() if isinstance(edges, np.ndarray) else edges, low)
@@ -328,7 +355,7 @@ def _presort_for_mdlp(col: np.ndarray, finite: np.ndarray, finite_mask: np.ndarr
     return sort_xy(finite, y_enc[finite_mask])
 
 
-def _compute_col_edges_uncached(col: np.ndarray, method_resolved: str, base: str, kwargs: dict, y: Optional[np.ndarray], low_card_cap: int) -> tuple[Any, bool]:
+def _compute_col_edges_uncached(col: np.ndarray, method_resolved: str, base: str, kwargs: dict, y: Optional[np.ndarray], low_card_cap: int, col_sig: Optional[tuple] = None) -> tuple[Any, bool]:
     """Pure per-column edge computation (no cache I/O). Returns ``(edges, was_low_card)``.
 
     Identical math to the historical serial loop body; factored out so the heavy path can run under a thread pool. Touches no shared state ->
@@ -355,7 +382,7 @@ def _compute_col_edges_uncached(col: np.ndarray, method_resolved: str, base: str
             _uniq, _uniq_counts = sorted_unique_with_counts(_presorted[0])
             _uniq = _uniq.astype(_finite.dtype, copy=False)
         elif _finite.size > 0:
-            _uniq, _uniq_counts = unique_with_counts(_finite)
+            _uniq, _uniq_counts = _unique_facts(_finite, col_sig)
         else:
             _uniq = np.empty(0, dtype=_crit_np_dtype())
             _uniq_counts = np.empty(0, dtype=np.int64)
