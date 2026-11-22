@@ -134,10 +134,10 @@ def test_biz_val_waic_ranks_generalising_transform_over_overfit_when_mi_ties():
         residuals are large despite the identical in-sample MI.
 
     The assertion: WAIC(A) > WAIC(B) with a comfortable margin, while a
-    sklearn ``mutual_info_regression`` in-sample MI check confirms the two are
+    kNN mutual-information in-sample check (``ksg_mi_columns``) confirms the two are
     within noise of each other (so MI alone could not have separated them).
     """
-    from sklearn.feature_selection import mutual_info_regression
+    from mlframe.feature_selection.filters._ksg_dispatch import ksg_mi_columns
 
     rng = np.random.default_rng(7)
     n = 2400
@@ -160,8 +160,8 @@ def test_biz_val_waic_ranks_generalising_transform_over_overfit_when_mi_ties():
 
     # In-sample MI of each target to the feature block ties (within tolerance):
     # both are dominated by the same ``s = f(x[:, :3])`` driver.
-    mi_a = float(mutual_info_regression(x, y_a, random_state=0).sum())
-    mi_b = float(mutual_info_regression(x, y_b, random_state=0).sum())
+    mi_a = float(ksg_mi_columns(x, y_a, discrete_target=False, n_neighbors=3, random_state=0).sum())
+    mi_b = float(ksg_mi_columns(x, y_b, discrete_target=False, n_neighbors=3, random_state=0).sum())
     # MI ties (within 25% of each other); MI alone cannot tell us A generalises
     # better than B.
     assert abs(mi_a - mi_b) / max(mi_a, mi_b) < 0.25, (mi_a, mi_b)

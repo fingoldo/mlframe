@@ -238,7 +238,7 @@ def _mi_pair_bin(
     using the joint frequency table. Equivalent to the bin-based MI
     estimator widely used in feature-selection libraries.
 
-    Tradeoffs vs the kNN Kraskov estimator (sklearn default):
+    Tradeoffs vs the kNN Kraskov estimator (the default):
 
     - **5-10x faster** on n>1000: O(n + nbins^2) vs O(n*log(n))
       kd-tree queries.
@@ -573,6 +573,14 @@ def _mi_per_feature_prebinned(
     return per_feat
 
 
+def _knn_mi_column(col: np.ndarray, target: np.ndarray, *, n_neighbors: int, random_state: int) -> float:
+    """Kraskov kNN ``MI(col, target)`` of one finite column (nats): the repository's ``ksg_mi_columns``, equal to scikit-learn's ``mutual_info_regression`` on a single column (same scaling, noise stream
+    and radius; pinned in ``tests/feature_selection/fe/test_ksg_dispatch_matches_sklearn.py``), 10-100x faster. One column per call: the noise stream of a call depends on its width."""
+    from mlframe.feature_selection.filters._ksg_dispatch import ksg_mi_columns
+
+    return float(ksg_mi_columns(col.reshape(-1, 1), target, discrete_target=False, n_neighbors=int(n_neighbors), random_state=int(random_state))[0])
+
+
 def _mi_per_feature_knn(
     feature_matrix: np.ndarray,
     target: np.ndarray,
@@ -584,7 +592,7 @@ def _mi_per_feature_knn(
 
     Returns ``per_feat[j] = MI(x_j, target)`` computed exactly as the knn branch of ``_mi_to_target`` does per
     column: per-pair finite masking (``isfinite(target) & isfinite(col)``), the ``<50`` rows -> 0.0 gate, and the
-    single-column ``mutual_info_regression`` call with the identical ``n_neighbors`` / ``random_state``. Because each
+    single-column kNN call (``_knn_mi_column``) with the identical ``n_neighbors`` / ``random_state``. Because each
     column's MI is independent of which OTHER columns are present, aggregating this vector over any column subset is
     bit-identical to calling ``_mi_to_target`` on that subset -- which lets the per-base ``mi_y`` baseline be derived by
     excluding the base column from a vector computed ONCE, instead of re-running the full per-column sweep per base.
@@ -596,16 +604,12 @@ def _mi_per_feature_knn(
     target_finite = np.isfinite(target)
     if int(target_finite.sum()) < 50:
         return per_feat
-    from sklearn.feature_selection import mutual_info_regression
     for j in range(n_cols):
         col = feature_matrix[:, j]
         pair_finite = target_finite & np.isfinite(col)
         if int(pair_finite.sum()) < 50:
             continue
-        per_feat[j] = float(mutual_info_regression(
-            col[pair_finite].reshape(-1, 1), target[pair_finite],
-            n_neighbors=n_neighbors, random_state=random_state,
-        )[0])
+        per_feat[j] = _knn_mi_column(col[pair_finite], target[pair_finite], n_neighbors=n_neighbors, random_state=random_state)
     return per_feat
 
 
@@ -804,7 +808,7 @@ def _mi_to_target(
 
     Two estimators:
 
-    - ``"knn"`` (default): sklearn's Kraskov kNN estimator. Higher
+    - ``"knn"`` (default): the Kraskov kNN estimator (the repository's kernels, equal to scikit-learn's). Higher
       accuracy on heavy-tail distributions; slow on n>10k.
     - ``"bin"``: quantile-bin estimator (``_mi_pair_bin`` per column).
       5-10x faster; biased low on heavy-tail.
@@ -849,8 +853,7 @@ def _mi_to_target(
         for j in range(n_cols):
             per_feat[j] = _mi_pair_bin(feature_matrix[:, j], target, nbins=nbins)
     else:
-        from sklearn.feature_selection import mutual_info_regression
-        # sklearn's Kraskov estimator cannot ingest NaN, so mask per pair
+        # the Kraskov estimator cannot ingest NaN, so mask per pair
         # here and run the single-column estimator on the surviving rows.
         for j in range(n_cols):
             col = feature_matrix[:, j]
@@ -858,10 +861,7 @@ def _mi_to_target(
             if int(pair_finite.sum()) < 50:
                 per_feat[j] = 0.0
                 continue
-            per_feat[j] = float(mutual_info_regression(
-                col[pair_finite].reshape(-1, 1), target[pair_finite],
-                n_neighbors=n_neighbors, random_state=random_state,
-            )[0])
+            per_feat[j] = _knn_mi_column(col[pair_finite], target[pair_finite], n_neighbors=n_neighbors, random_state=random_state)
     if aggregation == "sum":
         return float(np.sum(per_feat))
     # Default: mean.

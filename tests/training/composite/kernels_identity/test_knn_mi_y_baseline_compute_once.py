@@ -1,7 +1,7 @@
 """iter96 regression: per-base knn ``mi_y`` baseline is computed ONCE, not re-swept per base candidate.
 
 On the knn path (``mi_estimator='knn'``) the per-base baseline ``MI(y, X_remaining)`` was re-run for EVERY base
-candidate, each call invoking sklearn's Kraskov ``mutual_info_regression`` once per remaining feature column. Since
+candidate, each call running the Kraskov kNN estimator once per remaining feature column. Since
 per-column ``MI(y, x_j)`` is base-INVARIANT, this was ``n_bases`` redundant per-column sweeps. The fix computes the
 per-feature vector ONCE (``_mi_per_feature_knn``) and aggregates over each base's surviving (base-dropped, dedup-kept)
 original-column indices -- bit-identical to the per-base ``_mi_to_target`` call.
@@ -9,7 +9,7 @@ original-column indices -- bit-identical to the per-base ``_mi_to_target`` call.
 Pins BOTH sides:
 * **bit-identity** -- the compute-once aggregate equals the per-base ``_mi_to_target`` recompute element-for-element,
   for mean AND sum, across interior / first / last drop indices.
-* **compute-once** -- a spy on ``mutual_info_regression`` over a full discovery fit asserts the knn baseline column
+* **compute-once** -- a spy on ``_mi_per_feature_knn`` over a full discovery fit asserts the knn baseline column
   sweep runs ONCE for the shared feature columns, not ``n_bases`` times. FAILS on pre-fix code (per-base recompute
   multiplies the column-sweep call count by the base count).
 """
@@ -60,27 +60,20 @@ def test_knn_mi_y_baseline_compute_once_bit_identical(aggregation: str, drop: in
 
 
 def test_knn_mi_per_feature_matches_single_column_calls() -> None:
-    """The per-feature vector matches per-column ``mutual_info_regression`` calls element-for-element."""
-    from sklearn.feature_selection import mutual_info_regression
+    """The per-feature vector matches per-column ``ksg_mi_columns`` calls element-for-element (the equality of that estimator with scikit-learn's is pinned in ``test_ksg_dispatch_matches_sklearn.py``)."""
+    from mlframe.feature_selection.filters._ksg_dispatch import ksg_mi_columns
 
     x, y = _make(f=8)
     per_feat = _mi_per_feature_knn(x, y, n_neighbors=3, random_state=42)
     for j in range(x.shape[1]):
-        ref = float(
-            mutual_info_regression(
-                x[:, j].reshape(-1, 1),
-                y,
-                n_neighbors=3,
-                random_state=42,
-            )[0]
-        )
+        ref = float(ksg_mi_columns(x[:, j].reshape(-1, 1), y, discrete_target=False, n_neighbors=3, random_state=42)[0])
         assert per_feat[j] == ref, f"col {j}: {per_feat[j]!r} != {ref!r}"
 
 
 def test_discovery_fit_knn_baseline_sweeps_columns_once() -> None:
     """compute-once sensor: a full knn-path discovery fit must NOT re-sweep the shared feature columns per base.
 
-    Spy on sklearn's ``mutual_info_regression``. The per-base baseline ``MI(y, X_remaining)`` is the single largest
+    Spy on ``_mi_per_feature_knn``. The per-base baseline ``MI(y, X_remaining)`` is the single largest
     block of column sweeps on the knn path; pre-fix it ran once PER base candidate (n_bases full sweeps of the shared
     columns), post-fix once total. We assert the observed baseline-sweep call count is far below the pre-fix
     n_bases * (n_features) lower bound. FAILS on pre-fix code (per-base recompute).
