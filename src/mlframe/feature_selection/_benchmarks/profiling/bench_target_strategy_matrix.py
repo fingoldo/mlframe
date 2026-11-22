@@ -16,7 +16,7 @@ import time
 
 TARGETS = ("binary", "multiclass", "regression", "count", "multilabel", "multitarget", "heavy_tail", "zero_inflated")
 STRATEGIES = (
-    "mdlp", "mdlp_validated", "fayyad_irani", "fayyad_irani_validated", "optimal_joint", "cv", "mah", "mah_sci", "sci", "marx",
+    "mdlp", "mdlp_validated", "fayyad_irani", "fayyad_irani_validated", "optimal_joint", "cv", "mah",
     "auto", "sturges", "freedman_diaconis", "fd", "qs", "quantile", "uniform",
 )
 HERE = os.path.dirname(os.path.abspath(__file__))

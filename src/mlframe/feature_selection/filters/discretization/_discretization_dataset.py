@@ -83,6 +83,13 @@ _NUMERIC_CODE_CACHE_BYTES = 0
 # the accounting. The expensive discretize kernel + blake2b hashing stay OUTSIDE the lock -> still parallel.
 _NUMERIC_CODE_CACHE_LOCK = threading.Lock()
 
+# The whole code matrix of the unsupervised numeric path, keyed by the digests of all its columns: a repeat call on the same frame (another target, another fit) returns one contiguous copy instead of
+# assembling the matrix column by column (100 strided column writes cost about 0.12 s at 100000 x 100; the hashes themselves cost 4 ms). One matrix is kept at a time up to the byte budget
+# (``MLFRAME_DISCRETIZE_MATRIX_CACHE_MAX_BYTES``, default 256 MB, 0 disables); a matrix over the budget is simply not cached.
+_NUMERIC_MATRIX_CACHE: "_OrderedDict[bytes, np.ndarray]" = _OrderedDict()
+_NUMERIC_MATRIX_CACHE_MAX_BYTES = env_int("MLFRAME_DISCRETIZE_MATRIX_CACHE_MAX_BYTES", 256 * 1024 * 1024, minimum=0)
+_NUMERIC_MATRIX_CACHE_BYTES = 0
+
 
 def _log_numeric_code_cache_occupancy() -> None:
     """Emit a DEBUG-level snapshot of the process-wide numeric-code cache's current occupancy (entry count + bytes vs its cap), so cache growth/eviction is visible when needed without polling the module globals directly."""
@@ -93,12 +100,14 @@ def _log_numeric_code_cache_occupancy() -> None:
 
 
 def clear_numeric_code_cache() -> int:
-    """Drop the process-wide per-column unsupervised-discretization code cache; returns the entry count cleared."""
-    global _NUMERIC_CODE_CACHE_BYTES
+    """Drop the process-wide unsupervised-discretization code caches (per column and whole matrix); returns the per-column entry count cleared."""
+    global _NUMERIC_CODE_CACHE_BYTES, _NUMERIC_MATRIX_CACHE_BYTES
     with _NUMERIC_CODE_CACHE_LOCK:
         n = len(_NUMERIC_CODE_CACHE)
         _NUMERIC_CODE_CACHE.clear()
         _NUMERIC_CODE_CACHE_BYTES = 0
+        _NUMERIC_MATRIX_CACHE.clear()
+        _NUMERIC_MATRIX_CACHE_BYTES = 0
     return n
 
 
@@ -137,6 +146,13 @@ def _discretize_2d_array_col_cached(arr, *, n_bins, method, min_ncats, dtype, di
             hh.update(_param_tag)
             keys.append(hh.digest())
 
+    matrix_key = hashlib.blake2b(b"".join(keys) + _param_tag, digest_size=16).digest()
+    with _NUMERIC_CODE_CACHE_LOCK:
+        whole = _NUMERIC_MATRIX_CACHE.get(matrix_key)
+        if whole is not None and whole.shape == (n_rows, n_cols):
+            _NUMERIC_MATRIX_CACHE.move_to_end(matrix_key)
+            return whole.copy()
+
     out = np.empty((n_rows, n_cols), dtype=dtype)
     uncached_cols: list = []
     with _NUMERIC_CODE_CACHE_LOCK:
@@ -166,7 +182,24 @@ def _discretize_2d_array_col_cached(arr, *, n_bins, method, min_ncats, dtype, di
                     while _NUMERIC_CODE_CACHE_BYTES > _NUMERIC_CODE_CACHE_MAX_BYTES and len(_NUMERIC_CODE_CACHE) > 1:
                         _ek, _ev = _NUMERIC_CODE_CACHE.popitem(last=False)
                         _NUMERIC_CODE_CACHE_BYTES -= _ev.shape[0] * _ev.dtype.itemsize
+    _store_matrix(matrix_key, out)
     return out
+
+
+def _store_matrix(matrix_key: bytes, out: np.ndarray) -> None:
+    """Keep ``out`` (a copy) as the cached whole matrix of ``matrix_key`` when it fits the byte budget; older matrices go first."""
+    global _NUMERIC_MATRIX_CACHE_BYTES
+    if out.nbytes > _NUMERIC_MATRIX_CACHE_MAX_BYTES:
+        return
+    kept = out.copy()
+    with _NUMERIC_CODE_CACHE_LOCK:
+        if matrix_key in _NUMERIC_MATRIX_CACHE:
+            return
+        _NUMERIC_MATRIX_CACHE[matrix_key] = kept
+        _NUMERIC_MATRIX_CACHE_BYTES += kept.nbytes
+        while _NUMERIC_MATRIX_CACHE_BYTES > _NUMERIC_MATRIX_CACHE_MAX_BYTES and len(_NUMERIC_MATRIX_CACHE) > 1:
+            _, evicted = _NUMERIC_MATRIX_CACHE.popitem(last=False)  # evict-ok: a miss rebuilds the matrix from the per-column cache
+            _NUMERIC_MATRIX_CACHE_BYTES -= evicted.nbytes
 
 
 def create_redundant_continuous_factor(
