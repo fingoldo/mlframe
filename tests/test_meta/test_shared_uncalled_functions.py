@@ -724,7 +724,7 @@ _KEPT_TEST_REFERENCES = {
 _KEPT_OPTIN_VARIANTS = {
     "fold_cell_moments_deterministic",  # the deterministic cell-moments kernel (no atomic accumulation), opt-in; test_cell_moments_deterministic
     "masked_cell_moments_deterministic",  # same, masked variant
-    "clear_label_bits_cache",  # the fit-end release of the packed label blocks of the max-null kernel; tested by test_gpu_resource_audit_c, NOT yet called by a fit (the cache is cleared only by the tests): wire it to the fit end
+    "clear_label_bits_cache",  # the fit-end release of the packed label blocks of the max-null kernel; it IS called at the fit end, by NAME through the string registry _fit_scoped_release._RELEASERS, which this check cannot follow; test_gpu_resource_audit_c
     "_extra_basis_peak_bytes",  # the host-byte estimate of the extra-basis family, built for a host-budget reservation that was rejected (2026-11-21, see the comment above the family)
     "reserves_host_block_budget",  # the decorator form of the host block budget; the reservation on the extra-basis family was rejected, the decorator stays tested (test_host_block_budget)
     "reset_host_block_budget",  # forgets the process-wide budget so the next use sizes it again; the tests and fits that need the current free RAM call it
