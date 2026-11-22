@@ -77,3 +77,4 @@ None. All 63 manifest files were read in full. Grep was used for callers and def
 - 41-F1: DEFERRED. not changed: the NaN categorical predict mapping needs the sentinel contract confirmed with the fit side
 - 41-F4: DEFERRED. not changed: the early branches skip the skew check; reordering changes the rationale text, needs a decision on the intended output
 - 41-F5: DEFERRED. not changed: per-group masks are an O(G*n) performance issue; a groupby rewrite needs a benchmark decision
+- 41-F4: FIXED. Skew branch now evaluated before the mild-kurtosis and platykurtic returns, so strong skew is no longer masked (residual_audit _diagnose); tests/training/targets/test_cluster41_skew_not_masked_by_kurtosis_band.py
