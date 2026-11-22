@@ -92,3 +92,4 @@ Severity counts: P0 0, P1 8, P2 21, P3 23, total 52.
 - 37-F7: FIXED. group sizes come from one np.unique pass; no separate test
 - 37-F8: FIXED. a failed fingerprint cross-check distrusts the precomputed bundle and logs at WARNING; no separate test
 - 37-F1: FIXED. Median fill for out-of-domain T applies only to rows outside the train split; a training row stays missing (test_cluster37_composite_t_no_train_label_fill). Existing test pinned the old fill and was updated to put the violating row outside train; 281 existing composite phase tests pass, 1 pre-existing numba failure.
+- 37-F2: FIXED. A lag supplied as an array with no lag column in the frame is attached as a named column and offered as the causal base (test_cluster37_supplied_lag_is_a_base; 50 existing achievable-ceiling tests pass)
