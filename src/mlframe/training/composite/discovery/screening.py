@@ -219,7 +219,8 @@ def _residualise(y: np.ndarray, x: np.ndarray) -> np.ndarray:
     # (spread 1e-13 around 1e-13) constant even though it varies (audit 35-F46).
     _xf = x[finite]
     _scale = float(np.max(np.abs(_xf))) if _xf.size else 0.0
-    if finite.sum() < 3 or np.std(_xf) <= 1e-12 * max(_scale, np.finfo(np.float64).tiny):
+    _tiny = float(np.finfo(np.float64).tiny)
+    if finite.sum() < 3 or np.std(_xf) <= 1e-12 * max(_scale, _tiny):
         out = y.astype(np.float64).copy()
         out -= float(np.mean(out[finite])) if finite.any() else 0.0
         return np.asarray(out)

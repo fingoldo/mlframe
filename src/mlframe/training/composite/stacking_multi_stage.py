@@ -38,7 +38,7 @@ def _factory_accepts_sample_weight(factory) -> bool:
     import inspect
 
     if isinstance(factory, type):
-        params = inspect.signature(factory.fit).parameters
+        params = inspect.signature(getattr(factory, "fit")).parameters  # getattr: mypy cannot see fit on a bare type
         return "sample_weight" in params or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
     return _model_fit_accepts_sample_weight(factory())
 
