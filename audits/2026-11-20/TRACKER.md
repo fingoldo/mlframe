@@ -97,6 +97,8 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F31 | 35_training-4.md | FIXED | Group broadcast was a per-row dict loop; NaN group ids fell back silently. Vectorised reindex; NaN rows counted and logged. Test test_cluster35_group_broadcast_vectorised.py. |
 | 35-F32 | 35_training-4.md | FIXED | Single numeric column raised ValueError in linkage. Returns that column as one subset. Test test_cluster35_subset_bagging_single_column.py. |
 | 35-F33 | 35_training-4.md | PARTIAL | Tail fitted on in-sample residuals by default, under-dispersing held-out tails. WARNING added when residual_X is absent. Default unchanged (owner decision). Test test_cluster35_tail_in_sample_residuals_warn.py. |
+| 35-F34 | 35_training-4.md | FIXED | Worst-candidate selection filled NaN from all fit rows (judge fills from the used rows) and max() depended on NaN order. Judge's fill, NaN as worst. Test test_cluster35_worst_candidate_nan_order.py. |
+| 35-F35 | 35_training-4.md | PARTIAL | Spec with under 50 in-domain fit rows passed the y-scale gate unchecked. Now rejected with a ledger entry. No direct test (needs a full gate fixture). |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |

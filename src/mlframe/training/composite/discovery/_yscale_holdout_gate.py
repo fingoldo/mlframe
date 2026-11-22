@@ -431,6 +431,19 @@ def _gate_eval_split(
     return fit_idx, eval_idx, y_fit, y_eval, _fit_groups, _eval_groups, _gate_mode, _eval_df
 
 
+def _select_worst_candidate(scored: list, y_eval: np.ndarray, fit_values: np.ndarray) -> np.ndarray:
+    """The candidate reconstruction with the largest y-RMSE, scored after the judge's fill (``fit_values``, the rows the fit used).
+
+    A NaN score counts as the worst. ``max()`` over NaN keys depended on the candidate order (audit 35-F34).
+    """
+    def _key(h: np.ndarray) -> float:
+        """RMSE after the fill, with NaN as +inf."""
+        score = rmse(y_eval, median_filled_with_std(h, fit_values)[0])
+        return float(score) if np.isfinite(score) else float("inf")
+
+    return max(scored, key=_key)
+
+
 def _judge_reconstruction(
     self, spec: Any, y_hat: np.ndarray, y_fit: np.ndarray, valid: np.ndarray, y_eval: np.ndarray, y_eval_std: float, raw_rmse: float, tol: float,
     rejected: list[tuple[str, str, float]],
@@ -577,7 +590,13 @@ def apply_yscale_holdout_gate(
         base_eval = _base_arg(_eval_df, base_cols, eval_idx)
         valid = _fit_domain_mask(transform, spec.transform_name, y_fit, base_fit)
         if int(valid.sum()) < 50:
-            survivors.append(spec)
+            # Fail closed: a spec the gate cannot judge is rejected with a ledger entry, not shipped unchecked (audit 35-F35).
+            _n_valid = int(valid.sum())
+            _r = f"fewer than 50 in-domain fit rows ({_n_valid}); the y-scale gate cannot judge it"
+            rejected.append((spec.name, _r, float("inf")))
+            ledger_append(self, spec_name=spec.name, stage=RejectStage.YSCALE_HOLDOUT, reason=_r,
+                          numbers={"n_valid": _n_valid}, base_column=getattr(spec, "base_column", ""),
+                          transform_name=getattr(spec, "transform_name", ""))
             continue
         # Two reconstructions, and the spec has to survive the worse of them: the one its shipped params give (what predict will actually do), and the one
         # params refit on the fit groups alone give (leak-free, since on the fallback path the "unseen" holdout groups are carved out of the very rows the
@@ -593,7 +612,7 @@ def apply_yscale_holdout_gate(
             logger.debug("y-scale gate: fit/inverse raised for spec %s: %s: %s", getattr(spec, "name", spec), type(exc).__name__, exc)
             _gate_error_reject(self, spec, rejected, RejectStage.YSCALE_HOLDOUT, f"fit/inverse raised {type(exc).__name__}: {exc}")
             continue
-        y_hat = max(scored, key=lambda h: rmse(y_eval, median_filled_with_std(h, y_fit)[0]))
+        y_hat = _select_worst_candidate(scored, y_eval, y_fit[valid])
 
         if _judge_reconstruction(self, spec, y_hat, y_fit, valid, y_eval, y_eval_std, raw_rmse, tol, rejected):
             survivors.append(spec)
