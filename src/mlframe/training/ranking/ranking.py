@@ -577,8 +577,17 @@ def predict_ranker_scores(fitted: dict, X: Any, group_ids: np.ndarray | None = N
         if _cb_cats and _cb_na is not None and isinstance(X, pd.DataFrame):
             _upd = {}
             for _c in _cb_cats:
-                if _c in X.columns and X[_c].dtype == object and X[_c].isna().any():
-                    _upd[_c] = X[_c].where(X[_c].notna(), _cb_na)
+                if _c not in X.columns or not X[_c].isna().any():
+                    continue
+                _col = X[_c]
+                if _col.dtype == object:
+                    _upd[_c] = _col.where(_col.notna(), _cb_na)
+                elif isinstance(_col.dtype, pd.CategoricalDtype):
+                    # Same NaN -> sentinel mapping as the fit side (_fill_obj_cat_nones), so a categorical NaN at predict
+                    # is not scored on an unseen category (audit 41-F1).
+                    if _cb_na not in _col.cat.categories:
+                        _col = _col.cat.add_categories(_cb_na)
+                    _upd[_c] = _col.fillna(_cb_na)
             if _upd:
                 X = X.assign(**_upd)
         scores = model.predict(X)

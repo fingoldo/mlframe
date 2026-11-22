@@ -997,3 +997,4 @@
 | 38-F27 | FIXED | Threshold tuning skip on filtered subset logged and stamped default_0.5; no test |
 | 39-F20 | FIXED | Persistence on with no DiskKey logs a throttled WARNING that the disk tier is unused (feature_handling/cache.py); tests/training/test_cluster39_disk_tier_key_warning.py |
 | 41-F4 | FIXED | Skew branch now evaluated before the mild-kurtosis and platykurtic returns, so strong skew is no longer masked (residual_audit _diagnose); tests/training/targets/test_cluster41_skew_not_masked_by_kurtosis_band.py |
+| 41-F1 | FIXED | Predict maps categorical-dtype NaN to the fit-time sentinel, as fit does (training/ranking/ranking.py predict_ranker_scores); tests/training/ranking/test_cluster41_catboost_predict_nan_categorical.py |
