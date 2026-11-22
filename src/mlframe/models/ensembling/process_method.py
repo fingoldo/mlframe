@@ -19,6 +19,14 @@ from .predict import ensemble_probabilistic_predictions
 logger = logging.getLogger("mlframe.models.ensembling")
 
 
+def _entry_of(member):
+    """Return the member's entry namespace. A level-1 member arrives as ``train_and_evaluate_model``'s tuple
+    ``(entry, train_df, val_df, test_df)``; attribute reads on the tuple always miss, so the entry is unwrapped (audit 18-F4)."""
+    if isinstance(member, tuple) and member and not isinstance(member[0], (bool, int, float, str)):
+        return member[0]
+    return member
+
+
 def _select_member_probs(member, split: str, use_calibrated: bool) -> Optional[np.ndarray]:
     """Return AP12-calibrated probs when available + opt-in, else raw probs.
 
@@ -33,6 +41,7 @@ def _select_member_probs(member, split: str, use_calibrated: bool) -> Optional[n
     top level and may also expose the calibrated mirror after post-calibration
     propagates the stamp.
     """
+    member = _entry_of(member)
     if use_calibrated:
         cal_attr = f"calibrated_{split}_probs"
         cal = getattr(member, cal_attr, None)
@@ -47,6 +56,7 @@ def _select_member_probs(member, split: str, use_calibrated: bool) -> Optional[n
 
 def _has_calibrated_probs(member, split: str) -> bool:
     """Whether ``member`` carries a calibrated mirror of its ``split`` probabilities."""
+    member = _entry_of(member)
     cal_attr = f"calibrated_{split}_probs"
     cal = getattr(member, cal_attr, None)
     if cal is None:
@@ -262,6 +272,7 @@ def _oof_or_train(el: object, oof_attr: str, train_attr: str, _idx: int, fallbac
 
     The train fallback records ``_idx`` in ``fallback_used`` so the leaked-row fallback can be surfaced in a single WARN.
     """
+    el = _entry_of(el)
     # Prefer AP12-calibrated OOF / train probs when the knob is on; transparent fall-through to raw when the
     # stamp is missing (legacy / opt-out callers). OOF is the calibrator's fit source so most members will not
     # carry calibrated_oof_probs -- that's expected; the lookup is a no-op for them.
