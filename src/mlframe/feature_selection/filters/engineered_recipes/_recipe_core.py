@@ -80,7 +80,7 @@ def _extra_equal(a: dict, b: dict) -> bool:
 
 
 _ATOMIC_TYPES = (int, float, complex, bool, str, bytes, type(None))
-_ATOMIC_SET = frozenset(_ATOMIC_TYPES) | {np.float64, np.float32, np.int64, np.int32, np.int16, np.int8, np.uint8, np.bool_}  # the immutable numpy scalars are shared, as ``_copy_plain`` shares them
+_ATOMIC_SET = frozenset(_ATOMIC_TYPES) | {np.float64, np.float32, np.int64, np.int32, np.int16, np.int8, np.uint8, np.bool_}  # the immutable numpy scalars are shared, as ``_copy_plain`` shares them. Intentional float64: a set of numpy scalar types, not a precision choice
 
 
 def _copy_plain(obj, memo):
