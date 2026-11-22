@@ -47,3 +47,12 @@ A class label has no scale. The analogue is the DEFINITION of the classes: where
 ## Decision on MRMR-COMPOSITE-BIN-ONCE (2026-11-23)
 
 The child fit of fe_target_mix_candidates=True re-bins its row subset (55 column-edge computations in the main fit, 125 with the child). Not fixed now: the child runs only when candidates are on (default off) and PLAN-05 has not yet shown value. The red test is narrowed to target-independent strategies (quantile_spacing, freedman_diaconis, sturges, uniform) and stays red, without xfail. If PLAN-05 shows value, the fix is to pass the parent column codes sliced by the child rows for target-independent strategies; supervised strategies re-bin, since the child target T = y - beta*u differs.
+
+## PLAN-05 measurement: value of fe_target_mix_candidates=True (2026-11-23, n=6000, p=10, y = 3*x0 + share*x1*x2 + noise, 3 seeds each)
+
+| fixture | candidates OFF R2 | ON R2 | wall OFF / ON | weak term x1*x2 found OFF / ON |
+|---|---|---|---|---|
+| share 4 %, noise 0.3 | 0.9857 / 0.9858 / 0.9871 | 0.9904 / 0.9858 / 0.9871 | 33.6 / 16.0 / 11.1 s vs 39.7 / 31.4 / 29.0 s | yes / yes in all seeds |
+| share 0.8 %, noise 1.0 | 0.8925 / 0.8900 / 0.8951 | identical | 10-27 s vs 10-11 s | no / no in all seeds |
+
+Conclusion: on both fixtures the candidate search adds nothing (one +0.005 R2 in 6 fits, at up to 2.6x wall on the easy one; on the hard one the weak term is below what either mode finds). No value is proven, so no biz_val test asserting value is written; a test would have to assert the absence of a gain. Open: an intermediate share (about 1.5-2 %) and a fixture where the weak term needs the residual after the dominant one (T = y - beta*u) rather than being visible directly. The composite bin-once fix stays deferred.
