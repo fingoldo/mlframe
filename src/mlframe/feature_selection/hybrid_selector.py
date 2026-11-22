@@ -137,7 +137,7 @@ def corr_clusters(X: pd.DataFrame, thr: float = 0.92, block_threshold: int = COR
     # the float32 grid before the mean is removed, and the correlations of such columns would differ from the dense path.
     # Zero-variance columns -> corr undefined; np.corrcoef yields nan there (nan_to_num -> 0). Mirror that by leaving their standardized column at 0, so every
     # correlation INVOLVING them is 0 (< thr) -> they stay singletons. A constant column is divided by 1, which leaves it as it is.
-    step = max(1, min(512, (1 << 18) // (8 * max(n, 1))))  # keeps the float64 transients to about 256 KiB per block
+    step = max(1, min(512, (1 << 18) // (8 * max(n, 1))))  # keeps the double-precision transients to about 256 KiB per block
     for c0 in range(0, p, step):
         c1 = min(c0 + step, p)
         blk = np.asarray(V[:, c0:c1], dtype=np.float64)  # Intentional float64: centring/scaling before the narrowing to the working dtype
