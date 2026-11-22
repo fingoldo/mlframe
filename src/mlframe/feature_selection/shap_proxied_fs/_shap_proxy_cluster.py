@@ -70,13 +70,13 @@ def _uf_labels(n: int, ei: np.ndarray, ej: np.ndarray) -> np.ndarray:
 
 
 def _standardize_columns(X: np.ndarray, max_block_cells: int = 1 << 24) -> np.ndarray:
-    """Z-score columns into float32, computing the statistics in float64 per column block; non-finite cells and constant columns map to 0 (no edge)."""
+    """Z-score columns into float32, computing the statistics in double precision per column block; non-finite cells and constant columns map to 0 (no edge)."""
     X = np.asarray(X)
     n, f = X.shape
     Z = np.zeros((n, f), dtype=np.float32)
     block = max(1, max_block_cells // max(n, 1))
     for b0 in range(0, f, block):
-        B = np.asarray(X[:, b0 : b0 + block], dtype=np.float64)
+        B = np.asarray(X[:, b0 : b0 + block], dtype=np.float64)  # Intentional float64: the SHAP proxy matrix is double, so the nullable columns and the z-score blocks keep their native precision
         finite = np.isfinite(B)
         cnt = np.maximum(finite.sum(axis=0), 1)
         B = np.where(finite, B, 0.0)
