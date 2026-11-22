@@ -558,7 +558,7 @@ def _residual_probe_rejection(
                     ),
                 )
                 return _rejected_residual
-    except Exception as _residual_err:
+    except Exception as _residual_err:  # best-effort: a broken probe keeps the candidate for MI screening; the failure is logged at WARNING above (audit 34-F8)
         # Probe failure is non-fatal -- continue to MI screening. At DEBUG it hid a broken probe from every default run (audit 34-F8).
         logger.warning(
             "composite_discovery: residual-std probe failed " "for base=%s transform=%s: %s (continuing)",
