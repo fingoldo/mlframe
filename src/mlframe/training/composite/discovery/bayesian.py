@@ -275,6 +275,13 @@ def bayesian_alpha_fit_bootstrap(
     from mlframe.training.composite.transforms.shared import linear_residual_fit as _linear_residual_fit
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    # Same rule as the conjugate fit: non-finite pairs are dropped, counted and logged (audit 35-F41).
+    finite_pairs = np.isfinite(y_f) & np.isfinite(base_f)
+    n_dropped = int(finite_pairs.size - int(finite_pairs.sum()))
+    if n_dropped:
+        logger.warning("bayesian_alpha_fit_bootstrap: dropped %d non-finite (y, base) pair(s) before the fit.", n_dropped)
+        y_f = y_f[finite_pairs]
+        base_f = base_f[finite_pairs]
     n = y_f.size
     if n < 4:
         # Degenerate: no posterior to compute.
@@ -292,6 +299,12 @@ def bayesian_alpha_fit_bootstrap(
             "beta_samples": np.array([params["beta"]], dtype=np.float64),
             "n_bootstrap": 0,
             "ci_level": float(ci_level),
+            # Same keys as the conjugate result, so code that switches variants can read them all (audit 35-F45).
+            "n_samples": 0,
+            "posterior_kind": "bootstrap",
+            "degrees_of_freedom": float("nan"),
+            "sigma2_posterior_mean": float("nan"),
+            "n_dropped_nonfinite": n_dropped,
         }
     if n_bootstrap < 1:
         raise ValueError("bayesian_alpha_fit_bootstrap: n_bootstrap must be >= 1, got %d" % n_bootstrap)
@@ -343,4 +356,9 @@ def bayesian_alpha_fit_bootstrap(
         "n_bootstrap": int(n_bootstrap),
         "ci_level": float(ci_level),
         "subsample_correction_factor": f,
+        "n_samples": int(n_bootstrap),
+        "posterior_kind": "bootstrap",
+        "degrees_of_freedom": float("nan"),
+        "sigma2_posterior_mean": float("nan"),
+        "n_dropped_nonfinite": n_dropped,
     }

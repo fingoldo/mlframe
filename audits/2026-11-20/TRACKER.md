@@ -108,6 +108,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F42 | 35_training-4.md | DEFERRED | A broken process pool reruns every task serially. Documented as deliberate; correctness unaffected. Partial retrieval is a design change, owner decision. |
 | 35-F43 | 35_training-4.md | FIXED | Three paths had no test: CDF with enforce_non_crossing=False, mixture soft_routing, calibrated gated outlier. Smoke tests added. Test test_cluster35_untested_paths_smoke.py. |
 | 35-F44 | 35_training-4.md | PARTIAL | Repeated integer check at the grouping call site removed. Dead helpers kept as allowlisted test references. Test test_cluster35_low_card_check_once.py. |
+| 35-F45 | 35_training-4.md | FIXED | Bootstrap posterior result lacked posterior_kind, n_samples, degrees_of_freedom and sigma2_posterior_mean. Added on both variants. Test test_cluster35_bootstrap_result_keys.py. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |
