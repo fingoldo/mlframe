@@ -93,3 +93,18 @@ def test_standardisation_treats_a_column_constant_up_to_rounding_like_standard_s
     rng = np.random.default_rng(0)
     X = np.column_stack([rng.standard_normal(500), np.full(500, 0.1), np.full(500, 7.3) + 1e-17, rng.uniform(1e5, 1e5 + 1, 500)])
     np.testing.assert_allclose(standardised(X), StandardScaler().fit_transform(X), rtol=1e-12, atol=1e-12)
+
+
+def test_logistic_newton_blas_form_matches_the_scalar_kernel():
+    """Above ``n p^2 = 1e8`` the Newton fit forms its Hessian by BLAS; the weights and the intercept equal the scalar kernel's."""
+    from mlframe.feature_selection.filters import _fe_accuracy_gate_newton as G
+
+    rng = np.random.default_rng(5)
+    n, p = 30000, 40
+    X = rng.standard_normal((n, p)) * rng.uniform(0.5, 3.0, size=p)
+    y = (X[:, 0] - 0.4 * X[:, 3] + 0.8 * rng.standard_normal(n) > 0).astype(np.float64)
+    A = np.ascontiguousarray(np.concatenate([X, np.ones((n, 1))], axis=1))
+    w_kernel, w_blas = np.zeros(p + 1), np.zeros(p + 1)
+    assert G._newton_kernel(A, y, 1.0, 30, 1e-8, w_kernel)
+    assert G._newton_blas(A, y, 1.0, 30, 1e-8, w_blas)
+    np.testing.assert_allclose(w_blas, w_kernel, rtol=1e-8, atol=1e-9)

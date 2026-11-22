@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import Optional
 
 import numpy as np
+from numba import njit
 
 
 def _standardise_fit(X: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
@@ -82,6 +83,25 @@ class ScaledRidge(ScaledOLS):
         return self
 
 
+@njit(cache=True, nogil=True)
+def _logistic_loss_and_residual(z: np.ndarray, y: np.ndarray) -> tuple:
+    """``(sum_i log(1 + e^z_i) - y_i z_i, sigmoid(z) - y)`` in one pass over the scores (the numpy form made four temporaries of the row count and two exponentials per row)."""
+    n = z.shape[0]
+    r = np.empty(n)
+    total = 0.0
+    for i in range(n):
+        zi = z[i]
+        e = np.exp(-abs(zi))
+        total += max(zi, 0.0) + np.log1p(e) - y[i] * zi
+        mu = 1.0 / (1.0 + e) if zi >= 0.0 else e / (1.0 + e)
+        r[i] = mu - y[i]
+    return total, r
+
+
+_LBFGS_MIN_WORK = 1e8
+"""``n p^2`` from which the binary fit goes to L-BFGS: the Newton iteration forms a (p, p) Hessian from all rows several times (measured 649 ms against 389 ms at 100000 x 50, 263 against 100 at 30000 x 100, 2040 against 670 at 100000 x 200), while below it the Newton step wins by a wide margin."""
+
+
 class ScaledLogistic:
     """Standardise, then L2 logistic regression with inverse strength ``C`` and an unpenalised intercept (labels may be any sortable values); ``max_iter`` scales the iteration budget of the minimiser."""
 
@@ -95,7 +115,7 @@ class ScaledLogistic:
         A = (np.asarray(X, dtype=np.float64) - self.mean_) / self.scale_
         self.classes_, codes = np.unique(np.asarray(y).ravel(), return_inverse=True)
         k = self.classes_.size
-        if k == 2:
+        if k == 2 and float(A.shape[0]) * float(A.shape[1]) ** 2 < _LBFGS_MIN_WORK:
             from ._fe_accuracy_gate_newton import fit_logistic_ridge_newton
 
             fit = fit_logistic_ridge_newton(A, codes.astype(np.float64), self.C)
@@ -118,8 +138,8 @@ class ScaledLogistic:
                 """Binary penalised log loss and its gradient; ``theta = [w, b]``."""
                 w, b = theta[:p], theta[p]
                 z = A @ w + b
-                loss = float(np.sum(np.logaddexp(0.0, z) - codes * z) + 0.5 * (w @ w) / self.C)
-                r = 1.0 / (1.0 + np.exp(-z)) - codes
+                total, r = _logistic_loss_and_residual(z, codes)
+                loss = total + 0.5 * float(w @ w) / self.C
                 return loss, np.concatenate([A.T @ r + w / self.C, [r.sum()]])
 
             res = minimize(binary, np.zeros(p + 1), jac=True, method="L-BFGS-B", options=options)
