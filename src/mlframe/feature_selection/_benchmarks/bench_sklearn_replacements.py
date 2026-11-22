@@ -3,6 +3,12 @@
 Usage: ``bench_sklearn_replacements.py [quick|full]``. Each row is the median of several warm calls (the first call compiles the numba kernels and is not counted); ``x`` is the sklearn time over the
 replacement's time (above 1 the replacement is faster). A replacement that is slower prints a ``SLOWER`` flag. Nothing here changes a result: the equality of the values is pinned by the tests named in the
 tracker row MRMR-SKLEARN-REPLACEMENTS-EVIDENCE-PLAN.
+
+LATEST RESULTS (2026-11-22, ``full``, tree eacaa8f78, idle machine, warm medians; ``x`` = sklearn time / ours): 34 comparisons, one group at parity and none clearly slower.
+    KSG discrete target x10 (n=20000 p=1) .. x125 (n=100000 p=100: 488 ms against 61 s); KSG continuous target x4.5 .. x20 (n=100000 p=100: 5.9 s against 80 s);
+    knn_chebyshev_2d x12 (n=20000) / x6.8 (n=100000); Lasso x4.4 / ElasticNet x4.0-4.7; the two call sites outside MRMR x8-9.5; contingency MI x1.5-1.95;
+    ScaledOLS x1.17-1.27, ScaledRidge x1.25-1.38, fit_ridge_closed_form x1.4, LedoitWolf x1.10-1.23, ScaledLogistic x1.41 at n=20000 p=10;
+    ScaledLogistic at n=100000 p=50 / p=200 is at parity (x0.99 / x0.97: sklearn stops at tol 1e-4, ours at gradient 1e-8).
 """
 
 from __future__ import annotations
