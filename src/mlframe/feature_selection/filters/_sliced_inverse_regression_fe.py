@@ -46,9 +46,18 @@ __all__ = [
 ]
 
 
+def _dot_columns(Xc: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """``Xc @ v`` for one direction ``v``, summed column by column in a fixed order: a BLAS matrix-vector product blocks its sums by the shape of the call, so the same row came out one ulp apart
+    in a slice and in the whole frame, and the replay of a recipe on part of the rows was not the replay on all of them."""
+    out = Xc[:, 0] * v[0]
+    for j in range(1, Xc.shape[1]):
+        out = out + Xc[:, j] * v[j]
+    return np.asarray(out)
+
+
 def _project(Xc: np.ndarray, v: np.ndarray) -> np.ndarray:
     """``(n, k)`` projections of the centred columns on the columns of ``v``, one matrix-vector product per direction: the single-direction recipe replay is the same product, so fit and replay agree to the bit."""
-    cols = [Xc @ np.ascontiguousarray(v[:, i]) for i in range(v.shape[1])]
+    cols = [_dot_columns(Xc, np.ascontiguousarray(v[:, i])) for i in range(v.shape[1])]
     return np.column_stack(cols) if cols else np.empty((Xc.shape[0], 0), dtype=Xc.dtype)
 
 
@@ -222,7 +231,7 @@ def _apply_sir_direction_recipe(recipe, X) -> np.ndarray:
         except ImportError:
             X_cols = np.column_stack([np.asarray(X[c], dtype=_crit_np_dtype()) for c in cols])
     Xc = X_cols - recipe.extra["x_mean"]
-    return np.asarray(Xc @ recipe.extra["v"])
+    return _dot_columns(Xc, np.asarray(recipe.extra["v"]))
 
 
 def hybrid_sir_direction_fe(

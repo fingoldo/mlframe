@@ -61,5 +61,7 @@ def test_a_value_present_in_the_pickle_wins_over_the_default():
 def test_roster_has_no_neutral_default_for_core_outputs():
     """Core outputs every fitted pickle carries must stay out of the roster, or an unfitted estimator would look fitted for them."""
     defaults = build_setstate_defaults()
-    for core in ("support_", "n_features_in_", "feature_names_in_", "mrmr_gains_"):
+    for core in ("support_", "n_features_in_", "feature_names_in_"):
         assert core not in defaults
+    # mrmr_gains_ is in the roster on purpose (commit e37fea2ae): no consumer tests it with hasattr and all of them read it as an empty list when it is missing
+    assert defaults["mrmr_gains_"] == []

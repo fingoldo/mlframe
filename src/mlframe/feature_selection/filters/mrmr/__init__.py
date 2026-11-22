@@ -40,12 +40,6 @@ from numba import njit, jit
 from numba.core import types
 from joblib import Parallel, delayed
 
-from sklearn.base import BaseEstimator, TransformerMixin, is_classifier, is_regressor
-from sklearn.impute import SimpleImputer
-from sklearn.metrics import make_scorer
-from sklearn.model_selection import KFold
-from sklearn.preprocessing import KBinsDiscretizer, OrdinalEncoder
-
 # Top-level helpers (histogram + fingerprint/hash + replay + chunker) live in
 # ``_mrmr_fingerprints.py``; re-imported here so downstream callers continue to
 # resolve the historical ``mrmr.<name>`` namespace.

@@ -447,9 +447,10 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "_synergy_auto_decision_": None,
     "degenerate_columns_": {},  # an estimator that never ran the degenerate-column audit has nothing to report
     "groups_ignored_": False,
+    "code_storage_plan_": None,  # the diagnostic record of the code dtype a fit chose; nothing reads it, an older pickle never computed it
     # Fitted attributes added after the first release. An older pickle lacks them, and every consumer reads them through getattr(..., default), so the
     # value injected here is exactly that default: an empty collection for the engineered-feature rosters, None for "never computed", False for flags.
-    # Attributes with no neutral default (support_, n_features_in_, feature_names_in_, mrmr_gains_, ...) are core outputs every fitted pickle carries and
+    # Attributes with no neutral default (support_, n_features_in_, feature_names_in_, ...) are core outputs every fitted pickle carries and
     # stay out of the roster; tests/test_meta/test_every_fitted_attr_is_setstate_safe.py pins that remainder.
     "cat_pair_features_": [],
     "cat_triple_features_": [],
