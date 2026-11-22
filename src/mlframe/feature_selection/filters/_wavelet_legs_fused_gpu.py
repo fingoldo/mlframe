@@ -80,7 +80,7 @@ def leg_code_matrices(cp: Any, z_g: Any, max_scale: int, min_half_rows: int) -> 
     if max_scale < 0 or max_scale > 10:  # the shared histogram holds 2 * (2^(max_scale+1) - 1) counters: 16 KB at 10
         return None
     n = int(z_g.shape[0])
-    z = cp.ascontiguousarray(z_g, dtype=cp.float64)
+    z = cp.ascontiguousarray(z_g, dtype=cp.float64)  # Intentional float64: the device comparison runs at double, selected through this dtype
     n_legs_all = (1 << (int(max_scale) + 1)) - 1
     mod = _MODULES_BY_REAL["float" if z.dtype.itemsize == 4 else "double"].get(cp)  # the kernels read ``z`` at its own dtype and compare in double precision
     counts = cp.zeros(2 * n_legs_all, dtype=cp.int32)
