@@ -258,7 +258,7 @@ def _sync_free_qbin_codes_matrix(cp, X, nbins: int):
 
     One sort along axis 0 and one broadcast comparison replace ``k`` separate binnings. ``searchsorted(side="right")`` of a value equals the number of edges
     that are ``<=`` it, and the excluded edges are ``+inf`` (never ``<=`` a finite value), so the count is taken over all ``nbins + 1`` edges. The column
-    is compared in the dtype of ``X`` (the criterion dtype of :func:`_qbin_float_dtype`, the one the single-column binner casts to); nothing is widened to float64. Columns are processed in blocks to bound the
+    is compared in the dtype of ``X`` (the criterion dtype of :func:`_qbin_float_dtype`, the one the single-column binner casts to); nothing is widened to double precision. Columns are processed in blocks to bound the
     ``(n, block, nbins + 1)`` boolean temporary.
     """
     n, k = int(X.shape[0]), int(X.shape[1])
