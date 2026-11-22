@@ -95,7 +95,7 @@ _USER_DEFERRED_DEAD_HELPERS: set[str] = {
     "feature_selection/mi.py::grok_mutual_information_old",
     # Placeholder translator paired with the populated sklearn-MLP one; inert until ROBUST_RECURRENT_OVERRIDES_UNDER_DRIFT is filled in
     # (requires a sequence-DGP sweep that the MLP sweep does not transfer to). Documented in its own docstring.
-    "training/feature_drift_report.py::translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",
+    "training/_sklearn_mlp_overrides.py::translate_sklearn_mlp_overrides_to_recurrent_config_kwargs",
 }
 
 
