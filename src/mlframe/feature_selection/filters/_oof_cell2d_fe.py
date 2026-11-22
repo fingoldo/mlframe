@@ -95,7 +95,7 @@ def build_oof_cell2d_recipe(*, name: str, src: Sequence[str], ea: np.ndarray, eb
         src_names=tuple(str(c) for c in src),
         # Intentional float64: the fitted edges are float64 and a float32 rounding of an edge moves a value across it at replay
         extra={
-            "ea": np.asarray(ea, dtype=np.float64).copy(), "eb": np.asarray(eb, dtype=np.float64).copy(), "tab": np.asarray(tab, dtype=_crit_np_dtype()).copy(),
+            "ea": np.asarray(ea, dtype=np.float64).copy(), "eb": np.asarray(eb, dtype=np.float64).copy(), "tab": np.asarray(tab, dtype=_crit_np_dtype()).copy(),  # Intentional float64: fitted edges, see the note above
             "fill": float(fill), "lo": float(lo), "hi": float(hi),
         },
     )
