@@ -13,6 +13,9 @@ LATEST RESULTS (2026-11-21, tree b786940de, `rss_scale_fit.py ROWS COLS all`, on
     500000 x 1000: 896.7 s, selected [2, 3], peak RSS growth 7.6 GB (3.8 x the 2 GB frame). GPU 75 C / 1695 MHz at the start, 69 C / 1708 MHz at the end. The fit ran with the card nearly full: 6 CPU fallbacks
                    ('GPU upload REJECTED ... requested 2.11GB (n_samples=500000, n_cols=1126, dtype=int32) exceeds the safe relative cap 0.94GB', 'GPU path declined for lack of free VRAM'), and the timeline shows
                    about 120 s at 100 % CPU in the CPU pair MI (batch_pair_mi_prange_cols) at t = 480-600 s. The same size took about 604 s in the middle of the day; it was not re-run in between.
+    500000 x 1000 (2026-11-22 evening, tree 72a3a5c7e, one fresh process, nothing else running, GPU 70 C / 1721 MHz at the end): 510.0 s, peak RSS growth 4695 MB (2.35 x the frame; 11-21: 896.7 s, 7.6 GB).
+                   One 'GPU upload REJECTED' (pair MI, 2.11 GB against a 1.17 GB cap; the feature-major kernel then streamed it) and two 'GPU path declined' (1015-1017 MiB free against the 1024 MiB cushion); one device OOM
+                   in the additive-fusion proposal (36 MB, host proposal ran). Main-thread ticks every 60 s: cpu 15-58 %, gpu 0-100 %, i.e. long stretches with one side idle.
     1000000 x 1000: NOT RUN: MRMR.fit refuses before the first stage ('refusing to allocate for n*p=1_000_000_000 (~4.00 GB int32 working set) on a host with 6.73 GB available RAM') after the 4 GB frame is built;
                    status ValueError after 39.8 s. The host would need roughly 4 GB more free RAM than this machine has after the frame.
 TARGET KINDS (2026-11-22, `bench_target_strategy_matrix.py 20000 20`, mdlp, one fresh process per cell; BENCH_TARGET picks the kind): binary 32.2 s, multiclass 50.2, regression 50.2, count 54.3, multilabel 49.6,
