@@ -100,6 +100,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F34 | 35_training-4.md | FIXED | Worst-candidate selection filled NaN from all fit rows (judge fills from the used rows) and max() depended on NaN order. Judge's fill, NaN as worst. Test test_cluster35_worst_candidate_nan_order.py. |
 | 35-F35 | 35_training-4.md | PARTIAL | Spec with under 50 in-domain fit rows passed the y-scale gate unchecked. Now rejected with a ledger entry. No direct test (needs a full gate fixture). |
 | 35-F36 | 35_training-4.md | PARTIAL | Multi-base specs bypass the structural fragility gate silently. Bypass now logged at WARNING; gating them is an owner decision. Test test_cluster35_structural_gate_multibase_logged.py. |
+| 35-F37 | 35_training-4.md | FIXED | WAIC scoring failures swallowed at DEBUG; spec silently skipped in tie-break. Now WARNING naming spec and exception. Test test_cluster35_waic_failure_logged.py. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |
