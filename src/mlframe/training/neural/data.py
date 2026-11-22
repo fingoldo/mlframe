@@ -533,7 +533,9 @@ class TorchDataModule(LightningDataModule):
                                 feature_name,
                                 bad_cols,
                             )
-                        setattr(self, feature_name, features.assign(**converted)[list(features.columns)])
+                        # Rebuild from the column labels directly: ``assign(**converted)`` needs string keys and raised
+                        # TypeError on integer labels (audit 40-F27).
+                        setattr(self, feature_name, pd.DataFrame({_c: converted[_c] for _c in features.columns}, index=features.index))
 
     def teardown(self, stage: Optional[str] = None):
         """Clean up resources (temp files, etc.)."""
