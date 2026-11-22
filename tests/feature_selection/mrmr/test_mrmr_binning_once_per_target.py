@@ -75,20 +75,21 @@ def test_supervised_strategy_bins_again_for_another_target(monkeypatch):
     assert len(calls) > 0, "a supervised strategy must recompute its edges for another target"
 
 
-def test_composite_child_fit_adds_no_column_binning(monkeypatch):
+@pytest.mark.parametrize("strategy", ["quantile_spacing", "freedman_diaconis", "sturges", "uniform"])
+def test_composite_child_fit_adds_no_column_binning(monkeypatch, strategy):
     """The target-mix child fit (``fe_target_mix_candidates=True``) fits on a row subset of the parent. It must reuse the parent's codes (the same rows, the same edges), not bin the columns again.
 
-    RED on purpose: the child bins its subset again (the edge memo keys on content, and the subset has different content). Fix: the child takes the parent's column codes by row. Tracked as PLAN-02 under MRMR-COMPOSITE-BIN-ONCE.
+    RED on purpose: the child bins its subset again (the edge memo keys on content, and the subset has different content). Fix: the child takes the parent's column codes by row. Only target-independent strategies are pinned (a supervised strategy must re-bin: the child target T differs). Left RED on purpose, no xfail, as a reminder; the fix waits for PLAN-05 to show the candidate search has value. Tracked under MRMR-COMPOSITE-BIN-ONCE.
     """
     X, _y_bin, y_reg = _frame(n=1500)
     cols.clear_edge_memo()
     calls = _count_uncached(monkeypatch)
-    _fit_with_mix(X, y_reg, mix=False)
+    _fit_with_mix(X, y_reg, mix=False, strategy=strategy)
     main_only = len(calls)
     calls.clear()
     cols.clear_edge_memo()
     fits = _count_fit_calls(monkeypatch)
-    _fit_with_mix(X, y_reg, mix=True)
+    _fit_with_mix(X, y_reg, mix=True, strategy=strategy)
     with_child = len(calls)
     # Non-vacuous: the child fit must actually have run, otherwise zero extra binning proves nothing.
     assert len(fits) == 2, f"expected the main fit and one composite child fit, got {len(fits)} MRMR.fit call(s)"
@@ -110,8 +111,8 @@ def _count_fit_calls(monkeypatch) -> list:
     return calls
 
 
-def _fit_with_mix(X, y, mix: bool):
+def _fit_with_mix(X, y, mix: bool, strategy: str = "quantile_spacing"):
     """One MRMR fit with the target-mix second pass on or off (the child fit runs only when both candidates and enable are on)."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return MRMR(verbose=0, random_seed=0, nbins_strategy="quantile_spacing", fe_max_steps=1, fe_target_mix_enable=mix, fe_target_mix_candidates=mix).fit(X, y)
+        return MRMR(verbose=0, random_seed=0, nbins_strategy=strategy, fe_max_steps=1, fe_target_mix_enable=mix, fe_target_mix_candidates=mix).fit(X, y)
