@@ -69,6 +69,8 @@ def test_the_regret_is_the_multinomial_one():
     assert abs(_mah._nml_regret(2, n) - exact) < 0.1
     assert _mah._nml_regret(3, n) > _mah._nml_regret(2, n) > _mah._nml_regret(1, n) == 0.0
     assert _mah._nml_regret(2, 2 * n) > _mah._nml_regret(2, n)
+    # the formula it replaced understated the regret of two categories by more than a nat at N = 200
+    assert exact - _mah._nml_regret_legacy(2, n) > 1.0
 
 
 def test_two_rows_with_the_same_distribution_are_merged_and_two_that_differ_are_not():

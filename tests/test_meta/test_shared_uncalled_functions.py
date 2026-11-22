@@ -711,6 +711,23 @@ _KEPT_TEST_REFERENCES = {
     "fits_shared",  # the shared-memory fit predicate of the k3 kernel; test_honest_null_k3 exercises the kernel it gates
     "launch_k3",  # the k3 honest-null launcher, a measured variant kept under test; test_honest_null_k3 checks its output
     "get_kernel_k4f",  # the float-gain k4 kernel, rejected as too coarse for the significance test (see _honest_null_k4); test_honest_null_k4 pins that
+    "_nml_regret_legacy",  # the regret formula mah shipped with (wrong scale and signs), kept as the reference the repaired _nml_regret is measured against (test_mah_merge_criterion pins how far it understated)
+    "_prepare_columns_numpy",  # the numpy form of the Kraskov column preparation, the oracle the njit _prepare_columns is checked against (test_ksg_cd_fast)
+    "_ordinal_pattern_ids_numpy",  # the numpy form of ordinal_pattern_ids, its reference in test_ordinal_pattern_fast_paths_equal
+    "_operand_uplift_null_bar_reference",  # the serial reference of operand_uplift_null_bar (a fresh generator and a Python loop per call), kept for the equivalence test test_operand_uplift_null_bar_bank
+    "_oof_gather_into_kernel",  # the elementwise kernel that writes the cast OOF gather into a caller-owned output in one launch; exercised by test_binagg_multi_gather and listed in the offline elementwise sources
+    "kernel_small_classes",  # the int8-label instance of the discrete-target KSG kernel, a factory of its own because the register-pressure registry compiles one entry per factory (test_cuda_kernel_register_pressure)
+}
+
+#: Opt-in and rejected-by-measurement library functions of 2026-11-21/22 that no production path calls by default: each is kept runnable (new variants are new functions, the old ones stay)
+#: and carries its own test; restoring a caller would route production to a path that was measured slower or that changes the selection.
+_KEPT_OPTIN_VARIANTS = {
+    "fold_cell_moments_deterministic",  # the deterministic cell-moments kernel (no atomic accumulation), opt-in; test_cell_moments_deterministic
+    "masked_cell_moments_deterministic",  # same, masked variant
+    "clear_label_bits_cache",  # the fit-end release of the packed label blocks of the max-null kernel; tested by test_gpu_resource_audit_c, NOT yet called by a fit (the cache is cleared only by the tests): wire it to the fit end
+    "_extra_basis_peak_bytes",  # the host-byte estimate of the extra-basis family, built for a host-budget reservation that was rejected (2026-11-21, see the comment above the family)
+    "reserves_host_block_budget",  # the decorator form of the host block budget; the reservation on the extra-basis family was rejected, the decorator stays tested (test_host_block_budget)
+    "reset_host_block_budget",  # forgets the process-wide budget so the next use sizes it again; the tests and fits that need the current free RAM call it
 }
 
 #: Diagnostic hooks: the docstring says they are not for the production path (every transfer is hashed on the host anyway).
@@ -1230,7 +1247,7 @@ def test_no_new_function_without_a_caller(request):
         files,
         REPO_ROOT,
         BASELINE,
-        ignore=_INTERPRETER_INVOKED | _KEPT_KERNEL_VERSIONS | _KEPT_SUPERSEDED_REFERENCES | _KEPT_TEST_REFERENCES | _DIAGNOSTIC_HOOKS
+        ignore=_INTERPRETER_INVOKED | _KEPT_KERNEL_VERSIONS | _KEPT_SUPERSEDED_REFERENCES | _KEPT_TEST_REFERENCES | _KEPT_OPTIN_VARIANTS | _DIAGNOSTIC_HOOKS
         | _PUBLIC_API
         | _REEXPORTED_PUBLIC_API
         | _OFFLINE_GENERATORS

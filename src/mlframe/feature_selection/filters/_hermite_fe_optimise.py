@@ -18,7 +18,7 @@ import logging
 from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
-from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
+from mlframe.feature_selection.filters._ksg_dispatch import ksg_mi_columns
 
 from mlframe.utils.log_throttle import log_throttle
 from .fe_baselines import ksg_random_state
@@ -118,10 +118,7 @@ def _pair_mi(X_rows, y, y_njit, discrete_target, mi_estimator, plugin_n_bins, n_
         else:
             mi_arr = _plugin_mi_regression_batch_njit(np.ascontiguousarray(X_batch), y_njit, plugin_n_bins)
     else:  # ksg
-        if discrete_target:
-            mi_arr = mutual_info_classif(X_batch, y, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state), discrete_features=False)
-        else:
-            mi_arr = mutual_info_regression(X_batch, y, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state), discrete_features=False)
+        mi_arr = ksg_mi_columns(X_batch, y, discrete_target=discrete_target, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state))
     return mi_arr
 
 
@@ -795,9 +792,7 @@ def _baseline_mi_pair(x_a, x_b, y, *, discrete_target: bool, n_neighbors: int = 
             mi_b = _plugin_mi_regression_njit(x_b_arr, y_arr, plugin_n_bins)
         return float(max(mi_a, mi_b))
     Xn = np.column_stack([x_a, x_b])
-    if discrete_target:
-        return float(mutual_info_classif(Xn, y, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state), discrete_features=False).max())
-    return float(mutual_info_regression(Xn, y, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state), discrete_features=False).max())
+    return float(ksg_mi_columns(Xn, y, discrete_target=discrete_target, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state)).max())
 
 
 def optimise_pair_multimode(

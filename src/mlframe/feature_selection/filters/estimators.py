@@ -35,7 +35,7 @@ def ksg_mi_with_target(
 ) -> np.ndarray:
     """Kraskov-Stoegbauer-Grassberger MI estimate of each feature with target.
 
-    Uses ``sklearn.feature_selection.mutual_info_classif/regression``, which implements the KSG estimator on continuous numeric data
+    Uses the repository's own KSG kernels (``_ksg_dispatch.ksg_mi_columns``: the same estimate as sklearn's ``mutual_info_classif/regression``, to rounding) on continuous numeric data
     (k-NN-based, no discretisation). Returns shape ``(len(feature_indices),)`` - MI of feature_i with target in nats (sklearn convention).
 
     Parameters
@@ -57,17 +57,10 @@ def ksg_mi_with_target(
     On n=10000 with 100 features: ~1-2s for all 100. ~10x slower than discretized plug-in but asymptotically unbiased. Recommended when
     support is correctness-critical or discretisation artefacts dominate the error budget.
     """
-    if discrete_target:
-        from sklearn.feature_selection import mutual_info_classif as _mi_func
-    else:
-        from sklearn.feature_selection import mutual_info_regression as _mi_func
+    from ._ksg_dispatch import ksg_mi_columns
 
     X_sub = X[:, list(feature_indices)] if X.ndim == 2 else X.reshape(-1, 1)
-    return np.asarray(_mi_func(
-        X_sub, y,
-        n_neighbors=n_neighbors,
-        random_state=random_state,
-    ))
+    return np.asarray(ksg_mi_columns(X_sub, y, discrete_target=discrete_target, n_neighbors=n_neighbors, random_state=random_state))
 
 
 def ksg_mi_pair(

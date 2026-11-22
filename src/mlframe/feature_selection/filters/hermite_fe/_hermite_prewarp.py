@@ -18,7 +18,7 @@ from mlframe.feature_selection.filters._safe_scale import guarded_scale
 from numba import njit, prange
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
-from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
+from mlframe.feature_selection.filters._ksg_dispatch import ksg_mi_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.utils.log_throttle import log_throttle
 
@@ -549,6 +549,4 @@ def _ksg_mi_1d(x: np.ndarray, y: np.ndarray, *, discrete_target: bool, n_neighbo
     (re-exported but never called from production code), so the hardcoded default is harmless today; the
     parameter now exists so a future caller wiring this in as a real "ksg" mi_estimator option threads its
     own seed instead of silently reintroducing the bug."""
-    if discrete_target:
-        return float(mutual_info_classif(x.reshape(-1, 1), y, n_neighbors=n_neighbors, random_state=random_state, discrete_features=False)[0])
-    return float(mutual_info_regression(x.reshape(-1, 1), y, n_neighbors=n_neighbors, random_state=random_state, discrete_features=False)[0])
+    return float(ksg_mi_columns(x.reshape(-1, 1), y, discrete_target=discrete_target, n_neighbors=n_neighbors, random_state=random_state)[0])
