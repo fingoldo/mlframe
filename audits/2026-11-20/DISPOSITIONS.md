@@ -927,3 +927,4 @@
 | 35-F38 | FIXED | _mi_to_target's kNN branch calls _mi_per_feature_knn, one copy of the pair mask; aggregate equals the per-feature vector (test_cluster35_knn_mi_single_loop; existing kNN MI tests pass) |
 | 35-F39 | FIXED | Both stacking passes share one ranking helper (_rank_pass1_specs) and one group-id derivation (_train_group_ids); the pass-specific cap, warnings and aggregation stay in each caller (test_cluster35_stacked_shared_helpers; existing stacking tests pass) |
 | 35-F40 | FIXED | Group path and default path use one helper (_polars_default_cat_candidates), so the two candidate sets cannot drift; temporal columns are excluded on both (test_cluster35_polars_candidates_one_helper; 67 existing auto-detect tests pass) |
+| 35-F41 | FIXED | Non-finite (y, base) pairs dropped before the posterior, counted in n_dropped_nonfinite, logged at WARNING (test_cluster35_bayesian_nonfinite_dropped; 27 existing bayesian tests pass) |

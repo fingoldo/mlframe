@@ -115,7 +115,8 @@ def bayesian_alpha_fit(
     """Conjugate Normal-Inverse-Gamma posterior for (alpha, beta).
 
     Model: ``y = alpha * base + beta + eps,  eps ~ N(0, sigma^2)``.
-    Caller must filter ``y`` / ``base`` to the valid finite domain first; non-finite rows are not dropped here and silently yield a NaN posterior.
+    Pairs where ``y`` or ``base`` is non-finite are dropped before the fit; their count is returned as ``n_dropped_nonfinite`` and logged at
+    WARNING (they used to reach the regression and silently yield a NaN posterior, audit 35-F41).
     With a flat improper prior ``p(alpha, beta, sigma^2) propto 1/sigma^2``,
     the posterior is the standard Bayesian linear regression result:
 
@@ -136,11 +137,19 @@ def bayesian_alpha_fit(
     """
     y_f = np.asarray(y, dtype=np.float64).reshape(-1)
     base_f = np.asarray(base, dtype=np.float64).reshape(-1)
+    finite_pairs = np.isfinite(y_f) & np.isfinite(base_f)
+    n_dropped = int(finite_pairs.size - int(finite_pairs.sum()))
+    if n_dropped:
+        logger.warning("bayesian_alpha_fit: dropped %d non-finite (y, base) pair(s) before the posterior fit.", n_dropped)
+        y_f = y_f[finite_pairs]
+        base_f = base_f[finite_pairs]
     n = y_f.size
     if n < 4:
         # Degenerate: no posterior to compute. Mirror the legacy degenerate
         # contract so swapping implementations is safe.
-        return _degenerate_alpha_posterior(y_f, base_f, ci_level, n, spread=float("nan"), kind="conjugate_normal_inverse_gamma")
+        degenerate = _degenerate_alpha_posterior(y_f, base_f, ci_level, n, spread=float("nan"), kind="conjugate_normal_inverse_gamma")
+        degenerate["n_dropped_nonfinite"] = n_dropped
+        return degenerate
     # Design matrix [base, 1] -- same convention as ``_linear_residual_fit``.
     X = np.column_stack([base_f, np.ones(n, dtype=np.float64)])
     # OLS point estimate.
@@ -225,6 +234,7 @@ def bayesian_alpha_fit(
         "posterior_kind": "conjugate_normal_inverse_gamma",
         "degrees_of_freedom": float(v),
         "sigma2_posterior_mean": float(ssr / max(v - 2, 1)) if v > 2 else float("nan"),
+        "n_dropped_nonfinite": n_dropped,
     }
 
 
