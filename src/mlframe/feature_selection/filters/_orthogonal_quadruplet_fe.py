@@ -133,6 +133,7 @@ def _emit_quadruplet_products(out_cols, cache, x_i, x_j, x_k, x_l, basis_i, basi
 
 def _filled_f64(col):
     """Float64 copy of a source column with the non-finite values mean-filled, exactly as the fit-time generator builds its leg operands."""
+    # Intentional float64: the replay axis the basis preprocessing freezes, kept at double so fit and replay match
     x = np.array(col.to_numpy(), dtype=np.float64)
     mean_fill_nonfinite(x)
     return x
