@@ -145,3 +145,4 @@ Coverage and method:
 - 35-F48: FIXED. Unused Ridge import removed; __all__ rebuilt as the public surface; cache-key block moved to ensemble/_oof_cache_keys.py so the facade is under the 1k module gate (955 lines), with re-exports (test_cluster35_ensemble_public_surface; module-split and 13 digest/cache tests pass)
 - 35-F49: FIXED. Uncached transform-pair path forwards refit_supervised like the memoised path (test_cluster35_uncached_pair_forwards_refit; 331 existing ensemble tests pass)
 - 35-F50: FIXED. Write-only _sig_degenerate attribute deleted; no reader anywhere. Existing 27 output-calibration tests pass; removal only, so no separate test.
+- 35-F51: FIXED. n_oof_rows counts rows finite in y AND every OOF column, the rows the fit used (test_cluster35_meta_stack_row_count; 59 existing meta-stacker tests pass; the one failure is the pre-existing uncalled-function gate)

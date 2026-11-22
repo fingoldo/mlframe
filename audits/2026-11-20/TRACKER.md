@@ -114,6 +114,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F48 | 35_training-4.md | FIXED | Ridge import unused; __all__ listed typing names and omitted public functions. Import removed, __all__ rebuilt, cache-key block moved to _oof_cache_keys.py (facade 955 lines, under the 1k gate). Test test_cluster35_ensemble_public_surface.py. |
 | 35-F49 | 35_training-4.md | FIXED | Uncached transform-pair path dropped refit_supervised, so a supervised selector was not refit on the fold. Forwarded. Test test_cluster35_uncached_pair_forwards_refit.py. |
 | 35-F50 | 35_training-4.md | FIXED | Write-only _sig_degenerate attribute. Deleted. Existing 27 calibration tests pass; no separate test (removal). |
+| 35-F51 | 35_training-4.md | FIXED | n_oof_rows counted rows finite in y only; the fit uses rows finite in y and every OOF column. Count now matches the fit. Test test_cluster35_meta_stack_row_count.py. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |
