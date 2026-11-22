@@ -191,6 +191,10 @@ def apply_structural_fragility_gate(
     for spec in kept_specs:
         base_col = getattr(spec, "base_column", "")
         if not base_col or getattr(spec, "extra_base_columns", None):  # single-base only
+            # Multi-base specs are not judged by this gate. The bypass used to be silent; it is logged now (audit 35-F36).
+            if base_col:
+                logger.warning("structural fragility gate not applied to multi-base spec %s (extra_base_columns=%s); it passes unchecked.",
+                               getattr(spec, "name", base_col), tuple(getattr(spec, "extra_base_columns", ()) or ()))
             survivors.append(spec)
             continue
         # Causal-provenance exemption: a strictly-causal base (grouped-causal engineered / named lag) re-injects a REAL
