@@ -94,7 +94,7 @@ _UNIQUE_COUNTS_MIN_SIZE = 4096
 
 @njit(nogil=True, cache=True)
 def _f64_order_keys(x: np.ndarray, keys: np.ndarray) -> None:
-    """Order-preserving unsigned 64-bit keys of the NaN-free float64 vector ``x`` (flip all bits of a negative, set the sign bit of a non-negative)."""
+    """Order-preserving unsigned 64-bit keys of the NaN-free double-precision vector ``x`` (flip all bits of a negative, set the sign bit of a non-negative)."""
     u = x.view(np.uint64)
     sign = np.uint64(0x8000000000000000)
     for i in range(x.shape[0]):
@@ -107,7 +107,7 @@ def _f64_order_keys(x: np.ndarray, keys: np.ndarray) -> None:
 
 @njit(nogil=True, cache=True)
 def _radix_argsort_f64(x: np.ndarray):
-    """``(sorted keys, order)`` of the NaN-free float64 vector ``x``: the stable ascending order by eight LSD passes of 8 bits over the order-preserving keys (an even pass count, so the
+    """``(sorted keys, order)`` of the NaN-free double-precision vector ``x``: the stable ascending order by eight LSD passes of 8 bits over the order-preserving keys (an even pass count, so the
     result is back in the first buffers). Equal values keep their input order; ``-0.0`` sorts before ``+0.0`` (they compare equal as values)."""
     n = x.shape[0]
     keys = np.empty(n, dtype=np.uint64)
@@ -143,7 +143,7 @@ def _radix_argsort_f64(x: np.ndarray):
 
 @njit(nogil=True, cache=True)
 def _unique_counts_f64_njit(x: np.ndarray):
-    """``(values, counts)`` of the NaN-free float64 vector ``x`` as ``np.unique(x, return_counts=True)`` gives them: a keys-only radix sort of a copy (eight passes of 8 bits, no index carried) and one
+    """``(values, counts)`` of the NaN-free double-precision vector ``x`` as ``np.unique(x, return_counts=True)`` gives them: a keys-only radix sort of a copy (eight passes of 8 bits, no index carried) and one
     pass over the sorted run (the sign of an exact zero is the one thing the radix order may put differently)."""
     n = x.shape[0]
     keys = np.empty(n, dtype=np.uint64)
@@ -161,7 +161,7 @@ def _unique_counts_f64_njit(x: np.ndarray):
             srt[i] = k ^ sign
         else:
             srt[i] = ~k
-    col = srt.view(np.float64)
+    col = srt.view(np.float64)  # Intentional float64: the sort keys are reinterpreted as double bits, not narrowed
     m = 1
     for i in range(1, n):
         if col[i] != col[i - 1]:
@@ -183,7 +183,7 @@ def _unique_counts_f64_njit(x: np.ndarray):
 
 @njit(nogil=True, cache=True)
 def _sort_xy_f64_njit(x: np.ndarray, y: np.ndarray):
-    """``(x[order], y[order])`` for the stable ascending order of the NaN-free float64 vector ``x`` (the float64 twin of :func:`_sort_xy_f32_njit`)."""
+    """``(x[order], y[order])`` for the stable ascending order of the NaN-free double-precision vector ``x`` (the double-precision twin of :func:`_sort_xy_f32_njit`)."""
     n = x.shape[0]
     _, idx = _radix_argsort_f64(x)
     xs = np.empty(n, dtype=np.float64)  # Intentional float64: the MDLP cut search runs at the production binning width
