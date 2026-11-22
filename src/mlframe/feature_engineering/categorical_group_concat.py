@@ -22,7 +22,6 @@ from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
-from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
 
 
 def concat_categorical_group(df: pd.DataFrame, columns: Sequence[str], separator: str = "_", feature_name: str = "concat_group") -> pd.DataFrame:
@@ -69,12 +68,20 @@ def _composite_mi_with_target(values: pd.Series, y: np.ndarray, random_state: in
     Uses integer codes rather than raw strings -- the MI estimators need a numeric feature matrix, and
     ``pd.factorize`` codes preserve the exact partition of rows into levels that MI actually depends on (the
     numeric code values themselves carry no order the estimator relies on, since ``discrete_features=True``).
-    A continuous target goes to ``mutual_info_regression``: ``mutual_info_classif`` refuses it outright.
+    A continuous target goes to the k-NN (Ross) estimator, equal to ``mutual_info_regression``: ``mutual_info_classif`` refuses it outright.
     """
     codes, _ = pd.factorize(values)
-    estimator = mutual_info_regression if _is_continuous_target(y) else mutual_info_classif
-    mi = estimator(codes.reshape(-1, 1), y, discrete_features=True, random_state=random_state)
-    return float(mi[0])
+    if _is_continuous_target(y):
+        # a discrete feature against a continuous target: scikit-learn's ``_compute_mi_cd`` (Ross), which is the discrete-target KSG of the repository with the roles swapped (the target is the
+        # one noisy continuous column, the codes are the class labels); same scaling, noise stream and radius, so the value equals ``mutual_info_regression(..., discrete_features=True)``
+        from mlframe.feature_selection.filters._ksg_cd_fast import ksg_mi_discrete_target
+
+        target = np.asarray(y, dtype=np.float64).reshape(-1, 1)  # Intentional float64: the estimator scales and adds its noise in double, as scikit-learn does
+        return float(ksg_mi_discrete_target(target, codes, n_neighbors=3, random_state=int(random_state))[0])
+    # two label vectors: scikit-learn returns ``mutual_info_score`` (the plug-in MI of their contingency table)
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_mi_backends import contingency_mi_nats
+
+    return float(contingency_mi_nats(codes, np.asarray(y).ravel()))
 
 
 def discover_categorical_groups(
@@ -115,7 +122,7 @@ def discover_categorical_groups(
         whole remaining pool. Bounds the O(k^2) worst-case number of trial-composite MI evaluations for a
         pool of size k.
     random_state
-        Forwarded to ``mutual_info_classif`` (its k-NN based estimator is stochastic).
+        Seed of the estimator's noise (the continuous-target form is a k-NN estimator with a Kraskov noise stream; the label form is deterministic).
 
     Returns
     -------
