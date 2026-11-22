@@ -156,3 +156,53 @@ def ksg_mi_continuous_target_columns(X: np.ndarray, y: np.ndarray, *, n_neighbor
     y /= ystd if ystd != 0.0 else 1.0
     y += 1e-10 * max(1.0, float(np.mean(np.abs(y)))) * draw_y
     return np.asarray(_mi_cc_columns(np.ascontiguousarray(X), np.ascontiguousarray(y), int(n_neighbors)), dtype=np.float64)
+
+
+@njit(parallel=True, cache=True, nogil=True)
+def _knn_cheb2d_kernel(xs, ys, order, k1, dist_out, idx_out):
+    """For every point (visited in x order) its ``k1`` nearest points in the Chebyshev metric, itself included, as ascending distances and ORIGINAL row indices."""
+    n = xs.shape[0]
+    for a in prange(n):
+        bd = np.full(k1, np.inf)
+        bi = np.full(k1, -1, dtype=np.int64)
+        xa = xs[a]
+        ya = ys[a]
+        bd[0] = 0.0
+        bi[0] = order[a]
+        for direction in range(2):
+            b = a + 1 if direction == 0 else a - 1
+            while 0 <= b < n:
+                dx = abs(xs[b] - xa)
+                if dx > bd[k1 - 1]:
+                    break
+                d = abs(ys[b] - ya)
+                if dx > d:
+                    d = dx
+                if d < bd[k1 - 1]:
+                    t = k1 - 1
+                    while t > 0 and bd[t - 1] > d:
+                        bd[t] = bd[t - 1]
+                        bi[t] = bi[t - 1]
+                        t -= 1
+                    bd[t] = d
+                    bi[t] = order[b]
+                b = b + 1 if direction == 0 else b - 1
+        for t in range(k1):
+            dist_out[order[a], t] = bd[t]
+            idx_out[order[a], t] = bi[t]
+
+
+def knn_chebyshev_2d(points: np.ndarray, k: int) -> "tuple[np.ndarray, np.ndarray]":
+    """``(distances, indices)`` of the ``k + 1`` nearest points of every row of the ``(n, 2)`` array ``points`` in the Chebyshev metric (the row itself comes first), the answer of
+    ``sklearn.neighbors.KDTree(points, metric="chebyshev").query(points, k=k + 1)`` for points without ties."""
+    # Intentional float64: the neighbour distances feed digamma sums, so the points are held in double precision
+    P = np.asarray(points, dtype=np.float64)
+    n = P.shape[0]
+    k1 = min(int(k) + 1, n)
+    order = radix_order_f64(np.ascontiguousarray(P[:, 0])).astype(np.int64)
+    xs = np.ascontiguousarray(P[order, 0])
+    ys = np.ascontiguousarray(P[order, 1])
+    dist = np.empty((n, k1))
+    idx = np.empty((n, k1), dtype=np.int64)
+    _knn_cheb2d_kernel(xs, ys, order, k1, dist, idx)
+    return dist, idx
