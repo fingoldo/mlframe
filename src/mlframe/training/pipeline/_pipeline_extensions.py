@@ -210,7 +210,7 @@ def _extension_relevant_polars_cols(df, config) -> Optional[list]:
     return keep
 
 
-def _boolish_object_columns(_df) -> list:
+def _boolish_object_columns(_df, columns=None) -> list:
     """Object-dtype columns whose non-null values are all booleans.
 
     A polars Boolean with ANY null converts to pandas ``object`` -- pandas' own ``bool`` dtype cannot hold NA.
@@ -220,7 +220,7 @@ def _boolish_object_columns(_df) -> list:
     boolean, just nullable.
     """
     out = []
-    for _c in _df.columns:
+    for _c in (_df.columns if columns is None else columns):
         if _df[_c].dtype != object:
             continue
         _vals = _df[_c].dropna()
@@ -271,7 +271,9 @@ def _filter_to_numeric(_df, keep_cols=None):
         for _c in _keep:
             if _df[_c].dtype == bool:
                 _df[_c] = _df[_c].astype(_np_local.int8)
-        _promote_boolish(_df, [c for c in _boolish_object_columns(_df) if c in set(_keep)])
+        # Scan only the pinned columns: the frame's other object columns (text, categoricals) are dropped below, and each
+        # scanned object column costs a full map(type) pass (audit 40-F24).
+        _promote_boolish(_df, _boolish_object_columns(_df, _keep))
         _dropped = [c for c in _df.columns if c not in set(_keep)]
         return _df[_keep], _dropped
     # Bool columns are numerically valid for sklearn KBins / StandardScaler / PolynomialFeatures (False=0, True=1) but ``select_dtypes(include="number")`` EXCLUDES bool dtype - the default code path silently drops useful binary features (e.g. ``is_after_ps`` event-membership flags). Cast bool -> int8 so they pass the "number" gate; int8 is the smallest dtype that round-trips True/False without precision loss.
