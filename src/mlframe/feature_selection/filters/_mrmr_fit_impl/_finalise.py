@@ -42,6 +42,20 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
+def pair_probe_dtype(requested: Any, nbins: Any, col_a: int, col_b: int) -> Any:
+    """The dtype of the class-id workspace of ``mi`` over the columns ``col_a`` and ``col_b``: ``requested`` (``quantization_dtype``, int8 by default, a CODE-storage hint) or wider.
+
+    The merged class id of a pair runs up to ``nbins[col_a] * nbins[col_b]``, so two columns of 30 bins overflow int8 (``merge_vars: class id does not fit the working dtype``); the rescue read that error as "redundant"
+    and dropped the candidate, which left a count / quantile fit with no selected column."""
+    from mlframe.feature_selection.filters.discretization._code_dtype import narrowest_code_dtype
+
+    need = int(nbins[col_a]) * int(nbins[col_b])
+    wide = narrowest_code_dtype(0, need)
+    if wide is None:
+        return np.int64
+    return requested if np.iinfo(requested).max >= need else wide
+
+
 def _finalise_empty_support_fallback(self, n_engineered_out, cols, data, nbins, target_indices):
     """Empty-RAW-support fallback rescue carved out of ``_fit_impl``.
 
@@ -143,7 +157,7 @@ def _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_fl
 
     _signif_alpha = mrmr_null_signif_alpha()
     _redundancy_frac = env_float("MLFRAME_MRMR_FALLBACK_REDUNDANCY_FRAC", 0.5, minimum=0.0, maximum=1.0)
-    _q_dtype = getattr(self, "quantization_dtype", np.int32)
+    _q_dtype = getattr(self, "quantization_dtype", np.int32)  # the requested code-storage dtype; the pair probe widens it per pair (``pair_probe_dtype``)
     _accepted: list = []  # input-space indices accepted into the rescue
     _accepted_cols = []  # their cols-space indices (for redundancy MI)
     # ENGINEERED-SURVIVOR CONDITIONING: seed the redundancy-dedup
@@ -223,7 +237,7 @@ def _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_fl
                         x=np.array([_cols_idx], dtype=np.int64),
                         y=np.array([_acc_cols], dtype=np.int64),
                         factors_nbins=nbins,
-                        dtype=_q_dtype,
+                        dtype=pair_probe_dtype(_q_dtype, nbins, _cols_idx, _acc_cols),
                     )
                 )
             except Exception as e:
