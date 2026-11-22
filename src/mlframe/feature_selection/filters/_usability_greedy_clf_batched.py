@@ -223,51 +223,62 @@ def cv_candidates_binary_reference(
     """``(len(cand_idx), n_folds)`` validation logloss of ``selected + [candidate]`` for every candidate.
 
     ``folds`` lists ``(train_mask, val_mask, trainable)`` per fold on device; a fold whose train labels hold a single class (``trainable`` False) yields ``inf`` for every candidate.
+
+    The folds are one batch: per-fold train and validation weights ``(nf, n)`` (a row outside a fold has a zero design row, which adds nothing to the Newton gradient or Hessian),
+    so every fold's standardization, design and Newton fit are stacked tensors; candidates are processed in blocks whose stacked designs fit the batch budget.
     """
     m_all = len(cand_idx)
-    out = np.empty((m_all, len(folds)), dtype=np.float64)  # Intentional float64: per-fold logloss accumulator
+    nf = len(folds)
+    out = np.empty((m_all, nf), dtype=np.float64)  # Intentional float64: per-fold logloss accumulator
+    if m_all == 0 or nf == 0:
+        return out
     s = len(selected)
     k = s + 1
+    n = int(yenc_dev.shape[0])
+    trainable = np.array([bool(f[2]) for f in folds])
+    idx_tr = [cp.nonzero(f[0])[0] if f[0].dtype == bool else f[0] for f in folds]  # masks or index arrays, as the caller passes either
+    idx_va = [cp.nonzero(f[1])[0] if f[1].dtype == bool else f[1] for f in folds]
+    f_tr = cp.concatenate([cp.full(int(t.shape[0]), f, dtype=cp.int64) for f, t in enumerate(idx_tr)])
+    f_va = cp.concatenate([cp.full(int(v.shape[0]), f, dtype=cp.int64) for f, v in enumerate(idx_va)])
+    Wtr = cp.zeros((nf, n), dtype=dtype)
+    Wva = cp.zeros((nf, n), dtype=dtype)
+    Wtr[f_tr, cp.concatenate(idx_tr)] = 1.0
+    Wva[f_va, cp.concatenate(idx_va)] = 1.0
+    cnt_tr = cp.maximum(Wtr.sum(axis=1), 1.0)  # (nf,); a non-trainable fold has no train rows and its result is replaced by inf below
+    cnt_va = cp.maximum(Wva.sum(axis=1), 1.0)
+    yv = (yenc_dev == 1).astype(dtype)  # (n,)
+    if s:
+        Xs = Vdev[:, cp.asarray(np.asarray(selected, dtype=np.int64))].astype(dtype)  # (n, s)
+        smu = (Wtr @ Xs) / cnt_tr[:, None]  # (nf, s)
+        ssd = cp.sqrt((Wtr[:, :, None] * (Xs[None, :, :] - smu[:, None, :]) ** 2).sum(axis=1) / cnt_tr[:, None])
+        ssd = cp.where(ssd < 1e-12, 1.0, ssd)
+        Ss = (Xs[None, :, :] - smu[:, None, :]) / ssd[:, None, :]  # (nf, n, s), every row standardized on its fold's train rows
     cand_arr = cp.asarray(np.asarray(cand_idx, dtype=np.int64))
-    cand_cols = Vdev[:, cand_arr]
-    for fo, (tr, va, trainable) in enumerate(folds):
-        if not trainable:
-            out[:, fo] = np.inf
-            continue
-        ytr = (yenc_dev[tr] == 1).astype(dtype)
-        yva = (yenc_dev[va] == 1).astype(dtype)
-        ntr = int(ytr.shape[0])
-        nva = int(yva.shape[0])
-        ctr = cand_cols[tr]
-        cva = cand_cols[va]
-        if s:
-            str_, sva = Vdev[tr][:, selected], Vdev[va][:, selected]
-            smu, ssd = str_.mean(axis=0), str_.std(axis=0)
-            ssd = cp.where(ssd < 1e-12, 1.0, ssd)
-            str_ = (str_ - smu) / ssd
-            sva = (sva - smu) / ssd
-        cmu, csd = ctr.mean(axis=0), ctr.std(axis=0)
+    cand_cols = Vdev[:, cand_arr].astype(dtype)  # (n, m_all)
+    # candidates per block: the stacked (nf, mb, n, k+1) designs stay inside the batch budget
+    cand_block = max(1, _BATCH_ELEMENT_BUDGET // max(1, nf * n * (k + 1)))
+    for lo in range(0, m_all, cand_block):
+        hi = min(m_all, lo + cand_block)
+        mb = hi - lo
+        C = cand_cols[:, lo:hi]  # (n, mb)
+        cmu = (Wtr @ C) / cnt_tr[:, None]  # (nf, mb)
+        csd = cp.sqrt((Wtr[:, :, None] * (C[None, :, :] - cmu[:, None, :]) ** 2).sum(axis=1) / cnt_tr[:, None])  # (nf, mb)
         csd = cp.where(csd < 1e-12, 1.0, csd)
-        ctr = (ctr - cmu) / csd
-        cva = (cva - cmu) / csd
-        chunk = max(1, _BATCH_ELEMENT_BUDGET // max(1, ntr * (k + 1)))
-        for lo in range(0, m_all, chunk):
-            hi = min(m_all, lo + chunk)
-            mb = hi - lo
-            A = cp.empty((mb, ntr, k + 1), dtype=dtype)
-            if s:
-                A[:, :, :s] = str_[None, :, :]
-            A[:, :, s] = ctr[:, lo:hi].T
-            A[:, :, k] = 1.0
-            w = _newton(cp, A, ytr, mb, k + 1, dtype, newton_max_iter, tol, lam, fallback_error)
-            B = cp.empty((mb, nva, k), dtype=dtype)
-            if s:
-                B[:, :, :s] = sva[None, :, :]
-            B[:, :, s] = cva[:, lo:hi].T
-            z = cp.einsum("bnk,bk->bn", B, w[:, :k]) + w[:, k : k + 1]
-            p1 = cp.clip(1.0 / (1.0 + cp.exp(-z)), logloss_eps, 1.0 - logloss_eps)
-            ll = -cp.mean(yva[None, :] * cp.log(p1) + (1.0 - yva[None, :]) * cp.log(1.0 - p1), axis=1)
-            out[lo:hi, fo] = cp.asnumpy(ll).astype(np.float64)  # Intentional float64: per-fold logloss accumulator
+        Cs = (C[None, :, :] - cmu[:, None, :]) / csd[:, None, :]  # (nf, n, mb)
+        A = cp.empty((nf, mb, n, k + 1), dtype=dtype)
+        if s:
+            A[:, :, :, :s] = Ss[:, None, :, :]
+        A[:, :, :, s] = Cs.transpose(0, 2, 1)
+        A[:, :, :, k] = 1.0
+        A *= Wtr[:, None, :, None]  # rows outside the fold's train set contribute nothing to the fit
+        w = _newton(cp, A.reshape(nf * mb, n, k + 1), yv, nf * mb, k + 1, dtype, newton_max_iter, tol, lam, fallback_error).reshape(nf, mb, k + 1)
+        z = cp.einsum("fnk,fmk->fmn", Ss, w[:, :, :s]) + Cs.transpose(0, 2, 1) * w[:, :, s : s + 1] + w[:, :, k : k + 1] if s else Cs.transpose(0, 2, 1) * w[:, :, s : s + 1] + w[:, :, k : k + 1]
+        p1 = cp.clip(1.0 / (1.0 + cp.exp(-z)), logloss_eps, 1.0 - logloss_eps)
+        yb = yv[None, None, :]
+        ll_rows = -(yb * cp.log(p1) + (1.0 - yb) * cp.log(1.0 - p1))  # (nf, mb, n)
+        ll = (ll_rows * Wva[:, None, :]).sum(axis=2) / cnt_va[:, None]  # (nf, mb): mean over each fold's validation rows
+        out[lo:hi, :] = cp.asnumpy(ll).T.astype(np.float64)  # Intentional float64: per-fold logloss accumulator
+    out[:, ~trainable] = np.inf
     return out
 
 
