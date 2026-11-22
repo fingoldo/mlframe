@@ -180,7 +180,7 @@ extern "C" __global__
 void disp_bin_codes(const {REAL}* __restrict__ xj_all, const {EDGE}* __restrict__ edges, const int* __restrict__ n_interior, const int emax, const long long n, const long long J,
                     long long* __restrict__ out) {
     // The bin codes of every distinct x_j in ONE launch over the (J, n) output (rows fastest): the number of interior edges (edges[1:-1] of the stored quantile edges) that are <= x, i.e.
-    // np.searchsorted(side="right"), clipped to the top bin, with a non-finite x in bin 0 (the host's _digitize_with_edges). The values are compared with the double-precision edges the host digitiser uses (x is rounded to the criterion dtype first, as there).
+    // np.searchsorted(side="right"), clipped to the top bin, with a non-finite x in bin 0 (the host's _digitize_with_edges). The values are compared with the wide-type edges the host digitiser uses (x is rounded to the criterion dtype first, as there).
     for (long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x; t < J * n; t += (long long)gridDim.x * blockDim.x) {
         const long long j = t / n;
         const {REAL} x = xj_all[t];
