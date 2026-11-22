@@ -28,6 +28,8 @@ import re
 
 import functools
 import hashlib
+
+import numpy as np
 import logging
 import os
 import threading
@@ -275,12 +277,37 @@ class SuiteArtefactCache:
             return 0
         return total
 
+    def _adopt_unknown_disk_entries(self) -> None:
+        """Add ``.pkl`` entries present on disk but absent from the ledger to the front (oldest end) of the LRU, ordered by mtime."""
+        try:
+            names = os.listdir(self.cache_dir)
+        except OSError as exc:
+            logger.debug("SuiteArtefactCache: could not list %s to adopt entries: %s", self.cache_dir, exc)
+            return
+        unknown = []
+        for name in names:
+            if not name.endswith(".pkl"):
+                continue
+            key = name[: -len(".pkl")]
+            if key in self._lru or not _SAFE_KEY.fullmatch(key) or ".." in key:
+                continue
+            try:
+                unknown.append((os.path.getmtime(os.path.join(self.cache_dir, name)), key))
+            except OSError:
+                continue
+        for mtime, key in sorted(unknown, reverse=True):
+            self._lru[key] = mtime
+            self._lru.move_to_end(key, last=False)
+
     def _evict_lru_locked(self) -> int:
         """Evict oldest entries until under both byte + entry caps. Returns count evicted.
 
         Both the .pkl and its .pkl.sha256 sidecar are dropped together and BOTH sizes count against ``total`` -- pre-fix the sidecar removal failure path was a silent ``except OSError: pass`` which would leave an orphan sidecar on disk that no later eviction would ever clean up. ``_total_bytes_locked`` also now counts sidecars so the budget figure is honest.
         """
         removed = 0
+        # Entries another process wrote are not in this process's ledger, so they were never evicted while the on-disk total counted them.
+        # Adopt the unknown ones as the oldest (by mtime) before choosing what to drop (audit 28-F30).
+        self._adopt_unknown_disk_entries()
         # Take a snapshot of LRU keys (oldest first; OrderedDict insertion order = touch order).
         keys_ordered = list(self._lru.keys())
         total = self._total_bytes_locked()
@@ -328,7 +355,15 @@ class SuiteArtefactCache:
         path = self._path(key)
         try:
             value = _safe_pickle_load(path)
-        except (FileNotFoundError, OSError, EOFError, PickleVerificationError) as _exc:
+        except PickleVerificationError as _exc:
+            # A digest mismatch means the entry was altered: say so, and delete it, so it is not silently recomputed on every run (audit 28-F28).
+            logger.warning("suite artefact %s failed verification (%s); deleting the entry", key, _exc)
+            try:
+                Path(path).unlink(missing_ok=True)
+            except OSError as _unlink_exc:
+                logger.debug("could not delete the tampered entry %s: %s", path, _unlink_exc)
+            return default
+        except (FileNotFoundError, OSError, EOFError) as _exc:
             logger.debug("get fell back to its default after %s", type(_exc).__name__)
             return default
         except Exception as exc:
@@ -462,6 +497,17 @@ _DEFAULT_CACHE_LOCK = threading.Lock()
 _DEFAULT_CACHE: Optional[SuiteArtefactCache] = None
 
 
+def _arg_fingerprint(value: Any) -> str:
+    """A key fragment for one argument. Arrays and array-likes are digested from their BYTES: ``repr`` elides the middle of a large
+    array, so two different arrays with the same head and tail produced one key and the wrong artefact (audit 28-F29)."""
+    if hasattr(value, "to_numpy") or isinstance(value, np.ndarray):
+        arr = np.ascontiguousarray(value.to_numpy() if hasattr(value, "to_numpy") else value)
+        if arr.dtype.hasobject:
+            return repr(value)
+        return f"array:{arr.dtype.str}:{arr.shape}:{hashlib.blake2b(arr.tobytes(), digest_size=16).hexdigest()}"
+    return repr(value)
+
+
 def get_default_cache() -> SuiteArtefactCache:
     """Lazy process-wide singleton; honours env vars at FIRST construction.
 
@@ -515,7 +561,7 @@ def cache_artefact(
         Coarse fallback: hash the args/kwargs repr. Adequate for cheap-to-rebuild artefacts; callers needing precise content-keying provide their own builder.
         """
         try:
-            blob = _canonical_dump({"args": [repr(a) for a in args], "kwargs": {k: repr(v) for k, v in sorted(kwargs.items())}})
+            blob = _canonical_dump({"args": [_arg_fingerprint(a) for a in args], "kwargs": {k: _arg_fingerprint(v) for k, v in sorted(kwargs.items())}})
         except Exception as e:
             logger.debug("canonical dump for cache-key computation failed, falling back to repr(): %s", e)
             blob = repr((args, sorted(kwargs.items()))).encode("utf-8")

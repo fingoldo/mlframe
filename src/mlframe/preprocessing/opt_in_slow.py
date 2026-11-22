@@ -42,6 +42,17 @@ OPT_IN_SLOW: dict[str, str] = {
     "sibling_group_cold_start_fill": "sibling_group_cold_start_fill",
     "augment_temporal_drift": "temporal_drift_augment",
     "select_true_last_standardized": "temporal_drift_augment",
+    # The leakage-free fit/apply halves, which callers resolving by name need (audit 26-F13).
+    "fit_outlier_cap_or_missing": "outlier_capping_or_missing",
+    "apply_outlier_cap_or_missing": "outlier_capping_or_missing",
+    "fit_rare_category_collapse": "rare_count_pruning",
+    "apply_rare_category_collapse": "rare_count_pruning",
+    "fit_missing_indicator_imputation": "missing_indicator_pairing",
+    "apply_missing_indicator_imputation": "missing_indicator_pairing",
+    "fit_regime_conditioned_median": "regime_conditioned_imputation",
+    "apply_regime_conditioned_median_fill": "regime_conditioned_imputation",
+    "fit_outlier_bounds": "outlier_policy",
+    "UnseenCategoryImputer": "unseen_category_imputer",
 }
 
 

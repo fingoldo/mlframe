@@ -78,7 +78,18 @@ class SharedArrayPool:
             if self._closed:
                 raise RuntimeError("SharedArrayPool is closed")
             hit = self._entries.get(ckey)
-            if hit is not None and hit.desc.shape == a.shape and hit.desc.dtype == a.dtype.str:
+            if hit is not None and key is None and hit.desc.shape == a.shape and hit.desc.dtype == a.dtype.str:
+                # An auto-keyed hit is only the same data while the caller has not rewritten the buffer: the key is an address, so an
+                # in-place overwrite keeps it. Compare the content; on a change, give the new content its own segment and key, so a task
+                # still pending on the old segment keeps reading its snapshot (audit 26-F20).
+                stored = np.ndarray(hit.desc.shape, dtype=np.dtype(hit.desc.dtype), buffer=hit.shm.buf)
+                if np.array_equal(stored, a):
+                    hit.refs += 1
+                    return hit.desc
+                hit = None
+                self._seq += 1
+                ckey = (*ckey, "revision", self._seq)
+            elif hit is not None and key is not None and hit.desc.shape == a.shape and hit.desc.dtype == a.dtype.str:
                 hit.refs += 1
                 return hit.desc
             self._seq += 1

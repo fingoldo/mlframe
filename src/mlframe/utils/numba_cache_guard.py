@@ -20,6 +20,8 @@ _STAMP_DIR_NAME = "__pycache__"
 _STAMP_FILE = "mlframe_numba_dependency_stamps.txt"
 _RELATIVE_IMPORT = re.compile(r"^\s*from\s+\.+(\w+)?\s+import\s+([^\n(]+|\([^)]*\))", re.MULTILINE)
 _RELATIVE_MODULE_IMPORT = re.compile(r"^\s*from\s+\.+(\w+)\s+import", re.MULTILINE)
+# ``from . import b, c`` imports sibling modules as names; the module-form pattern above missed it (audit 29-F17).
+_RELATIVE_NAME_IMPORT = re.compile(r"^\s*from\s+\.+\s*import\s+([^\n(]+|\([^)]*\))", re.MULTILINE)
 
 
 def _unlink_quietly(path: Path) -> None:
@@ -34,8 +36,14 @@ def _defines_cached_kernel(source: str) -> bool:
 
 
 def _sibling_modules(source: str, known: set[str]) -> set[str]:
-    """Names of sibling modules of the package imported by relative ``from .x import ...`` statements."""
-    return {m for m in _RELATIVE_MODULE_IMPORT.findall(source) if m in known}
+    """Names of sibling modules of the package imported by relative ``from .x import ...`` or ``from . import x, y`` statements."""
+    found = set(_RELATIVE_MODULE_IMPORT.findall(source))
+    for names in _RELATIVE_NAME_IMPORT.findall(source):
+        for part in names.strip("()").split(","):
+            token = part.strip().split(" ")[0].strip()
+            if token:
+                found.add(token)
+    return {m for m in found if m in known}
 
 
 def _stamps(package_dir: Path) -> dict[str, str]:

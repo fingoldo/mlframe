@@ -33,6 +33,15 @@ def spearman_exp(lb: Leaderboard, num_repeats: int, exp_range: Sequence[float], 
             # Local Generator seeded per repeat so the experiment is reproducible instead of
             # depending on the mutable process-global np.random state.
             rng = np.random.default_rng(repeat_idxs)
+            # The clean reference ranking: the unmodified table, not the first (possibly noised) entry of exp_range (audit 29-F8).
+            clean_ranks = lb.rank_all(
+                use_methods={
+                    "mean": {"mean_type": ["arithmetic"]},
+                    "minimax": {"score_type": ["winning_votes"]},
+                    "copeland": {"slice_type": ["difference"]},
+                    "optimality_gap": {"gamma": [95]},
+                }
+            )
 
             for nan_number in exp_range:
                 nan_number = round(nan_number * lb.table.count().sum())
@@ -68,13 +77,13 @@ def spearman_exp(lb: Leaderboard, num_repeats: int, exp_range: Sequence[float], 
 
             etalon = {}
 
-            for col in ranks[0].columns:
-                scores = ranks[0][col].apply(lambda x: float(x.split(":")[0]))
-                methods = ranks[0][col].apply(lambda x: x.split(":")[1].strip())
+            for col in clean_ranks.columns:
+                scores = clean_ranks[col].apply(lambda x: float(x.split(":")[0]))
+                methods = clean_ranks[col].apply(lambda x: x.split(":")[1].strip())
 
                 norm_rank = pd.Series(index=methods.values, data=scores.values)
 
-                etalon[col] = norm_rank.reindex(tables[0].index)
+                etalon[col] = norm_rank.reindex(lb.table.index)
 
             corrs = defaultdict(lambda: [])
 
@@ -128,7 +137,7 @@ def create_exp_pic(exp_range: list[float], exp_res: dict[str, Any], filename: st
     """Render the stability curves as a formatted figure (custom legend labels for the mean/optimality-gap methods) and optionally save it to ``filename`` as PDF."""
     sns = import_optional("seaborn", "viz", "stability plots")
     sns.set(style="whitegrid")
-    df = get_res_df(exp_range * 100, exp_res)
+    df = get_res_df(exp_range, exp_res)
     _fig, _ax = plt.subplots(figsize=(7, 6))
 
     try:

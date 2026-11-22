@@ -102,7 +102,9 @@ def geometric_weight_blend(
             best_loss = loss
             best_weights = w
 
-    assert best_weights is not None
+    if best_weights is None:
+        # Every restart gave a non-finite loss (all-NaN predictions, say). A bare assert said nothing and vanished under python -O (audit 29-F19).
+        raise ValueError("geometric_weight_blend: every restart produced a non-finite loss; check the out-of-fold predictions for NaN or inf")
     ensemble_pred = _blend(best_weights)
 
     if alpha is None and not fit_alpha:
@@ -125,7 +127,8 @@ def geometric_weight_blend(
         alpha_result = minimize(_alpha_objective, np.array([0.5]), method="SLSQP", bounds=[(0.0, 1.0)], options={"maxiter": 200})
         fitted_alpha = float(np.clip(alpha_result.x[0], 0.0, 1.0))
     else:
-        assert alpha is not None
+        if alpha is None:
+            raise ValueError("geometric_weight_blend: pass alpha, or set fit_alpha=True to fit it")
         fitted_alpha = float(np.clip(alpha, 0.0, 1.0))
 
     hybrid_pred = _hybrid(fitted_alpha)

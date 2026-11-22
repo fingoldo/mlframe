@@ -10,12 +10,11 @@ from __future__ import annotations
 import logging
 import threading
 
-from mlframe.utils.log_throttle import log_throttle
-
 logger = logging.getLogger(__name__)
 
 _LOCK = threading.Lock()
 _RESULT: tuple[bool, str] | None = None
+_FAILURE_LOGGED = False
 
 
 def _matmul_demote_errors() -> tuple[type[BaseException], ...]:
@@ -62,10 +61,13 @@ def cublas_matmul_ok() -> bool:
     with _LOCK:
         if _RESULT is None:
             _RESULT = _probe()
+    global _FAILURE_LOGGED
     ok, reason = _RESULT
-    if not ok:
-        log_throttle(
-            logger, "cublas_probe_failed", logging.WARNING,
+    if not ok and not _FAILURE_LOGGED:
+        # Logged once per process. The library lookup imports cupy and walks package metadata, which the old per-call line repeated
+        # for every matmul check of a process that had already failed its probe (audit 29-F16).
+        _FAILURE_LOGGED = True
+        logger.warning(
             "cupy matmul probe failed (%s); GPU matmul paths demote to numpy for this process. Libraries: %s",
             reason, _library_versions(),
         )

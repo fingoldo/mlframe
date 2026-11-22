@@ -63,10 +63,13 @@ def _decategorize_text_cols(df: Any, text_feat: list) -> Any:
     """
     if not text_feat:
         return df
+    # Write into a shallow copy: the eval-set frame belongs to the caller, which reuses it for the next model, and an in-place write
+    # demoted its text columns and turned NaN into "" (audit 28-F45).
+    out = df.copy(deep=False)
     for col in text_feat:
-        if col in df.columns and isinstance(df[col].dtype, pd.CategoricalDtype):
-            df[col] = df[col].astype("object").fillna("")
-    return df
+        if col in out.columns and isinstance(out[col].dtype, pd.CategoricalDtype):
+            out[col] = out[col].astype("object").fillna("")
+    return out
 
 
 def _is_catboost_polars_fastpath_miss(model_type_name: str, train_df: Any, error_str: str) -> bool:

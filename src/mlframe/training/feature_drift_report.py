@@ -687,7 +687,13 @@ def _col_to_numpy(df: Any, col: str) -> Optional[np.ndarray]:
     """Best-effort 1-D numpy array for a single column across pandas / polars."""
     try:
         if hasattr(df, "loc"):
-            return np.asarray(df[col].to_numpy())
+            # A nullable pandas column (Int64, Float64) with pd.NA gave an object array, and the float cast then dropped the whole sensor.
+            # Convert to float with NaN for the missing cells (audit 28-F35).
+            series = df[col]
+            try:
+                return np.asarray(series.to_numpy(dtype=np.float64, na_value=np.nan))
+            except (TypeError, ValueError):
+                return np.asarray(series.to_numpy())
         if hasattr(df, "to_numpy") and hasattr(df, "columns"):
             # polars frame
             return np.asarray(df[col].to_numpy())

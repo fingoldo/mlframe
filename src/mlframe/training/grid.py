@@ -56,12 +56,17 @@ def run_grid(
         from .core import train_mlframe_models_suite
         suite_fn = train_mlframe_models_suite
 
+    # Plan and validate every label before the first run: a duplicate found at entry 4 used to raise after variants 0-3 had trained (audit 28-F41).
+    planned = [_label_for(entry, idx) for idx, entry in enumerate(grid)]
+    seen: set[str] = set()
+    for label, _overrides in planned:
+        if label in seen:
+            raise ValueError(f"duplicate grid label: {label!r}")
+        seen.add(label)
+
     results: dict[str, Any] = {}
     labels: list[str] = []
-    for idx, entry in enumerate(grid):
-        label, overrides = _label_for(entry, idx)
-        if label in results:
-            raise ValueError(f"duplicate grid label: {label!r}")
+    for idx, (label, overrides) in enumerate(planned):
         labels.append(label)
         merged = {**base_kwargs, **overrides}
         logger.info("[run_grid] variant %d/%s -- %s", idx + 1, label, sorted(overrides.keys()))

@@ -46,3 +46,9 @@ Public or key helpers with no direct test found under `tests/system/` or `tests/
 - 31-F1: FIXED. -P gated on Python 3.11+; PYTHONPATH still carries the import root; no separate test (subprocess command construction)
 - 31-F2: FIXED. an ok sweep that persisted 0 regions counts as failed; cmd_refresh returns non-zero for 0; tests/system/test_cluster31_kernel_tuning_fixes.py
 - 31-F3: FIXED. lock records pid:start-token; a live pid with a mismatching token is stale; same test file; test_kernel_tuning_lock_race.py assertion updated to the pid field
+- 31-F6: FIXED. A failed cold-cache check records the registry keys as checked, so no new thread starts per fit, and logs at WARNING. Test tests/system/test_cluster31_cold_check_failure_is_recorded.py.
+- 31-F9: FIXED. refresh-all prints the count retune_all actually tuned and fails (exit 1) when nothing was tuned. Test tests/system/test_cluster31_refresh_all_reports_what_it_tuned.py.
+- 31-F4: FIXED. An unwritable location for the tuning lock's pid file logs a WARNING and takes no lock, instead of raising out of ensure. The _lock_path mkdir is unchanged. Test tests/system/test_cluster31_lock_write_failure_is_not_raised.py.
+- 31-F7: FIXED. Discovery captures a guarded module's state without importing it, as its docstring requires; an unloaded module stays unloaded. Test tests/system/test_cluster31_discovery_does_not_import_guarded.py.
+- 31-F5: DEFERRED. A fresh cache load after each sweep is needed for correctness: each sweep runs in a child process that writes the cache to disk, and the parent must reload to count the regions. Reusing one object would read stale data. The fix is a reload method on KernelTuningCache, which lives outside this module.
+- 31-F8: DEFERRED. The module walk repeats in each sweep child, which is a separate process, so a per-process cache does not help. Passing the discovered module list into the children changes how sweeps launch, so it is deferred.

@@ -27,3 +27,10 @@ Read fully: all five manifest files. Verified by grep/partial read (outside mani
 
 - `src/mlframe/signal/gp_smoothing.py:47`: `grouped = {entity: sub for entity, sub in df.groupby(entity_col, sort=False)}` materializes a copy of every row to build the per-entity dict, O(n_rows) extra memory, before the per-entity loop. Perf, P2 if in scope.
 - `src/mlframe/signal/gp_smoothing.py:162-176`: input typed `pd.DataFrame` but returns `pl.DataFrame` (line 71). API contract inconsistency, P3 if in scope.
+
+
+## Dispositions
+
+- 30-F1: FIXED. The DTW bench prints measured pool bytes; the analytic float32 overwrite is removed. Bench output; verified by reading, not by a unit test (needs a GPU).
+- 30-F2: FIXED. The analytic overwrite of the measured memory is removed; the printed values are the measured pool numbers. Bench output; verified by reading.
+- 30-F4: FIXED. The GP bench builds its dataset before the timer, so the wall time covers smoothing only. Bench output; verified by compiling and reading.

@@ -177,11 +177,19 @@ def cmd_refresh(specs: dict, kernel: str) -> int:
 
 
 def cmd_refresh_all(specs: dict) -> int:
-    """Tune all discovered specs (force=True) across unique GPU models."""
-    print(f"Refreshing all {len(specs)} spec(s) (force=True)...")
+    """Tune all discovered specs (force=True) across unique GPU models.
+
+    The count printed is the count retune_all actually tuned: it re-discovers the specs itself, so the count of ``specs`` may differ, and
+    an empty result is a failure, not an exit-0 success (audit 31-F9).
+    """
     # retune_all returns {(model, kernel_name): n_regions} -- one row per (GPU
     # model / "cpu", kernel) so multi-model hosts aren't clobbered.
-    for (model, kernel_name), n in sorted(retune_all(package="mlframe", force=True).items()):
+    results = retune_all(package="mlframe", force=True)
+    if not results:
+        print("refresh-all: no kernel was tuned")
+        return 1
+    print(f"Refreshed {len(results)} (model, kernel) result(s) (force=True)...")
+    for (model, kernel_name), n in sorted(results.items()):
         print(f"  [{model}] {kernel_name}: {n} region(s)")
     return 0
 

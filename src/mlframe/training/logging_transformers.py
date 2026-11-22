@@ -69,7 +69,7 @@ def log_resources(
                     rss1 = proc.memory_info().rss / 1024**2
                 except Exception as e:
                     log_throttle(logger, "logging_transformers.wrapper", logging.WARNING, "post-call RSS re-measurement failed: %s", e)
-                    rss1 = 0.0
+                    rss1 = None  # unknown, not zero: a 0 made the delta a large negative number (audit 28-F39)
                 label = stage or func.__qualname__
                 cls_name = type(self).__name__
                 extra = {
@@ -77,7 +77,7 @@ def log_resources(
                     "cls": cls_name,
                     "dt_s": dt,
                     "rss_mb": rss1,
-                    "d_rss_mb": rss1 - rss0,
+                    "d_rss_mb": None if rss1 is None else rss1 - rss0,
                 }
                 if extra_factory is not None:
                     try:
@@ -136,7 +136,10 @@ class _LoggingProxy:
 
     def __getattr__(self, name: str):
         # __getattr__ is only invoked when normal lookup fails, so this safely
-        # delegates everything not defined on the proxy itself.
+        # delegates everything not defined on the proxy itself. An instance built without __init__ (deepcopy, pickle) has no _inner
+        # yet, and reading it here recursed; refuse the slot name itself (audit 28-F40).
+        if name == "_inner":
+            raise AttributeError(name)
         return getattr(self._inner, name)
 
     def __repr__(self) -> str:  # pragma: no cover - cosmetic

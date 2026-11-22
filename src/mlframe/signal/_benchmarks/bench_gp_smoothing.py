@@ -28,14 +28,12 @@ def _make_dataset(n_objects: int, seed: int) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _run(n_objects: int) -> None:
-    df = _make_dataset(n_objects, seed=0)
+def _run(df) -> None:
     query_times = np.linspace(0, 20, 8)
     compute_gp_smoothed_features(df, "obj", "t", "y", query_times, alpha=0.05)
 
 
-def _run_ensemble(n_objects: int, ensemble_mode: str) -> None:
-    df = _make_dataset(n_objects, seed=0)
+def _run_ensemble(df, ensemble_mode: str) -> None:
     query_times = np.linspace(0, 20, 8)
     compute_gp_smoothed_features(df, "obj", "t", "y", query_times, alpha=0.05, length_scales=[0.5, 2.0, 8.0], ensemble_mode=ensemble_mode)
 
@@ -43,28 +41,32 @@ def _run_ensemble(n_objects: int, ensemble_mode: str) -> None:
 if __name__ == "__main__":
     print("--- single fixed length_scale (default path) ---")
     for n_objects in [50, 200, 500]:
+        df = _make_dataset(n_objects, seed=0)  # built outside the timer: the wall is the smoothing alone (audit 30-F4)
         t0 = time.perf_counter()
-        _run(n_objects)
+        _run(df)
         wall = time.perf_counter() - t0
         print(f"n_objects={n_objects:>5} -> {wall * 1000:9.2f} ms")
 
     print("--- multi-length-scale ensemble, cv_best (opt-in, extra LOO-CV fits) ---")
     for n_objects in [50, 200, 500]:
+        df = _make_dataset(n_objects, seed=0)
         t0 = time.perf_counter()
-        _run_ensemble(n_objects, "cv_best")
+        _run_ensemble(df, "cv_best")
         wall = time.perf_counter() - t0
         print(f"n_objects={n_objects:>5} -> {wall * 1000:9.2f} ms")
 
     print("--- multi-length-scale ensemble, cv_blend (opt-in, extra LOO-CV + full fit per candidate) ---")
     for n_objects in [50, 200, 500]:
+        df = _make_dataset(n_objects, seed=0)
         t0 = time.perf_counter()
-        _run_ensemble(n_objects, "cv_blend")
+        _run_ensemble(df, "cv_blend")
         wall = time.perf_counter() - t0
         print(f"n_objects={n_objects:>5} -> {wall * 1000:9.2f} ms")
 
+    df_profile = _make_dataset(500, seed=0)
     profiler = cProfile.Profile()
     profiler.enable()
-    _run(500)
+    _run(df_profile)
     profiler.disable()
     buf = StringIO()
     stats = pstats.Stats(profiler, stream=buf).sort_stats("cumulative")
@@ -74,7 +76,7 @@ if __name__ == "__main__":
 
     profiler_ensemble = cProfile.Profile()
     profiler_ensemble.enable()
-    _run_ensemble(500, "cv_best")
+    _run_ensemble(df_profile, "cv_best")
     profiler_ensemble.disable()
     buf_ensemble = StringIO()
     stats_ensemble = pstats.Stats(profiler_ensemble, stream=buf_ensemble).sort_stats("cumulative")

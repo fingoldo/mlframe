@@ -87,8 +87,10 @@ def _cold_check() -> None:
     try:
         cold = cold_kernel_names()
     except Exception as exc:  # the notice is advice; it must never break a fit
-        # best-effort: the cold-cache notice is advisory; a failed check only means no advice is printed.
-        logger.debug("kernel tuning cold-cache check failed: %s", exc)
+        # A failed check is not retried on every fit: the keys are recorded as checked (so no new thread is started per fit), and the failure
+        # is logged where it can be seen, not at DEBUG (audit 31-F6).
+        _CHECKED_KEYS = keys
+        logger.warning("kernel tuning cold-cache check failed (%s); the untuned-kernel notice is skipped for this process", exc)
         return
     # every spec of this registry has been judged: a later fit re-checks only once new tuner modules have registered (the check costs a disk read of the whole per-host cache)
     _CHECKED_KEYS = keys

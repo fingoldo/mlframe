@@ -139,7 +139,8 @@ def train_autogluon_model(
         if isinstance(test_probs, pd.DataFrame):
             test_probs = test_probs.to_numpy()
 
-        if test_target is not None and verbose:
+        # The AUC is a result, so it is computed whatever the verbosity; only the log line is gated (audit 28-F32).
+        if test_target is not None:
             try:
                 # Shape-aware roc_auc dispatch:
                 # (N, 2) binary → use class-1 column; K>2 → multi_class='ovr' on full (N, K)
@@ -147,7 +148,8 @@ def train_autogluon_model(
                     auc = roc_auc_score(test_target, test_probs, multi_class="ovr")
                 else:
                     auc = fast_roc_auc(np.asarray(test_target), test_probs[:, 1])
-                logger.info("AutoGluon test AUC: %.4f", auc)
+                if verbose:
+                    logger.info("AutoGluon test AUC: %.4f", auc)
                 metrics["test_auc"] = auc
             except (ValueError, TypeError):
                 logger.warning("Could not compute AUC", exc_info=True)
@@ -231,9 +233,12 @@ def train_lama_model(
         logger.exception("LightAutoML not available")
         return None
 
-    # Default to binary classification if no init_params provided
-    if init_params is None:
-        init_params = {"task": Task("binary")}
+    # Default to binary classification when no task is given. The time budget is merged into init_params by the caller, so the
+    # test must be on the task key itself: keying it on init_params being None skipped the binary default whenever a budget was set
+    # (audit 28-F33).
+    init_params = dict(init_params or {})
+    if "task" not in init_params:
+        init_params["task"] = Task("binary")
     fit_params = fit_params or {}
 
     if verbose:
@@ -267,7 +272,7 @@ def train_lama_model(
             logger.warning("LAMA predictions have unexpected shape, skipping probability conversion")
             test_probs = None
 
-        if test_target is not None and verbose and test_probs is not None:
+        if test_target is not None and test_probs is not None:
             try:
                 # Shape-aware roc_auc dispatch:
                 # (N, 2) binary → use class-1 column; K>2 → multi_class='ovr' on full (N, K)
@@ -275,7 +280,8 @@ def train_lama_model(
                     auc = roc_auc_score(test_target, test_probs, multi_class="ovr")
                 else:
                     auc = fast_roc_auc(np.asarray(test_target), test_probs[:, 1])
-                logger.info("LAMA test AUC: %.4f", auc)
+                if verbose:
+                    logger.info("LAMA test AUC: %.4f", auc)
                 metrics["test_auc"] = auc
             except (ValueError, TypeError):
                 logger.warning("Could not compute AUC", exc_info=True)
