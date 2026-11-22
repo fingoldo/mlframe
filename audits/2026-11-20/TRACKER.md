@@ -294,13 +294,13 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 25-F2 | 25_root_modules-4.md | FIXED | Monotonicity by comparison for unsigned ids. Test test_cluster25_unsigned_group_ids_unsorted.py. |
 | 26-F4 | 26_root_modules-5.md | FIXED | Expanding stats use observed count; the earlier test was weak (finiteness only). Strict test test_cluster26_expanding_uses_observed_count.py. |
 | 28-F12 | 28_root_modules-7.md | FIXED | Absent class_weight key skipped. Test test_cluster28_class_weight_absent_key_skipped.py. |
-| 28-F2 | 28_root_modules-7.md | FIXED (test pending) | Multilabel decided from shape only; no targeted test yet (needs full calibrator run). |
+| 28-F2 | 28_root_modules-7.md | FIXED | Multilabel decided from array shape only; string class labels stay MULTICLASS. Test tests/training/test_cluster28_multiclass_string_labels_not_multilabel.py. |
 | 28-F6 | 28_root_modules-7.md | FIXED | Inf guard runs on the batched path. Test test_cluster28_polars_inf_guard_runs_when_not_fixing.py. |
 | 28-F17 | 28_root_modules-7.md | FIXED | set_label applies the fitted label encoder. Test test_cluster28_set_label_encodes_like_fit.py. |
 | 28-F7 | 28_root_modules-7.md | FIXED | Split artifacts always rewritten. Test test_cluster28_split_artifacts_rewritten.py. |
 | 28-F11 | 28_root_modules-7.md | FIXED | Auto-wrap switch carried on the control config. Test test_cluster28_wrap_flag_reaches_control.py. |
 | 28-F14 | 28_root_modules-7.md | FIXED | Unreadable existing bundle raises. Test test_cluster28_unreadable_bundle_raises.py. |
-| 28-F16 | 28_root_modules-7.md | FIXED (test pending) | Validation cache hit re-applies init_score. Needs a full cached fit to test. |
+| 28-F16 | 28_root_modules-7.md | FIXED | Val cache hit re-applies init_score; LightGBM cannot clear an init_score once set, so a val Dataset carrying one is rebuilt for a call without offsets (lgb_shim.py). Test tests/training/test_cluster28_val_cache_hit_reapplies_init_score.py. |
 | 01-F1 | 01_calibration.md | FIXED | Bench groups from the bias-index codes. Bench-only, no test. |
 | 01-F2 | 01_calibration.md | FIXED | Bench seeds via zlib.crc32. Bench-only, no test. |
 | 01-F4 | 01_calibration.md | DEFERRED | Bench re-implements shipped ECI code. Bench-only rewrite. |

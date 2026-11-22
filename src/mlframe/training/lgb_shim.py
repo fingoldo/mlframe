@@ -539,10 +539,16 @@ class _DatasetReuseMixin:
                     dval = _lgb_cache_get(val_key)
                     if dval is not None:
                         _val_source = "module"
+                # LightGBM cannot clear an init_score once set on a constructed Dataset (set_init_score(None) keeps the
+                # old offsets). A val Dataset that carries one is not reused for a call without offsets: rebuild (audit 28-F16).
+                if dval is not None and init_val is None and getattr(dval, "_mlframe_init_set", False):
+                    dval = None
+                    _val_source = "miss"
                 if dval is not None:
                     dval.set_label(np.asarray(y_val))
                     # Re-apply init_score on every hit, as the train side does; a hit used to keep a stale or absent one (audit 28-F16).
                     dval.set_init_score(None if init_val is None else np.asarray(init_val))
+                    dval._mlframe_init_set = init_val is not None
                     if w_val is not None:
                         dval.set_weight(np.asarray(w_val))
                     else:
@@ -565,6 +571,7 @@ class _DatasetReuseMixin:
                         feature_name=feature_name,
                         init_score=init_val,
                     )
+                    dval._mlframe_init_set = init_val is not None
                     self._remember_val_dataset(val_key, dval)
                     _lgb_cache_put(val_key, dval)
                     logger.debug(
