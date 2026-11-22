@@ -481,6 +481,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 40-F28 | 40_training-9.md | FIXED | transform adds PySR columns to a shallow copy; the caller's frame is not mutated. Test test_cluster40_pysr_transform_does_not_mutate_input.py. |
 | 40-F23 | 40_training-9.md | FIXED | Join looks up each unique id once with normalised keys; 3 matches 3.0; unknown and NaN ids zero-filled. Test test_cluster40_embedding_join_normalised_keys.py. |
 | 40-F30 | 40_training-9.md | FIXED | Weighted classification loss divides by class-times-sample weights when class weights are set, matching the unweighted CrossEntropy mean. Test test_cluster40_class_weighted_loss_scale.py. |
+| 40-F25 | 40_training-9.md | DEFERRED | Fit-time lookup raw-key vs replay normalised-key mismatch. Not changed: no discriminating case found (encoder returns the prior for the tested entities). Needs the terminal-encoding semantics. |
 | 41-F1 | 41_training-10.md | FIXED | Predict maps categorical-dtype NaN to the fit-time sentinel. Test test_cluster41_catboost_predict_nan_categorical.py. |
 | 41-F2 | 41_training-10.md | FIXED | verbose NDCG logging uses .get so an eval_at without 10 cannot raise; no separate test |
 | 41-F3 | 41_training-10.md | FIXED | NaN temporal labels count as missing in the polars path, matching the pandas twin; no separate test |
