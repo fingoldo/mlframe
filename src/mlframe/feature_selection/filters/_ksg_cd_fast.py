@@ -122,8 +122,8 @@ def _mi_cd_columns_auto(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbor
     return cast(np.ndarray, _mi_cd_columns(X, d, n_classes, n_neighbors))
 
 
-_COLUMNS_BLOCK_BYTES = 128 * 1024 * 1024  # host bytes of the float64 working copy of one block of columns in ksg_mi_discrete_target_columns
-_NOISE_TILE_ELEMENTS = 4_000_000  # elements of one tile of the Kraskov noise (32 MB in float64)
+_COLUMNS_BLOCK_BYTES = 128 * 1024 * 1024  # host bytes of the double working copy of one block of columns in ksg_mi_discrete_target_columns
+_NOISE_TILE_ELEMENTS = 4_000_000  # elements of one tile of the Kraskov noise (32 MB in double)
 
 
 def ksg_mi_discrete_target(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, random_state: int) -> np.ndarray:
