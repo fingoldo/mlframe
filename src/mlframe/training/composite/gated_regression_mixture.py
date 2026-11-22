@@ -36,31 +36,12 @@ from sklearn.base import BaseEstimator, RegressorMixin, clone
 
 from mlframe.utils.log_throttle import log_throttle
 
-from ._frame_ops import append_column
+from ._frame_ops import append_column, subset_rows as _subset_rows
 
 logger = logging.getLogger(__name__)
 
 _LOW = "low"
 _HIGH = "high"
-
-
-def _subset_rows(X: Any, mask: np.ndarray) -> Any:
-    """Row-subset ``X`` by a boolean ``mask``, flavour-native: polars ``DataFrame[idx]`` / pandas ``.iloc`` /
-    ndarray fancy index. The prior fallback (``np.asarray(X)[mask]`` for anything lacking ``.iloc``)
-    silently down-converted a polars DataFrame -- which ``_concat_feature`` a few lines below DOES handle
-    explicitly, showing polars support was intended here too -- to an untyped/object ndarray, breaking
-    feature-name and dtype consistency for the fitted branch regressor."""
-    try:
-        import polars as pl
-
-        if isinstance(X, pl.DataFrame):
-            return X[np.flatnonzero(mask).tolist()]
-    except ImportError:
-        pass
-    iloc = getattr(X, "iloc", None)
-    if iloc is not None:
-        return iloc[np.flatnonzero(mask)]
-    return np.asarray(X)[mask]
 
 
 def _concat_feature(X: Any, col_name: str, values: np.ndarray) -> Any:
