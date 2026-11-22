@@ -631,7 +631,7 @@ def _hybrid_modular_fe_gate_first(X, y, src_cols, chunk, periods, top_k, n_boot,
     # at a million rows): a wide block keeps every thread busy and the resamples and their tables are prepared once. Per-column values do not depend on the block.
     for b0 in range(0, len(kept_sources), _BASELINE_BLOCK_COLUMNS):
         block = kept_sources[b0 : b0 + _BASELINE_BLOCK_COLUMNS]
-        base_parts.append(pd.DataFrame({"baseline_mi_lcb": baseline_lcb_by_bootstrap_mi(X[block], y, n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins)}))
+        base_parts.append(pd.DataFrame({"baseline_mi_lcb": baseline_lcb_by_bootstrap_mi(X[block], y, n_boot=n_boot, sample_fraction=sample_fraction, seed=seed, nbins=nbins)}, copy=False))
     base = pd.concat(base_parts, ignore_index=True)
     noise_floor = _modular_noise_floor(base)
     if stream_family:

@@ -46,7 +46,7 @@ def triplet_cell_columns(X: Any, triplet_names: "list[str]", y_codes: Any, seed:
         cell_name = "cell3(" + ",".join(sorted(legs)) + ")"
         if cell_name in present or cell_name in columns:
             continue
-        frame = pd.DataFrame(fe_extract_columns(X, legs))
+        frame = pd.DataFrame(fe_extract_columns(X, legs), copy=False)
         made = _synthesized_cell_triple(frame, tuple(legs))
         if made is None:
             continue

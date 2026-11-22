@@ -86,7 +86,7 @@ def _sweep_inputs(dims: dict) -> tuple:
     """A float32 frame of ``_SWEEP_SOURCES`` columns whose pool (3 candidates per period) holds ``dims["n_samples"]`` elements."""
     n = max(64, int(dims["n_samples"]) // (_SWEEP_SOURCES * 3 * len(_SWEEP_PERIODS)))
     rng = np.random.default_rng(0)
-    X = pd.DataFrame({f"c{i}": (rng.random(n) * 1000.0).astype(np.float32) for i in range(_SWEEP_SOURCES)})
+    X = pd.DataFrame({f"c{i}": (rng.random(n) * 1000.0).astype(np.float32) for i in range(_SWEEP_SOURCES)}, copy=False)
     return (X,)
 
 

@@ -71,9 +71,9 @@ def _apply_kfold_target_encoded(recipe: EngineeredRecipe, X: Any, col_cache: "di
     if pd is not None and isinstance(X, pd.DataFrame):
         X_view = X
     elif pl is not None and pd is not None and isinstance(X, pl.DataFrame):  # pd required: X_view below is a pandas frame
-        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)})
+        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)}, copy=False)
     elif isinstance(X, np.ndarray) and X.dtype.names is not None:
-        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)})
+        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)}, copy=False)
     else:
         raise TypeError(
             f"kfold_target_encoded recipe '{recipe.name}': cannot extract "
@@ -153,9 +153,9 @@ def _apply_count_encoded(recipe: EngineeredRecipe, X: Any, col_cache: "dict[str,
     if pd is not None and isinstance(X, pd.DataFrame):
         X_view = X
     elif pl is not None and pd is not None and isinstance(X, pl.DataFrame):  # pd required: X_view below is a pandas frame
-        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)})
+        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)}, copy=False)
     elif isinstance(X, np.ndarray) and X.dtype.names is not None:
-        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)})
+        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)}, copy=False)
     else:
         raise TypeError(f"count_encoded recipe '{recipe.name}': cannot extract column " f"{name!r} from X of type {type(X).__name__}.")
     return apply_count_encoding(
@@ -178,9 +178,9 @@ def _apply_frequency_encoded(recipe: EngineeredRecipe, X: Any, col_cache: "dict[
     if pd is not None and isinstance(X, pd.DataFrame):
         X_view = X
     elif pl is not None and pd is not None and isinstance(X, pl.DataFrame):  # pd required: X_view below is a pandas frame
-        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)})
+        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)}, copy=False)
     elif isinstance(X, np.ndarray) and X.dtype.names is not None:
-        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)})
+        X_view = pd.DataFrame({name: _extract_column(X, name, col_cache=col_cache)}, copy=False)
     else:
         raise TypeError(f"frequency_encoded recipe '{recipe.name}': cannot extract column " f"{name!r} from X of type {type(X).__name__}.")
     return apply_frequency_encoding(
@@ -208,12 +208,12 @@ def _apply_cat_num_residual(recipe: EngineeredRecipe, X: Any, col_cache: "dict[s
         X_view = pd.DataFrame({
             cat_name: _extract_column(X, cat_name, col_cache=col_cache),
             num_name: _extract_column(X, num_name, col_cache=col_cache),
-        })
+        }, copy=False)
     elif isinstance(X, np.ndarray) and X.dtype.names is not None:
         X_view = pd.DataFrame({
             cat_name: _extract_column(X, cat_name, col_cache=col_cache),
             num_name: _extract_column(X, num_name, col_cache=col_cache),
-        })
+        }, copy=False)
     else:
         raise TypeError(f"cat_num_residual recipe '{recipe.name}': cannot extract columns " f"from X of type {type(X).__name__}.")
     return apply_cat_num_residual(

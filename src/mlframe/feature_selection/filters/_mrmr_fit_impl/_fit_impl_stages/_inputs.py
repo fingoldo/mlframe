@@ -126,7 +126,7 @@ def _finalise_feature_names_in(self, X, _all_cols, _engineered_names_set, verbos
 def _prepare_input_frame(self, X, verbose):
     """Bring X to a pandas frame MI discretisation can read: numpy -> DataFrame, embedding/free-text passthrough, nullable dtypes densified."""
     if isinstance(X, np.ndarray):
-        X = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(X.shape[1])])
+        X = pd.DataFrame(X, columns=[f"feature_{i}" for i in range(X.shape[1])])  # copy-ok: the caller's array
         self._feature_names_in_synthesized_ = True
     else:
         self._feature_names_in_synthesized_ = False

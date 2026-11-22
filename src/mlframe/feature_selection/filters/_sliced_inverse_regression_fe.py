@@ -182,7 +182,7 @@ def generate_sir_direction_features(
     k = top_dirs.shape[1]
     Z = _project(X_cols - x_mean, top_dirs)
     names = [engineered_name_sir_direction(cols, i) for i in range(k)]
-    enc = pd.DataFrame(Z, columns=names, index=X.index)
+    enc = pd.DataFrame(Z, columns=names, index=X.index, copy=False)
     payload = {"cols": tuple(cols), "x_mean": x_mean.copy(), "v": top_dirs.copy()}
     return enc, payload
 
@@ -198,7 +198,7 @@ def apply_sir_direction(X_test: "pd.DataFrame", payload: dict) -> "pd.DataFrame"
     Xc = X_cols - payload["x_mean"]
     Z = _project(Xc, payload["v"])
     names = [engineered_name_sir_direction(cols, i) for i in range(Z.shape[1])]
-    return pd.DataFrame(Z, columns=names, index=X_test.index)
+    return pd.DataFrame(Z, columns=names, index=X_test.index, copy=False)
 
 
 def build_sir_direction_recipe(*, name: str, idx: int, cols: Sequence[str], x_mean: np.ndarray, v: np.ndarray) -> "EngineeredRecipe":

@@ -117,7 +117,7 @@ def synthetic_scorer_frame(dims: dict, seed: int = 0) -> tuple:
 
     n, k = int(dims["n_rows"]), int(dims["n_cols"])
     rng = np.random.default_rng(seed)
-    raw = pd.DataFrame(rng.standard_normal((n, 20)).astype(np.float32), columns=[f"r{i}" for i in range(20)])
-    eng = pd.DataFrame(rng.standard_normal((n, k)).astype(np.float32), columns=[f"r{j % 20}__e{j}" for j in range(k)])
+    raw = pd.DataFrame(rng.standard_normal((n, 20)).astype(np.float32), columns=[f"r{i}" for i in range(20)], copy=False)
+    eng = pd.DataFrame(rng.standard_normal((n, k)).astype(np.float32), columns=[f"r{j % 20}__e{j}" for j in range(k)], copy=False)
     y = (raw["r0"].to_numpy() + rng.standard_normal(n) > 0).astype(np.int64)
     return raw, eng, y

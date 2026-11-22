@@ -122,7 +122,7 @@ def generate_mahalanobis_density_features(X: "pd.DataFrame", cols: Sequence[str]
     scores = _score_from_frozen(X_cols, mu, Sigma_inv)
 
     name = engineered_name_mahalanobis_density(cols)
-    enc = pd.DataFrame({name: scores}, index=X.index)
+    enc = pd.DataFrame({name: scores}, index=X.index, copy=False)
     payload = {"cols": tuple(cols), "mu": mu, "Sigma_inv": Sigma_inv}
     return enc, payload
 
@@ -137,7 +137,7 @@ def apply_mahalanobis_density(X_test: "pd.DataFrame", payload: dict) -> "pd.Data
     X_cols = X_test[cols].to_numpy(dtype=_crit_np_dtype())
     scores = _score_from_frozen(X_cols, payload["mu"], payload["Sigma_inv"])
     name = engineered_name_mahalanobis_density(cols)
-    return pd.DataFrame({name: scores}, index=X_test.index)
+    return pd.DataFrame({name: scores}, index=X_test.index, copy=False)
 
 
 def build_mahalanobis_density_recipe(*, name: str, cols: Sequence[str], mu: np.ndarray, Sigma_inv: np.ndarray) -> "EngineeredRecipe":

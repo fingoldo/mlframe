@@ -65,7 +65,7 @@ class TargetOffsetRegressor(RegressorMixin, BaseEstimator):
     def fit(self, X, y):
         """Fit the selector, then the regressor on the selected features against ``y - beta * u(X)``."""
         self.decide(X, y)
-        X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X)
+        X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X)  # copy-ok: the caller's array
         y = np.asarray(y).ravel()
         self._y_dtype_ = y.dtype
         self.regressor_ = clone(self.regressor).fit(self.selector_.transform(X), y - self._offset(X))
@@ -75,7 +75,7 @@ class TargetOffsetRegressor(RegressorMixin, BaseEstimator):
         """Select, fix beta and run the held-out gate, without fitting the final regressor; sets ``selector_``, ``offset_base_``, ``offset_beta_``.
 
         Used on its own where only the decision and the slope are needed (building the mix-offset target); ``fit`` is this plus the final fit."""
-        X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X)
+        X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X)  # copy-ok: the caller's array
         y = np.asarray(y).ravel()
         self._y_dtype_ = y.dtype
         # Selection and the slope beta see the even rows only; the held-out gate below reads the odd rows, which neither the selector nor beta has seen.
@@ -136,5 +136,5 @@ class TargetOffsetRegressor(RegressorMixin, BaseEstimator):
 
     def predict(self, X):
         """``regressor(selector.transform(X)) + beta * u(X)``."""
-        X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X)
+        X = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X)  # copy-ok: the caller's array
         return np.asarray(self.regressor_.predict(self.selector_.transform(X))) + self._offset(X)

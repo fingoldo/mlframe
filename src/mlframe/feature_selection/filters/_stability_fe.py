@@ -112,7 +112,7 @@ def _coerce_pandas(X, y) -> tuple[pd.DataFrame, pd.Series]:
     require dispatch per bootstrap.
     """
     if not isinstance(X, pd.DataFrame):
-        X = pd.DataFrame(X)
+        X = pd.DataFrame(X)  # copy-ok: the caller's array
     if isinstance(y, pd.DataFrame):
         if y.shape[1] != 1:
             raise ValueError(f"y must be 1-D (Series / ndarray / single-col frame); " f"got DataFrame with shape {y.shape}")

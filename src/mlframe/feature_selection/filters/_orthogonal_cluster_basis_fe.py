@@ -818,7 +818,7 @@ def _apply_orth_cluster_basis(recipe, X) -> np.ndarray:
         )
     # Build a DataFrame-like dict with stable column order matching
     # recipe.src_names for byte-exact reproducibility.
-    frame = pd.DataFrame(member_cols)
+    frame = pd.DataFrame(member_cols, copy=False)
     # replay with the STORED fit-time
     # aggregate stats + basis preprocess params so the aggregate z-score / PC1
     # loading and the basis preprocess are APPLIED, not refit on the (possibly

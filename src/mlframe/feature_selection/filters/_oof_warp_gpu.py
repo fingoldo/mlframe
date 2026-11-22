@@ -291,7 +291,7 @@ def _scan(xs: np.ndarray, y: np.ndarray, device: bool) -> np.ndarray:
 
     from ._oof_warp_fe import warp_candidates
 
-    frame = pd.DataFrame(xs, columns=[f"c{j}" for j in range(xs.shape[1])])
+    frame = pd.DataFrame(xs, columns=[f"c{j}" for j in range(xs.shape[1])], copy=False)
     cands = warp_candidates(frame, y, list(frame.columns), device=device)
     if device and not all(c.get("scored_on") == "device" for c in cands):
         raise RuntimeError("device warp scan unavailable")

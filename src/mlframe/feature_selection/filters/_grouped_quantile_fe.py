@@ -322,7 +322,7 @@ def generate_grouped_quantile_features(
         encoded.update(enc_part)
         raw_recipes.update(rec_part)
 
-    enc_df = pd.DataFrame(encoded, index=X.index)
+    enc_df = pd.DataFrame(encoded, index=X.index, copy=False)
     return enc_df, raw_recipes
 
 def apply_grouped_quantile(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
@@ -513,7 +513,7 @@ def generate_target_aware_group_bins(
                 "n_bins": int(n_bins),
             }
 
-    enc_df = pd.DataFrame(encoded, index=X.index)
+    enc_df = pd.DataFrame(encoded, index=X.index, copy=False)
     return enc_df, raw_recipes
 
 def apply_target_aware_group_bin(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:

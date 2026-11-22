@@ -387,7 +387,7 @@ def _sweep_inputs(dims: dict) -> tuple:
 
     rng = np.random.default_rng(0)
     n = int(dims["n_samples"])
-    X = pd.DataFrame(rng.standard_normal((n, _SWEEP_COLS)).astype(np.float32), columns=[f"x{i}" for i in range(_SWEEP_COLS)])
+    X = pd.DataFrame(rng.standard_normal((n, _SWEEP_COLS)).astype(np.float32), columns=[f"x{i}" for i in range(_SWEEP_COLS)], copy=False)
     y = ((X["x0"] * X["x1"] + 0.5 * rng.standard_normal(n)) > 0).astype(np.int64).to_numpy()
     pairs = [(a, b) for i, a in enumerate(X.columns) for b in X.columns[i + 1 :]]
     eng = generate_pair_cross_basis_features(X, pairs, max_degree=2, basis="auto", min_degree=1)

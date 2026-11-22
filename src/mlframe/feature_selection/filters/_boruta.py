@@ -214,7 +214,7 @@ def boruta_select(
         else:
             real_cols = X[cols].to_numpy()
             shadow_arr = rng.permuted(real_cols, axis=0)
-            shadow = pd.DataFrame(shadow_arr, columns=[f"{c}__shadow" for c in cols])
+            shadow = pd.DataFrame(shadow_arr, columns=[f"{c}__shadow" for c in cols], copy=False)
             X_shadowed = pd.concat([X[cols].reset_index(drop=True), shadow.reset_index(drop=True)], axis=1)
 
         importances = np.asarray(importance_fn(X_shadowed, y), dtype=np.float64)  # Intentional float64: importance statistic compared exactly against the shadow maximum (ties decide hits)

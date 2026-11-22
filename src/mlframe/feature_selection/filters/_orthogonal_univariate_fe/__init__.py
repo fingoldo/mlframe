@@ -789,7 +789,7 @@ def hybrid_orth_mi_fe(
             _cols_host = {k: _g_mat.host_column(k) for k in keep if k in _g_mat}
         else:
             _cols_host = {k: cp.asnumpy(_g_mat[:, _idx[k]]) for k in keep if k in _idx}
-        X_aug = pd.concat([X, pd.DataFrame(_cols_host, index=X.index)], axis=1) if _cols_host else X.copy(deep=False)
+        X_aug = pd.concat([X, pd.DataFrame(_cols_host, index=X.index, copy=False)], axis=1) if _cols_host else X.copy(deep=False)
     return X_aug, scores
 
 # ---------------------------------------------------------------------------
@@ -937,7 +937,7 @@ def hybrid_orth_mi_fe_with_recipes(
     if _do_sub:
         if _full_eng_cols:
             X_aug = pd.concat(
-                [X, pd.DataFrame(_full_eng_cols, index=X.index)], axis=1,
+                [X, pd.DataFrame(_full_eng_cols, index=X.index, copy=False)], axis=1,
             )
         else:
             X_aug = X.copy(deep=False)

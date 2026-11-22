@@ -55,7 +55,7 @@ def _apply_sis_screen(self, X, y):
     else:
         Xmat = np.asarray(X)
         if Xmat.dtype.kind in "USO" or Xmat.dtype == object:  # object ndarray -> factorise per column
-            Xmat = _numeric_matrix(pd.DataFrame(Xmat))
+            Xmat = _numeric_matrix(pd.DataFrame(Xmat))  # copy-ok: the caller's array
 
     # MRMR has no requested feature count (the greedy stops on its own information criterion), so there is no target to scale the
     # survivor floor by; the screen's absolute floor applies. ``k_target`` stays on ``sis_screen`` for direct callers that do have one.
@@ -91,7 +91,7 @@ def _apply_sis_screen(self, X, y):
         return X[:, survivors.tolist()]
     # An ndarray has no names, and the fit would synthesize ``feature_<j>`` from SUBSET positions, so "feature_3" would mean the 4th
     # survivor. Name each survivor by its INPUT position instead, so every name, recipe source and ``support_`` entry can be mapped back.
-    return pd.DataFrame(X[:, survivors], columns=[f"feature_{int(i)}" for i in survivors])
+    return pd.DataFrame(X[:, survivors], columns=[f"feature_{int(i)}" for i in survivors])  # copy-ok: the caller's array
 
 
 def _sis_input_space(X) -> tuple:

@@ -430,9 +430,9 @@ def _emit_num_col_features(
         lookup_std = _array_lookup(key_labels, std_arr, zero_nonfinite=True, distinct=distinct)
     else:
         if key_uniq is not None and key_inverse is not None:
-            tmp = pd.DataFrame({"_g": np.asarray(key_inverse), "_v": x}, index=X.index)
+            tmp = pd.DataFrame({"_g": np.asarray(key_inverse), "_v": x}, index=X.index, copy=False)
         else:
-            tmp = pd.DataFrame({"_g": keys, "_v": x}, index=X.index)
+            tmp = pd.DataFrame({"_g": keys, "_v": x}, index=X.index, copy=False)
         grouped = tmp.groupby("_g", observed=True, sort=False)["_v"]
         mean_series = grouped.mean()
         std_series = grouped.std(ddof=1)
@@ -451,7 +451,7 @@ def _emit_num_col_features(
             lookup = _array_lookup(key_labels, agg_values, zero_nonfinite=True, distinct=distinct)
         else:
             if grouped is None:  # a statistic the kernel does not cover (min / max / median / skew / nunique)
-                tmp = pd.DataFrame({"_g": np.asarray(key_inverse), "_v": x}, index=X.index)
+                tmp = pd.DataFrame({"_g": np.asarray(key_inverse), "_v": x}, index=X.index, copy=False)
                 grouped = tmp.groupby("_g", observed=True, sort=False)["_v"]
             if stat == "mean" and not kernel:
                 agg_series = mean_series
@@ -534,7 +534,7 @@ def _frame_of_columns(encoded: "dict[str, np.ndarray]", index: pd.Index) -> pd.D
     n = len(index)
     dtypes = {a.dtype for a in encoded.values()}
     if not names or len(dtypes) != 1 or any(a.shape != (n,) for a in encoded.values()):
-        return pd.DataFrame(encoded, index=index)
+        return pd.DataFrame(encoded, index=index, copy=False)
     dtype = next(iter(dtypes))
     parts = []
     for c0 in range(0, len(names), _FRAME_CHUNK_COLUMNS):
@@ -702,13 +702,13 @@ def _coerce_X_for_composite_agg(X, group_cols, num_col, recipe_name: str) -> pd.
         if isinstance(X, _pl.DataFrame):
             cols = {c: X[c].to_numpy() for c in group_cols}
             cols[num_col] = X[num_col].to_numpy()
-            return pd.DataFrame(cols)
+            return pd.DataFrame(cols, copy=False)
     except ImportError:
         pass
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
         cols = {c: X[c] for c in group_cols}
         cols[num_col] = X[num_col]
-        return pd.DataFrame(cols)
+        return pd.DataFrame(cols, copy=False)
     raise TypeError(f"recipe '{recipe_name}': cannot extract {group_cols}/{num_col!r} " f"from X of type {type(X).__name__}")
 
 def _apply_composite_group_agg_recipe(recipe, X) -> np.ndarray:

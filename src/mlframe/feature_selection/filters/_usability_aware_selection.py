@@ -224,7 +224,7 @@ def build_usability_candidate_pool(
     st._mi_key = (lambda m: quantize_mi_tiebreak(m)) if st._seleq else (lambda m: m)
 
     if not isinstance(X_df, pd.DataFrame):
-        X_df = pd.DataFrame(np.asarray(X_df))
+        X_df = pd.DataFrame(np.asarray(X_df))  # copy-ok: the caller's array
     y_cont = _scrub(y_cont)
     st.y_codes = _quantile_bin(y_cont, quantization_nbins, host_only=True)
     # y is fixed for the whole candidate enumeration -> hoist H(Y)/k_y once (reused by every marginal-MI eval).

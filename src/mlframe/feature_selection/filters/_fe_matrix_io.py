@@ -328,7 +328,7 @@ def from_feature_matrix(fm: FeatureMatrix) -> np.ndarray | pl.DataFrame | pd.Dat
                 out_pd[name] = pd.Categorical.from_codes(
                     np.clip(codes, -1, len(labels) - 1), categories=labels,
                 )
-    df = pd.DataFrame(out_pd)
+    df = pd.DataFrame(out_pd, copy=False)
     if fm.framework == "pyarrow":
         import pyarrow as pa
         return pa.Table.from_pandas(df, preserve_index=False)

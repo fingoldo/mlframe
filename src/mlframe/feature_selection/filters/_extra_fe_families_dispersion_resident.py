@@ -374,7 +374,7 @@ def _sweep_inputs(dims: dict) -> tuple:
 
     rng = np.random.default_rng(0)
     n = int(dims["n_samples"])
-    X = pd.DataFrame(rng.standard_normal((n, _SWEEP_COLS)).astype(_crit_np_dtype()), columns=[f"x{i}" for i in range(_SWEEP_COLS)])
+    X = pd.DataFrame(rng.standard_normal((n, _SWEEP_COLS)).astype(_crit_np_dtype()), columns=[f"x{i}" for i in range(_SWEEP_COLS)], copy=False)
     X["x1"] = X["x1"] * (1.0 + np.abs(X["x0"]))
     y = ((np.abs(X["x1"]) + 0.5 * rng.standard_normal(n)) > 1.0).astype(np.int64).to_numpy()
     enc_df, recipes = generate_conditional_dispersion_features(X, list(X.columns), n_bins=10, kinds=("absz", "z2"))

@@ -113,7 +113,7 @@ def _numeric_codes_frame(X: "pd.DataFrame") -> "pd.DataFrame":
                 # column-count/order invariant this function promises callers.
                 codes = np.zeros(len(s), dtype=np.intp)
             series_list.append(np.asarray(codes))
-    out = pd.DataFrame(np.column_stack(series_list) if series_list else np.empty((len(X), 0)), index=X.index)
+    out = pd.DataFrame(np.column_stack(series_list) if series_list else np.empty((len(X), 0)), index=X.index, copy=False)
     out.columns = list(X.columns)
     return out
 
@@ -127,7 +127,7 @@ def _su_redundancy_matrix(X, nbins: int = 10) -> np.ndarray:
     computed per pair from the joint bincount. O(p^2) over the (already cluster-bounded) feature set.
     """
     if not isinstance(X, pd.DataFrame):
-        X = pd.DataFrame(X)
+        X = pd.DataFrame(X)  # copy-ok: the caller's array
     arr = _numeric_codes_frame(X).to_numpy()
     n, p = arr.shape
     codes = np.empty((n, p), dtype=np.int64)
@@ -175,7 +175,7 @@ def _redundancy_matrix(X, method: str) -> np.ndarray:
     if method == "su":
         return _su_redundancy_matrix(X)
     if not isinstance(X, pd.DataFrame):
-        X = pd.DataFrame(X)
+        X = pd.DataFrame(X)  # copy-ok: the caller's array
     # Factor-code non-numeric columns first: ``DataFrame.corr`` float-coerces every
     # column and would crash on a raw categorical / string level (e.g. ``"NA"``).
     corr = np.array(_numeric_codes_frame(X).corr(method=method).abs().to_numpy(), copy=True)
@@ -207,7 +207,7 @@ def cluster_features_by_correlation(
         Integer cluster labels in [0, n_clusters - 1].
     """
     if not isinstance(X, pd.DataFrame):
-        X = pd.DataFrame(X)
+        X = pd.DataFrame(X)  # copy-ok: the caller's array
     # The p x p redundancy matrix is a function of (X, method) alone; the caller (fit) computes it ONCE and threads it
     # through both this clustering pass and _cluster_medoids to avoid a second O(p^2) build (p = features, bounded).
     corr = precomputed_corr if precomputed_corr is not None else _redundancy_matrix(X, method)
@@ -246,7 +246,7 @@ def _cluster_medoids(
 ) -> list[int]:
     """For each cluster, pick the column with highest mean abs-corr to its cluster mates (the medoid). Singletons return their only member."""
     if not isinstance(X, pd.DataFrame):
-        X = pd.DataFrame(X)
+        X = pd.DataFrame(X)  # copy-ok: the caller's array
     corr = precomputed_corr if precomputed_corr is not None else _redundancy_matrix(X, method)
     n_clusters = int(cluster_id.max()) + 1
 
@@ -427,7 +427,7 @@ class CorrelatedFeaturesSelector(TransformerMixin, BaseEstimator):
                 f"De-duplicate (e.g. ``X.loc[:, ~X.columns.duplicated()]`` or rename) before fitting."
             )
         if not is_df:
-            X = pd.DataFrame(X, columns=[f"f_{i}" for i in range(X.shape[1])])
+            X = pd.DataFrame(X, columns=[f"f_{i}" for i in range(X.shape[1])])  # copy-ok: the caller's array
 
         # Build the p x p redundancy matrix ONCE and reuse it for both the clustering pass and the medoid pick -
         # they are both functions of (X, corr_method) and previously each rebuilt it (a redundant O(p^2) SU/corr pass).

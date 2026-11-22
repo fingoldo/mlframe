@@ -377,7 +377,7 @@ def _sis_screen_part1(
             # ``dedup_corr_thr`` is set; ``corr_clusters`` requires a DataFrame (it reads ``.columns``).
             _n_rows_all = int(Xarr.shape[0])
             _row_sel = slice(None) if _n_rows_all <= _SIS_DEDUP_MAX_ROWS else np.arange(0, _n_rows_all, int(np.ceil(_n_rows_all / _SIS_DEDUP_MAX_ROWS)))
-            surv_df = pd.DataFrame(np.asarray(Xarr[_row_sel][:, survivors], dtype=np.float64), columns=[str(int(s)) for s in survivors])  # Intentional float64: survivor DataFrame output contract
+            surv_df = pd.DataFrame(np.asarray(Xarr[_row_sel][:, survivors], dtype=np.float64), columns=[str(int(s)) for s in survivors])  # Intentional float64: survivor DataFrame output contract  # copy-ok: the caller's array
             _, members = corr_clusters(surv_df, thr=float(dedup_corr_thr))
             pos = {str(int(s)): i for i, s in enumerate(survivors)}
             # representative = the cluster member with the highest fused screen score (signal-preserving).

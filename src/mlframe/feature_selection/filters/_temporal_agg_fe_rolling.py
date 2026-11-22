@@ -224,7 +224,7 @@ def generate_rolling_window_agg_features(
                     "history": history,
                     "global_prior": prior,
                 }
-    enc_df = pd.DataFrame(encoded, index=X.index)
+    enc_df = pd.DataFrame(encoded, index=X.index, copy=False)
     return enc_df, raw_recipes
 
 

@@ -257,7 +257,7 @@ class _MRMRFitHelpersMixin:
         # cluster only the numeric columns (categoricals -> singletons) and hand the sub-selector dtype-preserved rows.
         # An ndarray gets the same ``feature_<i>`` placeholders the classic path synthesizes: pandas' default integer labels would store
         # non-string feature_names_in_ and defeat get_feature_names_out's placeholder detection.
-        X_df = X if hasattr(X, "iloc") else pd.DataFrame(np.asarray(X), columns=[f"feature_{i}" for i in range(shape_of(X)[1])])
+        X_df = X if hasattr(X, "iloc") else pd.DataFrame(np.asarray(X), columns=[f"feature_{i}" for i in range(shape_of(X)[1])])  # copy-ok: the caller's array
         y_arr = (y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)).ravel()
         feature_names = list(X_df.columns)
         # Computed ONCE outside the bootstrap/complementary-pairs loop: every replicate previously
@@ -283,7 +283,7 @@ class _MRMRFitHelpersMixin:
             # X_sub is a dtype-preserved frame row-subset (from .iloc) -> reset its index so it aligns with the default-indexed y_sub below; the
             # no-frame fallback (ndarray subset) wraps as before. (Wrapping a frame via pd.DataFrame(frame) would keep its non-default index and
             # mis-align against y_sub.)
-            X_sub_df = X_sub.reset_index(drop=True) if hasattr(X_sub, "iloc") else pd.DataFrame(X_sub, columns=feature_names)
+            X_sub_df = X_sub.reset_index(drop=True) if hasattr(X_sub, "iloc") else pd.DataFrame(X_sub, columns=feature_names)  # copy-ok: the caller's array
             y_sub_s = pd.Series(np.asarray(y_sub), name="y")
             # Use a fresh sibling instance with classic method to avoid
             # recursion AND drop bootstrap-incompatible settings.

@@ -628,10 +628,7 @@ def _assemble_engineered_output(base_out: Any, engineered_cols: list, recipes: l
         # is unaffected. Build column-by-column (positional) to tolerate any duplicate display name.
         from mlframe.feature_selection.filters.engineered_recipes.shared import simplified_recipe_names
         _disp_names = simplified_recipe_names(recipes)
-        engineered_df = pd.DataFrame(
-            dict(zip(range(len(_disp_names)), engineered_cols)),
-            index=base_out.index,
-        )
+        engineered_df = pd.DataFrame(dict(zip(range(len(_disp_names)), engineered_cols)), index=base_out.index, copy=False)
         engineered_df.columns = _disp_names
         return pd.concat([base_out, engineered_df], axis=1)
 
@@ -846,7 +843,7 @@ def _recipe_replay_frame(self: Any, X: Any) -> Any:
     _X_for_recipes = X
     if isinstance(X, np.ndarray) and X.dtype.names is None and hasattr(self, "feature_names_in_"):
         try:
-            _X_for_recipes = pd.DataFrame(X, columns=list(self.feature_names_in_))
+            _X_for_recipes = pd.DataFrame(X, columns=list(self.feature_names_in_))  # copy-ok: the caller's array
         except (ValueError, TypeError) as _wrap_err:
             # A length/shape mismatch means X does not match fit-time feature_names_in_. The nameless ndarray
             # then has no column index, so every recipe that resolves its sources by name fails its

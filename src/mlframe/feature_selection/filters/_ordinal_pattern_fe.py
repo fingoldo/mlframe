@@ -305,7 +305,7 @@ def generate_ordinal_pattern_te_features(
         full_lookup, full_global = _fit_perm_id_te_lookup(perm_id, y_arr, smoothing=smoothing)
         raw_recipes[name] = {"cols": tuple(tup), "lookup": full_lookup, "global_mean": full_global, "smoothing": float(smoothing)}
 
-    return pd.DataFrame(encoded, index=X.index), raw_recipes
+    return pd.DataFrame(encoded, index=X.index, copy=False), raw_recipes
 
 
 def apply_ordinal_pattern_te(X_test: "pd.DataFrame", recipe: dict) -> np.ndarray:
@@ -356,11 +356,11 @@ def _apply_ordinal_pattern_te_recipe(recipe, X) -> np.ndarray:
             import polars as _pl
 
             if isinstance(X, _pl.DataFrame):
-                X_view = pd.DataFrame({c: X[c].to_numpy() for c in cols})
+                X_view = pd.DataFrame({c: X[c].to_numpy() for c in cols}, copy=False)
             else:
-                X_view = pd.DataFrame({c: np.asarray(X[c]) for c in cols})
+                X_view = pd.DataFrame({c: np.asarray(X[c]) for c in cols}, copy=False)
         except ImportError:
-            X_view = pd.DataFrame({c: np.asarray(X[c]) for c in cols})
+            X_view = pd.DataFrame({c: np.asarray(X[c]) for c in cols}, copy=False)
     return apply_ordinal_pattern_te(X_view, recipe.extra)
 
 

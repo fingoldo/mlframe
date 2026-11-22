@@ -80,7 +80,7 @@ def _to_dataframe(X: Any) -> pd.DataFrame:
     if arr.ndim == 1:
         arr = arr.reshape(-1, 1)
     cols = [f"f{i}" for i in range(arr.shape[1])]
-    return pd.DataFrame(arr, columns=cols)
+    return pd.DataFrame(arr, columns=cols)  # copy-ok: the caller's array
 
 
 def _to_series(y: Any) -> pd.Series:

@@ -164,7 +164,7 @@ def _sweep_inputs(dims: dict) -> tuple:
 
     rng = np.random.default_rng(0)
     n = int(dims["n_samples"])
-    X = pd.DataFrame(rng.standard_normal((n, 5)).astype(np.float32), columns=[f"x{i}" for i in range(5)])
+    X = pd.DataFrame(rng.standard_normal((n, 5)).astype(np.float32), columns=[f"x{i}" for i in range(5)], copy=False)
     y = ((X["x0"] * X["x1"] + 0.5 * X["x2"] + rng.standard_normal(n)) > 0).astype(np.int64).to_numpy()
     return (X, list(iter_candidates(X, cols=list(X.columns))), y, 10)
 

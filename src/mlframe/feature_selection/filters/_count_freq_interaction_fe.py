@@ -129,7 +129,7 @@ def count_encode_fit(
         encoded_cols[engineered_name_count(col)] = row_counts
         lookup = {str(unique_cats[c]): int(counts[c]) for c in range(unique_cats.shape[0])}
         recipes[col] = {"lookup": lookup, "default": 0}
-    enc_df = pd.DataFrame(encoded_cols, index=X.index)
+    enc_df = pd.DataFrame(encoded_cols, index=X.index, copy=False)
     return enc_df, recipes
 
 def frequency_encode_fit(
@@ -163,7 +163,7 @@ def frequency_encode_fit(
         encoded_cols[engineered_name_freq(col)] = row_freqs
         lookup = {str(unique_cats[c]): float(freqs[c]) for c in range(unique_cats.shape[0])}
         recipes[col] = {"lookup": lookup, "default": 0.0}
-    enc_df = pd.DataFrame(encoded_cols, index=X.index)
+    enc_df = pd.DataFrame(encoded_cols, index=X.index, copy=False)
     return enc_df, recipes
 
 def apply_count_encoding(

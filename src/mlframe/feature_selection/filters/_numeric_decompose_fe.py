@@ -437,7 +437,7 @@ def hybrid_numeric_decompose_fe(
     winners = qualified.sort_values("engineered_mi_lcb", ascending=False).head(int(top_k))
     keep = list(winners["engineered_col"])
     if keep and eng_builders is not None:
-        eng = pd.DataFrame({name: eng_builders[name]() for name in keep}, index=X.index)
+        eng = pd.DataFrame({name: eng_builders[name]() for name in keep}, index=X.index, copy=False)
     if not keep or eng is None:
         return X.copy(deep=False), scores
     return pd.concat([X, eng[keep]], axis=1), scores

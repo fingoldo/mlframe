@@ -174,7 +174,7 @@ def generate_random_fourier_features_block(
     W, b = _draw_rff_params(p, m, random_state)
     Z = _apply_rff_params(X_cols, W, b, bw)
     names = [engineered_name_random_fourier(cols, i) for i in range(Z.shape[1])]
-    enc = pd.DataFrame(Z, columns=names, index=X.index)
+    enc = pd.DataFrame(Z, columns=names, index=X.index, copy=False)
     payload = {"cols": tuple(cols), "W": W.copy(), "b": b.copy(), "bandwidth": bw}
     return enc, payload
 
@@ -189,7 +189,7 @@ def apply_random_fourier_block(X_test: "pd.DataFrame", payload: dict) -> "pd.Dat
     X_cols = X_test[cols].to_numpy(dtype=_crit_np_dtype())
     Z = _apply_rff_params(X_cols, payload["W"], payload["b"], payload["bandwidth"])
     names = [engineered_name_random_fourier(cols, i) for i in range(Z.shape[1])]
-    return pd.DataFrame(Z, columns=names, index=X_test.index)
+    return pd.DataFrame(Z, columns=names, index=X_test.index, copy=False)
 
 
 def build_random_fourier_recipe(*, name: str, idx: int, cols: Sequence[str], W: np.ndarray, b: np.ndarray, bandwidth: float) -> "EngineeredRecipe":
