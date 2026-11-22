@@ -41,6 +41,7 @@ from typing import Any
 import numpy as np
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+from mlframe.utils.log_throttle import log_throttle
 
 try:
     import numba as _numba
@@ -280,7 +281,12 @@ def _resolve_lag_values(self, X, base_raw: np.ndarray, n: int) -> np.ndarray | N
         from . import _extract_base
         vals = np.asarray(_extract_base(X, lag_col), dtype=np.float64).reshape(-1)
     except Exception as exc:
-        logger.debug("[soft_base_shrink] lag column %r extraction failed (%r); using fallback_predict.", lag_col, exc)
+        # DEBUG hid it: deep-OOD rows then silently took the median instead of the causal lag (audit 35-F24).
+        log_throttle(
+            logger, "soft_shrink_lag_extraction_failed", logging.WARNING,
+            "[soft_base_shrink] lag column %r extraction failed (%s: %s); deep-OOD rows use fallback_predict instead of the lag.",
+            lag_col, type(exc).__name__, exc,
+        )
         return None
     return vals if vals.size == n else None
 
