@@ -575,7 +575,8 @@ def audit_residuals(
         from pyutilz.stats.normality import normality_verdict as _nv
         normality_test = _nv(residuals)
     except Exception as _nv_err:
-        logger.debug(
+        # WARNING, not debug: a silent fallback drops the formal test from the verdict in normal logs (audit 41-F13).
+        logger.warning(
             "normality_verdict unavailable / failed: %s; " "audit will fall back to moment-cutoff heuristic only.",
             _nv_err,
         )
