@@ -40,6 +40,23 @@ _ENCODE_MEMO_LOCK = threading.Lock()
 _ENCODE_MEMO: "dict" = {}  # the last encoded target: {"key": (content hash, shape, dtype, settings), "out": (labels, depth)}
 
 
+def integer_class_codes(y: np.ndarray) -> np.ndarray:
+    """The target as int64 class codes. An integer-valued target keeps its values; a float target with NON-integer values (for example 0.1 .. 0.9) gets dense codes 0..K-1 of its distinct values.
+
+    ``astype(np.int64)`` alone truncates 0.1 .. 0.9 to 0, which turns the target into one class and the split search into a no-op: one bin, no warning (AUD23-60, reproduced 2026-11-23).
+    """
+    y = np.asarray(y)
+    if y.dtype.kind != "f":
+        return y.astype(np.int64)
+    finite = np.isfinite(y)
+    if not finite.any() or np.all(np.mod(y[finite], 1.0) == 0.0):
+        return y.astype(np.int64)
+    codes = np.zeros(y.shape, dtype=np.int64)
+    _, inverse = np.unique(y[finite], return_inverse=True)
+    codes[finite] = inverse.ravel()
+    return codes
+
+
 def _encode_mdlp_target(y, max_y_classes, fast_mode, y_pseudo_classes, max_depth):
     """:func:`_encode_mdlp_target_uncached`, remembered for the last target object: the edge pool calls it once per column with the same ``y`` (a sort and a
     quantile of the whole target per column, 0.63 thread-s of a 0.40 s 30-column binning at 100000 rows). The memo is keyed on the target's content and hands
@@ -135,7 +152,7 @@ def _drop_nonfinite_xy(x: np.ndarray, y_arr: np.ndarray) -> tuple[np.ndarray, np
     if not _finite_mask.all():
         x = x[_finite_mask]
         y_arr = y_arr[_finite_mask]
-    return x, y_arr.astype(np.int64)
+    return x, integer_class_codes(y_arr)
 
 
 def _mdlp_sorted_splits(
