@@ -200,8 +200,8 @@ def _collapsed_supervised_edges(
         if base == "quantile":
             if presorted is not None and _fallback_nb >= 2:
                 return _quantile_edges_of_sorted(presorted[0], _fallback_nb)
-            return _an()._edges_from_quantiles(col, _fallback_nb)
-        return _an()._edges_from_uniform(col, _fallback_nb)
+            return _memoised_fallback("quantile", col, _fallback_nb, uniq, lambda: _an()._edges_from_quantiles(col, _fallback_nb))
+        return _memoised_fallback("uniform", col, _fallback_nb, uniq, lambda: _an()._edges_from_uniform(col, _fallback_nb))
     from ._supervised_collapse_refine import refine_near_collapsed_supervised_edges
 
     fallback_nbins = int(kwargs.get("collapsed_fallback_nbins", 5))
@@ -317,6 +317,31 @@ def _unique_facts(finite: np.ndarray, col_sig: Optional[tuple]) -> "tuple[np.nda
         while len(_UNIQUE_FACTS) > _UNIQUE_FACTS_MAX:
             _UNIQUE_FACTS.popitem(last=False)  # evict-ok: a miss recomputes the facts
     return facts
+
+
+# The unsupervised fallback edges of a collapsed column are a function of the column alone; a null that re-bins a column without signal under every permutation meets the collapse each time
+# (a 20000-row column: the percentile alone was 40 % of the samples of a mah fit). Keyed by the distinct-values object of the column (held by the entry, so its id is not recycled while cached).
+_FALLBACK_EDGES: "OrderedDict[tuple, tuple[np.ndarray, np.ndarray]]" = OrderedDict()
+_FALLBACK_EDGES_MAX = 256
+_FALLBACK_EDGES_LOCK = threading.Lock()
+
+
+def _memoised_fallback(kind: str, col: np.ndarray, n_bins: int, uniq: Optional[np.ndarray], compute: Callable[[], np.ndarray]) -> np.ndarray:
+    """``compute()`` (the fallback edges of ``col`` for ``n_bins``), served from the memo when the column's distinct-values array is known; returned arrays are copies."""
+    if uniq is None or col.size < _UNIQUE_FACTS_MIN_ROWS:
+        return compute()
+    key = (id(uniq), kind, int(n_bins))
+    with _FALLBACK_EDGES_LOCK:
+        hit = _FALLBACK_EDGES.get(key)
+        if hit is not None and hit[0] is uniq:
+            _FALLBACK_EDGES.move_to_end(key)
+            return hit[1].copy()
+    edges = compute()
+    with _FALLBACK_EDGES_LOCK:
+        _FALLBACK_EDGES[key] = (uniq, edges.copy())
+        while len(_FALLBACK_EDGES) > _FALLBACK_EDGES_MAX:
+            _FALLBACK_EDGES.popitem(last=False)  # evict-ok: a miss recomputes the edges
+    return edges
 
 
 def compute_col_edges(col: np.ndarray, method_resolved: str, base: str, kwargs: dict, y: Optional[np.ndarray], low_card_cap: int) -> tuple[Any, bool]:

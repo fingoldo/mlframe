@@ -98,3 +98,18 @@ def test_a_read_only_column_view_is_planned_once(monkeypatch):
     for _ in range(2):
         for j in range(3):
             np.testing.assert_array_equal(_mah.mah_bin_edges(owner[:, j].astype(np.float64, copy=False), y), reference[j])
+
+
+def test_the_collapsed_column_fallback_is_served_from_the_memo_with_equal_edges():
+    """A column that collapses to one supervised bin gets the same unsupervised fallback edges on every call, and a caller that edits the returned array cannot corrupt the next."""
+    from mlframe.feature_selection.filters import _adaptive_nbins_columns as cols
+
+    rng = np.random.default_rng(9)
+    col = rng.standard_normal(4000)
+    y = rng.integers(0, 2, 4000)  # no dependence: the supervised binning collapses
+    first, _ = cols.compute_col_edges(col, "mah", "quantile", {}, y, 32)
+    first_copy = first.copy()
+    first[:] = 0.0
+    second, _ = cols.compute_col_edges(col, "mah", "quantile", {}, rng.integers(0, 2, 4000), 32)
+    np.testing.assert_array_equal(second, first_copy)
+    assert second.size > 0  # the fallback edges, not an empty edge set
