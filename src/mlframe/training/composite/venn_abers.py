@@ -223,6 +223,9 @@ def calibrate_venn_abers(self, X_cal: ArrayLike, y_cal: ArrayLike) -> Any:
     if classes.size != 2:
         raise ValueError(f"Venn-Abers calibration is binary-only; fitted classes_={list(classes)} " "has cardinality != 2.")
     s = _binary_pos_scores(self, X_cal)
+    # A non-finite calibration score would enter the sorted scores and become a NaN grid point; refuse it instead (audit 37-F3).
+    if not np.isfinite(s).all():
+        raise ValueError(f"calibrate_venn_abers: {int((~np.isfinite(s)).sum())} non-finite positive-class score(s) on the calibration set.")
     y_true = np.asarray(y_cal).reshape(-1)
     if s.shape[0] != y_true.shape[0]:
         raise ValueError(f"calibrate_venn_abers: predict_proba produced {s.shape[0]} rows but y_cal has {y_true.shape[0]}")
