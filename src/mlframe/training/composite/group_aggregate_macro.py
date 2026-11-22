@@ -83,7 +83,7 @@ def _broadcast_group_values(group_arr: np.ndarray, unique_groups: np.ndarray, va
         logger.warning("predicted_group_aggregate_feature: %d row(s) have a NaN group id and take the fallback value %.6g.", int(nan_rows.sum()), fallback)
         out[nan_rows] = fallback
     out[~np.isfinite(out)] = fallback
-    return out
+    return np.asarray(out, dtype=np.float64)
 
 
 def predicted_group_aggregate_feature(
