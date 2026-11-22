@@ -80,6 +80,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F8 | 35_training-4.md | FIXED | Digest of U-dtype strings joined without boundaries. Length-prefixed. Test test_cluster35_digest_and_flags.py. |
 | 35-F15 | 35_training-4.md | FIXED | _kwargs unbound on signature failure; weighted-fit fallback logged at DEBUG. Test test_cluster35_sample_weight_fallback.py. |
 | 35-F16 | 35_training-4.md | FIXED | Group-holdout counts were O(groups x rows). One np.unique pass. Test test_cluster35_group_counts_one_pass.py. |
+| 35-F17 | 35_training-4.md | FIXED | predict blended non-finite component outputs with no warning. Now a WARNING names the component. Test test_cluster35_predict_nonfinite_component_warns.py. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |
