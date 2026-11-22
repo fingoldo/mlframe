@@ -657,4 +657,6 @@ def get_fe_report(mrmr_self: Any) -> str:
     header_parts = [f"{origin}={count}" for origin, count in by_origin.items()]
     header = "MRMR FE provenance: " + ", ".join(header_parts)
     table = prov.to_string(index=False)
-    return str(header + "\n" + table + _family_wall_section(mrmr_self))
+    from ._fe_group_counts import family_counts_section
+
+    return str(header + "\n" + table + family_counts_section(mrmr_self) + _family_wall_section(mrmr_self))

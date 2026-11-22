@@ -265,6 +265,11 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_provenance_": None,
     # Wall seconds and timed intervals of every FE family in this fit ({family: {"wall_s", "calls"}}, longest first), also in fe_provenance_.attrs["family_wall"] and get_fe_report().
     "fe_family_wall_": None,
+    # Engineered columns by producing group ({group: {"emitted", "kept_for_screen", "selected"}}) and by FE stage (a list of {"stage", "recommended", "new_columns", "by_group"}: the cascades, then steps 1..fe_max_steps); also in fe_provenance_.attrs and get_fe_report().
+    "fe_family_counts_": None,
+    "fe_step_counts_": None,
+    "_fe_emitted_by_group_": None,
+    "_fe_step_counts_acc_": None,
     # The process-global family-wall ledger at the start of the last fit; fe_family_wall_ is the difference at its end. None on a legacy pickle, read as an empty ledger.
     "_fe_family_wall_pre_": None,
     # Per-MRMR-gain list of the last fit; every consumer reads it with a [] default, and nothing tests its presence with hasattr, so an empty list is the legacy value.
