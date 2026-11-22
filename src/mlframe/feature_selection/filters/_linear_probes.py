@@ -152,6 +152,68 @@ class ScaledLogistic:
         return self.classes_[np.argmax(self.predict_proba(X), axis=1)]
 
 
+class PlainRidge:
+    """Ridge regression on the columns as they are (no standardisation) with penalty ``alpha`` and an unpenalised intercept: ``Ridge(alpha)`` of scikit-learn, with ``coef_``, ``intercept_`` and ``predict``."""
+
+    def __init__(self, alpha: float = 1.0) -> None:
+        self.alpha = float(alpha)
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> "PlainRidge":
+        """Fit on the rows of ``X``; returns ``self``."""
+        from ._fe_probe_ridge import fit_ridge_closed_form
+
+        A = np.asarray(X, dtype=np.float64)
+        t = np.asarray(y, dtype=np.float64).ravel()
+        solved = fit_ridge_closed_form(A, t, self.alpha)
+        if solved is None:  # singular or non-finite normal equations: least squares on the centred design stacked with sqrt(alpha) * I
+            p = A.shape[1]
+            a_mean = A.mean(axis=0)
+            stacked = np.concatenate([A - a_mean, np.sqrt(self.alpha) * np.eye(p)], axis=0)
+            w = np.linalg.lstsq(stacked, np.concatenate([t - t.mean(), np.zeros(p)]), rcond=None)[0]
+            solved = (w, float(t.mean() - a_mean @ w))
+        self.coef_, self.intercept_ = solved
+        return self
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        """Predictions for the rows of ``X``."""
+        return np.asarray(X, dtype=np.float64) @ self.coef_ + self.intercept_
+
+
+class RffSampler:
+    """Random Fourier features of the RBF kernel, the draws and the map of scikit-learn's ``RBFSampler(gamma, n_components, random_state)``.
+
+    ``random_weights_`` (``(n_features, n_components)``) and ``random_offset_`` come from ``RandomState(random_state)`` in the estimator's order (normal weights scaled by ``sqrt(2 gamma)``, then the uniform
+    offsets); the map is ``sqrt(2 / n_components) cos(X W + b)`` in the dtype of ``X`` for float32 and float64."""
+
+    def __init__(self, gamma: float = 1.0, n_components: int = 100, random_state: int = 0) -> None:
+        self.gamma = float(gamma)
+        self.n_components = int(n_components)
+        self.random_state = int(random_state)
+
+    def fit(self, X: np.ndarray, y: object = None) -> "RffSampler":
+        """Draw the weights and offsets for the number of columns of ``X``; returns ``self``."""
+        rs = np.random.RandomState(self.random_state)
+        n_features = np.asarray(X).shape[1]
+        self.random_weights_ = (2.0 * self.gamma) ** 0.5 * rs.normal(size=(n_features, self.n_components))
+        self.random_offset_ = rs.uniform(0, 2 * np.pi, size=self.n_components)
+        if np.asarray(X).dtype == np.float32:
+            self.random_weights_ = self.random_weights_.astype(np.float32)
+            self.random_offset_ = self.random_offset_.astype(np.float32)
+        return self
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        """The feature map of the rows of ``X``."""
+        proj = np.asarray(X) @ self.random_weights_
+        proj += self.random_offset_
+        np.cos(proj, proj)
+        proj *= (2.0 / self.n_components) ** 0.5
+        return proj
+
+    def fit_transform(self, X: np.ndarray, y: object = None) -> np.ndarray:
+        """``fit`` then ``transform`` on the same rows."""
+        return self.fit(X).transform(X)
+
+
 def cross_val_r2(make_model, X: np.ndarray, y: np.ndarray, splits: "list[tuple[np.ndarray, np.ndarray]]") -> "Optional[float]":
     """Mean R^2 of ``make_model().fit(train).score(validation)`` over ``splits`` (a list of ``(train_idx, validation_idx)``); ``None`` without splits."""
     if not splits:

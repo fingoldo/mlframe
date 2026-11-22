@@ -153,13 +153,11 @@ def _standardize(X: np.ndarray):
 
 def _fit_rff_ridge(Xs: np.ndarray, y: np.ndarray, n_components: int, gamma: float, alpha: float, seed: int):
     """RFF + ridge smooth surrogate. Returns (rbf, ridge)."""
-    from sklearn.kernel_approximation import RBFSampler
-    from sklearn.linear_model import Ridge
+    from ._linear_probes import PlainRidge, RffSampler
 
-    rbf = RBFSampler(gamma=gamma, n_components=n_components, random_state=seed)
+    rbf = RffSampler(gamma=gamma, n_components=n_components, random_state=seed)
     Phi = rbf.fit_transform(Xs)
-    ridge = Ridge(alpha=alpha)
-    ridge.fit(Phi, y)
+    ridge = PlainRidge(alpha=alpha).fit(Phi, y)
     return rbf, ridge
 
 
@@ -194,24 +192,25 @@ def _fit_additive_residual(Xs: np.ndarray, y: np.ndarray, n_per_feat: int, alpha
     interaction curvature - a purely additive target leaves a residual with ~zero mixed partials
     (the calculus property), which is what makes the additive noise-control case emit 0 proposals.
     """
-    from sklearn.linear_model import Ridge
+    from ._linear_probes import PlainRidge
 
     Phi = _per_feature_rff_matrix(Xs, n_per_feat, seed)
-    ridge = Ridge(alpha=alpha)
-    ridge.fit(Phi, y)
+    ridge = PlainRidge(alpha=alpha).fit(Phi, y)
     return y - ridge.predict(Phi)
 
 
 def _oof_r2(Xs: np.ndarray, y: np.ndarray, n_components: int, gamma: float, alpha: float, seed: int, n_splits: int = 3):
     """Out-of-fold R2 of an RFF+ridge surrogate fit on ``Xs``/``y``, used to gauge how well the smooth surrogate explains the target before trusting its mixed-partial energies."""
-    from sklearn.kernel_approximation import RBFSampler
-    from sklearn.linear_model import Ridge
-    from sklearn.model_selection import KFold, cross_val_predict
+    from sklearn.model_selection import KFold
     from mlframe.metrics.core import fast_r2_score
 
-    rbf = RBFSampler(gamma=gamma, n_components=n_components, random_state=seed)
-    Phi = rbf.fit_transform(Xs)
-    pred = cross_val_predict(Ridge(alpha=alpha), Phi, y, cv=KFold(n_splits, shuffle=True, random_state=seed))
+    from ._linear_probes import PlainRidge, RffSampler
+
+    Phi = RffSampler(gamma=gamma, n_components=n_components, random_state=seed).fit_transform(Xs)
+    target = np.asarray(y, dtype=np.float64).ravel()
+    pred = np.empty(target.shape[0])
+    for tr, va in KFold(n_splits, shuffle=True, random_state=seed).split(Phi):
+        pred[va] = PlainRidge(alpha=alpha).fit(Phi[tr], target[tr]).predict(Phi[va])
     return float(fast_r2_score(y, pred))
 
 
