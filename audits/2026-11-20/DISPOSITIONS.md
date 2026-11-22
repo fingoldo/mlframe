@@ -907,3 +907,4 @@
 | 35-F18 | FIXED | GPU probe failures (xgboost, catboost) and the refit-groups fallback now log at WARNING; xgboost probe path tested (test_cluster35_gpu_probe_failure_warns); refit-groups path not separately tested |
 | 35-F19 | DEFERRED | Composite refit is implemented three times with different group handling (kfold, single-split, external OOF). Consolidating changes behaviour; needs an owner decision on the correct group semantics first. |
 | 35-F20 | FIXED | GBM stacker honours group_ids and time_ordered: row-random early stopping is off when either is set; dispatcher forwards both (test_cluster35_gbm_stacker_group_aware, 3 pass) |
+| 35-F21 | FIXED | OOF cache key now includes a full digest of sample_weight and of the component specs (arrays digested in full, nested dicts walked); tests test_cluster35_oof_cache_key_weights_and_specs.py; 48 existing cache-key tests pass |

@@ -84,6 +84,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F18 | 35_training-4.md | FIXED | GPU probe failures and the refit-groups fallback logged at DEBUG. Now WARNING. Test test_cluster35_gpu_probe_failure_warns.py (refit path untested). |
 | 35-F19 | 35_training-4.md | DEFERRED | Composite refit implemented three times with different group handling. Consolidation changes behaviour. Owner decision on group semantics first. |
 | 35-F20 | 35_training-4.md | FIXED | GBM stacker ignored group_ids and time_ordered; row-random early stopping leaked across groups. Early stopping off when either is set; dispatcher forwards both. Test test_cluster35_gbm_stacker_group_aware.py. |
+| 35-F21 | 35_training-4.md | FIXED | OOF cache key omitted sample_weight and component specs. Both keyed with full digests. Test test_cluster35_oof_cache_key_weights_and_specs.py. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |

@@ -437,9 +437,39 @@ def _holdout_x_digest(X: Any) -> int:
     return _full_array_digest(rows) ^ _full_array_digest(np.asarray(np.shape(X), dtype=np.int64))
 
 
-def _oof_full_cache_key(cache_key, kfold, random_state, holdout_frac, time_ordering, external_holdout_X, external_holdout_y, group_ids) -> tuple:
+def _feed_digest(h, value) -> None:
+    """Feed ``value`` into the hash ``h``; arrays are digested in full, and dicts, lists and tuples are walked so an array nested
+    inside them is not elided by ``repr`` (audit 35-F21)."""
+    if isinstance(value, np.ndarray):
+        h.update(b"ndarray")
+        h.update(repr(_full_array_digest(value)).encode())
+    elif isinstance(value, dict):
+        h.update(b"dict")
+        for k in sorted(value, key=str):
+            h.update(repr(k).encode())
+            _feed_digest(h, value[k])
+    elif isinstance(value, (list, tuple)):
+        h.update(b"seq")
+        for item in value:
+            _feed_digest(h, item)
+    else:
+        h.update(repr(value).encode())
+
+
+def _specs_digest(component_specs) -> bytes:
+    """Content digest of the component specs."""
+    import hashlib
+
+    h = hashlib.blake2b(digest_size=16)
+    for spec in component_specs or []:
+        _feed_digest(h, spec)
+    return h.digest()
+
+
+def _oof_full_cache_key(cache_key, kfold, random_state, holdout_frac, time_ordering, external_holdout_X, external_holdout_y, group_ids,
+                        sample_weight=None, component_specs=None) -> tuple:
     """The OOF cache key: every argument that changes the returned matrix, so two calls differing only in holdout_frac /
-    time-mode / external-holdout identity / group_ids cannot serve each other a stale entry."""
+    time-mode / external-holdout identity / group_ids / sample weights / component specs cannot serve each other a stale entry."""
     if group_ids is not None:
         g = np.asarray(group_ids)
         group_fp = (g.shape[0], _full_array_digest(g))
@@ -450,6 +480,8 @@ def _oof_full_cache_key(cache_key, kfold, random_state, holdout_frac, time_order
     return (
         cache_key, int(kfold), int(random_state), round(float(holdout_frac), 6), time_fp,
         _holdout_x_digest(external_holdout_X), (_full_array_digest(np.asarray(external_holdout_y)) if external_holdout_y is not None else -1), group_fp,
+        (_full_array_digest(np.asarray(sample_weight)) if sample_weight is not None else -1),
+        _specs_digest(component_specs),
     )
 
 
@@ -550,7 +582,10 @@ def _oof_holdout_predictions_with_rows(
     # When the caller supplies a cache_key we look up the (key, kfold, rs) tuple. A hit is bit-identical with a previous call -- same components, X, y, fold strategy; caller semantics unchanged.
     _full_key = None
     if cache_key is not None:
-        _full_key = _oof_full_cache_key(cache_key, kfold, random_state, holdout_frac, time_ordering, external_holdout_X, external_holdout_y, group_ids)
+        _full_key = _oof_full_cache_key(
+            cache_key, kfold, random_state, holdout_frac, time_ordering, external_holdout_X, external_holdout_y, group_ids,
+            sample_weight=sample_weight, component_specs=component_specs,
+        )
         _hit = _oof_cache_get(_full_key)
         if _hit is not None:
             logger.debug("compute_oof_holdout_predictions: cache HIT for key=%r", _full_key)
