@@ -1006,3 +1006,4 @@
 | 24-F16 | DEFERRED | Poly recency weights depend on the window length m, so the prefix sums cannot be updated in O(1); exp weights could use a recurrence, but a window cap changes results. Needs an owner decision on the cap or exact-cost trade-off. |
 | 24-F17 | DEFERRED | Causal KDE re-runs the grid over every prefix; a bounded lookback changes the estimate. Needs an owner decision on the lookback before a change. |
 | 40-F27 | FIXED | Per-column float32 fallback rebuilds the frame from its column labels instead of assign(**kwargs), which needed string keys (training/neural/data.py); tests/training/neural/test_cluster40_int_column_labels_convert.py |
+| 40-F22 | PARTIAL | MLPRanker.fit refuses NaN/inf relevance labels before touching the global RNG; predict checks the feature count before transforms. Column names and order are not checked yet (neural/ranker.py); tests/training/neural/test_cluster40_ranker_refuses_nan_labels_and_bad_width.py |
