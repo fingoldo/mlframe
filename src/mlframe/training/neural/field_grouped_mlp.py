@@ -52,6 +52,14 @@ def _validate_field_groups_partition(field_groups: Dict[str, Sequence[int]], n_f
         raise ValueError(f"field_groups: column index(es) missing from every field -- {missing[:10]}")
 
 
+def _refuse_nonfinite(X, owner: str) -> np.ndarray:
+    """``X`` as float32, refusing NaN or inf: the network does not mask missing values, so one cell poisons the loss and every prediction (audit 40-F21)."""
+    arr = np.asarray(X, dtype=np.float32)
+    if not np.isfinite(arr).all():
+        raise ValueError(f"{owner}: X contains NaN or inf; impute upstream (the network does not mask missing values).")
+    return arr
+
+
 class _FieldGroupedMLPModule(nn.Module):
     """Torch module: per-field sub-MLP encoders whose outputs are concatenated and fed to a shared head."""
 
@@ -105,7 +113,7 @@ class FieldGroupedMLPRegressor(RegressorMixin, BaseEstimator):
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "FieldGroupedMLPRegressor":
         """Train the field-grouped MLP module with full-batch Adam."""
-        X_arr = np.asarray(X, dtype=np.float32)
+        X_arr = _refuse_nonfinite(X, "FieldGroupedMLPRegressor")
         y_arr = np.asarray(y, dtype=np.float32).reshape(-1)
         _validate_field_groups_partition(self.field_groups, X_arr.shape[1])
 
@@ -126,7 +134,10 @@ class FieldGroupedMLPRegressor(RegressorMixin, BaseEstimator):
 
         return self
 
-    predict = mlp_predict
+    def predict(self, X):
+        """Point predictions; refuses NaN or inf input (audit 40-F21)."""
+        _refuse_nonfinite(X, "FieldGroupedMLPRegressor")
+        return mlp_predict(self, X)
 
 
 __all__ = ["FieldGroupedMLPRegressor"]

@@ -26,6 +26,14 @@ from ._mlp_predict_shared import mlp_predict
 from sklearn.utils.validation import check_is_fitted
 
 
+def _refuse_nonfinite(X, owner: str) -> np.ndarray:
+    """``X`` as float32, refusing NaN or inf: the network does not mask missing values, so one cell poisons the loss and every prediction (audit 40-F21)."""
+    arr = np.asarray(X, dtype=np.float32)
+    if not np.isfinite(arr).all():
+        raise ValueError(f"{owner}: X contains NaN or inf; impute upstream (the network does not mask missing values).")
+    return arr
+
+
 class _TrunkInjectedBlock(nn.Module):
     """Residual block that re-injects the shared trunk representation into its own input every forward pass."""
 
@@ -91,7 +99,7 @@ class TrunkResidualMLPRegressor(RegressorMixin, BaseEstimator):
         """Train the trunk-residual MLP module with full-batch Adam."""
         if np.ndim(X) == 2:
             self.n_features_in_ = int(np.shape(X)[1])
-        X_arr = np.asarray(X, dtype=np.float32)
+        X_arr = _refuse_nonfinite(X, "TrunkResidualMLPRegressor")
         y_arr = np.asarray(y, dtype=np.float32).reshape(-1)
 
         torch.manual_seed(self.random_state)
@@ -155,6 +163,7 @@ class TrunkResidualMLPRegressor(RegressorMixin, BaseEstimator):
     def predict_ensemble_mean(self, X: np.ndarray) -> np.ndarray:
         """Seed-averaged point estimate across ``ensemble_members_`` (lower variance than any single seed)."""
         check_is_fitted(self)
+        _refuse_nonfinite(X, "TrunkResidualMLPRegressor")
         if np.ndim(X) == 2 and np.shape(X)[1] != self.n_features_in_:
             raise ValueError(f"TrunkResidualMLPRegressor: X has {np.shape(X)[1]} features, but the estimator was fitted with {self.n_features_in_}.")
         return np.asarray(self._ensemble_predictions(X).mean(axis=0))
@@ -162,6 +171,7 @@ class TrunkResidualMLPRegressor(RegressorMixin, BaseEstimator):
     def predict_std(self, X: np.ndarray) -> np.ndarray:
         """Per-row across-seed prediction std (population, ddof=0) -- an epistemic/seed-sensitivity signal."""
         check_is_fitted(self)
+        _refuse_nonfinite(X, "TrunkResidualMLPRegressor")
         if np.ndim(X) == 2 and np.shape(X)[1] != self.n_features_in_:
             raise ValueError(f"TrunkResidualMLPRegressor: X has {np.shape(X)[1]} features, but the estimator was fitted with {self.n_features_in_}.")
         return np.asarray(self._ensemble_predictions(X).std(axis=0, ddof=0))

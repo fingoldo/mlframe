@@ -483,6 +483,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 40-F30 | 40_training-9.md | FIXED | Weighted classification loss divides by class-times-sample weights when class weights are set, matching the unweighted CrossEntropy mean. Test test_cluster40_class_weighted_loss_scale.py. |
 | 40-F25 | 40_training-9.md | DEFERRED | Fit-time lookup raw-key vs replay normalised-key mismatch. Not changed: no discriminating case found (encoder returns the prior for the tested entities). Needs the terminal-encoding semantics. |
 | 40-F20 | 40_training-9.md | FIXED | Frame content hash hashes per-row hash bytes in row order, not their sum; row-permuted frames no longer share a key. Test test_cluster40_frame_hash_is_row_order_sensitive.py. |
+| 40-F21 | 40_training-9.md | FIXED | Trunk-residual and field-grouped regressors refuse NaN/inf X at fit and predict, as Tabular1DCNN does. Test test_cluster40_residual_regressors_refuse_nonfinite.py. |
 | 41-F1 | 41_training-10.md | FIXED | Predict maps categorical-dtype NaN to the fit-time sentinel. Test test_cluster41_catboost_predict_nan_categorical.py. |
 | 41-F2 | 41_training-10.md | FIXED | verbose NDCG logging uses .get so an eval_at without 10 cannot raise; no separate test |
 | 41-F3 | 41_training-10.md | FIXED | NaN temporal labels count as missing in the polars path, matching the pandas twin; no separate test |
