@@ -376,7 +376,7 @@ def _emit_pair_features_step2_read_here_once_part2(
     if not _ev_can_batch and _ev_param_bs:
         log_throttle(
             logger, "pairs_extval_per_candidate_loop", logging.WARNING,
-            "external validation: the (%d rows x %d factors x %d ops) float64 batch does not fit the RAM budget; scoring one candidate at a time (much slower)",
+            "external validation: the (%d rows x %d factors x %d ops) double-precision batch does not fit the RAM budget; scoring one candidate at a time (much slower)",
             len(X), len(_ev_param_bs), _ev_n_bin,
         )
     return _pa_dev, param_a, best_valid_mi, config, _else_cols, _ev_param_bs, _pb_vals, _ev_can_batch, _ev_chunk
