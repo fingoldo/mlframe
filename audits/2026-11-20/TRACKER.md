@@ -92,6 +92,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F26 | 35_training-4.md | PARTIAL | Discovery smearing used unweighted quantiles over all rows. Now shares residual_quantiles with fit. Discovery callers do not pass sample weights yet. Test test_cluster35_smeared_prediction_matches_fit.py. |
 | 35-F27 | 35_training-4.md | FIXED | predict_quantile re-resolved the causal lag once per quantile column. Resolved once per batch. Test test_cluster35_smart_fallback_resolves_lag_once.py. |
 | 35-F28 | 35_training-4.md | DEFERRED | Distributional grid 0.05..0.95 truncates sample() tails and omits tail mass in crps(). Adding tail levels or a GPD tail is a modelling decision for the owner. |
+| 35-F29 | 35_training-4.md | FIXED | TypeError fallback dropped sample_weight for any TypeError. Support read from signature; other TypeErrors propagate. Test test_cluster35_mixture_sample_weight_support.py. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |
