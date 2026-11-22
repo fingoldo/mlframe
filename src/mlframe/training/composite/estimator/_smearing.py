@@ -80,16 +80,15 @@ def smeared_inverse(inverse: Callable[[np.ndarray], np.ndarray], t_hat: np.ndarr
     return acc / len(quantiles)
 
 
-def smeared_prediction(transform_name: str, model: Any, x_fit: Any, t_fit: np.ndarray, t_hat: np.ndarray, inverse: Callable[[np.ndarray], np.ndarray]) -> np.ndarray:
+def smeared_prediction(transform_name: str, model: Any, x_fit: Any, t_fit: np.ndarray, t_hat: np.ndarray, inverse: Callable[[np.ndarray], np.ndarray],
+                       sample_weight: Optional[np.ndarray] = None) -> np.ndarray:
     """Discovery-side twin of the estimator's predict: invert ``t_hat`` with smearing for the curved unary transforms.
 
-    Residual quantiles come from ``model`` on its own fit rows, exactly as ``CompositeTargetEstimator.fit`` does, so a
-    spec is scored the way the trained composite will predict. Other transforms get the plain inverse.
+    The residual quantiles come from :func:`residual_quantiles`, the same function ``CompositeTargetEstimator.fit`` uses, so the subsample,
+    seed and weighting match the trained composite (the gate used to take the unweighted quantiles over every row, audit 35-F26).
+    Other transforms get the plain inverse.
     """
     q = None
     if transform_name in SMEARED_TRANSFORMS:
-        r = np.asarray(t_fit, dtype=np.float64) - np.asarray(model.predict(x_fit), dtype=np.float64).reshape(-1)
-        r = r[np.isfinite(r)]
-        if r.size >= 4 * N_SMEAR_QUANTILES:
-            q = np.quantile(r, (np.arange(N_SMEAR_QUANTILES) + 0.5) / N_SMEAR_QUANTILES)
+        q = residual_quantiles(model, x_fit, np.asarray(t_fit, dtype=np.float64), seed=0, sample_weight=sample_weight)
     return smeared_inverse(inverse, t_hat, q)
