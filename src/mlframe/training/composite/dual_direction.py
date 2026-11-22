@@ -29,6 +29,7 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.exceptions import NotFittedError
 from sklearn.model_selection import cross_val_predict
 
 from mlframe.metrics.core import fast_r2_score
@@ -160,7 +161,8 @@ class DualDirectionCompositeEstimator(RegressorMixin, BaseEstimator):
     def _require_fitted(self) -> None:
         """Raise ``ValueError`` if ``fit`` has not yet been called."""
         if not hasattr(self, "shape_estimator_") or not hasattr(self, "scale_estimator_"):
-            raise ValueError("DualDirectionCompositeEstimator: call fit(X, y, scale_y) before predict.")
+            # NotFittedError subclasses ValueError, so existing ``except ValueError`` callers keep working; the sklearn type is the contract (audit 35-F54).
+            raise NotFittedError("DualDirectionCompositeEstimator: call fit(X, y, scale_y) before predict.")
 
 
 __all__ = ["DualDirectionCompositeEstimator"]
