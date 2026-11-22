@@ -70,6 +70,22 @@ def _oof_multi_target_predictions(
     return out
 
 
+def _broadcast_group_values(group_arr: np.ndarray, unique_groups: np.ndarray, values: np.ndarray, fallback: float) -> np.ndarray:
+    """Each row's group value, in one vectorised reindex (the per-row dict loop was O(n) Python work per statistic).
+
+    A NaN group id has no group value, so its rows take ``fallback``, as before, but the count is logged: a NaN id used to fall back
+    silently (audit 35-F31).
+    """
+    lookup = pd.Series(np.asarray(values, dtype=np.float64), index=pd.Index(unique_groups))
+    out = lookup.reindex(pd.Index(group_arr)).to_numpy(dtype=np.float64)
+    nan_rows = np.asarray(pd.isna(group_arr), dtype=bool)
+    if nan_rows.any():
+        logger.warning("predicted_group_aggregate_feature: %d row(s) have a NaN group id and take the fallback value %.6g.", int(nan_rows.sum()), fallback)
+        out[nan_rows] = fallback
+    out[~np.isfinite(out)] = fallback
+    return out
+
+
 def predicted_group_aggregate_feature(
     X_row: Any,
     y_row: np.ndarray,
@@ -159,10 +175,8 @@ def predicted_group_aggregate_feature(
             logger.warning("predicted_group_aggregate_feature: only %d unique groups (<max(2,n_splits)); falling back to the global target mean for every group.", len(unique_groups))
             oof_group_pred = np.full(len(unique_groups), float(y_arr.mean()))
 
-        group_to_pred = dict(zip(unique_groups, oof_group_pred))
         fallback = float(np.nanmean(oof_group_pred)) if np.isfinite(oof_group_pred).any() else float(y_arr.mean())
-        broadcast = np.array([group_to_pred.get(g, fallback) for g in group_arr], dtype=np.float64)
-        broadcast = np.where(np.isfinite(broadcast), broadcast, fallback)
+        broadcast = _broadcast_group_values(group_arr, unique_groups, oof_group_pred, fallback)
 
         return pl.DataFrame({column_name: broadcast})
 
@@ -180,10 +194,8 @@ def predicted_group_aggregate_feature(
     out_columns: dict[str, np.ndarray] = {}
     for j, a in enumerate(aggs):
         col = oof_matrix[:, j]
-        group_to_pred = dict(zip(unique_groups, col))
         fallback = float(np.nanmean(col)) if np.isfinite(col).any() else float(pd.Series(y_arr).agg(a))
-        broadcast = np.array([group_to_pred.get(g, fallback) for g in group_arr], dtype=np.float64)
-        broadcast = np.where(np.isfinite(broadcast), broadcast, fallback)
+        broadcast = _broadcast_group_values(group_arr, unique_groups, col, fallback)
         out_columns[f"{column_name}__{a}"] = broadcast
 
     return pl.DataFrame(out_columns)

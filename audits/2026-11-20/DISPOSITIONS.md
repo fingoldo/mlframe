@@ -917,3 +917,4 @@
 | 35-F28 | DEFERRED | The grid spans 0.05 to 0.95, so sample() flattens tails and crps() omits the 0-0.05 and 0.95-1 mass. Fixing it means adding tail levels (0.001/0.999) or a GPD tail, a modelling choice the owner should make; the truncation is not hidden by a code change here. |
 | 35-F29 | FIXED | Mixture decides sample_weight support from the fit signature; unrelated TypeError propagates; unweighted regressors logged at WARNING (test_cluster35_mixture_sample_weight_support; 44 existing mixture tests pass) |
 | 35-F30 | FIXED | discover_and_wrap coerces a dict config before reading the seed, so the seed and report use the dict's random_state (test_cluster35_highlevel_dict_config_seed; 201 existing highlevel tests pass) |
+| 35-F31 | FIXED | Group broadcast is one vectorised reindex; NaN group ids are counted and logged at WARNING (test_cluster35_group_broadcast_vectorised; 6 existing group-aggregate tests pass) |
