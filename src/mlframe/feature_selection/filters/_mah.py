@@ -81,7 +81,7 @@ def _compute_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
     1 each step - an O(rows * K_y^3)-ish blowup. Measured: n=3000, K_y~2000 (int64 target) hangs past 40s
     (pre-fix code, verified via ``timeout 40 python ...`` -> exit 124); this fix keeps it fast because the
     quantile branch caps ``K_y <= K`` (16 by default) regardless of dtype. Any real MRMR user picking
-    ``nbins_strategy='mah'``/``'sci'`` with an integer-coded continuous-like target hit this DoS silently
+    ``nbins_strategy='mah'`` with an integer-coded continuous-like target hit this DoS silently
     (no error, no warning - the fit just never returns from this column's edge computation).
     """
     uniq_y = np.unique(y)
@@ -230,18 +230,28 @@ def _y_binning_by_multiset(y: np.ndarray, K: int) -> "tuple[np.ndarray, int] | N
 
 
 @njit(nogil=True, cache=True)
-def _nml_regret(K: int, N: int) -> float:
-    """Mononen-Myllymaki (2008) closed-form approximation of the multinomial
-    NML regret for K bins on N samples:
+def _nml_regret_legacy(K: int, N: int) -> float:
+    """The regret formula this module shipped with (kept as the reference): ``(K-1)/2 log(N/(2 pi)) + log Gamma(K/2) - (K/2) log Gamma(1/2)``.
 
-        R(K, N) ~ ((K-1)/2) * log(N / (2 * pi)) + log Gamma(K/2) - (K/2) * log Gamma(1/2)
-
-    Returns the regret in nats. R(1, N) = 0 by convention.
-    """
+    It is not the multinomial NML regret: the log term has the wrong scale (``N/(2 pi)`` for ``N/2``) and the Gamma terms have the wrong signs, so it understates the regret by about 2.3 nats per
+    two-category row at N = 1250. A merge then never pays for itself on a column without signal, and a column keeps all its quantile bins."""
     if K <= 1 or N <= 0:
         return 0.0
     half_K = float(K) / 2.0
     return (K - 1) * 0.5 * math.log(max(N, 1) / (2.0 * math.pi)) + math.lgamma(half_K) - half_K * math.lgamma(0.5)
+
+
+@njit(nogil=True, cache=True)
+def _nml_regret(K: int, N: int) -> float:
+    """Multinomial NML regret of K categories on N samples, Rissanen's asymptotic expansion (the first-order form of Mononen and Myllymaki, 2008):
+
+        R(K, N) ~ ((K-1)/2) log(N/2) + log(sqrt(pi) / Gamma(K/2))
+
+    in nats; ``R(1, N) = 0``. At K = 2 and N = 200 it is 2.875 nats against the exact 2.912 (the next term is of order 0.27 / sqrt(N))."""
+    if K <= 1 or N <= 0:
+        return 0.0
+    half_K = float(K) / 2.0
+    return (K - 1) * 0.5 * math.log(max(N, 1) / 2.0) + 0.5 * math.log(math.pi) - math.lgamma(half_K)
 
 
 @njit(nogil=True, cache=True)
@@ -312,13 +322,52 @@ def _best_adjacent_merge(cur, axis):
 
 
 @njit(nogil=True, cache=True)
-def _greedy_merge_core(joint):
-    """Column merges then row merges of ``joint``: the merged table and the merge positions, as arrays of the number of merges made."""
+def _pair_gain_conditional(cur, i, axis):
+    """Code length saved by merging the slices ``i`` and ``i + 1`` along ``axis``, counted on the CONDITIONAL distribution of the other variable: ``SC(a) + SC(b) - SC(a + b)``.
+
+    ``a`` and ``b`` are the count vectors of the two slices over the other axis (the y distribution of two adjacent x bins). Merging two slices whose distributions agree saves one regret term and
+    costs nothing; merging two that differ costs ``N`` times their Jensen-Shannon divergence. Positive when the merge shortens the description of the other variable given this one."""
+    n_other = cur.shape[1] if axis == 0 else cur.shape[0]
+    a = np.empty(n_other)
+    b = np.empty(n_other)
+    m = np.empty(n_other)
+    for t in range(n_other):
+        if axis == 0:
+            a[t] = cur[i, t]
+            b[t] = cur[i + 1, t]
+        else:
+            a[t] = cur[t, i]
+            b[t] = cur[t, i + 1]
+        m[t] = a[t] + b[t]
+    return _stochastic_complexity(a) + _stochastic_complexity(b) - _stochastic_complexity(m)
+
+
+@njit(nogil=True, cache=True)
+def _best_adjacent_merge_conditional(cur, axis):
+    """Index of the adjacent pair along ``axis`` with the largest positive :func:`_pair_gain_conditional`, or ``-1`` when no merge shortens the code."""
+    best_gain = 0.0
+    best_i = -1
+    for i in range(cur.shape[axis] - 1):
+        gain = _pair_gain_conditional(cur, i, axis)
+        if gain > best_gain:
+            best_gain = gain
+            best_i = i
+    return best_i
+
+
+@njit(nogil=True, cache=True)
+def _greedy_merge_core(joint, conditional=True, merge_columns=True):
+    """Column merges then row merges of ``joint``: the merged table and the merge positions, as arrays of the number of merges made.
+
+    ``conditional=True`` (the default) merges on the conditional code length of the other variable (:func:`_pair_gain_conditional`) and may merge down to one slice, so a column with no
+    dependence on the target ends in a single bin. ``merge_columns=False`` leaves the columns (the target's bins) as they are and merges rows only: the binning of a feature merges the feature's bins, never the labels. ``conditional=False`` is the earlier JOINT criterion (the NML code length of the whole table, floor of two slices): that code length falls
+    with every merge of cells, so it merged every column to its first two bins whatever the data; kept as the reference."""
     cur = joint.astype(np.float64)  # Intentional float64: MAH partition accumulator state
+    floor = 1 if conditional else 2
     col_merges = np.empty(max(cur.shape[1], 1), dtype=np.int64)
     n_col = 0
-    while cur.shape[1] > 2:
-        best_i = _best_adjacent_merge(cur, 1)
+    while merge_columns and cur.shape[1] > floor:
+        best_i = _best_adjacent_merge_conditional(cur, 1) if conditional else _best_adjacent_merge(cur, 1)
         if best_i < 0:
             break
         col_merges[n_col] = best_i
@@ -326,8 +375,8 @@ def _greedy_merge_core(joint):
         cur = _merge_adjacent(cur, best_i, 1)
     row_merges = np.empty(max(cur.shape[0], 1), dtype=np.int64)
     n_row = 0
-    while cur.shape[0] > 2:
-        best_i = _best_adjacent_merge(cur, 0)
+    while cur.shape[0] > floor:
+        best_i = _best_adjacent_merge_conditional(cur, 0) if conditional else _best_adjacent_merge(cur, 0)
         if best_i < 0:
             break
         row_merges[n_row] = best_i
@@ -345,7 +394,7 @@ def _greedy_merge_bins(joint):
     (preserves the joint structure even when the marginal would otherwise
     collapse).
     """
-    return _greedy_merge_core(joint)[0]
+    return _greedy_merge_core(joint, True)[0]
 
 
 @njit(nogil=True, cache=True)
@@ -369,12 +418,14 @@ def _mi_from_joint(joint: np.ndarray) -> float:
     return mi
 
 
-def _greedy_merge_with_history(joint: np.ndarray) -> tuple[np.ndarray, list[int], list[int]]:
+def _greedy_merge_with_history(joint: np.ndarray, conditional: bool = True, merge_columns: bool = True) -> tuple[np.ndarray, list[int], list[int]]:
     """Identical SCI-greedy merge to ``_greedy_merge_bins`` but ALSO records
     which row/col positions got merged at each step.
 
     Args:
         joint: ``(K_x, K_y)`` joint count matrix to merge; it is copied, not modified.
+        conditional: merge on the conditional code length of the other variable (default); ``False`` is the earlier joint criterion.
+        merge_columns: also merge the columns (the target's bins); ``False`` merges rows only.
 
     Returns:
         merged (K_x', K_y'): the post-merge joint table.
@@ -382,7 +433,7 @@ def _greedy_merge_with_history(joint: np.ndarray) -> tuple[np.ndarray, list[int]
             that merged with index+1.
         col_merges (list[int]): same for columns.
     """
-    merged, row_merges, col_merges = _greedy_merge_core(joint)
+    merged, row_merges, col_merges = _greedy_merge_core(joint, conditional, merge_columns)
     return np.asarray(merged), row_merges.tolist(), col_merges.tolist()
 
 
@@ -453,7 +504,7 @@ def mah_bin_edges(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.nd
     if K_x < 2 or K_y < 2:
         return cast("np.ndarray", initial_inner)
     joint = np.bincount(xb * K_y + yb, minlength=K_x * K_y).reshape(K_x, K_y).astype(np.float64)  # Intentional float64: joint-count accumulator for the MAH statistic
-    _, row_merges, _ = _greedy_merge_with_history(joint)
+    _, row_merges, _ = _greedy_merge_with_history(joint, True, False)  # the labels are not merged: only the bins of x
     # Map row merges to drop the swallowed X edges.
     return _apply_merges_to_edges(initial_inner, row_merges)
 

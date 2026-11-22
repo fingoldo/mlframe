@@ -127,7 +127,7 @@ def _rebin_continuous_targets(self, _nbins_strategy, target_indices, cols, _x_fo
                 nbins[int(_ti)] = _t_nb
 
 
-_SUPERVISED_STRATEGIES = ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated", "optimal_joint", "cv", "mah", "mah_sci", "sci", "marx")
+_SUPERVISED_STRATEGIES = ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated", "optimal_joint", "cv", "mah")
 _WARMUPS: "dict[int, Any]" = {}
 _WARMUPS_LOCK = threading.Lock()  # guards the table only (the dict operations), never the warm-up or the join
 
@@ -241,7 +241,7 @@ def _attach_column_hook(codes_fn: Any, binner: Any, y_raw: np.ndarray, n_cols: i
 
 #: Strategies whose honest null re-bins through ``PermutedTargetBinner``: ``optimal_joint`` / ``cv`` (a handful of edge sets per column) and the mah family (edges from the column and the permuted target
 #: alone; the binner skips the whole-frame ``categorize_dataset`` pass of every permutation and memoises the code column of each edge set).
-_NULL_BINNER_STRATEGIES = ("optimal_joint", "cv", "mah", "mah_sci", "sci", "marx")
+_NULL_BINNER_STRATEGIES = ("optimal_joint", "cv", "mah")
 
 
 def _make_null_binner(self: Any, nbins_strategy: Any, x_for_cat: Any, cols: Any, dependent: set, fixed_codes: Any, strategy_for_categorize: Any, strategy_kwargs: Any) -> Any:
@@ -458,9 +458,6 @@ def _discretize_inputs_part1(
         "optimal_joint",
         "cv",
         "mah",
-        "mah_sci",
-        "sci",
-        "marx",
     ):
         # Use the first target column as the supervised signal.
         if target_names:
@@ -496,9 +493,6 @@ def _discretize_inputs_part1(
         "optimal_joint",
         "cv",
         "mah",
-        "mah_sci",
-        "sci",
-        "marx",
     )
     if _supervised:
         _install_honest_null_hook(

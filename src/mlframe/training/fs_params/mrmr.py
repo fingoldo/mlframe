@@ -64,9 +64,6 @@ class MRMRParams(BaseModel):
             "optimal_joint",
             "cv",
             "mah",
-            "mah_sci",
-            "sci",
-            "marx",
         ]
     ] = "mdlp"
     nbins_strategy_kwargs: dict | None = None

@@ -26,7 +26,7 @@ def _reference_edges(x, y, initial_k=16):
     if k_x < 2 or k_y < 2:
         return initial_inner
     joint = np.bincount(xb * k_y + yb, minlength=k_x * k_y).reshape(k_x, k_y).astype(np.float64)
-    _, row_merges, _ = _mah._greedy_merge_with_history(joint)
+    _, row_merges, _ = _mah._greedy_merge_with_history(joint, True, False)
     return _mah._apply_merges_to_edges(initial_inner, row_merges)
 
 

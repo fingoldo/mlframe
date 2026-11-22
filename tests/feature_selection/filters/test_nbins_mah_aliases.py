@@ -1,8 +1,7 @@
-"""The ``mah`` binning aliases must stay exact aliases (mrmr_audit_2026-09-14 TESTGAP-1).
+"""``mah`` is the one name of the multi-dimensional adaptive histogram binning; the former aliases ``mah_sci`` / ``sci`` / ``marx`` are gone.
 
-``nbins_method`` accepts ``"mah"``, ``"mah_sci"``, ``"sci"`` and ``"marx"``, and ``_adaptive_nbins._METHOD_ALIASES`` maps all four to the
-same estimator: MAH / SCI is one method (Marx 2021), so the aliasing is intentional. None of the four names had a single test, so a typo in
-the alias table, or a change that made one name silently mean something else, would pass unnoticed.
+The three aliases mapped to the same estimator (mrmr_audit_2026-09-14 TESTGAP-1) and only made the option list ambiguous, so the owner asked for one name (2026-11-22). The test pins that the
+one name works, that the removed names are rejected by the edge dispatcher and by the estimator's parameter check, and that ``mah`` differs from an unrelated method.
 """
 
 from __future__ import annotations
@@ -21,25 +20,32 @@ def _xy(n=3000, seed=0):
     return X, y
 
 
-@pytest.mark.parametrize("alias", ["mah_sci", "sci", "marx"])
-def test_alias_resolves_to_mah(alias):
-    """The alias table itself: every name points at the one MAH estimator."""
-    assert _METHOD_ALIASES[alias] == _METHOD_ALIASES["mah"] == "mah"
+def test_mah_resolves_to_itself_and_the_old_aliases_are_gone():
+    """The alias table keeps ``mah`` and carries none of the three removed names."""
+    assert _METHOD_ALIASES["mah"] == "mah"
+    for removed in ("mah_sci", "sci", "marx"):
+        assert removed not in _METHOD_ALIASES
 
 
-@pytest.mark.parametrize("alias", ["mah_sci", "sci", "marx"])
-def test_alias_produces_the_same_edges_as_mah(alias):
-    """End to end: the per-feature edges an alias produces are identical to ``mah``'s."""
+@pytest.mark.parametrize("removed", ["mah_sci", "sci", "marx"])
+def test_a_removed_name_is_rejected_by_the_edge_dispatcher(removed):
+    """``per_feature_edges`` raises for a name that is no longer a method."""
     X, y = _xy()
-    ref = per_feature_edges(X, y, method="mah", n_jobs=1)
-    got = per_feature_edges(X, y, method=alias, n_jobs=1)
-    assert len(got) == len(ref)
-    for j, (g, r) in enumerate(zip(got, ref)):
-        np.testing.assert_array_equal(np.asarray(g), np.asarray(r), err_msg=f"column {j}: {alias!r} edges differ from 'mah'")
+    with pytest.raises(ValueError, match="unknown method"):
+        per_feature_edges(X, y, method=removed, n_jobs=1)
+
+
+@pytest.mark.parametrize("removed", ["mah_sci", "sci", "marx"])
+def test_a_removed_name_is_rejected_by_the_estimator(removed):
+    """The estimator's own validation does not list the removed names."""
+    from mlframe.feature_selection.filters.mrmr._mrmr_param_constants import _VALID_NBINS_STRATEGIES
+
+    assert removed not in _VALID_NBINS_STRATEGIES
+    assert "mah" in _VALID_NBINS_STRATEGIES
 
 
 def test_mah_is_not_indistinguishable_from_an_unrelated_method():
-    """Control: 'mah' must differ from plain Sturges somewhere, so the equality above is not vacuously true of every method."""
+    """Control: 'mah' must differ from plain Sturges somewhere."""
     X, y = _xy()
     mah = per_feature_edges(X, y, method="mah", n_jobs=1)
     sturges = per_feature_edges(X, y, method="sturges", n_jobs=1)
