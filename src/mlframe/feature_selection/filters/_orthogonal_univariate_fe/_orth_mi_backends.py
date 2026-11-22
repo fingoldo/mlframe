@@ -549,17 +549,17 @@ def _strict_mi_in_room_blocks(X: Any, y: Any, nbins: int, rank_binning: bool) ->
         from .._fe_gpu_vram import pool_column_block
 
         k = int(X.shape[1])
-        width = pool_column_block(
+        col_block = pool_column_block(
             cp, int(X.shape[0]), bytes_per_column_row=_STRICT_MI_BYTES_PER_ELEMENT_FACTOR * int(X.dtype.itemsize), budget_fraction=_STRICT_MI_BUDGET_FRACTION, min_block=16, fallback=k, what="strict resident MI"
         )
     except Exception as exc:  # no cupy or no readable pool: one call, as before
         logger.debug("strict resident MI: block width unknown (%r); one call", exc)
         return _strict_resident_mi(X, y, nbins, rank_binning)
-    if width >= k:
+    if col_block >= k:
         return _strict_resident_mi(X, y, nbins, rank_binning)
     parts = []
-    for c0 in range(0, k, width):
-        part = _strict_resident_mi(X[:, c0 : c0 + width], y, nbins, rank_binning)
+    for c0 in range(0, k, col_block):
+        part = _strict_resident_mi(X[:, c0 : c0 + col_block], y, nbins, rank_binning)
         if part is None:
             return None
         parts.append(np.asarray(part, dtype=np.float64))  # Intentional float64: MI statistic vector, as the single call returns it
