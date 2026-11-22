@@ -116,6 +116,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F50 | 35_training-4.md | FIXED | Write-only _sig_degenerate attribute. Deleted. Existing 27 calibration tests pass; no separate test (removal). |
 | 35-F51 | 35_training-4.md | FIXED | n_oof_rows counted rows finite in y only; the fit uses rows finite in y and every OOF column. Count now matches the fit. Test test_cluster35_meta_stack_row_count.py. |
 | 35-F52 | 35_training-4.md | PARTIAL | Subsample bench paired holdout OOF rows with natural-order y. Now uses the returned holdout target. Calibration bench already crc32. Lasso/elasticnet duplication not consolidated. Test test_cluster35_bench_subsample_targets_align.py. |
+| 35-F53 | 35_training-4.md | FIXED | getattr(self, 'smearing', True) read an attribute no constructor sets; always True. Gate removed. Test test_cluster35_smearing_always_on.py. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |

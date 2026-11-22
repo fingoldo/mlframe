@@ -939,3 +939,4 @@
 | 35-F50 | FIXED | Write-only _sig_degenerate attribute deleted; no reader anywhere. Existing 27 output-calibration tests pass; removal only, so no separate test. |
 | 35-F51 | FIXED | n_oof_rows counts rows finite in y AND every OOF column, the rows the fit used (test_cluster35_meta_stack_row_count; 59 existing meta-stacker tests pass; the one failure is the pre-existing uncalled-function gate) |
 | 35-F52 | PARTIAL | Subsample bench fits weights against the returned holdout target, row for row (test_cluster35_bench_subsample_targets_align). Calibration bench already uses crc32 (no salted hash() left in the ensemble benches). Lasso/elasticnet bench duplication not consolidated. |
+| 35-F53 | FIXED | Dead getattr(self, 'smearing', True) gate removed: smearing always applies to smeared transforms (test_cluster35_smearing_always_on; existing smearing and estimator-edge tests pass) |
