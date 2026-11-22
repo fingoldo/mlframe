@@ -246,8 +246,10 @@ def _as_2d_numeric(obj: Any):
         arr2d = arr.reshape(-1, 1)
     else:
         n = int(arr.shape[0])
-        p = int(arr.shape[1]) if arr.ndim >= 2 else 1
         arr2d = arr.reshape(n, -1)
+        # The width is the one the statistics are computed over: reshape flattens every trailing dim, so shape[1] under-reported a
+        # 3-D input's width (audit 29-F26).
+        p = int(arr2d.shape[1])
     if _true_rows is not None:
         n = _true_rows  # the identity is the TRUE shape; arr2d holds only the strided sample
     return arr2d, n, p, dtype_kind

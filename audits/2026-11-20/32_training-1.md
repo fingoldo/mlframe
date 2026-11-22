@@ -73,3 +73,8 @@ Grep and Read used for caller checks: `core/_phase_dummy_baselines.py` (the try/
 - 32-F4: FIXED. a non-finite global mean returns the minimum pseudocount (finite); tests/training/test_cluster32_baseline_fixes.py. Residual: the finding's preferred option, dropping non-finite y before the estimate, is not implemented; the caller still computes the mean from NaN-bearing y
 - 32-F5: FIXED. nanmedian and nanquantile for the quantile baselines; no separate test
 - 32-F6: FIXED. nanstd for the cross-output scale, non-finite scales skipped, non-finite normalized means excluded before the pick; no separate test
+- 32-F10: FIXED. Integer timestamps go through the same unit detector as object timestamps, so epoch seconds are no longer read as nanoseconds. Test tests/training/test_cluster32_integer_epoch_seconds_unit.py.
+- 32-F11: DEFERRED. The combiner is fit on all rows, so the holdout's init_score depends on holdout labels. The fix refits the combiner inside each training fold, a change to the diagnostic's method, deferred.
+- 32-F12: DEFERRED. Below 50 rows the metric is in-sample. Returning a skip instead changes _fit_quick_and_score's return contract for its caller, a contract decision, deferred.
+- 32-F7: DEFERRED. Building the class universe from train alone changes how unseen validation and test labels are encoded downstream, and that encoding is not yet checked. Deferred until the encoding path is read end to end.
+- 32-F26: FIXED. The smoke script exits 1 when the suite raises instead of printing a pass line and returning 0. Verified by reading; the smoke run is a manual end-to-end script, not a unit test.

@@ -286,6 +286,13 @@ def _build_ridge_classifier(config: LinearModelConfig) -> BaseEstimator:
     )
 
 
+def _require_positive_alpha(config: LinearModelConfig, builder: str) -> None:
+    """A lasso / elasticnet classifier needs a positive penalty: ``alpha=0`` used to become C=1.0, a moderate penalty the user never asked for
+    (audit 28-F22). An unpenalised fit is the plain linear classifier, so refuse here and say so."""
+    if config.alpha <= 0:
+        raise ValueError(f"{builder}: alpha must be > 0 (got {config.alpha}); for an unpenalised linear classifier use the plain linear model")
+
+
 def _build_lasso_classifier(config: LinearModelConfig) -> BaseEstimator:
     """Build a Lasso classifier via LogisticRegression with L1 penalty.
 
@@ -297,8 +304,9 @@ def _build_lasso_classifier(config: LinearModelConfig) -> BaseEstimator:
     spurious warning AND the actual L1 regularisation lands on either
     side of the cutover.
     """
+    _require_positive_alpha(config, "_build_lasso_classifier")
     _kwargs = dict(
-        C=1.0 / config.alpha if config.alpha > 0 else 1.0,
+        C=1.0 / config.alpha,
         solver="saga",
         max_iter=config.max_iter,
         tol=config.tol,
@@ -322,8 +330,9 @@ def _build_elasticnet_classifier(config: LinearModelConfig) -> BaseEstimator:
     this is) -- gating on it here silently discarded the user's configured l1_ratio in favor of a
     hardcoded 0.15 fallback whenever penalty stayed at its own default ("l2").
     """
+    _require_positive_alpha(config, "_build_elasticnet_classifier")
     return LogisticRegression(
-        C=1.0 / config.alpha if config.alpha > 0 else 1.0,
+        C=1.0 / config.alpha,
         l1_ratio=config.l1_ratio,
         solver="saga",
         max_iter=config.max_iter,

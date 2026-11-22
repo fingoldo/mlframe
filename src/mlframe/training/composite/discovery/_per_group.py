@@ -89,10 +89,12 @@ def run_per_group_discovery(
     group_values_train = group_values_full[train_idx]
 
     specs_by_group: dict[Any, list[CompositeSpec]] = {}
-    unique_groups = np.unique(group_values_train)
-    for group_val in unique_groups:
-        group_mask = group_values_train == group_val
-        group_row_idx = train_idx[group_mask]
+    # One stable sort, then each group is a contiguous slice: a full-length comparison per group is O(groups x rows) (audit 34-F13).
+    # Stable order keeps each group's rows in the same order the per-group mask gave.
+    order = np.argsort(group_values_train, kind="stable")
+    unique_groups, starts, counts = np.unique(group_values_train[order], return_index=True, return_counts=True)
+    for group_val, start, count in zip(unique_groups, starts, counts):
+        group_row_idx = train_idx[order[start : start + count]]
         n_rows = int(group_row_idx.size)
         if n_rows < min_rows:
             logger.info(

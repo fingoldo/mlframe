@@ -118,7 +118,7 @@ def order_screen_by_time(train_idx_screen: np.ndarray, sample_idx: np.ndarray, t
         _time_all = np.asarray(time_ordering)
         if _time_all.shape[0] >= int(np.max(train_idx_screen)) + 1:
             _time_screen = _time_all[train_idx_screen]
-            # NaT/NaN-safe stable sort: non-finite/unsortable keys keep their original relative order at the front.
+            # NaT/NaN-safe stable sort: non-finite keys sort LAST (np.argsort puts NaN/NaT at the end), in their original relative order.
             _order = np.argsort(_time_screen, kind="stable")
             return train_idx_screen[_order], sample_idx[_order], True
     except (TypeError, ValueError, IndexError) as _to_err:

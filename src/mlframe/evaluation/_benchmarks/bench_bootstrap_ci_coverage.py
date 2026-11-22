@@ -22,8 +22,9 @@ must probe the skewed regime, not pad the count with near-symmetric cells):
 Run:
     python -m mlframe.evaluation._benchmarks.bench_bootstrap_ci_coverage
 
-Verdict (recorded in tests/perf/results/_quality_loop_log.md): BCa is closer to nominal on the MAJORITY
-of (scenario x seed) cells -> flip the default ``method`` to "bca"; else honest REJECT.
+The verdict rule was "flip the default method to bca if BCa is closer to nominal on the majority of (scenario x seed)
+cells". bootstrap_metric already defaults to "bca", so the flip is in place; the iteration log is
+tests/perf/results/_loop_iter_log.md (audit 07-F7).
 """
 from __future__ import annotations
 
@@ -56,9 +57,6 @@ def _draw_auc_sample(rng: np.random.Generator, n: int, sep: float = _AUC_SEP) ->
 
 def _fast_auc(y: np.ndarray, s: np.ndarray) -> float:
     # Mann-Whitney U via rankdata; matches roc_auc_score, no sklearn dep in the hot loop.
-    order = np.argsort(s, kind="mergesort")
-    ranks = np.empty_like(order, dtype=np.float64)
-    ranks[order] = np.arange(1, len(s) + 1)
     # Average ties.
     ranks = stats.rankdata(s, method="average")
     pos = y == 1
@@ -85,6 +83,7 @@ def run_scenario(name: str, draw, metric_fn, true_value: float, seed: int, n_sam
     hits = {"percentile": 0, "bca": 0}
     widths = {"percentile": 0.0, "bca": 0.0}
     valid = 0
+    failed = 0
     for _ in range(n_trials):
         a, b = draw(rng, n_sample)
         # One resample loop per method but SAME per-trial draw, so the comparison is paired.
@@ -93,8 +92,9 @@ def run_scenario(name: str, draw, metric_fn, true_value: float, seed: int, n_sam
                 a, b, metric_fn=metric_fn, n_bootstrap=n_bootstrap, alpha=0.05, random_state=int(rng.integers(0, 2**31)), method="percentile"
             )
             r_bca = bootstrap_metric(a, b, metric_fn=metric_fn, n_bootstrap=n_bootstrap, alpha=0.05, random_state=int(rng.integers(0, 2**31)), method="bca")
-        except Exception as e:  # nosec B112 - best-effort path
-            logger.debug("bootstrap trial failed, skipping: %s", e)
+        except Exception as e:  # nosec B112 - counted and reported below, never silently dropped
+            failed += 1
+            logger.warning("bootstrap trial failed (%d so far in this scenario): %s", failed, e)
             continue
         valid += 1
         if r_pct["lo"] <= true_value <= r_pct["hi"]:
@@ -103,11 +103,14 @@ def run_scenario(name: str, draw, metric_fn, true_value: float, seed: int, n_sam
             hits["bca"] += 1
         widths["percentile"] += r_pct["hi"] - r_pct["lo"]
         widths["bca"] += r_bca["hi"] - r_bca["lo"]
+    # Coverage over the survivors only is biased when trials fail for a reason tied to the data, so refuse to report it past 5% failures (audit 07-F3).
+    if valid == 0 or failed > 0.05 * n_trials:
+        raise RuntimeError(f"{name} seed={seed}: {failed} of {n_trials} bootstrap trials failed; coverage over the {valid} survivors would be biased.")
     cov = {m: hits[m] / valid for m in hits}
     w = {m: widths[m] / valid for m in widths}
     gap = {m: abs(cov[m] - 0.95) for m in cov}
     winner = "bca" if gap["bca"] < gap["percentile"] else "percentile"
-    return {"scenario": name, "seed": seed, "true": true_value, "valid": valid, "coverage": cov, "miscov_gap": gap, "mean_width": w, "winner": winner}
+    return {"scenario": name, "seed": seed, "true": true_value, "valid": valid, "failed": failed, "coverage": cov, "miscov_gap": gap, "mean_width": w, "winner": winner}
 
 
 def main() -> None:

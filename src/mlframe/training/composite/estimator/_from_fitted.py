@@ -212,9 +212,10 @@ def from_fitted_inner(
         instance.fitted_params_["recurrence_continuation"] = True
     # Same base calibration range fit() captures, so the default-ON soft base-shrink and its deep-OOD fallback are live on the
     # suite path too. A spec that already carries a range (stamped by discovery) keeps it; train bases refresh it otherwise.
-    if base_train is not None:
-        from . import _soft_shrink as _soft_shrink
+    from . import _soft_shrink as _soft_shrink
 
+    # The comment above promises that a stamped range is kept. Overwriting it silently moved the soft-shrink thresholds (audit 35-F25).
+    if base_train is not None and _soft_shrink.BASE_FIT_RANGE_KEY not in transform_fitted_params:
         _soft_shrink.capture_base_fit_range(instance, get_transform(transform_name), np.asarray(base_train, dtype=np.float64))
     _inherit_feature_names(instance, fitted_inner)
     instance.runtime_stats_ = {

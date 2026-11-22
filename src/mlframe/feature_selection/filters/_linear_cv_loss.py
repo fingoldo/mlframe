@@ -98,8 +98,8 @@ def cv_loss_columns_device(columns: "list[np.ndarray]", y: np.ndarray, classific
                 return None
             folds.append((cp.asarray(tr.astype(np.int64)), cp.asarray(va.astype(np.int64)), True))
         loss = cv_candidates_binary(
-            cp, cp.asarray(design), [], list(range(len(cols))), folds, cp.asarray(np.ascontiguousarray(y_enc, dtype=np.int64)), dtype=np.float64, newton_max_iter=200, tol=1e-9, lam=1.0,
-            logloss_eps=float(np.finfo(np.float64).eps), fallback_error=_DeviceFitFallbackError,
+            cp, cp.asarray(design), [], list(range(len(cols))), folds, cp.asarray(np.ascontiguousarray(y_enc, dtype=np.int64)), dtype=np.float64, newton_max_iter=200, tol=1e-9, lam=1.0,  # Intentional float64: the device log-loss runs in double, see the note on the call
+            logloss_eps=float(np.finfo(np.float64).eps), fallback_error=_DeviceFitFallbackError,  # Intentional float64: the log-loss clip is the float64 epsilon
         )  # Intentional float64: the log-loss clip of the pipeline path
         for j, i in enumerate(usable):
             out[i] = float(np.mean(loss[j]))

@@ -102,6 +102,9 @@ def _process_special_values(
                 # Unrestricted df.fillna(0.0) raises on Categorical columns
                 # ("Cannot setitem on a Categorical with a new category").
                 num_cols = df.select_dtypes(include="number").columns  # type: ignore[union-attr]  # is_polars bool flag already excludes the pl.DataFrame arm here
+                # Fill a shallow copy: assigning into the caller's frame changed the train/val frame the caller still held, which the polars
+                # branch never did (audit 27-F9).
+                df = pd.DataFrame.copy(df, deep=False)
                 if "NaN" in kind or "null" in kind:
                     df[num_cols] = df[num_cols].fillna(fill_value)
                 elif "infinite" in kind:

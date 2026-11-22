@@ -633,13 +633,13 @@ def score_features_by_hsic_uplift(
         y_arr, len(raw_X), n_sample=int(n_sample), random_state=int(random_state), estimator=estimator,
     )
     raw_mi = _hsic_batch(
-        raw_X.to_numpy(dtype=np.float64), y_arr,
+        raw_X.to_numpy(dtype=np.float64), y_arr,  # Intentional float64: the HSIC batch computes its kernels at double, matching the shared y-side prep
         n_sample=int(n_sample), random_state=int(random_state),
         estimator=estimator, y_side=_y_side,
     )
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
     eng_mi = _hsic_batch(
-        engineered_X.to_numpy(dtype=np.float64), y_arr,
+        engineered_X.to_numpy(dtype=np.float64), y_arr,  # Intentional float64: the HSIC batch computes its kernels at double, matching the shared y-side prep
         n_sample=int(n_sample), random_state=int(random_state),
         estimator=estimator, y_side=_y_side,
     )

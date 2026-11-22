@@ -237,7 +237,7 @@ void col_min_max(const int* __restrict__ x, long long n, int k, long long stride
     long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     long long r0 = t / k;
     if (r0 >= stride) return;
-    int col = (int)(t - r0 * k);
+    int col = (int)(t - r0 * (long long)k);
     int mn = 2147483647, mx = -2147483647 - 1;
     for (long long r = r0; r < n; r += stride) {
         int v = x[r * k + col];

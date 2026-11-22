@@ -35,6 +35,7 @@ from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 # (and that ``tests/test_meta/test_no_import_cycles.py`` flags as a hard fail).
 from mlframe.metrics.classification.shared import fast_calibration_report, ice_kernel_dispatch as _ice_kernel_dispatch, fast_ice_only
 
+from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
@@ -404,7 +405,9 @@ def _legacy_per_class_loop(probs: Any, y_true: Any, labels: Any, multilabel: boo
                 logger.info("\t class_id=%s, brier_loss=%s", class_id, f"{class_error:.{ndigits}f}")
         elif method == "precision":
             from .core import fast_precision  # lazy: import-cycle avoidance, see module top
-            class_error = fast_precision(y_true=correct_class, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0)
+            # Reported as 1 - precision so it is an error like every other method (higher is worse) and the aggregate does not move the
+            # wrong way (audit 25-F47). The value is the error of the positive predictions, not precision itself.
+            class_error = 1.0 - fast_precision(y_true=correct_class, y_pred=(y_pred >= 0.5).astype(np.int8), zero_division=0)
 
         # Assign weights
 
@@ -774,12 +777,11 @@ def _install_catboost_sklearn_clone_patch() -> None:
             try:
                 new._init_params[name] = value
             except (AttributeError, KeyError):
-                pass
+                pass  # this CatBoost build has no _init_params mapping for the name: the public set_params below still applies
             try:
                 new.set_params(**{name: value})
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
+            except Exception as e:  # not fatal, but a rejected set_params means the clone is not identical: say so (audit 25-F48)
+                log_throttle(logger, "ice_metric.clone_set_params", logging.WARNING, "CatBoost clone could not re-attach %s=%r via set_params (%s); the clone may not match the original", name, value, e)
         return new
 
     for cls in (CatBoostClassifier, CatBoostRegressor):

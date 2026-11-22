@@ -111,15 +111,18 @@ def _saved_feature_names(m) -> Optional[List[str]]:
     """Feature names the fitted model was trained on, from its attributes or its booster; ``None`` when neither exposes them."""
     saved_names: Optional[List[str]] = None
     for attr in ("feature_names_", "feature_names_in_"):
-        if hasattr(m, attr):
-            try:
-                raw = getattr(m, attr)
-                if raw is not None:
-                    saved_names = list(raw)
-                    break
-            except Exception as e:
-                logger.debug("swallowed exception in train_eval.py: %s", e)
+        # hasattr() only absorbs AttributeError, so the read itself sits inside the guard: a property that raises anything else used to
+        # escape here. An unreadable name list skips the schema check, which WARNING makes visible (audit 28-F49).
+        try:
+            if not hasattr(m, attr):
                 continue
+            raw = getattr(m, attr)
+            if raw is not None:
+                saved_names = list(raw)
+                break
+        except Exception as e:
+            logger.warning("could not read %s from the model (%s); schema validation for it is skipped", attr, e)
+            continue
     if saved_names is None and hasattr(m, "get_booster"):
         try:
             booster_names = m.get_booster().feature_names

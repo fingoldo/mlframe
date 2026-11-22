@@ -60,11 +60,18 @@ def prune_dead() -> None:
     _CACHE.prune_dead()
 
 
+def _rows_digest(rows: np.ndarray) -> bytes:
+    """Collision-safe cache-key digest of a row-index array (a 64-bit ``hash()`` could return another fold's entry; audit 34-F27)."""
+    import hashlib
+
+    return hashlib.blake2b(np.ascontiguousarray(rows).tobytes(), digest_size=16).digest()
+
+
 def _fold_factor(x: np.ndarray, rows: np.ndarray) -> tuple[np.ndarray, np.ndarray, Any]:
     """This thread's ``(fill, column_mean, cholesky_factor)`` for the fold ``x[rows]``, computed on first use."""
     from scipy.linalg import cho_factor
 
-    key = (threading.get_ident(), id(x), x.shape, hash(np.ascontiguousarray(rows).tobytes()))
+    key = (threading.get_ident(), id(x), x.shape, _rows_digest(rows))
     hit = _CACHE.get(key, x)
     if hit is not None:
         return cast(tuple, hit)

@@ -52,7 +52,7 @@ def _zero_importance_mask_within_training_folds(estimator, X, y, cv, remaining, 
     row_select = (lambda idx: X.iloc[idx]) if hasattr(X, "iloc") else (lambda idx: X[idx])
     y_select = (lambda idx: y.iloc[idx]) if hasattr(y, "iloc") else (lambda idx: y[idx])
     cols_of = (lambda Z: Z[remaining]) if has_columns else (lambda Z: Z[:, remaining])
-    totals = np.zeros(len(remaining), dtype=np.float64)
+    totals = np.zeros(len(remaining), dtype=np.float64)  # Intentional float64: importance accumulator summed across runs, kept at double
     n_folds = 0
     for train_idx, _test_idx in cv.split(X, np.asarray(y)):
         X_tr = cols_of(row_select(train_idx))

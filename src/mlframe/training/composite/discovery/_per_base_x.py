@@ -102,8 +102,16 @@ class BoundedMemo:
         """The value cached under ``key``, building and caching it on a miss; the oldest entry goes once over capacity."""
         with self._lock:
             hit = self._values.get(key)
+            if hit is not None:
+                self._values.move_to_end(key)
+                return hit
+        # The build runs outside the lock: a build that re-enters this memo would deadlock, and builds would serialise across threads
+        # (audit 34-F28). Two threads that miss together may both build; the first value stored wins.
+        built = build()
+        with self._lock:
+            hit = self._values.get(key)
             if hit is None:
-                hit = self._values[key] = build()
+                hit = self._values[key] = built
                 while len(self._values) > self._capacity:
                     self._values.popitem(last=False)
             else:

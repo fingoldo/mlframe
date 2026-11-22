@@ -120,3 +120,40 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F12: FIXED. A class_weight key absent from the training labels is skipped at fit. Test tests/training/test_cluster28_class_weight_absent_key_skipped.py.
 - 28-F2: FIXED (test pending). The multilabel decision uses the array shape only (evaluation.py). A regression test needs the full per-class calibrator run inside a nine-argument function; no targeted helper exists yet.
 - 28-F6: FIXED. The fail-loud inf check also runs on the batched path when fix_infinities is False. Test tests/training/test_cluster28_polars_inf_guard_runs_when_not_fixing.py.
+- 28-F17: FIXED. set_label applies the fitted label encoder, so the cached Dataset matches what fit trained on. Test tests/training/test_cluster28_set_label_encodes_like_fit.py.
+- 28-F7: FIXED. save_split_artifacts rewrites every artifact (the existing-name skip is gone). Test tests/training/test_cluster28_split_artifacts_rewritten.py.
+- 28-F11: FIXED. The auto-wrap switch is carried on the control config the training loop reads (set by _build_control_config), so False is honoured. Test tests/training/test_cluster28_wrap_flag_reaches_control.py.
+- 28-F14: FIXED. An existing bundle that cannot be read raises instead of falling back to an unverified reopen. Test tests/training/test_cluster28_unreadable_bundle_raises.py.
+- 28-F16: FIXED (test pending). Validation cache hit re-applies init_score (lgb_shim). A test needs a full cached fit through fit(); not yet written.
+- 28-F42: FIXED. A failed text-feature probe logs at WARNING with its traceback. Test tests/training/test_cluster28_probe_and_names_warn.py (covers the names path; the probe path shares the same change).
+- 28-F49: FIXED. An unreadable feature-name list logs at WARNING, and the attribute read itself is inside the guard. Test tests/training/test_cluster28_probe_and_names_warn.py.
+- 28-F40: FIXED. The logging proxy raises AttributeError for its unset _inner slot instead of recursing. Test tests/training/test_cluster28_logging_proxy_and_rss.py.
+- 28-F39: FIXED. A failed post-call RSS re-read reports rss_mb and d_rss_mb as None, not as zero. Verified by reading the change; no unit test, since it needs a psutil failure mid-call.
+- 28-F28: FIXED. A digest mismatch on read logs at WARNING and deletes the entry. Test tests/training/test_cluster28_suite_cache_keys_and_tamper.py.
+- 28-F29: FIXED. The default key builder digests array and frame arguments from their bytes; repr elided the middle of large arrays. Test tests/training/test_cluster28_suite_cache_keys_and_tamper.py.
+- 28-F41: FIXED. Every grid label is planned and checked before the first variant runs, so a duplicate refuses the grid with nothing trained. Test tests/training/test_cluster28_grid_labels_checked_before_runs.py.
+- 28-F43: FIXED. A rejected CatBoost set_params is logged at WARNING before the private _init_params fallback is written. Test tests/training/test_cluster28_cb_set_params_fallback_logged.py.
+- 28-F35: FIXED. The drift helper converts nullable pandas columns to float with NaN for pd.NA, so the sensor is not dropped. Test tests/training/test_cluster28_drift_nullable_column.py.
+- 28-F33: FIXED. The binary default is applied whenever no task key is given, after the time budget is merged, so a budget no longer drops it. No local test: lightautoml is not installed here; the test skips without it. Verified by reading the change.
+- 28-F32: FIXED. The test AUC is computed whatever the verbosity, and only its log line is gated. Verified by reading; the AutoML path needs lightautoml or autogluon, which are not installed here, so no unit test.
+- 28-F46: FIXED. Category alignment always takes a shallow copy before reassigning a column; the old flag shortcut is gone. Test tests/training/test_cluster28_category_alignment_leaves_caller_frame.py; 12 related alignment tests pass.
+- 28-F45: FIXED. The text-column decategorisation writes into a shallow copy, so the caller's eval-set frame keeps its categories and NaN. Test tests/training/test_cluster28_decategorize_leaves_caller_frame.py.
+- 28-F34: FIXED. The OOF target is read with the same inner-model fallback as the OOF probabilities, through one helper used at both sites. Test tests/training/test_cluster28_oof_target_found_like_probs.py.
+- 28-F44: FIXED. Both CatBoost metric sites keep a user-set eval_metric and set only the loss when one exists; the MTR default is used only when none is set. Test tests/training/test_cluster28_cb_keeps_user_eval_metric.py covers the MTR site; the multilabel site uses the same guard.
+- 28-F38: DEFERRED. Owner decision: scale the Huber floor to the target's robust scale, or document it as a raw-unit floor. Either changes every booster's loss on small-scale targets.
+- 28-F25: FIXED. A bundle that cannot be digested fails the save with a WARNING, so no unverifiable sidecar is written and a later load does not raise. Test tests/training/test_cluster28_save_fails_without_digest.py; 5 related sidecar tests pass.
+- 28-F27: DEFERRED. The whole loader body sits inside _LOAD_MODEL_CACHE_LOCK, so narrowing the lock to the cache get and put means restructuring its control flow. A dedicated change, deferred.
+- 28-F26: DEFERRED. Streaming the hash and the unpickle from one handle changes the verified-open contract the loader relies on. Deferred to a dedicated change to the bundle reader.
+- 28-F31: FIXED. The multiclass split summary drops non-finite labels before counting and reports them as n_missing, as the binary summary does. Test tests/training/test_cluster28_multiclass_summary_drops_missing_labels.py.
+- 28-F36: FIXED. A host-RAM fallback from a failed GPU memory probe is returned but not cached under the cuda:N key. Test tests/training/test_cluster28_mem_probe_fallback_not_cached_as_gpu.py; 19 tests pass with the existing memory-probe tests.
+- 28-F37: DEFERRED. The predict batch resolver still probes device 0. Adding device_id is simple; wiring the training device into its only caller (neural/base/_base_predict.py) needs the owner of that device state to say where it lives.
+- 28-F21: FIXED. The pandas inf-to-NaN replacement writes into a shallow copy, so the caller's frame keeps its infinities. Test tests/training/test_cluster28_special_values_leave_caller_frame.py.
+- 28-F19: FIXED. When both refit paths fail, the saturated-best-iteration refit restores the model's parameters, as the degenerate path does. Verified by reading; no unit test, since it needs a CatBoost-shaped loss fallback.
+- 28-F30: FIXED. Eviction first adopts .pkl entries on disk that this process's ledger does not know, as the oldest, so they count against and can be evicted from the byte budget. Test tests/training/test_cluster28_cache_adopts_other_process_entries.py; 5 cache tests pass.
+- 28-F20: FIXED. With balance_proxy the elkan_noto prior is NaN instead of the balanced proxy's mean scaled by c, which is not a prior. Test tests/training/test_cluster28_pu_prior_nan_when_balanced.py.
+- 28-F22: FIXED. Lasso and elasticnet classifiers refuse alpha <= 0 with a ValueError naming the unpenalised alternative, instead of silently using C=1.0. Test tests/training/test_cluster28_linear_classifier_alpha_positive.py.
+- 28-F23: DEFERRED. Uncalled function: project rule is to wire it in or classify it before deleting. Classification is deferred to the uncalled-functions pass.
+- 28-F24: DEFERRED. The TTA duplication needs the fused function kept and the others made thin wrappers, or removed; that touches a public API and the bench that calls it. Deferred.
+- 28-F47: DEFERRED. Duplicated GTC cache state in the helpers module: deletion needs a check that nothing imports it. Deferred to the uncalled-functions pass.
+- 28-F48: DEFERRED. report_title is built and never emitted: wiring it in changes the train report, so it is an owner decision (emit or delete).
+- 28-F76: DEFERRED. Seven public or load-bearing functions have no test reference. Each needs a targeted test; deferred as a batch to its own change.

@@ -25,7 +25,7 @@ def _perm_mi_from_binned_njit(x_binned: np.ndarray, yp: np.ndarray, n_bins: int,
     """MI (nats) of one pre-binned x against each row of ``yp`` (permuted encoded targets), same accumulation as ``_plugin_mi_classif_njit``."""
     n_perm = yp.shape[0]
     n = x_binned.shape[0]
-    out = np.zeros(n_perm, dtype=np.float64)
+    out = np.zeros(n_perm, dtype=np.float64)  # Intentional float64: permutation-null statistic at double, compared against the observed value
     log_n = math.log(n)
     for p in prange(n_perm):
         hist_xy = np.zeros((n_bins, n_classes), dtype=np.int64)
@@ -73,7 +73,7 @@ def residue_mi_per_perm(r: np.ndarray, yi_perms: np.ndarray, n_bins: int) -> np.
     ``yi_perms`` is an ``(P, n)`` int64 matrix of encoded targets; every row has the same value set, so the class offset and
     count are shared across rows.
     """
-    x_binned = _quantile_bin_njit(np.ascontiguousarray(r, dtype=np.float64), int(n_bins))
+    x_binned = _quantile_bin_njit(np.ascontiguousarray(r, dtype=np.float64), int(n_bins))  # Intentional float64: permutation-null statistic at double, compared against the observed value
     y_min = int(yi_perms.min())
     n_classes = int(yi_perms.max()) - y_min + 1
     return cast(np.ndarray, _perm_mi_from_binned_njit(x_binned, yi_perms, int(n_bins), y_min, n_classes))
@@ -92,7 +92,7 @@ def perm_best_mis(hit: Any, X: Any, yi_perms: np.ndarray, nbins: int) -> np.ndar
     grid = modulus_grid(hit.modulus)
     n_perm, n_rows = yi_perms.shape
     mis = {m: residue_mi_per_perm(np.mod(c_arr, m).astype(_crit_np_dtype()), yi_perms, max(nbins, m)) for m in grid}
-    out = np.empty(n_perm, dtype=np.float64)
+    out = np.empty(n_perm, dtype=np.float64)  # Intentional float64: permutation-null statistic at double, compared against the observed value
     for p in range(n_perm):
         n_classes = int(np.unique(yi_perms[p]).size)
         out[p] = select_modulus(grid, lambda m, p=p: mis[m][p], hit.modulus, n_rows, n_classes)[1]

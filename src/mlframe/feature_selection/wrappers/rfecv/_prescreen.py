@@ -16,7 +16,7 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
-def _prescreen_mrmr(self, X, y, candidate_features, verbose):
+def _prescreen_mrmr(self, X, y, candidate_features):
     """Pre-screen to the top-K features by min-redundancy / max-relevance MI via ``MRMR``. Returns the kept features."""
     _topk = getattr(self, "prescreen_top_k", None)
     # mRMR pre-screening (TODO from pre-Wave-1 high-priority):
@@ -49,7 +49,7 @@ def _prescreen_mrmr(self, X, y, candidate_features, verbose):
     _kept_set = set(_kept)
     return [c for c in candidate_features if c in _kept_set]
 
-def _prescreen_univariate_ht(self, X, y, candidate_features, verbose):
+def _prescreen_univariate_ht(self, X, y, candidate_features):
     """Pre-screen with in-tree univariate hypothesis tests and BY-FDR. Returns the kept features."""
     _topk = getattr(self, "prescreen_top_k", None)
     # L7 native impl: in-tree univariate hypothesis-test
@@ -78,7 +78,7 @@ def _prescreen_univariate_ht(self, X, y, candidate_features, verbose):
     _kept_set = set(_kept)
     return [c for c in candidate_features if c in _kept_set]
 
-def _apply_prescreen(self, *, X, y, candidate_features, verbose):
+def _apply_prescreen(self, *, X, y, candidate_features):
     """L7: run the configured prescreen and return the filtered candidate-feature list.
 
     Supported prescreen values:
@@ -101,9 +101,9 @@ def _apply_prescreen(self, *, X, y, candidate_features, verbose):
             _kept = _kept[: int(_topk)]
         return _kept
     if isinstance(_p, str) and _p.lower() == "mrmr":
-        return _prescreen_mrmr(self, X, y, candidate_features, verbose)
+        return _prescreen_mrmr(self, X, y, candidate_features)
     if isinstance(_p, str) and _p.lower() == "univariate_ht":
-        return _prescreen_univariate_ht(self, X, y, candidate_features, verbose)
+        return _prescreen_univariate_ht(self, X, y, candidate_features)
     log_throttle(logger, "rfecv_prescreen_unknown", logging.WARNING, "Unknown prescreen=%r; skipping.", _p)
     return candidate_features
 
@@ -128,7 +128,7 @@ def _precompute_prescreen_fold_universes(self, *, X, y, groups, cv, full_feature
                 continue
             X_tr = X.iloc[_tr_idx]
             y_tr = y_arr[_tr_idx]
-            kept = _apply_prescreen(self, X=X_tr, y=y_tr, candidate_features=full_features, verbose=False)
+            kept = _apply_prescreen(self, X=X_tr, y=y_tr, candidate_features=full_features)
             universes[key] = frozenset(kept)
     except Exception as exc:
         log_throttle(logger, "rfecv_prescreen_nested_failed", logging.WARNING, "Nested prescreen precompute failed (%s); using the global in-universe estimate.", exc)

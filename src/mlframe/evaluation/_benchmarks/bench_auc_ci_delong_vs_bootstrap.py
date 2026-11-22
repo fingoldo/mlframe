@@ -25,10 +25,8 @@ import sys
 import numpy as np
 import scipy.stats
 
-try:
-    import numba  # noqa: F401
-except ImportError:  # nosec B110 - optional dependency import guard
-    pass
+# Pins the bench to the CPU path: with cupy absent from the import chain, mlframe's bootstrap cannot pick the GPU route.
+# This is deliberate (audit 07-F10 kept it), so the no-op numba import around it is the only part removed.
 cast(Any, sys.modules).setdefault("cupy", None)
 
 from sklearn.metrics import roc_auc_score
@@ -103,18 +101,17 @@ def main():
             y, s = _draw(rng, n, auc_t)
             d_se = auc_variance(y, s)["se"]
             b = _bootstrap_se(y, s, rng_seed=1000 + sd)
-            b_se = float(b["samples"].std(ddof=1)) if "samples" in b else float("nan")
+            b_se = float(b["samples"].std(ddof=1))  # bootstrap_metric always returns samples; a missing key must raise (audit 07-F8)
             de = abs(d_se - sd_truth)
             be = abs(b_se - sd_truth)
             delong_abserr.append(de)
             boot_abserr.append(be)
             delong_se.append(d_se)
             boot_se.append(b_se)
-            if de < be:
-                seed_wins += 1
+            delong_wins = de < be  # one condition feeds both counters, so they cannot disagree (audit 07-F9)
+            seed_wins += delong_wins
             se_cells += 1
-            if de < be:
-                se_wins_delong += 1
+            se_wins_delong += delong_wins
         scen_majorities.append((name, seed_wins, N_SEEDS))
         print(f"[{name}] truth SD(AUC)={sd_truth:.4f} mean_auc={mean_auc:.4f}")
         print(f"   DeLong  mean|SE-SD|={np.mean(delong_abserr):.5f}  (mean SE={np.mean(delong_se):.4f})")

@@ -112,7 +112,12 @@ def hash_array_content(arr: np.ndarray) -> str:
     try:
         import xxhash
 
-        return str(xxhash.xxh3_128_hexdigest(head + arr.tobytes()))
+        # Hash incrementally: ``head + arr.tobytes()`` made two full copies of the array per lookup. The digest is the same as the one-shot
+        # digest of the concatenation, so existing cache keys are unchanged (audit 29-F12).
+        hasher = xxhash.xxh3_128()
+        hasher.update(head)
+        hasher.update(arr.data.cast("B"))
+        return str(hasher.hexdigest())
     except ImportError:
         h = _hasher()
         h.update(head)
@@ -392,9 +397,10 @@ class DiskCache:
                 pass
             self.misses += 1
             return None
-        except (pickle.UnpicklingError, EOFError, OSError) as exc:
-            # Corrupt entry (e.g. mid-rename crash on a non-atomic FS). Drop
-            # the file so the next put rebuilds cleanly.
+        except (pickle.UnpicklingError, EOFError, OSError, AttributeError, ImportError, TypeError, ValueError, IndexError, KeyError) as exc:
+            # Corrupt entry (e.g. mid-rename crash on a non-atomic FS), or one whose class was renamed or removed since it was written
+            # (AttributeError / ImportError while unpickling). Drop the file so the next put rebuilds cleanly, instead of raising out of get()
+            # in the middle of a run (audit 29-F11).
             logger.debug("DiskCache: corrupt entry %s (%s); removing", path, exc)
             try:
                 path.unlink()
@@ -435,8 +441,9 @@ class DiskCache:
         try:
             with open(tmp_path, "wb") as f:
                 pickle.dump(value, f, protocol=_PICKLE_PROTOCOL)
-        except (OSError, pickle.PicklingError) as exc:
-            logger.debug("DiskCache: put failed for key=%s: %s", key, exc)
+        except Exception as exc:  # any pickling failure (a TypeError on a lock included), not only the two it was written for (audit 29-F10)
+            # The temp file is removed here: eviction never reclaims tmp_ files, so a leftover one would stay in the cache dir for good.
+            logger.warning("DiskCache: could not pickle the value for key=%s (%s); nothing was cached", key, exc)
             try:
                 tmp_path.unlink()
             except OSError:

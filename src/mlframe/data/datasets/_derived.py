@@ -52,7 +52,18 @@ def _feature_parents(graph: CausalGraph, node: str, observed: Set[str], target: 
     of 0.00, and uncorrelated with the cause instead of 0.5.
     """
     latent_names = latents or set()
-    return tuple(parent for parent in graph.parents(node) if parent in observed or parent in latent_names or parent == target)
+    parents = tuple(graph.parents(node))
+    kept = tuple(parent for parent in parents if parent in observed or parent in latent_names or parent == target)
+    # A parent that is none of the three realisable kinds is another declared target (a multi-target spec) or an unknown node. Dropping it
+    # silently generated the column without that parent's effect while the truth graph still recorded the edge (audit 04-F26): refuse.
+    dropped = [parent for parent in parents if parent not in kept]
+    if dropped:
+        raise ValueError(
+            f"column {node!r} has parent(s) {dropped} that are neither observed, latent, nor the selected target {target!r}; "
+            f"realising it would drop their effect while the truth graph keeps the edge. Declare the parent as a column, or "
+            f"select that target."
+        )
+    return kept
 
 
 def derived_order(graph: CausalGraph, observed: Sequence[str], target: str, latents: Sequence[str] = (), reflections: Sequence[str] = ()) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:

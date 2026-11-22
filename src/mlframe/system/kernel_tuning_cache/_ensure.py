@@ -127,7 +127,8 @@ def _lock_token(path: Path) -> str:
     """The start token recorded beside the pid in the lock file, or '' when none was recorded."""
     try:
         text = path.read_text(encoding="utf-8").strip()
-    except OSError:
+    except OSError as exc:
+        logger.warning("kernel_tuning_cache lock %s unreadable (%s); treating it as holding no start token", path, exc)
         return ""
     return text.split(":", 1)[1] if ":" in text else ""
 
@@ -204,7 +205,12 @@ def _create_lock(path: Path) -> bool:
     The pid goes into a per-process temp file first, which is then hard-linked to the lock path: the link fails if the lock exists, and the lock never exists without its pid.
     """
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(f"{os.getpid()}:{_pid_start_token(os.getpid())}", encoding="utf-8")
+    try:
+        tmp.write_text(f"{os.getpid()}:{_pid_start_token(os.getpid())}", encoding="utf-8")
+    except OSError as exc:
+        # An unwritable cache directory must not raise out of ensure, which --advisory promises never to fail: no lock is taken (audit 31-F4).
+        logger.warning("could not write the tuning lock %s (%s: %s); not starting a run", tmp, type(exc).__name__, exc)
+        return False
     try:
         os.link(tmp, path)
         return True

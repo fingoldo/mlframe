@@ -562,17 +562,14 @@ def render_prediction_stability_diagnostic(
         from mlframe.reporting.charts.prediction_stability import compose_prediction_stability_figure
 
         yt = None if y_true is None else np.asarray(y_true, dtype=np.float64).ravel()
-        # member_test_preds and test_target can come from different upstream slices (e.g. a coarse ensemble
-        # re-scoring pass over more rows than the target was subsampled to), and EITHER can be the shorter one,
-        # so both are aligned to the shorter length before ``abs_error`` broadcasts them together.
+        # The target and the member predictions must be the SAME rows, paired by position. When they come from different slices, truncating
+        # both to the shorter length pairs each error with another row's target, and the chart still draws. Refuse instead (audit 26-F24).
         if yt is not None and yt.shape[0] != mp.shape[0]:
-            n = min(yt.shape[0], mp.shape[0])
             logger.warning(
-                "prediction-stability chart: target has %d rows and member predictions %d; plotting the first %d of each.",
-                yt.shape[0], mp.shape[0], n,
+                "prediction-stability chart skipped: target has %d rows and member predictions %d, so they are not the same rows.",
+                yt.shape[0], mp.shape[0],
             )
-            yt = yt[:n]
-            mp = mp[:n]
+            return False
         spec = compose_prediction_stability_figure(mp, y_true=yt, seed=seed)
         out = base_path + "_prediction_stability"
         ok = _save_spec(spec, plot_outputs, out)

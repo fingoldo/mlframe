@@ -240,7 +240,7 @@ class _FamilyOnDevice:
             for part in self._parts(cls):
                 top = part.max(axis=1)
                 best = top if best is None else cp.maximum(best, top)
-            out[start : start + mm] = cp.asnumpy(best).astype(np.float64)
+            out[start : start + mm] = cp.asnumpy(best).astype(np.float64)  # Intentional float64: statistic vector compared at full precision
         return out
 
 
@@ -263,6 +263,7 @@ def family_pass_batches_device(batches: Sequence[Any], y_codes: np.ndarray, alph
         if observed is None:
             observed = fam.observed()
         n_batches = len(widths)
+        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         observed_max = np.array([float(observed[starts[j] : starts[j + 1]].max()) if widths[j] else 0.0 for j in range(n_batches)], dtype=np.float64)
         flags = np.zeros(n_batches, dtype=np.bool_)

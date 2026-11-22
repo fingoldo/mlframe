@@ -370,7 +370,7 @@ def _prepare_source_columns(src, X, _dt, basis, basis_per_col, max_d, leg_cache)
 
 
 def _winner_product_f64(X: pd.DataFrame, tup: tuple, degs: tuple, basis_per_col: dict) -> np.ndarray:
-    """The product of the winner's legs on the float64 axis the recipe freezes (the scoring ran on the criterion dtype)."""
+    """The product of the winner's legs on the double-precision axis the recipe freezes (the scoring ran on the criterion dtype)."""
     prod = None
     for col, d in zip(tup, degs):
         leg = _evaluate_basis_column(_fit_axis_column(X, col), basis_per_col[col], int(d))

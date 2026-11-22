@@ -460,7 +460,7 @@ def _combine_overflows(arrs: Sequence[np.ndarray], op: str) -> bool:
     """Whether combining ``arrs`` with ``op`` in int64 could wrap: the bound on the combined magnitude (a sum of the operand maxima, a product of two) reaches ``_INT64_SAFE_BOUND``."""
     if op == "self":
         return False
-    peaks = [float(np.max(np.abs(_to_int64(a).astype(np.float64)))) if np.size(a) else 0.0 for a in arrs]
+    peaks = [float(np.max(np.abs(_to_int64(a).astype(np.float64)))) if np.size(a) else 0.0 for a in arrs]  # Intentional float64: exact int64 magnitude, float32 cannot hold the largest integer keys
     if op == "prod":
         return peaks[0] * peaks[1] >= _INT64_SAFE_BOUND
     return sum(peaks) >= _INT64_SAFE_BOUND

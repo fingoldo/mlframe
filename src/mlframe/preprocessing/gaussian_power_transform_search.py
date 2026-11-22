@@ -201,6 +201,13 @@ def gaussian_power_transform_search(
             info["all_target_corr"] = all_target_corr
             info["target_correlation_rejected"] = rejected
 
+        if not eligible:
+            # Every candidate failed the target-retention guard and identity was not among them. The documented fallback is identity,
+            # so evaluate it now rather than taking min() of an empty set (audit 26-F6).
+            identity_transformed, identity_params = _apply_transform(finite_fill, "identity")
+            abs_skews["identity"] = float(abs(skew(identity_transformed)))
+            fitted_params_by_name["identity"] = identity_params
+            eligible = {"identity": abs_skews["identity"]}
         best_transform = min(eligible, key=eligible.get)  # type: ignore[arg-type]
         info = {
             "best_transform": best_transform,

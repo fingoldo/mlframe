@@ -204,12 +204,12 @@ def generate_grouped_agg_features(
                 }
 
             # ---- z-within-group residual ----
-            per_row_mean = _broadcast_lookup(g_keys, lookup_mean, global_mean, np.float64)
+            per_row_mean = _broadcast_lookup(g_keys, lookup_mean, global_mean, np.float64)  # Intentional float64: the group lookups feed the double-precision z-score, narrowed only at the end
             per_row_std = _broadcast_lookup(g_keys, lookup_std, global_std, np.float64)
             per_row_std = np.where(per_row_std > 0.0, per_row_std, 1.0)
             zscore = np.nan_to_num(
                 (x64 - per_row_mean) / per_row_std, nan=0.0, posinf=0.0, neginf=0.0,
-            ).astype(_crit_np_dtype(), copy=False)  # narrowed AFTER the float64 arithmetic
+            ).astype(_crit_np_dtype(), copy=False)  # narrowed AFTER the double-precision arithmetic
             z_name = engineered_name_grouped_z(num_col, group_col)
             encoded[z_name] = zscore
             raw_recipes[z_name] = {
@@ -273,7 +273,7 @@ def apply_grouped_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     if op == "z_within":
         lookup_std = dict(recipe["lookup_std"])
         global_std = float(recipe.get("global_std", 1.0)) or 1.0
-        per_row_std = _broadcast_lookup(g_keys, lookup_std, global_std, np.float64)
+        per_row_std = _broadcast_lookup(g_keys, lookup_std, global_std, np.float64)  # Intentional float64: the group lookups feed the double-precision z-score, narrowed only at the end
         per_row_std = np.where(per_row_std > 0.0, per_row_std, 1.0)
         return np.asarray(np.nan_to_num(
             (x - per_row_mean) / per_row_std, nan=0.0, posinf=0.0, neginf=0.0,

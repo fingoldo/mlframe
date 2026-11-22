@@ -145,7 +145,7 @@ def _params_loop_forced() -> bool:
 
 def _params_repeated(cp: Any, first: Any, second: Any, n_degrees: int) -> Any:
     """``(n_degrees * K, 4)`` parameter rows ``[first, second, 0, 0]`` of every column, the same block repeated for each degree (the fourier and pade cells do not depend on the degree)."""
-    f64 = cp.float64
+    f64 = cp.float64  # Intentional float64: the device cell arithmetic runs at double, matching the host reference
     k = int(first.shape[0])
     block = cp.stack([first, second, cp.zeros(k, f64), cp.zeros(k, f64)], axis=1)
     return cp.tile(block, (int(n_degrees), 1))
@@ -154,7 +154,7 @@ def _params_repeated(cp: Any, first: Any, second: Any, n_degrees: int) -> Any:
 def _params_by_degree(cp: Any, quant: Any, second: Any, degs: "list[int]") -> Any:
     """``(len(degs) * K, 4)`` parameter rows ``[quant[d - 1], second, 0, 0]`` for every degree ``d`` (degree-major, the columns inside a degree) from ONE gather and ONE stack: the per-degree form
     issued a stack, two zero allocations and an index per degree (about five launches each, nine degrees, 130 blocks of a fit)."""
-    f64 = cp.float64
+    f64 = cp.float64  # Intentional float64: the device cell arithmetic runs at double, matching the host reference
     k = int(quant.shape[1])
     firsts = quant[cp.asarray(np.asarray(degs, dtype=np.int64) - 1)]  # (D, K)
     seconds = cp.broadcast_to(second, firsts.shape)

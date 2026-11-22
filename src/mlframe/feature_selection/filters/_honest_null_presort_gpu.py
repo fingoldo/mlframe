@@ -32,7 +32,7 @@ _BYTES_PER_COLUMN_ROW = 28
 
 def _presort_column_block(cp, n_rows: int) -> int:
     """Columns per launch within ``_BUDGET_FRACTION`` of what the memory pool can still hand out (at least 4)."""
-    return pool_column_block(cp, n_rows, bytes_per_column_row=_BYTES_PER_COLUMN_ROW, budget_fraction=_BUDGET_FRACTION, min_block=4, fallback=8, what="device presort")
+    return _presort_column_block_bytes(cp, n_rows, _BYTES_PER_COLUMN_ROW)
 
 
 def use_device_presort(n_rows: int, n_cols: int) -> bool:
@@ -49,7 +49,7 @@ _KEYS_BYTES_PER_COLUMN_ROW = 56  # float copy, ordered bits, the 64-bit key, its
 def _presort_by_keys(cp, raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray] | None":
     """The order and tie flags of :func:`presort_and_ties_gpu` from ONE 1-D sort of composite keys per block of columns (the sort of a long vector runs one ``argsort`` per column otherwise): the key is
     ``column | ordered bits of the float32 value | row``, so the sorted keys list each column's rows in value order and, among equal values, in row order (the stable argsort's order; -0.0 is mapped to +0.0 so the two
-    tie), the row is read from the low bits and a tie is two adjacent keys with the same ``column | value`` prefix. ``None`` for float64 columns and shapes whose key needs more than 64 bits."""
+    tie), the row is read from the low bits and a tie is two adjacent keys with the same ``column | value`` prefix. ``None`` for double-precision columns and shapes whose key needs more than 64 bits."""
     n, k = int(raw_cont.shape[0]), int(raw_cont.shape[1])
     if raw_cont.dtype != np.float32:  # Intentional float64: only float32 columns fit a 64-bit composite key
         return None
@@ -85,12 +85,12 @@ _TWO_SORT_BYTES_PER_COLUMN_ROW = 96  # ordered keys 8, element ids 8, column ids
 
 
 def _presort_by_two_sorts(cp, raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray] | None":
-    """The order and tie flags of :func:`presort_and_ties_gpu` for a block of columns of ANY float width in two stable 1-D sorts instead of one sort per column (a float64 column does not fit the 64-bit
+    """The order and tie flags of :func:`presort_and_ties_gpu` for a block of columns of ANY float width in two stable 1-D sorts instead of one sort per column (a double-precision column does not fit the 64-bit
     composite key of :func:`_presort_by_keys`: its ordered value alone is 64 bits).
 
     The first sort orders every element of the ``(columns, n)`` block by its ordered value (stable, so equal values keep element order = column, then row); the second, stable, orders those
     elements by their column, which gathers each column's elements in value order with ties in row order, the permutation of the stable per-column sort. A tie is two neighbours of the same column with
-    the same ordered value (-0.0 is mapped to +0.0 first). ``None`` for dtypes other than float32 / float64 and for more than 65535 columns in a block."""
+    the same ordered value (-0.0 is mapped to +0.0 first). ``None`` for dtypes other than float32 / double-precision and for more than 65535 columns in a block."""
     n, k = int(raw_cont.shape[0]), int(raw_cont.shape[1])
     if raw_cont.dtype not in (np.float32, np.float64):  # Intentional float64: the widths the ordered-bits trick below covers
         return None
@@ -134,7 +134,7 @@ def presort_and_ties_gpu(raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
     if k == 0 or n < 2:
         return None
     if raw_cont.dtype not in (np.float32, np.float64) or not np.isfinite(raw_cont).all():  # Intentional float64: the dtypes the block sort accepts
-        log_throttle(logger, "_honest_null_presort_gpu.not_finite", logging.WARNING, "device presort skipped: the columns are not all finite float32 / float64 (dtype %s); sorting on the host", raw_cont.dtype)
+        log_throttle(logger, "_honest_null_presort_gpu.not_finite", logging.WARNING, "device presort skipped: the columns are not all finite float32 / double-precision (dtype %s); sorting on the host", raw_cont.dtype)
         return None
     try:
         import cupy as cp
@@ -144,7 +144,7 @@ def presort_and_ties_gpu(raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
     try:
         got = _presort_by_keys(cp, raw_cont)
         if got is None:
-            got = _presort_by_two_sorts(cp, raw_cont)  # float64 columns (a column with NaN is median-filled in double): two sorts a block instead of one per column
+            got = _presort_by_two_sorts(cp, raw_cont)  # double-precision columns (a column with NaN is median-filled in double): two sorts a block instead of one per column
         if got is not None:
             cp.get_default_memory_pool().free_all_blocks()
             return got

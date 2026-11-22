@@ -426,7 +426,8 @@ class MyDecorrelator(TransformerMixin, BaseEstimator):
         # OTHER container type (e.g. fit on a DataFrame, transform on an ndarray) made `j not in
         # correlated_features_` True for every j (a string set never contains an int) -- every column was
         # silently kept, defeating the transformer with no error.
-        self.correlated_features_ = {c for c in range(len(cols)) if (upper[:, c] > self.threshold).any()}
+        # One reduction over the whole upper triangle instead of a Python loop over columns (audit 06-F4): the same positions.
+        self.correlated_features_ = set(np.flatnonzero((upper > self.threshold).any(axis=0)).tolist())
         # sklearn expects the attribute to be absent when fit saw no column names, not present as None.
         if feature_names_in is not None:
             self.feature_names_in_ = np.asarray(feature_names_in, dtype=object)

@@ -88,7 +88,7 @@ def _finite_std(values: np.ndarray) -> float:
     One compiled pass over the native float column without the interpreter lock (the numpy form, ``_finite_std_numpy``, copies the column to double, builds the finite mask and a masked copy:
     about 1 ms a column, 100 columns on the serial tail)."""
     arr = np.asarray(values)
-    if arr.ndim == 1 and arr.dtype in (np.float32, np.float64):
+    if arr.ndim == 1 and arr.dtype in (np.float32, np.float64):  # Intentional float64: the kernel's native dtype set, not a narrowing choice
         return float(_finite_std_kernel(np.ascontiguousarray(arr)))
     return _finite_std_numpy(values)
 

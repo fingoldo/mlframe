@@ -432,9 +432,14 @@ def compute_fairness_metrics(
                 _fill_bin_extremes(line, metric_perf, min_boundary, max_boundary, real_top_n, metrics_higher_is_better[metric_name])
 
                 res.append(line)
+        _index_names = ["factor", "nbins", "npoints_from", "npoints_median", "npoints_to", "metric"]
         if res:
-            res = pd.DataFrame(res).set_index(["factor", "nbins", "npoints_from", "npoints_median", "npoints_to", "metric"])
+            res = pd.DataFrame(res).set_index(_index_names)
             return res.reindex(sorted(res.columns), axis=1)
+    # No subgroup produced a row (or there were none): the documented type is still a DataFrame, empty with the same index (audit 25-F38).
+    return pd.DataFrame(columns=["factor", "nbins", "npoints_from", "npoints_median", "npoints_to", "metric"]).set_index(
+        ["factor", "nbins", "npoints_from", "npoints_median", "npoints_to", "metric"]
+    )
 
 
 # Backward-compatible aliases for renamed fairness functions

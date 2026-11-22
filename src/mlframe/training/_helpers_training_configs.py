@@ -386,6 +386,10 @@ def _build_lgb_params(
             "RMSE": "l2", "MAE": "l1", "Huber": "huber",
             "MAPE": "mape", "MSLE": "rmse",  # LGB has no msle; fall back
         }.get(def_regr_metric, def_regr_metric.lower())
+        if def_regr_metric == "MSLE":
+            # LightGBM has no MSLE: its early stopping runs on RMSE while CatBoost uses MSLE and XGBoost rmsle, so the three boosters can stop
+            # at different iterations. Say so, instead of substituting silently (audit 27-F16).
+            logger.warning("LightGBM has no MSLE metric; its early stopping uses rmse, so it may stop at a different iteration than CatBoost/XGBoost.")
         LGB_GENERAL_PARAMS.setdefault("metric", _LGB_METRIC_NAME)
     # Target-type-aware objective for LGB (no separate _CLASSIF variant).
     _inject_lgb_multiclass_objective(_resolved_tt, n_classes, LGB_GENERAL_PARAMS)

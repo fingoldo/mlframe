@@ -36,8 +36,8 @@ def create_experiment(product_id: str, variants: list) -> None:
     """STUB / no-op. Experiment creation is not implemented; this function intentionally does nothing and
     returns None. It exists as an extension point for a future persistence backend. Callers must not rely
     on any experiment being created or stored."""
-    # if there are active experiments currently, quit
-    pass
+    # A stub that stored nothing and returned None, so a caller got no error and no experiment (audit 29-F24). Refuse explicitly.
+    raise NotImplementedError("create_experiment is not implemented; nothing is stored. Use the experiment backend when it exists.")
 
 def get_experiments(product_name: str, fields: Union[str, Sequence[str]] = "id,name,started_at,finished_at") -> list:
     """Fetch the single currently-active (started, not finished) experiment for ``product_name``, if any."""

@@ -207,7 +207,7 @@ def test_the_id_trap_column_is_unique_and_declared_irrelevant() -> None:
     frame = generate(spec).frame
 
     assert "row_id" not in {edge.source for edge in spec.edges}
-    assert frame["row_id"].nunique() > 0.9 * frame.shape[0]
+    assert frame["row_id"].nunique() == frame.shape[0]  # every row distinct, exactly (04-F20)
 
 
 def test_graded_cardinality_carries_every_level_count_among_probes_too() -> None:

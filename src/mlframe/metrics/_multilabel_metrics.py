@@ -300,7 +300,11 @@ def _coerce_multilabel_array(arr) -> np.ndarray:
     of raising, corrupting hamming/subset/jaccard/F1 results.
     """
     a_in = np.asarray(arr)
-    if a_in.dtype != np.bool_:
+    if a_in.dtype.kind in "iu":
+        # An integer array is a 0/1 indicator exactly when its range is [0, 1]: two min/max reductions, no float64 copy (audit 25-F44).
+        if a_in.size and (a_in.min() < 0 or a_in.max() > 1):
+            raise ValueError("multilabel array must contain only 0/1 indicator values.")
+    elif a_in.dtype != np.bool_:
         a_float = a_in.astype(np.float64, copy=False)
         if not np.isfinite(a_float).all():
             raise ValueError("multilabel array must not contain NaN/inf values.")
@@ -337,8 +341,8 @@ def hamming_loss(y_true: ArrayLike, y_pred: ArrayLike) -> float:
     Same return-value semantics as ``sklearn.metrics.hamming_loss``.
     """
     yt, yp = _validate_multilabel_pair(y_true, y_pred)
-    if yt.shape[0] == 0:
-        return float("nan")  # no samples: the kernels would divide by zero; an empty slice has no score
+    if yt.shape[0] == 0 or yt.shape[1] == 0:
+        return float("nan")  # no samples or no labels: the kernels would divide by N*K == 0; an empty slice has no score (audit 25-F43)
     # Separately benchmarked/tuned element-count gate (N*K), not the row-count _PARALLEL_MULTILABEL_THRESHOLD
     # subset_accuracy/jaccard_score_multilabel share below.
     if yt.shape[0] * yt.shape[1] > 1_000_000:

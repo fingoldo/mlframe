@@ -360,6 +360,16 @@ class _ColumnCache:
             mat = fe_stack_rows([fe_column_values(X, c) for c in cols], dtype)
             self._rows = {c: mat[j] for j, c in enumerate(cols)}
 
+    def __getstate__(self) -> dict:
+        """Pickle the cached rows and digests, not the live lock (a fresh one is made on load)."""
+        state = self.__dict__.copy()
+        state.pop("_lock", None)
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        self._lock = threading.Lock()
+
     def values(self, col: str) -> "np.ndarray | None":
         """The contiguous copy of ``col``, or ``None`` when the cache does not hold it."""
         return self._rows.get(col)

@@ -22,6 +22,8 @@ _make_data = make_regression_data
 
 
 def _run(n: int, n_features: int, n_variants: int, with_shift: bool = False) -> None:
+    # Cost-only harness (audit 07-F12): every variant is the same X object, so this times the code path. It cannot show
+    # variant-dependent behaviour, and its output is not a sensitivity result.
     X, y = _make_data(n, n_features)
     variants = {f"variant_{i}": X for i in range(n_variants)}
     cv = KFold(n_splits=5, shuffle=True, random_state=0)

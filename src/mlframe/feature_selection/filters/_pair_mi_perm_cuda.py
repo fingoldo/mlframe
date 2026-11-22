@@ -23,6 +23,7 @@ from pyutilz.performance.gpu_hw_launch import block_size_for
 from ._kernel_types import render
 from ._pair_operand_blocks import pair_chunks_by_operand_block
 from mlframe.utils.log_throttle import log_throttle
+from mlframe.utils.array_shape import length_of
 
 logger = logging.getLogger(__name__)
 
@@ -215,7 +216,7 @@ def pair_mi_perm_matrix_cuda(
     ``None`` means "use the CPU kernel": no CUDA, codes that do not fit a byte, a histogram that does not fit shared memory, or a pool that does not fit free VRAM. Pairs the CPU kernel zeroes (joint
     cardinality above ``cap``) are zeroed here too; every other pair must have codes below its ``nbins``.
     """
-    n_indexable = min(int(factors_data.shape[1]), int(np.asarray(nbins).shape[0]))
+    n_indexable = min(int(factors_data.shape[1]), int(length_of(nbins)))
     if pair_a.shape != pair_b.shape:
         raise ValueError("pair_a and pair_b must have the same length")
     if pair_a.size and (int(min(pair_a.min(), pair_b.min())) < 0 or int(max(pair_a.max(), pair_b.max())) >= n_indexable):

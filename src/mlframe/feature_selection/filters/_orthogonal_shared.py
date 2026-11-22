@@ -40,7 +40,7 @@ def mean_fill_nonfinite(x: np.ndarray) -> None:
 
 
 def fit_axis_column(X: Any, col: str) -> np.ndarray:
-    """The source column as the float64, mean-filled array whose basis preprocess params a recipe freezes (the replay axis); a copy, ``X`` is not touched."""
+    """The source column as the double-precision, mean-filled array whose basis preprocess params a recipe freezes (the replay axis); a copy, ``X`` is not touched."""
     arr = np.array(X[col].to_numpy(), dtype=np.float64)  # Intentional float64: fit/replay bit-identity contract (basis axis)
     mean_fill_nonfinite(arr)
     return arr

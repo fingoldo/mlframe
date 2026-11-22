@@ -115,10 +115,13 @@ def _upgrade_spec(
     # added base only reduced the joint-OLS residual, so the seed's score is a valid conservative
     # stand-in. Without this the new name has no score entry and any ``tiny_rerank_scores_[name]``
     # lookup KeyErrors (regressed the sklearn-matrix composite sweep).
+    _accepted_steps = [d for d in _fwd_diag if d.get("accepted")]
+    # The stand-in is the seed's score only when no base was added. Once a base is accepted, the forward stepwise CV-RMSE of the
+    # final kept set (``rmse_after`` of the last accepted step) is the score of THIS composite, so use it (audit 34-F10).
     _seed_score = getattr(self, "_tiny_rerank_scores", None)
     if isinstance(_seed_score, dict) and _spec.name in _seed_score:
-        _seed_score[_new_name] = _seed_score[_spec.name]
-    _accepted_steps = [d for d in _fwd_diag if d.get("accepted")]
+        _multi_rmse = _accepted_steps[-1].get("rmse_after") if _accepted_steps else None
+        _seed_score[_new_name] = float(_multi_rmse) if _multi_rmse is not None and np.isfinite(_multi_rmse) else _seed_score[_spec.name]
     logger.info(
         "[CompositeTargetDiscovery.multi_base] upgraded spec='%s' -> '%s' with %d base(s); accepted_steps=%s",
         _spec.name,

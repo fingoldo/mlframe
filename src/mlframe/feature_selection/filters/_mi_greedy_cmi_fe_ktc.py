@@ -55,6 +55,7 @@ def _sweep_host(X: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
         try:
             y_i, z_i, h_yz, h_z, k_yz, k_z, n_f = precompute_cmi_yz_terms(y, z)
             yz_dense, _ = _renumber_joint(y_i, z_i)
+            # Intentional float64: conditional-MI score vector compared at full precision across candidates
             scores = np.array([cmi_from_binned_fixed_yz(X[:, j], y_i, z_i, h_yz, h_z, k_yz, k_z, n_f, yz_i=yz_dense) for j in range(X.shape[1])], dtype=np.float64)
         finally:
             for k, v in saved.items():

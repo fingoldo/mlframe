@@ -416,6 +416,16 @@ def _entry_oof_probs(model_entry: Any) -> Optional[np.ndarray]:
     return _safe_arr(oof) if oof is not None else None
 
 
+def _entry_oof_target(model_entry: Any) -> Any:
+    """OOF targets off the entry, or off its inner model: the same fallback ``_entry_oof_probs`` uses, so the two arrays are found together
+    (audit 28-F34). Reading the target only from the entry skipped calibration although the rows paired."""
+    y = getattr(model_entry, "oof_target", None)
+    if y is None:
+        inner = getattr(model_entry, "model", None)
+        y = getattr(inner, "oof_target", None) if inner is not None else None
+    return y
+
+
 def _calibration_block(model_entry: Any, target_name: str, out_dir: Optional[str], *, rng_seed: int = 0) -> dict[str, Any]:
     """Emit reliability plot + auto-pick verdict for ``model_entry`` when OOF probs are available."""
     _posthoc = _posthoc_calibrated_flag(model_entry)
@@ -435,7 +445,7 @@ def _calibration_block(model_entry: Any, target_name: str, out_dir: Optional[str
     # to the same length -- a positional coincidence, not a real correspondence -- producing a
     # meaningless calibration/ECE diagnostic reported as status=ok. No safe proxy exists; skip
     # cleanly when oof_target is genuinely absent, matching every other skip path in this function.
-    y = getattr(model_entry, "oof_target", None)
+    y = _entry_oof_target(model_entry)
     y_arr = _safe_arr(y)
     if y_arr is None or y_arr.size < 4:
         return {"status": "skipped", "reason": "oof_target absent / too small"}
@@ -612,7 +622,7 @@ def run_honest_diagnostics(
             _block = decision_threshold_block(
                 entry,
                 oof_probs=_entry_oof_probs(entry),
-                oof_target=_safe_arr(getattr(entry, "oof_target", None)),
+                oof_target=_safe_arr(_entry_oof_target(entry)),
                 decision_costs=_costs,
                 rng_seed=_derive_seed(master_seed, key + "/threshold"),
             )

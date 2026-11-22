@@ -71,10 +71,10 @@ def main() -> int:
             feature_types_config=FeatureTypesConfig(use_text_features=False),
         )
     except Exception as e:
-        logger.debug("suite raised after dummy_baselines fired: %s: %s", type(e).__name__, e)
-        print(f"\n!! suite raised after dummy_baselines fired: {type(e).__name__}: {e}\n")
-        print("(this is OK if dummy_baselines verdict line emitted above -- the bug is downstream)")
-        return 0
+        # A suite exception is a failed smoke run, not a pass: the verdict line above is not the whole check (audit 32-F26).
+        logger.error("suite raised: %s: %s", type(e).__name__, e)
+        print(f"\n!! suite raised: {type(e).__name__}: {e}\n")
+        return 1
     print()
     print("=== metadata.dummy_baselines keys ===")
     db = metadata.get("dummy_baselines", {})

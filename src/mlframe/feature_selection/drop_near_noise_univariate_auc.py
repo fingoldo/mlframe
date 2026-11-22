@@ -86,7 +86,7 @@ def drop_near_noise_univariate_auc(
         else:
             # batch_univariate_auc refuses non-finite cells (a missing value sorts last and would bias the AUC), so each column is scored on
             # its own finite rows. A column whose finite rows are single-class has no defined AUC and is kept (never dropped on no evidence).
-            aucs = np.full(len(cols), np.nan, dtype=np.float64)
+            aucs = np.full(len(cols), np.nan, dtype=np.float64)  # Intentional float64: univariate AUC statistic vector compared at full precision
             for j in range(len(cols)):
                 finite = np.isfinite(X[:, j])
                 try:

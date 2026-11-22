@@ -41,6 +41,7 @@ from ._family_maxt_null_v2_njit import (
     null_max_bitsets,
     null_max_bitsets_from_classes,
 )
+from mlframe.utils.array_shape import length_of
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -590,8 +591,8 @@ def _label_const(table: np.ndarray, y: np.ndarray, n_y: int) -> float:
 
 def check_label_rows(n_rows: int, y: "np.ndarray") -> None:
     """Raise ``ValueError`` when the label vector ``y`` does not have one entry per code row (the compiled kernels read both by the same index)."""
-    if int(np.asarray(y).shape[0]) != int(n_rows):
-        raise ValueError(f"labels have {int(np.asarray(y).shape[0])} rows but the candidate codes have {int(n_rows)}")
+    if int(length_of(y)) != int(n_rows):
+        raise ValueError(f"labels have {int(length_of(y))} rows but the candidate codes have {int(n_rows)}")
 
 
 def exact_pvalue_pass(observed: np.ndarray, null_max: np.ndarray, alpha: float) -> np.ndarray:

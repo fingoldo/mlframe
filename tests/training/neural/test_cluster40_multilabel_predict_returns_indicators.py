@@ -1,7 +1,10 @@
+"""Regression tests for the audit findings in this module."""
+import pytest
 """Audit 2026-11-20 finding 40-F4: a multilabel recurrent classifier predicts an indicator matrix, not a NotFittedError."""
 
 import numpy as np
 
+pytest.importorskip("lightning")
 from mlframe.training.neural._recurrent_wrappers import RecurrentClassifierWrapper
 
 

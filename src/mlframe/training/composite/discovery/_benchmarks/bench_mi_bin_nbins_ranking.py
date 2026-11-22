@@ -131,22 +131,37 @@ def run(n: int) -> dict:
     return out
 
 
+def _strict_win_counts(regime_results: dict, scenarios, nbins_grid, margin: float) -> dict:
+    """Per-nbins count of scenarios where that nbins strictly beats the 16-bin default by more than ``margin`` concordance.
+
+    Each challenger counts at most once per scenario, and so does the default (once per scenario in which it beats at least one
+    challenger). Before, the default counted once per beaten challenger, so its total could exceed the challengers' (audit 34-F33).
+    """
+    wins = {nb: 0 for nb in nbins_grid}
+    wins[16] = 0
+    for scen in scenarios:
+        base = regime_results[f"{scen}|nbins=16"]["concordance"]
+        default_beats_someone = False
+        for nbins in nbins_grid:
+            if nbins == 16:
+                continue
+            c = regime_results[f"{scen}|nbins={nbins}"]["concordance"]
+            if c > base + margin:
+                wins[nbins] += 1  # challenger strictly beats the default in this scenario
+            elif base > c + margin:
+                default_beats_someone = True
+        if default_beats_someone:
+            wins[16] += 1
+    return wins
+
+
 def main() -> None:
     results: dict[str, Any] = {"N_PROD": run(N_PROD), "N_SMALL": run(N_SMALL)}
     # STRICT-win counting: a challenger "beats" 16 in a cell only when its concordance exceeds 16's by a real margin
     # (>0.005), NOT when both tie at 1.000 and float noise picks an arbitrary argmax. Symmetric for 16 beating others.
     # Production callers always pass n>=20k (kernel docstring), so N_PROD is the regime that governs the default.
     margin = 0.005
-    strict = {"N_PROD": {nb: 0 for nb in NBINS_GRID}, "N_SMALL": {nb: 0 for nb in NBINS_GRID}}
-    for regime in ("N_PROD", "N_SMALL"):
-        for scen in SCENARIOS:
-            base = results[regime][f"{scen}|nbins=16"]["concordance"]
-            for nbins in NBINS_GRID:
-                c = results[regime][f"{scen}|nbins={nbins}"]["concordance"]
-                if nbins != 16 and c > base + margin:
-                    strict[regime][nbins] += 1  # challenger strictly beats 16
-                elif nbins != 16 and base > c + margin:
-                    strict[regime][16] += 1  # 16 strictly beats this challenger
+    strict = {regime: _strict_win_counts(results[regime], SCENARIOS, NBINS_GRID, margin) for regime in ("N_PROD", "N_SMALL")}
     results["strict_wins"] = strict
     results["default_nbins"] = 16
 

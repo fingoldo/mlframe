@@ -254,11 +254,11 @@ def reset_gpu_model_available_cache() -> None:
 
 
 def _frame_values(X):
-    """Nameless ndarray of ``X``; pandas nullable columns (Int64/Float64/boolean) become float64 with NaN for NA instead of an object array holding pd.NA."""
+    """Nameless ndarray of ``X``; pandas nullable columns (Int64/Float64/boolean) become double precision with NaN for NA instead of an object array holding pd.NA."""
     if isinstance(X, pd.DataFrame):
         if any(isinstance(dt, pd.api.extensions.ExtensionDtype) for dt in X.dtypes):
             try:
-                return X.to_numpy(dtype=np.float64, na_value=np.nan)
+                return X.to_numpy(dtype=np.float64, na_value=np.nan)  # Intentional float64: the SHAP proxy matrix is double, so the nullable columns and the z-score blocks keep their native precision
             except (ValueError, TypeError):
                 return X.values
         return X.values

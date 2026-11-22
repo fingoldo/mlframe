@@ -36,6 +36,18 @@ class HostBlockBudget:
         self.waits = 0
         self.waited_s = 0.0
 
+    def __getstate__(self) -> dict:
+        """Pickle the budget figures, not the live condition or thread-local (both are made again on load)."""
+        state = self.__dict__.copy()
+        state.pop("_cond", None)
+        state.pop("_local", None)
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        self._cond = threading.Condition()
+        self._local = threading.local()
+
     @contextlib.contextmanager
     def reserve(self, nbytes: int) -> "Iterator[None]":
         """Hold ``nbytes`` of the budget for the duration of the block."""

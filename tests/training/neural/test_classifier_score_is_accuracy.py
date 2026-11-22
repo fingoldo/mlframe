@@ -1,7 +1,10 @@
+"""Regression tests for the audit findings in this module."""
+import pytest
 """Classifier score() without sample weights returns accuracy, not the CAP accuracy ratio (audit 2026-11-20, finding 40-F2)."""
 import numpy as np
 from sklearn.base import ClassifierMixin
 
+pytest.importorskip("lightning")
 from mlframe.training.neural.base._base_predict import _PredictMixin
 
 
@@ -9,6 +12,7 @@ class _FixedPredictions(_PredictMixin, ClassifierMixin):
     """Classifier whose predict() returns given labels, so score() can be checked without training a network."""
 
     def __init__(self, labels):
+        """Init."""
         self._labels = np.asarray(labels)
 
     def predict(self, X):

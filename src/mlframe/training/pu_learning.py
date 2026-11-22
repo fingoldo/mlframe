@@ -380,8 +380,13 @@ class PULearningWrapper(ClassifierMixin, BaseEstimator):
             )
         self.c_ = float(c)
 
-        proxy_all = self._predict_proba_pos(self.base_estimator_, X)
-        self.estimated_prior_ = float(np.clip(proxy_all.mean() / self.c_, 0.0, 1.0))
+        if self.balance_proxy:
+            # The proxy was trained with balanced class weights, so its mean is not P(s=1) and dividing it by c is not a prior: there is
+            # no unweighted proxy to recover one from. Report NaN, not a number that looks like an estimate (audit 28-F20).
+            self.estimated_prior_ = float("nan")
+        else:
+            proxy_all = self._predict_proba_pos(self.base_estimator_, X)
+            self.estimated_prior_ = float(np.clip(proxy_all.mean() / self.c_, 0.0, 1.0))
 
         if self.c_ < self.min_c_warn:
             logger.warning(

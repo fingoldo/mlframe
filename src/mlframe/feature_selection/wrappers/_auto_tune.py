@@ -81,7 +81,7 @@ def _target_type_and_imbalance(y_arr: np.ndarray, n: int) -> tuple[str, float]:
     return target_type, target_imbalance
 
 def _target_as_float(y_arr: np.ndarray) -> np.ndarray:
-    """``y_arr`` as float64 for the correlation signals; non-numeric labels (strings, objects) are factorised, missing -> NaN."""
+    """``y_arr`` as double precision for the correlation signals; non-numeric labels (strings, objects) are factorised, missing -> NaN."""
     try:
         return y_arr.astype(float)
     except (TypeError, ValueError):

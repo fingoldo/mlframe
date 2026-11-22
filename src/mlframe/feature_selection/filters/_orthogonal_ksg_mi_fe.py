@@ -214,12 +214,12 @@ def score_features_by_ksg_mi_uplift(
         ])
     # f64 kept: distance/kernel-Gram stability (f32 sums lose precision here) - NOT routed through _crit_np_dtype.
     raw_mi = _ksg_mi_batch(
-        raw_X.to_numpy(dtype=np.float64), y_arr,
+        raw_X.to_numpy(dtype=np.float64), y_arr,  # Intentional float64: the KSG estimator computes at double, matching the shared y-side prep
         n_neighbors=int(n_neighbors), random_state=int(random_state),
     )
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
     eng_mi = _ksg_mi_batch(
-        engineered_X.to_numpy(dtype=np.float64), y_arr,
+        engineered_X.to_numpy(dtype=np.float64), y_arr,  # Intentional float64: the KSG estimator computes at double, matching the shared y-side prep
         n_neighbors=int(n_neighbors), random_state=int(random_state),
     )
     rows = []

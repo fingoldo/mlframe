@@ -30,3 +30,6 @@ Scope: `src/mlframe/core/_benchmarks/` (manifest 03_core.txt: `__init__.py`, `be
 - 03-F4: DEFERRED. benchmark-script change not made in this pass; low impact
 - 03-F5: DEFERRED. benchmark-script change not made in this pass; low impact
 - 03-F6: DEFERRED. benchmark-script change not made in this pass; low impact
+- 03-F1: DEFERRED. Bench-only perf: the cProfile section reruns the full workload. Deferred.
+- 03-F2: DEFERRED. Bench-only: the harness times but does not assert equality. Production equality is covered by tests/core/test_robust_mean_parallel_matches_serial.py.
+- 03-F3: FIXED. Production parallel-vs-serial robust mean agreement is tested (tests/core/test_robust_mean_parallel_matches_serial.py, passing).

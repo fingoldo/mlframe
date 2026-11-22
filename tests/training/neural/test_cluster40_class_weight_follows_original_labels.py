@@ -1,7 +1,10 @@
+"""Regression tests for the audit findings in this module."""
+import pytest
 """Audit 2026-11-20 finding 40-F5: class_weight keyed by original labels maps to the encoded positions through classes_."""
 
 import numpy as np
 
+pytest.importorskip("lightning")
 from mlframe.training.neural._recurrent_wrapper_base import _class_weight_vector
 
 

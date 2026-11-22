@@ -36,6 +36,8 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
+from ._njit_shared import njit_or_passthrough as _njit
+
 # Default decision thresholds. A base is leaky when its absolute Spearman vs the current
 # target is at/above _LEAK_SPEARMAN AND the monotone-fit residual fraction is at/below
 # _LEAK_RESIDUAL (base explains essentially all of y). Both must hold: high rank-corr
@@ -66,7 +68,16 @@ def _finite_pair(y: np.ndarray, base: np.ndarray) -> tuple[np.ndarray, np.ndarra
 
 
 def _rank(a: np.ndarray) -> np.ndarray:
-    """Average (tie-corrected) ranks of ``a`` -- the basis for Spearman correlation."""
+    """Average (tie-corrected) ranks of ``a`` -- the basis for Spearman correlation.
+
+    Finite input is ranked with one vectorised pass (``np.unique`` groups the ties, and each tie block gets its mean rank). NaN
+    keeps the explicit walk, where a NaN never ties with another NaN (audit 34-F15).
+    """
+    if a.shape[0] and np.isfinite(a).all():
+        _, inv, counts = np.unique(a, return_inverse=True, return_counts=True)
+        ends = np.cumsum(counts)
+        starts = ends - counts
+        return (0.5 * (starts + ends - 1))[inv.ravel()].astype(np.float64)
     order = np.argsort(a, kind="mergesort")
     ranks = np.empty(a.shape[0], dtype=np.float64)
     sa = a[order]
@@ -124,7 +135,7 @@ def _monotone_residual_frac(y: np.ndarray, base: np.ndarray) -> float:
     return min(res_inc, res_dec) / var_y
 
 
-def _isotonic_pava(y_sorted: np.ndarray) -> np.ndarray:
+def _isotonic_pava_impl(y_sorted: np.ndarray) -> np.ndarray:
     """Pool-Adjacent-Violators isotonic (non-decreasing) fit of an already-ordered y.
 
     Standard O(n) PAVA: merge adjacent blocks that violate monotonicity, weighting by
@@ -151,6 +162,9 @@ def _isotonic_pava(y_sorted: np.ndarray) -> np.ndarray:
         end = starts[b + 1] if b + 1 < k else n
         out[starts[b] : end] = vals[b]
     return out
+
+
+_isotonic_pava = _njit(_isotonic_pava_impl)
 
 
 def _looks_like_lag(y: np.ndarray, base: np.ndarray, *, max_lag: int) -> bool:

@@ -84,6 +84,7 @@ import numpy as np
 import pandas as pd
 
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
+from ._fe_usability_signal import _crit_np_dtype
 from mlframe.utils.log_throttle import log_throttle
 from typing import TYPE_CHECKING
 from mlframe.feature_selection.filters._lazy_host_codes import length_of
@@ -131,12 +132,13 @@ def _fit_lasso_abs_coefs(
     """
     X_arr = np.asarray(X_stack, dtype=np.float64)  # Intentional float64: standardising a float32 cast loses columns with a large offset
     y_raw = np.asarray(y).ravel()
+    # Intentional float64: sklearn's Lasso fits in float64, so the target and the design are float64 at the solver either way
     y_arr = y_raw.astype(np.float64)
     if X_arr.ndim == 1:
         X_arr = X_arr.reshape(-1, 1)
     n_rows, n_cols = X_arr.shape
     if n_rows == 0 or n_cols == 0:
-        return np.zeros(n_cols, dtype=np.float64)
+        return np.zeros(n_cols, dtype=_crit_np_dtype())
 
     # Multiclass detection: a small set of discrete (integer-valued) labels with >2 classes is a classification target whose label INTEGERS carry no
     # ordinal meaning. Regressing Lasso on those integers yields coefficients driven by the arbitrary class numbering. One-hot each class and take the
@@ -165,9 +167,9 @@ def _fit_lasso_abs_coefs(
         X_scaled = X_clean
     if is_discrete and uniq.size > 2:
         classes = np.unique(y_raw)
-        best = np.zeros(n_cols, dtype=np.float64)
+        best = np.zeros(n_cols, dtype=_crit_np_dtype())
         for cls in classes:
-            indicator = (y_raw == cls).astype(np.float64)
+            indicator = (y_raw == cls).astype(_crit_np_dtype())
             coefs = _fit_lasso_abs_coefs_scaled(X_scaled, indicator, alpha=alpha, random_state=random_state)
             best = np.maximum(best, coefs)
         return best
@@ -256,7 +258,9 @@ def score_features_by_lasso_coef(
     # double-count the shared linear signal and bias the uplift ratio.)
     # f64 kept: covariance/coordinate-descent stability (f32 sums lose precision here) - NOT routed through _crit_np_dtype.
     stack_arr = np.column_stack([
+        # Intentional float64: the sklearn Lasso solver runs in float64; the design is cast there either way
         raw_X.to_numpy(dtype=np.float64),
+        # Intentional float64: the sklearn Lasso solver runs in float64; the design is cast there either way
         engineered_X.to_numpy(dtype=np.float64),
     ])
     abs_coefs = _fit_lasso_abs_coefs(

@@ -29,6 +29,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 
+import inspect
+
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, clone
 
@@ -64,6 +66,12 @@ def _subset_rows(X: Any, mask: np.ndarray) -> Any:
 def _concat_feature(X: Any, col_name: str, values: np.ndarray) -> Any:
     """Append ``values`` as a new column named ``col_name`` to ``X``, matching its frame type."""
     return append_column(X, col_name, values)
+
+
+def _fit_accepts_sample_weight(model: Any) -> bool:
+    """True when ``model.fit`` names ``sample_weight`` or takes ``**kwargs``."""
+    params = inspect.signature(model.fit).parameters
+    return "sample_weight" in params or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
 
 
 class GatedRegressionMixture(RegressorMixin, BaseEstimator):
@@ -174,9 +182,12 @@ class GatedRegressionMixture(RegressorMixin, BaseEstimator):
             sw = np.full(int(mask.sum()), weights.get(branch, 1.0), dtype=np.float64)
             if w_arr is not None:
                 sw = sw * w_arr[mask]
-            try:
+            # Support is read from the signature. A TypeError from fit is a real error and propagates; the old try/except refit without
+            # weights for any TypeError, so an unrelated bug silently dropped the branch weights (audit 35-F29).
+            if _fit_accepts_sample_weight(model):
                 model.fit(X_branch, y_arr[mask], sample_weight=sw)
-            except TypeError:
+            else:
+                logger.warning("GatedRegressionMixture: branch %s regressor %s does not accept sample_weight; fitting it unweighted.", branch, type(model).__name__)
                 model.fit(X_branch, y_arr[mask])
             self.branch_models_[branch] = model
         return self

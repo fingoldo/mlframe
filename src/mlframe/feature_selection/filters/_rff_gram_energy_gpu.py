@@ -47,7 +47,7 @@ def rff_gram_energies_device(rbf: Any, ridge: Any, Xs: np.ndarray, pairs: Any, c
 
         n_features = int(W_h.shape[1])
         scale = np.sqrt(2.0 / n_features)
-        cc = cp.asarray(np.asarray(ridge.coef_, dtype=np.float64).ravel() * scale, dtype=cp.float32)
+        cc = cp.asarray(np.asarray(ridge.coef_, dtype=np.float64).ravel() * scale, dtype=cp.float32)  # Intentional float64: coefficients are scaled in double before the float32 device store
         W = cp.asarray(W_h, dtype=cp.float32)  # (p, D)
         b = cp.asarray(np.asarray(rbf.random_offset_), dtype=cp.float32)
         X = cp.asarray(np.ascontiguousarray(Xs), dtype=cp.float32)

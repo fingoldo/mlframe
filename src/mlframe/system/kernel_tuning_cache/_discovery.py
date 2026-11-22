@@ -73,16 +73,16 @@ def registering_modules(package: str = "mlframe") -> Iterator[str]:
                 yield ".".join([package, *parts])
 
 
+_NOT_LOADED = object()
+
+
 def _capture(name: str):
-    """The module to protect: whatever ``sys.modules`` holds for it (``None`` means the caller blocked it on purpose), else the real module if it can be imported."""
+    """The state of a guarded module before discovery: what ``sys.modules`` holds for it (``None`` means the caller blocked it on purpose),
+    or ``_NOT_LOADED`` when it is not loaded. Discovery never imports it just to protect it: that import was itself a change to the process
+    the module's docstring forbids (audit 31-F7)."""
     if name in sys.modules:
         return sys.modules[name]
-    try:
-        return importlib.import_module(name)
-    except Exception as exc:  # not installed / no driver: there is nothing to protect
-        # fallback: an optional tuner module that is not importable is an expected state
-        logger.debug("tuner discovery: %s is not importable (%s: %s)", name, type(exc).__name__, exc)
-        return None
+    return _NOT_LOADED
 
 
 def _import_guarded(modname: str, real: dict) -> None:
@@ -93,7 +93,7 @@ def _import_guarded(modname: str, real: dict) -> None:
         logger.warning("tuner discovery: could not import %s (%s: %s); its kernels are not tuned", modname, type(exc).__name__, exc)
     finally:
         for name, module in real.items():
-            if module is not None and sys.modules.get(name) is None:
+            if module is not None and module is not _NOT_LOADED and sys.modules.get(name) is None:
                 sys.modules[name] = module
 
 

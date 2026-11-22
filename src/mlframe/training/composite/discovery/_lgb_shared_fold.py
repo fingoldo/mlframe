@@ -69,12 +69,19 @@ def prune_dead() -> None:
     _CACHE.prune_dead()
 
 
+def _rows_digest(rows: np.ndarray) -> bytes:
+    """Collision-safe cache-key digest of a row-index array (a 64-bit ``hash()`` could return another fold's entry; audit 34-F27)."""
+    import hashlib
+
+    return hashlib.blake2b(np.ascontiguousarray(rows).tobytes(), digest_size=16).digest()
+
+
 def _fold_dataset(x: np.ndarray, rows: np.ndarray, params: Dict[str, Any]) -> Any:
     """This thread's constructed dataset for ``x[rows]``, built on first use."""
     import lightgbm as lgb
 
     key = (
-        threading.get_ident(), id(x), x.shape, hash(np.ascontiguousarray(rows).tobytes()),
+        threading.get_ident(), id(x), x.shape, _rows_digest(rows),
         tuple(sorted((k, v) for k, v in params.items() if k != "num_threads")),
     )
     hit = _CACHE.get(key, x)

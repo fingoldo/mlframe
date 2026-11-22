@@ -338,7 +338,7 @@ def _bin_y_for_class_mi_uncached(y: np.ndarray, nbins: int) -> np.ndarray:
             return np.asarray(np.unique(arr, return_inverse=True)[1]).astype(np.int64).ravel()
         return arr.astype(np.int64)
     try:
-        binned = np.asarray(pd.qcut(arr, q=int(nbins), labels=False, duplicates="drop"), dtype=np.float64)
+        binned = np.asarray(pd.qcut(arr, q=int(nbins), labels=False, duplicates="drop"), dtype=_crit_np_dtype())
         nan_rows = np.isnan(binned)
         if nan_rows.any():
             # a NaN target row has no quantile bin: it gets its own class after the last bin instead of the int64 minimum

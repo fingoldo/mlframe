@@ -192,7 +192,7 @@ def _shannon_entropy_nats(codes: np.ndarray, nbins_hint: int = 0) -> float:
     if c.size == 0:
         return 0.0
     minlen = int(max(int(c.max()) + 1 if c.size else 1, int(nbins_hint)))
-    counts = np.bincount(c[c >= 0], minlength=minlen).astype(np.float64)  # entropy differences need double
+    counts = np.bincount(c[c >= 0], minlength=minlen).astype(np.float64)  # entropy differences need double  # Intentional float64: entropy and MI are differences of entropies, which need double
     total = float(counts.sum())
     if total <= 0:
         return 0.0
@@ -338,7 +338,7 @@ def _maxt_residual_test(
     v.maxt_floor = float(floor)
 
     # Per-raw observed MI(r; x_j), Miller-Madow debiased to match the floor's scale.
-    r_counts = np.bincount(r_codes, minlength=int(r_codes.max()) + 1).astype(np.float64)  # MI is a difference of entropies: double
+    r_counts = np.bincount(r_codes, minlength=int(r_codes.max()) + 1).astype(np.float64)  # MI is a difference of entropies: double  # Intentional float64: entropy and MI are differences of entropies, which need double
     kr = int((r_counts > 0).sum())
     inv_n = 1.0 / n
     pr = r_counts[r_counts > 0] * inv_n
@@ -353,11 +353,11 @@ def _maxt_residual_test(
         if nbx < 2:
             per_raw[ci] = 0.0
             continue
-        xcounts = np.bincount(xc, minlength=nbx).astype(np.float64)
+        xcounts = np.bincount(xc, minlength=nbx).astype(np.float64)  # Intentional float64: entropy and MI are differences of entropies, which need double
         px = xcounts[xcounts > 0] * inv_n
         h_x = float(-(px * np.log(px)).sum())
         joint = xc.astype(np.int64) * (int(r_codes.max()) + 1) + r_codes
-        jc = np.bincount(joint).astype(np.float64)
+        jc = np.bincount(joint).astype(np.float64)  # Intentional float64: entropy and MI are differences of entropies, which need double
         jc = jc[jc > 0] * inv_n
         h_xr = float(-(jc * np.log(jc)).sum())
         mi = h_x + h_r_nats - h_xr

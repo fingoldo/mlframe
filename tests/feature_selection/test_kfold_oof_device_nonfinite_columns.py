@@ -3,12 +3,20 @@ import numpy as np
 import pytest
 
 
+def _cuda_device_count() -> int:
+    """Number of CUDA devices visible to cupy, 0 when the runtime cannot be queried."""
+    import cupy as cp
+
+    try:
+        return int(cp.cuda.runtime.getDeviceCount())
+    except Exception:
+        return 0
+
+
 def test_split_columns_match_host_fold(monkeypatch):
     """_folds_on_device with NaN and inf columns equals _kfold_one_fold column by column (device round-off only)."""
-    cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
+    pytest.importorskip("cupy")
+    if _cuda_device_count() == 0:
         pytest.skip("no CUDA device")
     from mlframe.feature_selection.filters import _kfold_oof_mi_gpu as K
     from mlframe.feature_selection.filters import _orthogonal_three_gate_mi_fe as M

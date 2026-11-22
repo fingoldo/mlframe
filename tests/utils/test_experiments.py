@@ -197,6 +197,7 @@ class TestUpdateRoutesAudiences:
 class TestCreateExperiment:
     """Groups tests covering create_experiment."""
 
-    def test_is_a_documented_noop_stub(self):
-        """create_experiment is an intentional stub -- must not raise and must return None."""
-        assert create_experiment("product-1", variants=["a", "b"]) is None
+    def test_is_a_documented_stub_that_refuses(self):
+        """create_experiment refuses explicitly: nothing is stored, so a silent None would hide the gap."""
+        with pytest.raises(NotImplementedError):
+            create_experiment("product-1", variants=["a", "b"])

@@ -91,7 +91,7 @@ def kernel(cp: Any, real: Any = np.float64, classes: Any = np.int32) -> Any:  # 
     """``ksg_psi_m_sums`` for 64-bit (default) or 32-bit columns and ``int32`` (default) or ``int8`` class labels; compile point of :func:`mi_cd_columns_device` and of the register-pressure registry."""
     module = _MODULES.get((np.dtype(real), np.dtype(classes)))
     if module is None:
-        raise ValueError("ksg_psi_m_sums is instantiated for float32 / float64 columns and int32 / int8 class labels only")
+        raise ValueError("ksg_psi_m_sums is instantiated for float32 / double-precision columns and int32 / int8 class labels only")
     return module.get(cp).get_function("ksg_psi_m_sums")
 
 
@@ -111,7 +111,7 @@ _THREADS = 256
 
 def _f32_enabled() -> bool:
     """Whether tie-free, finite column blocks are scored in float32 (``MLFRAME_KSG_F32=0`` turns it off). Float32 halves the upload and the sort of a block; it cannot hold the 1e-10 Kraskov noise, so a column whose
-    float32 values contain equal neighbours (or a non-finite value) is scored in float64 instead (see :func:`_block_sums`)."""
+    float32 values contain equal neighbours (or a non-finite value) is scored in double precision instead (see :func:`_block_sums`)."""
     import os
 
     return os.environ.get("MLFRAME_KSG_F32", "1").strip().lower() not in ("0", "false", "off", "no")
@@ -145,7 +145,7 @@ def _block_sums(cp: Any, host_block: np.ndarray, real: Any, d_dev: Any, counts_d
     """``(sum psi(m) per column, columns to redo)`` of one ``(rows, width)`` host block scored with columns of type ``real``: uploaded, transposed on the device, sorted and run through the kernel.
 
     For float32 the second value is a device boolean per column that is True where the cast column has more equal neighbours than :func:`_tie_pair_bound` or a non-finite entry (the noise that breaks ties is lost in
-    float32), and such a column's sum is not valid; for float64 it is ``None``."""
+    float32), and such a column's sum is not valid; for double precision it is ``None``."""
     # one host copy of the block's columns (a plain row-wise copy, none when the block is the whole array), one upload, then the (rows, columns) to (columns, rows) transpose on the device with the coalesced tiled kernel;
     # the host transpose of this block took 180 ms of a 308 ms call at 100 columns x 100000 rows
     xd = _transpose_to_cm(cp.asarray(np.ascontiguousarray(host_block, dtype=real)))
@@ -197,15 +197,18 @@ def mi_cd_columns_device(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbo
         block = int(max(1, min(n_cols, (_BUDGET_FRACTION * free) // per_col)))
         X_kept = X if n_kept == n else X[keep]
         partial_buf = cp.empty((block, _BLOCKS_PER_COLUMN), dtype=cp.float64)  # one reusable kernel-output buffer for every chunk, not one per chunk  # Intentional float64: double-precision accumulator / output buffer: sums and statistics keep full precision
-        sum_m_dev = cp.empty(n_cols, dtype=cp.float64)  # one resident accumulator; one D2H after the loop instead of one per chunk
+        # Intentional float64: the resident accumulator of the statistic, kept in double precision; one D2H after the loop instead of one per chunk
+        sum_m_dev = cp.empty(n_cols, dtype=cp.float64)
         for c0 in range(0, n_cols, block):
             host_block = X_kept[:, c0 : c0 + block]
             width = host_block.shape[1]
+            # Intentional float64: the double-precision fallback runs when float32 cannot hold the column (the f32 path is the default)
             sums, redo = _block_sums(cp, host_block, np.float32 if f32 else np.float64, d_dev, counts_dev, psi_dev, n_kept, n_neighbors, partial_buf)
             sum_m_dev[c0 : c0 + width] = sums
             if redo is not None:
-                redo_idx = np.flatnonzero(cp.asnumpy(redo))  # one small read per block: the columns float32 cannot hold are scored again in float64
+                redo_idx = np.flatnonzero(cp.asnumpy(redo))  # one small read per block: the columns float32 cannot hold are scored again in double precision
                 if redo_idx.size:
+                    # Intentional float64: the redo of the columns float32 cannot hold, in double precision
                     sums64, _ = _block_sums(cp, host_block[:, redo_idx], np.float64, d_dev, counts_dev, psi_dev, n_kept, n_neighbors, partial_buf)
                     sum_m_dev[c0 + cp.asarray(redo_idx)] = sums64
         sum_m = cp.asnumpy(sum_m_dev)

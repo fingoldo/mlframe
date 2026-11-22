@@ -149,19 +149,16 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
     if not cat_cols_to_align:
         return train_df, val_df, test_df
 
-    def _ensure_copy(df, flag):
-        """Return a shallow (buffer-sharing) copy of ``df`` and mark it with ``flag`` the first time a mutation is about to happen, so repeated alignment passes on the same frame don't re-copy it on every column."""
+    def _ensure_copy(df):
+        """Return a shallow (buffer-sharing) copy of ``df`` before the caller reassigns a column.
+
+        Always copies: a frame another model marked as already filled was mutated in place when shared, so the flag cannot be trusted
+        (audit 28-F46). The copy is shallow, so only the reassigned column is new.
+        """
         if df is None:
             return df
-        if not getattr(df, flag, False):
-            # Shallow copy: only cat_cols_to_align columns are reassigned by the caller; deep-copying a 100+ GB frame to realign a few cat columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
-            df = df.copy(deep=False)
-            try:
-                setattr(df, flag, True)
-            except Exception as e:
-                logger.debug("swallowed exception in _eval_helpers.py: %s", e)
-                pass
-        return df
+        # Shallow copy: only cat_cols_to_align columns are reassigned by the caller; deep-copying a 100+ GB frame to realign a few cat columns OOMs. ``deep=False`` shares untouched buffers, caller frame unmutated.
+        return df.copy(deep=False)
 
     for _col in cat_cols_to_align:
         # Union of categories across train + val ONLY (NOT test): test categories must never feed back into
@@ -177,15 +174,15 @@ def _align_xgb_cat_categories(model_type_name, train_df, val_df=None, test_df=No
         # Re-cast each split's column to the union categories. test_df gets the train+val union as well
         # (so XGB's "unseen category" check has the same vocabulary to compare against). Test rows whose
         # native category isn't in the union get cast to NaN, which is the intended leak-free semantics.
-        train_df = _ensure_copy(train_df, "_mlframe_filled")
+        train_df = _ensure_copy(train_df)
         train_df[_col] = train_df[_col].cat.set_categories(union_cats)
         if val_df is not None and isinstance(val_df, pd.DataFrame) and _col in val_df.columns:
             if isinstance(val_df[_col].dtype, pd.CategoricalDtype):
-                val_df = _ensure_copy(val_df, "_mlframe_filled")
+                val_df = _ensure_copy(val_df)
                 val_df[_col] = val_df[_col].cat.set_categories(union_cats)
         if test_df is not None and isinstance(test_df, pd.DataFrame) and _col in test_df.columns:
             if isinstance(test_df[_col].dtype, pd.CategoricalDtype):
-                test_df = _ensure_copy(test_df, "_mlframe_filled")
+                test_df = _ensure_copy(test_df)
                 test_df[_col] = test_df[_col].cat.set_categories(union_cats)
 
     return train_df, val_df, test_df

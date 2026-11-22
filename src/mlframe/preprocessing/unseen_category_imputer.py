@@ -163,7 +163,11 @@ class UnseenCategoryImputer:
                 # ``imp.transform(X_test)`` the caller's own ``X_test`` came back with rewritten categories, and
                 # a second transform on it then reported a 0 fallback rate because the substitution had already
                 # happened. Only this opt-in branch had the bug; the ``mode`` branch was always safe.
-                out[col] = df[col].where(~unreliable_mask, replacement.reindex(df.index))
+                # Positional, not by label: a frame with a duplicated index made reindex raise (audit 26-F10). Fill a full-length array
+                # at the unreliable positions and let where() take it by position.
+                full_replacement = np.empty(len(df), dtype=object)
+                full_replacement[unreliable_mask] = replacement.to_numpy()
+                out[col] = df[col].where(~unreliable_mask, full_replacement)
             else:
                 out[col] = df[col].where(~unreliable_mask, self.mode_[col])
         return out

@@ -368,7 +368,7 @@ def _fit_transform_checked(
     _local: list[dict[str, Any]] = []
     # Domain check on train, drop invalids, fit transform
     # params on the surviving rows only.
-    valid = transform.domain_check(y_train, base_train)
+    valid = np.asarray(transform.domain_check(y_train, base_train), dtype=bool)  # cast like the other callers (audit 34-F24)
     valid_frac = float(valid.mean()) if valid.size else 0.0
     if valid_frac < self.config.min_valid_domain_frac:
         _local.append(
@@ -558,9 +558,9 @@ def _residual_probe_rejection(
                     ),
                 )
                 return _rejected_residual
-    except Exception as _residual_err:
-        # Probe failure is non-fatal -- continue to MI screening.
-        logger.debug(
+    except Exception as _residual_err:  # best-effort: a broken probe keeps the candidate for MI screening; the failure is logged at WARNING above (audit 34-F8)
+        # Probe failure is non-fatal -- continue to MI screening. At DEBUG it hid a broken probe from every default run (audit 34-F8).
+        logger.warning(
             "composite_discovery: residual-std probe failed " "for base=%s transform=%s: %s (continuing)",
             base,
             transform_name,
@@ -834,7 +834,7 @@ def _eval_one_transform_impl(
     if _rej is not None:
         return [_rej]
     # T on the screening sample (which is a subset of train).
-    valid_screen = transform.domain_check(y_screen, base_screen)
+    valid_screen = np.asarray(transform.domain_check(y_screen, base_screen), dtype=bool)  # cast like the other callers (audit 34-F24)
     # Apply the same fitted-domain refinement to the screening mask so
     # ``t_screen`` (mi_t) and ``y_screen[valid_screen]`` (mi_y_compare) score
     # the SAME row population -- otherwise mi_gain compares MI over different

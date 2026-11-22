@@ -20,6 +20,7 @@ Run:  python -m mlframe.training.composite.ensemble._benchmarks.bench_calibratio
 
 from __future__ import annotations
 
+import zlib
 import json
 from pathlib import Path
 from typing import Any, Callable
@@ -62,7 +63,7 @@ def run() -> dict:
             cell: Any = {m: [] for m in METHODS}
             cell["raw"] = []
             for seed in SEEDS:
-                rng = np.random.default_rng(1000 * (1 + N_OOF_GRID.index(n_oof)) + seed + hash(scenario) % 97)
+                rng = np.random.default_rng(1000 * (1 + N_OOF_GRID.index(n_oof)) + seed + zlib.crc32(scenario.encode()) % 97)
                 p_oof, y_oof = _make_surface(scenario, n_oof, rng)
                 p_hold, y_hold = _make_surface(scenario, N_HOLDOUT, rng)
                 cell["raw"].append(_rmse(p_hold, y_hold))

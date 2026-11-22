@@ -421,6 +421,11 @@ def _lgb_classifier_cls():
     """
     if USE_LGB_DATASET_REUSE_SHIM and LGBMClassifierWithDatasetReuse is not None:
         return LGBMClassifierWithDatasetReuse
+    if LGBMClassifier is None:
+        # The module-level name is never bound, so with the shim off the factory returned None (audit 27-F15). Import it here.
+        import lightgbm
+
+        return lightgbm.LGBMClassifier
     return LGBMClassifier
 
 
@@ -429,6 +434,10 @@ def _lgb_regressor_cls():
     ``_lgb_classifier_cls``."""
     if USE_LGB_DATASET_REUSE_SHIM and LGBMRegressorWithDatasetReuse is not None:
         return LGBMRegressorWithDatasetReuse
+    if LGBMRegressor is None:
+        import lightgbm
+
+        return lightgbm.LGBMRegressor
     return LGBMRegressor
 
 

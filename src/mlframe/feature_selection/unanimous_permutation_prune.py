@@ -128,6 +128,11 @@ def unanimous_permutation_prune(
             prune_eligible = np.sum(deltas < 0, axis=0) >= required_votes
         if not prune_eligible.any():
             break
+        if prune_eligible.all():
+            # Every feature looked harmful, and dropping them all leaves nothing to fit. Keep the one whose permutation helped least
+            # (the largest mean delta), so the selection never comes back empty (audit 25-F23).
+            prune_eligible = prune_eligible.copy()
+            prune_eligible[int(np.argmax(deltas.mean(axis=0)))] = False
 
         surviving = [name for name, eligible in zip(surviving, prune_eligible) if not eligible]
 

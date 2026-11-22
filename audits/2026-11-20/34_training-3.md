@@ -59,3 +59,38 @@ Scope: the 88 files in `audits/2026-11-20/manifests/34_training-3.txt` under wor
 - 34-F2: FIXED. hints dropped by the finite-cell filter are removed from the hint slots on both paths; no separate test
 - 34-F3: FIXED. demoted candidates are kept out of the MRMR relevance scale and ranked after the MRMR pass; no separate test
 - 34-F4: FIXED. once any borderline column exists the collinear replay re-checks every column exactly. Cost: exact replay is O(n_cols * kept) in that case; no separate test
+- 34-F7: FIXED. Under 50 valid rows the spec still passes unscored, but now logs a WARNING naming the spec and row count (test_cluster34_discovery_silent_skips_are_logged)
+- 34-F8: FIXED. Residual-std probe failure logged at WARNING with base and transform (test_cluster34_discovery_silent_skips_are_logged)
+- 34-F5: FIXED. Negative train/val/test positions are wrapped by len(df) and bounds-checked before the overlap test (test_cluster34_negative_indices_are_positions)
+- 34-F6: FIXED. Docstring corrected: the holdout X_remaining is not the in-screen dedup/carry-masked set, so the two stamped numbers are not directly comparable. Feature-set alignment not implemented (design change).
+- 34-F1: FIXED. Trailing mean skips NaN and divides by the finite count (commit 9c32cf0b1). Test tests/training/test_cluster34_trailing_mean_nan.py.
+- 34-F2: FIXED. Hints dropped by the finite filter are removed before slots and before the return (commit 9c32cf0b1). Test test_cluster34_auto_base_mrmr_and_collinear.py.
+- 34-F3: FIXED. Demoted candidates ranked after the MRMR pass, outside the relevance scale (commit 9c32cf0b1). Test test_cluster34_auto_base_mrmr_and_collinear.py.
+- 34-F4: FIXED. Collinear replay re-checks every column exactly (commit 9c32cf0b1). Test test_cluster34_auto_base_mrmr_and_collinear.py.
+- 34-F9: PARTIAL. Per-fold refit failure logged at WARNING with exception class (test_cluster34_fold_refit_failure_is_visible). Not done: marking the spec as leaked-param-scored; unreachable from default discovery since grouped transforms are rejected upstream.
+- 34-F10: FIXED. Upgraded multi-base spec scored with the final kept set's forward-stepwise CV RMSE; seed score only when no base accepted (test_cluster34_multibase_upgrade_score)
+- 34-F11: FIXED. Auto block search fits folds with sample_weight and pools a weighted fold RMSE; unweighted path unchanged (test_cluster34_direct_multi_horizon_weighted_search)
+- 34-F12: FIXED. Column set built once per spec in the rescore; call-count regression test (test_cluster34_incremental_column_set_built_once)
+- 34-F18: FIXED. Degenerate fits (disabled, or under 50 rows) publish specs_, report_, val/test idx, elapsed_seconds_ and signature bookkeeping via _fit_publish_empty (test_cluster34_degenerate_fit_publishes_attributes)
+- 34-F24: FIXED. domain_check output cast to bool at both unguarded eval sites (test_cluster34_domain_mask_is_boolean)
+- 34-F22: FIXED. Duplicate logger and _UNARY_BASE_SENTINEL definitions removed; single-definition test (test_cluster34_fit_steps_single_definitions)
+- 34-F13: FIXED. Per-group loops use one stable argsort and contiguous slices; routing extracts each base column once (test_cluster34_route_extracts_base_once)
+- 34-F31: FIXED. Cap checked before appending, so a full hint list logs 0 MI candidates (test_cluster34_auto_base_log_and_wording)
+- 34-F25: FIXED. Messages now say skipping spec. Wording only; no behaviour change, so no separate test.
+- 34-F23: FIXED. Comment corrected: np.argsort places non-finite keys last. Comment only; no behaviour change, so no separate test.
+- 34-F19: FIXED. Null permutes the base over the scored rows only (per column), so NaN base entries cannot enter the null (test_cluster34_base_carry_null_rows; the test is behavioural and may not fail on the old code)
+- 34-F27: FIXED. Shared-fold cache keys use a blake2b digest of the rows instead of 64-bit hash() (test_cluster34_fold_cache_row_digest; 13 existing shared-fold tests pass)
+- 34-F29: FIXED. MatrixKeyedCache implements its own clear(); no borrowed ContentMemo method (test_cluster34_matrix_cache_clear; 4 existing matrix-cache tests pass)
+- 34-F30: FIXED. Attached target kept float64 on the val side (keep_float64); engineered bases stay float32 by design (test_cluster34_attach_keeps_target_float64)
+- 34-F15: FIXED. Tie ranking vectorised for finite input (NaN keeps the walk); PAVA compiled via njit_or_passthrough (test_cluster34_leakage_rank_and_pava; 62 existing leakage tests pass)
+- 34-F14: DEFERRED. Gathering every column once for all rows needs n x F floats (about 6.4 GB at 3.2M x 500 float32), which defeats the block design. A column-chunked Gram would need a redesign of the pairwise pass. Owner decision on the memory budget.
+- 34-F17: DEFERRED. Batched null kernel shuffles blocks of binned codes; the carry null shuffles raw base values and bins inside _mi_pair_bin. Switching changes the null distribution, so it needs a benchmark and owner sign-off on numerics.
+- 34-F20: DEFERRED. A sampled data signature can miss a changed row and reuse stale specs. Owner decision on the accuracy cost of a cheaper signature.
+- 34-F21: PARTIAL. Post-impute finite mask computed once and reused (4 full-matrix passes reduced to 2; the first fraction check stays before the impute). No new test; existing 40 auto-base tests pass.
+- 34-F26: FIXED. Helper renamed to _run_folds_serial_early_stop (rename only; no behaviour change, so no separate test)
+- 34-F28: FIXED. BoundedMemo builds outside the lock; first stored value wins on a race. Re-entrancy and single-build tests (test_cluster34_bounded_memo_build_outside_lock)
+- 34-F34: FIXED. Eviction test added: LRU order kept, evicted key rebuilt (test_cluster34_bounded_memo_eviction)
+- 34-F35: FIXED. Bit-identity-to-reference test on float32 strided input (test_cluster34_abs_corr_no_copy_matches_reference)
+- 34-F32: FIXED. NEW arm built explicitly as old pool plus widened transforms via _full_new_pool (test_cluster34_bench_new_pool_is_explicit)
+- 34-F33: FIXED. Strict-win counts computed per scenario and per side in _strict_win_counts (test_cluster34_bench_strict_wins_per_scenario)
+- 34-F16: DEFERRED. calibration_adjusted_score / calibration_penalty / CALIBRATION_GATE_DEFAULT_ENABLED have no caller and their module says the gate is not wired. Wire in or remove the public export: owner decision.

@@ -9,13 +9,24 @@ import pytest
 from mlframe.utils.log_throttle import reset_throttle_counts
 
 
+def _cuda_usable() -> bool:
+    """Whether cupy can address a CUDA device; False when cupy is absent or the runtime cannot be queried."""
+    try:
+        import cupy as cp
+
+        _ = cp.cuda.Device().id
+    except Exception:
+        return False
+    return True
+
+
+_CUDA_USABLE = _cuda_usable()
+
+
+@pytest.mark.skipif(not _CUDA_USABLE, reason="no usable CUDA device")
 def test_edge_pool_workers_see_the_callers_allocator():
     """C-F01: a worker of ``map_on_edge_pool`` runs under the allocator (and device) of the calling thread, not the thread-local default of a fresh thread."""
     cp = pytest.importorskip("cupy")
-    try:
-        _ = cp.cuda.Device().id
-    except Exception:
-        pytest.skip("no usable CUDA device")
     from mlframe.feature_selection.filters._edge_pool import map_on_edge_pool
 
     def custom_allocator(size):
@@ -71,13 +82,10 @@ def test_stage_failure_is_not_replaced_by_the_cleanup_error(monkeypatch):
         sc.run_stages_concurrently(est, [failing_stage], weights=(1.0,), vram_weights=(1.0,), n_rows=1000)
 
 
+@pytest.mark.skipif(not _CUDA_USABLE, reason="no usable CUDA device")
 def test_null_max_batched_path_declines_a_table_over_the_shared_limit(caplog):
     """C-F02: 200 classes x 64 bins is 51200 bytes of shared memory per permutation, over the 48 KB default: the batched path returns ``None`` with a logged reason instead of failing the launch."""
     cp = pytest.importorskip("cupy")
-    try:
-        _ = cp.cuda.Device().id
-    except Exception:
-        pytest.skip("no usable CUDA device")
     from mlframe.feature_selection.filters import _null_max_perm_gpu as g
 
     reset_throttle_counts()

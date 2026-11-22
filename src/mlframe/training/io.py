@@ -434,8 +434,11 @@ def _write_save_meta_sidecar(bundle_path: str, *, durable: bool = False) -> None
         "lib_versions": _collect_lib_versions(),
     }
     digest = _bundle_sha256(bundle_path)
-    if digest is not None:
-        payload["bundle_sha256"] = digest
+    if digest is None:
+        # A sidecar without the digest makes every later load raise UnverifiedBundleError, so the save must not report success (audit 28-F25).
+        logger.warning("could not digest the saved bundle %s; the save is not verifiable and is failed", bundle_path)
+        raise RuntimeError(f"could not compute the sha256 of the saved bundle {bundle_path!r}; refusing to write an unverifiable sidecar")
+    payload["bundle_sha256"] = digest
     meta_bytes = orjson.dumps(payload, option=orjson.OPT_SORT_KEYS | orjson.OPT_INDENT_2)
 
     def _writer(f):

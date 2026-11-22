@@ -353,12 +353,12 @@ def score_features_by_dcor_uplift(
     # batch right after it. Build it ONCE and thread it into both _dcor_batch calls.
     _y_side = _dcor_y_side_prep(y_arr, len(raw_X), n_sample=int(n_sample), random_state=int(random_state))
     raw_mi = _dcor_batch(
-        raw_X.to_numpy(dtype=np.float64), y_arr,
+        raw_X.to_numpy(dtype=np.float64), y_arr,  # Intentional float64: the distance-correlation batch computes distances at double, matching the shared y-side prep
         n_sample=int(n_sample), random_state=int(random_state), y_side=_y_side,
     )
     raw_mi_map = dict(zip(raw_cols, raw_mi.tolist()))
     eng_mi = _dcor_batch(
-        engineered_X.to_numpy(dtype=np.float64), y_arr,
+        engineered_X.to_numpy(dtype=np.float64), y_arr,  # Intentional float64: the distance-correlation batch computes distances at double, matching the shared y-side prep
         n_sample=int(n_sample), random_state=int(random_state), y_side=_y_side,
     )
     rows = []

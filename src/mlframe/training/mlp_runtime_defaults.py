@@ -382,28 +382,30 @@ def _probe_available_memory_bytes(
     with _PROBE_MEM_LOCK:
         cached_bytes = None if os.environ.get("MLFRAME_FORCE_REPROBE") else _PROBE_MEM_CACHE.get(cache_key)
         if cached_bytes is None:
-            cached_bytes = _measure_available_bytes(cuda_ok, device_id)
-            if cached_bytes is not None:
+            cached_bytes, from_gpu = _measure_available_bytes(cuda_ok, device_id)
+            # Only a value read from the device belongs under the device key. A failed GPU probe fell back to host RAM, and caching that
+            # under cuda:N sized later batches from RAM for the GPU (audit 28-F36).
+            if cached_bytes is not None and (from_gpu or not cuda_ok):
                 _PROBE_MEM_CACHE[cache_key] = cached_bytes
     return cached_bytes
 
 
-def _measure_available_bytes(cuda_ok: bool, device_id: int) -> int | None:
-    """Read free GPU memory (CUDA) or available host RAM; ``None`` when both probes fail."""
+def _measure_available_bytes(cuda_ok: bool, device_id: int) -> tuple[int | None, bool]:
+    """``(bytes, from_gpu)``: free GPU memory (CUDA) or available host RAM; ``(None, False)`` when both probes fail."""
     if cuda_ok:
         try:
             import torch
             free_bytes, _total_bytes = torch.cuda.mem_get_info(int(device_id))
-            return int(free_bytes)
+            return int(free_bytes), True
         except Exception as e:  # nosec B110 - optional dependency import guard
             logger.debug("torch.cuda.mem_get_info probe failed (%s: %s) -- falling back to psutil/None", type(e).__name__, e)
     # CPU mode (or CUDA probe failed): use psutil if available, else None.
     try:
         import psutil
-        return int(psutil.virtual_memory().available)
+        return int(psutil.virtual_memory().available), False
     except Exception as e:
         logger.debug("psutil memory probe failed (%s: %s) -- caller falls back to a constant batch size", type(e).__name__, e)
-        return None
+        return None, False
 
 
 def resolve_mlp_predict_batch_size(

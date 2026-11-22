@@ -29,8 +29,8 @@ def _run(n_calls: int = 20_000, n_folds: int = 5) -> None:
 def _run_bonferroni(n_calls: int = 20_000, n_folds: int = 5, n_comparisons: int = 100) -> None:
     """Profile the opt-in ``n_comparisons`` path -- a long RFECV/MRMR search calling the band once per
     candidate with the running comparison count passed through. ``n_comparisons`` varies the ``alpha`` seen
-    by ``_two_sided_z``, so this path stresses the (uncached) ``scipy.stats.norm.ppf`` call much harder than
-    the default path above, which always sees the same cached ``alpha``.
+    by ``_two_sided_t``. That helper is ``lru_cache(maxsize=64)``, and the sweep cycles through 100 distinct
+    alphas, so the cache thrashes and about half of the calls recompute the t quantile (audit 07-F1).
     """
     rng = np.random.default_rng(1)
     fold_sets = [0.85 + 0.01 * rng.standard_normal(n_folds) for _ in range(n_calls)]

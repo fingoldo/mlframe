@@ -4,6 +4,7 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
+pytest.importorskip("lightning")
 from mlframe.training.neural._recurrent_config import InputMode, RecurrentConfig
 from mlframe.training.neural.recurrent import RecurrentTorchModel
 

@@ -2,6 +2,7 @@
 
 import pytest
 
+pytest.importorskip("lightning")
 from mlframe.training.neural.ranker import MLPRanker
 
 

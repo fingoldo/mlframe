@@ -289,7 +289,7 @@ def grouped_delta_features(
         per_row_std = np.asarray(agg_std[slot][row_codes])
         delta = x - per_row_mean
         zscore = delta / per_row_std
-        delta = np.nan_to_num(delta, nan=0.0, posinf=0.0, neginf=0.0).astype(_crit_np_dtype(), copy=False)  # the stored column is narrowed AFTER the float64 subtraction
+        delta = np.nan_to_num(delta, nan=0.0, posinf=0.0, neginf=0.0).astype(_crit_np_dtype(), copy=False)  # the stored column is narrowed AFTER the double-precision subtraction
         zscore = np.nan_to_num(zscore, nan=0.0, posinf=0.0, neginf=0.0).astype(_crit_np_dtype(), copy=False)
         name_delta = engineered_name_grouped_delta_mean(num_col, group_col)
         name_z = engineered_name_grouped_delta_std(num_col, group_col)
@@ -422,7 +422,7 @@ def lagged_diff_features(
                 cross_boundary = entity_sorted[p:] != entity_sorted[:-p]
                 diff_sorted[p:][cross_boundary] = 0.0
             diff = diff_sorted[inv_perm]
-            diff = np.nan_to_num(diff, nan=0.0, posinf=0.0, neginf=0.0).astype(_crit_np_dtype(), copy=False)  # narrowed AFTER the float64 difference
+            diff = np.nan_to_num(diff, nan=0.0, posinf=0.0, neginf=0.0).astype(_crit_np_dtype(), copy=False)  # narrowed AFTER the double-precision difference
             name = engineered_name_lagged_diff(value_col, p)
             encoded[name] = diff
             recipes[name] = {
@@ -445,6 +445,7 @@ def _numeric_time(values: np.ndarray) -> "tuple[np.ndarray, str]":
     if values.dtype.kind == "M":
         return values.astype("datetime64[ns]").astype(np.int64), "M"
     if values.dtype.kind in "iufb":
+        # Intentional float64: numeric times stay in double precision so the strictly-earlier test of the lag replay is exact
         return values.astype(np.float64), "f"
     raise TypeError(f"time column of dtype {values.dtype} has no numeric form")
 
@@ -482,7 +483,9 @@ def _with_history(time_vals: np.ndarray, x: np.ndarray, entity_key: "np.ndarray 
     if not history or not history.get("keys"):
         return time_vals, x, entity_key, n
     h_keys = np.asarray(history["keys"], dtype=object)
+    # Intentional float64: the fit-time history must carry the same double-precision times and values the fit used, so the strictly-earlier test is exact
     h_times = np.asarray(history["times"], dtype=np.float64) if time_vals.dtype.kind == "f" else np.asarray(history["times"], dtype=np.int64)
+    # Intentional float64: the fit-time values the replay extends, kept in double precision with their times
     h_vals = np.asarray(history["values"], dtype=np.float64)
     if entity_key is None:
         first = time_vals.min() if n else None

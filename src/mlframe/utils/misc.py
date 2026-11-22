@@ -123,7 +123,10 @@ def set_random_seed(seed: int = 42, set_hash_seed: bool = False, set_torch_seed:
         pass
 
     if set_hash_seed:
+        # PYTHONHASHSEED is read once, when the interpreter starts: setting it here does not change string hashing in THIS process. It
+        # reaches child processes started afterwards, and that is all it can do (audit 29-F9).
         os.environ["PYTHONHASHSEED"] = str(seed)
+        logger.warning("set_random_seed: PYTHONHASHSEED=%s only affects child processes started from now on; set/dict order of strings in this process is unchanged.", seed)
 
     if set_torch_seed:
 

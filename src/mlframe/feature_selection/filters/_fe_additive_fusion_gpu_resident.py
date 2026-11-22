@@ -89,10 +89,10 @@ def _raw_half_scales(cp: Any, vals_cols: list) -> np.ndarray:
     on_device = [j for j, c in enumerate(vals_cols) if hasattr(c, "dev")]
     if on_device:
         # the reductions are queued one after another and read back with ONE copy (a blocking read per column drained the queue H times)
-        sds[on_device] = cp.asnumpy(cp.stack([cp.nanstd(vals_cols[j].dev.astype(cp.float64, copy=False).ravel()) for j in on_device]))
+        sds[on_device] = cp.asnumpy(cp.stack([cp.nanstd(vals_cols[j].dev.astype(cp.float64, copy=False).ravel()) for j in on_device]))  # Intentional float64: the column scales are computed at double, the sds > 0 test depends on them
     for j, c in enumerate(vals_cols):
         if not hasattr(c, "dev"):
-            sds[j] = float(np.nanstd(np.asarray(c, dtype=np.float64)))
+            sds[j] = float(np.nanstd(np.asarray(c, dtype=np.float64)))  # Intentional float64: the column scales are computed at double, the sds > 0 test depends on them
     ok = np.isfinite(sds) & (sds > 0.0)
     out[ok] = sds[ok]
     return out

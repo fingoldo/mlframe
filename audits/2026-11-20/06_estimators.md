@@ -28,3 +28,8 @@ Scope: 1 file from `audits/2026-11-20/manifests/06_estimators.txt` (master dd028
 - 06-F3: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
 - 06-F4: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
 - 06-F5: DEFERRED. benchmark-script finding; low impact, deferred as a group pending an owner decision on benchmark cleanup
+- 06-F1: FIXED. The bench's NEW side is the production MyDecorrelator.fit and its OLD side a labelled replica; the git show call that decoded nothing is removed.
+- 06-F2: FIXED. The bench times and gates the production class instead of a copy of its logic.
+- 06-F3: FIXED. The dead git show subprocess is removed with the 06-F1 fix.
+- 06-F4: FIXED. The production drop set is one reduction over the upper triangle, same positions (custom.py). Covered by test_cpx39_decorrelator_identity.py.
+- 06-F5: FIXED. Constant and all-NaN columns are checked against the loop rule. Test tests/estimators/test_cluster06_decorrelator_constant_and_nan_columns.py.

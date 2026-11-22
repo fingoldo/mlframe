@@ -349,6 +349,8 @@ def _gate_specs(self: Any, df: Any, kept_specs: list, ctx: tuple, raw_pred: np.n
         base_eval = _base_arg(df, base_cols, eval_idx)
         valid = _spec_fit_mask(transform, y_fit, base_fit, params, spec.name)
         if int(valid.sum()) < 50:
+            # The RMSE gate does not run on this spec, so it passes unscored. Say so, instead of letting it through silently (audit 34-F7).
+            logger.warning("composite_discovery: %s has %d valid rows (< 50); the honest RMSE gate is not applied and it passes unscored", spec.name, int(valid.sum()))
             if record_only:  # too few valid rows to score on these rows either: no honest number, not the gate's one
                 _move_rmse_stamps_to_selection(spec)
             survivors.append(spec)

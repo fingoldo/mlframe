@@ -1,6 +1,6 @@
 """Bench for PERF #4: caching the per-class stratify groups dict across repeated bootstrap_metric calls.
 
-The groups dict ``{int(c): np.flatnonzero(stratify == c) for c in np.unique(stratify)}`` is deterministic in
+The per-class index book that ``_stratified_class_book`` builds is deterministic in
 ``stratify`` and rebuilt on every call. Honest-diagnostics bootstraps many metrics over the SAME stratify vector
 (one per-target seed, ~12 metrics), so the rebuild repeats. This measures (a) the isolated rebuild cost vs a full
 bootstrap_metric call, and (b) end-to-end repeated-call wall with vs without a stratify-keyed cache.
@@ -12,11 +12,13 @@ from __future__ import annotations
 import time
 import numpy as np
 
+from mlframe.evaluation._bootstrap_single_helpers import _stratified_class_book
 from mlframe.evaluation.bootstrap import bootstrap_metric
 
 
 def _rebuild(stratify):
-    return {int(c): np.flatnonzero(stratify == c) for c in np.unique(stratify)}
+    """The production per-class index book, built by the same helper bootstrap_metric calls (audit 07-F5)."""
+    return _stratified_class_book(stratify, stratify.shape[0], "bench_stratify_groups_cache")
 
 
 def bench(n=100_000, n_bootstrap=200, n_calls=12, seed=0):

@@ -531,7 +531,7 @@ def _cv_candidates_block(cp, Vdev, tr_masks, va_masks, ydev, nf, sel_idx, cand_l
         if not np.isfinite(host).all():
             raise _ResidentFallbackError()
     else:
-        both = cp.asnumpy(cp.concatenate([errs.ravel(), mind.astype(cp.float64)]))  # ONE D2H: the errors and the round-1 borders
+        both = cp.asnumpy(cp.concatenate([errs.ravel(), mind.astype(cp.float64)]))  # ONE D2H: the errors and the round-1 borders. Intentional float64: the errors are double, so the borders join them at double
         host = both[: nf * m].reshape(nf, m)
         if float(both[nf * m :].min()) <= 1e-12:
             raise _ResidentFallbackError()

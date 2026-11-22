@@ -41,6 +41,7 @@ from typing import Any
 import numpy as np
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+from mlframe.utils.log_throttle import log_throttle
 
 try:
     import numba as _numba
@@ -280,7 +281,12 @@ def _resolve_lag_values(self, X, base_raw: np.ndarray, n: int) -> np.ndarray | N
         from . import _extract_base
         vals = np.asarray(_extract_base(X, lag_col), dtype=np.float64).reshape(-1)
     except Exception as exc:
-        logger.debug("[soft_base_shrink] lag column %r extraction failed (%r); using fallback_predict.", lag_col, exc)
+        # DEBUG hid it: deep-OOD rows then silently took the median instead of the causal lag (audit 35-F24).
+        log_throttle(
+            logger, "soft_shrink_lag_extraction_failed", logging.WARNING,
+            "[soft_base_shrink] lag column %r extraction failed (%s: %s); deep-OOD rows use fallback_predict instead of the lag.",
+            lag_col, type(exc).__name__, exc,
+        )
         return None
     return vals if vals.size == n else None
 
@@ -291,9 +297,13 @@ def _median_constant(self, params: dict[str, Any]) -> float:
     return _finite_median_fallback(params)
 
 
+_RESOLVE_LAG = object()
+"""Sentinel: ``apply_smart_fallback`` resolves the lag itself. Pass a precomputed ``lag_vals`` (or None) to skip that."""
+
+
 def apply_smart_fallback(
     self, y_hat: np.ndarray, deep_ood: np.ndarray, base_raw: np.ndarray,
-    domain_ok: np.ndarray, X: Any, params: dict[str, Any],
+    domain_ok: np.ndarray, X: Any, params: dict[str, Any], lag_vals: Any = _RESOLVE_LAG,
 ) -> None:
     """Overwrite deeply-OOD rows in ``y_hat`` (in place) with the smart fallback.
 
@@ -307,7 +317,9 @@ def apply_smart_fallback(
     if not rows.any():
         return
     idx = np.where(rows)[0]
-    lag_vals = _resolve_lag_values(self, X, base_raw, y_hat.size)
+    # A quantile predict resolves the lag once per batch and passes it in; re-resolving per quantile repeated the same work (audit 35-F27).
+    if lag_vals is _RESOLVE_LAG:
+        lag_vals = _resolve_lag_values(self, X, base_raw, y_hat.size)
     use_median = self.fallback_predict == "y_train_median"
     if lag_vals is not None:
         v = lag_vals[idx]
