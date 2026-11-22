@@ -900,3 +900,4 @@
 | 34-F32 | FIXED | NEW arm built explicitly as old pool plus widened transforms via _full_new_pool (test_cluster34_bench_new_pool_is_explicit) |
 | 34-F33 | FIXED | Strict-win counts computed per scenario and per side in _strict_win_counts (test_cluster34_bench_strict_wins_per_scenario) |
 | 34-F16 | DEFERRED | calibration_adjusted_score / calibration_penalty / CALIBRATION_GATE_DEFAULT_ENABLED have no caller and their module says the gate is not wired. Wire in or remove the public export: owner decision. |
+| 35-F6 | FIXED | Stacked target float64 at both fit entry points; AST guard test (test_cluster35_stacked_target_float64_guard) |

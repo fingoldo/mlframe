@@ -74,6 +74,10 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F12 | 35_training-4.md | FIXED | Point-mass match uses rtol=0. Test test_cluster35_point_mass_tolerance.py. |
 | 35-F13 | 35_training-4.md | FIXED | Per-fold catch removed; a failing fold raises. Test test_cluster35_group_oof_no_silent_fold_nan.py. |
 | 35-F14 | 35_training-4.md | FIXED | predict_cdf sorts rows before the search. Test test_cluster35_cdf_unsorted_quantile_rows.py. |
+| 35-F3 | 35_training-4.md | FIXED | Constant or all-zero base set the early time-aware flag. Base must vary. Test test_cluster35_digest_and_flags.py. |
+| 35-F4 | 35_training-4.md | FIXED | Non-finite raw baseline silently disabled the gate. Fails closed with WARNING. Test test_cluster35_raw_baseline_fail_closed.py. |
+| 35-F6 | 35_training-4.md | FIXED | Target float32 before the residual. float64 at both entry points. Test test_cluster35_stacked_target_float64_guard.py. |
+| 35-F8 | 35_training-4.md | FIXED | Digest of U-dtype strings joined without boundaries. Length-prefixed. Test test_cluster35_digest_and_flags.py. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |
