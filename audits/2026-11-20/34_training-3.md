@@ -89,3 +89,5 @@ Scope: the 88 files in `audits/2026-11-20/manifests/34_training-3.txt` under wor
 - 34-F21: PARTIAL. Post-impute finite mask computed once and reused (4 full-matrix passes reduced to 2; the first fraction check stays before the impute). No new test; existing 40 auto-base tests pass.
 - 34-F26: FIXED. Helper renamed to _run_folds_serial_early_stop (rename only; no behaviour change, so no separate test)
 - 34-F28: FIXED. BoundedMemo builds outside the lock; first stored value wins on a race. Re-entrancy and single-build tests (test_cluster34_bounded_memo_build_outside_lock)
+- 34-F34: FIXED. Eviction test added: LRU order kept, evicted key rebuilt (test_cluster34_bounded_memo_eviction)
+- 34-F35: FIXED. Bit-identity-to-reference test on float32 strided input (test_cluster34_abs_corr_no_copy_matches_reference)
