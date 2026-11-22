@@ -191,7 +191,9 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         d_maxes = cp.empty(nperm, dtype=cp.float64)
         # Tile perms so the (pb * n_pairs * n) flat-joint intermediate fits the card.
-        perm_chunk = max(1, _PERMNULL_PAIR_TILE_CELLS // max(1, n_pairs * n))
+        # the histogram of a tile is (pb * n_pairs * per_pair_extent) cells and the entropy step holds about five float64 copies of it: bound that product as well as the (pb * n_pairs * n) joint codes (a many-bin
+        # strategy gave a 1.95 GB bincount on a 4 GB card, the OOM tripped the circuit breaker and every later floor of the process ran on the CPU)
+        perm_chunk = max(1, min(_PERMNULL_PAIR_TILE_CELLS // max(1, n_pairs * n), _PERMNULL_PAIR_TILE_CELLS // max(1, n_pairs * per_pair_extent)))
         from mlframe.feature_selection.filters._permutation_null_pair_tiles import _pooled_pair_null_perm_tiles
         _pooled_pair_null_perm_tiles(nperm, perm_chunk, y_perms, cp, n_pairs, per_pair_extent, cls_x, n_classes_y, inv_n, h_x, h_y, d_mm, d_maxes)
 

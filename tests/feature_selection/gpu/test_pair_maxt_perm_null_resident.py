@@ -215,3 +215,15 @@ def test_resident_twin_reads_the_same_capped_rows_as_the_cpu_floor():
     twin = pooled_pair_permutation_null_joint_mi_floor_cupy(mm_debias=False, mm_bias=None, **kw)
     assert twin is not None
     assert 0.6 < twin / cpu < 1.6, f"twin floor {twin} is on another scale than the CPU floor {cpu} (full-n scale would be about 4x lower at this size)"
+
+
+def test_floor_does_not_depend_on_the_permutation_tile(monkeypatch):
+    """A tile budget small enough to cut the permutations into several tiles (the histogram bound of the tile) gives the floor of the one-tile run."""
+    from mlframe.feature_selection.filters import _permutation_null_pair_resident as R
+
+    fd, nb, pa, pb, y, fy = _make_pool(6000, 10, 8, 4, seed=11)
+    kwargs = dict(factors_data=fd, pair_a=pa, pair_b=pb, nbins=nb, classes_y=y, freqs_y=fy, random_seed=5)
+    whole = pooled_pair_permutation_null_joint_mi_floor_cupy(**kwargs)
+    monkeypatch.setattr(R, "_PERMNULL_PAIR_TILE_CELLS", 40_000)
+    tiled = pooled_pair_permutation_null_joint_mi_floor_cupy(**kwargs)
+    assert tiled == pytest.approx(whole, rel=1e-9, abs=1e-12)
