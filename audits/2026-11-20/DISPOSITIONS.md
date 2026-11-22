@@ -911,3 +911,4 @@
 | 35-F22 | FIXED | Auto gate measures residual correlation (y - prediction), as its protocol defines; test test_cluster35_auto_gate_measures_residuals.py; 4 existing auto-aware gate tests pass |
 | 35-F23 | FIXED | Requested calibration method stored at construction and restored at the start of each fit; a degenerate fit no longer changes later fits (test_cluster35_calibrator_method_restored_per_fit; 27 existing calibration tests pass) |
 | 35-F24 | FIXED | Failed lag-column extraction logged at WARNING via log_throttle, naming the column and exception (test_cluster35_lag_extraction_failure_warns; 27 existing soft-shrink tests pass) |
+| 35-F25 | FIXED | A base fit range stamped on the spec is kept; capture runs only when the key is absent (test_cluster35_from_fitted_keeps_stamped_range; 48 related tests pass) |
