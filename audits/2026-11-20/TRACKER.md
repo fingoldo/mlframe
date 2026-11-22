@@ -134,6 +134,10 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 37-F2 | 37_training-6.md | FIXED | Supplied lag with no lag column was never offered as a base, understating the ceiling. Attached as a named column. Test test_cluster37_supplied_lag_is_a_base.py. |
 | 37-F3 | 37_training-6.md | FIXED | Venn-Abers calibration let NaN scores become a grid point; lookup silently returned the top bin for NaN. Calibration now refuses non-finite scores; lookup yields NaN. Test test_cluster37_venn_abers_nan_refused.py. |
 | 37-F4 | 37_training-6.md | FIXED | Member individual score mixed validation metric with negated OOF log-loss; now one source is used for all members. Test test_cluster37_diversity_single_score_scale.py. |
+| 37-F5 | 37_training-6.md | FIXED | Stacking-aware gate pruned columns and the stacker was fit unweighted; per-row sample weights are now passed regardless of pruning (commit 4ef46cf95). |
+| 37-F6 | 37_training-6.md | FIXED | refit_capped_stack ignored sample_weight; now takes it and the call site passes OOF weights. Test test_cluster37_venn_refit.py. |
+| 37-F7 | 37_training-6.md | FIXED | Group subsample recounted group sizes over the full array per group; sizes now come from one np.unique pass (commit 4ef46cf95). |
+| 37-F8 | 37_training-6.md | FIXED | Fingerprint cross-check exception left the precomputed bundle trusted at DEBUG; now distrusted and logged at WARNING. Test test_cluster37_fingerprint_exception_distrusts.py. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |

@@ -193,11 +193,11 @@
 | 37-F1 | DEFERRED | not changed in this pass: masking the fabricated median in composite_t_full is a labelling-policy decision (what a training row with an out-of-domain base should carry). Needs owner decision |
 | 37-F2 | DEFERRED | not changed in this pass: offering supplied lag values as a candidate base changes which bases the ceiling considers; needs a design decision on the candidate set |
 | 37-F3 | FIXED | NaN scores get NaN intervals instead of the top bin; tests/training/composite/test_cluster37_venn_refit.py |
-| 37-F4 | DEFERRED | not changed in this pass: the scale mismatch between roc_auc and negated log-loss needs a decision on a common score; needs owner decision |
+| 37-F4 | FIXED | one score source for all members (val only when every member has it, else OOF); tests/training/core/test_cluster37_diversity_single_score_scale.py |
 | 37-F5 | FIXED | per-row sample weights are passed regardless of column pruning; no separate test beyond the suite run |
 | 37-F6 | FIXED | refit_capped_stack takes and uses sample_weight, and the call site passes the OOF weights; tests/training/composite/test_cluster37_venn_refit.py |
 | 37-F7 | FIXED | group sizes come from one np.unique pass; no separate test |
-| 37-F8 | FIXED | a failed fingerprint cross-check distrusts the precomputed bundle and logs at WARNING; no separate test |
+| 37-F8 | FIXED | a failed fingerprint cross-check distrusts the precomputed bundle and logs at WARNING; tests/training/core/test_cluster37_fingerprint_exception_distrusts.py |
 | 38-F1 | FIXED | the suite-wide ensemble is not built when members span more than one target; tests/training/test_cluster38_suite_ensemble_targets.py |
 | 38-F2 | FIXED | calib_preds are no longer re-stamped by the recalibrator, so conformal residuals are not in-sample for it; no separate test |
 | 38-F3 | FIXED | a detector without predict() skips the val-side filter explicitly with a WARNING; no separate test |
