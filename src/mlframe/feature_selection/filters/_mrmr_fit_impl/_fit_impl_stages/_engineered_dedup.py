@@ -6,6 +6,7 @@ from __future__ import annotations
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from mlframe.feature_selection.filters._mrmr_fit_impl._fe_roster_attrs import drop_from_fe_rosters
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
@@ -124,6 +125,23 @@ def _engineered_mi_scores(X: Any, _eng_cols_appended: list, _y_np: Any) -> dict[
     return _eng_mi
 
 
+def _dedup_scan_view(self, X: Any, cols: list, y: Any) -> "tuple[Any, Any]":
+    """``(frame, y)`` the dedup scores on: the candidate columns at the fit's shared decision subsample when it has one, else ``X`` and ``y`` as they are.
+
+    The Spearman scan keeps one float64 rank row per candidate and the MI score a dense float matrix of them, both at the frame's row count: at 1M rows x 715 candidates that is several GB and
+    most of a minute, for a verdict (near-duplicate at rank correlation 0.99, higher plug-in MI) that a few ten thousand rows give. The drop names found there are applied to the full frame.
+    """
+    if not isinstance(X, pd.DataFrame) or len(cols) < 2:
+        return X, y
+    from mlframe.feature_selection.filters._mrmr_fit_impl._helpers import _subsample_row_index, fe_subsample_kwargs
+
+    idx = _subsample_row_index(len(X), **fe_subsample_kwargs(self))
+    if idx is None or len(idx) >= len(X):
+        return X, y
+    present = [c for c in dict.fromkeys(cols) if c in X.columns]
+    return X[present].iloc[idx].reset_index(drop=True), np.asarray(y)[idx]
+
+
 @fe_timed("stage:cross_stage_dedup")
 def _dedup_engineered_across_stages(self, _y_np, X, recipes, verbose):
     """Cross-stage dedup of engineered columns, keeping the member of a near-duplicate cluster with the most information about y."""
@@ -142,7 +160,8 @@ def _dedup_engineered_across_stages(self, _y_np, X, recipes, verbose):
     # bins identically, so MI is numerically equal - prefer the explicitly-requested constructor output). MI scoring is best-effort: any failure falls back to
     # the order-preserving first-appended policy so the dedup never crashes a fit.
     _mig_set = set(self.mi_greedy_features_ or [])
-    _eng_mi = _engineered_mi_scores(X, _eng_cols_appended, _y_np)
+    _X_scan, _y_scan = _dedup_scan_view(self, X, _eng_cols_appended, _y_np)
+    _eng_mi = _engineered_mi_scores(_X_scan, _eng_cols_appended, _y_scan)
 
     def _eng_dedup_prefer(cand: str, kept: str) -> bool:
         """Return True when ``cand`` should DISPLACE the already-kept ``kept`` on a near-duplicate collision.
@@ -169,7 +188,7 @@ def _dedup_engineered_across_stages(self, _y_np, X, recipes, verbose):
     if len(_eng_cols_appended) >= 2 and isinstance(X, pd.DataFrame):
         from mlframe.feature_selection.filters._mrmr_fit_impl._eng_dedup_scan import scan_engineered_duplicates
 
-        _eng_keep, _eng_drop, _eng_arrs, _eng_ranks = scan_engineered_duplicates(X, _eng_cols_appended, _adaptive_fourier_keep, _eng_dedup_prefer)
+        _eng_keep, _eng_drop, _eng_arrs, _eng_ranks = scan_engineered_duplicates(_X_scan, _eng_cols_appended, _adaptive_fourier_keep, _eng_dedup_prefer)
         if _eng_drop:
             # Dependency-closure guard: never drop an engineered column / recipe that a SURVIVING recipe consumes via src_names (e.g. a cat_pair_cross producer
             # feeding a modular / numeric_decompose recipe). Dropping the producer while keeping the consumer orphans the consumer's source -> KeyError at
