@@ -347,9 +347,23 @@ def _current() -> "set[str]":
     return set(_current_hits())
 
 
+EXCEPTIONS = Path(__file__).with_name("_tiny_cupy_loops_exceptions.json")
+
+
+def _exceptions() -> "dict[str, str]":
+    """``{"<module path>::<function>": reason}``: loops accepted as they are, each with the measurement or structural reason that rules out batching them."""
+    return orjson.loads(EXCEPTIONS.read_text(encoding="utf-8"))
+
+
 def _baseline() -> "set[str]":
-    """The reviewed ``{"<module path>::<function>"}`` worklist."""
-    return set(orjson.loads(BASELINE.read_text(encoding="utf-8")))
+    """The reviewed ``{"<module path>::<function>"}`` worklist, together with the accepted exceptions (a stale exception fails the stale check like a stale entry)."""
+    return set(orjson.loads(BASELINE.read_text(encoding="utf-8"))) | set(_exceptions())
+
+
+def test_exceptions_carry_a_reason():
+    """Every accepted loop states why it is not batched; a bare name is not an exception."""
+    for key, reason in _exceptions().items():
+        assert isinstance(reason, str) and len(reason) >= 120, f"exception {key} has no measured or structural reason"
 
 
 def test_no_new_launch_bound_cupy_loops():
