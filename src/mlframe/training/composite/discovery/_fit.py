@@ -119,8 +119,21 @@ def _screen_matrices(self, df, _usable_features_list, train_idx_screen, *, _bin_
             _phase_ram_report(_ram_state, "prebin_features_done")
     return _use_lazy_prebin, _full_x_matrix, _full_x_prebinned, _streamed_dedup
 
+def _wrap_positions(arr: np.ndarray, name: str, n_rows: int) -> np.ndarray:
+    """Return ``arr`` as non-negative positions in ``[0, n_rows)``: negatives count from the end, anything still out of range raises.
+
+    Without this a ``-1`` in train_idx was never bounds-checked (only ``max()`` was) and the overlap test compared raw integers,
+    so ``-1`` and ``n-1`` looked like different rows (audit 34-F5).
+    """
+    pos = np.where(arr < 0, arr + n_rows, arr)
+    if pos.size and (int(pos.min()) < 0 or int(pos.max()) >= n_rows):
+        raise ValueError("[CompositeTargetDiscovery] %s positions out of bounds for df of %d rows." % (name, n_rows))
+    return pos
+
+
 def _fit_normalise_indices(df: Any, train_idx: Any, val_idx: Any, test_idx: Any) -> tuple[np.ndarray, np.ndarray | None, np.ndarray | None]:
     """Normalise train/val/test indices to integer positions and run the leakage / bounds checks of ``fit``."""
+    n_rows = len(df)
     train_idx = np.asarray(train_idx)
     # A boolean mask is a common idiom but detonates later with a cryptic IndexError (sampling reads the mask LENGTH as the row count); normalise it up front and reject non-integer dtypes loudly.
     if train_idx.dtype == bool:
@@ -135,8 +148,9 @@ def _fit_normalise_indices(df: Any, train_idx: Any, val_idx: Any, test_idx: Any)
             return np.flatnonzero(arr)
         if not np.issubdtype(arr.dtype, np.integer):
             raise TypeError("%s must be integer positions or a boolean mask, got dtype %r" % (name, arr.dtype))
-        return arr
+        return _wrap_positions(arr, name, n_rows)
 
+    train_idx = _wrap_positions(train_idx, "train_idx", n_rows)
     val_idx = None if val_idx is None else _normalise_idx(val_idx, "val_idx")
     test_idx = None if test_idx is None else _normalise_idx(test_idx, "test_idx")
 
@@ -147,8 +161,6 @@ def _fit_normalise_indices(df: Any, train_idx: Any, val_idx: Any, test_idx: Any)
         raise ValueError("[CompositeTargetDiscovery] train_idx overlaps val_idx -- leakage.")
     if np.unique(train_idx).size != train_idx.size:
         logger.warning("[CompositeTargetDiscovery] duplicated train_idx rows bias MI estimates.")
-    if train_idx.size and int(train_idx.max()) >= len(df):
-        raise ValueError("[CompositeTargetDiscovery] train_idx max %d out of bounds for df of %d rows." % (int(train_idx.max()), len(df)))
     return train_idx, val_idx, test_idx
 
 
@@ -394,6 +406,18 @@ def _fit_mi_baseline_vectors(self: "CompositeTargetDiscovery", df: Any, st: _Sim
     st._dedup_corr_thr = float(getattr(self.config, "dedup_x_remaining_corr_threshold", 0.99))
 
 
+def _fit_publish_empty(self: "CompositeTargetDiscovery", df: Any, target_col: str, feature_cols: Sequence[str], val_idx: Any, test_idx: Any, elapsed: float) -> None:
+    """Publish the bookkeeping attributes on a degenerate fit (no specs), so reading them after it does not raise AttributeError (audit 34-F18)."""
+    self.specs_ = []
+    self.report_ = []
+    self._fit_data_signature = None
+    self._fit_data_signature_seed = None
+    self._fit_data_signature_inputs, self._fit_n_rows = (target_col, list(feature_cols)), len(df)
+    self.val_idx_ = val_idx
+    self.test_idx_ = test_idx
+    self.elapsed_seconds_ = elapsed
+
+
 def _fit_record_results(
     self: "CompositeTargetDiscovery", st: _SimpleNamespace, df: Any, target_col: str, feature_cols: Sequence[str], val_idx: np.ndarray | None, test_idx: np.ndarray | None
 ) -> None:
@@ -458,11 +482,10 @@ def fit(
     """
     st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     if not self.config.enabled:
-        self.specs_ = []
-        self.report_ = []
         self.train_idx_ = np.asarray(train_idx)
         self._df_ref = df
         self._target_col = target_col
+        _fit_publish_empty(self, df, target_col, feature_cols, val_idx, test_idx, 0.0)
         return self
 
     train_idx, val_idx, test_idx = _fit_normalise_indices(df, train_idx, val_idx, test_idx)
@@ -472,8 +495,7 @@ def fit(
             "[CompositeTargetDiscovery] train_idx has only %d rows; " "MI estimates unreliable. Discovery yields no specs.",
             train_idx.size,
         )
-        self.specs_ = []
-        self.report_ = []
+        _fit_publish_empty(self, df, target_col, feature_cols, val_idx, test_idx, 0.0)
         return self
 
     df = _fit_resolve_bases(self, st, df, target_col, feature_cols, train_idx, time_ordering)

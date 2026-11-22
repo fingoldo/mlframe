@@ -340,7 +340,9 @@ def _cv_score_candidate(
             if oof is not None:
                 oof[test_idx] = pred
         except Exception as err:  # -- penalise, don't crash search
-            logger.debug("optimize_composite: candidate %r/%r fold failed: %r", transform_name, inner_params, err)
+            # WARNING with the exception class: a genuine bug (a TypeError in the scorer, say) used to make every candidate inf with nothing
+            # visible above DEBUG (audit 36-F5).
+            logger.warning("optimize_composite: candidate %r/%r fold failed (%s: %s)", transform_name, inner_params, type(err).__name__, err)
             fold_scores.append(float("inf"))
         if trial is not None and fold_idx < len(splits) - 1:
             running_score = float(np.mean(fold_scores))
@@ -384,6 +386,9 @@ def _resolve_splits(
     n_splits = int(cv) if isinstance(cv, (int, np.integer)) else 5
     if n_splits < 2:
         n_splits = 2
+    if n_splits > n_rows:
+        # More folds than rows gives empty test folds, which score inf for every candidate and return an arbitrary winner (audit 36-F6).
+        raise ValueError(f"optimize_composite: cv={n_splits} folds need at least {n_splits} rows, got {n_rows}")
 
     if time_ordering is not None:
         order = np.argsort(np.asarray(time_ordering), kind="stable")

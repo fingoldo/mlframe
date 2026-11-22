@@ -74,6 +74,29 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F12 | 35_training-4.md | FIXED | Point-mass match uses rtol=0. Test test_cluster35_point_mass_tolerance.py. |
 | 35-F13 | 35_training-4.md | FIXED | Per-fold catch removed; a failing fold raises. Test test_cluster35_group_oof_no_silent_fold_nan.py. |
 | 35-F14 | 35_training-4.md | FIXED | predict_cdf sorts rows before the search. Test test_cluster35_cdf_unsorted_quantile_rows.py. |
+| 35-F3 | 35_training-4.md | FIXED | Constant or all-zero base set the early time-aware flag. Base must vary. Test test_cluster35_digest_and_flags.py. |
+| 35-F4 | 35_training-4.md | FIXED | Non-finite raw baseline silently disabled the gate. Fails closed with WARNING. Test test_cluster35_raw_baseline_fail_closed.py. |
+| 35-F6 | 35_training-4.md | FIXED | Target float32 before the residual. float64 at both entry points. Test test_cluster35_stacked_target_float64_guard.py. |
+| 35-F8 | 35_training-4.md | FIXED | Digest of U-dtype strings joined without boundaries. Length-prefixed. Test test_cluster35_digest_and_flags.py. |
+| 35-F15 | 35_training-4.md | FIXED | _kwargs unbound on signature failure; weighted-fit fallback logged at DEBUG. Test test_cluster35_sample_weight_fallback.py. |
+| 35-F16 | 35_training-4.md | FIXED | Group-holdout counts were O(groups x rows). One np.unique pass. Test test_cluster35_group_counts_one_pass.py. |
+| 35-F17 | 35_training-4.md | FIXED | predict blended non-finite component outputs with no warning. Now a WARNING names the component. Test test_cluster35_predict_nonfinite_component_warns.py. |
+| 35-F18 | 35_training-4.md | FIXED | GPU probe failures and the refit-groups fallback logged at DEBUG. Now WARNING. Test test_cluster35_gpu_probe_failure_warns.py (refit path untested). |
+| 35-F19 | 35_training-4.md | DEFERRED | Composite refit implemented three times with different group handling. Consolidation changes behaviour. Owner decision on group semantics first. |
+| 35-F20 | 35_training-4.md | FIXED | GBM stacker ignored group_ids and time_ordered; row-random early stopping leaked across groups. Early stopping off when either is set; dispatcher forwards both. Test test_cluster35_gbm_stacker_group_aware.py. |
+| 35-F21 | 35_training-4.md | FIXED | OOF cache key omitted sample_weight and component specs. Both keyed with full digests. Test test_cluster35_oof_cache_key_weights_and_specs.py. |
+| 35-F22 | 35_training-4.md | FIXED | Auto gate tested prediction correlation; protocol defines residual correlation. Now residuals. Test test_cluster35_auto_gate_measures_residuals.py. |
+| 35-F23 | 35_training-4.md | FIXED | Degenerate fit permanently switched the calibrator to linear. Method restored per fit. Test test_cluster35_calibrator_method_restored_per_fit.py. |
+| 35-F24 | 35_training-4.md | FIXED | Lag extraction failure logged at DEBUG; deep-OOD rows silently took the median. Now WARNING. Test test_cluster35_lag_extraction_failure_warns.py. |
+| 35-F25 | 35_training-4.md | FIXED | Stamped base-fit range overwritten by from_fitted, moving soft-shrink thresholds. Stamped range kept. Test test_cluster35_from_fitted_keeps_stamped_range.py. |
+| 35-F26 | 35_training-4.md | PARTIAL | Discovery smearing used unweighted quantiles over all rows. Now shares residual_quantiles with fit. Discovery callers do not pass sample weights yet. Test test_cluster35_smeared_prediction_matches_fit.py. |
+| 35-F27 | 35_training-4.md | FIXED | predict_quantile re-resolved the causal lag once per quantile column. Resolved once per batch. Test test_cluster35_smart_fallback_resolves_lag_once.py. |
+| 35-F28 | 35_training-4.md | DEFERRED | Distributional grid 0.05..0.95 truncates sample() tails and omits tail mass in crps(). Adding tail levels or a GPD tail is a modelling decision for the owner. |
+| 35-F29 | 35_training-4.md | FIXED | TypeError fallback dropped sample_weight for any TypeError. Support read from signature; other TypeErrors propagate. Test test_cluster35_mixture_sample_weight_support.py. |
+| 35-F30 | 35_training-4.md | FIXED | Dict config seed ignored; report recorded 42. Coerced before the seed is read. Test test_cluster35_highlevel_dict_config_seed.py. |
+| 35-F31 | 35_training-4.md | FIXED | Group broadcast was a per-row dict loop; NaN group ids fell back silently. Vectorised reindex; NaN rows counted and logged. Test test_cluster35_group_broadcast_vectorised.py. |
+| 35-F32 | 35_training-4.md | FIXED | Single numeric column raised ValueError in linkage. Returns that column as one subset. Test test_cluster35_subset_bagging_single_column.py. |
+| 35-F33 | 35_training-4.md | PARTIAL | Tail fitted on in-sample residuals by default, under-dispersing held-out tails. WARNING added when residual_X is absent. Default unchanged (owner decision). Test test_cluster35_tail_in_sample_residuals_warn.py. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |
@@ -120,6 +143,41 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 40-F5 | 40_training-9.md | FIXED | Class weights follow original labels via classes_. Test test_cluster40_class_weight_follows_original_labels.py. |
 | 40-F8 | 40_training-9.md | FIXED | class_weight non-persistent; load drops stale key. Test test_cluster40_class_weight_not_persisted.py. |
 | 40-F7 | 40_training-9.md | FIXED | Scaling copies before the block write. Test test_cluster40_scaling_does_not_mutate_input.py. |
+| 34-F7 | 34_training-3.md | FIXED | Spec under 50 valid rows passes the RMSE gate unscored; now logs WARNING naming spec and row count. Test test_cluster34_discovery_silent_skips_are_logged.py. |
+| 34-F8 | 34_training-3.md | FIXED | Residual-std probe failure logged at DEBUG; now WARNING with base and transform. Test test_cluster34_discovery_silent_skips_are_logged.py. |
+| 34-F5 | 34_training-3.md | FIXED | Negative train/test positions were not bounds-checked or normalised before the overlap test; now wrapped by len(df) and checked. Test test_cluster34_negative_indices_are_positions.py. |
+| 34-F6 | 34_training-3.md | FIXED | Holdout docstring claimed the same quantity as in-screen MI; now states the feature sets differ. Feature-set alignment not implemented. |
+| 34-F1 | 34_training-3.md | FIXED | Trailing mean NaN poisons later rows; kernel skips NaN (commit 9c32cf0b1). Test test_cluster34_trailing_mean_nan.py. |
+| 34-F2 | 34_training-3.md | FIXED | Hints dropped by the finite filter still take top-k slots and are returned (commit 9c32cf0b1). Test test_cluster34_auto_base_mrmr_and_collinear.py. |
+| 34-F3 | 34_training-3.md | FIXED | Demoted candidates set the MRMR relevance scale (commit 9c32cf0b1). Test test_cluster34_auto_base_mrmr_and_collinear.py. |
+| 34-F4 | 34_training-3.md | FIXED | Collinear replay skipped re-checking non-borderline columns after a flip (commit 9c32cf0b1). Test test_cluster34_auto_base_mrmr_and_collinear.py. |
+| 34-F9 | 34_training-3.md | PARTIAL | Per-fold refit failure silently fell back to leaked global params; now WARNING. Spec not marked (unreachable from default discovery). Test test_cluster34_fold_refit_failure_is_visible.py. |
+| 34-F10 | 34_training-3.md | FIXED | Upgraded multi-base spec carried the seed's tiny-rerank score; now uses the final kept set's CV RMSE. Test test_cluster34_multibase_upgrade_score.py. |
+| 34-F11 | 34_training-3.md | FIXED | Block-size search ignored sample_weight used by the final fit. Test test_cluster34_direct_multi_horizon_weighted_search.py. |
+| 34-F12 | 34_training-3.md | FIXED | Column set rebuilt per candidate column in warm-start rescore; built once per spec. Test test_cluster34_incremental_column_set_built_once.py. |
+| 34-F18 | 34_training-3.md | FIXED | Degenerate fits skipped bookkeeping; elapsed_seconds_ etc raised AttributeError. Test test_cluster34_degenerate_fit_publishes_attributes.py. |
+| 34-F24 | 34_training-3.md | FIXED | domain_check numeric mask indexed rows wrongly; cast to bool at both sites. Test test_cluster34_domain_mask_is_boolean.py. |
+| 34-F22 | 34_training-3.md | FIXED | logger and _UNARY_BASE_SENTINEL defined twice. Test test_cluster34_fit_steps_single_definitions.py. |
+| 34-F13 | 34_training-3.md | FIXED | Per-group loops built full-length masks per group and re-extracted base columns. Sorted slices plus one extraction per base. Test test_cluster34_route_extracts_base_once.py. |
+| 34-F31 | 34_training-3.md | FIXED | Auto-base log counted an MI candidate not in the output when hints fill top_k. Test test_cluster34_auto_base_log_and_wording.py. |
+| 34-F25 | 34_training-3.md | FIXED | Skipped-spec messages said fell back to its default. Wording only. |
+| 34-F23 | 34_training-3.md | FIXED | Comment said non-finite keys sort first; they sort last. Comment only. |
+| 34-F19 | 34_training-3.md | FIXED | Carry-null permuted the whole base, so NaN base entries could fall inside the scored rows. Permutes the scored rows only. Test test_cluster34_base_carry_null_rows.py. |
+| 34-F27 | 34_training-3.md | FIXED | Shared-fold cache keyed on a 64-bit hash() of row bytes. Now a blake2b digest. Test test_cluster34_fold_cache_row_digest.py. |
+| 34-F29 | 34_training-3.md | FIXED | clear borrowed from ContentMemo via shared attribute names. Own clear() now. Test test_cluster34_matrix_cache_clear.py. |
+| 34-F30 | 34_training-3.md | FIXED | Val-side target cast to float32 when attached, so bases differed from the train side. Target kept float64. Test test_cluster34_attach_keeps_target_float64.py. |
+| 34-F15 | 34_training-3.md | FIXED | Per-element Python tie ranking and PAVA loops. Vectorised ranking for finite input; PAVA compiled. Test test_cluster34_leakage_rank_and_pava.py. |
+| 34-F14 | 34_training-3.md | DEFERRED | Column gathers per 8192-row block. One gather per column needs n x F memory (about 6.4 GB at 3.2M x 500); a column-chunked Gram is a redesign. Owner decision on memory budget. |
+| 34-F17 | 34_training-3.md | DEFERRED | Carry test: 20 MI calls per column. The batched kernel has a different null (block-shuffled codes). Numerical change; needs benchmark and owner sign-off. |
+| 34-F20 | 34_training-3.md | DEFERRED | Warm-start data signature on the full frame. A sampled signature can reuse stale specs. Owner decision. |
+| 34-F21 | 34_training-3.md | PARTIAL | Finite mask reused after impute (4 passes to 2). No new test; 40 existing auto-base tests pass. |
+| 34-F26 | 34_training-3.md | FIXED | Helper misnamed; renamed to _run_folds_serial_early_stop. Rename only. |
+| 34-F28 | 34_training-3.md | FIXED | BoundedMemo ran builds under its lock; re-entrant build deadlocked. Build now outside the lock. Test test_cluster34_bounded_memo_build_outside_lock.py. |
+| 34-F34 | 34_training-3.md | FIXED | No test for BoundedMemo eviction. Test test_cluster34_bounded_memo_eviction.py. |
+| 34-F35 | 34_training-3.md | FIXED | No test for abs_corr_all_no_copy. Reference test on float32 strided input. Test test_cluster34_abs_corr_no_copy_matches_reference.py. |
+| 34-F32 | 34_training-3.md | FIXED | Bench NEW arm used the config default, which excludes the widened transforms. Built explicitly. Test test_cluster34_bench_new_pool_is_explicit.py. |
+| 34-F33 | 34_training-3.md | FIXED | Strict-win counts: the default counted per challenger, not per scenario. Per-scenario helper. Test test_cluster34_bench_strict_wins_per_scenario.py. |
+| 34-F16 | 34_training-3.md | DEFERRED | Calibration gate has no caller; wire in or remove the public export. Owner decision. |
 | 40-F9 | 40_training-9.md | FIXED | All-null categorical maps to unknown code at predict. Test test_cluster40_all_null_categorical_predicts.py. |
 | 40-F10 | 40_training-9.md | FIXED | Unequal hidden_layers refused at construction (default choice; per-layer sizes not supported by the builder). Test test_cluster40_ranker_refuses_unequal_hidden_layers.py. |
 | 40-F15 | 40_training-9.md | FIXED | Entity-time module refuses an unaligned split (test test_cluster40_entity_time_refuses_unaligned_split.py). Latent-SVD, MA no-group path and nearest-past-join still open. |

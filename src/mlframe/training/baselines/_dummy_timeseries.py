@@ -37,6 +37,12 @@ def _normalize_timestamps(ts: Any) -> np.ndarray | None:
         # If datetime-like, convert to int64 nanoseconds for diff arithmetic.
         if ts.dtype.kind == "M":
             ts = ts.astype("datetime64[ns]").astype("int64")
+        elif ts.dtype.kind in "iu":
+            # Integer timestamps have no unit of their own: epoch seconds were read as nanoseconds, so daily data looked sub-hourly.
+            # Use the same unit detector the object path uses (audit 32-F10).
+            from ..targets import coerce_timestamps_for_audit as _coerce_ts
+
+            ts = _coerce_ts(ts.astype(np.int64)).view("int64")
         elif ts.dtype.kind == "O":
             # Object array: could be pd.Timestamp instances, datetime strings, OR
             # bare numeric ints that fell into an object Series (e.g. from a

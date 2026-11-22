@@ -270,8 +270,12 @@ def discover_and_wrap(
         config, rationale = suggest_discovery_config(
             df, target_col, feature_cols, **(config_overrides or {}),
         )
-    # else: caller-supplied config (object or dict) is honoured verbatim;
-    # CompositeTargetDiscovery.__init__ coerces a dict into the config object.
+    # A dict config is coerced to the config object here, before the seed is read: the seed and the report then use the values the dict
+    # actually sets, not the 42 default (audit 35-F30).
+    if isinstance(config, dict):
+        from ..configs import CompositeTargetDiscoveryConfig
+
+        config = CompositeTargetDiscoveryConfig(**config)
 
     # ---- 2. discover -------------------------------------------------------
     discovery = CompositeTargetDiscovery(config)

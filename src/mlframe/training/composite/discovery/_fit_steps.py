@@ -37,12 +37,6 @@ logger = logging.getLogger(__name__)
 _UNARY_BASE_SENTINEL = ""
 
 
-logger = logging.getLogger(__name__)
-
-
-_UNARY_BASE_SENTINEL = ""
-
-
 def _apply_honest_holdout_stages(self, df, target_col, kept_specs, usable_features, train_idx, y_full, _honest_holdout_idx, _ram_profiler_on, _ram_state, _phase_ram_report):
     """Run the holdout RMSE gate on the selection rows, then stamp the honest gain from the report rows.
 

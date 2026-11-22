@@ -104,8 +104,10 @@ def refit_transform_on_fold(
         # The gateway passes groups only to a fit that declares them, and raises for a grouped transform refit without its groups.
         fold_params = call_transform(transform, "fit", y_v, base_v, groups=g_fit)
     except Exception as _fit_err:  # -- degenerate fold, keep global
-        logger.debug(
-            "refit_transform_on_fold: per-fold fit failed (%s); caller should " "fall back to global params for this fold.",
+        # WARNING, not DEBUG: this fold is then scored with params fit on every screening row, held-out rows included (audit 34-F9).
+        logger.warning(
+            "refit_transform_on_fold: per-fold fit failed (%s: %s); this fold falls back to the global params, which saw its held-out rows.",
+            type(_fit_err).__name__,
             _fit_err,
         )
         return None

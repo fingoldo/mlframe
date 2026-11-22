@@ -130,6 +130,8 @@ def _rescore_spec_gain(
     """
     transform = get_transform(spec.transform_name)
     y = _extract_column_array(df, target_col, rows=idx)
+    # Column set built once per spec; rebuilding it inside each per-column comprehension cost O(F^2) per spec (audit 34-F12).
+    present = _frame_columns(df)
 
     # Build the base matrix (primary + any multi-base extras). Unary transforms
     # ignore base entirely -- pass None straight through (their gain is scored
@@ -138,7 +140,7 @@ def _rescore_spec_gain(
     base_cols: tuple[str, ...] = ()
     if transform.requires_base:
         base_cols = (spec.base_column, *extra) if spec.base_column else tuple(extra)
-        missing = [c for c in base_cols if c not in _frame_columns(df)]
+        missing = [c for c in base_cols if c not in present]
         if missing:
             return float("nan")
         if len(base_cols) == 1:
@@ -152,7 +154,7 @@ def _rescore_spec_gain(
     # base IS removed (it isolates the transform effect); a unary drops nothing.
     drop = set(base_cols)
     cols = [c for c in feature_cols if c != target_col and c not in drop]
-    cols = [c for c in cols if c in _frame_columns(df)]
+    cols = [c for c in cols if c in present]
     if not cols:
         return float("nan")
     x_arrays = [_extract_column_array(df, c, rows=idx) for c in cols]

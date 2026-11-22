@@ -495,6 +495,13 @@ class CompositeCrossTargetEnsemble:
                     exc,
                 )
                 pred = None
+            # The fit path rejects non-finite component predictions, but predict did not check them: a NaN or inf row used to reach
+            # the blend silently (audit 35-F17). The blend still returns NaN for those rows; now it says so.
+            if pred is not None and not np.isfinite(pred).all():
+                logger.warning(
+                    "[CompositeCrossTargetEnsemble] component '%s' returned %d non-finite prediction(s); the blend is non-finite for those rows.",
+                    name, int((~np.isfinite(pred)).sum()),
+                )
             per_component.append(pred)
 
         # Track surviving indices so linear_stack can refit Ridge on exactly the columns

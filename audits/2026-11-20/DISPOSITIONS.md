@@ -848,3 +848,75 @@
 | 31-F7 | FIXED | Discovery captures a guarded module's state without importing it, as its docstring requires; an unloaded module stays unloaded. Test tests/system/test_cluster31_discovery_does_not_import_guarded.py. |
 | 31-F5 | DEFERRED | A fresh cache load after each sweep is needed for correctness: each sweep runs in a child process that writes the cache to disk, and the parent must reload to count the regions. Reusing one object would read stale data. The fix is a reload method on KernelTuningCache, which lives outside this module. |
 | 31-F8 | DEFERRED | The module walk repeats in each sweep child, which is a separate process, so a per-process cache does not help. Passing the discovered module list into the children changes how sweeps launch, so it is deferred. |
+| 28-F20 | FIXED | With balance_proxy the elkan_noto prior is NaN instead of the balanced proxy's mean scaled by c, which is not a prior. Test tests/training/test_cluster28_pu_prior_nan_when_balanced.py. |
+| 28-F22 | FIXED | Lasso and elasticnet classifiers refuse alpha <= 0 with a ValueError naming the unpenalised alternative, instead of silently using C=1.0. Test tests/training/test_cluster28_linear_classifier_alpha_positive.py. |
+| 28-F23 | DEFERRED | Uncalled function: project rule is to wire it in or classify it before deleting. Classification is deferred to the uncalled-functions pass. |
+| 28-F24 | DEFERRED | The TTA duplication needs the fused function kept and the others made thin wrappers, or removed; that touches a public API and the bench that calls it. Deferred. |
+| 28-F47 | DEFERRED | Duplicated GTC cache state in the helpers module: deletion needs a check that nothing imports it. Deferred to the uncalled-functions pass. |
+| 28-F48 | DEFERRED | report_title is built and never emitted: wiring it in changes the train report, so it is an owner decision (emit or delete). |
+| 28-F76 | DEFERRED | Seven public or load-bearing functions have no test reference. Each needs a targeted test; deferred as a batch to its own change. |
+| 32-F10 | FIXED | Integer timestamps go through the same unit detector as object timestamps, so epoch seconds are no longer read as nanoseconds. Test tests/training/test_cluster32_integer_epoch_seconds_unit.py. |
+| 32-F11 | DEFERRED | The combiner is fit on all rows, so the holdout's init_score depends on holdout labels. The fix refits the combiner inside each training fold, a change to the diagnostic's method, deferred. |
+| 32-F12 | DEFERRED | Below 50 rows the metric is in-sample. Returning a skip instead changes _fit_quick_and_score's return contract for its caller, a contract decision, deferred. |
+| 32-F7 | DEFERRED | Building the class universe from train alone changes how unseen validation and test labels are encoded downstream, and that encoding is not yet checked. Deferred until the encoding path is read end to end. |
+| 32-F26 | FIXED | The smoke script exits 1 when the suite raises instead of printing a pass line and returning 0. Verified by reading; the smoke run is a manual end-to-end script, not a unit test. |
+| 33-F3 | FIXED | The conformal rank rule lives in one helper (conformal_rank), used by the split, signed and online calibrations. Two further copies in conformal_classification.py and conformal_glm.py are outside the finding and are not yet changed. Tests: tests/training/composite/test_biz_val_conformal_ood.py (16 pass). |
+| 36-F5 | FIXED | A failed candidate fold logs at WARNING with the exception class, not DEBUG. Verified by reading; no unit test (the optimiser path needs a full composite fit). |
+| 36-F7 | FIXED | Imputed NaN meta-feature rows in the stacker are counted and logged at WARNING. Verified by reading; no unit test. |
+| 36-F6 | FIXED | More CV folds than rows raises ValueError naming both numbers, instead of an empty-fold search returning an arbitrary winner. Test tests/training/composite/test_cluster36_hpo_refuses_more_folds_than_rows.py. |
+| 36-F8 | DEFERRED | Stage-2 is trained on OOF meta-features but predicts from full-refit ones, a train/serve skew in the stacking design. Fixing it changes the stacker's method, an owner decision. |
+| 34-F7 | FIXED | Under 50 valid rows the spec still passes unscored, but now logs a WARNING naming the spec and row count (test_cluster34_discovery_silent_skips_are_logged) |
+| 34-F8 | FIXED | Residual-std probe failure logged at WARNING with base and transform (test_cluster34_discovery_silent_skips_are_logged) |
+| 34-F5 | FIXED | Negative train/val/test positions are wrapped by len(df) and bounds-checked before the overlap test (test_cluster34_negative_indices_are_positions) |
+| 34-F6 | FIXED | Docstring corrected: the holdout X_remaining is not the in-screen dedup/carry-masked set, so the two stamped numbers are not directly comparable. Feature-set alignment not implemented (design change). |
+| 34-F1 | FIXED | Trailing mean skips NaN and divides by the finite count (commit 9c32cf0b1). Test tests/training/test_cluster34_trailing_mean_nan.py. |
+| 34-F2 | FIXED | Hints dropped by the finite filter are removed before slots and before the return (commit 9c32cf0b1). Test test_cluster34_auto_base_mrmr_and_collinear.py. |
+| 34-F3 | FIXED | Demoted candidates ranked after the MRMR pass, outside the relevance scale (commit 9c32cf0b1). Test test_cluster34_auto_base_mrmr_and_collinear.py. |
+| 34-F4 | FIXED | Collinear replay re-checks every column exactly (commit 9c32cf0b1). Test test_cluster34_auto_base_mrmr_and_collinear.py. |
+| 34-F9 | PARTIAL | Per-fold refit failure logged at WARNING with exception class (test_cluster34_fold_refit_failure_is_visible). Not done: marking the spec as leaked-param-scored; unreachable from default discovery since grouped transforms are rejected upstream. |
+| 34-F10 | FIXED | Upgraded multi-base spec scored with the final kept set's forward-stepwise CV RMSE; seed score only when no base accepted (test_cluster34_multibase_upgrade_score) |
+| 34-F11 | FIXED | Auto block search fits folds with sample_weight and pools a weighted fold RMSE; unweighted path unchanged (test_cluster34_direct_multi_horizon_weighted_search) |
+| 34-F12 | FIXED | Column set built once per spec in the rescore; call-count regression test (test_cluster34_incremental_column_set_built_once) |
+| 34-F18 | FIXED | Degenerate fits (disabled, or under 50 rows) publish specs_, report_, val/test idx, elapsed_seconds_ and signature bookkeeping via _fit_publish_empty (test_cluster34_degenerate_fit_publishes_attributes) |
+| 34-F24 | FIXED | domain_check output cast to bool at both unguarded eval sites (test_cluster34_domain_mask_is_boolean) |
+| 34-F22 | FIXED | Duplicate logger and _UNARY_BASE_SENTINEL definitions removed; single-definition test (test_cluster34_fit_steps_single_definitions) |
+| 34-F13 | FIXED | Per-group loops use one stable argsort and contiguous slices; routing extracts each base column once (test_cluster34_route_extracts_base_once) |
+| 34-F31 | FIXED | Cap checked before appending, so a full hint list logs 0 MI candidates (test_cluster34_auto_base_log_and_wording) |
+| 34-F25 | FIXED | Messages now say skipping spec. Wording only; no behaviour change, so no separate test. |
+| 34-F23 | FIXED | Comment corrected: np.argsort places non-finite keys last. Comment only; no behaviour change, so no separate test. |
+| 34-F19 | FIXED | Null permutes the base over the scored rows only (per column), so NaN base entries cannot enter the null (test_cluster34_base_carry_null_rows; the test is behavioural and may not fail on the old code) |
+| 34-F27 | FIXED | Shared-fold cache keys use a blake2b digest of the rows instead of 64-bit hash() (test_cluster34_fold_cache_row_digest; 13 existing shared-fold tests pass) |
+| 34-F29 | FIXED | MatrixKeyedCache implements its own clear(); no borrowed ContentMemo method (test_cluster34_matrix_cache_clear; 4 existing matrix-cache tests pass) |
+| 34-F30 | FIXED | Attached target kept float64 on the val side (keep_float64); engineered bases stay float32 by design (test_cluster34_attach_keeps_target_float64) |
+| 34-F15 | FIXED | Tie ranking vectorised for finite input (NaN keeps the walk); PAVA compiled via njit_or_passthrough (test_cluster34_leakage_rank_and_pava; 62 existing leakage tests pass) |
+| 34-F14 | DEFERRED | Gathering every column once for all rows needs n x F floats (about 6.4 GB at 3.2M x 500 float32), which defeats the block design. A column-chunked Gram would need a redesign of the pairwise pass. Owner decision on the memory budget. |
+| 34-F17 | DEFERRED | Batched null kernel shuffles blocks of binned codes; the carry null shuffles raw base values and bins inside _mi_pair_bin. Switching changes the null distribution, so it needs a benchmark and owner sign-off on numerics. |
+| 34-F20 | DEFERRED | A sampled data signature can miss a changed row and reuse stale specs. Owner decision on the accuracy cost of a cheaper signature. |
+| 34-F21 | PARTIAL | Post-impute finite mask computed once and reused (4 full-matrix passes reduced to 2; the first fraction check stays before the impute). No new test; existing 40 auto-base tests pass. |
+| 34-F26 | FIXED | Helper renamed to _run_folds_serial_early_stop (rename only; no behaviour change, so no separate test) |
+| 34-F28 | FIXED | BoundedMemo builds outside the lock; first stored value wins on a race. Re-entrancy and single-build tests (test_cluster34_bounded_memo_build_outside_lock) |
+| 34-F34 | FIXED | Eviction test added: LRU order kept, evicted key rebuilt (test_cluster34_bounded_memo_eviction) |
+| 34-F35 | FIXED | Bit-identity-to-reference test on float32 strided input (test_cluster34_abs_corr_no_copy_matches_reference) |
+| 34-F32 | FIXED | NEW arm built explicitly as old pool plus widened transforms via _full_new_pool (test_cluster34_bench_new_pool_is_explicit) |
+| 34-F33 | FIXED | Strict-win counts computed per scenario and per side in _strict_win_counts (test_cluster34_bench_strict_wins_per_scenario) |
+| 34-F16 | DEFERRED | calibration_adjusted_score / calibration_penalty / CALIBRATION_GATE_DEFAULT_ENABLED have no caller and their module says the gate is not wired. Wire in or remove the public export: owner decision. |
+| 35-F6 | FIXED | Stacked target float64 at both fit entry points; AST guard test (test_cluster35_stacked_target_float64_guard) |
+| 35-F15 | FIXED | _kwargs bound before the try; non-finite weights refused; both fallbacks logged at WARNING (test_cluster35_sample_weight_fallback; 69 related tests pass) |
+| 35-F16 | FIXED | Group counts from one np.unique pass via _group_counts; equivalence test (test_cluster35_group_counts_one_pass) |
+| 35-F17 | FIXED | predict logs a WARNING naming the component and the count of non-finite rows; blend still NaN on those rows (test_cluster35_predict_nonfinite_component_warns) |
+| 35-F18 | FIXED | GPU probe failures (xgboost, catboost) and the refit-groups fallback now log at WARNING; xgboost probe path tested (test_cluster35_gpu_probe_failure_warns); refit-groups path not separately tested |
+| 35-F19 | DEFERRED | Composite refit is implemented three times with different group handling (kfold, single-split, external OOF). Consolidating changes behaviour; needs an owner decision on the correct group semantics first. |
+| 35-F20 | FIXED | GBM stacker honours group_ids and time_ordered: row-random early stopping is off when either is set; dispatcher forwards both (test_cluster35_gbm_stacker_group_aware, 3 pass) |
+| 35-F21 | FIXED | OOF cache key now includes a full digest of sample_weight and of the component specs (arrays digested in full, nested dicts walked); tests test_cluster35_oof_cache_key_weights_and_specs.py; 48 existing cache-key tests pass |
+| 35-F22 | FIXED | Auto gate measures residual correlation (y - prediction), as its protocol defines; test test_cluster35_auto_gate_measures_residuals.py; 4 existing auto-aware gate tests pass |
+| 35-F23 | FIXED | Requested calibration method stored at construction and restored at the start of each fit; a degenerate fit no longer changes later fits (test_cluster35_calibrator_method_restored_per_fit; 27 existing calibration tests pass) |
+| 35-F24 | FIXED | Failed lag-column extraction logged at WARNING via log_throttle, naming the column and exception (test_cluster35_lag_extraction_failure_warns; 27 existing soft-shrink tests pass) |
+| 35-F25 | FIXED | A base fit range stamped on the spec is kept; capture runs only when the key is absent (test_cluster35_from_fitted_keeps_stamped_range; 48 related tests pass) |
+| 35-F26 | PARTIAL | smeared_prediction now uses residual_quantiles (same subsample, seed and weighting path as fit) and takes an optional sample_weight. Callers in discovery do not pass weights yet. Test test_cluster35_smeared_prediction_matches_fit.py; 40 of 41 existing smearing tests pass (the one failure is the repo-wide uncalled-function gate, which fails on functions this change does not touch). |
+| 35-F27 | FIXED | predict_quantile resolves the causal lag once per batch and passes it to apply_smart_fallback; default path unchanged (test_cluster35_smart_fallback_resolves_lag_once; 22 soft-shrink and parity tests pass) |
+| 35-F28 | DEFERRED | The grid spans 0.05 to 0.95, so sample() flattens tails and crps() omits the 0-0.05 and 0.95-1 mass. Fixing it means adding tail levels (0.001/0.999) or a GPD tail, a modelling choice the owner should make; the truncation is not hidden by a code change here. |
+| 35-F29 | FIXED | Mixture decides sample_weight support from the fit signature; unrelated TypeError propagates; unweighted regressors logged at WARNING (test_cluster35_mixture_sample_weight_support; 44 existing mixture tests pass) |
+| 35-F30 | FIXED | discover_and_wrap coerces a dict config before reading the seed, so the seed and report use the dict's random_state (test_cluster35_highlevel_dict_config_seed; 201 existing highlevel tests pass) |
+| 35-F31 | FIXED | Group broadcast is one vectorised reindex; NaN group ids are counted and logged at WARNING (test_cluster35_group_broadcast_vectorised; 6 existing group-aggregate tests pass) |
+| 35-F32 | FIXED | One numeric column returns that column as one subset instead of raising in linkage (test_cluster35_subset_bagging_single_column; 17 existing bagging tests pass) |
+| 35-F33 | PARTIAL | TailCompositeEstimator.fit logs a WARNING when residual_X is absent (in-sample residuals under-disperse the tail). Default still in-sample: out-of-fold residuals by default would change every caller's fit cost, so it is left as an owner decision (test_cluster35_tail_in_sample_residuals_warn; 15 existing extremes tests pass). |

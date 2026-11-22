@@ -182,9 +182,8 @@ def detect_gpu_in_use(mlframe_models: Sequence[str]) -> list[str]:
                             detected.append("xgboost")
                     except ImportError:
                         detected.append("xgboost")
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
+            except Exception as e:  # nosec B110 - non-fatal, but a failed probe must not read as "no GPU" silently (audit 35-F18)
+                logger.warning("xgboost GPU probe failed (%s); treating the GPU as not detected.", e)
         except ImportError:
             pass
     if any(f in families for f in ("cb", "catboost")):
@@ -193,7 +192,7 @@ def detect_gpu_in_use(mlframe_models: Sequence[str]) -> list[str]:
             if get_gpu_device_count() > 0:
                 detected.append("catboost")
         except Exception as e:  # nosec B110 - optional dependency import guard
-            logger.debug("catboost GPU device count probe failed: %s", e)
+            logger.warning("catboost GPU device count probe failed (%s); treating the GPU as not detected.", e)
     return detected
 
 
@@ -238,6 +237,12 @@ def _is_monotone_nondecreasing(arr: np.ndarray) -> bool:
     return bool(np.all(np.diff(af) >= 0))
 
 
+def _group_counts(group_ids: np.ndarray) -> dict:
+    """Rows per group id in one pass. The per-group comparison loop was O(groups x rows) (audit 35-F16)."""
+    gids, n_rows = np.unique(group_ids, return_counts=True)
+    return {gid: int(c) for gid, c in zip(gids, n_rows)}
+
+
 def _maybe_pass_sample_weight(
     fit_callable, X, y,
     sw: np.ndarray | None,
@@ -251,15 +256,18 @@ def _maybe_pass_sample_weight(
     import inspect as _inspect
     if sw is not None and len(sw) != len(y):
         raise ValueError(f"_maybe_pass_sample_weight: sample_weight length {len(sw)} != y length {len(y)}")
+    if sw is not None and not np.isfinite(np.asarray(sw, dtype=np.float64)).all():
+        raise ValueError("_maybe_pass_sample_weight: sample_weight has non-finite entries")
     if eval_set is None:
         # No eval data (small folds skip the carve): an early-stopping clone would raise, so train the deployed model's
         # round count instead (``fitted_source`` is the fitted model the clone was taken from).
         _disable_early_stopping(fit_callable, fitted_source)
+    # Bound before the try: a signature failure below used to reach the handler with _kwargs unbound (audit 35-F15).
+    _kwargs: dict = {}
     try:
         _sig = _inspect.signature(fit_callable.fit)
         _params = _sig.parameters
         _accepts_var_kw = any(p.kind == _inspect.Parameter.VAR_KEYWORD for p in _params.values())
-        _kwargs: dict = {}
         if sw is not None and ("sample_weight" in _params or _accepts_var_kw):
             _kwargs["sample_weight"] = sw
         if eval_set is not None and ("eval_set" in _params or _accepts_var_kw):
@@ -269,7 +277,7 @@ def _maybe_pass_sample_weight(
         if _kwargs:
             return fit_callable.fit(X, y, **_kwargs)
     except (TypeError, ValueError) as exc:
-        logger.debug(
+        logger.warning(
             "_maybe_pass_sample_weight: combined fit with kwargs %s failed (%s); retrying without them.",
             sorted(_kwargs.keys()), exc,
         )
@@ -278,8 +286,8 @@ def _maybe_pass_sample_weight(
         try:
             return fit_callable.fit(X, y, sample_weight=sw)
         except (TypeError, ValueError) as exc:
-            logger.debug(
-                "_maybe_pass_sample_weight: sample_weight-only fit failed (%s); falling back to unweighted fit.",
+            logger.warning(
+                "_maybe_pass_sample_weight: sample_weight-only fit failed (%s); falling back to an UNWEIGHTED fit.",
                 exc,
             )
     return fit_callable.fit(X, y)
@@ -384,7 +392,7 @@ def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_trai
             groups_train = np.asarray(_extract_groups(raw_rows, group_column))
             groups_train = groups_train if valid is None else groups_train[valid]
         except (KeyError, ValueError, TypeError) as err:  # the frame lacks the column: the envelope falls back to its proxy
-            logger.debug("OOF wrap: no %r groups on the refit rows (%s).", group_column, err)
+            logger.warning("OOF wrap: no %r groups on the refit rows (%s); the T-clip envelope falls back to its proxy.", group_column, err)
     return CompositeTargetEstimator.from_fitted_inner(
         fitted_inner=inner_clone,
         transform_name=spec["transform_name"],
@@ -429,9 +437,39 @@ def _holdout_x_digest(X: Any) -> int:
     return _full_array_digest(rows) ^ _full_array_digest(np.asarray(np.shape(X), dtype=np.int64))
 
 
-def _oof_full_cache_key(cache_key, kfold, random_state, holdout_frac, time_ordering, external_holdout_X, external_holdout_y, group_ids) -> tuple:
+def _feed_digest(h, value) -> None:
+    """Feed ``value`` into the hash ``h``; arrays are digested in full, and dicts, lists and tuples are walked so an array nested
+    inside them is not elided by ``repr`` (audit 35-F21)."""
+    if isinstance(value, np.ndarray):
+        h.update(b"ndarray")
+        h.update(repr(_full_array_digest(value)).encode())
+    elif isinstance(value, dict):
+        h.update(b"dict")
+        for k in sorted(value, key=str):
+            h.update(repr(k).encode())
+            _feed_digest(h, value[k])
+    elif isinstance(value, (list, tuple)):
+        h.update(b"seq")
+        for item in value:
+            _feed_digest(h, item)
+    else:
+        h.update(repr(value).encode())
+
+
+def _specs_digest(component_specs) -> bytes:
+    """Content digest of the component specs."""
+    import hashlib
+
+    h = hashlib.blake2b(digest_size=16)
+    for spec in component_specs or []:
+        _feed_digest(h, spec)
+    return h.digest()
+
+
+def _oof_full_cache_key(cache_key, kfold, random_state, holdout_frac, time_ordering, external_holdout_X, external_holdout_y, group_ids,
+                        sample_weight=None, component_specs=None) -> tuple:
     """The OOF cache key: every argument that changes the returned matrix, so two calls differing only in holdout_frac /
-    time-mode / external-holdout identity / group_ids cannot serve each other a stale entry."""
+    time-mode / external-holdout identity / group_ids / sample weights / component specs cannot serve each other a stale entry."""
     if group_ids is not None:
         g = np.asarray(group_ids)
         group_fp = (g.shape[0], _full_array_digest(g))
@@ -442,6 +480,8 @@ def _oof_full_cache_key(cache_key, kfold, random_state, holdout_frac, time_order
     return (
         cache_key, int(kfold), int(random_state), round(float(holdout_frac), 6), time_fp,
         _holdout_x_digest(external_holdout_X), (_full_array_digest(np.asarray(external_holdout_y)) if external_holdout_y is not None else -1), group_fp,
+        (_full_array_digest(np.asarray(sample_weight)) if sample_weight is not None else -1),
+        _specs_digest(component_specs),
     )
 
 
@@ -542,7 +582,10 @@ def _oof_holdout_predictions_with_rows(
     # When the caller supplies a cache_key we look up the (key, kfold, rs) tuple. A hit is bit-identical with a previous call -- same components, X, y, fold strategy; caller semantics unchanged.
     _full_key = None
     if cache_key is not None:
-        _full_key = _oof_full_cache_key(cache_key, kfold, random_state, holdout_frac, time_ordering, external_holdout_X, external_holdout_y, group_ids)
+        _full_key = _oof_full_cache_key(
+            cache_key, kfold, random_state, holdout_frac, time_ordering, external_holdout_X, external_holdout_y, group_ids,
+            sample_weight=sample_weight, component_specs=component_specs,
+        )
         _hit = _oof_cache_get(_full_key)
         if _hit is not None:
             logger.debug("compute_oof_holdout_predictions: cache HIT for key=%r", _full_key)
@@ -811,7 +854,7 @@ def _oof_holdout_predic_use_time_split(use_time_split, n_train, n_holdout, _time
         uniq, first_idx = np.unique(_group_holdout, return_index=True)
         rng = np.random.default_rng(random_state)
         shuffled_groups = rng.permutation(uniq[np.argsort(first_idx)])
-        counts = {gid: int((_group_holdout == gid).sum()) for gid in uniq}
+        counts = _group_counts(_group_holdout)
         hold_mask = _carve_holdout_groups(_group_holdout, shuffled_groups, counts, n_holdout)
         holdout_idx = np.nonzero(hold_mask)[0]
         train_idx = np.nonzero(~hold_mask)[0]

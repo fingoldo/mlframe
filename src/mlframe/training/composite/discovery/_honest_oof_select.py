@@ -199,7 +199,7 @@ def honest_oof_reconstruction_rmse(
         try:
             transform = get_transform(spec.transform_name)
         except UnknownTransformError as _exc:
-            logger.warning("_score_one fell back to its default after %s", type(_exc).__name__)
+            logger.warning("_score_one skipping spec after %s", type(_exc).__name__)
             return spec.name, None
         params = dict(getattr(spec, "fitted_params", {}) or {})
         base_cols = spec_base_columns(spec)

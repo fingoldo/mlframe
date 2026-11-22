@@ -55,6 +55,9 @@ def correlation_cluster_feature_subsets(
 
     cols = list(X.select_dtypes(include=[np.number]).columns)
     n_features = len(cols)
+    if n_features < 2:
+        # One column has no correlation structure to cluster: linkage on an empty condensed matrix raised ValueError (audit 35-F32).
+        return [list(cols)] if cols else []
     k = min(n_clusters, n_features)
 
     corr = X[cols].corr().to_numpy()

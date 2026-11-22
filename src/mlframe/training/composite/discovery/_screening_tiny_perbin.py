@@ -560,7 +560,7 @@ def _tiny_cv_rmse_y_scale(
             fold_results = []
             _sum_so_far = 0.0
             _n_finite_so_far = 0
-            _tiny_cv_y_sca_fi_tr_va_enumerate(splits, _one_fold, fold_results, _sum_so_far, _n_finite_so_far, early_stop_threshold, cv_folds, cv_selector_mode)
+            _run_folds_serial_early_stop(splits, _one_fold, fold_results, _sum_so_far, _n_finite_so_far, early_stop_threshold, cv_folds, cv_selector_mode)
 
     return _aggregate_yscale_folds(
         fold_results,
@@ -622,7 +622,7 @@ def _aggregate_yscale_folds(
     return mean_rmse, per_bin_mean
 
 
-def _tiny_cv_y_sca_fi_tr_va_enumerate(splits, _one_fold, fold_results, _sum_so_far, _n_finite_so_far, early_stop_threshold, cv_folds, cv_selector_mode):
+def _run_folds_serial_early_stop(splits, _one_fold, fold_results, _sum_so_far, _n_finite_so_far, early_stop_threshold, cv_folds, cv_selector_mode):
     """Block of _tiny_cv_rmse_y_scale starting at ``for _fi, (tr, va) in enumerate(splits):``."""
     for _fi, (tr, va) in enumerate(splits):
         _rmse, _pb = _one_fold(tr, va)

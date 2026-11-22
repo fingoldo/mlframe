@@ -132,6 +132,11 @@ def _linear_frame(n: int = 3000, seed: int = 1):
     return df, [c for c in df.columns if c != "y"]
 
 
+def _full_new_pool() -> list:
+    """The full widened candidate pool: the original transforms plus the four widened ones, in that order."""
+    return list(_OLD_TRANSFORMS) + list(_NEW_EXTRA_TRANSFORMS)
+
+
 def _run_fit(df: pd.DataFrame, feats: list[str], transforms: list[str], base_candidates: list[str], reps: int = 1):
     """Run ``CompositeTargetDiscovery.fit`` once (or ``reps`` times, median wall time) with the given transform list."""
     from mlframe.training.composite import CompositeTargetDiscovery
@@ -188,13 +193,9 @@ def _report_pair(label: str, df: pd.DataFrame, feats: list[str], base_candidates
 
 def main() -> None:
     """Run the positive (lognormal, narrow + full-pool) and negative-control (linear) A/B comparisons."""
-    from mlframe.training.configs import CompositeTargetDiscoveryConfig
-
-    # Read the default transforms list off a plain instance rather than calling the FieldInfo's
-    # ``default_factory`` directly: pydantic types that attribute as a union that also accepts a
-    # validated-data-aware ``Callable[[dict], Any]`` variant, so a zero-arg call is a mypy
-    # "too few arguments" false positive even with a ``not None`` guard.
-    full_new = CompositeTargetDiscoveryConfig().transforms
+    # The NEW pool is the old pool plus the widened transforms, built explicitly. The config default excludes the four widened
+    # transforms (see its comment), so reading it made the "28 transforms" arm test a pool that lacks them (audit 34-F32).
+    full_new = _full_new_pool()
 
     df_ln, feats_ln = _lognormal_frame()
     _report_pair(
