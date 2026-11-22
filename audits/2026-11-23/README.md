@@ -15,6 +15,10 @@ Read-only audit of the MRMR modules by Haiku agents, one file per audit. Code re
 | 09_transform.md | transform and recipe replay | 3 | AUD23-07 to 11 |
 | 10_categorical.md | categorical encoding, target_stat, NaN | 3 | AUD23-07, 08, 44, 45, 46 |
 | 11_significance.md | maxT / FDR gates, nulls, p-values | 3 | AUD23-14 to 17 |
+| 12_greedy_screen_gap.md | greedy screen loop, timeout, prefetch | gap | AUD23-51 to 54 |
+| 13_supervised_binning_gap.md | MDLP binning, target truncation, depth cap | gap | AUD23-60 to 64 |
+| 14_gpu_kernel_bodies_gap.md | kernel bodies: shared memory, reductions, indices | gap | AUD23-65 to 70 |
+| 15_nan_paths_gap.md | all-NaN, inf, missing-column and tiny-row paths | gap | AUD23-55 to 59 |
 
 Coverage gaps the auditors reported: greedy core `_screen_predictors*.py` and `_numba_utils*.py` (wave 1); `supervised_binning.py`, `_mdlp_validated_split.py` (wave 1); GPU-only kernel bodies (wave 2); the all-NaN fit paths of `_missingness_fe` and `_grouped_*` (wave 3). Those are the next places to read.
 
