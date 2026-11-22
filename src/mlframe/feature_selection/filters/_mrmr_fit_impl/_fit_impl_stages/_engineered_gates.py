@@ -111,6 +111,10 @@ def _second_pass_cmi_gate(self, X, _y_np, recipes, verbose):
     return X
 
 
+_BATCH_PROBE_ROWS = 5000
+"""Rows of the accuracy gate's probe draw (the ``max_probe_n`` default of ``keep_engineered_over_source``)."""
+
+
 def _gate_col_arr(X, _name):
     """Fetch column ``_name`` from ``X`` as a 1-D array for the held-out linear-probe accuracy gate (unwraps a duplicate-label DataFrame slice to its first column)."""
     _v = X[_name]
@@ -158,10 +162,26 @@ def _gate_base_columns(X, gate_cols, y, seed):
     if _use_device(len(base_cols)):
         from mlframe.feature_selection.filters._fe_accuracy_gate_batched import batched_uplifts_for_pairs
 
-        _srcs = [_gate_col_arr(X, _src) for _gc, _src in base_cols]
-        _engs = [_gate_col_arr(X, _gc) for _gc, _src in base_cols]
-        _mnar = [float(np.mean(~np.isfinite(_a))) > 0.02 for _a in _srcs]  # the gate's missingness fail-closed rule decides these without a probe
-        _batched = batched_uplifts_for_pairs(_srcs, _engs, [_src for _gc, _src in base_cols], y, seed=seed)
+        # The probe reads one seeded draw of at most ``max_probe_n`` rows (``keep_engineered_over_source``); the draw is made here, once, and each column is cut to it as it is read, so no
+        # full-row copy of the K candidates is held at once (2.9 GB at 1M rows x 715 columns). The missingness rule needs the full column's finite share, taken before the cut.
+        _probe_n = _BATCH_PROBE_ROWS
+        _n_rows = len(X)
+        _draw = np.random.default_rng(seed).choice(_n_rows, _probe_n, replace=False) if _n_rows > _probe_n else None
+        _cut: dict[str, tuple] = {}
+
+        def _cut_column(name: str) -> tuple:
+            """``(rows of the draw, share of non-finite entries over all rows)`` of one column, memoised by name (a source feeds many candidates)."""
+            if name not in _cut:
+                _full = _gate_col_arr(X, name)
+                _cut[name] = (_full if _draw is None else _full[_draw], float(np.mean(~np.isfinite(_full))))
+            return _cut[name]
+
+        _srcs = [_cut_column(_src)[0] for _gc, _src in base_cols]
+        _engs = [_cut_column(_gc)[0] for _gc, _src in base_cols]
+        _mnar = [_cut_column(_src)[1] > 0.02 for _gc, _src in base_cols]  # the gate's missingness fail-closed rule decides these without a probe
+        _batched = batched_uplifts_for_pairs(
+            _srcs, _engs, [_src for _gc, _src in base_cols], y, seed=seed, max_probe_n=_probe_n, cut_rows=_draw if _draw is not None else np.arange(_n_rows)
+        )
 
     def _keep(item: tuple) -> bool:
         """The probe of one candidate; candidates are independent (each fold fit is deterministic and the baseline memo is lock-protected)."""

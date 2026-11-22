@@ -249,12 +249,16 @@ def batched_uplifts_for_pairs(
     seed: int = 0,
     max_probe_n: int = 5000,
     n_splits: int = 10,
+    cut_rows: "Optional[np.ndarray]" = None,
 ) -> "Optional[np.ndarray]":
     """``(n_candidates,)`` uplift of each ``(source, engineered)`` pair, ``nan`` for a pair the batch does not cover, or ``None`` when it does not apply at all.
 
     Covers the pairs the per-candidate probe would decide with the Newton fit on the SHARED rows and folds: a binary classification target, a pair whose values are all finite over the
     subsample (``measure_feature_uplift`` drops non-finite rows per pair, which would give that pair its own rows), and enough rows for the folds. Everything else comes back ``nan`` and the
     caller probes it as before. ``base_keys[i]`` names candidate ``i``'s source so a source shared by several candidates is fitted once.
+
+    ``cut_rows``: the arrays are already cut to these rows of ``y`` (the draw this function would make itself), so the caller holds the probe rows only, not K full columns; ``y`` stays the full target
+    (the classification test and the draw depend on its length).
     """
     from ._fe_accuracy_gate import _newton_probe_enabled, _probe_splits, infer_classification
 
@@ -265,7 +269,9 @@ def batched_uplifts_for_pairs(
     if n_full == 0 or not infer_classification(y_arr):
         return None
     rows = np.arange(n_full)
-    if n_full > int(max_probe_n):
+    if cut_rows is not None:
+        rows = np.asarray(cut_rows)
+    elif n_full > int(max_probe_n):
         rows = np.random.default_rng(int(seed)).choice(
             n_full, int(max_probe_n), replace=False
         )  # the per-candidate probe draws this same subsample from the same seed
@@ -287,8 +293,9 @@ def batched_uplifts_for_pairs(
     out = np.full(len(eng_arrays), np.nan)  # Intentional float64: the uplift is a mean of double AUC differences
     # the per-candidate probe reads its columns at the criterion dtype (``measure_feature_uplift`` casts them), so the batch starts from the same values
     crit = _crit_np_dtype()
-    subs = [np.asarray(a, dtype=crit).ravel()[rows] for a in src_arrays]
-    engs = [np.asarray(a, dtype=crit).ravel()[rows] for a in eng_arrays]
+    take = (lambda a: a) if cut_rows is not None else (lambda a: a[rows])
+    subs = [take(np.asarray(a, dtype=crit).ravel()) for a in src_arrays]
+    engs = [take(np.asarray(a, dtype=crit).ravel()) for a in eng_arrays]
     covered = [i for i in range(len(engs)) if np.isfinite(subs[i]).all() and np.isfinite(engs[i]).all()]
     if not covered:
         return out
