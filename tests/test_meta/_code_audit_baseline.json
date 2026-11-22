@@ -1,1 +1,4 @@
-[]
+[
+  "bare_except::utils/daemon_task.py::7208d8b5decd",
+  "unraised_exception_class::feature_selection/filters/_linear_cv_loss.py::d5bafffc1f35"
+]

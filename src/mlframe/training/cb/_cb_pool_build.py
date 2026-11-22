@@ -188,7 +188,8 @@ def _reuse_cached_train_pool(
             if "empty cached label" in str(_verify_exc):
                 raise
             # get_label() not exposed on this CB build; trust set_label.
-            pass
+            if not isinstance(_verify_exc, AttributeError):
+                logger.warning("[cb-pool-reuse] post-swap label check failed (%s); trusting set_label", _verify_exc)
         logger.info(
             "[cb-pool-reuse] hit key=(id=%s,cat=%d,text=%d,emb=%d) " "swapped weight%s without rebuild",
             key[0],

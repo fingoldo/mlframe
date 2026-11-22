@@ -115,12 +115,7 @@ def _kernel(cp: Any, narrow: bool) -> Any:
         return _KERNELS[narrow]
 
 
-_kernel_factory = code_width_kernel(_kernel)
-
-
-def kernel(cp: Any, real: Any) -> Any:
-    """``synergy_combo`` for byte or 32-bit codes (``real`` is the code dtype); the register-pressure registry compiles it through this ``kernel(cp, real)`` factory."""
-    return _kernel_factory(cp, real)
+kernel = code_width_kernel(_kernel)  # the registry compiles through this kernel(cp, real) factory
 
 
 def combo_mm_mi_gpu(code_cols: Sequence[np.ndarray], combos: Sequence[Sequence[int]], cards: Sequence[int], target: np.ndarray, kt: int) -> np.ndarray:

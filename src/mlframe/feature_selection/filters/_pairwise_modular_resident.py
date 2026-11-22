@@ -116,7 +116,7 @@ def combiner_bases_and_grids_resident(
         if not fe_gpu_device_born_modular_enabled():
             return None
     except Exception as e:
-        logger.debug("fe_gpu_device_born_modular_enabled() check failed, per-combiner scan: %s", e)
+        log_throttle(logger, "modular_resident.enabled_probe_fail", logging.WARNING, "fe_gpu_device_born_modular_enabled() check failed (%s), per-combiner scan", e)
         return None
     mods = [int(k) for k in mods]
     if not combiners or not mods:

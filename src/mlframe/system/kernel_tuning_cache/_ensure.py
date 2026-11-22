@@ -127,7 +127,8 @@ def _lock_token(path: Path) -> str:
     """The start token recorded beside the pid in the lock file, or '' when none was recorded."""
     try:
         text = path.read_text(encoding="utf-8").strip()
-    except OSError:
+    except OSError as exc:
+        logger.warning("kernel_tuning_cache lock %s unreadable (%s); treating it as holding no start token", path, exc)
         return ""
     return text.split(":", 1)[1] if ":" in text else ""
 

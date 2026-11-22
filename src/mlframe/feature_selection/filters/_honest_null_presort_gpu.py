@@ -32,7 +32,7 @@ _BYTES_PER_COLUMN_ROW = 28
 
 def _presort_column_block(cp, n_rows: int) -> int:
     """Columns per launch within ``_BUDGET_FRACTION`` of what the memory pool can still hand out (at least 4)."""
-    return pool_column_block(cp, n_rows, bytes_per_column_row=_BYTES_PER_COLUMN_ROW, budget_fraction=_BUDGET_FRACTION, min_block=4, fallback=8, what="device presort")
+    return _presort_column_block_bytes(cp, n_rows, _BYTES_PER_COLUMN_ROW)
 
 
 def use_device_presort(n_rows: int, n_cols: int) -> bool:
