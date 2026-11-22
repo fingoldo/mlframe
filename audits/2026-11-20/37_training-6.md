@@ -95,3 +95,19 @@ Severity counts: P0 0, P1 8, P2 21, P3 23, total 52.
 - 37-F2: FIXED. A lag supplied as an array with no lag column in the frame is attached as a named column and offered as the causal base (test_cluster37_supplied_lag_is_a_base; 50 existing achievable-ceiling tests pass)
 - 37-F3: FIXED. Calibration on non-finite positive-class scores is refused with ValueError; NaN no longer becomes a grid point. The lookup already maps NaN to NaN (test_cluster37_venn_abers_nan_refused; 152 existing Venn-Abers tests pass)
 - 37-F4: FIXED. Member score uses one source for every member: val score only when all members have it, else OOF for all (test_cluster37_diversity_single_score_scale; existing diversity tests pass)
+- 37-F9: FIXED. Render scope entered inside the try; cleanup guarded when entry raised (_main_train_suite.py)
+- 37-F10: FIXED. Pandas leaderboard copied before inserting target columns (_main_train_suite_phases.py)
+- 37-F11: FIXED. Knob overrides applied via model_copy only; caller config not mutated (test_cluster37_knob_overrides_no_caller_mutation.py)
+- 37-F12: FIXED. Comment corrected: pandas df[list] copies; reorder only when columns are extra or out of order
+- 37-F13: FIXED. Group subsample drops the last-added group when kept groups cover all rows; returns None if one group spans all (test_cluster37_subsample_groups_and_nan_gate.py)
+- 37-F14: FIXED. Non-finite ensemble RMSE counts as a gate failure (test_cluster37_subsample_groups_and_nan_gate.py covers subsample; NaN branch in gate code)
+- 37-F15: FIXED. OOF gate exception logged at WARNING with type and marked UNVALIDATED; metadata stamp not added
+- 37-F16: FIXED. leaky RMSE pre-check failure logged at WARNING per component
+- 37-F17: FIXED. NNLS RuntimeError caught per column; that column alone falls back to equal-mean
+- 37-F18: PARTIAL. Each full-length base column built once per name across specs (cache). Still allocates full n per distinct base; index-subset build needs a benchmark
+- 37-F19: FIXED. Pandas unseen-category drift via _compute_drift_rows_pandas (test_cluster37_pandas_unseen_category_drift.py)
+- 37-F20: FIXED. Ignored plot_format_subfolders / calibration_colormap now logged at WARNING
+- 37-F21: FIXED. Numba prewarm runs when dummy baselines OR feature selection will run
+- 37-F22: FIXED. Label distribution drift wrapped best-effort with WARNING
+- 37-F23: WON'T FIX. MTRPerColumnEqualMeanEnsemble.fit is the public E3 API, exercised by tests/training/test_mtr_nnls_ensemble.py; production path uses compute_mtr_oof_nnls_weights. Premise 'no caller' holds only for production; semantics differ (holdout fit, no exclusion), so routing would change behaviour
+- 37-F24: FIXED. unpack_ctx_configs_to_locals is already classified as intentionally unused in tests/test_meta/test_shared_uncalled_functions.py allowlist with reason

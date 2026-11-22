@@ -145,25 +145,23 @@ def _build_cross_target_inject_lag_predict_dummy(_spec_list, models, _tt_e, _com
 
 def _build_cross_target_per_spec_base_matrix(_spec_list, train_df_pd, val_df_pd, test_df_pd, train_idx, val_idx, test_idx, _oof_y_full, filtered_train_idx, filtered_val_idx, _base_full_per_spec, _base_val_per_spec):
     """Block of _build_cross_target_ensemble_for_target starting at ``for _spec_for_oof in _spec_list:``."""
+    # Many specs share one base column: build each full-length column once per name, not once per spec (audit 37-F18).
+    _full_col_cache: dict = {}
+
+    def _full_col(_name):
+        """Return the full-length column ``_name``, built on first request and cached."""
+        if _name not in _full_col_cache:
+            _full_col_cache[_name] = _build_full_column_from_splits(
+                _name, train_df_pd, val_df_pd, test_df_pd, train_idx, val_idx, test_idx, n_total=len(_oof_y_full),
+            )
+        return _full_col_cache[_name]
+
     for _spec_for_oof in _spec_list:
-        _b_primary = _build_full_column_from_splits(
-            _spec_for_oof["base_column"],
-            train_df_pd, val_df_pd, test_df_pd,
-            train_idx, val_idx, test_idx,
-            n_total=len(_oof_y_full),
-        )
+        _b_primary = _full_col(_spec_for_oof["base_column"])
         _extra_for_oof = tuple(_spec_for_oof.get("extra_base_columns") or ())
         if _extra_for_oof:
             _b_cols = [_b_primary]
-            _b_cols.extend(
-                _build_full_column_from_splits(
-                    _eb_oof,
-                    train_df_pd, val_df_pd, test_df_pd,
-                    train_idx, val_idx, test_idx,
-                    n_total=len(_oof_y_full),
-                )
-                for _eb_oof in _extra_for_oof
-            )
+            _b_cols.extend(_full_col(_eb_oof) for _eb_oof in _extra_for_oof)
             _b_stack_full = np.column_stack(_b_cols)
             _b_filtered = _b_stack_full[filtered_train_idx]
             try:

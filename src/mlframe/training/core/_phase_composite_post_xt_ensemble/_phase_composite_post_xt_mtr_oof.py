@@ -169,7 +169,13 @@ def compute_mtr_oof_nnls_weights(
         oof_surv = oof[surv_idx]  # (n_surv, n, k); all-finite by construction
         for kk in range(k):
             A_k = oof_surv[:, :, kk].T  # (n, n_surv)
-            w_k, _ = nnls(A_k, y_arr[:, kk], maxiter=200)
+            try:
+                w_k, _ = nnls(A_k, y_arr[:, kk], maxiter=200)
+            except RuntimeError as exc:
+                # One hard column must not forfeit the NNLS win for every other column: this column alone falls
+                # back to equal-mean across survivors (audit 37-F17).
+                logger.warning("[MTR CT_ENSEMBLE] NNLS did not converge for column %d (%s); equal-mean weights for that column only.", kk, exc)
+                w_k = np.zeros(len(survivors), dtype=np.float64)
             if float(w_k.sum()) > 0:
                 weights[surv_idx, kk] = w_k
             else:

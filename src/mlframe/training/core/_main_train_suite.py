@@ -194,8 +194,10 @@ def train_mlframe_models_suite(
     # copied out of ctx.artifacts HERE, because a later phase rebuilds that dict from its own local and would
     # otherwise throw the snapshot away -- which is what left the flags flipped even on a clean run.
     _flag_snapshot = capture_process_flag_snapshot(ctx)
-    _render_queue, _queue_scope = _enter_render_scope(ctx, verbose)
+    _render_queue, _queue_scope = None, None
     try:
+        # Entered inside the try so a raising scope entry still runs the cleanup below (audit 37-F9).
+        _render_queue, _queue_scope = _enter_render_scope(ctx, verbose)
         # Shared state of the stage helpers below: the suite-level locals that outlive a single phase.
         st = SimpleNamespace(
             df=df, target_type=target_type, target_name=target_name, model_name=model_name, verbose=verbose,
@@ -214,7 +216,8 @@ def train_mlframe_models_suite(
         _suite_stage_outliers_and_diagnostics(ctx, st)
         return _suite_stage_train_and_finalize(ctx, st)
     finally:
-        _exit_render_scope(_render_queue, _queue_scope, ctx)
+        if _queue_scope is not None:
+            _exit_render_scope(_render_queue, _queue_scope, ctx)
         # ctx.artifacts first (finalize_suite pops from it on the happy path, so this is usually a no-op), then the
         # boundary snapshot, which survives a phase replacing that dict.
         restore_process_flags(getattr(ctx, "artifacts", None))

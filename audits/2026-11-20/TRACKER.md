@@ -138,6 +138,22 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 37-F6 | 37_training-6.md | FIXED | refit_capped_stack ignored sample_weight; now takes it and the call site passes OOF weights. Test test_cluster37_venn_refit.py. |
 | 37-F7 | 37_training-6.md | FIXED | Group subsample recounted group sizes over the full array per group; sizes now come from one np.unique pass (commit 4ef46cf95). |
 | 37-F8 | 37_training-6.md | FIXED | Fingerprint cross-check exception left the precomputed bundle trusted at DEBUG; now distrusted and logged at WARNING. Test test_cluster37_fingerprint_exception_distrusts.py. |
+| 37-F9 | 37_training-6.md | FIXED | Render scope entered inside the try; cleanup guarded. |
+| 37-F10 | 37_training-6.md | FIXED | Pandas leaderboard copied before insert; metadata frame no longer mutated. |
+| 37-F11 | 37_training-6.md | FIXED | Knob overrides use model_copy only; caller config not mutated. Test test_cluster37_knob_overrides_no_caller_mutation.py. |
+| 37-F12 | 37_training-6.md | FIXED | Misleading view-select comment corrected (pandas copies). |
+| 37-F13 | 37_training-6.md | FIXED | Group-aware subsample no longer abandoned when kept groups cover all rows. Test test_cluster37_subsample_groups_and_nan_gate.py. |
+| 37-F14 | 37_training-6.md | FIXED | Non-finite ensemble RMSE is a gate failure, not a pass. |
+| 37-F15 | 37_training-6.md | FIXED | OOF gate skip logged at WARNING and marked UNVALIDATED. |
+| 37-F16 | 37_training-6.md | FIXED | Leaky-RMSE predict failure logged at WARNING per component. |
+| 37-F17 | 37_training-6.md | FIXED | NNLS non-convergence isolated to its column. |
+| 37-F18 | 37_training-6.md | PARTIAL | Base columns built once per name across specs; full-length allocation remains (needs benchmark for index-subset build). |
+| 37-F19 | 37_training-6.md | FIXED | Pandas unseen-category drift check added. Test test_cluster37_pandas_unseen_category_drift.py. |
+| 37-F20 | 37_training-6.md | FIXED | Ignored plot_format_subfolders / calibration_colormap logged at WARNING. |
+| 37-F21 | 37_training-6.md | FIXED | Numba prewarm also runs when feature selection will run. |
+| 37-F22 | 37_training-6.md | FIXED | Label distribution drift is best-effort. |
+| 37-F23 | 37_training-6.md | WON'T FIX | fit is the public E3 API with tests; production uses compute_mtr_oof_nnls_weights; semantics differ. |
+| 37-F24 | 37_training-6.md | FIXED | Already classified as intentionally unused in uncalled-functions allowlist. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |

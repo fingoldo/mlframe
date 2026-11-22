@@ -408,6 +408,8 @@ def _validate_input_columns_against_metadata(
     # silently reorder), and positional consumers (raw boosters, numpy ``.values`` paths) would mis-map a
     # reordered frame. ``df[filter_existing(...)]`` is a name-based view-select on both flavours (no whole-
     # frame copy), so reordering a benignly-permuted serving frame is cheap and prevents an all-models-fail.
+    # Correction (audit 37-F12): on pandas ``df[list]`` DOES copy the frame, so this reorder costs one full copy
+    # per predict call, and only when the columns are extra or out of order (the branch below).
     kept_in_schema_order = filter_existing(df, columns)
     if extra_cols and verbose:
         logger.info("Dropping extra columns: %s", sorted(extra_cols))
