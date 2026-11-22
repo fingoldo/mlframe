@@ -119,6 +119,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F53 | 35_training-4.md | FIXED | getattr(self, 'smearing', True) read an attribute no constructor sets; always True. Gate removed. Test test_cluster35_smearing_always_on.py. |
 | 35-F54 | 35_training-4.md | FIXED | predict before fit raised ValueError. Now sklearn NotFittedError (subclasses ValueError). Test test_cluster35_dual_direction_not_fitted.py. Two unrelated numba failures in metrics noted in disposition. |
 | 35-F55 | 35_training-4.md | PARTIAL | Two copies of _subset_rows with different polars detection. One shared helper in _frame_ops. glm _is_polars_df re-export kept (a test imports it). Test test_cluster35_shared_subset_rows.py. |
+| 35-F56 | 35_training-4.md | WON'T FIX | Docstring cites the defining module (varying_size_top_k_subsets._cluster_anchors), which is correct; the shared import is a re-export. No drift. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |
