@@ -149,12 +149,12 @@ def ksg_mi_continuous_target_columns(X: np.ndarray, y: np.ndarray, *, n_neighbor
     y = np.array(np.asarray(y).ravel(), dtype=np.float64, copy=True)
     n = X.shape[0]
     rng = np.random.RandomState(int(random_state))
-    draw_x = rng.standard_normal(size=n)
-    draw_y = rng.standard_normal(size=n)
+    draw_x = np.asarray(rng.standard_normal(size=n))
+    draw_y = np.asarray(rng.standard_normal(size=n))
     std = X.std(axis=0)
     std[std == 0.0] = 1.0
     X /= std
-    means = np.maximum(1.0, np.mean(np.abs(X), axis=0))
+    means = np.maximum(np.full(X.shape[1], 1.0), np.mean(np.abs(X), axis=0))
     X += (1e-10 * means) * draw_x[:, None]
     ystd = y.std()
     y /= ystd if ystd != 0.0 else 1.0
