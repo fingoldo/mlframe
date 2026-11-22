@@ -78,3 +78,5 @@ None. All 63 manifest files were read in full. Grep was used for callers and def
 - 41-F4: DEFERRED. not changed: the early branches skip the skew check; reordering changes the rationale text, needs a decision on the intended output
 - 41-F5: DEFERRED. not changed: per-group masks are an O(G*n) performance issue; a groupby rewrite needs a benchmark decision
 - 41-F4: FIXED. Skew branch now evaluated before the mild-kurtosis and platykurtic returns, so strong skew is no longer masked (residual_audit _diagnose); tests/training/targets/test_cluster41_skew_not_masked_by_kurtosis_band.py
+- 41-F1: FIXED. Predict maps categorical-dtype NaN to the fit-time sentinel, as fit does (training/ranking/ranking.py predict_ranker_scores); tests/training/ranking/test_cluster41_catboost_predict_nan_categorical.py
+- 41-F5: FIXED. Per-group loops use one stable sort and contiguous slices instead of G full-length masks (_target_distribution_analyzer_modes.py, _target_distribution_analyzer_stats.py); tests/training/targets/test_cluster41_group_stats_match_reference.py
