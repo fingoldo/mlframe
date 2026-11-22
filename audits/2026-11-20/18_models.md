@@ -68,3 +68,4 @@ No P0 found on the default path. Findings below were verified by reading the cit
 - 18-F12: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F13: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F14: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
+- 18-F2: PARTIAL. Multiclass (N,K>2) member probabilities now produce an explicit warning that the NNLS/Caruana weight fit does not support them (score_flavours.py run_stacking_aware_gate), instead of blaming the row count. Per-class weighting is not built; tests/models/test_cluster18_multiclass_gate_skip_is_explicit.py
