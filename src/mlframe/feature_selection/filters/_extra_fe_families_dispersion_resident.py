@@ -180,7 +180,7 @@ extern "C" __global__
 void disp_bin_codes(const {REAL}* __restrict__ xj_all, const {EDGE}* __restrict__ edges, const int* __restrict__ n_interior, const int emax, const long long n, const long long J,
                     long long* __restrict__ out) {
     // The bin codes of every distinct x_j in ONE launch over the (J, n) output (rows fastest): the number of interior edges (edges[1:-1] of the stored quantile edges) that are <= x, i.e.
-    // np.searchsorted(side="right"), clipped to the top bin, with a non-finite x in bin 0 (the host's _digitize_with_edges). The values are compared with the float64 edges the host digitiser uses (x is rounded to the criterion dtype first, as there).
+    // np.searchsorted(side="right"), clipped to the top bin, with a non-finite x in bin 0 (the host's _digitize_with_edges). The values are compared with the double-precision edges the host digitiser uses (x is rounded to the criterion dtype first, as there).
     for (long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x; t < J * n; t += (long long)gridDim.x * blockDim.x) {
         const long long j = t / n;
         const {REAL} x = xj_all[t];
@@ -227,7 +227,7 @@ def _bin_codes_block(cp: Any, xj_list: list, edge_rows: list) -> Any:
     threads = block_size_for(kern, work_items=J * n)
     sms = int(cp.cuda.Device().attributes["MultiProcessorCount"])
     grid = int(max(1, min((J * n + threads - 1) // threads, sms * 32)))
-    kern((grid,), (threads,), (xj_all, cp.asarray(tab, dtype=cp.float64), cp.asarray(np.array([e.shape[0] for e in inner], dtype=np.int32)), np.int32(emax), np.int64(n), np.int64(J), out))
+    kern((grid,), (threads,), (xj_all, cp.asarray(tab, dtype=cp.float64), cp.asarray(np.array([e.shape[0] for e in inner], dtype=np.int32)), np.int32(emax), np.int64(n), np.int64(J), out))  # Intentional float64: the edge table is the host's double-precision edges, so the device compares at double
     return out
 
 
