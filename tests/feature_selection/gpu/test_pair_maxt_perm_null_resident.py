@@ -227,3 +227,31 @@ def test_floor_does_not_depend_on_the_permutation_tile(monkeypatch):
     monkeypatch.setattr(R, "_PERMNULL_PAIR_TILE_CELLS", 40_000)
     tiled = pooled_pair_permutation_null_joint_mi_floor_cupy(**kwargs)
     assert tiled == pytest.approx(whole, rel=1e-9, abs=1e-12)
+
+
+def test_tile_budget_follows_the_free_pool():
+    """With the pool cap nearly used the tile budget shrinks below the fixed 24M cells and never below one cell; with the pool free it is the fixed budget."""
+    from mlframe.feature_selection.filters import _permutation_null_pair_resident as resident
+
+    pool = cp.get_default_memory_pool()
+    old_limit = pool.get_limit()
+    try:
+        pool.set_limit(size=pool.used_bytes() + 64 * 1024 * 1024)
+        tight = resident._tile_cell_budget(cp)
+        assert 1 <= tight < resident._PERMNULL_PAIR_TILE_CELLS
+        pool.set_limit(size=0)
+        assert resident._tile_cell_budget(cp) <= resident._PERMNULL_PAIR_TILE_CELLS
+    finally:
+        pool.set_limit(size=old_limit)
+
+
+def test_floor_does_not_depend_on_the_pair_blocks(monkeypatch):
+    """A tile budget below one permutation's histogram of every pair takes the pairs in blocks and carries the maximum across them: the floor equals the one-block floor."""
+    from mlframe.feature_selection.filters import _permutation_null_pair_resident as R
+
+    fd, nb, pa, pb, y, fy = _make_pool(6000, 10, 8, 4, seed=13)
+    kwargs = dict(factors_data=fd, pair_a=pa, pair_b=pb, nbins=nb, classes_y=y, freqs_y=fy, random_seed=9)
+    whole = pooled_pair_permutation_null_joint_mi_floor_cupy(**kwargs)
+    monkeypatch.setattr(R, "_PERMNULL_PAIR_TILE_CELLS", 2_000)
+    blocked = pooled_pair_permutation_null_joint_mi_floor_cupy(**kwargs)
+    assert blocked == pytest.approx(whole, rel=1e-9, abs=1e-12)
