@@ -74,7 +74,7 @@ def _encode_mdlp_target_uncached(y, max_y_classes, fast_mode, y_pseudo_classes, 
 
             _y_arr, _ = _pd_iter50.factorize(_y_arr, sort=True)
             if (_y_arr < 0).any():
-                _y_arr = np.where(_y_arr < 0, np.nan, _y_arr).astype(np.float64)
+                _y_arr = np.where(_y_arr < 0, np.nan, _y_arr).astype(np.float64)  # Intentional float64: the target carries NaN for masked classes, kept at double like the target path
         except Exception as e:
             logger.warning("pandas factorize failed, falling back to numpy-only label encode: %s", e)
             # Fallback: numpy-only label encode via unique.
@@ -92,7 +92,7 @@ def _encode_mdlp_target_uncached(y, max_y_classes, fast_mode, y_pseudo_classes, 
             _y_nonfinite = ~np.isfinite(_y_arr) if _y_arr.dtype.kind == "f" else None
             _y_arr = np.searchsorted(_y_edges, _y_arr, side="right")
             if _y_nonfinite is not None and _y_nonfinite.any():
-                _y_arr = np.where(_y_nonfinite, np.nan, _y_arr).astype(np.float64)
+                _y_arr = np.where(_y_nonfinite, np.nan, _y_arr).astype(np.float64)  # Intentional float64: the target carries NaN for masked classes, kept at double like the target path
             # This blunt depth cap now applies ONLY when ``fast_mode=True``.
             # The DEFAULT path (``fast_mode=False``) replaces the depth heuristic with a
             # per-split significance gate (``_mdlp_recurse_validated``) that decides, per
