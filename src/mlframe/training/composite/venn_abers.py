@@ -199,7 +199,7 @@ def _binary_pos_scores(self, X) -> np.ndarray:
         pos = proba[:, 1]
     else:
         raise ValueError(
-            "Venn-Abers calibration is binary-only; predict_proba returned " f"{proba.shape[1]} columns. Use a one-vs-rest wrapper for multiclass."
+            "Venn-Abers calibration is binary-only; predict_proba returned " f"{proba.shape[1]} columns. This module supports binary classification only."
         )
     return np.clip(pos, 0.0, 1.0)
 

@@ -154,6 +154,9 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 37-F22 | 37_training-6.md | FIXED | Label distribution drift is best-effort. |
 | 37-F23 | 37_training-6.md | WON'T FIX | fit is the public E3 API with tests; production uses compute_mtr_oof_nnls_weights; semantics differ. |
 | 37-F24 | 37_training-6.md | FIXED | Already classified as intentionally unused in uncalled-functions allowlist. |
+| 37-F50 | 37_training-6.md | FIXED | Redundant tier alias removed. |
+| 37-F51 | 37_training-6.md | PARTIAL | Redundant placeholder removed; helper rename not done. |
+| 37-F52 | 37_training-6.md | FIXED | Binary-only Venn-Abers message tidied. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |

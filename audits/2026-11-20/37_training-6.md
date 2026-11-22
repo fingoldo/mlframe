@@ -111,3 +111,6 @@ Severity counts: P0 0, P1 8, P2 21, P3 23, total 52.
 - 37-F22: FIXED. Label distribution drift wrapped best-effort with WARNING
 - 37-F23: WON'T FIX. MTRPerColumnEqualMeanEnsemble.fit is the public E3 API, exercised by tests/training/test_mtr_nnls_ensemble.py; production path uses compute_mtr_oof_nnls_weights. Premise 'no caller' holds only for production; semantics differ (holdout fit, no exclusion), so routing would change behaviour
 - 37-F24: FIXED. unpack_ctx_configs_to_locals is already classified as intentionally unused in tests/test_meta/test_shared_uncalled_functions.py allowlist with reason
+- 37-F50: FIXED. Redundant tier alias removed; no behaviour change
+- 37-F51: PARTIAL. Redundant placeholder assignment removed; helper not renamed (call still goes through the lazy module proxy)
+- 37-F52: FIXED. Binary-only error message no longer points at out-of-scope one-vs-rest; Venn-Abers tests pass

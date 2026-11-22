@@ -549,7 +549,6 @@ def _build_tier_dfs(
             kind = "pl" if isinstance(v, pl.DataFrame) else "pd"
             break
     tier_key = (strategy.feature_tier(), kind)
-    tier = tier_key
     if tier_key in tier_cache:
         return tier_cache[tier_key]
 
@@ -563,7 +562,7 @@ def _build_tier_dfs(
         tier_dfs = base_dfs
     else:
         if verbose:
-            logger.info("  Tier %s: dropping %d text/embedding columns: %s", tier, len(cols_to_exclude), sorted(cols_to_exclude))
+            logger.info("  Tier %s: dropping %d text/embedding columns: %s", tier_key, len(cols_to_exclude), sorted(cols_to_exclude))
         tier_dfs = {}
         for key in ("train_df", "val_df", "test_df"):
             df_ = base_dfs.get(key)
