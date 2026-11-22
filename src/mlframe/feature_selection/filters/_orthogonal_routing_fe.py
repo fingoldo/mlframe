@@ -670,6 +670,7 @@ def hybrid_orth_mi_conditional_routing_fe_with_recipes(
         try:
             _col_full = np.array(X[_src_name].to_numpy(), dtype=np.float64)  # Intentional float64: fit/replay bit-identity contract (basis axis)
             mean_fill_nonfinite(_col_full)
+            # Intentional float64: the replay axis the pre-transform freezes, kept at double so fit and replay match
             _col_full = np.array(apply_pre_transform(_col_full, _pre_transform), dtype=np.float64)
             mean_fill_nonfinite(_col_full)
             _, _pp = _evaluate_basis_column(_col_full, _basis, _degree, return_params=True)
