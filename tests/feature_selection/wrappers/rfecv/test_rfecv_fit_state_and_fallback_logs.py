@@ -141,7 +141,7 @@ def test_prescreen_fallbacks_are_logged_at_warning_without_verbose(case, caplog,
         monkeypatch.setattr("mlframe.feature_selection.wrappers._univariate_ht.calculate_relevance_table", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     data = X.to_numpy() if case == "univariate_ndarray" else X
     with caplog.at_level(logging.WARNING, logger=_LOGGER):
-        out = _prescreen._apply_prescreen(me, X=data, y=y, candidate_features=feats, verbose=0)
+        out = _prescreen._apply_prescreen(me, X=data, y=y, candidate_features=feats)
     assert out == feats
     assert any(r.levelno == logging.WARNING for r in caplog.records), caplog.records
 

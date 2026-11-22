@@ -25,7 +25,7 @@ def test_injection_failure_warns_even_when_not_verbose(caplog):
     """A survivor whose injection raised must be visible at WARNING with verbose=0."""
     reset_throttle_counts()
     with caplog.at_level(logging.WARNING, logger=ppf.logger.name):
-        ppf._pp_log_injection_failure(0, (1, 2), RuntimeError("boom"))
+        ppf._pp_log_injection_failure((1, 2), RuntimeError("boom"))
     assert any(r.levelno == logging.WARNING and "injection failed" in r.getMessage() for r in caplog.records)
 
 
