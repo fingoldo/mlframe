@@ -238,6 +238,12 @@ def _is_monotone_nondecreasing(arr: np.ndarray) -> bool:
     return bool(np.all(np.diff(af) >= 0))
 
 
+def _group_counts(group_ids: np.ndarray) -> dict:
+    """Rows per group id in one pass. The per-group comparison loop was O(groups x rows) (audit 35-F16)."""
+    gids, n_rows = np.unique(group_ids, return_counts=True)
+    return {gid: int(c) for gid, c in zip(gids, n_rows)}
+
+
 def _maybe_pass_sample_weight(
     fit_callable, X, y,
     sw: np.ndarray | None,
@@ -814,7 +820,7 @@ def _oof_holdout_predic_use_time_split(use_time_split, n_train, n_holdout, _time
         uniq, first_idx = np.unique(_group_holdout, return_index=True)
         rng = np.random.default_rng(random_state)
         shuffled_groups = rng.permutation(uniq[np.argsort(first_idx)])
-        counts = {gid: int((_group_holdout == gid).sum()) for gid in uniq}
+        counts = _group_counts(_group_holdout)
         hold_mask = _carve_holdout_groups(_group_holdout, shuffled_groups, counts, n_holdout)
         holdout_idx = np.nonzero(hold_mask)[0]
         train_idx = np.nonzero(~hold_mask)[0]
