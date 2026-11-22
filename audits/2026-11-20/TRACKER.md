@@ -184,6 +184,26 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 38-F25 | 38_training-7.md | FIXED | Narrowing suffix widened to 8 hex characters. |
 | 38-F26 | 38_training-7.md | FIXED | AssertionError message and warning text corrected. |
 | 38-F27 | 38_training-7.md | FIXED | Filtered-subset threshold skip logged and default stamped. |
+| 39-F1 | 39_training-8.md | FIXED | Object-dtype targets range-checked before int8 cast (earlier commit). |
+| 39-F2 | 39_training-8.md | FIXED | Batch missing a key raises instead of misaligning rows. |
+| 39-F3 | 39_training-8.md | FIXED | Failed concatenate raises with shapes. |
+| 39-F4 | 39_training-8.md | FIXED | Named-target lookup no longer borrows another target's params. |
+| 39-F5 | 39_training-8.md | FIXED | Configured group column missing logs WARNING. |
+| 39-F6 | 39_training-8.md | FIXED | Missing timestamp gets floor weight (d38c3c2f5). |
+| 39-F17 | 39_training-8.md | FIXED | fit_transform applies binary check for woe. |
+| 39-F18 | 39_training-8.md | FIXED | Float NaN text embedded as empty string. |
+| 39-F19 | 39_training-8.md | FIXED | Low-RAM eviction bounded to one entry per check (9f2781207). |
+| 39-F20 | 39_training-8.md | FIXED | Persistence on without DiskKey logs WARNING. Test test_cluster39_disk_tier_key_warning.py. |
+| 39-F32 | 39_training-8.md | FIXED | Only float NaN becomes null sentinel (0697b9a6b). |
+| 39-F33 | 39_training-8.md | FIXED | Null categories grouped with dropna=False. |
+| 39-F34 | 39_training-8.md | FIXED | Zero smoothing falls back to prior. |
+| 39-F35 | 39_training-8.md | FIXED | 'No terms remain' handled like empty vocabulary. |
+| 39-F36 | 39_training-8.md | FIXED | Prewarm pins entry in strong tier while loading. |
+| 39-F37 | 39_training-8.md | FIXED | NaN/inf refused in polynomial fit and transform (04ea4f9c7). |
+| 39-F38 | 39_training-8.md | DEFERRED | hgb_max_features_cap has no caller; wire in or remove is an owner decision. |
+| 39-F53 | 39_training-8.md | FIXED | Multilabel heads use per-label sigmoid. |
+| 39-F54 | 39_training-8.md | FIXED | orthogonal_ and sparse_ fall back on 1-D tensors. |
+| 39-F67 | 39_training-8.md | FIXED | L1 exclusion ids no longer stored or pickled. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |
