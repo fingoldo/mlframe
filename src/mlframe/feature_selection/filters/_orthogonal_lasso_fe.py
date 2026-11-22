@@ -206,7 +206,8 @@ def _fit_lasso_abs_coefs_scaled(
             logger, "orth_lasso_fe_not_converged", logging.WARNING,
             "Lasso did not converge in max_iter=5000 (alpha=%s); |coef| feature scores may be unreliable.", alpha,
         )
-    return np.abs(np.asarray(model.coef_)).ravel()
+    scores: np.ndarray = np.abs(np.asarray(model.coef_)).ravel()
+    return scores
 
 def score_features_by_lasso_coef(
     raw_X: pd.DataFrame,
