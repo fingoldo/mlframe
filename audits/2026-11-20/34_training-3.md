@@ -87,3 +87,5 @@ Scope: the 88 files in `audits/2026-11-20/manifests/34_training-3.txt` under wor
 - 34-F17: DEFERRED. Batched null kernel shuffles blocks of binned codes; the carry null shuffles raw base values and bins inside _mi_pair_bin. Switching changes the null distribution, so it needs a benchmark and owner sign-off on numerics.
 - 34-F20: DEFERRED. A sampled data signature can miss a changed row and reuse stale specs. Owner decision on the accuracy cost of a cheaper signature.
 - 34-F21: PARTIAL. Post-impute finite mask computed once and reused (4 full-matrix passes reduced to 2; the first fraction check stays before the impute). No new test; existing 40 auto-base tests pass.
+- 34-F26: FIXED. Helper renamed to _run_folds_serial_early_stop (rename only; no behaviour change, so no separate test)
+- 34-F28: FIXED. BoundedMemo builds outside the lock; first stored value wins on a race. Re-entrancy and single-build tests (test_cluster34_bounded_memo_build_outside_lock)
