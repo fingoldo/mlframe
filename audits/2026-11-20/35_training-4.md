@@ -127,3 +127,4 @@ Coverage and method:
 - 35-F30: FIXED. discover_and_wrap coerces a dict config before reading the seed, so the seed and report use the dict's random_state (test_cluster35_highlevel_dict_config_seed; 201 existing highlevel tests pass)
 - 35-F31: FIXED. Group broadcast is one vectorised reindex; NaN group ids are counted and logged at WARNING (test_cluster35_group_broadcast_vectorised; 6 existing group-aggregate tests pass)
 - 35-F32: FIXED. One numeric column returns that column as one subset instead of raising in linkage (test_cluster35_subset_bagging_single_column; 17 existing bagging tests pass)
+- 35-F33: PARTIAL. TailCompositeEstimator.fit logs a WARNING when residual_X is absent (in-sample residuals under-disperse the tail). Default still in-sample: out-of-fold residuals by default would change every caller's fit cost, so it is left as an owner decision (test_cluster35_tail_in_sample_residuals_warn; 15 existing extremes tests pass).

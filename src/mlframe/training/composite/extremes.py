@@ -230,7 +230,13 @@ class TailCompositeEstimator(RegressorMixin, BaseEstimator):
         )
         self.body_estimator_.fit(X, y, **fit_params)
 
-        # Residuals on the held-out split when given (honest tail), else in-sample.
+        # Residuals on the held-out split when given (honest tail), else in-sample. In-sample residuals of a boosted body are smaller than
+        # held-out ones, so the threshold comes out low and the tail narrow: say so, rather than fitting the tail silently (audit 35-F33).
+        if residual_X is None:
+            logger.warning(
+                "TailCompositeEstimator.fit: no residual_X given, so the tail threshold and GPD are fitted on IN-SAMPLE residuals; "
+                "the tail quantiles are under-dispersed on held-out data. Pass out-of-fold residual_X/residual_y to avoid this.",
+            )
         r_X = residual_X if residual_X is not None else X
         r_y = residual_y if residual_y is not None else y
         mu = np.asarray(self.body_estimator_.predict(r_X), dtype=np.float64)
