@@ -106,7 +106,7 @@ def _triplet_eng_col_name(
 
 
 def _triplet_leg(leg_cache: dict, X: pd.DataFrame, col: str, basis: str) -> tuple:
-    """``(mean-filled private float64 copy of X[col], its basis)`` for one triplet leg, memoised in ``leg_cache`` for the whole call: a column recurs in many triplets, the copy is never
+    """``(mean-filled private double-precision copy of X[col], its basis)`` for one triplet leg, memoised in ``leg_cache`` for the whole call: a column recurs in many triplets, the copy is never
     written after the fill and the routed basis depends on the column only."""
     hit = leg_cache.get(col)
     if hit is None:

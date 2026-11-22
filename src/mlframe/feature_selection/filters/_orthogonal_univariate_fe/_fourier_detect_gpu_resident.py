@@ -228,7 +228,7 @@ def _vander4_gpu(cp, z):
 
 
 def _resolve_detect_dtype(cp):
-    """Device dtype of the detector operands: the criterion dtype, or float64 when its lookup fails."""
+    """Device dtype of the detector operands: the criterion dtype, or double precision when its lookup fails."""
     try:
         return crit_float_dtype()
     except Exception as e:
