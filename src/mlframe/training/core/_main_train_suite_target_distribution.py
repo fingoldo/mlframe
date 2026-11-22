@@ -683,19 +683,19 @@ def _apply_knob_overrides(_td_report, hyperparams_config, ctx):
         elif hyperparams_config is not None:
             _hp_dict = hyperparams_config.model_dump() if hasattr(hyperparams_config, "model_dump") else dict(hyperparams_config.__dict__)
             _hp_merged = _td_report.merge_into_config(_hp_dict, override_existing=False)
-            # Reapply by updating per-knob slots only -- avoids
-            # accidentally clobbering Pydantic-validated nested fields.
-            for _slot in ("mlp_kwargs", "lgb_kwargs", "xgb_kwargs", "cb_kwargs", "split_config"):
-                if _slot in _td_report.knob_overrides and hasattr(hyperparams_config, _slot):
-                    try:
-                        setattr(hyperparams_config, _slot, _hp_merged.get(_slot))
-                    except Exception:
-                        # Pydantic v2 frozen models reject direct setattr;
-                        # fall back to model_copy(update={...}).
-                        try:
-                            hyperparams_config = hyperparams_config.model_copy(update={_slot: _hp_merged.get(_slot)})
-                        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                            logger.debug("suppressed: %s", e)
+            # Update per-knob slots only -- avoids clobbering Pydantic-validated nested fields. Always
+            # model_copy (never setattr): the caller's config object is shared across suite runs and must not
+            # be mutated, or the next run records these knobs as user-set (audit 37-F11).
+            _slot_updates = {
+                _slot: _hp_merged.get(_slot)
+                for _slot in ("mlp_kwargs", "lgb_kwargs", "xgb_kwargs", "cb_kwargs", "split_config")
+                if _slot in _td_report.knob_overrides and hasattr(hyperparams_config, _slot)
+            }
+            if _slot_updates:
+                try:
+                    hyperparams_config = hyperparams_config.model_copy(update=_slot_updates)
+                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
+                    logger.debug("suppressed: %s", e)
         # Reflect any mutation back onto ctx so downstream phases see
         # the merged config instead of the caller's original.
         ctx.hyperparams_config = hyperparams_config

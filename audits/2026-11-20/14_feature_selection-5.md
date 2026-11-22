@@ -41,3 +41,4 @@ Scope: 63 files from `audits/2026-11-20/manifests/14_feature_selection-5.txt` (s
 - 14-F4: DEFERRED. catboost fast-budget parameter naming needs a behaviour decision (iterations vs n_estimators)
 - 14-F7: DEFERRED. duplicated per-column correlation loops: performance refactor, not a correctness fix
 - 14-F5: FIXED. note: tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_core_refine.py::test_biz_val_auto_matches_core_on_non_saturated_bed fails on the exact pre-change file too (pre-existing, verified)
+- 14-F1: FIXED. su_seeded_snr_z defaults to None (unset); an explicit value always wins, so an explicit 3.0 under proxy_mode=auto is no longer replaced by 4.5 (_shap_proxied_methods.py _su_screen_snr_z); tests/feature_selection/shap_proxied/test_cluster14_explicit_snr_z_pin_wins.py

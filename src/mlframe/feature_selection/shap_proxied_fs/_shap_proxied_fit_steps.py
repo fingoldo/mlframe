@@ -159,7 +159,7 @@ class ShapProxiedFitStepsMixin:
     su_seeded_top_k: int
     su_seeded_n_bins: int
     su_seeded_max_screen_cols: int
-    su_seeded_snr_z: float
+    su_seeded_snr_z: float | None
     su_seeded_snr_null_quantile: float
     su_seeded_snr_abs_floor: float
     su_seeded_n_permutations: int

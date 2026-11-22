@@ -193,6 +193,16 @@ def _train_one_target_step1_progress_long_suites(st, target_type, ctx, cur_targe
         _ensure_feature_side_cache,
     )
 
+    # Once per TARGET, before the pre-pipeline sweep (audit 38-F8): the reset used to run per pre-pipeline.
+    # Neural max_time defaults to P95 of non-neural train times so MLP can't run 2h while boosters take 5min.
+    # CODE-LOW-4: per-target reset is INTENTIONAL -- each target's neural budget is computed only from the
+    # same target's non-neural runs, so an unusually fast/slow earlier target cannot widen or starve the
+    # current target's neural budget. We rebind both the local AND ctx._non_neural_train_times to the
+    # SAME fresh list so the writeback at end-of-function is a no-op (the dict the caller sees is the
+    # one we just mutated) and downstream readers of ctx._non_neural_train_times observe the per-target
+    # contents in-flight, not the previous target's tail.
+    st._non_neural_train_times = []
+    ctx._non_neural_train_times = st._non_neural_train_times
     for pre_pipeline, pre_pipeline_name in tqdmu_lazy_start(zip(st.pre_pipelines, st.pre_pipeline_names), desc="pre_pipeline", total=len(st.pre_pipelines)):
         # CatBoost + RFECV metamodel_func combination breaks sklearn.clone().
         if _should_skip_catboost_metamodel(pre_pipeline_name.strip(), target_type, st.behavior_config):
@@ -269,16 +279,6 @@ def _train_one_target_step1_progress_long_suites(st, target_type, ctx, cur_targe
         # text-features fill_null pass below is also target-independent. Carry cross-target.
         prepared_frames_cache: dict[tuple, dict[str, Any]] = _per_pp_cache.setdefault("prepared_frames", {})
         prev_tier = None
-
-        # Neural max_time defaults to P95 of non-neural train times so MLP can't run 2h while boosters take 5min.
-        # CODE-LOW-4: per-target reset is INTENTIONAL -- each target's neural budget is computed only from the
-        # same target's non-neural runs, so an unusually fast/slow earlier target cannot widen or starve the
-        # current target's neural budget. We rebind both the local AND ctx._non_neural_train_times to the
-        # SAME fresh list so the writeback at end-of-function is a no-op (the dict the caller sees is the
-        # one we just mutated) and downstream readers of ctx._non_neural_train_times observe the per-target
-        # contents in-flight, not the previous target's tail.
-        st._non_neural_train_times = []
-        ctx._non_neural_train_times = st._non_neural_train_times
 
         _total_models_in_run = len(sorted_models)
         _model_idx_in_run = 0

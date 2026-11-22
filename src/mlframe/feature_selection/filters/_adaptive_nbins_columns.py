@@ -335,7 +335,8 @@ def _memoised_fallback(kind: str, col: np.ndarray, n_bins: int, uniq: Optional[n
         hit = _FALLBACK_EDGES.get(key)
         if hit is not None and hit[0] is uniq:
             _FALLBACK_EDGES.move_to_end(key)
-            return hit[1].copy()
+            _memo_edges: np.ndarray = hit[1]
+            return np.array(_memo_edges, copy=True)
     edges = compute()
     with _FALLBACK_EDGES_LOCK:
         _FALLBACK_EDGES[key] = (uniq, edges.copy())

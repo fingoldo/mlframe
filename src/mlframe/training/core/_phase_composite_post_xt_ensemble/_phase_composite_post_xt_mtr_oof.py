@@ -50,6 +50,19 @@ def _slice_rows_by_idx(X: Any, idx: np.ndarray) -> Any:
     return X[idx]
 
 
+def _nnls_one_column(A_k: np.ndarray, b_k: np.ndarray, kk: int, n_surv: int) -> np.ndarray:
+    """NNLS for one target column. A non-convergent column gets zero weights, so only that column falls back (audit 37-F17)."""
+    from scipy.optimize import nnls
+
+    try:
+        w_k, _ = nnls(A_k, b_k, maxiter=200)
+        return np.asarray(w_k, dtype=np.float64)
+    except RuntimeError as exc:
+        # One hard column must not forfeit the NNLS win for every other column.
+        logger.warning("[MTR CT_ENSEMBLE] NNLS did not converge for column %d (%s); equal-mean weights for that column only.", kk, exc)
+        return np.zeros(n_surv, dtype=np.float64)
+
+
 def compute_mtr_oof_nnls_weights(
     components: list[Any],
     X_train: Any,
@@ -98,7 +111,6 @@ def compute_mtr_oof_nnls_weights(
     component). It strictly salvages cases the old code dropped to equal-mean.
     """
     from sklearn.base import clone
-    from scipy.optimize import nnls
 
     from mlframe.training.composite.ensemble.shared import maybe_pass_sample_weight as _maybe_pass_sample_weight
 
@@ -168,8 +180,7 @@ def compute_mtr_oof_nnls_weights(
         surv_idx = np.asarray(survivors, dtype=np.intp)
         oof_surv = oof[surv_idx]  # (n_surv, n, k); all-finite by construction
         for kk in range(k):
-            A_k = oof_surv[:, :, kk].T  # (n, n_surv)
-            w_k, _ = nnls(A_k, y_arr[:, kk], maxiter=200)
+            w_k = _nnls_one_column(oof_surv[:, :, kk].T, y_arr[:, kk], kk, len(survivors))
             if float(w_k.sum()) > 0:
                 weights[surv_idx, kk] = w_k
             else:

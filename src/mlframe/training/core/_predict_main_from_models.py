@@ -583,7 +583,8 @@ def _apply_extensions_pipeline_if_any(extensions_pipeline, verbose, df):
 def _predict_from_model_dim_reducer_truncatedsvd(extensions_pipeline, df, df_pre_pipeline):
     """Block of predict_from_models starting at ``if extensions_pipeline is not None and isinstance(df, pd.DataFrame) an``."""
     if extensions_pipeline is not None and isinstance(df, pd.DataFrame) and isinstance(df_pre_pipeline, pd.DataFrame):
-        _ext_new_cols = [c for c in df.columns if c not in set(df_pre_pipeline.columns)]
+        _pre_cols_set = set(df_pre_pipeline.columns)  # hoisted out of the comprehension (audit 38-F17)
+        _ext_new_cols = [c for c in df.columns if c not in _pre_cols_set]
         if _ext_new_cols:
             _ext_only = df[_ext_new_cols]
             # Align index defensively: extensions pipelines preserve the input index, but a
@@ -609,7 +610,8 @@ def _predict_from_model_dim_reducer_truncatedsvd(extensions_pipeline, df, df_pre
         and isinstance(df, pd.DataFrame)
         and isinstance(df_pre_pipeline, pl.DataFrame)
     ):
-        _ext_new_cols = [c for c in df.columns if c not in set(df_pre_pipeline.columns)]
+        _pre_cols_set = set(df_pre_pipeline.columns)  # hoisted out of the comprehension (audit 38-F17)
+        _ext_new_cols = [c for c in df.columns if c not in _pre_cols_set]
         if _ext_new_cols and df.shape[0] == df_pre_pipeline.shape[0]:
             try:
                 # ``pl.from_pandas(df[cols])`` pays a full pandas block consolidation copy through Arrow on the predict hot path. Building polars columns directly from per-column ``.to_numpy()`` views skips the pandas block manager round-trip; bench (100k x 30 mixed dtypes): 16.0ms -> 1.05ms (15x). ``rechunk=False`` on the from_pandas path showed no measurable gain in the same bench because the underlying copy is the consolidation, not the chunk merge.

@@ -71,8 +71,15 @@ def _oof_subsample_positions(n: int, groups, cap: int, seed: int):
                 if total >= cap:
                     break
             pos = np.nonzero(np.isin(g, keep))[0]
+            if pos.size >= n and len(keep) > 1:
+                # The kept groups cover every row (one group is bigger than the cap): drop the last-added group
+                # whole rather than abandon group-disjointness for a plain random draw (audit 37-F13).
+                keep.pop()
+                pos = np.nonzero(np.isin(g, keep))[0]
             if 0 < pos.size < n:
                 return np.sort(pos)
+            if pos.size >= n:
+                return None  # a single group spans every row: no group-disjoint subsample exists
     return np.sort(rng.choice(n, size=cap, replace=False))
 
 
@@ -536,7 +543,8 @@ def _build_cross_target_e_step2_oof_validation_gate(st, _ce_strategy, composite_
                     )
                     st._ensemble = st._oof_components[_lp_idx]
                     _lag_failsafe_taken = True
-            if not _lag_failsafe_taken and _ens_rmse > _best_single_rmse:
+            # A non-finite ensemble RMSE (NaN OOF on some rows) is a gate failure, not a pass: NaN > x is False (audit 37-F14).
+            if not _lag_failsafe_taken and (not np.isfinite(_ens_rmse) or _ens_rmse > _best_single_rmse):
                 _best_idx = int(np.nanargmin(st._oof_rmses))
                 logger.warning(
                     "[CompositeCrossTargetEnsemble] target='%s' "
@@ -548,9 +556,10 @@ def _build_cross_target_e_step2_oof_validation_gate(st, _ce_strategy, composite_
                 )
                 st._ensemble = st._oof_components[_best_idx]
         except Exception as _gate_err:
-            logger.info(
-                "[CompositeCrossTargetEnsemble] OOF gate check " "skipped (%s); ensemble retained.",
-                _gate_err,
+            # WARNING, not INFO: an unvalidated ensemble ships when this fires, so it must be visible (audit 37-F15).
+            logger.warning(
+                "[CompositeCrossTargetEnsemble] OOF gate check " "skipped (%s: %s); ensemble retained UNVALIDATED.",
+                type(_gate_err).__name__, _gate_err,
             )
     # Opt-in post-hoc output recalibration. Fit a monotone map on the SAME OOF holdout surface
     # the weights were derived from (blend the OOF component matrix with the frozen weights, then

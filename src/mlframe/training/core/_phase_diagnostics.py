@@ -71,14 +71,18 @@ def run_per_target_diagnostics(
     metadata: dict,
 ) -> dict:
     """Run drift report + baseline diagnostics for one target."""
-    _drift_report = compute_label_distribution_drift(
-        train_target=current_train_target,
-        val_target=current_val_target,
-        test_target=current_test_target,
-        target_type=str(target_type),
-    )
-    logger.info(format_drift_report(_drift_report, target_name=cur_target_name))
-    metadata.setdefault("label_distribution_drift", {}).setdefault(str(target_type), {})[cur_target_name] = _drift_report
+    # Best-effort like its neighbouring diagnostics (audit 37-F22): a drift-report failure must not abort training.
+    try:
+        _drift_report = compute_label_distribution_drift(
+            train_target=current_train_target,
+            val_target=current_val_target,
+            test_target=current_test_target,
+            target_type=str(target_type),
+        )
+        logger.info(format_drift_report(_drift_report, target_name=cur_target_name))
+        metadata.setdefault("label_distribution_drift", {}).setdefault(str(target_type), {})[cur_target_name] = _drift_report
+    except Exception as _drift_err:
+        logger.warning("label distribution drift report failed for target '%s' (%s: %s); skipped", cur_target_name, type(_drift_err).__name__, _drift_err)
 
     # BASELINE DIAGNOSTICS FIRST -- its ablation deltas are the feature
     # importance source we feed to the feature-drift sensor below. Per the

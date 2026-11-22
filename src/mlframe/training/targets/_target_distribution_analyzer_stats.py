@@ -135,15 +135,18 @@ def _lag1_autocorr_grouped(y: np.ndarray, group_ids: np.ndarray, min_group_size:
     if y.size != group_ids.size or y.size < min_group_size:
         return float("nan"), 0
     z_values: list[float] = []
-    uniq = np.unique(group_ids)
+    # Stable sort + contiguous slices: the per-group boolean mask was O(G*n) (audit 41-F5). Stable order keeps each
+    # group's rows in their original sequence, which the lag-1 autocorrelation depends on.
+    order = np.argsort(group_ids, kind="stable")
+    y_sorted = np.asarray(y)[order]
+    _, starts, counts = np.unique(np.asarray(group_ids)[order], return_index=True, return_counts=True)
     skipped = 0
-    for g in uniq:
-        mask = group_ids == g
-        n_g = int(mask.sum())
+    for start, n_g in zip(starts, counts):
+        n_g = int(n_g)
         if n_g < min_group_size:
             skipped += 1
             continue
-        yg = y[mask]
+        yg = y_sorted[start : start + n_g]
         ar_g = _lag1_autocorr(yg)
         if not math.isfinite(ar_g):
             continue

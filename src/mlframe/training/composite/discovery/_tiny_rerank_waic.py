@@ -155,8 +155,10 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
         base_screen, x_mat = cached
         try:
             transform = get_transform(spec.transform_name)
-        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
+        except Exception as e:  # nosec B112 - non-fatal; the spec keeps its RMSE position, and the skip is logged (audit 35-F37)
+            log_throttle(logger, "_tiny_rerank_waic.transform_lookup", logging.WARNING,
+                         "WAIC skipped for spec %s: transform lookup failed (%s: %s); it keeps its RMSE position.",
+                         getattr(spec, "name", i), type(e).__name__, e)
             return None
         valid, bb, xv_base = _valid_x(getattr(spec, "base_column", None), base_screen, x_mat)
         if int(valid.sum()) < 2 * n_folds:
@@ -164,8 +166,10 @@ def _apply_waic_tiebreak(self, order, kept_specs, agg_scores, names, *, y_screen
         try:
             target = np.asarray(call_transform(transform, "forward", yb[valid], bb[valid], spec.fitted_params,
                                                groups=None if groups is None else np.asarray(groups)[valid]), dtype=np.float64).ravel()
-        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
+        except Exception as e:  # nosec B112 - non-fatal; the spec keeps its RMSE position, and the skip is logged (audit 35-F37)
+            log_throttle(logger, "_tiny_rerank_waic.forward", logging.WARNING,
+                         "WAIC skipped for spec %s: forward failed (%s: %s); it keeps its RMSE position.",
+                         getattr(spec, "name", i), type(e).__name__, e)
             return None
         fin = np.isfinite(target)
         if int(fin.sum()) < 2 * n_folds or xv_base.shape[0] != target.shape[0]:

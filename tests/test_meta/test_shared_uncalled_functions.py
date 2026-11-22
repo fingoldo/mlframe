@@ -1010,6 +1010,10 @@ _SUPERSEDED = {
     # per-column OLS form of the closed-form 1 - corr^2 the vectorised structural screen uses; equality pinned in
     # tests/training/composite/discovery/test_residual_variance_ratio_closed_form.py
     "_residual_variance_ratio",
+    # full grouping test (integer-valued AND level count); the loop checks integer-valuedness once per matrix and calls the level-count half
+    # (_low_card_levels_ok) per column. Kept as the reference the level-only path is pinned against (audit 35-F44);
+    # tests/training/composite/discovery/test_cluster35_low_card_check_once.py
+    "_is_low_card_integer",
 }
 
 #: Valid code path a library user enables by explicit choice; slower than the default, so it is not called in production.

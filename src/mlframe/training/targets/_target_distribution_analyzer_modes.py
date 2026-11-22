@@ -97,17 +97,19 @@ def _within_between_group_variance_ratio(y: np.ndarray, group_ids: np.ndarray) -
     Ratios near 0 indicate strongly clustered target (group fully determines y).
     Ratios near or above 1 indicate group label adds no information.
     """
-    uniq_groups = np.unique(group_ids)
-    if len(uniq_groups) < 2:
+    # One stable sort, then contiguous slices per group: the old per-group ``group_ids == g`` mask was O(G*n) (audit 41-F5).
+    order = np.argsort(group_ids, kind="stable")
+    y_sorted = np.asarray(y)[order]
+    _, starts, counts = np.unique(np.asarray(group_ids)[order], return_index=True, return_counts=True)
+    if len(starts) < 2:
         return float("nan")
-    group_means = np.zeros(len(uniq_groups), dtype=np.float64)
+    group_means = np.zeros(len(starts), dtype=np.float64)
     within_sq_sum = 0.0
     within_n = 0
-    for k, g in enumerate(uniq_groups):
-        mask = group_ids == g
-        if not np.any(mask):
+    for k, (start, count) in enumerate(zip(starts, counts)):
+        yk = y_sorted[start : start + count]
+        if yk.size == 0:
             continue
-        yk = y[mask]
         group_means[k] = float(np.mean(yk))
         within_sq_sum += float(np.sum((yk - group_means[k]) ** 2))
         within_n += int(yk.size)

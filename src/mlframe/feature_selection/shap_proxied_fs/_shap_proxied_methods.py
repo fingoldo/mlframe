@@ -42,7 +42,7 @@ class ShapProxiedMethodsMixin:
     use_gpu: bool
     proxy_mode: str
     su_seeded_interactions: bool
-    su_seeded_snr_z: float
+    su_seeded_snr_z: float | None
     su_seeded_snr_abs_floor: float
     random_state: int
     revalidation_mmr_jaccard_threshold: Optional[float]
@@ -103,10 +103,14 @@ class ShapProxiedMethodsMixin:
         (gt_01) reuses the SAME tightened threshold for the same reason - measured a spurious gate
         fire (2 noise columns selected) on a wide pure-additive bed at the untightened default.
         """
+        # An explicit pin is any non-None value, including 3.0: the old code compared the value with the default and so
+        # replaced a caller's explicit 3.0 with 4.5 under "auto" (audit 14-F1).
+        if self.su_seeded_snr_z is not None:
+            return float(self.su_seeded_snr_z)
         _tightened_modes = ("auto", "faith_interaction")
-        if not self.su_seeded_interactions and str(self.proxy_mode).lower() in _tightened_modes and float(self.su_seeded_snr_z) == _AUTO_SNR_Z_DEFAULT:
+        if not self.su_seeded_interactions and str(self.proxy_mode).lower() in _tightened_modes:
             return _AUTO_SNR_Z_TIGHTENED
-        return float(self.su_seeded_snr_z)
+        return _AUTO_SNR_Z_DEFAULT
 
     def _resolve_revalidation_ucb_stdev_multiplier(self, n_features: int) -> float:
         """Width-dependent default for the revalidation UCB stdev multiplier.

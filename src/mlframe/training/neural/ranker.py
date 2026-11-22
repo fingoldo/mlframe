@@ -846,6 +846,10 @@ class MLPRanker(RegressorMixin, BaseEstimator):
         # time. Save/restore (not a permanent torch.manual_seed) keeps this from polluting sibling code in
         # the same process, honouring the original "no global RNG mutation" concern while still
         # making THIS estimator's own repeated fit() calls reproducible.
+        # NaN relevance labels: torch comparisons with NaN silently drop those pairs from training. Refuse them here, before the
+        # global RNG is touched (audit 40-F22).
+        if not np.all(np.isfinite(np.asarray(y, dtype=np.float64))):
+            raise ValueError("MLPRanker.fit: relevance labels y contain NaN or inf; drop or impute those rows first.")
         _prior_torch_rng_state = torch.get_rng_state()
         _prior_cuda_rng_state = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
         torch.manual_seed(int(self.random_state))
@@ -923,7 +927,12 @@ class MLPRanker(RegressorMixin, BaseEstimator):
     def predict(self, X) -> np.ndarray:
         """Return per-row scores (1-D, higher=more relevant)."""
         check_is_fitted(self)
-        X_arr = self._apply_scaler(self._apply_imputer(self._x_to_array(X)))
+        X_arr = self._x_to_array(X)
+        # Feature count must match the fitted schema before any transform; a mismatch used to fail deep in the scaler or
+        # score garbage (audit 40-F22). Column names are not checked.
+        if X_arr.shape[1] != self.n_features_in_:
+            raise ValueError(f"MLPRanker.predict: got {X_arr.shape[1]} features, fitted with {self.n_features_in_}.")
+        X_arr = self._apply_scaler(self._apply_imputer(X_arr))
         self.module_.eval()
         device = next(self.module_.parameters()).device
         with torch.no_grad():

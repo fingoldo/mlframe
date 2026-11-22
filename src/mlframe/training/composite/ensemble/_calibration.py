@@ -68,7 +68,6 @@ class OutputCalibrator:
         self._sig_hi: float = 1.0
         self._sig_pmin: float = 0.0
         self._sig_pspan: float = 1.0
-        self._sig_degenerate: bool = False
 
     # ------------------------------------------------------------------
     @staticmethod

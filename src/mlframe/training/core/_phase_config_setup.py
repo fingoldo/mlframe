@@ -398,8 +398,8 @@ def _flip_reporting_overrides(reporting_config: Any, _flag_restores: list) -> di
             priors["_process_flag_prior_format_subfolders"] = _subfolders_prior
             _set_fsf(_subfolders)
             _flag_restores.append(lambda _v=_subfolders_prior: _set_fsf(_v))
-        except (ImportError, AttributeError):
-            pass
+        except (ImportError, AttributeError) as _fsf_err:
+            logger.warning("plot_format_subfolders=%r ignored: renderer setting unavailable (%s)", _subfolders, _fsf_err)  # audit 37-F20
     # Same set-and-restore shape again, for the reliability diagram's colour scale.
     _calib_cmap = getattr(reporting_config, "calibration_colormap", None)
     if _calib_cmap is not None:
@@ -412,8 +412,8 @@ def _flip_reporting_overrides(reporting_config: Any, _flag_restores: list) -> di
             priors["_process_flag_prior_calibration_cmap"] = _calib_cmap_prior
             _set_ccm(_calib_cmap)
             _flag_restores.append(lambda _v=_calib_cmap_prior: _set_ccm(_v))
-        except (ImportError, AttributeError):
-            pass
+        except (ImportError, AttributeError) as _ccm_err:
+            logger.warning("calibration_colormap=%r ignored: colour setting unavailable (%s)", _calib_cmap, _ccm_err)  # audit 37-F20
     # One run's chart-timing table must describe one run's charts, and the registry behind it is process-wide.
     # Reset here rather than at the facade so a caller that builds its own context still gets a clean table.
     try:
@@ -441,7 +441,8 @@ def _prewarm_numba_kernels(
     # importing only when this run will actually reach it. A production fit with mlframe_models=['cb'] spent
     # 382.73s warming a neural stack it never touched. SHAP counts too: the trainer imports it when use_shap.
     _heavy_will_run = _heavy_libs_needed(mlframe_models, recurrent_models, reporting_config)
-    if dummy_baselines_config.enabled:
+    # Feature-selection kernels are warmed whenever feature selection will run, not only with dummy baselines (audit 37-F21).
+    if dummy_baselines_config.enabled or _fs_will_run:
         try:
             from mlframe.training.baselines.shared import warmup_numba_kernels as _warmup_numba_kernels
             _warmup_numba_kernels(include_feature_selection=_fs_will_run, include_heavy_libs=_heavy_will_run)

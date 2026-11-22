@@ -411,7 +411,8 @@ def build_meta_stack_ensemble(
     notes: dict[str, Any] = {
         "meta_stacker": kind,
         "non_negative": bool(non_negative) if kind == "ridge" else None,
-        "n_oof_rows": int(np.isfinite(np.asarray(oof_y, dtype=np.float64).reshape(-1)).sum()),
+        # The rows the fit used: finite in y AND in every OOF column, as _clean_oof_matrix keeps them (audit 35-F51).
+        "n_oof_rows": int(_clean_oof_matrix(oof_matrix, oof_y, n)[2].sum()),
     }
     if kind == "ridge":
         notes["ridge_coef"] = np.asarray(getattr(meta, "coef_", []), dtype=np.float64).tolist()

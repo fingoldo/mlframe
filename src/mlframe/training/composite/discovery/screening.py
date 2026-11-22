@@ -215,7 +215,12 @@ def _residualise(y: np.ndarray, x: np.ndarray) -> np.ndarray:
     """OLS-residualise ``y`` against ``x``. Returns ``y - alpha*x - beta``.
     If x is constant, returns ``y - mean(y)``."""
     finite = np.isfinite(y) & np.isfinite(x)
-    if finite.sum() < 3 or np.std(x[finite]) < 1e-12:
+    # Constant means the spread is negligible RELATIVE to the column's own magnitude: an absolute 1e-12 called a column of tiny values
+    # (spread 1e-13 around 1e-13) constant even though it varies (audit 35-F46).
+    _xf = x[finite]
+    _scale = float(np.max(np.abs(_xf))) if _xf.size else 0.0
+    _tiny = float(np.finfo(np.float64).tiny)
+    if finite.sum() < 3 or np.std(_xf) <= 1e-12 * max(_scale, _tiny):
         out = y.astype(np.float64).copy()
         out -= float(np.mean(out[finite])) if finite.any() else 0.0
         return np.asarray(out)

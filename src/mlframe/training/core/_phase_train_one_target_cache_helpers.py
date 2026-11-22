@@ -107,8 +107,9 @@ def pre_pipeline_params_digest(pre_pipeline: Any) -> str:
             parts.append((str(name), type(est).__name__, sorted(params.items(), key=lambda kv: kv[0])))
         return hashlib.blake2b(repr(parts).encode("utf-8", errors="replace"), digest_size=8).hexdigest()
     except Exception as exc:
-        # A failed introspection must not share one constant slot across every failing pipeline: key on the object itself, so
-        # two different un-introspectable pipelines never reuse each other's cache entry (an object repr carries its identity).
+        # A failed introspection must not share one constant slot across every failing pipeline. Keyed on repr(): an
+        # sklearn repr shows parameters, not identity, so two un-introspectable pipelines with equal reprs can share a
+        # slot on this fallback path (audit 38-F21, documented rather than re-keyed).
         logger.debug("pre_pipeline_params_digest: introspection failed, keying on the object instead: %s", exc)
         return hashlib.blake2b(repr(pre_pipeline).encode("utf-8", errors="replace"), digest_size=8).hexdigest()
 

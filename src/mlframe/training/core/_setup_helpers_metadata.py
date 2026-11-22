@@ -8,6 +8,7 @@ directly (sibling-to-sibling) to avoid a parent re-import cycle.
 from __future__ import annotations
 
 import logging
+import os
 from os.path import join
 from typing import TYPE_CHECKING, Any
 
@@ -235,6 +236,11 @@ def _finalize_and_save_metadata(ctx: "TrainingContext", *, verbose: int | None =
 
         try:
             atomic_write_bytes(metadata_file, _writer)
+            # Remove the other format's file: readers prefer metadata.pkl.zst, so a stale one from an earlier
+            # zstd-enabled run would otherwise shadow this save (audit 38-F11).
+            _other_format = join(metadata_dir, "metadata.pkl" if metadata_file.endswith(".zst") else "metadata.pkl.zst")
+            if os.path.exists(_other_format):
+                os.remove(_other_format)
             from mlframe.utils.safe_pickle import write_sidecar as _write_sidecar
 
             _write_sidecar(metadata_file)

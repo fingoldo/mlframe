@@ -57,9 +57,6 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
 
 
-logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
-
-
 def _clone_base_pipeline_for_strategy(base_pipeline):
     """Fresh un-fitted clone of ``base_pipeline`` for one strategy, with the selector's sticky attrs forwarded.
 

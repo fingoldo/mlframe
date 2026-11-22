@@ -249,9 +249,11 @@ class PySRTransformer:
         import numpy as _np
         if df is None:
             return df
-        for _col, _idx in self.col_to_index.items():
-            if _col in df.columns:
-                continue
+        _missing = [(_col, _idx) for _col, _idx in self.col_to_index.items() if _col not in df.columns]
+        if _missing:
+            # Shallow copy before assigning: the caller's frame must not gain PySR columns (audit 40-F28).
+            df = df.copy(deep=False)
+        for _col, _idx in _missing:
             df[_col] = pysr_predict_column(self.model, df, int(_idx))
         return df
 

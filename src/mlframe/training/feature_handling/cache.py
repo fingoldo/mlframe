@@ -72,6 +72,7 @@ from mlframe.training.feature_handling.fingerprint import (
 from mlframe.training.feature_handling.system import long_path_safe
 from mlframe.training.io import _SafeUnpickler, atomic_write_bytes
 from mlframe.utils.gpu_sync import synchronize_gpu_if_available
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -197,6 +198,9 @@ class FeatureCache:
                 return entry.value
 
         # 2. Disk tier (opt-in)
+        if self._cfg.persistence != "off" and disk_key is None:
+            # Persistence is on but the caller built no DiskKey: nothing is read or written to disk. Say so once, not silently (audit 39-F20).
+            log_throttle(logger, "feature_cache_disk_key_missing", logging.WARNING, "FeatureCache persistence=%r is on but no disk_key was passed; the disk tier is unused for this entry", self._cfg.persistence)
         if self._cfg.persistence != "off" and disk_key is not None:
             disk_value = self._read_from_disk(disk_key)
             if disk_value is not None:

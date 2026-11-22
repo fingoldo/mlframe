@@ -83,6 +83,7 @@ def _record_rerank_sample_time(self, train_idx_screen: np.ndarray) -> None:
     time_all = getattr(self, "_time_ordering_", None)
     self._rerank_sample_time_ = None if time_all is None else np.asarray(time_all)[train_idx_screen]
 
+
 def _resolve_rerank_n_jobs(raw, n_specs: int) -> int:
     """Outer spec-worker count for the rerank: ``0`` auto-picks, ``None`` is the historical 1, anything else is taken as given (floored at 1).
 
@@ -658,8 +659,7 @@ def _tiny_model_rerank(
     # test). ``train_idx`` from the discovery entry point is
     # ``np.arange(N_filtered_train)`` so ``sample_idx == train_idx_screen``.
     _groups_full_for_rerank = getattr(self, "_group_ids_for_rerank", None)
-    _groups_screen = None
-    _groups_screen = _tiny_model_rerank_np_arange_filtered_train(_groups_full_for_rerank, train_idx_screen, _groups_screen)
+    _groups_screen = _tiny_model_rerank_np_arange_filtered_train(_groups_full_for_rerank, train_idx_screen, None)
 
     families = _tiny_model_rerank_self_config_tiny_screening(self)
 

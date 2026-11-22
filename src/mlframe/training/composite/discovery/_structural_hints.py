@@ -93,21 +93,30 @@ def _residual_variance_ratio(y: np.ndarray, x: np.ndarray) -> float:
     return float(np.dot(resid, resid)) / var_y
 
 
-def _is_low_card_integer(col: np.ndarray) -> bool:
-    """True iff ``col`` is integer-valued (within tol) with a small distinct
-    level count that is not one-level-per-row.
+def _low_card_levels_ok(col: np.ndarray) -> bool:
+    """The level-count part of the grouping test: a small distinct count that is not one-level-per-row.
+
+    The caller has already checked that the column is integer-valued (the loop does it once per matrix), so this does not repeat that
+    pass over every column (audit 35-F44).
     """
     n = col.size
     if n < _GROUP_MIN_LEVELS:
-        return False
-    # Integer-valued within a small absolute tolerance (handles float64 ints).
-    if not np.all(np.abs(col - np.rint(col)) < 1e-9):
         return False
     n_levels = int(np.unique(np.rint(col)).size)
     if not (_GROUP_MIN_LEVELS <= n_levels <= _GROUP_MAX_LEVELS):
         return False
     # An id-like column (almost every row its own level) is not a grouping.
     return (n_levels / n) <= _GROUP_MAX_LEVEL_FRACTION
+
+
+def _is_low_card_integer(col: np.ndarray) -> bool:
+    """True iff ``col`` is integer-valued (within tol) with a small distinct
+    level count that is not one-level-per-row.
+    """
+    # Integer-valued within a small absolute tolerance (handles float64 ints).
+    if not np.all(np.abs(col - np.rint(col)) < 1e-9):
+        return False
+    return _low_card_levels_ok(col)
 
 
 def _monotone_fraction(col: np.ndarray) -> float:
@@ -204,7 +213,7 @@ def structural_affinity_scores(
         best_kind = "linear_residual" if best_score > 0.0 else ""
 
         # Low-cardinality integer column -> grouped base.
-        if int_valued[j] and _is_low_card_integer(col):
+        if int_valued[j] and _low_card_levels_ok(col):
             # Fixed mid-strength response: a grouping column's "obviousness"
             # is categorical, not graded, so a flat score keeps it competitive
             # with a moderate affine hit without dominating a strong one.

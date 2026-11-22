@@ -322,6 +322,36 @@ def _ceiling_decision(common: dict, *, raw_rmse: float, lag_rmse: float, best_co
     return _verdict(headroom=headroom, decision="skip", reason=reason, **common)
 
 
+_SUPPLIED_LAG_COLUMN = "__supplied_causal_lag__"
+
+
+def _with_supplied_lag(df: Any, lag_values: Any) -> tuple[Any, str]:
+    """``df`` with the caller's train-aligned lag attached as a named column, and that column's name.
+
+    The base candidates are column names, so a lag supplied as a raw array had to be a column before it could be offered as the causal
+    base. Without this a strong-AR target with no lag column in the frame lost its lag base from the optimistic ceiling (audit 37-F2).
+    The frame is shallow-copied: the caller's frame is not changed.
+    """
+    vals = np.asarray(lag_values, dtype=np.float64).reshape(-1)
+    try:
+        import polars as pl
+
+        if isinstance(df, pl.DataFrame):
+            return df.with_columns(pl.Series(_SUPPLIED_LAG_COLUMN, vals)), _SUPPLIED_LAG_COLUMN
+    except ImportError:
+        pass
+    out = df.copy(deep=False)
+    out[_SUPPLIED_LAG_COLUMN] = vals
+    return out, _SUPPLIED_LAG_COLUMN
+
+
+def _attach_supplied_lag_if_needed(df: Any, lag_col: Any, lag_values: Any, n: int) -> tuple[Any, Any]:
+    """A supplied lag with no detected column is still a causal base: attach it so the candidates can use it (audit 37-F2)."""
+    if lag_col is None and lag_values is not None and np.asarray(lag_values).reshape(-1).shape[0] == n:
+        return _with_supplied_lag(df, lag_values)
+    return df, lag_col
+
+
 def _lag_floor_rmse(df, target_col, lag_values, n, rows_hold, y_hold):
     """AR failsafe (lag_predict) RMSE on the holdout rows, with the detected causal lag column (None when the frame has none)."""
     lag_rmse = float("nan")
@@ -446,6 +476,7 @@ def measure_achievable_ceiling(
 
     # (b) AR failsafe (lag_predict) RMSE on the SAME holdout rows.
     lag_col, lag_rmse = _lag_floor_rmse(df, target_col, lag_values, n, rows_hold, y_hold)
+    df, lag_col = _attach_supplied_lag_if_needed(df, lag_col, lag_values, n)
 
     # (c) OPTIMISTIC achievable-composite ceiling: best (min-RMSE) linear-residual reconstruction over candidate bases.
     base_cands = _pick_base_candidates(df, feature_cols, target_col, lag_col, y_sub, idx_all, max_base_candidates)
