@@ -35,6 +35,7 @@ from pyutilz.pythonlib import store_params_in_object, get_parent_func_args
 # (and that ``tests/test_meta/test_no_import_cycles.py`` flags as a hard fail).
 from mlframe.metrics.classification.shared import fast_calibration_report, ice_kernel_dispatch as _ice_kernel_dispatch, fast_ice_only
 
+from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
@@ -780,7 +781,7 @@ def _install_catboost_sklearn_clone_patch() -> None:
             try:
                 new.set_params(**{name: value})
             except Exception as e:  # not fatal, but a rejected set_params means the clone is not identical: say so (audit 25-F48)
-                logger.warning("CatBoost clone could not re-attach %s=%r via set_params (%s); the clone may not match the original", name, value, e)
+                log_throttle(logger, "ice_metric.clone_set_params", logging.WARNING, "CatBoost clone could not re-attach %s=%r via set_params (%s); the clone may not match the original", name, value, e)
         return new
 
     for cls in (CatBoostClassifier, CatBoostRegressor):

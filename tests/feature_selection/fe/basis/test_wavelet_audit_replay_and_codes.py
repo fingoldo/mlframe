@@ -50,8 +50,7 @@ def test_fused_leg_builder_cuts_cells_on_float64_z(monkeypatch):
     idx = np.arange(z.size)
     va = idx % 3 == 0
     fused = leg_code_matrices(cp, z_g, 1, 1)
-    if fused is None:
-        pytest.skip("fused builder declined (no free VRAM)")
+    assert fused is not None, "the fused builder declined although the VRAM cushion was forced open"
     metas_f, tr_f, va_f = fused
     metas_r, tr_r, va_r = _per_leg_matrices(cp, z_g, 1, ~va, va, 1)
     assert metas_f == metas_r

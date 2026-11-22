@@ -36,6 +36,16 @@ class _TraceState:
         self.sites: "list[tuple[int, str, str]]" = []
         self.oom_events: "list[dict]" = []
 
+    def __getstate__(self) -> dict:
+        """Pickle the counters, not the live lock (a fresh one is made on load)."""
+        state = self.__dict__.copy()
+        state.pop("lock", None)
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        self.lock = threading.Lock()
+
     def record_big(self, size: int, pool_used: int, where: str) -> None:
         """Remember a large allocation: the peak the pool reached with it and, among the largest sites, this one."""
         with self.lock:

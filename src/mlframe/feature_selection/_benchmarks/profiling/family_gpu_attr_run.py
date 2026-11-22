@@ -28,4 +28,4 @@ a = cp.ones(1000, cp.float32); anchor(a, a); cp.cuda.Device().synchronize(); t_a
 t = time.perf_counter(); m = MRMR(verbose=0, random_seed=0, n_jobs=1).fit(*data); w = time.perf_counter() - t
 cp.cuda.Device().synchronize()
 print("WALL", round(w, 1))
-json.dump({"t_anchor": t_anchor, "log": LOG}, open("D:/Temp/fam_gpu_log.json", "w"))
+json.dump({"t_anchor": t_anchor, "log": LOG}, open("D:/Temp/fam_gpu_log.json", "w", encoding="utf-8"))

@@ -16,6 +16,7 @@ from __future__ import annotations
 import ast
 import os
 import shutil
+from functools import cache
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2] / "src" / "mlframe"
@@ -131,8 +132,9 @@ def _collect(node: ast.AST, func: str | None, kind: str, rel: str, constants: di
         _collect(child, name, kind, rel, constants, counters, out)
 
 
-def _sites(kind: str) -> list:
-    """Every ``kind`` (``ElementwiseKernel`` / ``ReductionKernel``) call under ``src/mlframe`` outside the excluded trees."""
+@cache
+def _sites_scan(kind: str) -> tuple:
+    """One parse of every ``kind`` call under ``src/mlframe`` outside the excluded trees; cached because the checks each rescan the tree."""
     out: list = []
     for path in sorted(ROOT.rglob("*.py")):
         if any(part in _EXCLUDED_PARTS for part in path.parts):
@@ -142,7 +144,12 @@ def _sites(kind: str) -> list:
         except (SyntaxError, UnicodeDecodeError):
             continue
         _collect(tree, None, kind, path.relative_to(ROOT).as_posix(), _string_constants(tree), {}, out)
-    return out
+    return tuple(out)
+
+
+def _sites(kind: str) -> list:
+    """Every ``kind`` (``ElementwiseKernel`` / ``ReductionKernel``) call under ``src/mlframe`` outside the excluded trees, as a fresh list."""
+    return list(_sites_scan(kind))
 
 
 def elementwise_sites() -> list:

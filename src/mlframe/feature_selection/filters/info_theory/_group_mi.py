@@ -21,6 +21,7 @@ from typing import Any
 import numpy as np
 
 from mlframe.feature_selection.filters._internals import stable_argsort_codes
+from mlframe.utils.array_shape import length_of
 from numba import njit
 
 
@@ -197,7 +198,7 @@ def group_blocked_mi(
     cy = np.ascontiguousarray(codes_y)
     if int(group_offsets[-1]) != cx.shape[0] or cy.shape[0] != cx.shape[0]:
         return float("nan")
-    if np.asarray(sort_idx).shape[0] != cx.shape[0]:
+    if length_of(sort_idx) != cx.shape[0]:
         return float("nan")
     _check_group_codes(cx, int(n_bins_x), "codes_x")
     _check_group_codes(cy, int(n_bins_y), "codes_y")

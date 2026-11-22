@@ -11,7 +11,7 @@ dur_unit = lines[h + 1].split(",")[1].strip('"'); dmul = {"s": 1.0, "ms": 1e-3, 
 df["t"] = df["Start"].astype(float) * mul; df["d"] = df["Duration"].astype(float) * dmul
 k = df[df["Name"].notna() & df["Grid X"].notna()].copy()   # kernels have grid dims
 anc = k[k["Name"].str.contains("anchor_kernel_zz")]
-d = json.load(open("D:/Temp/fam_gpu_log.json"))
+d = json.load(open("D:/Temp/fam_gpu_log.json", encoding="utf-8"))
 off = anc["t"].iloc[-1] - d["t_anchor"]   # trace time = perf + off (anchor launch precedes t_anchor by tiny)
 ivs = [(a + off, b + off, n) for n, a, b in d["log"]]
 k = k[k["t"] > anc["t"].iloc[-1]]

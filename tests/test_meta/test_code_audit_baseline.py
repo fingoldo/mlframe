@@ -41,6 +41,9 @@ def test_no_new_code_audit_findings(request):
     # Accepted structural matches (no duplicated logic): _pairs_emit.py parent functions call their own extracted parts and
     # score_step4 / _try_gpu_fourier_detect are one-call wrappers around another function, so the scanner matches their
     # delegating call sequences, not copied statements.
+    # Reviewed false positives, accepted in the baseline (the scanner cannot see these raises):
+    #   bare_except utils/daemon_task.py -- ``except BaseException`` forwards the exception to the future and re-raises any non-``Exception``, so nothing is swallowed.
+    #   unraised_exception_class feature_selection/filters/_linear_cv_loss.py -- ``_DeviceFitFallbackError`` is raised as ``raise fallback_error()`` in _usability_greedy_clf_batched.py via the parameter.
     assert_no_new_code_audit_findings(
         root=MLFRAME_DIR,
         baseline_path=_BASELINE_PATH,

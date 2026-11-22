@@ -603,7 +603,7 @@ def _pp_append_prevalence_rejection(rejection_records: list, best_res: Any, raw_
 
 
 def _pp_log_injection_failure(raw_vars_pair: Any, err: Exception) -> None:
-    """Report a survivor whose injection raised as a throttled warning, whatever ``verbose`` is."""
+    """Report a survivor whose injection raised as a throttled warning, regardless of the verbosity setting."""
     log_throttle(
         logger,
         "polynom_pair_fe_injection_failed",

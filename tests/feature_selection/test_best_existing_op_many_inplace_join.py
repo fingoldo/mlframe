@@ -3,12 +3,20 @@ import numpy as np
 import pytest
 
 
+def _cuda_device_count() -> int:
+    """Number of CUDA devices visible to cupy, 0 when the runtime cannot be queried."""
+    import cupy as cp
+
+    try:
+        return int(cp.cuda.runtime.getDeviceCount())
+    except Exception:
+        return 0
+
+
 def test_many_matches_one_by_one_inplace_join():
     """best_existing_op_mi_resident_many gives the same floors as best_existing_op_mi_resident for each operand set."""
-    cp = pytest.importorskip("cupy")
-    try:
-        cp.cuda.runtime.getDeviceCount()
-    except Exception:
+    pytest.importorskip("cupy")
+    if _cuda_device_count() == 0:
         pytest.skip("no CUDA device")
     from mlframe.feature_selection.filters._resident_candidate_mi import best_existing_op_mi_resident, best_existing_op_mi_resident_many
 

@@ -349,7 +349,7 @@ def test_regression_auto_scorer_recipe_freezes_preprocess_params():
 
 
 def test_regression_gradient_seeder_exceptions_logged_unconditionally(monkeypatch, caplog):
-    """Post-fix: both failure paths log at verbose=0 - a non-coercible X at debug, a seeder crash at warning."""
+    """Post-fix: both failure paths log at verbose=0 - a non-coercible X at warning (the proposer then skips), a seeder crash at warning."""
     import logging
     import types
 
@@ -372,7 +372,7 @@ def test_regression_gradient_seeder_exceptions_logged_unconditionally(monkeypatc
     assert out == ({0, 1}, set())
     coercion = [r for r in caplog.records if "not array-coercible" in r.getMessage()]
     assert coercion, "non-coercible X was swallowed without any log at verbose=0"
-    assert coercion[0].levelno == logging.DEBUG
+    assert coercion[0].levelno == logging.WARNING
 
     monkeypatch.setattr(mod, "rank_gradient_interaction_pairs", _boom)
     caplog.clear()

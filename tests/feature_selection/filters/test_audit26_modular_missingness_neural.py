@@ -123,7 +123,7 @@ def test_mist_qr_calibration_is_built_from_the_qr_model(monkeypatch):
     raw_qr, _ = nm._calibrate_mist(device="cpu", N=300, n_calibration_per_rho=1, y_kind="continuous", loss="qr")
     raw_mse, _ = nm._calibrate_mist(device="cpu", N=300, n_calibration_per_rho=1, y_kind="continuous", loss="mse")
     assert asked == ["qr", "mse"]
-    assert raw_qr.max() > 2.0 * raw_mse.max()
+    np.testing.assert_allclose(raw_qr, 5.0 * raw_mse, rtol=1e-12, err_msg="the QR calibration is not the QR model's raw output")
 
 
 def test_mist_mi_passes_its_loss_to_the_calibration(monkeypatch):

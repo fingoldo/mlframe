@@ -54,10 +54,12 @@ def test_the_floor_with_one_product_build_equals_the_per_permutation_loop(monkey
         calls["many"] += int(out is not None)
         return out
 
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import _gpu_resident_cross_basis as cb
+
+    monkeypatch.setattr(cb, "crossbasis_device_chosen", lambda n_rows: True)
     monkeypatch.setattr(Q, "_null_maxima_device", counting)
     fast = Q._quadruplet_null_engineered_mi_floor(raw, eng, y, **kw)
-    if calls["many"] == 0:
-        pytest.skip("the device-born cross-basis path is not taken on this host (kernel-tuning entry says host)")
+    assert calls["many"] > 0, "the device-born path declined although its per-host choice was forced to device"
     monkeypatch.setattr(Q, "_null_maxima_device", lambda *a, **k: None)
     slow = Q._quadruplet_null_engineered_mi_floor(raw, eng, y, **kw)
     assert fast > 0.0

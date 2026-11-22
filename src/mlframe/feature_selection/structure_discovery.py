@@ -39,6 +39,7 @@ from typing import Any, Optional, Sequence
 import numpy as np
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -427,7 +428,7 @@ def discover_structure(
             relations += build()
         except Exception as exc:  # best-effort: a detector failure must not break the EDA call
             failed.append(family)
-            logger.warning("discover_structure: %s detector raised (%s); the other families still run", family, exc)
+            log_throttle(logger, "structure_discovery.detector_raised", logging.WARNING, "discover_structure: %s detector raised (%s); the other families still run", family, exc)
 
     relations.sort(key=lambda r: (r.mi, r.lift if np.isfinite(r.lift) else 1e18), reverse=True)
     return StructureReport(

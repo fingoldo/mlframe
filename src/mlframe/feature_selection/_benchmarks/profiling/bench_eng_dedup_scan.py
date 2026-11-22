@@ -32,4 +32,4 @@ def run():
 run()
 res=[run() for _ in range(3)]
 print("n=%d  scan %.2fs (best of 3)  kept %d dropped %d"%(n,min(r_[0] for r_ in res),len(res[0][1]),len(res[0][2])))
-json.dump({"keep":res[0][1],"drop":sorted(res[0][2])},open(f"dedup_result_{n}_{sys.argv[2]}.json","w"))
+json.dump({"keep":res[0][1],"drop":sorted(res[0][2])},open(f"dedup_result_{n}_{sys.argv[2]}.json","w",encoding="utf-8"))
