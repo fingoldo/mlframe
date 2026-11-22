@@ -30,7 +30,7 @@ def make_case(case: int, n: int = 20_000, seed: int = 0):
         y = a**2 / b + f / 5 + np.log(c) * np.sin(d)
     else:
         y = 0.2 * a**2 / b + f / 5 + np.log(c * 2) * np.sin(d / 3)
-    return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}), pd.Series(y, name="y")
+    return pd.DataFrame({"a": a, "b": b, "c": c, "d": d, "e": e}, copy=False), pd.Series(y, name="y")
 
 
 def main() -> None:

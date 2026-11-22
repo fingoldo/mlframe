@@ -150,3 +150,16 @@ def test_a_regression_or_multiclass_target_is_not_batched():
     srcs = [rng.standard_normal(n) for _ in range(6)]
     assert B.batched_uplifts_for_pairs(srcs, [s**2 for s in srcs], [f"s{i}" for i in range(6)], rng.standard_normal(n)) is None
     assert B.batched_uplifts_for_pairs(srcs, [s**2 for s in srcs], [f"s{i}" for i in range(6)], rng.integers(0, 4, n)) is None
+
+
+@needs_device
+def test_arrays_cut_to_the_probe_draw_give_the_uplifts_of_the_full_arrays():
+    """A caller that cuts each column to the seeded draw as it reads it (``cut_rows``) gets exactly the uplifts of full columns handed over whole."""
+    srcs, engs, y = _frame(n=12000, k=12, seed=3)
+    keys = [f"s{i}" for i in range(len(srcs))]
+    whole = B.batched_uplifts_for_pairs(srcs, engs, keys, y, seed=7)
+    draw = np.random.default_rng(7).choice(len(y), 5000, replace=False)
+    cut = B.batched_uplifts_for_pairs([s[draw] for s in srcs], [e[draw] for e in engs], keys, y, seed=7, cut_rows=draw)
+    assert whole is not None and cut is not None
+    np.testing.assert_array_equal(np.isnan(whole), np.isnan(cut))
+    np.testing.assert_allclose(cut[~np.isnan(cut)], whole[~np.isnan(whole)], rtol=0, atol=0)

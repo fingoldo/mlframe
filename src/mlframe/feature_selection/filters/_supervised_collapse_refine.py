@@ -15,9 +15,17 @@ missing resolution is restored. Columns whose supervised bins are reasonably bal
 """
 from __future__ import annotations
 
+import threading
+from collections import OrderedDict
 from typing import Optional, cast, overload
 
 import numpy as np
+
+# The fallback edges are a function of the column alone; a null that re-bins the same column under many permuted targets collapses it again and again. Keyed by the distinct-values array the caller
+# passes (one object per column content, held by the entry so its id cannot be recycled while cached); bounded.
+_FALLBACK_MEMO: "OrderedDict[tuple, tuple[np.ndarray, np.ndarray]]" = OrderedDict()
+_FALLBACK_MEMO_MAX = 256
+_FALLBACK_MEMO_LOCK = threading.Lock()
 
 
 def _fallback_edges(finite: np.ndarray, base: str, n_bins: int) -> np.ndarray:
@@ -67,7 +75,21 @@ def refine_near_collapsed_supervised_edges(
     if counts.max() <= (1.0 - 1.0 / (2.0 * fallback_nbins)) * finite.size:
         return edges
     # Intentional float64: edge vector at the production binning width
-    extra = _fallback_edges(np.asarray(finite, dtype=np.float64), base, fallback_nbins)
+    memo_key = (id(uniq), str(base), int(fallback_nbins)) if uniq is not None else None
+    extra = None
+    if memo_key is not None:
+        with _FALLBACK_MEMO_LOCK:
+            hit = _FALLBACK_MEMO.get(memo_key)
+            if hit is not None and hit[0] is uniq:
+                _FALLBACK_MEMO.move_to_end(memo_key)
+                extra = hit[1]
+    if extra is None:
+        extra = _fallback_edges(np.asarray(finite, dtype=np.float64), base, fallback_nbins)
+        if memo_key is not None and uniq is not None:
+            with _FALLBACK_MEMO_LOCK:
+                _FALLBACK_MEMO[memo_key] = (uniq, extra)
+                while len(_FALLBACK_MEMO) > _FALLBACK_MEMO_MAX:
+                    _FALLBACK_MEMO.popitem(last=False)  # evict-ok: a miss recomputes the edges
     if extra.size == 0:
         return edges
     return cast(np.ndarray, np.unique(np.concatenate([inner, extra])))

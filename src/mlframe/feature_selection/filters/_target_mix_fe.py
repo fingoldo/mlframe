@@ -18,7 +18,9 @@ A placebo (a permuted base) gives the right null for this construction: it keeps
 from __future__ import annotations
 
 import logging
-from typing import Any, Mapping
+from time import perf_counter
+from collections.abc import Mapping
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -27,6 +29,7 @@ from mlframe.utils.log_throttle import log_throttle
 
 from ._analytic_mi_null import analytic_null_min_n_lowered
 from ._fe_deadline import fe_deadline_passed
+from ._fe_family_timing import record_fe_family_wall
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +101,7 @@ def _child(estimator: Any):
     return child
 
 
-def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design: Mapping[str, np.ndarray], *, max_bases: int, scan_rows: int, min_relative_gain: float) -> "tuple[dict[str, Any], list[dict]]":
+def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design: Mapping[str, np.ndarray], *, max_bases: int, scan_rows: int, min_relative_gain: float, propose: bool = True) -> "tuple[dict[str, Any], list[dict]]":
     """Engineered recipes the second pass found on ``T = y - beta u`` for each base, by name (the first base that finds a name wins), and the provenance of the mix.
 
     The provenance is one entry per base that was used, ``{"base", "beta", "features"}``: the design column ``u`` (by its design name), the OLS slope on the even positions, and the candidate names
@@ -106,7 +109,9 @@ def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design
 
     Fitted on the even positions of ``X`` (at most ``scan_rows`` of them), so the held-out test of the rescue, which fits the design on the same positions, scores the candidates on the odd ones."""
     n = len(y)
+    t_bases = perf_counter()
     bases = choose_bases(design, y, max_bases, min_relative_gain=min_relative_gain)
+    record_fe_family_wall("stage:target_mix_choose_bases", perf_counter() - t_bases)
     if not bases:
         return {}, []
     train = np.arange(0, n, 2)
@@ -127,15 +132,26 @@ def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design
         if float(np.var(mixed)) < float(min_relative_gain) * float(np.var(y[train])):
             logger.debug("target-mix base %r explains all but %.5f of the target variance; second pass skipped", name, float(np.var(mixed)) / max(float(np.var(y[train])), 1e-300))
             continue
-        if not target_has_structure(X_train, mixed, scan_rows=scan_rows):
+        t_gate = perf_counter()
+        has_structure = target_has_structure(X_train, mixed, scan_rows=scan_rows)
+        record_fe_family_wall("stage:target_mix_structure_gate", perf_counter() - t_gate)
+        if not has_structure:
             logger.debug("target-mix base %r leaves no structure in T; second pass skipped", name)
+            continue
+        child_wall = 0.0
+        if not propose:
+            # the bases and their provenance are what the offset target reads; the candidate search (one child fit per base) is not run
+            provenance.append({"base": str(name), "beta": float(beta), "features": [], "child_fit_s": 0.0, "child_rows": 0})
             continue
         try:
             child = _child(estimator)
             # The child only proposes candidates (the parent re-tests every one on held-out rows), and it runs on the scan rows: at 20000 rows the chi-square null is within its validated range, so it
             # scores them as the parent does at its own size instead of running 99 shuffles per candidate.
+            t_child = perf_counter()
             with analytic_null_min_n_lowered(_CHILD_ANALYTIC_NULL_MIN_N):
                 child.fit(X_train, pd.Series(mixed, name="y"))
+            child_wall = perf_counter() - t_child
+            record_fe_family_wall("stage:target_mix_child_fit", child_wall)
         except Exception:
             log_throttle(logger, "target_mix_fe.second_pass_failed", logging.WARNING, "MRMR target-mix second pass on the base %r failed; skipped.", name, exc_info=True)
             continue
@@ -144,5 +160,5 @@ def second_pass_recipes(estimator: Any, X: "pd.DataFrame", y: np.ndarray, design
             if str(feature) not in found:
                 found[str(feature)] = recipe
                 own.append(str(feature))
-        provenance.append({"base": str(name), "beta": float(beta), "features": own})
+        provenance.append({"base": str(name), "beta": float(beta), "features": own, "child_fit_s": float(child_wall), "child_rows": len(X_train)})
     return found, provenance

@@ -15,6 +15,8 @@ a column of exactly tied values the tied group splits differently, which is arbi
 
 from __future__ import annotations
 
+from ._fe_gpu_vram import current_memory_pool
+
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -84,7 +86,7 @@ def _sweep_inputs(dims: dict) -> tuple:
     """A float32 frame of ``_SWEEP_SOURCES`` columns whose pool (3 candidates per period) holds ``dims["n_samples"]`` elements."""
     n = max(64, int(dims["n_samples"]) // (_SWEEP_SOURCES * 3 * len(_SWEEP_PERIODS)))
     rng = np.random.default_rng(0)
-    X = pd.DataFrame({f"c{i}": (rng.random(n) * 1000.0).astype(np.float32) for i in range(_SWEEP_SOURCES)})
+    X = pd.DataFrame({f"c{i}": (rng.random(n) * 1000.0).astype(np.float32) for i in range(_SWEEP_SOURCES)}, copy=False)
     return (X,)
 
 
@@ -177,7 +179,7 @@ def kernel_for_source(cp: Any, real: Any) -> Any:
 def _sources_per_block(cp, n_rows: int, per_source: int, source_bytes: int = _BYTES_PER_SOURCE_ROW) -> int:
     """Source columns per launch (one column block): the double source block and its float32 candidates within ``_BUDGET_FRACTION`` of what the pool can hand out (at least 1)."""
     try:
-        pool = cp.get_default_memory_pool()
+        pool = current_memory_pool(cp)
         free_device = int(cp.cuda.runtime.memGetInfo()[0]) + int(pool.free_bytes())
         limit = int(pool.get_limit())
         room = free_device if limit <= 0 else min(free_device, max(0, limit - int(pool.used_bytes())))

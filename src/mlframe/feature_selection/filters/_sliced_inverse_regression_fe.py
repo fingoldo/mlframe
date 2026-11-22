@@ -46,9 +46,18 @@ __all__ = [
 ]
 
 
+def _dot_columns(Xc: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """``Xc @ v`` for one direction ``v``, summed column by column in a fixed order: a BLAS matrix-vector product blocks its sums by the shape of the call, so the same row came out one ulp apart
+    in a slice and in the whole frame, and the replay of a recipe on part of the rows was not the replay on all of them."""
+    out = Xc[:, 0] * v[0]
+    for j in range(1, Xc.shape[1]):
+        out = out + Xc[:, j] * v[j]
+    return np.asarray(out)
+
+
 def _project(Xc: np.ndarray, v: np.ndarray) -> np.ndarray:
     """``(n, k)`` projections of the centred columns on the columns of ``v``, one matrix-vector product per direction: the single-direction recipe replay is the same product, so fit and replay agree to the bit."""
-    cols = [Xc @ np.ascontiguousarray(v[:, i]) for i in range(v.shape[1])]
+    cols = [_dot_columns(Xc, np.ascontiguousarray(v[:, i])) for i in range(v.shape[1])]
     return np.column_stack(cols) if cols else np.empty((Xc.shape[0], 0), dtype=Xc.dtype)
 
 
@@ -173,7 +182,7 @@ def generate_sir_direction_features(
     k = top_dirs.shape[1]
     Z = _project(X_cols - x_mean, top_dirs)
     names = [engineered_name_sir_direction(cols, i) for i in range(k)]
-    enc = pd.DataFrame(Z, columns=names, index=X.index)
+    enc = pd.DataFrame(Z, columns=names, index=X.index, copy=False)
     payload = {"cols": tuple(cols), "x_mean": x_mean.copy(), "v": top_dirs.copy()}
     return enc, payload
 
@@ -189,7 +198,7 @@ def apply_sir_direction(X_test: "pd.DataFrame", payload: dict) -> "pd.DataFrame"
     Xc = X_cols - payload["x_mean"]
     Z = _project(Xc, payload["v"])
     names = [engineered_name_sir_direction(cols, i) for i in range(Z.shape[1])]
-    return pd.DataFrame(Z, columns=names, index=X_test.index)
+    return pd.DataFrame(Z, columns=names, index=X_test.index, copy=False)
 
 
 def build_sir_direction_recipe(*, name: str, idx: int, cols: Sequence[str], x_mean: np.ndarray, v: np.ndarray) -> "EngineeredRecipe":
@@ -222,7 +231,7 @@ def _apply_sir_direction_recipe(recipe, X) -> np.ndarray:
         except ImportError:
             X_cols = np.column_stack([np.asarray(X[c], dtype=_crit_np_dtype()) for c in cols])
     Xc = X_cols - recipe.extra["x_mean"]
-    return np.asarray(Xc @ recipe.extra["v"])
+    return _dot_columns(Xc, np.asarray(recipe.extra["v"]))
 
 
 def hybrid_sir_direction_fe(

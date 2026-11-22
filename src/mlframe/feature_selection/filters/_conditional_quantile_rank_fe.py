@@ -174,7 +174,7 @@ def generate_conditional_quantile_rank_features(
                     sorted_bins.append(np.sort(bin_vals))
             raw_recipes[name] = {"x_i": x_i, "x_j": x_j, "edges": edges, "sorted_bins": sorted_bins}
 
-    return pd.DataFrame(encoded, index=X.index), raw_recipes
+    return pd.DataFrame(encoded, index=X.index, copy=False), raw_recipes
 
 
 def apply_conditional_quantile_rank(X_test: "pd.DataFrame", recipe: dict) -> np.ndarray:
@@ -245,11 +245,11 @@ def _apply_conditional_quantile_rank_recipe(recipe, X) -> np.ndarray:
             import polars as _pl
 
             if isinstance(X, _pl.DataFrame):
-                X_view = pd.DataFrame({x_i: X[x_i].to_numpy(), x_j: X[x_j].to_numpy()})
+                X_view = pd.DataFrame({x_i: X[x_i].to_numpy(), x_j: X[x_j].to_numpy()}, copy=False)
             else:
-                X_view = pd.DataFrame({x_i: np.asarray(X[x_i]), x_j: np.asarray(X[x_j])})
+                X_view = pd.DataFrame({x_i: np.asarray(X[x_i]), x_j: np.asarray(X[x_j])}, copy=False)
         except ImportError:
-            X_view = pd.DataFrame({x_i: np.asarray(X[x_i]), x_j: np.asarray(X[x_j])})
+            X_view = pd.DataFrame({x_i: np.asarray(X[x_i]), x_j: np.asarray(X[x_j])}, copy=False)
     return apply_conditional_quantile_rank(X_view, recipe.extra)
 
 

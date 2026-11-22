@@ -6,7 +6,7 @@ from typing import Any, Callable, Optional, Sequence
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
-from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
+from mlframe.feature_selection.filters._ksg_dispatch import ksg_mi_columns
 
 from mlframe.feature_selection.filters._hermite_fe_diverse import _select_diverse_topm
 from mlframe.utils.log_throttle import log_throttle
@@ -121,10 +121,7 @@ def _eval_coef_pair_batch_part1(
         else:
             mi_arr = _plugin_mi_regression_batch_njit(np.ascontiguousarray(X_batch.T), y_njit, plugin_n_bins)
     else:  # ksg
-        if discrete_target:
-            mi_arr = mutual_info_classif(X_batch.T, y, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state), discrete_features=False)
-        else:
-            mi_arr = mutual_info_regression(X_batch.T, y, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state), discrete_features=False)
+        mi_arr = ksg_mi_columns(X_batch.T, y, discrete_target=discrete_target, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state))
 
     # Phase 4: per-candidate l2 penalty + best-bf selection
     penalties = np.zeros(P, dtype=_crit_np_dtype())

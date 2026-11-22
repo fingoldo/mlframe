@@ -60,6 +60,7 @@ from itertools import combinations
 from typing import Optional, Sequence
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 
 from mlframe.feature_selection.filters._internals import unique_inverse_dense
 from ._fe_usability_signal import _crit_np_dtype
@@ -214,7 +215,7 @@ def generate_cat_pair_crosses(
             "mapping": mapping,
             "n_cells": len(mapping),
         }
-    enc_df = pd.DataFrame(encoded, index=X.index)
+    enc_df = pd.DataFrame(encoded, index=X.index, copy=False)
     return enc_df, raw_recipes
 
 # ---------------------------------------------------------------------------
@@ -563,7 +564,7 @@ def hybrid_cat_pair_fe(
 
     if not appended:
         return X, [], [], scores
-    new_df = pd.DataFrame(new_cols, index=X.index)
+    new_df = fe_frame_from_columns(new_cols, X.index)
     from mlframe.feature_selection._append_columns import append_columns
 
     X_aug = append_columns(X, new_df)

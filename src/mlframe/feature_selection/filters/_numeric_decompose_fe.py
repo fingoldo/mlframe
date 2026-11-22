@@ -204,7 +204,7 @@ def generate_rounding_features(
     cols = _numeric_cols(X, num_cols)
     dev = _device_columns(X, cols, 0, list(precisions))
     if dev is not None:
-        return pd.DataFrame({engineered_name_rounding(c, p): dev[i, j].astype(_crit_np_dtype()) for i, c in enumerate(cols) for j, p in enumerate(precisions)}, index=X.index)
+        return fe_frame_from_columns({engineered_name_rounding(c, p): dev[i, j].astype(_crit_np_dtype()) for i, c in enumerate(cols) for j, p in enumerate(precisions)}, X.index)
     from ._edge_pool import map_on_edge_pool
 
     def _one_column(c):
@@ -231,7 +231,7 @@ def generate_digit_features(
     cols = _numeric_cols(X, num_cols)
     dev = _device_columns(X, cols, 1, list(digit_positions))
     if dev is not None:
-        return pd.DataFrame({engineered_name_digit(c, k): dev[i, j] for i, c in enumerate(cols) for j, k in enumerate(digit_positions)}, index=X.index)
+        return fe_frame_from_columns({engineered_name_digit(c, k): dev[i, j] for i, c in enumerate(cols) for j, k in enumerate(digit_positions)}, X.index)
     from ._edge_pool import map_on_edge_pool
 
     def _one_column(c):
@@ -437,7 +437,7 @@ def hybrid_numeric_decompose_fe(
     winners = qualified.sort_values("engineered_mi_lcb", ascending=False).head(int(top_k))
     keep = list(winners["engineered_col"])
     if keep and eng_builders is not None:
-        eng = pd.DataFrame({name: eng_builders[name]() for name in keep}, index=X.index)
+        eng = pd.DataFrame({name: eng_builders[name]() for name in keep}, index=X.index, copy=False)
     if not keep or eng is None:
         return X.copy(deep=False), scores
     return pd.concat([X, eng[keep]], axis=1), scores

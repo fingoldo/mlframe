@@ -58,3 +58,30 @@ def test_release_on_exception_and_unlimited_budget():
     free = HostBlockBudget(0)
     with free.reserve(10**12):
         assert free.in_flight() == 0
+
+
+def test_the_decorator_reserves_the_estimated_bytes_for_the_call():
+    """The estimate sees the call's arguments; during the call the bytes are in flight, afterwards they are released; a failing estimate reserves nothing and the call still runs."""
+    from mlframe.utils import host_block_budget as H
+
+    H.reset_host_block_budget()
+    budget = H.host_block_budget()
+    seen = []
+
+    @H.reserves_host_block_budget(lambda n, k=1: n * k)
+    def work(n, k=1):
+        """Records what is in flight while it runs."""
+        seen.append(budget.in_flight())
+        return n
+
+    assert work(100, k=3) == 100
+    assert seen == [300] and budget.in_flight() == 0
+
+    @H.reserves_host_block_budget(lambda n: 1 / 0)
+    def broken(n):
+        """Estimate raises."""
+        seen.append(budget.in_flight())
+        return n + 1
+
+    assert broken(1) == 2 and seen[-1] == 0
+    H.reset_host_block_budget()

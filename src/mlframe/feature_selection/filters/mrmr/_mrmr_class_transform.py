@@ -206,7 +206,7 @@ class _MRMRTransformMixin:
             arr = np.asarray(base_out)
             # get_feature_names_out already includes the union names; the base ndarray is narrower
             # (pure-MI only), so name only its own width here and let the concat below add the rest.
-            base_out = pd.DataFrame(arr, columns=cols[: arr.shape[1]], index=getattr(X, "index", None))
+            base_out = pd.DataFrame(arr, columns=cols[: arr.shape[1]], index=getattr(X, "index", None), copy=False)
 
         nonlinear_names = list(base_out.columns)
         groups = {

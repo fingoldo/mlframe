@@ -224,7 +224,7 @@ def generate_lof_features(X: "pd.DataFrame", cols: Sequence[str], *, k: int = 20
     lof_all = _lof_transform(X_cols, X_ref, lrd_ref, k_distance_ref, k_eff)
 
     name = engineered_name_lof(cols)
-    enc = pd.DataFrame({name: lof_all}, index=X.index)
+    enc = pd.DataFrame({name: lof_all}, index=X.index, copy=False)
     payload = {"cols": tuple(cols), "X_ref": X_ref.copy(), "lrd_ref": lrd_ref.copy(), "k_distance_ref": k_distance_ref.copy(), "k_eff": int(k_eff)}
     return enc, payload
 
@@ -239,7 +239,7 @@ def apply_lof_block(X_test: "pd.DataFrame", payload: dict) -> "pd.DataFrame":
     X_cols = X_test[cols].to_numpy(dtype=_crit_np_dtype())
     lof_new = _lof_transform(X_cols, payload["X_ref"], payload["lrd_ref"], payload["k_distance_ref"], payload["k_eff"])
     name = engineered_name_lof(cols)
-    return pd.DataFrame({name: lof_new}, index=X_test.index)
+    return pd.DataFrame({name: lof_new}, index=X_test.index, copy=False)
 
 
 def build_lof_recipe(*, name: str, cols: Sequence[str], X_ref: np.ndarray, lrd_ref: np.ndarray, k_distance_ref: np.ndarray, k_eff: int) -> "EngineeredRecipe":

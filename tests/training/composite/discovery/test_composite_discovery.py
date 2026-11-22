@@ -38,9 +38,8 @@ import pytest
 pytestmark = pytest.mark.sklearn_matrix
 
 
-# sklearn is a hard dep of mlframe; LightGBM only needed for downstream
-# integration tests, not for discovery itself. Discovery uses only
-# sklearn.feature_selection.mutual_info_regression.
+# LightGBM is only needed for downstream integration tests, not for discovery itself. Discovery's kNN
+# mutual information is the repository's own Kraskov estimator (``ksg_mi_columns``).
 
 from mlframe.training.composite import (
     CompositeTargetDiscovery,

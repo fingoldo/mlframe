@@ -1,7 +1,6 @@
 """dCor/HSIC/KSG/Lasso/ElasticNet score large-offset columns in double; HSIC zeroes non-finite scores loudly; Lasso surfaces non-convergence."""
 
 import logging
-import warnings
 
 import numpy as np
 
@@ -64,18 +63,11 @@ def test_hsic_batch_zeroes_nonfinite_column_scores_and_warns(caplog):
 
 
 def test_lasso_nonconvergence_logs_warning(monkeypatch, caplog):
-    """A ConvergenceWarning from the solver must reach the log instead of being silenced."""
-    from sklearn.exceptions import ConvergenceWarning
-    from sklearn.linear_model import Lasso
+    """A coordinate descent that runs out of sweeps must reach the log instead of being silenced."""
+    from mlframe.feature_selection.filters import _elastic_net_cd as cd
 
-    real_fit = Lasso.fit
-
-    def noisy_fit(self, X, y, *a, **k):
-        """Fit, then emit the solver's ConvergenceWarning."""
-        warnings.warn("no converge", ConvergenceWarning, stacklevel=2)
-        return real_fit(self, X, y, *a, **k)
-
-    monkeypatch.setattr(Lasso, "fit", noisy_fit)
+    real = cd.elastic_net_coef
+    monkeypatch.setattr(cd, "elastic_net_coef", lambda *a, **k: (real(*a, **k)[0], False))
     X, y = _offset_problem()
     with caplog.at_level(logging.WARNING, logger=lasso.logger.name):
         lasso._fit_lasso_abs_coefs(X, y, alpha=0.01, standardize=True)

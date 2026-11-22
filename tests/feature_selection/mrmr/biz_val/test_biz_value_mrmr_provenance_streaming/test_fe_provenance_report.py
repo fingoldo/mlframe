@@ -325,19 +325,21 @@ class TestLayer54_C3_OriginLabels:
         assert (prov_raw_rows["origin"] == "raw").all(), f"Raw input columns must carry origin=='raw'; got origins={list(prov_raw_rows['origin'])!r}"
 
     def test_hybrid_orth_origin_for_orth_engineered(self):
-        """orth_*/hermite_pair recipes carry origin=='hybrid_orth'."""
+        """orth_*/hermite_pair recipes carry origin=='hybrid_orth'.
+
+        The recipes read are the ones the FE stages produced for the screen (``_produced_recipes_``) as well as the selected ones: on this fixture the hinge and ordinal-pattern
+        families now carry the signal of ``z**2`` into the support, so no orth column is selected any more, while the produced orth column still has its provenance row, which is what this
+        test is about (the origin label of an orth recipe)."""
         X, y = _hybrid_orth_frame()
         m = _hybrid_mrmr().fit(X, y)
-        assert m._engineered_recipes_ or [], "Hybrid orth fixture must produce at least one recipe; strengthen the fixture rather than skipping the test."
-        # Each replayable orth recipe must end up labelled hybrid_orth.
-        # _RECIPE_KIND_TO_ORIGIN maps orth_univariate / orth_pair_cross /
-        # orth_spline / orth_fourier / hermite_pair into the hybrid_orth
-        # bucket. The fixture's degree-2 Hermite settles on
-        # ``orth_univariate``.
-        eng_names = [r.name for r in m._engineered_recipes_ if str(getattr(r, "kind", "")).startswith("orth_") or str(getattr(r, "kind", "")) == "hermite_pair"]
-        assert eng_names, f"No orth-kind / hermite_pair recipes selected on this fixture; kinds={[r.kind for r in m._engineered_recipes_]!r}"
+        recipes = list(m._produced_recipes_ or []) + list(m._engineered_recipes_ or [])
+        assert recipes, "Hybrid orth fixture must produce at least one recipe; strengthen the fixture rather than skipping the test."
+        # _RECIPE_KIND_TO_ORIGIN maps orth_univariate / orth_pair_cross / orth_spline / orth_fourier / hermite_pair into the hybrid_orth bucket.
+        eng_names = sorted({r.name for r in recipes if str(getattr(r, "kind", "")).startswith("orth_") or str(getattr(r, "kind", "")) == "hermite_pair"})
+        assert eng_names, f"No orth-kind / hermite_pair recipes produced on this fixture; kinds={[r.kind for r in recipes]!r}"
         prov_eng = m.fe_provenance_[m.fe_provenance_["feature_name"].isin(eng_names)]
-        assert (prov_eng["origin"] == "hybrid_orth").all(), f"orth_* recipes must produce origin=='hybrid_orth'; got=\n{prov_eng!r}"
+        assert len(prov_eng) == len(eng_names), f"every produced orth recipe needs a provenance row; recipes={eng_names!r}, rows={prov_eng!r}"
+        assert (prov_eng["origin"] == "hybrid_orth").all(), f"orth_* recipes must produce origin=='hybrid_orth'; got={prov_eng!r}"
 
     def test_known_origin_set(self):
         """Sanity check: every origin label in fe_provenance_ is drawn

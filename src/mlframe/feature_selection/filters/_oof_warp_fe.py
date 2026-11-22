@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 import pandas as pd
 
 from ._fe_gain_stats import held_out_codes, paired_gain_se, plugin_mi_of_codes
@@ -139,6 +140,10 @@ def warp_candidates(
     out = [cand for found in per_column for cand in found]
     return out
 
+#: Bytes of host columns stacked for one device pass of the warp scan (one chunk of the scanned columns at a time).
+_STACK_CHUNK_BYTES = 256 << 20
+
+
 def _device_candidates(X: "pd.DataFrame", cols: Sequence[str], rows: np.ndarray, targets: list, codes: np.ndarray, ky: int, seed: int, device: Optional[bool]) -> "Optional[list[dict]]":
     """The candidates of :func:`warp_candidates` scored by the device scan, in the host's order; ``None`` when the host pool should scan (not chosen, no usable block, a device fault)."""
     from ._oof_warp_gpu import use_device, warp_scores_device
@@ -148,14 +153,28 @@ def _device_candidates(X: "pd.DataFrame", cols: Sequence[str], rows: np.ndarray,
         return None
     from ._fe_frame_ops import fe_column_values, fe_stack_rows
 
-    columns = list(fe_stack_rows([fe_column_values(X, c) for c in cols], _crit_np_dtype()))  # contiguous rows: the form the operand cache hashes
-    got = warp_scores_device(
-        columns, list(cols), None if len(rows) == len(X) else rows, [t for _cls, t in targets], codes, ky, _fold_ids(len(rows), N_FOLDS, int(seed)),
-        n_folds=N_FOLDS, n_bins=N_BINS, shrink=SHRINK, mi_bins=N_MI_BINS, min_rows=_MIN_ROWS, few_cap=FEW_CLASSES_MAX, bulk_trim=BULK_TRIM,
-    )  # fmt: skip
-    if got is None:
-        return None
-    usable, stats = got
+    # The scan takes full-length host columns (the device operand cache is keyed by column, shared with the other families) and picks its rows on the device, so the host never needs more
+    # than the columns of one device pass at a time: stacking all of them at once was k x n (4 GB at 1000000 x 1000). The columns go in chunks of at most ``_STACK_CHUNK_BYTES``; every
+    # column is scored on its own, so the chunks give the numbers of one call over all columns.
+    dtype = _crit_np_dtype()
+    n_total = len(X)
+    chunk = max(1, min(len(cols), _STACK_CHUNK_BYTES // max(1, n_total * int(np.dtype(dtype).itemsize))))
+    fold = _fold_ids(len(rows), N_FOLDS, int(seed))
+    target_arrays = [t for _cls, t in targets]
+    usable_parts, stats_parts = [], []
+    for start in range(0, len(cols), chunk):
+        names = list(cols[start : start + chunk])
+        columns = list(fe_stack_rows([fe_column_values(X, c) for c in names], dtype))  # contiguous rows: the form the operand cache hashes
+        got = warp_scores_device(
+            columns, names, None if len(rows) == n_total else rows, target_arrays, codes, ky, fold,
+            n_folds=N_FOLDS, n_bins=N_BINS, shrink=SHRINK, mi_bins=N_MI_BINS, min_rows=_MIN_ROWS, few_cap=FEW_CLASSES_MAX, bulk_trim=BULK_TRIM,
+        )  # fmt: skip
+        if got is None:
+            return None
+        usable_parts.append(got[0])
+        stats_parts.append(got[1])
+    usable = np.concatenate(usable_parts)
+    stats = np.concatenate(stats_parts, axis=1)
     out: list = []
     for j, c in enumerate(cols):
         if not usable[j]:
@@ -164,25 +183,35 @@ def _device_candidates(X: "pd.DataFrame", cols: Sequence[str], rows: np.ndarray,
             mi_r, mi_w, se, bulk_gain, bulk_se = (float(v) for v in stats[t, j])
             out.append(
                 {
-                    "col": c, "cls": cls, "x": columns[j], "fit": None, "rows": rows, "mi_raw": mi_r, "mi_warp": mi_w, "gain": mi_w - mi_r, "se": se,
+                    "col": c, "cls": cls, "x": None, "X": X, "fit": None, "rows": rows, "mi_raw": mi_r, "mi_warp": mi_w, "gain": mi_w - mi_r, "se": se,
                     "bulk_gain": bulk_gain, "bulk_se": bulk_se, "target": target, "seed": seed, "scored_on": "device",
                 }
             )
     return out
 
 
+def _candidate_x(cand: dict) -> np.ndarray:
+    """The full column of a candidate: held by the host scan's candidates, read from the frame on demand for the device scan's (they would otherwise keep every scanned column alive)."""
+    x = cand.get("x")
+    if x is None:
+        from ._fe_frame_ops import fe_column_values
+
+        x = fe_column_values(cand["X"], cand["col"])
+    return x
+
+
 def candidate_fit(cand: dict) -> dict:
     """The warp fit of a candidate (``oof``, ``cx``, ``cy``, ``fill``): the one the host scan made, or the host service's fit made now for a candidate the device scored."""
     fit = cand.get("fit")
     if fit is None:
-        fit = cand["fit"] = fit_oof_warp1d(cand["x"][cand["rows"]], cand["target"], seed=cand["seed"])
+        fit = cand["fit"] = fit_oof_warp1d(_candidate_x(cand)[cand["rows"]], cand["target"], seed=cand["seed"])
     return dict(fit)
 
 
 def training_column(cand: dict) -> np.ndarray:
     """The warp column over every row: the cross-fitted value on the fitting rows, the full table on the others."""
     fit = candidate_fit(cand)
-    col = apply_warp1d(cand["x"], fit["cx"], fit["cy"], fit["fill"])
+    col = apply_warp1d(_candidate_x(cand), fit["cx"], fit["cy"], fit["fill"])
     col[cand["rows"]] = fit["oof"]
     return col
 
@@ -231,5 +260,5 @@ def hybrid_oof_warp_fe(
         recipes.append(build_oof_warp1d_recipe(name=name, src=cand["col"], cx=fit["cx"], cy=fit["cy"], fill=fit["fill"], lo=float(col.min()), hi=float(col.max())))
     if not new_cols:
         return empty
-    enc_df = pd.DataFrame(new_cols, index=X.index)
+    enc_df = fe_frame_from_columns(new_cols, X.index)
     return pd.concat([X, enc_df], axis=1), list(new_cols), recipes, enc_df

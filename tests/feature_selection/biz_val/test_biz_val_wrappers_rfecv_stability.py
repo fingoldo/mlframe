@@ -1,11 +1,16 @@
 """biz_value: elimination_rule='stability' protects steady-mid-rank features from one-fold eviction.
 
-Pins the beds where stability measurably wins on honest holdout: 'many_steady' seeds 2 and 3, where the legacy 'importance' rule collapses
-RFECV to N=2 (dropping 5 of the 6 steady-mid true features) while 'stability' keeps the steady features (top-k in most folds).
+Pins 'many_steady' seeds 2 and 3, where the legacy 'importance' rule used to collapse RFECV to N=2 (dropping 5 of the 6 steady-mid true features) while
+'stability' kept the steady features (top-k in most folds).
 Measured (RF impurity, cv=3, max_refits=8, one_se_min_foldstd):
   seed 2: importance auc=0.7434 (n=2)  stability auc=0.8134 (n=9)  delta=+0.070
   seed 3: importance auc=0.7358 (n=2)  stability auc=0.8187 (n=5)  delta=+0.083
-Floor set at +0.04 (roughly half the measured deltas) to absorb seed/thread noise.
+
+Since the importance rule's missing-value and getter-signature fixes (2026-11-20/21) it no longer collapses on these seeds either:
+  seed 2: importance auc=0.7933 (6 features, one of them noise)  stability auc=0.8134 (9 features)  delta=+0.020
+  seed 3: both rules keep the same six features, delta=0.000
+So the win this file used to pin is gone with the collapse it protected against; what stays pinned is that stability is never worse than importance
+on the beds built for it (holdout AUC within 0.01 and no fewer steady-mid true features).
 
 Seed 1 (the original pin) no longer collapses: importance now keeps 6 features (AUC 0.8104 vs stability 0.8214, delta +0.011), so the
 collapse this rule protects against simply does not occur there any more. A ten-seed sweep (seeds 1-10) gives mean delta +0.0136, with the win
@@ -82,15 +87,14 @@ def _holdout_auc(X, y, rule, seed=1):
 @pytest.mark.slow
 @pytest.mark.parametrize("seed", [2, 3])
 def test_biz_val_rfecv_stability_beats_importance_on_many_steady(seed):
-    """Biz val rfecv stability beats importance on many steady."""
+    """On the many-steady bed 'stability' keeps every steady-mid true feature 'importance' keeps, and its holdout AUC is not worse by more than 0.01."""
     X, y = _make_many_steady(seed=seed)
     auc_imp, cols_imp = _holdout_auc(X, y, "importance", seed)
     auc_stab, cols_stab = _holdout_auc(X, y, "stability", seed)
-    # stability keeps more of the steady-mid true features and wins holdout AUC.
-    assert auc_stab >= auc_imp + 0.04, (
-        f"stability holdout AUC {auc_stab:.4f} should beat importance {auc_imp:.4f} by >=0.04 "
+    assert auc_stab >= auc_imp - 0.01, (
+        f"stability holdout AUC {auc_stab:.4f} fell more than 0.01 below importance {auc_imp:.4f} "
         f"on the many-steady bed (importance kept {cols_imp}, stability kept {cols_stab})"
     )
     n_steady_imp = sum(c.startswith("steady_") for c in cols_imp)
     n_steady_stab = sum(c.startswith("steady_") for c in cols_stab)
-    assert n_steady_stab > n_steady_imp, (n_steady_stab, n_steady_imp)
+    assert n_steady_stab >= n_steady_imp, (n_steady_stab, n_steady_imp)

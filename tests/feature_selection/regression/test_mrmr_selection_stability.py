@@ -333,10 +333,11 @@ def test_regression_selection_stability_report_random_state_changes_bootstrap():
     rng = np.random.default_rng(0)
     n = 300
     X = pd.DataFrame(rng.standard_normal((n, 6)), columns=[f"x{i}" for i in range(6)])
-    # Equal weak signals on x1..x5 keep the top-n relevance cutoff contested across resamples. A single dominant
-    # signal puts every feature at frequency 0.0 or 1.0 on every seed, and the seed cannot show up in the report.
-    y = (X["x0"] + 0.25 * X[["x1", "x2", "x3", "x4", "x5"]].sum(axis=1) > 0).astype(int)
-    m = MRMR(verbose=0, quantization_nbins=5, random_state=42)
+    # Six EQUAL signals under heavy noise keep the relevance cutoff contested across resamples (a fraction of the resamples picks each of several columns). A dominant signal, or a fit whose
+    # engineered columns take over the selection, puts every feature at frequency 0.0 or 1.0 on every seed, and the seed cannot show up in the report. Feature engineering is off so the
+    # frequencies are those of the raw columns of the bootstrap screen, which is what the seed controls.
+    y = (X.sum(axis=1) + 2.0 * rng.standard_normal(n) > 0).astype(int)
+    m = MRMR(verbose=0, quantization_nbins=5, random_state=42, fe_max_steps=0)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=UserWarning)
         m.fit(X, y)

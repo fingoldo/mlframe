@@ -63,7 +63,7 @@ logger = logging.getLogger(__name__)
 # resident-cache pattern): a recycled id (y GC'd, allocator reuses the address) fails the ``ref() is y`` check and
 # recomputes, never returning a stale binning. Small bound (a handful of concurrent fits/folds) since each entry is
 # only an O(n) int array, not a big buffer.
-_Y_BINNING_CACHE: "OrderedDict[tuple[int, int], tuple[weakref.ReferenceType, tuple[np.ndarray, int]]]" = OrderedDict()
+_Y_BINNING_CACHE: "OrderedDict[tuple, tuple[weakref.ReferenceType, tuple[np.ndarray, int]]]" = OrderedDict()
 _Y_BINNING_CACHE_MAX_ENTRIES = 8
 _Y_BINNING_LOCK = threading.Lock()
 
@@ -81,7 +81,7 @@ def _compute_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
     1 each step - an O(rows * K_y^3)-ish blowup. Measured: n=3000, K_y~2000 (int64 target) hangs past 40s
     (pre-fix code, verified via ``timeout 40 python ...`` -> exit 124); this fix keeps it fast because the
     quantile branch caps ``K_y <= K`` (16 by default) regardless of dtype. Any real MRMR user picking
-    ``nbins_strategy='mah'``/``'sci'`` with an integer-coded continuous-like target hit this DoS silently
+    ``nbins_strategy='mah'`` with an integer-coded continuous-like target hit this DoS silently
     (no error, no warning - the fit just never returns from this column's edge computation).
     """
     uniq_y = np.unique(y)
@@ -99,18 +99,21 @@ def _compute_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
 
 def _get_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
     """Cached ``(yb, K_y)`` for ``y``+``K``, computed once per distinct ``y`` identity (see module docstring above)."""
-    key = (id(y), int(K))
+    ident = _view_identity(y, allow_writable=True)  # as before, the target is not written into while its binning is cached
+    anchor = ident[0] if ident is not None else y  # a view of a read-only owner is named by the owner and its position: ``ravel()`` of the same target is a new object every call
+    key = (id(anchor), ident[1] if ident is not None else None, int(K))
     with _Y_BINNING_LOCK:
         ent = _Y_BINNING_CACHE.get(key)
-        if ent is not None and ent[0]() is y:
+        if ent is not None and ent[0]() is anchor:
             _Y_BINNING_CACHE.move_to_end(key)
             return ent[1]
         dead = [k for k, v in _Y_BINNING_CACHE.items() if v[0]() is None]
         for k in dead:
             del _Y_BINNING_CACHE[k]
-        result = _compute_y_binning(y, K)
+        by_multiset = _y_binning_by_multiset(y, K)
+        result = by_multiset if by_multiset is not None else _compute_y_binning(y, K)
         try:
-            ref = weakref.ref(y)
+            ref = weakref.ref(anchor)
         except TypeError as _exc:
             logger.debug("_get_y_binning fell back to its default after %s", type(_exc).__name__)
             return result  # y doesn't support weakref (unlikely for ndarray) - skip caching, still correct
@@ -129,19 +132,127 @@ def clear_mah_y_binning_cache() -> None:
         _Y_BINNING_CACHE.clear()
 
 
+def _view_identity(a: np.ndarray, *, allow_writable: bool = False) -> "tuple[object, tuple] | None":
+    """``(owner array, position of the view in it)`` when ``a`` is a view of an owner that cannot change (read-only; with ``allow_writable`` any owner, on the caller's promise not to write into it while cached), else ``None``.
+
+    ``np.asarray(y).ravel()`` makes a NEW array object of the same buffer on every call, so a cache keyed by ``id`` of the argument never hit; the owner and the view's offset, length and stride name the
+    same values for as long as the owner lives, and a read-only owner cannot change under the cache."""
+    root = a
+    while isinstance(root.base, np.ndarray):
+        root = root.base
+    if root.flags.writeable and not allow_writable:
+        return None
+    offset = a.__array_interface__["data"][0] - root.__array_interface__["data"][0]
+    return root, (offset, a.shape, a.strides, a.dtype.str)
+
+
+# X-SIDE PLAN CACHE: the quantile cut points of a column and its bin index depend on the column alone, yet the honest null of a supervised ``nbins_strategy`` asks for the edges of the SAME column under
+# every permutation of the target. Keyed by the content digest of the column and ``K``; bounded (a plan is an int16 vector of the column's length plus a short edge vector).
+_X_PLAN_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()
+_X_PLAN_CACHE_MAX_ENTRIES = 512
+_X_PLAN_LOCK = threading.Lock()
+
+
+def _x_plan(x: np.ndarray, K: int) -> "tuple[np.ndarray, np.ndarray, int] | None":
+    """``(initial_inner, xb, K_x)`` of the float64 column ``x`` (its K-quantile inner cuts, the bin index of every row, the number of bins), or ``None`` when fewer than three distinct cuts exist.
+
+    The numbers are those ``mah_bin_edges`` derives inline; they are memoised by the content of the column."""
+    import hashlib
+
+    ident = _view_identity(x)
+    key: tuple
+    if ident is not None:
+        key = (id(ident[0]), ident[1], int(K))  # a read-only owner: the view names the values, no hash of the column needed
+    else:
+        key = (hashlib.blake2b(np.ascontiguousarray(x).data, digest_size=16).digest(), int(x.size), int(K))
+    with _X_PLAN_LOCK:
+        hit = _X_PLAN_CACHE.get(key)
+        if hit is not None and (ident is None or hit[3]() is ident[0]):
+            _X_PLAN_CACHE.move_to_end(key)
+            return hit[:3] if hit[2] > 0 else None
+    qx = np.quantile(x, np.linspace(0, 1, K + 1))
+    qx_unique = np.unique(qx)
+    if qx_unique.size < 3:
+        plan = (np.empty(0, dtype=np.float64), np.empty(0, dtype=np.int16), 0)
+    else:
+        initial_inner = qx_unique[1:-1].astype(np.float64)  # Intentional float64: initial inner edges for the MAH statistic
+        xb = np.searchsorted(initial_inner, x, side="right")
+        plan = (initial_inner, xb.astype(np.int16), int(xb.max()) + 1)
+    owner_ref = weakref.ref(ident[0]) if ident is not None else (lambda: None)
+    with _X_PLAN_LOCK:
+        _X_PLAN_CACHE[key] = (*plan, owner_ref)
+        while len(_X_PLAN_CACHE) > _X_PLAN_CACHE_MAX_ENTRIES:
+            _X_PLAN_CACHE.popitem(last=False)  # evict-ok: a miss recomputes the plan
+    return plan if plan[2] > 0 else None
+
+
+# CONTENT-KEYED Y-BINNING for integer targets: the binning of ``y`` (label encode when at most K distinct values, else K-quantile bins) is a function of the MULTISET of its values, and a permuted target
+# has the multiset of the raw one. For an integer target of small range the exact multiset is its bincount, so the value -> bin map is kept per bincount and a permutation costs one searchsorted.
+_Y_MAP_CACHE: "OrderedDict[tuple, tuple[np.ndarray, bool, int]]" = OrderedDict()
+_Y_MAP_CACHE_MAX_ENTRIES = 16
+_Y_MAP_MAX_RANGE = 1 << 20
+_Y_MAP_LOCK = threading.Lock()  # its own lock: ``_get_y_binning`` calls this function while it holds ``_Y_BINNING_LOCK``
+
+
+def _y_binning_by_multiset(y: np.ndarray, K: int) -> "tuple[np.ndarray, int] | None":
+    """``_compute_y_binning(y, K)`` through a map kept per multiset of an integer ``y``, or ``None`` when ``y`` is not an integer vector of small range."""
+    if y.dtype.kind not in "iub" or y.size == 0:
+        return None
+    lo, hi = int(y.min()), int(y.max())
+    if hi - lo >= _Y_MAP_MAX_RANGE:
+        return None
+    counts = np.bincount(y.astype(np.int64) - lo)
+    key = (counts.tobytes(), lo, int(K))
+    with _Y_MAP_LOCK:
+        hit = _Y_MAP_CACHE.get(key)
+        if hit is not None:
+            _Y_MAP_CACHE.move_to_end(key)
+    if hit is None:
+        _, K_y = _compute_y_binning(y, K)
+        if K_y == 0:
+            hit = (np.empty(0, dtype=np.float64), False, 0)
+        else:
+            uniq_y = np.unique(y)
+            if uniq_y.size <= K:
+                hit = (uniq_y, True, K_y)  # label encode: the rank of the value among the distinct values
+            else:
+                qy_unique = np.unique(np.quantile(y.astype(np.float64), np.linspace(0, 1, K + 1)))  # Intentional float64: target quantile edges for the MAH statistic
+                hit = (qy_unique[1:-1], False, K_y)
+        with _Y_MAP_LOCK:
+            _Y_MAP_CACHE[key] = hit
+            while len(_Y_MAP_CACHE) > _Y_MAP_CACHE_MAX_ENTRIES:
+                _Y_MAP_CACHE.popitem(last=False)  # evict-ok: a miss recomputes the map
+    table, label_encode, K_y = hit
+    if K_y == 0:
+        return np.array([], dtype=np.int64), 0
+    if label_encode:
+        return np.searchsorted(table, y).astype(np.int64), K_y
+    return np.searchsorted(table, y.astype(np.float64), side="right").astype(np.int64), K_y  # Intentional float64: target bin search for the MAH statistic
+
+
 @njit(nogil=True, cache=True)
-def _nml_regret(K: int, N: int) -> float:
-    """Mononen-Myllymaki (2008) closed-form approximation of the multinomial
-    NML regret for K bins on N samples:
+def _nml_regret_legacy(K: int, N: int) -> float:
+    """The regret formula this module shipped with (kept as the reference): ``(K-1)/2 log(N/(2 pi)) + log Gamma(K/2) - (K/2) log Gamma(1/2)``.
 
-        R(K, N) ~ ((K-1)/2) * log(N / (2 * pi)) + log Gamma(K/2) - (K/2) * log Gamma(1/2)
-
-    Returns the regret in nats. R(1, N) = 0 by convention.
-    """
+    It is not the multinomial NML regret: the log term has the wrong scale (``N/(2 pi)`` for ``N/2``) and the Gamma terms have the wrong signs, so it understates the regret by about 2.3 nats per
+    two-category row at N = 1250. A merge then never pays for itself on a column without signal, and a column keeps all its quantile bins."""
     if K <= 1 or N <= 0:
         return 0.0
     half_K = float(K) / 2.0
     return (K - 1) * 0.5 * math.log(max(N, 1) / (2.0 * math.pi)) + math.lgamma(half_K) - half_K * math.lgamma(0.5)
+
+
+@njit(nogil=True, cache=True)
+def _nml_regret(K: int, N: int) -> float:
+    """Multinomial NML regret of K categories on N samples, Rissanen's asymptotic expansion (the first-order form of Mononen and Myllymaki, 2008):
+
+        R(K, N) ~ ((K-1)/2) log(N/2) + log(sqrt(pi) / Gamma(K/2))
+
+    in nats; ``R(1, N) = 0``. At K = 2 and N = 200 it is 2.875 nats against the exact 2.912 (the next term is of order 0.27 / sqrt(N))."""
+    if K <= 1 or N <= 0:
+        return 0.0
+    half_K = float(K) / 2.0
+    return (K - 1) * 0.5 * math.log(max(N, 1) / 2.0) + 0.5 * math.log(math.pi) - math.lgamma(half_K)
 
 
 @njit(nogil=True, cache=True)
@@ -212,13 +323,52 @@ def _best_adjacent_merge(cur, axis):
 
 
 @njit(nogil=True, cache=True)
-def _greedy_merge_core(joint):
-    """Column merges then row merges of ``joint``: the merged table and the merge positions, as arrays of the number of merges made."""
+def _pair_gain_conditional(cur, i, axis):
+    """Code length saved by merging the slices ``i`` and ``i + 1`` along ``axis``, counted on the CONDITIONAL distribution of the other variable: ``SC(a) + SC(b) - SC(a + b)``.
+
+    ``a`` and ``b`` are the count vectors of the two slices over the other axis (the y distribution of two adjacent x bins). Merging two slices whose distributions agree saves one regret term and
+    costs nothing; merging two that differ costs ``N`` times their Jensen-Shannon divergence. Positive when the merge shortens the description of the other variable given this one."""
+    n_other = cur.shape[1] if axis == 0 else cur.shape[0]
+    a = np.empty(n_other)
+    b = np.empty(n_other)
+    m = np.empty(n_other)
+    for t in range(n_other):
+        if axis == 0:
+            a[t] = cur[i, t]
+            b[t] = cur[i + 1, t]
+        else:
+            a[t] = cur[t, i]
+            b[t] = cur[t, i + 1]
+        m[t] = a[t] + b[t]
+    return _stochastic_complexity(a) + _stochastic_complexity(b) - _stochastic_complexity(m)
+
+
+@njit(nogil=True, cache=True)
+def _best_adjacent_merge_conditional(cur, axis, cut_cost=0.0):
+    """Index of the adjacent pair along ``axis`` with the largest positive :func:`_pair_gain_conditional` (plus ``cut_cost``, the code length of naming the cut a merge removes), or ``-1`` when no merge shortens the code."""
+    best_gain = 0.0
+    best_i = -1
+    for i in range(cur.shape[axis] - 1):
+        gain = _pair_gain_conditional(cur, i, axis) + cut_cost
+        if gain > best_gain:
+            best_gain = gain
+            best_i = i
+    return best_i
+
+
+@njit(nogil=True, cache=True)
+def _greedy_merge_core(joint, conditional=True, merge_columns=True, name_cuts=False):
+    """Column merges then row merges of ``joint``: the merged table and the merge positions, as arrays of the number of merges made.
+
+    ``conditional=True`` (the default) merges on the conditional code length of the other variable (:func:`_pair_gain_conditional`) and may merge down to one slice, so a column with no
+    dependence on the target ends in a single bin. ``merge_columns=False`` leaves the columns (the target's bins) as they are and merges rows only: the binning of a feature merges the feature's bins, never the labels. ``conditional=False`` is the earlier JOINT criterion (the NML code length of the whole table, floor of two slices): that code length falls
+    with every merge of cells, so it merged every column to its first two bins whatever the data; kept as the reference."""
     cur = joint.astype(np.float64)  # Intentional float64: MAH partition accumulator state
+    floor = 1 if conditional else 2
     col_merges = np.empty(max(cur.shape[1], 1), dtype=np.int64)
     n_col = 0
-    while cur.shape[1] > 2:
-        best_i = _best_adjacent_merge(cur, 1)
+    while merge_columns and cur.shape[1] > floor:
+        best_i = _best_adjacent_merge_conditional(cur, 1) if conditional else _best_adjacent_merge(cur, 1)
         if best_i < 0:
             break
         col_merges[n_col] = best_i
@@ -226,8 +376,9 @@ def _greedy_merge_core(joint):
         cur = _merge_adjacent(cur, best_i, 1)
     row_merges = np.empty(max(cur.shape[0], 1), dtype=np.int64)
     n_row = 0
-    while cur.shape[0] > 2:
-        best_i = _best_adjacent_merge(cur, 0)
+    while cur.shape[0] > floor:
+        cut_cost = math.log(max(2.0, float(cur.shape[0] - 1))) if name_cuts else 0.0
+        best_i = _best_adjacent_merge_conditional(cur, 0, cut_cost) if conditional else _best_adjacent_merge(cur, 0)
         if best_i < 0:
             break
         row_merges[n_row] = best_i
@@ -245,7 +396,7 @@ def _greedy_merge_bins(joint):
     (preserves the joint structure even when the marginal would otherwise
     collapse).
     """
-    return _greedy_merge_core(joint)[0]
+    return _greedy_merge_core(joint, True)[0]
 
 
 @njit(nogil=True, cache=True)
@@ -269,12 +420,15 @@ def _mi_from_joint(joint: np.ndarray) -> float:
     return mi
 
 
-def _greedy_merge_with_history(joint: np.ndarray) -> tuple[np.ndarray, list[int], list[int]]:
+def _greedy_merge_with_history(joint: np.ndarray, conditional: bool = True, merge_columns: bool = True, name_cuts: bool = False) -> tuple[np.ndarray, list[int], list[int]]:
     """Identical SCI-greedy merge to ``_greedy_merge_bins`` but ALSO records
     which row/col positions got merged at each step.
 
     Args:
         joint: ``(K_x, K_y)`` joint count matrix to merge; it is copied, not modified.
+        conditional: merge on the conditional code length of the other variable (default); ``False`` is the earlier joint criterion.
+        merge_columns: also merge the columns (the target's bins); ``False`` merges rows only.
+        name_cuts: charge the code length of naming each kept cut among the remaining ones (a merge that removes a cut saves ``log`` of their number).
 
     Returns:
         merged (K_x', K_y'): the post-merge joint table.
@@ -282,7 +436,7 @@ def _greedy_merge_with_history(joint: np.ndarray) -> tuple[np.ndarray, list[int]
             that merged with index+1.
         col_merges (list[int]): same for columns.
     """
-    merged, row_merges, col_merges = _greedy_merge_core(joint)
+    merged, row_merges, col_merges = _greedy_merge_core(joint, conditional, merge_columns, name_cuts)
     return np.asarray(merged), row_merges.tolist(), col_merges.tolist()
 
 
@@ -341,21 +495,19 @@ def mah_bin_edges(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.nd
     if n < 16:
         return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
     K = int(initial_k)
-    qx = np.quantile(x, np.linspace(0, 1, K + 1))
-    qx_unique = np.unique(qx)
-    if qx_unique.size < 3:
+    plan = _x_plan(x, K)
+    if plan is None:
         return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
-    initial_inner = qx_unique[1:-1].astype(np.float64)  # Intentional float64: initial inner edges for the MAH statistic
-    xb = np.searchsorted(initial_inner, x, side="right").astype(np.int64)
-    # y is fit-constant across the whole per_feature_edges column dispatch -> cached binning (see _get_y_binning).
+    initial_inner, xb16, K_x = plan
+    xb = xb16.astype(np.int64)
+    # y is fit-constant across the whole per_feature_edges column dispatch -> cached binning (see _get_y_binning); a permuted integer target reuses the map of its multiset.
     yb, K_y = _get_y_binning(y, K)
     if K_y == 0:
         return cast("np.ndarray", initial_inner)
-    K_x = int(xb.max()) + 1
     if K_x < 2 or K_y < 2:
         return cast("np.ndarray", initial_inner)
     joint = np.bincount(xb * K_y + yb, minlength=K_x * K_y).reshape(K_x, K_y).astype(np.float64)  # Intentional float64: joint-count accumulator for the MAH statistic
-    _, row_merges, _ = _greedy_merge_with_history(joint)
+    _, row_merges, _ = _greedy_merge_with_history(joint, True, False)  # the labels are not merged: only the bins of x
     # Map row merges to drop the swallowed X edges.
     return _apply_merges_to_edges(initial_inner, row_merges)
 

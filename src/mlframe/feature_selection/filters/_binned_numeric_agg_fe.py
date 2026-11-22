@@ -508,7 +508,7 @@ def fit_binned_numeric_agg(
                     "edges": edges, "lookup": lut, "global": float(globals_[s]),
                 }
     # The (rows, features) view of the first k rows is Fortran-ordered, which pandas wraps without another copy.
-    feat_df = pd.DataFrame(feat_block[: len(feat_names)].T, columns=feat_names, index=X.index)
+    feat_df = pd.DataFrame(feat_block[: len(feat_names)].T, columns=feat_names, index=X.index, copy=False)
     return feat_df, recipes
 
 def apply_binned_numeric_agg(X: pd.DataFrame, recipe: dict) -> np.ndarray:

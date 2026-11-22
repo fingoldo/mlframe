@@ -106,7 +106,10 @@ def _compose_pair_selection(monkeypatch: pytest.MonkeyPatch, column_mi: dict[int
 
     rng = np.random.default_rng(7)
     X = rng.normal(size=(300, n_cols))
-    key_to_col = {round(float(X[0, j]), 9): j for j in range(n_cols)}
+    # compose_pair_fe works on the criterion dtype (float32 by default), so the lookup key is the float32 value of the first row
+    from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
+    key_to_col = {round(float(X[0, j].astype(_crit_np_dtype())), 9): j for j in range(n_cols)}
 
     def _fake_mi(x, y, **_kw):
         """Per-column MI from the lookup table; any derived (pair) feature scores a constant."""

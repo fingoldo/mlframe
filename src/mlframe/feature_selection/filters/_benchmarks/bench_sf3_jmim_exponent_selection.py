@@ -40,7 +40,7 @@ def _make_synergy_fixture(seed, n=1500):
     for i, c in enumerate(noise):
         cols[f"n{i}"] = c
     import pandas as pd
-    X = pd.DataFrame(cols)
+    X = pd.DataFrame(cols, copy=False)
     informative = {"z0", "z1", "z2", "a", "b"}
     return X, y.astype(np.int64), informative
 

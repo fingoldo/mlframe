@@ -784,7 +784,7 @@ def greedy_cmi_fe_construct(
             "cmi_at_selection",
             "step",
         ],
-    )
+     copy=False)
     if st.winners:
         st.X_aug = pd.concat([X, engineered[st.winners]], axis=1)
     else:

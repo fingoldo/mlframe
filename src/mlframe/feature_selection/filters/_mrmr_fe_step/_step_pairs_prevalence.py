@@ -112,9 +112,9 @@ def _collect_prescan_pair_keys(cached_MIs, sorted_pairs, sort_dict_by_value, num
     return scan_pks
 
 
-def _dominant_pair_by_linear_corr(scan_pks, ya_pre, cached_operand):
-    """The pair with the highest linear |corr| against the continuous target, scored in memory-sized blocks; ``None`` when no pair scores."""
-    _dom_cp, _dom_pk = -1.0, None
+def _scan_best_corrs(scan_pks, ya_pre, cached_operand, extra_stride=1):
+    """The best-form linear |corr| against the continuous target of every pair of ``scan_pks`` (in scan order), scored in memory-sized blocks; with ``extra_stride > 1`` on every ``extra_stride``-th row of the
+    scan's own subsample (a coarse estimate)."""
     from .._fe_usability_signal import _corr_stride
     from ..batch_pair_usability_corr_gpu import ALL_PAIR_FORM_IDS, dispatch_batch_pair_usability_corr
 
@@ -130,11 +130,14 @@ def _dominant_pair_by_linear_corr(scan_pks, ya_pre, cached_operand):
     _stride_pre = _corr_stride(ya_pre.shape[0])
     _dtype_pre = _crit_np_dtype()
     _y_batch = np.asarray(ya_pre[::_stride_pre] if _stride_pre > 1 else ya_pre, dtype=_dtype_pre)
+    if extra_stride > 1:
+        _y_batch = np.ascontiguousarray(_y_batch[::extra_stride])
 
     def _op_rows_of(idx: int) -> np.ndarray:
         """One operand's row, subsampled with the y rows."""
         _op_full = cached_operand(idx)
-        return cast(np.ndarray, _op_full[::_stride_pre] if _stride_pre > 1 else _op_full)
+        _row = _op_full[::_stride_pre] if _stride_pre > 1 else _op_full
+        return cast(np.ndarray, _row[::extra_stride] if extra_stride > 1 else _row)
 
     # Every scanned pair is scored. The pairs are grouped by the chunks of operands they touch, so a group's operand matrix (at most ``rows_per_block`` rows) is uploaded once and scores all of its
     # pairs in ONE call; with the pairs taken in scan order in blocks of ``budget / (2 rows)`` pairs, a budget below two operand rows (the card nearly full after the earlier stages) meant one pair
@@ -168,7 +171,7 @@ def _dominant_pair_by_linear_corr(scan_pks, ya_pre, cached_operand):
                 _row_cache[idx] = row
         return row
 
-    _dom_cp, _dom_pos = -1.0, -1
+    _corr = np.full(len(scan_pks), -1.0)
     for _key in sorted(_groups):
         _positions = _groups[_key]
         _blk_row_of: dict = {}
@@ -183,13 +186,84 @@ def _dominant_pair_by_linear_corr(scan_pks, ya_pre, cached_operand):
         _pair_form_corrs, _ = dispatch_batch_pair_usability_corr(
             _y_batch, np.vstack(_blk_rows), _pair_a, _pair_b, form_ids=ALL_PAIR_FORM_IDS,
         )
-        _cp_block = _pair_form_corrs.max(axis=1)
-        _bi = int(np.argmax(_cp_block))
-        _val, _pos_best = float(_cp_block[_bi]), _positions[_bi]
-        if _dom_pos < 0 or _val > _dom_cp or (_val == _dom_cp and _pos_best < _dom_pos):
-            _dom_cp, _dom_pos = _val, _pos_best
-    _dom_pk = scan_pks[_dom_pos] if _dom_pos >= 0 else None
-    return _dom_pk
+        _corr[np.asarray(_positions, dtype=np.int64)] = _pair_form_corrs.max(axis=1)
+    return _corr
+
+
+def _dominant_pair_by_linear_corr_exact(scan_pks, ya_pre, cached_operand):
+    """The pair with the highest linear |corr| against the continuous target over EVERY pair of ``scan_pks`` (the earliest in scan order among equal values); ``None`` when no pair scores. The reference of
+    :func:`_dominant_pair_by_linear_corr`."""
+    if not scan_pks:
+        return None
+    return scan_pks[int(np.argmax(_scan_best_corrs(scan_pks, ya_pre, cached_operand)))]
+
+
+#: Rows of the coarse pass of the dominant-pair scan, the margin below the best coarse |corr| within which a pair is rescanned exactly, the pool size from which the coarse pass pays, and the share of the
+#: pairs above which the margin keeps too many to be worth it (the exact scan then runs on all).
+_COARSE_ROWS = 4000
+_COARSE_MARGIN = 0.25
+_COARSE_MIN_PAIRS = 20000
+_COARSE_MAX_SHARE = 0.2
+#: The coarse estimate is trusted only when its own noise is small: the 99.9th percentile of the coarse |corr| over all pairs (about 0.05 for Gaussian columns at ``_COARSE_ROWS`` rows; heavy-tailed columns put a few
+#: outlier rows into the subsample and lift it to 0.4) must stay below this value, else the exact scan runs on all pairs.
+_COARSE_NOISE_MAX = 0.12
+
+
+def coarse_pair_form_keep(y_batch, operand_matrix, pair_a, pair_b, min_corr):
+    """A boolean mask of the pairs that can still reach ``min_corr`` in their best pair form on all rows, from a coarse pass over about ``_COARSE_ROWS`` rows, or ``None`` (every pair stays) when the pass does not pay
+    or cannot be trusted: a small pool, too few rows, coarse values too noisy (heavy-tailed columns) or a margin that keeps more than ``_COARSE_MAX_SHARE`` of the pairs.
+
+    A pair is dropped when its coarse best-form |corr| is below ``min_corr - _COARSE_MARGIN``; the noise of the coarse estimate is a few hundredths for light-tailed columns (the 99.9th percentile of the coarse values over
+    all pairs is checked against ``_COARSE_NOISE_MAX``), so a pair at or above ``min_corr`` is kept with a wide safety margin."""
+    from ..batch_pair_usability_corr_gpu import ALL_PAIR_FORM_IDS, dispatch_batch_pair_usability_corr
+
+    n_pairs = int(pair_a.shape[0])
+    rows = int(y_batch.shape[0])
+    stride = rows // _COARSE_ROWS
+    if n_pairs < _COARSE_MIN_PAIRS or stride < 2:
+        return None
+    corrs, _ = dispatch_batch_pair_usability_corr(
+        np.ascontiguousarray(y_batch[::stride]), np.ascontiguousarray(operand_matrix[:, ::stride]), pair_a, pair_b, form_ids=ALL_PAIR_FORM_IDS
+    )
+    coarse = np.asarray(corrs).max(axis=1)
+    noise = float(np.quantile(coarse, 0.999))
+    if noise > _COARSE_NOISE_MAX:
+        log_throttle(logger, "usability_coarse_noisy", logging.INFO, "usability verdicts: coarse |corr| too noisy (99.9th percentile %.3f > %.2f); all %d pairs scored on all rows", noise, _COARSE_NOISE_MAX, n_pairs)
+        return None
+    keep = coarse >= float(min_corr) - _COARSE_MARGIN
+    if int(keep.sum()) > _COARSE_MAX_SHARE * n_pairs:
+        log_throttle(logger, "usability_coarse_no_gain", logging.INFO, "usability verdicts: the margin keeps %d of %d pairs; all pairs scored on all rows", int(keep.sum()), n_pairs)
+        return None
+    log_throttle(logger, "usability_coarse_used", logging.INFO, "usability verdicts: coarse pass over %d pairs (stride %d, noise %.3f), %d scored on all rows", n_pairs, stride, noise, int(keep.sum()))
+    return keep
+
+
+def _dominant_pair_by_linear_corr(scan_pks, ya_pre, cached_operand):
+    """The pair with the highest linear |corr| against the continuous target; ``None`` when no pair scores.
+
+    The exact scan (:func:`_dominant_pair_by_linear_corr_exact`) costs a pass of the batched usability kernel over all pairs (17 s of the 100000 x 1000 fit). On a wide pool most pairs are noise and the dominant one
+    stands far above them, so a coarse pass over about ``_COARSE_ROWS`` rows keeps the pairs within ``_COARSE_MARGIN`` of the best coarse value (twice the noise of such an estimate several times over) and the
+    exact scan runs on those alone; when the coarse values are noisy (heavy-tailed columns), when the margin keeps more than ``_COARSE_MAX_SHARE`` of the pairs (a pool without a clear leader) or when the pool is small, the exact scan runs on all pairs. The winner is the one of the
+    exact scan whenever it is among the kept pairs."""
+    from .._fe_usability_signal import _corr_stride
+
+    n_pairs = len(scan_pks)
+    rows = int(ya_pre.shape[0]) // _corr_stride(int(ya_pre.shape[0]))
+    coarse_stride = rows // _COARSE_ROWS
+    if n_pairs < _COARSE_MIN_PAIRS or coarse_stride < 2:
+        return _dominant_pair_by_linear_corr_exact(scan_pks, ya_pre, cached_operand)
+    coarse = _scan_best_corrs(scan_pks, ya_pre, cached_operand, extra_stride=coarse_stride)
+    noise = float(np.quantile(coarse, 0.999))
+    if noise > _COARSE_NOISE_MAX:  # heavy tails: the coarse values are not an estimate of the full-row ones
+        log_throttle(logger, "dominant_pair_coarse_noisy", logging.INFO, "dominant-pair scan: coarse |corr| too noisy (99.9th percentile %.3f > %.2f); exact scan of all %d pairs", noise, _COARSE_NOISE_MAX, n_pairs)
+        return _dominant_pair_by_linear_corr_exact(scan_pks, ya_pre, cached_operand)
+    kept = np.flatnonzero(coarse >= float(coarse.max()) - _COARSE_MARGIN)
+    if kept.size > _COARSE_MAX_SHARE * n_pairs:
+        log_throttle(logger, "dominant_pair_coarse_no_leader", logging.INFO, "dominant-pair scan: the margin keeps %d of %d pairs (best coarse %.3f); exact scan of all pairs", int(kept.size), n_pairs, float(coarse.max()))
+        return _dominant_pair_by_linear_corr_exact(scan_pks, ya_pre, cached_operand)
+    log_throttle(logger, "dominant_pair_coarse_used", logging.INFO, "dominant-pair scan: coarse pass over %d pairs (stride %d, noise %.3f, best %.3f), exact rescan of %d", n_pairs, coarse_stride, noise, float(coarse.max()), int(kept.size))
+    sub = [scan_pks[int(i)] for i in kept]
+    return _dominant_pair_by_linear_corr_exact(sub, ya_pre, cached_operand)
 
 
 def _maybe_relax_prevalence_for_tail_concentrated_pool(

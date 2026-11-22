@@ -186,7 +186,7 @@ def missing_indicator_fit(
     for col in cols:
         encoded_cols[engineered_name_missing_indicator(col)] = X[col].isna().to_numpy().astype(np.int8, copy=False)
         recipes[col] = {}
-    enc_df = pd.DataFrame(encoded_cols, index=X.index)
+    enc_df = pd.DataFrame(encoded_cols, index=X.index, copy=False)
     return enc_df, recipes
 
 def apply_missing_indicator(
@@ -466,7 +466,7 @@ def missingness_count_with_recipes(
         X_aug = X.copy(deep=False)
         X_aug[name] = counts
     else:
-        X_aug = pd.DataFrame({name: counts}, index=X.index)
+        X_aug = pd.DataFrame({name: counts}, index=X.index, copy=False)
     recipe = build_missingness_count_recipe(
         name=name, cols=tuple(raw_recipe["cols"]),
     )
@@ -493,13 +493,13 @@ def _apply_missing_indicator_recipe(recipe, X) -> np.ndarray:
         import polars as _pl
         if isinstance(X, _pl.DataFrame):
             return apply_missing_indicator(
-                pd.DataFrame({src: X[src].to_numpy()}), src, dict(recipe.extra),
+                pd.DataFrame({src: X[src].to_numpy()}, copy=False), src, dict(recipe.extra),
             )
     except ImportError:
         pass
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
         return apply_missing_indicator(
-            pd.DataFrame({src: X[src]}), src, dict(recipe.extra),
+            pd.DataFrame({src: X[src]}, copy=False), src, dict(recipe.extra),
         )
     raise TypeError(f"missing_indicator recipe '{recipe.name}': cannot extract column " f"{src!r} from X of type {type(X).__name__}")
 
@@ -514,7 +514,7 @@ def _coerce_X_to_pandas_with_cols(X, cols, recipe_name) -> pd.DataFrame:
             for c in cols:
                 if c in X.columns:
                     data[c] = X[c].to_numpy()
-            return pd.DataFrame(data)
+            return pd.DataFrame(data, copy=False)
     except ImportError:
         pass
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
@@ -522,7 +522,7 @@ def _coerce_X_to_pandas_with_cols(X, cols, recipe_name) -> pd.DataFrame:
         for c in cols:
             if c in X.dtype.names:
                 data[c] = X[c]
-        return pd.DataFrame(data)
+        return pd.DataFrame(data, copy=False)
     raise TypeError(f"recipe '{recipe_name}': cannot extract columns from X of type " f"{type(X).__name__}")
 
 def _apply_missingness_count_recipe(recipe, X) -> np.ndarray:
@@ -570,7 +570,7 @@ def missingness_pattern_with_recipes(
         X_aug = X.copy(deep=False)
         X_aug[name] = labels
     else:
-        X_aug = pd.DataFrame({name: labels}, index=X.index)
+        X_aug = pd.DataFrame({name: labels}, index=X.index, copy=False)
     recipe = build_missingness_pattern_recipe(
         name=name,
         cols=tuple(raw_recipe["cols"]),

@@ -313,6 +313,79 @@ def batch_pair_mi_prange(
     return out
 
 
+@njit(nogil=True, cache=True)
+def _pair_mi_scalar_fm(fm, a, b, nb_a, nb_b, classes_y, freqs_y, n_samples, n_classes_y):
+    """:func:`_pair_mi_scalar` over a feature-major matrix ``fm[column, row]``: the two columns are read contiguously, the arithmetic and its order are the same."""
+    joint_card = nb_a * nb_b
+    joint_counts = np.zeros((joint_card, n_classes_y), dtype=np.int64)
+    freqs_x_int = np.zeros(joint_card, dtype=np.int64)
+    col_a = fm[a]
+    col_b = fm[b]
+    for i in range(n_samples):
+        cls_x = int(col_a[i]) * nb_b + int(col_b[i])
+        cls_y = int(classes_y[i])
+        joint_counts[cls_x, cls_y] += 1
+        freqs_x_int[cls_x] += 1
+
+    total = 0.0
+    inv_n = 1.0 / n_samples
+    for i in range(joint_card):
+        fx = freqs_x_int[i]
+        if fx == 0:
+            continue
+        prob_x = fx * inv_n
+        for j in range(n_classes_y):
+            jc = joint_counts[i, j]
+            if jc == 0:
+                continue
+            jf = jc * inv_n
+            prob_y = freqs_y[j]
+            if prob_y > 0.0:
+                total += jf * math.log(jf / (prob_x * prob_y))
+    return total
+
+
+@njit(parallel=True, nogil=True, cache=True)
+def batch_pair_mi_prange_fm(fm, pair_a, pair_b, nbins, classes_y, freqs_y, cap=MAX_JOINT_CARDINALITY):
+    """:func:`batch_pair_mi_prange` over a feature-major matrix ``fm[column, row]`` (``nbins`` and the pair indices address its rows); the same values bit for bit."""
+    n_samples = fm.shape[1]
+    n_pairs = pair_a.shape[0]
+    out = np.empty(n_pairs, dtype=np.float64)  # Intentional float64: accumulator or output buffer; statistic at float64
+    n_classes_y = freqs_y.shape[0]
+    if n_samples == 0:
+        out[:] = 0.0
+        return out
+    deferred = np.zeros(n_pairs, dtype=np.bool_)
+    for p in prange(n_pairs):
+        a = pair_a[p]
+        b = pair_b[p]
+        nb_a = int(nbins[a])
+        nb_b = int(nbins[b])
+        if nb_a <= 0 or nb_b <= 0 or n_classes_y <= 0 or nb_b > cap // n_classes_y or nb_a > cap // (nb_b * n_classes_y):
+            out[p] = 0.0
+            continue
+        if nb_a * nb_b * n_classes_y > PARALLEL_JOINT_CELLS:
+            deferred[p] = True
+            continue
+        out[p] = _pair_mi_scalar_fm(fm, a, b, nb_a, nb_b, classes_y, freqs_y, n_samples, n_classes_y)
+    for p in range(n_pairs):
+        if deferred[p]:
+            a = pair_a[p]
+            b = pair_b[p]
+            out[p] = _pair_mi_scalar_fm(fm, a, b, int(nbins[a]), int(nbins[b]), classes_y, freqs_y, n_samples, n_classes_y)
+    return out
+
+
+def batch_pair_mi_prange_cols(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y, cap=MAX_JOINT_CARDINALITY):
+    """The CPU batch pair MI with contiguous column reads: the columns the pairs use are copied once into a feature-major matrix (rows of the copy are columns of ``factors_data``), so every pair reads two
+    contiguous arrays instead of two strided ones (on a wide matrix each strided read is a cache miss per row). Values equal :func:`batch_pair_mi_prange` bit for bit, which stays as the reference."""
+    if pair_a.shape[0] == 0 or factors_data.shape[0] == 0:
+        return batch_pair_mi_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y, cap)
+    used = np.unique(np.concatenate((pair_a, pair_b)))
+    fm = np.ascontiguousarray(factors_data[:, used].T)
+    return batch_pair_mi_prange_fm(fm, np.searchsorted(used, pair_a), np.searchsorted(used, pair_b), np.ascontiguousarray(nbins[used]), classes_y, freqs_y, cap)
+
+
 @njit(parallel=True, nogil=True, cache=True)
 def batch_pair_mi_perm_batched(
     factors_data: np.ndarray,

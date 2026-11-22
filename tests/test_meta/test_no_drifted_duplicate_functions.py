@@ -67,6 +67,10 @@ KNOWN_DUPLICATE_GROUPS = {
     "kernel_deflate": "DELIBERATE: registry compile point of the deflation kernel of each ALS family module",
     "kernel_gram": "DELIBERATE: registry compile point of the Gram kernel of each ALS family module",
     "kernel_solve": "DELIBERATE: registry compile point of the small-solve kernel of each ALS family module",
+    # DELIBERATE -- the tuner callback of each kernel_tuner entry. Every module sweeps ITS OWN backends over ITS OWN grid (rows x columns x classes, the variants it compares, the equivalence
+    # tolerance of its outputs) and the tuning-cache discovery reads the syntax tree of the module that registers the entry; the bodies share only the one call into the shared
+    # ``pyutilz.dev.benchmarking.sweep_backend_grid``, which is where the common work already lives.
+    "_run_sweep": "DELIBERATE: per-module kernel_tuner sweep callback (own backends, grid and tolerance); the shared work is sweep_backend_grid",
 }
 
 #: Names whose detection depends on the interpreter, so they are reported on some CI shards and not others.
@@ -74,7 +78,7 @@ KNOWN_DUPLICATE_GROUPS = {
 #: ``__dir__`` facades measure 0.909 on 3.12 (reported, threshold 0.90) and 0.8325 on 3.14 (not reported),
 #: from identical source. An entry here still has to earn its place in KNOWN_DUPLICATE_GROUPS; this set only
 #: stops the staleness check below from calling it archaeology on the interpreters that do not report it.
-INTERPRETER_SENSITIVE = {"__dir__", "__getattr__"}
+INTERPRETER_SENSITIVE = {"__dir__", "__getattr__", "_run_sweep"}
 
 
 def test_no_new_drifted_duplicate_functions():

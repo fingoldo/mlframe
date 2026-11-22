@@ -205,6 +205,18 @@ def record_family_failure(mrmr_self: Any, family: str, exc: BaseException) -> No
     )
 
 
+def fe_rejection_ledger_saturated(mrmr_self: Any) -> bool:
+    """Whether the rejection ledger is past its cap AND already holds its ``ledger_capped`` marker, so a further :func:`record_fe_rejection` call returns at once and records nothing.
+
+    A caller that builds its arguments (the candidate string, the operand names) for every candidate of a wide pool can ask first and skip that work: at 1000 columns the pair screen alone fills the
+    500000-record ledger, and the rest of the pairs formatted their arguments for a call that dropped them. The state at exactly the cap is not saturated: the next call appends the marker."""
+    records = getattr(mrmr_self, "_fe_rejection_records_", None)
+    if records is None:
+        return False
+    _cap_cfg = getattr(mrmr_self, "fe_rejection_ledger_cap", None)
+    return len(records) > int(FE_REJECTION_LEDGER_CAP if _cap_cfg is None else _cap_cfg)
+
+
 def record_fe_rejection(
     mrmr_self: Any,
     *,
@@ -293,7 +305,7 @@ def compute_fe_rejection_ledger(mrmr_self: Any) -> pd.DataFrame:
     Pure-read; returns an empty (correctly-shaped) frame when there are no records.
     """
     columns = list(_LEDGER_COLUMNS)
-    empty = pd.DataFrame({col: pd.Series([], dtype=object) for col in columns})
+    empty = pd.DataFrame({col: pd.Series([], dtype=object) for col in columns}, copy=False)
     records = getattr(mrmr_self, "_fe_rejection_records_", None)
     if not records:
         return empty
@@ -357,12 +369,12 @@ def populate_fe_admission_ledger(mrmr_self: Any) -> None:
     """Stash ``fe_admission_ledger_`` (one row per candidate a gate admitted) on the estimator; never raises."""
     try:
         records = getattr(mrmr_self, "_fe_admission_records_", None) or []
-        df = pd.DataFrame(list(records), columns=list(_ADMISSION_COLUMNS)) if records else pd.DataFrame({c: pd.Series([], dtype=object) for c in _ADMISSION_COLUMNS})
+        df = pd.DataFrame(list(records), columns=list(_ADMISSION_COLUMNS), copy=False) if records else pd.DataFrame({c: pd.Series([], dtype=object) for c in _ADMISSION_COLUMNS}, copy=False)
         _resolve_index_columns(mrmr_self, df)
         mrmr_self.fe_admission_ledger_ = df
     except Exception as exc:
         logger.warning("MRMR.fit: fe_admission_ledger_ population failed (%s: %s); it stays empty.", type(exc).__name__, exc)
-        mrmr_self.fe_admission_ledger_ = pd.DataFrame({c: pd.Series([], dtype=object) for c in _ADMISSION_COLUMNS})
+        mrmr_self.fe_admission_ledger_ = pd.DataFrame({c: pd.Series([], dtype=object) for c in _ADMISSION_COLUMNS}, copy=False)
 
 
 def populate_fe_rejection_ledger(mrmr_self: Any) -> None:
@@ -382,9 +394,7 @@ def populate_fe_rejection_ledger(mrmr_self: Any) -> None:
             type(exc).__name__,
             exc,
         )
-        mrmr_self.fe_rejection_ledger_ = pd.DataFrame(
-            {col: pd.Series([], dtype=object) for col in _LEDGER_COLUMNS},
-        )
+        mrmr_self.fe_rejection_ledger_ = pd.DataFrame({col: pd.Series([], dtype=object) for col in _LEDGER_COLUMNS}, copy=False)
 
 
 def get_fe_rejection_report(mrmr_self: Any) -> str:

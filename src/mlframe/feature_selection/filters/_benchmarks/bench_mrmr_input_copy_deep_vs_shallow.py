@@ -38,7 +38,7 @@ import pandas as pd
 def _make_frame(n: int, p: int) -> pd.DataFrame:
     """Build an n x p random-normal pandas frame for the copy-cost A/B."""
     rng = np.random.default_rng(0)
-    return pd.DataFrame(rng.normal(size=(n, p)), columns=[f"c{i}" for i in range(p)])
+    return pd.DataFrame(rng.normal(size=(n, p)), columns=[f"c{i}" for i in range(p)], copy=False)
 
 
 def _time_copy(X: pd.DataFrame, deep: bool, n_reps: int = 7) -> float:
@@ -74,7 +74,7 @@ def verify_correctness_under_forced_cow_off() -> None:
 
     rng = np.random.default_rng(0)
     n, p = 500, 8
-    X = pd.DataFrame(rng.normal(size=(n, p)), columns=[f"c{i}" for i in range(p)])
+    X = pd.DataFrame(rng.normal(size=(n, p)), columns=[f"c{i}" for i in range(p)], copy=False)
     y = (X["c0"] + 0.5 * X["c2"] > 0).astype(int)
     orig_cols = list(X.columns)
     orig_vals = X.to_numpy().copy()

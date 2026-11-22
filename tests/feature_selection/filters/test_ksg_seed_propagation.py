@@ -56,17 +56,17 @@ def test_baseline_mi_pair_ksg_seed_changes_mi() -> None:
 
 @pytest.mark.parametrize("seed", [7, 123])
 def test_optimise_hermite_pair_threads_seed_into_every_ksg_call(monkeypatch: pytest.MonkeyPatch, seed: int) -> None:
-    """Every sklearn KSG call made by the pair search receives the caller's seed rather than a hardcoded 42."""
+    """Every KSG call made by the pair search receives the caller's seed rather than a hardcoded 42."""
     seen: list[int] = []
-    real = {"c": hfo.mutual_info_classif, "r": hfo.mutual_info_regression}
+    real = hfo.ksg_mi_columns
 
-    def _spy_r(*args, **kwargs):
-        """Record random_state then delegate to sklearn regression MI."""
+    def _spy(*args, **kwargs):
+        """Record random_state then delegate to the KSG kernels."""
         seen.append(kwargs["random_state"])
-        return real["r"](*args, **kwargs)
+        return real(*args, **kwargs)
 
-    monkeypatch.setattr(hfo, "mutual_info_regression", _spy_r)
-    monkeypatch.setattr(hfp, "mutual_info_regression", _spy_r)
+    monkeypatch.setattr(hfo, "ksg_mi_columns", _spy)
+    monkeypatch.setattr(hfp, "ksg_mi_columns", _spy)
     x, y = _tied_xy(300)
     x_b = np.random.default_rng(1).normal(size=300)
     hfp.optimise_hermite_pair(

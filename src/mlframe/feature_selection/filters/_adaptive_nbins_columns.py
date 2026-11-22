@@ -200,8 +200,8 @@ def _collapsed_supervised_edges(
         if base == "quantile":
             if presorted is not None and _fallback_nb >= 2:
                 return _quantile_edges_of_sorted(presorted[0], _fallback_nb)
-            return _an()._edges_from_quantiles(col, _fallback_nb)
-        return _an()._edges_from_uniform(col, _fallback_nb)
+            return _memoised_fallback("quantile", col, _fallback_nb, uniq, lambda: _an()._edges_from_quantiles(col, _fallback_nb))
+        return _memoised_fallback("uniform", col, _fallback_nb, uniq, lambda: _an()._edges_from_uniform(col, _fallback_nb))
     from ._supervised_collapse_refine import refine_near_collapsed_supervised_edges
 
     fallback_nbins = int(kwargs.get("collapsed_fallback_nbins", 5))
@@ -292,6 +292,58 @@ def _edge_memo_key(col: np.ndarray, method_resolved: str, base: str, kwargs: dic
     return (operand_signature(np.ascontiguousarray(col)), y_sig, method_resolved, str(base), int(low_card_cap), tuple(items))
 
 
+# DISTINCT-VALUE FACTS of a column by content: the honest null of a supervised strategy asks for the edges of the same column under every permutation of the target, and the sorted distinct values
+# and counts depend on the column alone (a radix sort of the column, a tenth of the time of a mah-family fit). Bounded; a miss recomputes.
+_UNIQUE_FACTS: "OrderedDict[tuple, tuple[np.ndarray, np.ndarray]]" = OrderedDict()
+_UNIQUE_FACTS_MAX = 256
+_UNIQUE_FACTS_LOCK = threading.Lock()
+_UNIQUE_FACTS_MIN_ROWS = 2048
+
+
+def _unique_facts(finite: np.ndarray, col_sig: Optional[tuple]) -> "tuple[np.ndarray, np.ndarray]":
+    """``unique_with_counts(finite)``, served from the content-keyed memo when the signature of the column is known and the column is long enough to be worth keeping."""
+    if col_sig is None or finite.size < _UNIQUE_FACTS_MIN_ROWS:
+        return unique_with_counts(finite)
+    with _UNIQUE_FACTS_LOCK:
+        hit = _UNIQUE_FACTS.get(col_sig)
+        if hit is not None:
+            _UNIQUE_FACTS.move_to_end(col_sig)
+            return hit
+    facts = unique_with_counts(finite)
+    for arr in facts:
+        arr.setflags(write=False)  # shared between calls: a caller that wrote into them would corrupt the next column's edges
+    with _UNIQUE_FACTS_LOCK:
+        _UNIQUE_FACTS[col_sig] = facts
+        while len(_UNIQUE_FACTS) > _UNIQUE_FACTS_MAX:
+            _UNIQUE_FACTS.popitem(last=False)  # evict-ok: a miss recomputes the facts
+    return facts
+
+
+# The unsupervised fallback edges of a collapsed column are a function of the column alone; a null that re-bins a column without signal under every permutation meets the collapse each time
+# (a 20000-row column: the percentile alone was 40 % of the samples of a mah fit). Keyed by the distinct-values object of the column (held by the entry, so its id is not recycled while cached).
+_FALLBACK_EDGES: "OrderedDict[tuple, tuple[np.ndarray, np.ndarray]]" = OrderedDict()
+_FALLBACK_EDGES_MAX = 256
+_FALLBACK_EDGES_LOCK = threading.Lock()
+
+
+def _memoised_fallback(kind: str, col: np.ndarray, n_bins: int, uniq: Optional[np.ndarray], compute: Callable[[], np.ndarray]) -> np.ndarray:
+    """``compute()`` (the fallback edges of ``col`` for ``n_bins``), served from the memo when the column's distinct-values array is known; returned arrays are copies."""
+    if uniq is None or col.size < _UNIQUE_FACTS_MIN_ROWS:
+        return compute()
+    key = (id(uniq), kind, int(n_bins))
+    with _FALLBACK_EDGES_LOCK:
+        hit = _FALLBACK_EDGES.get(key)
+        if hit is not None and hit[0] is uniq:
+            _FALLBACK_EDGES.move_to_end(key)
+            return hit[1].copy()
+    edges = compute()
+    with _FALLBACK_EDGES_LOCK:
+        _FALLBACK_EDGES[key] = (uniq, edges.copy())
+        while len(_FALLBACK_EDGES) > _FALLBACK_EDGES_MAX:
+            _FALLBACK_EDGES.popitem(last=False)  # evict-ok: a miss recomputes the edges
+    return edges
+
+
 def compute_col_edges(col: np.ndarray, method_resolved: str, base: str, kwargs: dict, y: Optional[np.ndarray], low_card_cap: int) -> tuple[Any, bool]:
     """``_compute_col_edges_uncached`` through a content-keyed memo: the same column, labels and settings give the same edges, so a warm-up pass over the raw columns (run while the feature
     engineering cascades work) serves the real discretisation without computing them again. Returned arrays are copies."""
@@ -303,7 +355,7 @@ def compute_col_edges(col: np.ndarray, method_resolved: str, base: str, kwargs: 
                 _EDGE_MEMO.move_to_end(key)
         if hit is not None:
             return (hit[0].copy() if isinstance(hit[0], np.ndarray) else hit[0]), hit[1]
-    edges, low = _compute_col_edges_uncached(col, method_resolved, base, kwargs, y, low_card_cap)
+    edges, low = _compute_col_edges_uncached(col, method_resolved, base, kwargs, y, low_card_cap, None if key is None else key[0])
     if key is not None:
         with _EDGE_MEMO_LOCK:
             _EDGE_MEMO[key] = (edges.copy() if isinstance(edges, np.ndarray) else edges, low)
@@ -328,7 +380,7 @@ def _presort_for_mdlp(col: np.ndarray, finite: np.ndarray, finite_mask: np.ndarr
     return sort_xy(finite, y_enc[finite_mask])
 
 
-def _compute_col_edges_uncached(col: np.ndarray, method_resolved: str, base: str, kwargs: dict, y: Optional[np.ndarray], low_card_cap: int) -> tuple[Any, bool]:
+def _compute_col_edges_uncached(col: np.ndarray, method_resolved: str, base: str, kwargs: dict, y: Optional[np.ndarray], low_card_cap: int, col_sig: Optional[tuple] = None) -> tuple[Any, bool]:
     """Pure per-column edge computation (no cache I/O). Returns ``(edges, was_low_card)``.
 
     Identical math to the historical serial loop body; factored out so the heavy path can run under a thread pool. Touches no shared state ->
@@ -355,7 +407,7 @@ def _compute_col_edges_uncached(col: np.ndarray, method_resolved: str, base: str
             _uniq, _uniq_counts = sorted_unique_with_counts(_presorted[0])
             _uniq = _uniq.astype(_finite.dtype, copy=False)
         elif _finite.size > 0:
-            _uniq, _uniq_counts = unique_with_counts(_finite)
+            _uniq, _uniq_counts = _unique_facts(_finite, col_sig)
         else:
             _uniq = np.empty(0, dtype=_crit_np_dtype())
             _uniq_counts = np.empty(0, dtype=np.int64)

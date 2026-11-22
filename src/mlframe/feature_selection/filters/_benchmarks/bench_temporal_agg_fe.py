@@ -61,7 +61,7 @@ def make_data(n_rows: int, n_entities: int, seed: int = 0):
     val = rng.normal(size=n_rows)
     # sprinkle a few NaNs
     val[rng.integers(0, n_rows, size=n_rows // 50)] = np.nan
-    df = pd.DataFrame({"ent": ent, "t": t, "val": val})
+    df = pd.DataFrame({"ent": ent, "t": t, "val": val}, copy=False)
     return df
 
 

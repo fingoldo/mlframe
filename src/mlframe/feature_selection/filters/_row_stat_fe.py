@@ -17,6 +17,7 @@ import itertools
 from typing import TYPE_CHECKING, Any, Callable, Optional, Sequence
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import pandas as pd
 
@@ -252,5 +253,5 @@ def hybrid_row_stat_fe(
         recipes.append(rec)
     if not new_cols:
         return empty
-    enc_df = pd.DataFrame(new_cols, index=X.index)
+    enc_df = fe_frame_from_columns(new_cols, X.index)
     return pd.concat([X, enc_df], axis=1), list(new_cols), recipes, enc_df

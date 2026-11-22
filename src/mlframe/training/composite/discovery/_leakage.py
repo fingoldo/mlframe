@@ -77,7 +77,7 @@ def _rank(a: np.ndarray) -> np.ndarray:
         _, inv, counts = np.unique(a, return_inverse=True, return_counts=True)
         ends = np.cumsum(counts)
         starts = ends - counts
-        return (0.5 * (starts + ends - 1))[inv.ravel()].astype(np.float64)
+        return np.asarray((0.5 * (starts + ends - 1))[inv.ravel()].astype(np.float64))
     order = np.argsort(a, kind="mergesort")
     ranks = np.empty(a.shape[0], dtype=np.float64)
     sa = a[order]

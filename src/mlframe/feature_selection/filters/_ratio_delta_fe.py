@@ -179,7 +179,7 @@ def pairwise_ratio_features(
             if ok[ia, ib]:
                 encoded[engineered_name_ratio(a, b)] = np.nan_to_num(_safe_div(cols_vals[ia], cols_vals[ib], float(eps)), nan=0.0, posinf=0.0, neginf=0.0)
                 accepted.append((a, b))
-    enc_df = pd.DataFrame(encoded, index=X.index) if encoded else pd.DataFrame(index=X.index)
+    enc_df = pd.DataFrame(encoded, index=X.index, copy=False) if encoded else pd.DataFrame(index=X.index, copy=False)
     return enc_df, accepted
 
 def pairwise_log_ratio_features(
@@ -208,7 +208,7 @@ def pairwise_log_ratio_features(
                 lr = np.log1p(np.abs(cols_vals[ia]) + float(eps)) - np.log1p(np.abs(cols_vals[ib]) + float(eps))
                 encoded[engineered_name_log_ratio(a, b)] = np.nan_to_num(lr, nan=0.0, posinf=0.0, neginf=0.0)
                 accepted.append((a, b))
-    enc_df = pd.DataFrame(encoded, index=X.index) if encoded else pd.DataFrame(index=X.index)
+    enc_df = pd.DataFrame(encoded, index=X.index, copy=False) if encoded else pd.DataFrame(index=X.index, copy=False)
     return enc_df, accepted
 
 def apply_ratio(X_test: pd.DataFrame, a: str, b: str, eps: float) -> np.ndarray:
@@ -266,7 +266,7 @@ def grouped_delta_features(
     # num_col's crit-dtype values alongside "_g" and group it ONCE, instead of rebuilding a fresh 2-column temp
     # frame + re-hashing the identical "_g" key on every num_col iteration (num_cols is uncapped by the caller).
     x_by_col = {c: np.asarray(X[c].to_numpy(), dtype=np.float64) for c in num_cols}  # Intentional float64: the deviation from a group mean / the lag difference is a subtraction of nearly equal numbers, float32 operands lose it for a column with a large offset
-    df_aux = pd.DataFrame({"_g": g.values, **x_by_col})
+    df_aux = pd.DataFrame({"_g": g.values, **x_by_col}, copy=False)
     gb = df_aux.groupby("_g")
     row_codes, uniq_keys = pd.factorize(g.values)
     for num_col in num_cols:
@@ -313,7 +313,7 @@ def grouped_delta_features(
             "global_mean": global_mean,
             "global_std": global_std,
         }
-    enc_df = pd.DataFrame(encoded, index=X.index)
+    enc_df = pd.DataFrame(encoded, index=X.index, copy=False)
     return enc_df, recipes
 
 def apply_grouped_delta(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
@@ -432,7 +432,7 @@ def lagged_diff_features(
                 "entity_cols": tuple(entity_cols) if entity_cols else None,
                 "history": None if time_sorted is None else lag_history(time_sorted, _time_kind, x_sorted, entity_sorted, int(p)),
             }
-    enc_df = pd.DataFrame(encoded, index=X.index)
+    enc_df = pd.DataFrame(encoded, index=X.index, copy=False)
     return enc_df, recipes
 
 #: Entities whose last observations the lagged-diff recipe keeps: beyond this many the recipe carries no history (the replay then starts every frame at 0 as before) so a panel with a huge entity count does not bloat it.
@@ -755,11 +755,11 @@ def _coerce_X_for_pair(X, a: str, b: str, recipe_name: str) -> pd.DataFrame:
     try:
         import polars as _pl
         if isinstance(X, _pl.DataFrame):
-            return pd.DataFrame({a: X[a].to_numpy(), b: X[b].to_numpy()})
+            return pd.DataFrame({a: X[a].to_numpy(), b: X[b].to_numpy()}, copy=False)
     except ImportError:
         pass
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
-        return pd.DataFrame({a: X[a], b: X[b]})
+        return pd.DataFrame({a: X[a], b: X[b]}, copy=False)
     raise TypeError(f"recipe '{recipe_name}': cannot extract columns {a!r}/{b!r} from " f"X of type {type(X).__name__}")
 
 def _apply_pairwise_ratio_recipe(recipe, X) -> np.ndarray:
@@ -805,14 +805,14 @@ def _coerce_X_for_lagged_diff(X, time_col: str, value_col: str, recipe_name: str
             cols = {time_col: X[time_col].to_numpy(), value_col: X[value_col].to_numpy()}
             for c in _entity_cols:
                 cols[c] = X[c].to_numpy()
-            return pd.DataFrame(cols)
+            return pd.DataFrame(cols, copy=False)
     except ImportError:
         pass
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
         cols_np = {time_col: X[time_col], value_col: X[value_col]}
         for c in _entity_cols:
             cols_np[c] = X[c]
-        return pd.DataFrame(cols_np)
+        return pd.DataFrame(cols_np, copy=False)
     raise TypeError(f"recipe '{recipe_name}': cannot extract {time_col!r}/{value_col!r} " f"from X of type {type(X).__name__}")
 
 def _apply_lagged_diff_recipe(recipe, X) -> np.ndarray:

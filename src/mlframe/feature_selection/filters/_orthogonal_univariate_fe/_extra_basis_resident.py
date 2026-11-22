@@ -337,7 +337,7 @@ def _sweep_inputs(dims: dict) -> tuple:
 
     rng = np.random.default_rng(0)
     n = int(dims["n_samples"])
-    X = pd.DataFrame(rng.standard_normal((n, _SWEEP_COLS)).astype(np.float32), columns=[f"x{i}" for i in range(_SWEEP_COLS)])
+    X = pd.DataFrame(rng.standard_normal((n, _SWEEP_COLS)).astype(np.float32), columns=[f"x{i}" for i in range(_SWEEP_COLS)], copy=False)
     y = ((np.sin(2.0 * X["x0"]) + 0.5 * rng.standard_normal(n)) > 0).astype(np.int64).to_numpy()
     eng, meta = generate_extra_basis_features(X, extra_bases=("spline", "fourier"), dedup_collinear_sources=False)
     return (X, eng, meta, y, 10)

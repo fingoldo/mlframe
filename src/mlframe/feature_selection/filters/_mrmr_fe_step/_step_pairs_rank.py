@@ -21,7 +21,7 @@ logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 from mlframe.utils.log_throttle import log_throttle
 
-from .._fe_rejection_ledger import record_fe_rejection as _record_fe_rejection
+from .._fe_rejection_ledger import fe_rejection_ledger_saturated as _ledger_saturated, record_fe_rejection as _record_fe_rejection
 
 from .._fe_usability_signal import (  # shared leaf helpers (numpy-only, no cycle)
     _single_operand_usability_corr,
@@ -96,13 +96,22 @@ def _batch_usability_admission_verdicts(self, *, need_usability, y_continuous, c
         _pair_a_m = np.array([_op_row_of_m[_pk[0]] for _pk in need_usability], dtype=np.int64)
         _pair_b_m = np.array([_op_row_of_m[_pk[1]] for _pk in need_usability], dtype=np.int64)
 
+        # a pair whose coarse best-form |corr| is far below the admission floor cannot clear it on all rows either: the batch scores only the others (verdict False for the rest, as the full pass gives them)
+        from ._step_pairs_prevalence import coarse_pair_form_keep
+
+        _keep_m = coarse_pair_form_keep(_y_batch_m, _operand_matrix_m, _pair_a_m, _pair_b_m, _min_corr_m)
+        _idx_m = np.arange(len(need_usability)) if _keep_m is None else np.flatnonzero(_keep_m)
+        if _idx_m.size == 0:
+            return {_pk: False for _pk in need_usability}
         _verdicts_m = batch_pair_tail_concentration_rankaware(
-            _y_batch_m, _operand_matrix_m, _pair_a_m, _pair_b_m,
+            _y_batch_m, _operand_matrix_m, _pair_a_m[_idx_m], _pair_b_m[_idx_m],
             min_corr=_min_corr_m, pairness_margin=_margin_m, max_rank_frac=_rank_frac_m,
             single_corr=_single_corr_m,
         )
-        for _pk, _v in zip(need_usability, _verdicts_m):
-            _usability_verdict[_pk] = bool(_v)
+        for _pk in need_usability:
+            _usability_verdict[_pk] = False
+        for _i, _v in zip(_idx_m.tolist(), _verdicts_m):
+            _usability_verdict[need_usability[_i]] = bool(_v)
         return _usability_verdict
     except Exception as e:  # nosec B110 - optional/best-effort path, rationale documented
         # Every lookup then defaults to False (the strict rank-MI decision stands), which removes the usability admission route for the
@@ -158,33 +167,41 @@ def _prepass_gate_and_usability_candidates(
         sorted_pairs = sort_dict_by_value(cached_MIs)
     from ._pair_admission_batch import batched_asymmetric_relax_verdicts
 
-    _eligible = [
-        _pk for _pk in sorted_pairs
-        if len(_pk) == 2 and _pk not in checked_pairs and _pk[0] in numeric_vars_to_consider and _pk[1] in numeric_vars_to_consider and cached_MIs[(_pk[0],)] + cached_MIs[(_pk[1],)] > 0
-    ]
-    _relax = batched_asymmetric_relax_verdicts(gate_kwargs["self"], _eligible, gate_kwargs.get("_synergy_added_idx"), data, gate_kwargs["classes_y"])
+    # one pass over the candidate pairs collects the eligible ones with their joint MI, the sum and the pair of operand MIs; the gate state of all of them is then resolved in array form
+    _eligible: list = []
+    _e_pmi: list = []
+    _e_ies: list = []
+    _e_s0: list = []
+    _e_s1: list = []
     for _pk, _pmi in sorted_pairs.items():
-        if len(_pk) != 2 or _pk in checked_pairs:
+        if len(_pk) != 2 or _pk in checked_pairs or _pk[0] not in numeric_vars_to_consider or _pk[1] not in numeric_vars_to_consider:
             continue
-        if _pk[0] not in numeric_vars_to_consider or _pk[1] not in numeric_vars_to_consider:
-            continue
-        _ies = cached_MIs[(_pk[0],)] + cached_MIs[(_pk[1],)]
+        _m0 = cached_MIs[(_pk[0],)]
+        _m1 = cached_MIs[(_pk[1],)]
+        _ies = _m0 + _m1
         if _ies <= 0:
             continue
-        _gate_cache[_pk] = _resolve_pair_prevalence_gate(
-            _pk, _pmi, _ies, **gate_kwargs, _col_codes_cache=_col_codes_cache, single_mis=(cached_MIs[(_pk[0],)], cached_MIs[(_pk[1],)]), conditional_gate=_conditional_gate,
-            relax_verdicts=_relax,
-        )
-        if not usability_enabled or not yc_shape_ok:
-            continue
-        _pp, _pt, _is_syn_ign, _prevt_ign, _floorcmp_ign = _gate_cache[_pk]
-        if (_pp and _pt) or _pmi <= 0:
-            continue  # usability never consulted: normal gates already satisfied, or pair_mi<=0
-        _o0 = cached_operand(_pk[0])
-        _o1 = cached_operand(_pk[1])
-        if _o0 is None or _o1 is None or _o0.shape[0] != data.shape[0] or _o1.shape[0] != data.shape[0]:
-            continue
-        _need_usability.append(_pk)
+        _eligible.append(_pk)
+        _e_pmi.append(_pmi)
+        _e_ies.append(_ies)
+        _e_s0.append(_m0)
+        _e_s1.append(_m1)
+    _relax = batched_asymmetric_relax_verdicts(gate_kwargs["self"], _eligible, gate_kwargs.get("_synergy_added_idx"), data, gate_kwargs["classes_y"])
+    from ._pair_gate_batch import resolve_pair_gates_batch
+
+    _gates = resolve_pair_gates_batch(
+        _eligible, _e_pmi, _e_ies, (_e_s0, _e_s1), scalar_resolve=_resolve_pair_prevalence_gate, col_codes_cache=_col_codes_cache, conditional_gate=_conditional_gate, relax_verdicts=_relax, **gate_kwargs,
+    )
+    _gate_cache.update(zip(_eligible, _gates))
+    if usability_enabled and yc_shape_ok:
+        for _pk, _pmi, _gate in zip(_eligible, _e_pmi, _gates):
+            if (_gate[0] and _gate[1]) or _pmi <= 0:
+                continue  # usability never consulted: normal gates already satisfied, or pair_mi<=0
+            _o0 = cached_operand(_pk[0])
+            _o1 = cached_operand(_pk[1])
+            if _o0 is None or _o1 is None or _o0.shape[0] != data.shape[0] or _o1.shape[0] != data.shape[0]:
+                continue
+            _need_usability.append(_pk)
     return _gate_cache, _need_usability
 
 
@@ -442,14 +459,15 @@ def _score_prospective_pairs_part2(
                         # REJECTION LEDGER (additive): a zero-individual-MI (XOR-branch) pair was
                         # dropped because its MM-debiased joint MI did not clear the order-2 max-T
                         # permutation null floor. Record observed=joint MI vs threshold=floor.
-                        _record_fe_rejection(
-                            self, gate="order2_maxt_floor",
-                            candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
-                            operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
-                            observed=_pair_mi_floor_cmp, threshold=_pair_maxt_floor,
-                            reason=("xor_zero_marginal_below_maxt" if pair_mi > 0 else "xor_zero_pair_mi"),
-                            step=int(num_fs_steps),
-                        )
+                        if not _ledger_saturated(self):  # a full ledger drops the record: skip building its strings
+                            _record_fe_rejection(
+                                self, gate="order2_maxt_floor",
+                                candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
+                                operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
+                                observed=_pair_mi_floor_cmp, threshold=_pair_maxt_floor,
+                                reason=("xor_zero_marginal_below_maxt" if pair_mi > 0 else "xor_zero_pair_mi"),
+                                step=int(num_fs_steps),
+                            )
                     continue
                 # Prevalence + order-2 maxT gate state (synergy debiasing, asymmetric-synergy CMI
                 # relaxation, MM-debias floor comparison - see ``_resolve_pair_prevalence_gate``'s
@@ -574,14 +592,15 @@ def _score_prospective_pairs_part1(
         # failed (prevalence first - it is the primary screen the session diagnoses).
         if not _passes_prevalence:
             # observed = joint MI; threshold = marginal-sum * prevalence bar.
-            _record_fe_rejection(
-                self, gate="marginal_pair_mi_prescreen",
-                candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
-                operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
-                observed=pair_mi, threshold=ind_elems_mi_sum * _prev_thresh,
-                reason=("synergy_prevalence" if _is_synergy_pair else "prevalence_ratio"),
-                step=int(num_fs_steps),
-            )
+            if not _ledger_saturated(self):  # a full ledger drops the record: skip building its strings
+                _record_fe_rejection(
+                    self, gate="marginal_pair_mi_prescreen",
+                    candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
+                    operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
+                    observed=pair_mi, threshold=ind_elems_mi_sum * _prev_thresh,
+                    reason=("synergy_prevalence" if _is_synergy_pair else "prevalence_ratio"),
+                    step=int(num_fs_steps),
+                )
             # SECOND-CHANCE RESCUE (see ``_prevalence_failed_synergy`` above):
             # a SYNERGY pair that cleared the order-2 maxT floor but only missed
             # the stricter raw-MI synergy ratio is handed to the auto-escalation,
@@ -604,13 +623,14 @@ def _score_prospective_pairs_part1(
                 _prevalence_failed_synergy[tuple(raw_vars_pair)] = float(pair_mi)
         else:
             # prevalence passed but the MM-debiased joint MI missed the max-T floor.
-            _record_fe_rejection(
-                self, gate="order2_maxt_floor",
-                candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
-                operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
-                observed=_pair_mi_floor_cmp, threshold=_pair_maxt_floor,
-                reason="below_maxt_floor", step=int(num_fs_steps),
-            )
+            if not _ledger_saturated(self):  # a full ledger drops the record: skip building its strings
+                _record_fe_rejection(
+                    self, gate="order2_maxt_floor",
+                    candidate=str(raw_vars_pair), operands=raw_vars_pair, operator="pair",
+                    operand_names="(" + ", ".join(str(cols[_i]) for _i in raw_vars_pair) + ")",
+                    observed=_pair_mi_floor_cmp, threshold=_pair_maxt_floor,
+                    reason="below_maxt_floor", step=int(num_fs_steps),
+                )
     return _pair_mi_floor_cmp, var
 
 

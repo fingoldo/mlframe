@@ -326,7 +326,7 @@ def generate_expanding_agg_features(
                 "history": history,
                 "global_prior": prior,
             }
-    enc_df = pd.DataFrame(encoded, index=X.index)
+    enc_df = pd.DataFrame(encoded, index=X.index, copy=False)
     return enc_df, raw_recipes
 
 # ---------------------------------------------------------------------------
@@ -457,7 +457,7 @@ def generate_lag_features(
                 "history": history,
                 "global_prior": prior,
             }
-    enc_df = pd.DataFrame(encoded, index=X.index)
+    enc_df = pd.DataFrame(encoded, index=X.index, copy=False)
     return enc_df, raw_recipes
 
 # ---------------------------------------------------------------------------
@@ -527,11 +527,11 @@ def _coerce_replay_frame(X, entity_cols, value_col, time_col, recipe_name):
     try:
         import polars as _pl
         if isinstance(X, _pl.DataFrame):
-            return pd.DataFrame({c: X[c].to_numpy() for c in cols})
+            return pd.DataFrame({c: X[c].to_numpy() for c in cols}, copy=False)
     except ImportError:
         pass
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
-        return pd.DataFrame({c: X[c] for c in cols})
+        return pd.DataFrame({c: X[c] for c in cols}, copy=False)
     raise TypeError(f"recipe '{recipe_name}': cannot extract temporal columns from X of " f"type {type(X).__name__}")
 
 def _replay_keys_times(X_test, entity_cols, time_col):

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from ._fourier_block_host import sincos_legs
 import logging
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 import numpy as np
 from .._fe_frame_ops import fe_frame_from_columns
@@ -550,6 +550,14 @@ def _build_recipe_from_meta(name: str, meta_entry: dict):
         )
     return None
 
+def _extra_basis_peak_bytes(X: "pd.DataFrame", y: Any = None, *, cols: Any = None, subsample_n: int = 0, **_ignored: Any) -> int:
+    """Bytes the extra-basis family keeps alive at its peak: its legs for every scanned column on the decision rows (about 17 legs a column, float32 and float64 mixed, about 14 times a float64 column of the decision rows)."""
+    n_rows = int(subsample_n) if isinstance(subsample_n, int) and 0 < subsample_n < len(X) else len(X)
+    n_cols = len(cols) if cols is not None else int(X.shape[1])
+    return n_rows * n_cols * 8 * 14
+
+
+# Rejected (2026-11-21): decorating the family below with ``@reserves_host_block_budget(_extra_basis_peak_bytes)`` made the 100000 x 1000 fit slower (278-289 s against 247 s) and dropped selected column 4 ([2] against [2, 4]).
 def hybrid_orth_extra_basis_fe_with_recipes(
     X: pd.DataFrame,
     y: np.ndarray,
@@ -672,7 +680,7 @@ def hybrid_orth_extra_basis_fe_with_recipes(
                 _full_cols[r.name] = np.asarray(apply_recipe(r, X))
             except Exception:  # noqa: PERF203 - per-iteration fault isolation is intentional, not a hoisting candidate
                 log_throttle(logger, "extra_basis_subsample_replay_failed", logging.WARNING, "extra-basis subsample replay failed for %r; dropping.", r.name)
-        X_aug = pd.concat([X, pd.DataFrame(_full_cols, index=X.index)], axis=1) if _full_cols else X.copy(deep=False)
+        X_aug = pd.concat([X, fe_frame_from_columns(_full_cols, X.index)], axis=1) if _full_cols else X.copy(deep=False)  # the replayed columns are full length: no consolidation copy
     else:
         X_aug = pd.concat([X, engineered[keep]], axis=1) if keep else X.copy(deep=False)
     return X_aug, scores, recipes

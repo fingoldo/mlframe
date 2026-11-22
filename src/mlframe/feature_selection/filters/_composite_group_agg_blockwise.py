@@ -104,7 +104,7 @@ def composite_group_agg_top_blockwise(
                 _emit_num_col_features(X, num_col, keys, key_uniq, key_inverse, group_cols, stats, encoded, recipes)
             if not encoded:
                 continue
-            enc_df = pd.DataFrame(encoded, index=X.index)
+            enc_df = pd.DataFrame(encoded, index=X.index, copy=False)
             del encoded
             # the source column of every candidate comes from its recipe, as on the full path; an explicit map from the caller wins. Without it the redundancy test against the source was off on this path.
             block_sources = {name: rec["num_col"] for name, rec in recipes.items() if name in enc_df.columns}

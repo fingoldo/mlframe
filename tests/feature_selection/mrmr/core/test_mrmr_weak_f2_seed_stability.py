@@ -118,9 +118,11 @@ def _operand_tokens(name: str) -> set:
         if tok in _COLS:
             toks.add(tok)
         elif "__" in tok:
-            for part in tok.split("__", 1)[0].split("*"):
-                if part in _COLS:
-                    toks.add(part)
+            # ``a__He2`` -> a, ``c*d__He2_He3`` -> {c,d}; the pair families name BOTH operands (``a__ratio_log__b`` -> {a,b}), so every ``__``-separated part is read, not only the first
+            for piece in tok.split("__"):
+                for part in piece.split("*"):
+                    if part in _COLS:
+                        toks.add(part)
     return toks
 
 

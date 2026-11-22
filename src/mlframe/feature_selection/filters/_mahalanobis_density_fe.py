@@ -3,8 +3,8 @@ fe_expansion.md "Multivariate Mahalanobis / Gaussian-copula joint density anomal
 
 Computes a single new feature ``d(row) = sqrt((x-mu)^T Sigma^-1 (x-mu))`` over a correlated
 cluster (or all) of numeric raw columns jointly - the classical multivariate-normal quadratic
-form, with the mean/covariance Ledoit-Wolf shrunk (reused from ``sklearn.covariance.LedoitWolf``,
-not reimplemented) to avoid p-close-to-n ill-conditioning.
+form, with the mean/covariance Ledoit-Wolf shrunk (``_ledoit_wolf.ledoit_wolf_fit``, the
+estimate of ``sklearn.covariance.LedoitWolf``) to avoid p-close-to-n ill-conditioning.
 
 Why this catches a shape the catalog misses: y can depend on whether a row sits inside or outside
 an ELLIPSOIDAL level-set of the joint distribution of p=15-30 correlated numeric columns (e.g. a
@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Callable, Optional, Sequence
 import numpy as np
 from ._fe_usability_signal import _crit_np_dtype
 import pandas as pd
-from sklearn.covariance import LedoitWolf
+from ._ledoit_wolf import ledoit_wolf_fit
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 if TYPE_CHECKING:
@@ -77,9 +77,7 @@ def mahalanobis_density_feature(
         return np.full(n, np.nan, dtype=_crit_np_dtype())
 
     # The shrinkage estimator squares its inputs: in the policy float32 a column beyond ~1e10 overflows the covariance to NaN, so it is fitted in double precision.
-    lw = LedoitWolf().fit(np.asarray(fit_arr, dtype=np.float64))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
-    mu = lw.location_
-    Sigma_inv = lw.get_precision()
+    mu, _cov, Sigma_inv, _shrinkage = ledoit_wolf_fit(np.asarray(fit_arr, dtype=np.float64))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
 
     delta = X - mu
     d2 = np.einsum("ni,ij,nj->n", delta, Sigma_inv, delta)
@@ -115,15 +113,16 @@ def generate_mahalanobis_density_features(X: "pd.DataFrame", cols: Sequence[str]
     if p < 1 or n < p + 1 or not np.isfinite(X_cols).all():
         return pd.DataFrame(index=X.index), {}
 
-    lw = LedoitWolf().fit(np.asarray(X_cols, dtype=np.float64))  # double precision: the estimator squares its inputs, which overflows float32 beyond ~1e10  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
+    # double precision: the estimator squares its inputs, which overflows float32 beyond ~1e10  # Intentional float64
+    mu_fit, _cov, precision_fit, _shrinkage = ledoit_wolf_fit(np.asarray(X_cols, dtype=np.float64))
     # Intentional float64: serialised recipe payload (mu / Sigma_inv) keeps a fixed f64 contract across the policy switch.
-    mu = np.asarray(lw.location_, dtype=np.float64).copy()
+    mu = np.asarray(mu_fit, dtype=np.float64).copy()
     # Intentional float64: serialised recipe payload (mu / Sigma_inv) keeps a fixed f64 contract across the policy switch
-    Sigma_inv = np.asarray(lw.get_precision(), dtype=np.float64).copy()
+    Sigma_inv = np.asarray(precision_fit, dtype=np.float64).copy()
     scores = _score_from_frozen(X_cols, mu, Sigma_inv)
 
     name = engineered_name_mahalanobis_density(cols)
-    enc = pd.DataFrame({name: scores}, index=X.index)
+    enc = pd.DataFrame({name: scores}, index=X.index, copy=False)
     payload = {"cols": tuple(cols), "mu": mu, "Sigma_inv": Sigma_inv}
     return enc, payload
 
@@ -138,7 +137,7 @@ def apply_mahalanobis_density(X_test: "pd.DataFrame", payload: dict) -> "pd.Data
     X_cols = X_test[cols].to_numpy(dtype=_crit_np_dtype())
     scores = _score_from_frozen(X_cols, payload["mu"], payload["Sigma_inv"])
     name = engineered_name_mahalanobis_density(cols)
-    return pd.DataFrame({name: scores}, index=X_test.index)
+    return pd.DataFrame({name: scores}, index=X_test.index, copy=False)
 
 
 def build_mahalanobis_density_recipe(*, name: str, cols: Sequence[str], mu: np.ndarray, Sigma_inv: np.ndarray) -> "EngineeredRecipe":

@@ -78,7 +78,6 @@ from __future__ import annotations
 from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name, split_engineered_name
 
 import logging
-import warnings
 from typing import Optional, Sequence
 
 import numpy as np
@@ -188,26 +187,15 @@ def _fit_lasso_abs_coefs_scaled(
     reuses ONE standardization pass across every class fit instead of repeating it per class.
     ``Lasso``'s default ``copy_X=True`` means every call gets its own internal working copy, so sharing
     ``X_scaled`` across class fits is safe (no cross-class mutation)."""
-    from sklearn.linear_model import Lasso
+    from ._elastic_net_cd import elastic_net_coef
 
-    from sklearn.exceptions import ConvergenceWarning
-
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always", category=ConvergenceWarning)
-        model = Lasso(
-            alpha=float(alpha),
-            fit_intercept=True,
-            max_iter=5000,
-            random_state=int(random_state),
-        )
-        model.fit(X_scaled, y_arr)
-    if any(issubclass(w.category, ConvergenceWarning) for w in caught):
+    coef, converged = elastic_net_coef(X_scaled, y_arr, float(alpha), 1.0, max_iter=5000)
+    if not converged:
         log_throttle(
             logger, "orth_lasso_fe_not_converged", logging.WARNING,
             "Lasso did not converge in max_iter=5000 (alpha=%s); |coef| feature scores may be unreliable.", alpha,
         )
-    scores: np.ndarray = np.abs(np.asarray(model.coef_)).ravel()
-    return scores
+    return np.abs(np.asarray(coef, dtype=np.float64)).ravel()
 
 def score_features_by_lasso_coef(
     raw_X: pd.DataFrame,

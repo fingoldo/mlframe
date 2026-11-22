@@ -15,11 +15,13 @@ import logging
 import re
 from typing import Any
 
+from time import perf_counter
+
 import numpy as np
 
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.utils.log_throttle import log_throttle
-from mlframe.feature_selection.filters._fe_family_timing import fe_timed
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed, record_fe_family_wall
 
 logger = logging.getLogger(__name__)
 _TOKEN_SPLIT = re.compile(r"[(),|\s]+|__")
@@ -41,6 +43,7 @@ def _is_refinement(sources: "frozenset[str]", design_sources: "list[frozenset[st
     return bool(sources) and any(sources <= held for held in design_sources)
 
 
+@fe_timed("stage:rescue_cell_tables")
 def _cell_table_candidates(self, X, y, design, raw_cols, design_sources, pool) -> dict:
     """Out-of-fold 2-D cell tables of the design residual for the raw pairs that interact beyond the additive model (the pair residual screen) and that no single design column holds; added to ``pool`` as ``oofcell(a,b)``.
 
@@ -111,6 +114,7 @@ def _replayable_from_input(recipe, X, raw_cols, parents):
     return recipe if on_input.shape == on_full.shape and np.allclose(on_input, on_full, atol=1e-6, equal_nan=True) else None
 
 
+@fe_timed("stage:rescue_target_mix")
 def _target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_only, parents) -> dict:
     """Engineered candidates of the feature-base target mix (``_target_mix_fe``), added to ``pool``; returns their recipes (attached only if the rescue admits them). Empty when the mix is off."""
     self.fe_target_mix_provenance_ = []
@@ -121,6 +125,7 @@ def _target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_
     from ..engineered_recipes.shared import apply_recipe
     from .._target_mix_fe import second_pass_recipes
 
+    t_second = perf_counter()
     found, self.fe_target_mix_provenance_ = second_pass_recipes(
         self,
         X,
@@ -128,8 +133,11 @@ def _target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_
         design,
         max_bases=int(self.fe_target_mix_max_bases),
         scan_rows=int(self.fe_target_mix_scan_rows),
+        propose=bool(getattr(self, "fe_target_mix_candidates", False)),
         min_relative_gain=float(self.fe_residual_rescue_min_relative_gain),
     )
+    record_fe_family_wall("stage:target_mix_second_pass", perf_counter() - t_second)
+    t_replay = perf_counter()
     eng_recipe = {str(n): r for n, r in zip(self._engineered_features_ or [], self._engineered_recipes_ or [])}
     for entry in self.fe_target_mix_provenance_:
         base = entry["base"]
@@ -150,6 +158,7 @@ def _target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_
         recipes[name] = recipe
         if kind == "linear":
             linear_only.add(name)
+    record_fe_family_wall("stage:target_mix_replay", perf_counter() - t_replay)
     return recipes
 
 
@@ -216,6 +225,7 @@ def _linearly_useless(rest: dict, column, y, pre: dict, z: float, floor: float) 
     return not (t_stat > z and share >= floor)
 
 
+@fe_timed("stage:rescue_prune_unsupported")
 def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "list[str]":
     """Design columns that add nothing to the rest of the selection (``redundancy_policy='drop'`` only).
 
@@ -325,6 +335,7 @@ def _admit_from_pool(self, X, y, design: dict, raw_cols, design_sources: list, e
     linear_only = {name for name in pool if classify(_raw_sources(name, raw_cols)) == "linear"}
     cell_recipes = _cell_table_candidates(self, X, y, design, raw_cols, design_sources, pool)
     cell_recipes.update(_target_mix_candidates(self, X, y, design, raw_cols, classify, pool, linear_only, engineered_recipes))
+    t_scan = perf_counter()
     admitted = residual_rescue(
         design,
         pool,
@@ -334,6 +345,7 @@ def _admit_from_pool(self, X, y, design: dict, raw_cols, design_sources: list, e
         linear_channel=True,
         linear_only=frozenset(linear_only),
     )
+    record_fe_family_wall("stage:rescue_pool_scan", perf_counter() - t_scan)
     return cell_recipes, admitted, pool
 
 
@@ -347,6 +359,7 @@ def _keep_best_raw_if_selection_empties(self: Any, X: Any, y: np.ndarray, cols: 
         dropped.remove(max(corr, key=lambda k: corr[k]))
 
 
+@fe_timed("stage:rescue_admit_columns")
 def _admit_pool_columns(self, X, y, admitted, cols, selected_vars, engineered_recipes, cell_recipes, retention_added_eng_names, verbose) -> tuple:
     """Append each admitted pool column to the selection (engineered recipes and raws); returns the admitted names and the engineered subset."""
     names = []
@@ -372,6 +385,7 @@ def _admit_pool_columns(self, X, y, admitted, cols, selected_vars, engineered_re
     return names, admitted_engineered
 
 
+@fe_timed("stage:rescue_prune_after")
 def _prune_after_admission(self, X, y, cols, selected_vars, design, pool, prune_names, admitted_engineered, raw_cols, eng_set, verbose) -> tuple:
     """Re-prune the design after admission, then drop the raw and engineered columns that lost their held-out gain; returns the dropped raw indices and the pruned engineered names."""
     from .._residual_rescue_fe import residual_rescue

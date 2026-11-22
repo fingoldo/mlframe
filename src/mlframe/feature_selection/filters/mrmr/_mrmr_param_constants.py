@@ -27,7 +27,7 @@ _VALID_NBINS_STRATEGIES = (
     "auto", "sturges", "freedman_diaconis", "fd", "qs", "quantile", "uniform",
     "knuth", "blocks",  # demoted to research-only with AccuracyWarning
     "mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated", "optimal_joint", "cv",
-    "mah", "mah_sci", "sci", "marx",  # Marx 2021 SCI-guided adaptive
+    "mah",  # Marx 2021 multi-dimensional adaptive histogram (SCI-guided merging of the feature's bins)
 )
 # opt-in validation sets.
 _VALID_MI_CORRECTIONS = ("none", "miller_madow", "chao_shen")
@@ -36,15 +36,14 @@ _VALID_STABILITY_SELECTION_METHODS = (
     "classic", "cluster", "complementary_pairs",
 )
 # per mega-bench v3 Knuth (MI_mean 0.342, weak on uniform),
-# Bayesian Blocks (MI_mean 0.272, weakest overall), and MAH/SCI
-# (MI_mean 0.168, catastrophic on noisy continuous signals due to
-# over-aggressive SCI-greedy bin merging that collapses to ~2 bins)
-# are demoted from the recommended option set. They remain selectable
+# Bayesian Blocks (MI_mean 0.272, weakest overall)
+# are demoted from the recommended option set. (MAH was demoted with them for the same reason, an MI_mean of 0.168
+# from a merge that collapsed every column to two bins; that was an error in the merge criterion and the regret
+# formula of ``_mah``, fixed on 2026-11-22, and MAH is a recommended option again under its one name ``mah``.) They remain selectable
 # for research / reproduction work but emit an ``AccuracyWarning`` so
 # downstream callers can opt-in explicitly.
 _DEMOTED_NBINS_STRATEGIES = (
     "knuth", "blocks",
-    "mah", "mah_sci", "sci", "marx",
 )
 _VALID_FE_UNARY_PRESETS = ("minimal", "medium", "maximal")
 _VALID_FE_BINARY_PRESETS = ("minimal", "medium", "maximal")

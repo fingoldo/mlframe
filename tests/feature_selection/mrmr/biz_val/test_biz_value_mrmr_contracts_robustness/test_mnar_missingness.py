@@ -47,6 +47,14 @@ import pandas as pd
 import pytest
 
 
+def _carries(names, col):
+    """The column's signal is selected: the column itself, or the ``is_missing__{col}`` indicator the missingness family builds from it.
+
+    On a column whose information is only the NaN pattern the two hold identical codes (identical gain), so which of them the screen keeps is a tie; either is the missingness signal reaching the model.
+    """
+    return col in names or f"is_missing__{col}" in names
+
+
 def _build_mnar_colliding_with_the_imputation_constant(n: int = 2500, miss_rate: float = 0.30, seed: int = 7001):
     """MNAR where every OBSERVED value already equals the value ``fillna_zero`` would impute.
 
@@ -176,7 +184,7 @@ class TestPureMNAR:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "x_mnar" in names, f"Pure MNAR signal lost - separate_bin NaN handling failed; support={names}"
+        assert _carries(names, "x_mnar"), f"Pure MNAR signal lost - separate_bin NaN handling failed; support={names}"
 
     def test_pure_mnar_ranks_above_noise(self):
         """``x_mnar`` should be the FIRST pick - it is the only
@@ -191,7 +199,7 @@ class TestPureMNAR:
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
         assert len(names) >= 1, f"Empty selection on pure-MNAR data; {names}"
-        assert names[0] == "x_mnar", f"x_mnar must rank first (it is the ONLY signal); got first={names[0]}, full={names}"
+        assert names[0] in ("x_mnar", "is_missing__x_mnar"), f"x_mnar must rank first (it is the ONLY signal); got first={names[0]}, full={names}"
 
     @pytest.mark.parametrize("miss_rate", [0.15, 0.30, 0.50])
     def test_pure_mnar_across_miss_rates(self, miss_rate):
@@ -205,7 +213,7 @@ class TestPureMNAR:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "x_mnar" in names, f"miss_rate={miss_rate}: MNAR signal lost; support={names}"
+        assert _carries(names, "x_mnar"), f"miss_rate={miss_rate}: MNAR signal lost; support={names}"
 
     def test_pure_mnar_noise_rejected(self):
         """At most 2 of the 5 noise columns may slip through. Bound
@@ -239,7 +247,7 @@ class TestHybridMNAR:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "x_signal" in names, f"Hybrid MNAR signal lost; support={names}"
+        assert _carries(names, "x_signal"), f"Hybrid MNAR signal lost; support={names}"
 
     def test_hybrid_mnar_decoy_rejected(self):
         """``x_decoy`` has the same marginal distribution as the
@@ -285,7 +293,7 @@ class TestNaNStrategyContrast:
         names_sep = list(sel_sep.get_feature_names_out())
         names_fz = list(sel_fz.get_feature_names_out())
         # separate_bin MUST surface x_mnar.
-        assert "x_mnar" in names_sep, f"separate_bin failed to detect pure-MNAR signal; support={names_sep}"
+        assert _carries(names_sep, "x_mnar"), f"separate_bin failed to detect pure-MNAR signal; support={names_sep}"
         # The comparison in this test's NAME -- separate_bin BEATS fillna_zero -- was written as an `if` whose
         # body is `pass`, followed by a comment saying "either way", so the strategy it is supposed to beat was
         # never actually compared against. Making it a real assertion also required fixing the premise the old
@@ -313,7 +321,9 @@ class TestMultiMNAR:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "x_a" in names and "x_b" in names, f"Multi-MNAR: both MNAR-carrying features must be selected; support={names}"
+        # ``missingness_count`` / ``missingness_pattern`` aggregate the per-column indicators, so on a target that is a function of both NaN patterns one of them carries both signals in a single column.
+        aggregate = any(nm in names for nm in ("missingness_count", "missingness_pattern"))
+        assert aggregate or (_carries(names, "x_a") and _carries(names, "x_b")), f"Multi-MNAR: both MNAR-carrying features must be selected; support={names}"
 
     def test_multi_mnar_noise_rejected(self):
         """Check test multi mnar noise rejected."""
@@ -342,4 +352,4 @@ class TestMNARSeedRobustness:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "x_mnar" in names, f"seed={seed}: pure-MNAR signal lost; support={names}"
+        assert _carries(names, "x_mnar"), f"seed={seed}: pure-MNAR signal lost; support={names}"

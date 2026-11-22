@@ -30,7 +30,6 @@ from numba import njit, prange
 import pandas as pd, numpy as np
 from matplotlib import pyplot as plt
 
-from sklearn.feature_selection import mutual_info_regression
 from mlframe._optional_imports import import_optional
 
 # fast_brier_score_loss is the project's numba Brier, proven sklearn-equivalent by metrics tests;
@@ -56,7 +55,7 @@ def uniform_cdf(x: np.ndarray) -> np.ndarray:
 def mutual_information_score(y: np.ndarray, y_preds: np.ndarray) -> float:
     """Estimate the mutual information (in nats) between true outcomes ``y`` and predictions ``y_preds``.
 
-    Thin wrapper over sklearn's ``mutual_info_regression`` (a k-nearest-neighbour MI estimator,
+    Thin wrapper over the k-nearest-neighbour MI estimator of ``mlframe.feature_selection.filters._ksg_dispatch`` (sklearn's ``mutual_info_regression``,
     Kraskov/Stoegbauer/Grassberger) with ``n_neighbors=2``. Both inputs are reshaped to column
     vectors; the single scalar MI estimate is returned. Higher is better (more shared information
     between prediction and outcome). This is NOT the Hyvarinen score (a proper scoring rule based on
@@ -67,7 +66,10 @@ def mutual_information_score(y: np.ndarray, y_preds: np.ndarray) -> float:
         # sklearn's KNN MI estimator requires n_samples > n_neighbors (=2); return NaN on a degenerate tiny
         # input instead of raising a cryptic ValueError from deep inside sklearn.
         return float("nan")
-    return float(mutual_info_regression(y.reshape(-1, 1), y_preds.reshape(-1, 1), n_neighbors=2)[0])
+    from mlframe.feature_selection.filters._ksg_dispatch import ksg_mi_columns
+
+    # the repository's own kernels give sklearn's estimate (scaling, Kraskov noise stream, radius); the seed is fixed, so the score is the same on every call
+    return float(ksg_mi_columns(y.reshape(-1, 1), np.asarray(y_preds).ravel(), discrete_target=False, n_neighbors=2, random_state=0)[0])
 
 
 def hyvarinen_score(y: np.ndarray, y_preds: np.ndarray) -> float:

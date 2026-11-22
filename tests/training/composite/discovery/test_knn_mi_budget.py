@@ -72,11 +72,11 @@ def test_no_downgrade_when_budget_ample_or_disabled():
 
 def test_the_guard_covers_auto_base_ranking(monkeypatch):
     """With auto bases and the permutation null, a tiny budget downgrades before auto-base runs any Kraskov estimate."""
-    import sklearn.feature_selection as fs
+    from mlframe.training.composite.discovery import screening
 
     calls = {"n": 0}
     at_auto_base = {"n": None}
-    real_mi, real_auto = fs.mutual_info_regression, CompositeTargetDiscovery._auto_base
+    real_mi, real_auto = screening._knn_mi_column, CompositeTargetDiscovery._auto_base
 
     def mi_spy(*a, **k):
         """Count every MI call so the budget can be checked against what was actually spent."""
@@ -88,7 +88,7 @@ def test_the_guard_covers_auto_base_ranking(monkeypatch):
         at_auto_base["n"] = calls["n"]
         return real_auto(self, *a, **k)
 
-    monkeypatch.setattr(fs, "mutual_info_regression", mi_spy)
+    monkeypatch.setattr(screening, "_knn_mi_column", mi_spy)
     monkeypatch.setattr(CompositeTargetDiscovery, "_auto_base", auto_spy)
     disc = CompositeTargetDiscovery(_cfg(knn_mi_budget_seconds=1e-9, base_candidates="auto", auto_base_null_perms=20))
     disc.fit(_frame(), "y", ["base", "x0", "x1"], np.arange(1500))

@@ -25,7 +25,7 @@ def _make_df(n, n_cols, seed=0):
     rng = np.random.default_rng(seed)
     cats = [f"cat_{i}" for i in range(50)]
     data = {f"c{j}": rng.choice(cats, size=n) for j in range(n_cols)}
-    return pd.DataFrame(data)  # plain object dtype -- forces the factorize path, not .cat.codes
+    return pd.DataFrame(data, copy=False)  # plain object dtype -- forces the factorize path, not .cat.codes
 
 
 _best_of = functools.partial(best_of, reps=3)

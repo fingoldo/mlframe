@@ -529,9 +529,6 @@ _METHOD_ALIASES = {
     "gupta": "qs",
     "uniform": "uniform",
     "mah": "mah",
-    "mah_sci": "mah",
-    "sci": "mah",
-    "marx": "mah",
 }
 
 

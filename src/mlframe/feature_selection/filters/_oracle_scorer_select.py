@@ -253,7 +253,7 @@ class OracleScorerSelector:
             )
             if y is None:
                 raise ValueError("cold-start cascade needs y")
-            X_df = X if isinstance(X, pd.DataFrame) else pd.DataFrame(np.asarray(X))
+            X_df = X if isinstance(X, pd.DataFrame) else pd.DataFrame(np.asarray(X))  # copy-ok: the caller's array
             y_arr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
             fp_signal = fingerprint_signal(X_df, y_arr)
             scorer = predict_best_scorer(fp_signal)
@@ -327,7 +327,7 @@ class OracleScorerSelector:
             generate_univariate_basis_features,
         )
 
-        X_df = X if isinstance(X, pd.DataFrame) else pd.DataFrame(np.asarray(X))
+        X_df = X if isinstance(X, pd.DataFrame) else pd.DataFrame(np.asarray(X))  # copy-ok: the caller's array
         y_arr = y.to_numpy() if hasattr(y, "to_numpy") else np.asarray(y)
 
         engineered = generate_univariate_basis_features(

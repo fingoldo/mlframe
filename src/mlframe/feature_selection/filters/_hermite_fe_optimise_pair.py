@@ -14,7 +14,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 
 if TYPE_CHECKING:
     from .hermite_fe import HermiteResult
-from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
+from mlframe.feature_selection.filters._ksg_dispatch import ksg_mi_columns
 from mlframe.utils.log_throttle import log_throttle
 from .fe_baselines import ksg_random_state
 from types import SimpleNamespace as _SimpleNamespace
@@ -805,10 +805,9 @@ def _optimise_hermite_pai_step1_like_rbf_wrap(st, eval_func_b, mi_estimator, plu
                 else:
                     mi_arr = _plugin_mi_regression_batch_njit(X_batch, kw["y_njit"], kw["plugin_n_bins"])
             else:
-                if kw["discrete_target"]:
-                    mi_arr = mutual_info_classif(X_batch, kw["y"], n_neighbors=kw["n_neighbors"], random_state=ksg_random_state(kw["random_state"]), discrete_features=False)
-                else:
-                    mi_arr = mutual_info_regression(X_batch, kw["y"], n_neighbors=kw["n_neighbors"], random_state=ksg_random_state(kw["random_state"]), discrete_features=False)
+                mi_arr = ksg_mi_columns(
+                    X_batch, kw["y"], discrete_target=kw["discrete_target"], n_neighbors=kw["n_neighbors"], random_state=ksg_random_state(kw["random_state"])
+                )
             penalty = 0.0 if kw.get("direction_only") else _l2_penalty_value(coef_a, coef_b, kw["l2_penalty"], float(kw["l2_penalty_saturation"]))
             best_score = -np.inf
             best_raw = 0.0

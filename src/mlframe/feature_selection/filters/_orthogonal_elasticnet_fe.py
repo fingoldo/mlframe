@@ -49,7 +49,6 @@ from __future__ import annotations
 from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name, split_engineered_name
 
 import logging
-import warnings
 from typing import Optional, Sequence
 
 import numpy as np
@@ -90,8 +89,7 @@ def _fit_elasticnet_abs_coefs(
     l1_ratio=0.0 reproduces pure Ridge - sklearn's ElasticNet handles both
     edges via internal dispatch.
     """
-    from sklearn.exceptions import ConvergenceWarning
-    from sklearn.linear_model import ElasticNet
+    from ._elastic_net_cd import elastic_net_coef
 
     X_arr = np.asarray(X_stack, dtype=np.float64)  # Intentional float64: standardising a float32 cast loses columns with a large offset
     y_arr = np.asarray(y, dtype=np.float64).ravel()
@@ -111,26 +109,14 @@ def _fit_elasticnet_abs_coefs(
             X_scaled[:, const_mask] = 0.0
     else:
         X_scaled = X_clean
-    model = ElasticNet(
-        alpha=float(alpha),
-        l1_ratio=float(l1_ratio),
-        fit_intercept=True,
-        max_iter=5000,
-        random_state=int(random_state),
-    )
-    # Surface (do NOT blanket-ignore) ConvergenceWarning: a non-converged
-    # ElasticNet returns coefficients that silently drive feature selection, so
-    # the caller must at least see a WARN. Other warning categories pass through
-    # the normal filters unchanged.
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always", category=ConvergenceWarning)
-        model.fit(X_scaled, y_arr)
-    if any(issubclass(w.category, ConvergenceWarning) for w in caught):
+    # Surface (do NOT blanket-ignore) non-convergence: a coordinate descent that ran out of sweeps returns coefficients that silently drive feature selection, so the caller must at least see a WARN.
+    coef, converged = elastic_net_coef(X_scaled, y_arr, float(alpha), float(l1_ratio), max_iter=5000)
+    if not converged:
         logger.warning(
             "ElasticNet did not converge in max_iter=5000 (alpha=%s, l1_ratio=%s); "
             "|coef| feature scores may be unreliable.", alpha, l1_ratio,
         )
-    return np.abs(np.asarray(model.coef_, dtype=np.float64)).ravel()  # Intentional float64: elastic-net score statistic and batch input, kept at double like the lasso path
+    return np.abs(np.asarray(coef, dtype=np.float64)).ravel()  # Intentional float64: elastic-net score statistic and batch input, kept at double like the lasso path
 
 def score_features_by_elasticnet_coef(
     raw_X: pd.DataFrame,

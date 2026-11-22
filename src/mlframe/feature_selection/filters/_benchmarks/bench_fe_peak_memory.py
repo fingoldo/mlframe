@@ -44,7 +44,7 @@ def _make_case(n: int, n_noise: int, seed: int) -> tuple[pd.DataFrame, pd.Series
     cols = {"a": a, "b": b, "c": c, "d": d, "e": e}
     for j in range(n_noise):
         cols[f"n{j}"] = rng.normal(0.0, 1.0, n)
-    return pd.DataFrame(cols), pd.Series(y, name="y")
+    return pd.DataFrame(cols, copy=False), pd.Series(y, name="y")
 
 
 class _RSSPoller(threading.Thread):

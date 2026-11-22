@@ -6,7 +6,7 @@ GENERATED from the signature; do not edit by hand. A meta-test compares it with 
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal
 import collections.abc
 import sklearn.model_selection._split
 from pydantic import BaseModel, ConfigDict
@@ -45,8 +45,8 @@ class MRMRParams(BaseModel):
     quantization_method: Literal["quantile", "uniform"] = "quantile"
     quantization_nbins: int = 10
     quantization_dtype: Any = None
-    max_categorical_cardinality: int | None = 255
-    nbins_strategy: Optional[
+    max_categorical_cardinality: int | None = 127
+    nbins_strategy: (
         Literal[
             "auto",
             "sturges",
@@ -64,18 +64,16 @@ class MRMRParams(BaseModel):
             "optimal_joint",
             "cv",
             "mah",
-            "mah_sci",
-            "sci",
-            "marx",
         ]
-    ] = "mdlp"
+        | None
+    ) = "mdlp"
     nbins_strategy_kwargs: dict | None = None
-    max_adaptive_nbins: int = 256
+    max_adaptive_nbins: int = 127
     adaptive_nbins_large_n_reg: bool = True
     adaptive_nbins_large_n_reg_threshold: int = 50000
     adaptive_nbins_large_n_reg_nbins: int = 20
     mi_correction: Literal["none", "miller_madow", "chao_shen"] = "none"
-    redundancy_aggregator: Optional[Literal["jmim", "auto"]] = None
+    redundancy_aggregator: Literal["jmim", "auto"] | None = None
     bur_lambda: float = 0.0
     relaxmrmr_alpha: float = 0.0
     cmi_perm_stop: bool = False
@@ -241,7 +239,7 @@ class MRMRParams(BaseModel):
     cluster_aggregate_homogeneity_tau: float = 0.6
     cluster_aggregate_max_candidates: int = 200
     dcd_enable: bool = True
-    dcd_tau_cluster: Union[float, Literal["auto"]] = 0.7
+    dcd_tau_cluster: float | Literal["auto"] = 0.7
     dcd_distance: Literal["su", "vi", "sotoca_pla", "auto"] = "su"
     dcd_super_tau: float = 0.5
     dcd_hierarchy_max_levels: int = 3
@@ -574,6 +572,7 @@ class MRMRParams(BaseModel):
     fe_target_mix_enable: bool = True
     fe_target_mix_max_bases: int = 2
     fe_target_mix_scan_rows: int = 20000
+    fe_target_mix_candidates: bool = False
     fe_residual_rescue_operand_min_linear_gain: float = 0.001
     fe_wavelet_enable: bool = True
     fe_wavelet_max_cols: int | None = 100

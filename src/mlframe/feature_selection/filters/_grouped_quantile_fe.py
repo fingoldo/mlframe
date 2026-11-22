@@ -322,7 +322,7 @@ def generate_grouped_quantile_features(
         encoded.update(enc_part)
         raw_recipes.update(rec_part)
 
-    enc_df = pd.DataFrame(encoded, index=X.index)
+    enc_df = pd.DataFrame(encoded, index=X.index, copy=False)
     return enc_df, raw_recipes
 
 def apply_grouped_quantile(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
@@ -513,7 +513,7 @@ def generate_target_aware_group_bins(
                 "n_bins": int(n_bins),
             }
 
-    enc_df = pd.DataFrame(encoded, index=X.index)
+    enc_df = pd.DataFrame(encoded, index=X.index, copy=False)
     return enc_df, raw_recipes
 
 def apply_target_aware_group_bin(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
@@ -892,7 +892,9 @@ def _hybrid_grouped_quantile_in_blocks(X, y, group_cols, num_cols, quantiles, bl
                     cols[nm] = enc[nm]
                     recipes_by_name[nm] = rec[nm]
     winners = [w for w in winners if w in cols]
-    X_aug = pd.concat([X, pd.DataFrame({w: cols[w] for w in winners}, index=X.index)], axis=1)
+    from ._fe_frame_ops import fe_frame_from_columns
+
+    X_aug = pd.concat([X, fe_frame_from_columns({w: np.asarray(cols[w]) for w in winners}, X.index)], axis=1)
     recipes = [build_grouped_quantile_recipe(name=w, **recipes_by_name[w]) for w in winners]
     return X_aug, winners, recipes, scores
 

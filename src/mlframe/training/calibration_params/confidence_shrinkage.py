@@ -6,7 +6,7 @@ GENERATED from the signature; do not edit by hand. A meta-test compares it with 
 
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Dict
 import numpy
 from pydantic import BaseModel, ConfigDict
 
@@ -20,5 +20,5 @@ class ConfidenceShrinkageParams(BaseModel):
 
     neutral_value: float = 0.5
     min_confidence: float = 1.0
-    max_confidence: Optional[float] = None
-    segments: Optional[Dict[str, numpy.ndarray]] = None
+    max_confidence: float | None = None
+    segments: Dict[str, numpy.ndarray] | None = None

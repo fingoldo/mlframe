@@ -291,7 +291,9 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
     """``{scorer: (len(columns), len(boot_idx)) values}`` of the column-separable scorers, one batched call per bootstrap resample.
 
     Each value equals the per-column scorer call on that column and resample: the batch kernels are the ones the per-column calls route to (plug-in, copula, xi, dCor, HSIC), and the KSG batch draws
-    each column's noise from its own seed. Only a classification target with integer labels and all-finite columns is batched; ``None`` leaves everything to the per-column path.
+    each column's noise from its own seed. All-finite columns are batched; ``None`` leaves everything to the per-column path. A continuous target is batched too, for the scorers whose batch kernels take
+    float labels (copula, xi, dCor, HSIC, tail dependence) and, for a target with many distinct values, the continuous-target KSG; the plug-in scorer needs integer labels, so it is left out of the
+    result and each column computes it on its own.
     """
     from ._hermite_fe_mi import column_mi_memo_disabled
     from ._orthogonal_copula_mi_fe import _copula_mi_batch
@@ -304,14 +306,16 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
     from ._ksg_cd_fast import ksg_mi_discrete_target_columns
     from mlframe.utils.host_block_budget import host_block_budget
 
-    if not columns or not np.issubdtype(np.asarray(y_arr).dtype, np.integer):
+    if not columns:
         return None
+    labels_are_integer = bool(np.issubdtype(np.asarray(y_arr).dtype, np.integer))
     dt = _crit_np_dtype()
     if not all(np.isfinite(c).all() for c in columns):
         return None
-    ksg_ok = _is_discrete_target(y_arr)
+    ksg_ok = labels_are_integer and _is_discrete_target(y_arr)
+    ksg_continuous = (not labels_are_integer) and not _is_discrete_target(y_arr)  # a float target with many values: the Kraskov kernel for a continuous target
     # Intentional float64: the scorer values are kept as double precision vectors (ranking ties)
-    out = {s: np.empty((len(columns), len(boot_idx)), dtype=np.float64) for s in _BATCHED_BOOTSTRAP_SCORERS if s != "ksg" or ksg_ok}
+    out = {s: np.empty((len(columns), len(boot_idx)), dtype=np.float64) for s in _BATCHED_BOOTSTRAP_SCORERS if (s != "ksg" or ksg_ok or ksg_continuous) and (s != "plug_in" or labels_are_integer)}
     def one_resample(b: int) -> None:
         """All batched scorers of resample ``b`` for every column, written into column ``b`` of the result; the resamples that run together share the host block budget (``utils.host_block_budget``)."""
         # the block and the float64 working copies of the scorers (KSG, copula, xi, dCor, HSIC) are about four blocks; 8 workers at 3000 columns x 30000 rows held 8 x 1.4 GB at once
@@ -328,14 +332,20 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
         dev = _device_block(block)
         # Only the plug-in and KSG batches reach numba ``parallel=True`` kernels, which must be entered by one thread at a time (see ``mlframe._numba_parallel_guard``); the copula, xi, dCor and HSIC
         # batches are numpy / scipy / serial njit and overlap across the pool threads.
-        with parallel_kernel_entry(), column_mi_memo_disabled():
-            # Intentional float64: MI batch scores kept as a double precision accumulator vector (ranking ties)
-            out["plug_in"][:, b] = np.asarray(_mi_classif_batch(block, yb, nbins=int(hyper["nbins"])), dtype=np.float64)
+        if labels_are_integer:
+            with parallel_kernel_entry(), column_mi_memo_disabled():
+                # Intentional float64: MI batch scores kept as a double precision accumulator vector (ranking ties)
+                out["plug_in"][:, b] = np.asarray(_mi_classif_batch(block, yb, nbins=int(hyper["nbins"])), dtype=np.float64)
         # The KSG batch is the longest of the guarded kernels (one thread at a time), so every resample reaches it first and the numpy / scipy scorers below overlap with the guarded queue of the other
         # resamples (it used to come last, after the unguarded work, and the queue started late).
         if ksg_ok:
             with parallel_kernel_entry():
                 out["ksg"][:, b] = ksg_mi_discrete_target_columns(block, yb, n_neighbors=int(hyper["n_neighbors"]), random_state=seed)
+        elif ksg_continuous:
+            from ._ksg_cc_fast import ksg_mi_continuous_target_columns
+
+            with parallel_kernel_entry():
+                out["ksg"][:, b] = ksg_mi_continuous_target_columns(block, yb, n_neighbors=int(hyper["n_neighbors"]), random_state=seed)
         # Intentional float64: copula MI batch scores kept as a double precision accumulator vector
         out["copula"][:, b] = np.asarray(_copula_mi_batch(block, yb, n_bins=int(hyper["copula_n_bins"]), device_block=dev), dtype=np.float64)
         out["xi"][:, b] = xi_correlation_batch(block, yb, random_state=seed, device_block=dev)

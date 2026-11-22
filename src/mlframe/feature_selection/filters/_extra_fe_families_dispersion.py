@@ -370,7 +370,7 @@ def generate_conditional_dispersion_features(
                 encoded[name] = np.asarray(vals, dtype=_crit_np_dtype())
                 raw_recipes[name] = {**payload, "kind": kind}
 
-    return pd.DataFrame(encoded, index=X.index), raw_recipes
+    return pd.DataFrame(encoded, index=X.index, copy=False), raw_recipes
 
 
 def apply_conditional_dispersion(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
@@ -434,12 +434,12 @@ def _apply_conditional_dispersion_recipe(recipe, X) -> np.ndarray:
         try:
             import polars as _pl
             if isinstance(X, _pl.DataFrame):
-                X_view = pd.DataFrame({x_i: X[x_i].to_numpy(), x_j: X[x_j].to_numpy()})
+                X_view = pd.DataFrame({x_i: X[x_i].to_numpy(), x_j: X[x_j].to_numpy()}, copy=False)
             else:
                 raise TypeError
         except (ImportError, TypeError):
             if isinstance(X, np.ndarray) and X.dtype.names is not None:
-                X_view = pd.DataFrame({x_i: X[x_i], x_j: X[x_j]})
+                X_view = pd.DataFrame({x_i: X[x_i], x_j: X[x_j]}, copy=False)
             else:
                 raise TypeError(f"conditional_dispersion recipe '{recipe.name}': cannot " f"extract {x_i!r}/{x_j!r} from X of type {type(X).__name__}.")
     return apply_conditional_dispersion(

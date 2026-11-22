@@ -609,7 +609,7 @@ def kfold_target_encode_fit(
             "global_stats": {s: float(global_stats[s]) for s in stats},
         }
 
-    te_df = pd.DataFrame(encoded_cols, index=getattr(X, "index", None))
+    te_df = pd.DataFrame(encoded_cols, index=getattr(X, "index", None), copy=False)
     return te_df, recipes
 
 # ---------------------------------------------------------------------------

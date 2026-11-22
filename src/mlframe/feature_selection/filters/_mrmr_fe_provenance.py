@@ -472,7 +472,7 @@ def compute_fe_provenance(mrmr_self: Any) -> pd.DataFrame:
     is unfitted or the fitted attributes have been wiped.
     """
     columns = list(_PROVENANCE_COLUMNS)
-    empty = pd.DataFrame({col: pd.Series([], dtype=object) for col in columns})
+    empty = pd.DataFrame({col: pd.Series([], dtype=object) for col in columns}, copy=False)
     if getattr(mrmr_self, "feature_names_in_", None) is None:
         return empty
     if getattr(mrmr_self, "support_", None) is None:
@@ -554,9 +554,7 @@ def populate_fe_provenance(mrmr_self: Any) -> None:
             "until next successful fit. Cause: %s",
             type(exc).__name__, exc,
         )
-        mrmr_self.fe_provenance_ = pd.DataFrame(
-            {col: pd.Series([], dtype=object) for col in _PROVENANCE_COLUMNS},
-        )
+        mrmr_self.fe_provenance_ = pd.DataFrame({col: pd.Series([], dtype=object) for col in _PROVENANCE_COLUMNS}, copy=False)
 
 
 def record_family_wall(mrmr_self: Any) -> None:
@@ -659,4 +657,6 @@ def get_fe_report(mrmr_self: Any) -> str:
     header_parts = [f"{origin}={count}" for origin, count in by_origin.items()]
     header = "MRMR FE provenance: " + ", ".join(header_parts)
     table = prov.to_string(index=False)
-    return str(header + "\n" + table + _family_wall_section(mrmr_self))
+    from ._fe_group_counts import family_counts_section
+
+    return str(header + "\n" + table + family_counts_section(mrmr_self) + _family_wall_section(mrmr_self))

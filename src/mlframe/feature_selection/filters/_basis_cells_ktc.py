@@ -37,7 +37,7 @@ def _sweep_inputs(dims: dict) -> tuple:
 
     n = int(dims["n_samples"])
     rng = np.random.default_rng(0)
-    X = pd.DataFrame({f"x{i}": rng.normal(size=n).astype(np.float32) for i in range(_SWEEP_COLUMNS)})
+    X = pd.DataFrame({f"x{i}": rng.normal(size=n).astype(np.float32) for i in range(_SWEEP_COLUMNS)}, copy=False)
     y = ((X["x0"] ** 2 + 0.5 * X["x1"] ** 3 + rng.normal(size=n) * 0.3) > 1).astype(np.int64).to_numpy()
     return (X, coerce_y_classif(y))
 

@@ -265,6 +265,11 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_provenance_": None,
     # Wall seconds and timed intervals of every FE family in this fit ({family: {"wall_s", "calls"}}, longest first), also in fe_provenance_.attrs["family_wall"] and get_fe_report().
     "fe_family_wall_": None,
+    # Engineered columns by producing group ({group: {"emitted", "kept_for_screen", "selected"}}) and by FE stage (a list of {"stage", "recommended", "new_columns", "by_group"}: the cascades, then steps 1..fe_max_steps); also in fe_provenance_.attrs and get_fe_report().
+    "fe_family_counts_": None,
+    "fe_step_counts_": None,
+    "_fe_emitted_by_group_": None,
+    "_fe_step_counts_acc_": None,
     # The process-global family-wall ledger at the start of the last fit; fe_family_wall_ is the difference at its end. None on a legacy pickle, read as an empty ledger.
     "_fe_family_wall_pre_": None,
     # Per-MRMR-gain list of the last fit; every consumer reads it with a [] default, and nothing tests its presence with hasattr, so an empty list is the legacy value.
@@ -332,6 +337,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_target_mix_enable": False,
     "fe_target_mix_max_bases": 2,
     "fe_target_mix_scan_rows": 20000,
+    "fe_target_mix_candidates": False,
     "fe_residual_rescue_operand_min_linear_gain": 0.001,
     "offset_product_features_": [],
     # Haar wavelet basis. Pre-#13 pickles default OFF so the
@@ -446,9 +452,10 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "_synergy_auto_decision_": None,
     "degenerate_columns_": {},  # an estimator that never ran the degenerate-column audit has nothing to report
     "groups_ignored_": False,
+    "code_storage_plan_": None,  # the diagnostic record of the code dtype a fit chose; nothing reads it, an older pickle never computed it
     # Fitted attributes added after the first release. An older pickle lacks them, and every consumer reads them through getattr(..., default), so the
     # value injected here is exactly that default: an empty collection for the engineered-feature rosters, None for "never computed", False for flags.
-    # Attributes with no neutral default (support_, n_features_in_, feature_names_in_, mrmr_gains_, ...) are core outputs every fitted pickle carries and
+    # Attributes with no neutral default (support_, n_features_in_, feature_names_in_, ...) are core outputs every fitted pickle carries and
     # stay out of the roster; tests/test_meta/test_every_fitted_attr_is_setstate_safe.py pins that remainder.
     "cat_pair_features_": [],
     "cat_triple_features_": [],

@@ -82,7 +82,7 @@ class SharedArrayPool:
                 # An auto-keyed hit is only the same data while the caller has not rewritten the buffer: the key is an address, so an
                 # in-place overwrite keeps it. Compare the content; on a change, give the new content its own segment and key, so a task
                 # still pending on the old segment keeps reading its snapshot (audit 26-F20).
-                stored = np.ndarray(hit.desc.shape, dtype=np.dtype(hit.desc.dtype), buffer=hit.shm.buf)
+                stored: np.ndarray = np.ndarray(hit.desc.shape, dtype=np.dtype(hit.desc.dtype), buffer=hit.shm.buf)
                 if np.array_equal(stored, a):
                     hit.refs += 1
                     return hit.desc

@@ -25,7 +25,7 @@ from mlframe.feature_selection.filters import polynom_pair_fe as ppf
 def _make_data(n, n_cols, seed=0):
     rng = np.random.default_rng(seed)
     cols = [f"c{i}" for i in range(n_cols)]
-    X = pd.DataFrame({c: rng.standard_normal(n) for c in cols})
+    X = pd.DataFrame({c: rng.standard_normal(n) for c in cols}, copy=False)
     a, b = X["c0"].values, X["c1"].values
     logit = 1.5 * (a * a - b * b) + 0.5 * X["c2"].values
     y = (1.0 / (1.0 + np.exp(-logit)) > rng.random(n)).astype(np.int64)

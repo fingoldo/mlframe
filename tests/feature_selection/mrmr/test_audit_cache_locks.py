@@ -85,6 +85,8 @@ def test_mah_y_binning_cache_clear_is_lock_guarded():
 def test_fe_gpu_gate_cache_invalidates_on_strict_env_flip(monkeypatch):
     """The FE-GPU discretize gate memo must fold the strict-mode env into its key, so flipping MLFRAME_FE_GPU_STRICT mid-process returns the new verdict, not a stale cached one."""
     pc = pytest.importorskip("mlframe.feature_selection.filters._feature_engineering_pairs._pairs_core")
+    # the gate and its uncached computation live in ``_pairs_gpu_gates``; ``_pairs_core`` only re-exports them, so a patch of the re-export is never seen by the gate
+    gates = pytest.importorskip("mlframe.feature_selection.filters._feature_engineering_pairs._pairs_gpu_gates")
 
     calls: list[str] = []
 
@@ -94,7 +96,7 @@ def test_fe_gpu_gate_cache_invalidates_on_strict_env_flip(monkeypatch):
         calls.append(strict)
         return strict == "1"
 
-    monkeypatch.setattr(pc, "_fe_gpu_discretize_enabled_uncached", _fake_uncached)
+    monkeypatch.setattr(gates, "_fe_gpu_discretize_enabled_uncached", _fake_uncached)
     with pc._GPU_GATE_CACHE_LOCK:
         pc._GPU_GATE_CACHE.clear()
 

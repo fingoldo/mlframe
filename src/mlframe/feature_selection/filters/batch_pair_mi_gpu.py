@@ -40,6 +40,7 @@ from mlframe.feature_selection.filters._fe_gpu_batch._devices import crit_float_
 
 # Re-export CPU baseline for callers who want a single import point.
 from .info_theory import batch_pair_mi_prange as batch_pair_mi_njit_prange
+from .info_theory import batch_pair_mi_prange_cols as _batch_pair_mi_cols
 from ._content_memo import ContentMemo
 
 logger = logging.getLogger(__name__)
@@ -430,7 +431,7 @@ class _PairMiDispatch:
 
     def njit_prange(self) -> tuple[np.ndarray, str]:
         """The parallel CPU kernel (tag ``"njit"``)."""
-        return batch_pair_mi_njit_prange(*self.args), "njit"
+        return _batch_pair_mi_cols(*self.args), "njit"
 
     def njit_serial(self) -> tuple[np.ndarray, str]:
         """The serial CPU kernel (tag stays ``"njit"``)."""
@@ -617,7 +618,7 @@ def dispatch_batch_pair_mi(
         # MLFRAME_DISABLE_GPU=1 / CUDA_VISIBLE_DEVICES="" is the project-wide "no GPU on this run"
         # override (see _gpu_policy.py's module docstring); it must win even over an explicit
         # force_backend="cuda"/"cupy" caller request - that is the whole point of the switch.
-        return batch_pair_mi_njit_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
+        return _batch_pair_mi_cols(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
 
     run = _PairMiDispatch(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
     # Explicit override

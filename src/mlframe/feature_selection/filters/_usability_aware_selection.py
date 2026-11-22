@@ -224,7 +224,7 @@ def build_usability_candidate_pool(
     st._mi_key = (lambda m: quantize_mi_tiebreak(m)) if st._seleq else (lambda m: m)
 
     if not isinstance(X_df, pd.DataFrame):
-        X_df = pd.DataFrame(np.asarray(X_df))
+        X_df = pd.DataFrame(np.asarray(X_df))  # copy-ok: the caller's array
     y_cont = _scrub(y_cont)
     st.y_codes = _quantile_bin(y_cont, quantization_nbins, host_only=True)
     # y is fixed for the whole candidate enumeration -> hoist H(Y)/k_y once (reused by every marginal-MI eval).
@@ -572,11 +572,8 @@ def _usability_scorers(classification: bool, y_cont: np.ndarray) -> Optional[tup
     """CV scorer factory ``_mk`` (scaled logistic / OLS pipeline), the multi-class log-loss, and the encoded labels; None when a classification target has < 2 classes.
 
     Returns ``(_mk, _logloss, y_enc, n_classes)``."""
-    from sklearn.linear_model import LinearRegression, LogisticRegression
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.pipeline import make_pipeline
-
     from ._added_information_gate import _dense_codes
+    from ._linear_probes import ScaledLogistic, ScaledOLS
 
     # CLASSIFICATION mode: the LINEAR downstream for a classification target is a LOGISTIC
     # model, and the deployed objective is a CLASSIFICATION metric - so the wrapper must score by
@@ -595,9 +592,8 @@ def _usability_scorers(classification: bool, y_cont: np.ndarray) -> Optional[tup
 
         def _mk():
             """Build a fresh scaled-logistic-regression pipeline (classification path CV scorer/pre-rank model)."""
-            return make_pipeline(StandardScaler(), LogisticRegression(max_iter=200))
+            return ScaledLogistic(max_iter=200)
 
-        from sklearn.metrics import log_loss as _log_loss
         _labels = np.arange(n_classes)
 
         def _logloss(y_true, proba):
@@ -608,7 +604,13 @@ def _usability_scorers(classification: bool, y_cont: np.ndarray) -> Optional[tup
                 # sklearn's log_loss clips to [eps, 1 - eps] and averages -log p[true class]; the same sum without its input validation (10x faster, equal to the last bit in float64)
                 eps = np.finfo(proba.dtype).eps
                 return float(-np.mean(np.log(np.clip(proba, eps, 1.0 - eps)[np.arange(proba.shape[0]), np.asarray(y_true)])))
-            return float(_log_loss(y_true, proba, labels=_labels))
+            # integer-typed or non-2-D probabilities: the same clipped log loss, after normalising each row; a table whose columns are not the full label set is an error, as it was in scikit-learn
+            p = np.asarray(proba, dtype=np.float64)
+            if p.ndim != 2 or p.shape[1] != n_classes:
+                raise ValueError(f"log loss: the probabilities have shape {p.shape} but the label set has {n_classes} classes")
+            eps = np.finfo(np.float64).eps  # Intentional float64: the clip of the double-precision path
+            p = np.clip(p / p.sum(axis=1, keepdims=True), eps, 1.0 - eps)
+            return float(-np.mean(np.log(p[np.arange(p.shape[0]), np.searchsorted(_labels, np.asarray(y_true))])))
     else:
         # bench-attempt-rejected (2026-06-13): an audit flagged OLS min-norm as fragile on a singular/wide
         # selected set and suggested a small Ridge in the CV. Benched OLS vs Ridge(alpha=1) on F2: n=8000
@@ -618,7 +620,7 @@ def _usability_scorers(classification: bool, y_cont: np.ndarray) -> Optional[tup
         # nothing. Kept OLS (the gold-standard wrapper that matches the deployed objective). Do not re-add.
         def _mk():
             """Build a fresh scaled-OLS-linear-regression pipeline (regression path CV scorer/pre-rank model)."""
-            return make_pipeline(StandardScaler(), LinearRegression())
+            return ScaledOLS()
     return _mk, _logloss, y_enc, n_classes
 
     # INCREMENTAL CV (was a PERF TODO): the regression scorer no longer refits a

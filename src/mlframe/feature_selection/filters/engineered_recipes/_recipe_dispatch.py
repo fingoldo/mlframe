@@ -85,7 +85,7 @@ def _cat_cross(recipe: EngineeredRecipe, X: Any, cc: Any, bc: Any) -> np.ndarray
     A pandas frame is passed through untouched; any other container is rebuilt as a frame of just the source columns.
     """
     names = tuple(recipe.src_names)
-    frame = X if (pd is not None and isinstance(X, pd.DataFrame)) else pd.DataFrame({n: _extract_column(X, n, col_cache=cc) for n in names})
+    frame = X if (pd is not None and isinstance(X, pd.DataFrame)) else pd.DataFrame({n: _extract_column(X, n, col_cache=cc) for n in names}, copy=False)
     mapping = {tuple(k): int(v) for k, v in recipe.extra["mapping"]}
     extras: dict[str, Any] = {
         "encoding": str(recipe.extra.get("encoding", "raw")),

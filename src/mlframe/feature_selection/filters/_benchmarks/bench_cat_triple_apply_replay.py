@@ -52,7 +52,7 @@ def _make_data(n, card, seed=0):
         "a": rng.integers(0, card, n).astype(str),
         "b": rng.integers(0, card, n).astype(str),
         "c": rng.integers(0, card, n).astype(str),
-    })
+    }, copy=False)
     _, mapping = _encode_triple(
         np.asarray(_column_to_str(fit["a"])),
         np.asarray(_column_to_str(fit["b"])),
@@ -63,7 +63,7 @@ def _make_data(n, card, seed=0):
         "a": rng.integers(0, card + 2, n).astype(str),
         "b": rng.integers(0, card + 2, n).astype(str),
         "c": rng.integers(0, card + 2, n).astype(str),
-    })
+    }, copy=False)
     te_lookup = {code: float(rng.normal()) for code in set(mapping.values())}
     return test, mapping, te_lookup
 

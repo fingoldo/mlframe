@@ -207,7 +207,7 @@ def generate_rare_category_features(
         encoded[band_name] = band
         raw_recipes[band_name] = {**common, "kind": "freq_band"}
 
-    return pd.DataFrame(encoded, index=X.index), raw_recipes
+    return pd.DataFrame(encoded, index=X.index, copy=False), raw_recipes
 
 def apply_rare_category(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Replay one rare-category column. ``kind`` selects is_rare / freq_band.
@@ -267,12 +267,12 @@ def _apply_rare_category_recipe(recipe, X) -> np.ndarray:
         try:
             import polars as _pl
             if isinstance(X, _pl.DataFrame):
-                X_view = pd.DataFrame({src_col: X[src_col].to_numpy()})
+                X_view = pd.DataFrame({src_col: X[src_col].to_numpy()}, copy=False)
             else:
                 raise TypeError
         except (ImportError, TypeError):
             if isinstance(X, np.ndarray) and X.dtype.names is not None:
-                X_view = pd.DataFrame({src_col: X[src_col]})
+                X_view = pd.DataFrame({src_col: X[src_col]}, copy=False)
             else:
                 raise TypeError(f"rare_category recipe '{recipe.name}': cannot extract " f"{src_col!r} from X of type {type(X).__name__}.")
     return apply_rare_category(
@@ -501,7 +501,7 @@ def generate_conditional_residual_features(
                 "global_mean": global_mean,
             }
 
-    return pd.DataFrame(encoded, index=X.index), raw_recipes
+    return pd.DataFrame(encoded, index=X.index, copy=False), raw_recipes
 
 def apply_conditional_residual(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Replay ``x_i - E[x_i | bin(x_j)]`` from the stored x_j edges + per-bin
@@ -558,12 +558,12 @@ def _apply_conditional_residual_recipe(recipe, X) -> np.ndarray:
         try:
             import polars as _pl
             if isinstance(X, _pl.DataFrame):
-                X_view = pd.DataFrame({x_i: X[x_i].to_numpy(), x_j: X[x_j].to_numpy()})
+                X_view = pd.DataFrame({x_i: X[x_i].to_numpy(), x_j: X[x_j].to_numpy()}, copy=False)
             else:
                 raise TypeError
         except (ImportError, TypeError):
             if isinstance(X, np.ndarray) and X.dtype.names is not None:
-                X_view = pd.DataFrame({x_i: X[x_i], x_j: X[x_j]})
+                X_view = pd.DataFrame({x_i: X[x_i], x_j: X[x_j]}, copy=False)
             else:
                 raise TypeError(f"conditional_residual recipe '{recipe.name}': cannot " f"extract {x_i!r}/{x_j!r} from X of type {type(X).__name__}.")
     return apply_conditional_residual(
@@ -843,7 +843,7 @@ def generate_rankgauss_features(
             "n_fit": int(fit_sorted.size),
         }
 
-    return pd.DataFrame(encoded, index=X.index), raw_recipes
+    return pd.DataFrame(encoded, index=X.index, copy=False), raw_recipes
 
 def apply_rankgauss(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
     """Replay RankGauss: interpolate each test value's rank against the stored
@@ -900,12 +900,12 @@ def _apply_rankgauss_recipe(recipe, X) -> np.ndarray:
         try:
             import polars as _pl
             if isinstance(X, _pl.DataFrame):
-                X_view = pd.DataFrame({src_col: X[src_col].to_numpy()})
+                X_view = pd.DataFrame({src_col: X[src_col].to_numpy()}, copy=False)
             else:
                 raise TypeError
         except (ImportError, TypeError):
             if isinstance(X, np.ndarray) and X.dtype.names is not None:
-                X_view = pd.DataFrame({src_col: X[src_col]})
+                X_view = pd.DataFrame({src_col: X[src_col]}, copy=False)
             else:
                 raise TypeError(f"rankgauss recipe '{recipe.name}': cannot extract " f"{src_col!r} from X of type {type(X).__name__}.")
     return apply_rankgauss(

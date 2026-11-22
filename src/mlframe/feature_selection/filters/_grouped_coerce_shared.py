@@ -128,11 +128,11 @@ def coerce_X_for_grouped(X: "pd.DataFrame | Any", group_col: str, num_col: str, 
                     group_col: X[group_col].to_numpy(),
                     num_col: X[num_col].to_numpy(),
                 }
-            )
+            , copy=False)
     except ImportError:
         pass
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
-        return pd.DataFrame({group_col: X[group_col], num_col: X[num_col]})
+        return pd.DataFrame({group_col: X[group_col], num_col: X[num_col]}, copy=False)
     raise TypeError(f"recipe '{recipe_name}': cannot extract {group_col!r}/{num_col!r} from X of type {type(X).__name__}")
 
 def auto_detect_group_cols(X: pd.DataFrame, max_cols: int = 4, caller: str = 'grouped FE') -> list:

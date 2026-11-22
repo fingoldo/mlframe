@@ -37,7 +37,7 @@ def _fusion_inputs(dims: dict) -> tuple:
     recipes = {nm: build_orth_univariate_recipe(name=nm, src_name=nm.split("__")[0], basis="hermite", degree=2) for nm in cont}
     y = sum(cont.values()) + 3.0 * rng.standard_normal(n)
     yd = pd.qcut(y, q=8, labels=False, duplicates="drop").astype(np.int64)
-    kw = dict(engineered_recipes=recipes, engineered_continuous=cont, newly_engineered_names=list(cont), raw_name_set=set(names), cols=names, classes_y=yd, X=pd.DataFrame(raw), nbins=_NBINS, seed=0)
+    kw = dict(engineered_recipes=recipes, engineered_continuous=cont, newly_engineered_names=list(cont), raw_name_set=set(names), cols=names, classes_y=yd, X=pd.DataFrame(raw, copy=False), nbins=_NBINS, seed=0)
     return (kw, MRMR(verbose=0))
 
 

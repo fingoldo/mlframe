@@ -236,7 +236,7 @@ def scen_multicolumn(n: int, n_relevant: int, n_irrelevant: int, n_redundant: in
             arr[mask] = np.nan
             cols[name] = arr
 
-    X = pd.DataFrame(cols)
+    X = pd.DataFrame(cols, copy=False)
     gt = MulticolumnGT(
         relevant=relevant_names, irrelevant=irrelevant_names, redundant=redundant_names,
         redundant_source=redundant_source, categorical_cols=categorical_cols,
@@ -313,7 +313,7 @@ def scen_wellbore100k(n_relevant: int, n_redundant: int, seed: int = 0, n: int =
         redundant_names.append(name)
         redundant_source[name] = src
 
-    X = pd.DataFrame(cols)
+    X = pd.DataFrame(cols, copy=False)
     gt = MulticolumnGT(
         relevant=relevant_names, irrelevant=irrelevant_names, redundant=redundant_names,
         redundant_source=redundant_source, categorical_cols=categorical_cols,

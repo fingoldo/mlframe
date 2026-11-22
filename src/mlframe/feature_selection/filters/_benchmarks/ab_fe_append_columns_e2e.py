@@ -87,7 +87,7 @@ def main() -> None:
     _install(args.strategy)
 
     rng = np.random.default_rng(args.seed)
-    X = pd.DataFrame({f"x{i}": rng.normal(size=args.n) for i in range(args.p)})
+    X = pd.DataFrame({f"x{i}": rng.normal(size=args.n) for i in range(args.p)}, copy=False)
     X["cat"] = pd.Categorical(rng.integers(0, 8, size=args.n))
     y = X["x0"] * 1.2 + np.sin(2 * X["x1"]) + X["x2"] * X["x3"] * 0.8 + rng.normal(scale=0.3, size=args.n)
 

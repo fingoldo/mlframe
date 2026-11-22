@@ -9,6 +9,8 @@ the quantile edges are taken for all columns together with the same lerp the per
 
 from __future__ import annotations
 
+from ._fe_gpu_vram import current_memory_pool
+
 import logging
 import threading
 from collections.abc import Sequence
@@ -127,7 +129,7 @@ def _count_kernel(cp):
 def _block_columns(cp, n_rows: int, n_cols: int) -> int:
     """Columns per sort launch that the memory pool can still hold (at least 1)."""
     try:
-        pool = cp.get_default_memory_pool()
+        pool = current_memory_pool(cp)
         free_device = int(cp.cuda.runtime.memGetInfo()[0]) + int(pool.free_bytes())
         limit = int(pool.get_limit())
         room = free_device if limit <= 0 else min(free_device, max(0, limit - int(pool.used_bytes())))

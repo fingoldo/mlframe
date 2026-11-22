@@ -18,8 +18,6 @@ from __future__ import annotations
 import numpy as np
 from ._fe_usability_signal import _crit_np_dtype
 
-from mlframe.utils.warning_filters import silenced_once
-
 
 def trivial_pair_features(x_a: np.ndarray, x_b: np.ndarray) -> dict:
     """Return a dict of trivial pair-feature transforms.
@@ -78,17 +76,9 @@ def _mi_1d(
         y_njit = np.asarray(y, dtype=np.float64)
         return float(_plugin_mi_regression_njit(x_njit, y_njit, plugin_n_bins))
     # ksg path
-    from sklearn.feature_selection import mutual_info_classif, mutual_info_regression
-    with silenced_once(Warning, r"sklearn\."):
-        if discrete_target:
-            return float(mutual_info_classif(
-                x.reshape(-1, 1), y, n_neighbors=n_neighbors,
-                random_state=ksg_random_state(random_state), discrete_features=False,
-            )[0])
-        return float(mutual_info_regression(
-            x.reshape(-1, 1), y, n_neighbors=n_neighbors,
-            random_state=ksg_random_state(random_state), discrete_features=False,
-        )[0])
+    from ._ksg_dispatch import ksg_mi_columns
+
+    return float(ksg_mi_columns(x.reshape(-1, 1), y, discrete_target=discrete_target, n_neighbors=n_neighbors, random_state=ksg_random_state(random_state))[0])
 
 
 def score_trivial_baselines(

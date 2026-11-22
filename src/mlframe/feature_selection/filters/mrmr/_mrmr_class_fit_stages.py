@@ -16,6 +16,7 @@ from .._dynamic_cluster_discovery import set_dcd_active as _set_dcd_active
 from .._fe_deadline import fit_deadline_boundary as _fit_deadline_boundary
 from .._fe_family_timing import log_fe_family_summary as _log_fe_wall
 from .._mrmr_fe_provenance import record_family_wall as _record_family_wall
+from .._fe_group_counts import record_family_counts as _record_family_counts
 from .._fe_gpu_strict import clear_auto_fit_n as _clear_auto_fit_n
 from .._fe_gpu_strict import set_auto_fit_n as _set_auto_fit_n
 from .._fe_rejection_ledger import populate_fe_rejection_ledger as _pop_rej
@@ -541,6 +542,7 @@ class _MRMRFitStagesMixin:
             update_fe_budgets_after_fit(self)
         record_leak_suspects(self, X, y)
         _record_family_wall(self)  # before the summary below clears the ledger
+        _record_family_counts(self)
         _log_fe_wall()
         self._print_fit_summary()
         return result

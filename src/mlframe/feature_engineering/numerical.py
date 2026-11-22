@@ -70,7 +70,6 @@ def histogram(a: Any, bins: Any = "auto", **kwargs) -> tuple[np.ndarray, np.ndar
         return cast(tuple[np.ndarray, np.ndarray], _h(a, bins=bins, **kwargs))
     return np.histogram(a, bins=bins, **kwargs)
 from scipy.stats import kstest, rv_continuous
-from sklearn.feature_selection import mutual_info_regression
 
 from mlframe.feature_engineering.hurst import compute_hurst_exponent
 from pyutilz.parallel import parallel_run
@@ -393,10 +392,11 @@ from ._numerical_numba import (  # noqa: F401
 
 def compute_mutual_info_regression(arr: np.ndarray, xvals: np.ndarray = _EMPTY_FLOAT32) -> float:
     """KNN-based mutual information between ``arr`` and ``xvals`` (or ``arr``'s row index when ``xvals`` is empty)."""
-    if len(xvals):
-        mi = mutual_info_regression(xvals.reshape(-1, 1), arr, n_neighbors=2)
-    else:
-        mi = mutual_info_regression(np.arange(len(arr)).reshape(-1, 1), arr, n_neighbors=2)
+    from mlframe.feature_selection.filters._ksg_dispatch import ksg_mi_columns
+
+    # the repository's own kernels give sklearn's estimate; the seed is fixed, so the value is the same on every call
+    feature = xvals.reshape(-1, 1) if len(xvals) else np.arange(len(arr)).reshape(-1, 1)
+    mi = ksg_mi_columns(feature, arr, discrete_target=False, n_neighbors=2, random_state=0)
 
     return float(mi[0])
 

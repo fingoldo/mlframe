@@ -25,7 +25,7 @@ def _hub_frame(n: int, seed: int = 0):
     b = rng.normal(size=n)
     c = rng.normal(size=n)
     y = ((hub**2 + np.sin(2 * hub) + hub * b + 0.5 * hub * c + 0.3 * rng.normal(size=n)) > 1.0).astype(np.int64)
-    return pd.DataFrame({"hub": hub, "b": b, "c": c, "noise": rng.normal(size=n)}), y
+    return pd.DataFrame({"hub": hub, "b": b, "c": c, "noise": rng.normal(size=n)}, copy=False), y
 
 
 def _peak(fn):

@@ -92,6 +92,59 @@ def _newton_kernel(A: np.ndarray, y: np.ndarray, lam: float, max_iter: int, grad
     return False
 
 
+@njit(cache=True, nogil=True)
+def _residual_and_curvature(z: np.ndarray, y: np.ndarray) -> tuple:
+    """``(mu - y, mu (1 - mu))`` at the scores ``z`` in one pass (no temporaries of the logistic function)."""
+    n = z.shape[0]
+    r = np.empty(n)
+    s = np.empty(n)
+    for i in range(n):
+        mu = 1.0 / (1.0 + np.exp(-z[i]))
+        r[i] = mu - y[i]
+        s[i] = mu * (1.0 - mu)
+    return r, s
+
+
+def _newton_blas(A: np.ndarray, y: np.ndarray, lam: float, max_iter: int, grad_tol: float, w_out: np.ndarray) -> bool:
+    """:func:`_newton_kernel` with the Hessian ``A^T diag(s) A`` formed by one BLAS product per iteration: the kernel's scalar triple loop is O(n p^2) on one core, which loses to BLAS from about
+    ``n p^2`` of 1e8 up. The iteration, the line search and the stopping rule are the kernel's; the optimum is written to ``w_out``; False when it does not converge."""
+    n, p = A.shape
+    reg = np.full(p, lam)
+    reg[-1] = 0.0  # the intercept is not penalised
+    w: np.ndarray = np.zeros(p)
+    z: np.ndarray = np.zeros(n)
+    f = n * np.log(2.0)
+    tol = grad_tol * max(1.0, float(n)) ** 0.5
+    for _ in range(max_iter):
+        r, s = _residual_and_curvature(z, y)
+        grad = A.T @ r + reg * w
+        if np.max(np.abs(grad)) < tol:
+            w_out[:] = w
+            return True
+        root = A * np.sqrt(s)[:, None]
+        hess = root.T @ root  # the same buffer on both sides: BLAS forms the symmetric product, half the work of A^T (s A)
+        hess[np.diag_indices(p)] += reg + 1e-12
+        step = np.linalg.solve(hess, grad)
+        t = 1.0
+        accepted = False
+        for _ in range(12):
+            w_new = w - t * step
+            z_new = A @ w_new
+            f_new = _penalised_loss(z_new, y, w_new, lam)
+            if f_new <= f + 1e-11 * abs(f):
+                accepted = True
+                break
+            t *= 0.5
+        if not accepted:
+            return False
+        w, z, f = w_new, z_new, f_new
+    return False
+
+
+_BLAS_MIN_WORK = 1e8
+"""``n p^2`` from which the BLAS Hessian beats the scalar kernel (measured: the kernel wins at 20000 x 50 = 5e7, the BLAS form from 30000 x 100 = 3e8; 1e8 is between)."""
+
+
 def fit_logistic_ridge_newton(X: np.ndarray, y01: np.ndarray, C: float = 1.0) -> "tuple[np.ndarray, float] | None":
     """``(weights, intercept)`` of the L2 logistic fit with inverse strength ``C`` on columns ``X`` and 0/1 labels, or ``None`` when Newton does not converge to a finite optimum (the GIL-free kernel form of the NumPy twin)."""
     # Intentional float64: the optimum is solved in double so the stop test (gradient 1e-8) is meaningful for float32 inputs
@@ -99,7 +152,10 @@ def fit_logistic_ridge_newton(X: np.ndarray, y01: np.ndarray, C: float = 1.0) ->
     y = np.ascontiguousarray(y01, dtype=np.float64)  # Intentional float64: the Newton solve is in double precision
     w = np.zeros(A.shape[1])
     try:
-        converged = _newton_kernel(A, y, 1.0 / float(C), int(_MAX_ITER), float(_GRAD_TOL), w)
+        if float(A.shape[0]) * float(A.shape[1]) ** 2 >= _BLAS_MIN_WORK:
+            converged = _newton_blas(A, y, 1.0 / float(C), int(_MAX_ITER), float(_GRAD_TOL), w)
+        else:
+            converged = _newton_kernel(A, y, 1.0 / float(C), int(_MAX_ITER), float(_GRAD_TOL), w)
     except np.linalg.LinAlgError:
         logger.debug("logistic Newton probe: singular Hessian, the scikit-learn fit decides")
         return None

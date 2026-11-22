@@ -145,10 +145,14 @@ def _fit_impl_part9(_ret_fit_impl_part7: Any, self: Any, y: pd.DataFrame | pd.Se
             verbose=verbose,
             **_fe_step_params(fe),
         )
+        _recipes_before_step = set(engineered_recipes)
         fe_result = self._run_fe_step(data=data, cols=cols, nbins=nbins, X=X, selected_vars=selected_vars, checked_pairs=checked_pairs, **_step_kw)
         if fe_result is None:
             break  # FE skip: empty screening + fe_fallback_to_all=False
         data, cols, nbins, X, selected_vars, n_recommended_features = fe_result
+        from mlframe.feature_selection.filters._fe_group_counts import record_fe_step_counts
+
+        record_fe_step_counts(self, self._fe_steps_executed_, n_recommended_features, [r for k, r in engineered_recipes.items() if k not in _recipes_before_step])
 
         # Adaptive threshold relaxation: when the very first FE step engineers nothing, retry it ONCE with relaxed thresholds.
         if n_recommended_features == 0 and fe.max_steps > 0 and num_fs_steps == 0:
@@ -749,6 +753,9 @@ def _fit_impl_part2(
         _fit_entry_nan_mask,
         recipes,
     )
+    from mlframe.feature_selection.filters._fe_group_counts import record_cascade_emitted
+
+    record_cascade_emitted(self, recipes)  # the groups the cascades emitted, before the dedup and the gates remove any
     # Layer 92: temporal leak-safe grouped aggregations. Carved
     # verbatim into the sibling ``_fe_stage_temporal_agg`` (Tier E partial
     # split); the helper threads self + ``_y_np`` / ``verbose`` /

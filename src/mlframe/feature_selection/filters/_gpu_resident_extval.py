@@ -134,6 +134,7 @@ def gpu_materialise_extval_codes_host(
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
 
         if not fe_gpu_has_vram_cushion(n * K * np.dtype(_real).itemsize):
+            log_throttle(logger, "extval_vram_cushion", logging.INFO, "gpu_materialise_extval_codes_host: no VRAM cushion for the (n=%d, K=%d) candidates; using the host path", n, K)
             return None
         out_dev = _candidate_matrix(cp, pa, param_b_list, _ops, n, n_ops, resident_operand)
         if out_dev is None:

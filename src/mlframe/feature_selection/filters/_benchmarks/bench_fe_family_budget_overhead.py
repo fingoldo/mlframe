@@ -24,7 +24,7 @@ def _make_fixture(n=1500, seed=0):
     rng = np.random.default_rng(seed)
     x1, x2, x3, x4 = (rng.standard_normal(n) for _ in range(4))
     y = pd.Series((np.sign(x1 * x2 * x3) > 0).astype(int))
-    X = pd.DataFrame({"x1": x1, "x2": x2, "x3": x3, "x4": x4})
+    X = pd.DataFrame({"x1": x1, "x2": x2, "x3": x3, "x4": x4}, copy=False)
     return X, y
 
 
@@ -85,7 +85,7 @@ def bench_engine_functions_isolated():
             "mrmr_gain": np.random.default_rng(0).random(50).tolist(),
             "support_rank": list(range(50)),
         }
-    )
+    , copy=False)
     wall = {"orth_pair": (1.0, 5), "triplet": (0.5, 3), "quadruplet": (0.3, 2)}
     base_budget = {"triplet": 0.34, "quadruplet": 0.33, "adaptive_arity": 0.33}
 

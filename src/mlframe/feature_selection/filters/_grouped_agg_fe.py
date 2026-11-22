@@ -243,7 +243,7 @@ def generate_grouped_agg_features(
                 "global_std": global_std if global_std > 0.0 else 1.0,
             }
 
-    enc_df = pd.DataFrame(encoded, index=X.index)
+    enc_df = pd.DataFrame(encoded, index=X.index, copy=False)
     return enc_df, raw_recipes
 
 def apply_grouped_agg(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:

@@ -66,6 +66,7 @@ from itertools import combinations
 from typing import Optional, Sequence
 
 import numpy as np
+from ._fe_frame_ops import fe_frame_from_columns
 
 from mlframe.feature_selection.filters._internals import unique_inverse_dense
 from numpy.typing import ArrayLike
@@ -294,7 +295,7 @@ def generate_cat_triple_crosses(
             "mapping": mapping,
             "n_cells": len(mapping),
         }
-    enc_df = pd.DataFrame(encoded, index=X.index)
+    enc_df = pd.DataFrame(encoded, index=X.index, copy=False)
     return enc_df, raw_recipes
 
 # ---------------------------------------------------------------------------
@@ -590,7 +591,7 @@ def hybrid_cat_triple_fe(
 
     if not appended:
         return X, [], [], scores
-    new_df = pd.DataFrame(new_cols, index=X.index)
+    new_df = fe_frame_from_columns(new_cols, X.index)
     X_aug = append_columns(X, new_df)
     return X_aug, appended, recipes, scores
 

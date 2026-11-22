@@ -43,6 +43,8 @@ default path untouched). NEVER ``free_all_blocks`` (mempool teardown owns that).
 
 from __future__ import annotations
 
+from ._fe_gpu_vram import current_memory_pool
+
 import logging
 import threading
 from collections.abc import Sequence
@@ -701,7 +703,7 @@ def _binagg_candidate_block(cp: Any, k: int, n: int, itemsize: int) -> int:
     if forced.isdigit() and int(forced) > 0:
         return int(forced)
     try:
-        pool = cp.get_default_memory_pool()
+        pool = current_memory_pool(cp)
         free = int(cp.cuda.Device().mem_info[0]) + int(pool.free_bytes())
         limit = int(pool.get_limit() or 0)
         if limit:

@@ -53,7 +53,7 @@ def _raw_numeric_frame(X: Any, feature_names: list[str]):
         arr = np.asarray(X)
         if arr.ndim != 2 or arr.shape[1] != len(feature_names):
             raise ValueError("ndarray X shape does not match feature_names; cannot build raw frame")
-        df = pd.DataFrame(arr, columns=list(feature_names))
+        df = pd.DataFrame(arr, columns=list(feature_names))  # copy-ok: the caller's array
 
     keep: dict[str, np.ndarray] = {}
     for name in feature_names:
@@ -78,7 +78,7 @@ def _raw_numeric_frame(X: Any, feature_names: list[str]):
         keep[name] = v
     if not keep:
         raise ValueError("no continuous-numeric raw columns available for the usability pass")
-    return pd.DataFrame(keep)
+    return pd.DataFrame(keep, copy=False)
 
 def _scope_base_names(df, y_cont: np.ndarray, max_base_features: int) -> list[str]:
     """Cap the base-name set to the ``max_base_features`` columns with the highest marginal MI with
@@ -215,4 +215,4 @@ def materialize_usability_features(candidates: list, X: Any) -> pd.DataFrame:
         return np.nan_to_num(np.asarray(apply_recipe(cand.recipe, X), dtype=_crit_np_dtype()), nan=0.0, posinf=0.0, neginf=0.0)
 
     data = {cand.name: _col(cand) for cand in candidates}
-    return pd.DataFrame(data, index=getattr(X, "index", None))
+    return pd.DataFrame(data, index=getattr(X, "index", None), copy=False)

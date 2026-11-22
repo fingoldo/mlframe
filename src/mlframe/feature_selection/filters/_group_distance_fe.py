@@ -460,7 +460,7 @@ def generate_group_distance_features(
             encoded[name] = values
             raw_recipes[name] = recipe
 
-    enc_df = pd.DataFrame(encoded, index=X.index)
+    enc_df = pd.DataFrame(encoded, index=X.index, copy=False)
     return enc_df, raw_recipes
 
 def apply_group_distance(X_test: pd.DataFrame, recipe: dict) -> np.ndarray:
@@ -496,11 +496,11 @@ def _coerce_X(X, group_col: str, recipe_name: str) -> pd.DataFrame:
     try:
         import polars as _pl
         if isinstance(X, _pl.DataFrame):
-            return pd.DataFrame({group_col: X[group_col].to_numpy()})
+            return pd.DataFrame({group_col: X[group_col].to_numpy()}, copy=False)
     except ImportError:
         pass
     if isinstance(X, np.ndarray) and X.dtype.names is not None:
-        return pd.DataFrame({group_col: X[group_col]})
+        return pd.DataFrame({group_col: X[group_col]}, copy=False)
     raise TypeError(f"recipe '{recipe_name}': cannot extract {group_col!r} from X of type " f"{type(X).__name__}")
 
 def _apply_group_distance_recipe(recipe, X) -> np.ndarray:
