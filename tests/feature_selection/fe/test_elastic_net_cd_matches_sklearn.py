@@ -40,3 +40,20 @@ def test_a_large_penalty_zeroes_everything_and_a_non_converging_budget_is_report
     assert converged and not zeros.any()
     _, converged = elastic_net_coef(X, y, 1e-4, 1.0, max_iter=1)
     assert not converged
+
+
+def test_gram_form_gives_the_residual_form_coefficients(monkeypatch):
+    """The Gram-matrix sweeps (used when there are more rows than columns) and the residual sweeps reach the same optimum, lasso and elastic net, with a zero-variance column in the design."""
+    from mlframe.feature_selection.filters import _elastic_net_cd as E
+
+    rng = np.random.default_rng(11)
+    X = rng.standard_normal((3000, 25)) * rng.uniform(0.3, 4.0, size=25)
+    X[:, 7] = 1.5
+    y = X[:, 0] - 0.5 * X[:, 3] + 0.3 * rng.standard_normal(3000)
+    for l1_ratio in (1.0, 0.4):
+        gram, ok_g = E.elastic_net_coef(X, y, 0.05, l1_ratio)
+        monkeypatch.setattr(E, "_GRAM_MAX_COLUMNS", 0)  # force the residual form
+        resid, ok_r = E.elastic_net_coef(X, y, 0.05, l1_ratio)
+        monkeypatch.undo()
+        assert ok_g and ok_r
+        np.testing.assert_allclose(gram, resid, rtol=1e-6, atol=1e-8)
