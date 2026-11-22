@@ -264,7 +264,7 @@ def _pade_fit(x: np.ndarray):
     """Standardize input - Pade is sensitive to scale. Reference domain is roughly [-3, 3] post z-score."""
     fin = np.isfinite(x)
     if not fin.any():
-        return np.zeros(np.shape(x), dtype=np.float64), dict(mean=0.0, std=0.0, degenerate=True)
+        return np.zeros(np.shape(x), dtype=_crit_np_dtype()), dict(mean=0.0, std=0.0, degenerate=True)
     mean = float(np.mean(x[fin]))
     raw_std = float(np.std(x[fin]))
     # Degenerate (constant / near-constant) column: an additive 1e-12 std floor does NOT dominate a
@@ -274,16 +274,16 @@ def _pade_fit(x: np.ndarray):
     # own scale as constant and map it to z=0.
     scale = abs(mean) + 1.0
     if raw_std <= 1e-9 * scale:
-        return np.zeros(np.shape(x), dtype=np.float64), dict(mean=mean, std=0.0, degenerate=True)
-    # float64 axis: fit and replay must agree to the last bit, so neither side narrows to the float32 criterion dtype
-    return (np.asarray(x, dtype=np.float64) - mean) / raw_std, dict(mean=mean, std=raw_std, degenerate=False)
+        return np.zeros(np.shape(x), dtype=_crit_np_dtype()), dict(mean=mean, std=0.0, degenerate=True)
+    # Fit and replay share the criterion dtype, so the replay reproduces the fit's z exactly.
+    return (np.asarray(x, dtype=_crit_np_dtype()) - mean) / raw_std, dict(mean=mean, std=raw_std, degenerate=False)
 
 
 def _pade_apply(x: np.ndarray, params: dict) -> np.ndarray:
     """Standardize eval-time x with the fitted ``mean``/``std`` (or return the degenerate all-zero z) - same z-score mapping as ``_pade_fit`` but reusing train-fold parameters instead of refitting."""
     if params.get("degenerate"):
-        return np.zeros(np.shape(x), dtype=np.float64)
-    return np.asarray((np.asarray(x, dtype=np.float64) - params["mean"]) / params["std"], dtype=np.float64)
+        return np.zeros(np.shape(x), dtype=_crit_np_dtype())
+    return np.asarray((np.asarray(x, dtype=_crit_np_dtype()) - params["mean"]) / params["std"], dtype=_crit_np_dtype())
 
 
 @njit(fastmath=True, cache=True, nogil=True)
