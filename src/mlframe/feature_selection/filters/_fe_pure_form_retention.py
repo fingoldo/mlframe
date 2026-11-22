@@ -385,9 +385,6 @@ def _make_nonlinear_value_gate(min_resid_frac: float, min_resid_corr: float, _f6
     # ~0) AND (b) that residual correlates with y (the nonlinearity is RELEVANT - rejects a cross-pair
     # / noise form whose nonlinear part is unrelated to the target). a**2/b: large residual, correlated
     # with y -> kept; both holes -> rejected.
-    from sklearn.linear_model import LinearRegression
-    from sklearn.preprocessing import StandardScaler
-
     # Cache the (nm_a, nm_b) additive-basis design matrix, ALREADY StandardScaler-transformed, keyed
     # by the unordered operand pair: it depends only on (xa, xb), not on the per-candidate form
     # values, yet _adds_nonlinear_value is called once per CANDIDATE and up to 8/3 candidates can
@@ -400,7 +397,7 @@ def _make_nonlinear_value_gate(min_resid_frac: float, min_resid_corr: float, _f6
     # additive + control + a strongly-nonlinear a**2/b + log(c)*sin(d) target with raw-linear R2=0.10) the MI greedy ALREADY selected the pure pair
     # forms, so the trap pre-check (has_cross_mix OR no-pure-pair) returns [] BEFORE this gate runs and the corr floor never fires (+0 retained at corr in
     # {0.08, 0.05, 0.0}). Bench: _benchmarks/fs_quality/qual23_pure_form_resid_corr.py. Not flipped; re-test on a dataset where the greedy traps a pure pair.
-    _adds_nonlinear_value = _retain_usable_pure_f_step4_bench_benchmarks_fs(min_resid_frac, min_resid_corr, _f64, _scrub, X_fit, _nrows, _basis_cache, _single_operand_basis, StandardScaler, LinearRegression, is_clf, _abscorr, _rel_y)
+    _adds_nonlinear_value = _retain_usable_pure_f_step4_bench_benchmarks_fs(min_resid_frac, min_resid_corr, _f64, _scrub, X_fit, _nrows, _basis_cache, _single_operand_basis, is_clf, _abscorr, _rel_y)
     return _adds_nonlinear_value
 
 
@@ -594,7 +591,7 @@ def _ols_projector_basis(X: np.ndarray) -> np.ndarray:
     return np.ascontiguousarray(u[:, :rank])
 
 
-def _retain_usable_pure_f_step4_bench_benchmarks_fs(min_resid_frac, min_resid_corr, _f64, _scrub, X_fit, _nrows, _basis_cache, _single_operand_basis, StandardScaler, LinearRegression, is_clf, _abscorr, _rel_y):
+def _retain_usable_pure_f_step4_bench_benchmarks_fs(min_resid_frac, min_resid_corr, _f64, _scrub, X_fit, _nrows, _basis_cache, _single_operand_basis, is_clf, _abscorr, _rel_y):
     """Step 4 of retain_usable_pure_forms: lines starting at ``def _adds_nonlinear_value(form_vals, nm_a, nm_b, min_resid_frac=min_re``."""
     def _adds_nonlinear_value(form_vals, nm_a, nm_b, min_resid_frac=min_resid_frac, min_resid_corr=min_resid_corr):
         """Gate a candidate pure-pair form: regress it on the additive single-operand basis of both raw operands, and require the residual to be BOTH non-negligible (genuinely non-separable in its operands) AND correlated with the target (the nonlinearity is target-relevant) before treating the form as worth retaining."""
@@ -626,7 +623,9 @@ def _retain_usable_pure_f_step4_bench_benchmarks_fs(min_resid_frac, min_resid_co
                 basis = _basis_cache.get(_pair_key)
                 if basis is None:
                     Xr = np.column_stack(_single_operand_basis(xa) + _single_operand_basis(xb))
-                    basis = _ols_projector_basis(StandardScaler().fit_transform(Xr))
+                    from ._linear_probes import standardised
+
+                    basis = _ols_projector_basis(standardised(Xr))
                     _basis_cache[_pair_key] = basis
                 # the residual of the least-squares fit with an intercept = the centred form minus its projection on the span of the centred basis (``LinearRegression().fit`` then ``predict`` gave the same
                 # residual through a solve per form; the span of the pair's basis is computed once)

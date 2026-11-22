@@ -26,13 +26,30 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def contingency_mi_nats(a: np.ndarray, b: np.ndarray) -> float:
+    """Plug-in mutual information (nats) of two label vectors: ``sum_ij p_ij log(p_ij / (p_i p_j))`` over their contingency table (what ``sklearn.metrics.mutual_info_score`` returns, 0.0 for an empty input)."""
+    if a.size == 0:
+        return 0.0
+    _, ia = np.unique(a, return_inverse=True)
+    _, ib = np.unique(b, return_inverse=True)
+    ia = ia.ravel()
+    ib = ib.ravel()
+    nb = int(ib.max()) + 1
+    table = np.bincount(ia * nb + ib, minlength=(int(ia.max()) + 1) * nb).reshape(-1, nb).astype(np.float64)  # Intentional float64: counts and logs accumulate in double
+    n = table.sum()
+    row = table.sum(axis=1, keepdims=True)
+    col = table.sum(axis=0, keepdims=True)
+    mask = table > 0
+    outer = (row @ col)[mask]
+    return float(max(0.0, np.sum(table[mask] / n * np.log(table[mask] * n / outer))))
+
+
 def _mi_classif_batch_sklearn(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) -> np.ndarray:
-    """Per-column quantile-bin + sklearn ``mutual_info_score`` reference path.
+    """Per-column quantile-bin + plug-in mutual information reference path (the name is historical: it called ``sklearn.metrics.mutual_info_score`` once; ``contingency_mi_nats`` is the same number).
 
     Kept as the fallback when numba is unavailable AND when the caller
     explicitly opts out via ``MLFRAME_NUMBA_MI=0``. Returns MI in nats.
     """
-    from sklearn.metrics import mutual_info_score
     _n, p = X.shape
     # Intentional float64: MI output vector accumulated per column and returned f64 (output contract for the ranking).
     mis = np.zeros(p, dtype=np.float64)
@@ -50,11 +67,11 @@ def _mi_classif_batch_sklearn(X: np.ndarray, y: np.ndarray, *, nbins: int = 10) 
                 mis[j] = 0.0
                 continue
             binned = np.searchsorted(edges, col_f)
-            mis[j] = float(mutual_info_score(binned, y[finite]))
+            mis[j] = contingency_mi_nats(binned, y[finite])
         except Exception as e:
             # 0.0 is MRMR's never-select score, so substituting it would silently delete this column from the ranking.
             logger.warning(
-                "mutual_info_score failed for column %d (dtype=%s, %d of %d values finite): %s: %s", j, col.dtype, int(finite.sum()), col.shape[0], type(e).__name__, e
+                "contingency MI failed for column %d (dtype=%s, %d of %d values finite): %s: %s", j, col.dtype, int(finite.sum()), col.shape[0], type(e).__name__, e
             )
             raise
     return mis

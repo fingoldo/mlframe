@@ -594,7 +594,6 @@ def _usability_scorers(classification: bool, y_cont: np.ndarray) -> Optional[tup
             """Build a fresh scaled-logistic-regression pipeline (classification path CV scorer/pre-rank model)."""
             return ScaledLogistic(max_iter=200)
 
-        from sklearn.metrics import log_loss as _log_loss
         _labels = np.arange(n_classes)
 
         def _logloss(y_true, proba):
@@ -605,7 +604,13 @@ def _usability_scorers(classification: bool, y_cont: np.ndarray) -> Optional[tup
                 # sklearn's log_loss clips to [eps, 1 - eps] and averages -log p[true class]; the same sum without its input validation (10x faster, equal to the last bit in float64)
                 eps = np.finfo(proba.dtype).eps
                 return float(-np.mean(np.log(np.clip(proba, eps, 1.0 - eps)[np.arange(proba.shape[0]), np.asarray(y_true)])))
-            return float(_log_loss(y_true, proba, labels=_labels))
+            # integer-typed or non-2-D probabilities: the same clipped log loss, after normalising each row; a table whose columns are not the full label set is an error, as it was in scikit-learn
+            p = np.asarray(proba, dtype=np.float64)
+            if p.ndim != 2 or p.shape[1] != n_classes:
+                raise ValueError(f"log loss: the probabilities have shape {p.shape} but the label set has {n_classes} classes")
+            eps = np.finfo(np.float64).eps  # Intentional float64: the clip of the double-precision path
+            p = np.clip(p / p.sum(axis=1, keepdims=True), eps, 1.0 - eps)
+            return float(-np.mean(np.log(p[np.arange(p.shape[0]), np.searchsorted(_labels, np.asarray(y_true))])))
     else:
         # bench-attempt-rejected (2026-06-13): an audit flagged OLS min-norm as fragile on a singular/wide
         # selected set and suggested a small Ridge in the CV. Benched OLS vs Ridge(alpha=1) on F2: n=8000

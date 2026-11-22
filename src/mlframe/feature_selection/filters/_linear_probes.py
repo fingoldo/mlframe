@@ -14,12 +14,22 @@ import numpy as np
 
 
 def _standardise_fit(X: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
-    """Train mean and population standard deviation of the columns of ``X`` (a zero spread is replaced by 1)."""
+    """Train mean and population standard deviation of the columns of ``X`` (the spread of a column that is constant up to rounding is replaced by 1, as ``StandardScaler`` does)."""
     # Intentional float64: the normal equations and Newton steps square the conditioning of the columns, so the design is held in double precision
     A = np.asarray(X, dtype=np.float64)
+    n = A.shape[0]
     mean = A.mean(axis=0)
-    scale = A.std(axis=0)
-    return mean, np.where(scale > 0.0, scale, 1.0)
+    var = A.var(axis=0)
+    # a column indistinguishable from a constant (its variance within the rounding bounds of the two-pass variance, Chan, Golub and LeVeque) keeps a spread of 1, as StandardScaler decides
+    eps = np.finfo(np.float64).eps
+    constant = var <= n * eps * var + (n * mean * eps) ** 2
+    return mean, np.where(constant, 1.0, np.sqrt(var))
+
+
+def standardised(X: np.ndarray) -> np.ndarray:
+    """``StandardScaler().fit_transform(X)``: the columns minus their mean over their population standard deviation (a constant column keeps a spread of 1, so it comes out as zeros)."""
+    mean, scale = _standardise_fit(X)
+    return (np.asarray(X, dtype=np.float64) - mean) / scale
 
 
 class ScaledOLS:

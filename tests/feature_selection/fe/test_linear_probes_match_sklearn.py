@@ -82,3 +82,14 @@ def test_cross_val_r2_averages_the_fold_scores():
     expected = np.mean([ScaledOLS().fit(X[a], y[a]).score(X[b], y[b]) for a, b in splits])
     assert cross_val_r2(ScaledOLS, X, y, splits) == pytest.approx(float(expected))
     assert cross_val_r2(ScaledOLS, X, y, []) is None
+
+
+def test_standardisation_treats_a_column_constant_up_to_rounding_like_standard_scaler():
+    """A column of one repeated float that sums to a mean off by rounding (std ~1e-17) keeps the spread 1 in both; the standardised matrix equals ``StandardScaler().fit_transform``."""
+    from sklearn.preprocessing import StandardScaler
+
+    from mlframe.feature_selection.filters._linear_probes import standardised
+
+    rng = np.random.default_rng(0)
+    X = np.column_stack([rng.standard_normal(500), np.full(500, 0.1), np.full(500, 7.3) + 1e-17, rng.uniform(1e5, 1e5 + 1, 500)])
+    np.testing.assert_allclose(standardised(X), StandardScaler().fit_transform(X), rtol=1e-12, atol=1e-12)

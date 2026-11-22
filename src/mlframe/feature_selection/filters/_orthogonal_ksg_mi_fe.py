@@ -129,10 +129,6 @@ def _ksg_mi_batch(
     ``discrete_features=False`` because the orth-poly engineered columns
     are continuous-valued by construction.
     """
-    from sklearn.feature_selection import (
-        mutual_info_classif,
-    )
-
     from ._ksg_cd_fast import ksg_mi_discrete_target
 
     X = np.asarray(X, dtype=np.float64)  # Intentional float64: a float32 cast quantises columns with a large offset before the k-NN distances
@@ -150,23 +146,14 @@ def _ksg_mi_batch(
             # all collapse to class 0.
             _, y_arr = np.unique(y_arr, return_inverse=True)
             y_arr = y_arr.astype(np.int64, copy=False)
-        if np.isfinite(X).all():
-            # Same estimate as sklearn (scaling, Kraskov noise stream and nextafter radius reproduced; agrees to ~1e-12), 20-50x faster for single continuous columns.
-            return ksg_mi_discrete_target(X, y_arr, n_neighbors=int(n_neighbors), random_state=int(random_state))
-        mi = mutual_info_classif(
-            X, y_arr,
-            discrete_features=False,
-            n_neighbors=int(n_neighbors),
-            copy=True,
-            random_state=int(random_state),
-        )
+        # Same estimate as sklearn (scaling, Kraskov noise stream and nextafter radius reproduced; agrees to ~1e-12), 20-50x faster for single continuous columns. The columns are all finite here
+        # (a matrix with a missing value was handed to ``_ksg_mi_batch_with_missing`` above).
+        return ksg_mi_discrete_target(X, y_arr, n_neighbors=int(n_neighbors), random_state=int(random_state))
     else:
         # Same estimate as sklearn's ``mutual_info_regression`` (scaling, Kraskov noise stream and nextafter radius reproduced; agrees to ~1e-13), 17-40x faster: no trees, no joblib.
         from ._ksg_cc_fast import ksg_mi_continuous_target
 
         return ksg_mi_continuous_target(X, y_arr.astype(np.float64), n_neighbors=int(n_neighbors), random_state=int(random_state))
-    # Intentional float64: MI output vector returned as f64 (output contract for the ranking consumers).
-    return np.asarray(mi, dtype=np.float64)
 
 def score_features_by_ksg_mi_uplift(
     raw_X: pd.DataFrame,
