@@ -56,11 +56,11 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 
 | ID | Report | Disposition | Note |
 |---|---|---|---|
-| 09-F1 | 09_feature_engineering-2.md | RESOLVED | Inputs scaled by d^{-1/4} with unscaled W, so the kernel is exp(q.k/sqrt(d)) as documented. Tests test_performer_kernel_identity.py. |
+| 09-F1 | 09_feature_engineering-2.md | RESOLVED | Random directions are unscaled; the d^{-1/4} scale moved to the inputs so the kernel is exp(q.k/sqrt(d)) as documented. Tests tests/feature_engineering/transformer/test_performer_kernel_identity.py; reference in ... |
 | 09-F2 | 09_feature_engineering-2.md | RESOLVED | Double d^-1/2 removed at both call sites; test test_nystrom_scales_each_neighbour_once.py. Commit 4863686a5. |
 | 09-F3 | 09_feature_engineering-2.md | RESOLVED | Documented as the label-free proxy |p - median(y)| on both sides (no query label exists). Behaviour unchanged. Commit 8dc4360c0. |
 | 24-F1 | 24_root_modules-3.md | RESOLVED | Per-column finite-row AUC when a cell is non-finite; single-class columns are kept. Test test_drop_near_noise_handles_nan.py. Commit 2171ff34e. Siblings drop_raw_after_embedding.py:53,142 still open. |
-| 35-F1 | 35_training-4.md | RESOLVED | from_fitted_inner stamps smearing_quantiles from train features (X_train) and reconstructed T, as fit() does. Parity tests test_smearing_fit_from_fitted_parity.py. |
+| 35-F1 | 35_training-4.md | RESOLVED | from_fitted_inner now stamps smearing_quantiles from the train features (X_train) and the reconstructed T, as fit() does; call sites pass the raw train rows. Tests ... |
 | 35-F2 | 35_training-4.md | RESOLVED | CRPS weights are cell widths (helper _crps_cell_weights); reduces to 2/K on midpoint grids. Also fixed sibling in qrf.py (new). Tests test_crps_cell_weights.py. Commit bd2709ef9. |
 | 40-F1 | 40_training-9.md | RESOLVED | save/load store classes and the multilabel flag; model rebuilt with task_type. Tests test_recurrent_classifier_save_keeps_classes_and_multilabel.py. Commit 7e0cd9b40. |
 | 40-F2 | 40_training-9.md | RESOLVED | Unweighted score() returns accuracy in both branches. Tests test_classifier_score_is_accuracy.py. Commit 2798b5a6c. |
@@ -84,41 +84,41 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F18 | 35_training-4.md | FIXED | GPU probe failures and the refit-groups fallback logged at DEBUG. Now WARNING. Test test_cluster35_gpu_probe_failure_warns.py (refit path untested). |
 | 35-F19 | 35_training-4.md | DEFERRED | Composite refit implemented three times with different group handling. Consolidation changes behaviour. Owner decision on group semantics first. |
 | 35-F20 | 35_training-4.md | FIXED | GBM stacker ignored group_ids and time_ordered; row-random early stopping leaked across groups. Early stopping off when either is set; dispatcher forwards both. Test test_cluster35_gbm_stacker_group_aware.py. |
-| 35-F21 | 35_training-4.md | FIXED | OOF cache key omitted sample_weight and component specs. Both keyed with full digests. Test test_cluster35_oof_cache_key_weights_and_specs.py. |
+| 35-F21 | 35_training-4.md | FIXED | OOF cache key now includes a full digest of sample_weight and of the component specs (arrays digested in full, nested dicts walked); tests test_cluster35_oof_cache_key_weights_and_specs.py; 48 existing cache-key tests ... |
 | 35-F22 | 35_training-4.md | FIXED | Auto gate tested prediction correlation; protocol defines residual correlation. Now residuals. Test test_cluster35_auto_gate_measures_residuals.py. |
-| 35-F23 | 35_training-4.md | FIXED | Degenerate fit permanently switched the calibrator to linear. Method restored per fit. Test test_cluster35_calibrator_method_restored_per_fit.py. |
+| 35-F23 | 35_training-4.md | FIXED | Requested calibration method stored at construction and restored at the start of each fit; a degenerate fit no longer changes later fits (test_cluster35_calibrator_method_restored_per_fit; 27 existing calibration tests ... |
 | 35-F24 | 35_training-4.md | FIXED | Lag extraction failure logged at DEBUG; deep-OOD rows silently took the median. Now WARNING. Test test_cluster35_lag_extraction_failure_warns.py. |
 | 35-F25 | 35_training-4.md | FIXED | Stamped base-fit range overwritten by from_fitted, moving soft-shrink thresholds. Stamped range kept. Test test_cluster35_from_fitted_keeps_stamped_range.py. |
-| 35-F26 | 35_training-4.md | PARTIAL | Discovery smearing used unweighted quantiles over all rows. Now shares residual_quantiles with fit. Discovery callers do not pass sample weights yet. Test test_cluster35_smeared_prediction_matches_fit.py. |
+| 35-F26 | 35_training-4.md | PARTIAL | smeared_prediction now uses residual_quantiles (same subsample, seed and weighting path as fit) and takes an optional sample_weight. Callers in discovery do not pass weights yet. Test ... |
 | 35-F27 | 35_training-4.md | FIXED | predict_quantile re-resolved the causal lag once per quantile column. Resolved once per batch. Test test_cluster35_smart_fallback_resolves_lag_once.py. |
-| 35-F28 | 35_training-4.md | DEFERRED | Distributional grid 0.05..0.95 truncates sample() tails and omits tail mass in crps(). Adding tail levels or a GPD tail is a modelling decision for the owner. |
+| 35-F28 | 35_training-4.md | DEFERRED | The grid spans 0.05 to 0.95, so sample() flattens tails and crps() omits the 0-0.05 and 0.95-1 mass. Fixing it means adding tail levels (0.001/0.999) or a GPD tail, a modelling choice the owner should make; the ... |
 | 35-F29 | 35_training-4.md | FIXED | TypeError fallback dropped sample_weight for any TypeError. Support read from signature; other TypeErrors propagate. Test test_cluster35_mixture_sample_weight_support.py. |
 | 35-F30 | 35_training-4.md | FIXED | Dict config seed ignored; report recorded 42. Coerced before the seed is read. Test test_cluster35_highlevel_dict_config_seed.py. |
 | 35-F31 | 35_training-4.md | FIXED | Group broadcast was a per-row dict loop; NaN group ids fell back silently. Vectorised reindex; NaN rows counted and logged. Test test_cluster35_group_broadcast_vectorised.py. |
 | 35-F32 | 35_training-4.md | FIXED | Single numeric column raised ValueError in linkage. Returns that column as one subset. Test test_cluster35_subset_bagging_single_column.py. |
-| 35-F33 | 35_training-4.md | PARTIAL | Tail fitted on in-sample residuals by default, under-dispersing held-out tails. WARNING added when residual_X is absent. Default unchanged (owner decision). Test test_cluster35_tail_in_sample_residuals_warn.py. |
-| 35-F34 | 35_training-4.md | FIXED | Worst-candidate selection filled NaN from all fit rows (judge fills from the used rows) and max() depended on NaN order. Judge's fill, NaN as worst. Test test_cluster35_worst_candidate_nan_order.py. |
-| 35-F35 | 35_training-4.md | PARTIAL | Spec with under 50 in-domain fit rows passed the y-scale gate unchecked. Now rejected with a ledger entry. No direct test (needs a full gate fixture). |
-| 35-F36 | 35_training-4.md | PARTIAL | Multi-base specs bypass the structural fragility gate silently. Bypass now logged at WARNING; gating them is an owner decision. Test test_cluster35_structural_gate_multibase_logged.py. |
+| 35-F33 | 35_training-4.md | PARTIAL | TailCompositeEstimator.fit logs a WARNING when residual_X is absent (in-sample residuals under-disperse the tail). Default still in-sample: out-of-fold residuals by default would change every caller's fit cost, so it is ... |
+| 35-F34 | 35_training-4.md | FIXED | Worst-candidate choice uses the judge's fill (fit rows that the judge uses) and treats a NaN score as worst, so it no longer depends on order (test_cluster35_worst_candidate_nan_order; 142 existing y-scale gate tests ... |
+| 35-F35 | 35_training-4.md | PARTIAL | Spec with fewer than 50 in-domain fit rows is now rejected with a ledger entry instead of passing unchecked. No direct test: that branch needs a full gate fixture (a transform whose domain keeps under 50 rows). 142 ... |
+| 35-F36 | 35_training-4.md | PARTIAL | Multi-base specs still pass the structural fragility gate unjudged; the bypass is now logged at WARNING. Gating on the primary base changes which specs ship, so it is left as an owner decision. Test ... |
 | 35-F37 | 35_training-4.md | FIXED | WAIC scoring failures swallowed at DEBUG; spec silently skipped in tie-break. Now WARNING naming spec and exception. Test test_cluster35_waic_failure_logged.py. |
 | 35-F38 | 35_training-4.md | FIXED | kNN MI loop duplicated in _mi_to_target and _mi_per_feature_knn. One copy now. Test test_cluster35_knn_mi_single_loop.py. |
-| 35-F39 | 35_training-4.md | FIXED | fit_stacked and fit_stacked_on_residual repeated ranking and group derivation. Shared helpers _rank_pass1_specs and _train_group_ids. Test test_cluster35_stacked_shared_helpers.py. |
-| 35-F40 | 35_training-4.md | FIXED | Polars int-as-cat candidate logic duplicated; the two copies differed on temporal columns. One helper. Test test_cluster35_polars_candidates_one_helper.py. |
+| 35-F39 | 35_training-4.md | FIXED | Both stacking passes share one ranking helper (_rank_pass1_specs) and one group-id derivation (_train_group_ids); the pass-specific cap, warnings and aggregation stay in each caller ... |
+| 35-F40 | 35_training-4.md | FIXED | Group path and default path use one helper (_polars_default_cat_candidates), so the two candidate sets cannot drift; temporal columns are excluded on both (test_cluster35_polars_candidates_one_helper; 67 existing ... |
 | 35-F41 | 35_training-4.md | FIXED | bayesian_alpha_fit let a NaN pair reach the regression and returned a NaN posterior silently. Pairs dropped, counted and logged. Test test_cluster35_bayesian_nonfinite_dropped.py. |
-| 35-F42 | 35_training-4.md | DEFERRED | A broken process pool reruns every task serially. Documented as deliberate; correctness unaffected. Partial retrieval is a design change, owner decision. |
+| 35-F42 | 35_training-4.md | DEFERRED | A broken process pool serially rescores every task, not only the unfinished ones. Documented as deliberate, and correctness is unaffected. Rescoring only the unfinished tasks needs partial results from the broken pool ... |
 | 35-F43 | 35_training-4.md | FIXED | Three paths had no test: CDF with enforce_non_crossing=False, mixture soft_routing, calibrated gated outlier. Smoke tests added. Test test_cluster35_untested_paths_smoke.py. |
-| 35-F44 | 35_training-4.md | PARTIAL | Repeated integer check at the grouping call site removed. Dead helpers kept as allowlisted test references. Test test_cluster35_low_card_check_once.py. |
-| 35-F45 | 35_training-4.md | FIXED | Bootstrap posterior result lacked posterior_kind, n_samples, degrees_of_freedom and sigma2_posterior_mean. Added on both variants. Test test_cluster35_bootstrap_result_keys.py. |
-| 35-F46 | 35_training-4.md | PARTIAL | _residualise used an absolute 1e-12 constant test. Now relative. Mid-module imports left in place. Test test_cluster35_residualise_relative_constant.py. |
+| 35-F44 | 35_training-4.md | PARTIAL | Repeated integer-valuedness check removed from the grouping call site (level-count helper). The two dead helpers stay as test-facing references, already allowlisted in the uncalled-functions gate. Test ... |
+| 35-F45 | 35_training-4.md | FIXED | Bootstrap posterior result carries posterior_kind, n_samples, degrees_of_freedom, sigma2_posterior_mean and n_dropped_nonfinite, like the conjugate one (test_cluster35_bootstrap_result_keys; 27 existing bayesian tests ... |
+| 35-F46 | 35_training-4.md | PARTIAL | _residualise treats a column as constant only relative to its own magnitude (test_cluster35_residualise_relative_constant; existing _residualise tests pass). Mid-module imports left in place (not circular-import ... |
 | 35-F47 | 35_training-4.md | FIXED | Dead _groups_screen assignment and a missing blank line in _tiny_rerank.py. The None now goes straight into the call. Test: 231 existing rerank tests pass. |
-| 35-F48 | 35_training-4.md | FIXED | Ridge import unused; __all__ listed typing names and omitted public functions. Import removed, __all__ rebuilt, cache-key block moved to _oof_cache_keys.py (facade 955 lines, under the 1k gate). Test test_cluster35_ensemble_public_surface.py. |
+| 35-F48 | 35_training-4.md | FIXED | Unused Ridge import removed; __all__ rebuilt as the public surface; cache-key block moved to ensemble/_oof_cache_keys.py so the facade is under the 1k module gate (955 lines), with re-exports ... |
 | 35-F49 | 35_training-4.md | FIXED | Uncached transform-pair path dropped refit_supervised, so a supervised selector was not refit on the fold. Forwarded. Test test_cluster35_uncached_pair_forwards_refit.py. |
 | 35-F50 | 35_training-4.md | FIXED | Write-only _sig_degenerate attribute. Deleted. Existing 27 calibration tests pass; no separate test (removal). |
 | 35-F51 | 35_training-4.md | FIXED | n_oof_rows counted rows finite in y only; the fit uses rows finite in y and every OOF column. Count now matches the fit. Test test_cluster35_meta_stack_row_count.py. |
-| 35-F52 | 35_training-4.md | PARTIAL | Subsample bench paired holdout OOF rows with natural-order y. Now uses the returned holdout target. Calibration bench already crc32. Lasso/elasticnet duplication not consolidated. Test test_cluster35_bench_subsample_targets_align.py. |
+| 35-F52 | 35_training-4.md | PARTIAL | Subsample bench fits weights against the returned holdout target, row for row (test_cluster35_bench_subsample_targets_align). Calibration bench already uses crc32 (no salted hash() left in the ensemble benches). ... |
 | 35-F53 | 35_training-4.md | FIXED | getattr(self, 'smearing', True) read an attribute no constructor sets; always True. Gate removed. Test test_cluster35_smearing_always_on.py. |
-| 35-F54 | 35_training-4.md | FIXED | predict before fit raised ValueError. Now sklearn NotFittedError (subclasses ValueError). Test test_cluster35_dual_direction_not_fitted.py. Two unrelated numba failures in metrics noted in disposition. |
-| 35-F55 | 35_training-4.md | PARTIAL | Two copies of _subset_rows with different polars detection. One shared helper in _frame_ops. glm _is_polars_df re-export kept (a test imports it). Test test_cluster35_shared_subset_rows.py. |
+| 35-F54 | 35_training-4.md | FIXED | predict before fit raises sklearn NotFittedError (a ValueError subclass, so existing catches still work) (test_cluster35_dual_direction_not_fitted). 31 existing dual-direction tests pass; 2 fail inside the numba metrics ... |
+| 35-F55 | 35_training-4.md | PARTIAL | One shared subset_rows in _frame_ops for both gated models (test_cluster35_shared_subset_rows; 61 existing gated tests pass, one pre-existing numba failure confirmed on master). The glm _is_polars_df re-export is kept ... |
 | 35-F56 | 35_training-4.md | WON'T FIX | Docstring cites the defining module (varying_size_top_k_subsets._cluster_anchors), which is correct; the shared import is a re-export. No drift. |
 | 35-F57 | 35_training-4.md | FIXED | Pointless try/except around list(names). Removed. 13 existing extremes tests pass; no separate test (removal). |
 | 36-F1 | 36_training-5.md | FIXED | time_ordering restricted to covered rows, length-checked before nested selection. See DISPOSITIONS. |
@@ -129,7 +129,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 36-F6 | 36_training-5.md | FIXED | More CV folds than rows raises ValueError naming both numbers. Test test_cluster36_hpo_refuses_more_folds_than_rows.py. |
 | 36-F7 | 36_training-5.md | FIXED | Imputed NaN meta-feature rows logged at WARNING. Read and verified; no separate test. |
 | 36-F8 | 36_training-5.md | DEFERRED | Stage-2 trained on OOF meta-features but predicts from full-refit ones (design train/serve skew). Owner decision. |
-| 36-F9 | 36_training-5.md | FIXED | Class factories inspected for sample_weight without constructing an estimator. Test test_cluster36_factory_signature_no_construction.py. |
+| 36-F9 | 36_training-5.md | FIXED | Class factories are inspected for sample_weight from the fit signature without constructing an estimator; callables are still called (test_cluster36_factory_signature_no_construction; 44 existing multi-stage tests pass ... |
 | 37-F1 | 37_training-6.md | FIXED | Median fill of out-of-domain T reached training rows, a fabricated label. Fill now only outside the train split. Test test_cluster37_composite_t_no_train_label_fill.py; pinned test updated. |
 | 37-F2 | 37_training-6.md | FIXED | Supplied lag with no lag column was never offered as a base, understating the ceiling. Attached as a named column. Test test_cluster37_supplied_lag_is_a_base.py. |
 | 37-F3 | 37_training-6.md | FIXED | Venn-Abers calibration let NaN scores become a grid point; lookup silently returned the top bin for NaN. Calibration now refuses non-finite scores; lookup yields NaN. Test test_cluster37_venn_abers_nan_refused.py. |
@@ -152,7 +152,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 37-F20 | 37_training-6.md | FIXED | Ignored plot_format_subfolders / calibration_colormap logged at WARNING. |
 | 37-F21 | 37_training-6.md | FIXED | Numba prewarm also runs when feature selection will run. |
 | 37-F22 | 37_training-6.md | FIXED | Label distribution drift is best-effort. |
-| 37-F23 | 37_training-6.md | WON'T FIX | fit is the public E3 API with tests; production uses compute_mtr_oof_nnls_weights; semantics differ. |
+| 37-F23 | 37_training-6.md | WON'T FIX | MTRPerColumnEqualMeanEnsemble.fit is the public E3 API, exercised by tests/training/test_mtr_nnls_ensemble.py; production path uses compute_mtr_oof_nnls_weights. Premise 'no caller' holds only for production; semantics ... |
 | 37-F24 | 37_training-6.md | FIXED | Already classified as intentionally unused in uncalled-functions allowlist. |
 | 37-F50 | 37_training-6.md | FIXED | Redundant tier alias removed. |
 | 37-F51 | 37_training-6.md | PARTIAL | Redundant placeholder removed; helper rename not done. |
@@ -208,22 +208,22 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |
 | 12-F38 | 12_feature_selection-3.md | FIXED | downstream returns NaN for an empty selection. Test test_fs_hybrid_empty_selection_downstream.py. |
-| 12-F31 | 12_feature_selection-3.md | PARTIAL | Two named benches narrowed; 61 other fs_hybrid benches still use a catch-all ignore (open). Test test_fs_hybrid_warning_filter_keeps_degraded_warning.py. |
-| 12-F20 | 12_feature_selection-3.md | FIXED | Empty RFECV selection recorded as empty via score_selection, not scored. Test test_fs_hybrid_empty_rfecv_selection_not_scored.py. |
+| 12-F31 | 12_feature_selection-3.md | PARTIAL | The two named benches (round3_hard_bed_bench, round3_hybrid_refine_bench) now silence only FutureWarning/DeprecationWarning. 61 other fs_hybrid bench files still install a catch-all ignore; not changed in this pass. ... |
+| 12-F20 | 12_feature_selection-3.md | FIXED | An RFECV that selects nothing is replaced by the first column and recorded as its selection (importance_shootout.py cell loop). The fix (empty selection scores chance) is a one-branch change, but the cell loop runs a ... |
 | 35-F5 | 35_training-4.md | FIXED | Every fold keeps a slot (NaN when unusable). Test test_cluster35_stepwise_fold_slots.py. |
 | 12-F26 | 12_feature_selection-3.md | FIXED | Flip needs a sign majority and a positive mean delta (decide_flip). Test test_fs_hybrid_flip_needs_positive_mean.py. |
 | 12-F27 | 12_feature_selection-3.md | FIXED | Proxy Brier computed out-of-fold. Test test_fs_hybrid_s2_proxy_is_out_of_fold.py. |
 | 12-F28 | 12_feature_selection-3.md | FIXED | Sizes with a failed cell get no family mean. Test test_fs_hybrid_family_curve_failed_cells.py. |
-| 12-F29 | 12_feature_selection-3.md | FIXED | Designed verdict uses the pre-specified operator, not the max over test AUC. Test test_fs_hybrid_designed_verdict_uses_prespecified_op.py. |
+| 12-F29 | 12_feature_selection-3.md | FIXED | The designed-bed verdict reads the pre-specified right operator (designed_recovery, DESIGNED_RIGHT_OP) instead of the max over test AUC. Tests ... |
 | 12-F30 | 12_feature_selection-3.md | FIXED | run_bed uses a fixed-seed split shared by all presets. Test test_fs_hybrid_cost_split_is_fixed.py. |
 | 12-F32 | 12_feature_selection-3.md | FIXED | Failures at WARNING; per-config completed/failed counts printed with the means. Test test_fs_hybrid_shap_run_counts.py. |
 | 12-F33 | 12_feature_selection-3.md | FIXED | Flip verdict on paired deltas over 5 splits with a 95% bound (flip_verdict). Test test_fs_hybrid_flip_verdict_paired.py. |
-| 12-F34 | 12_feature_selection-3.md | DEFERRED | H35/H32 pick configs on rows their members were fit on. Fix needs an inner-split refit and held-out feature transform the bench's HybridSelector lacks. Benchmark-only. |
+| 12-F34 | 12_feature_selection-3.md | DEFERRED | H35 (and H32) pick the config by OOF AUC on rows the members were fit on. A real fix refits members on an inner split and scores engineered features on held-out rows; this bench's HybridSelector has no transform path ... |
 | 12-F35 | 12_feature_selection-3.md | FIXED | Five RFECV benches budget by refits only. Test test_fs_hybrid_rfecv_benches_have_no_wall_clock_cap.py. |
 | 12-F36 | 12_feature_selection-3.md | FIXED | Configs with failed runs INCOMPLETE and excluded from ranking. Test test_fs_hybrid_ablation_failed_runs_excluded.py. |
 | 12-F37 | 12_feature_selection-3.md | FIXED | Failed runs excluded from kept-share sizes. Test test_fs_hybrid_ablation_failed_runs_excluded.py. |
 | 12-F39 | 12_feature_selection-3.md | FIXED | Failures at WARNING; completed/failed counts printed with the means. Test test_fs_hybrid_run_counts_by_key.py. |
-| 12-F23 | 12_feature_selection-3.md | FIXED (test pending) | Baseline and relay use h.transform output, keeping engineered columns. No dedicated test yet (needs a full HybridSelector fit). |
+| 12-F23 | 12_feature_selection-3.md | FIXED (test pending) | The baseline filters raw_selected_ to raw columns, dropping engineered names. The fix must use the hybrid's transform output (Ztr = h.transform(Xtr)) and filter against it. Confirming which names survive takes a full ... |
 | 12-F25 | 12_feature_selection-3.md | FIXED | Refit-only budget; test extended in test_fs_hybrid_rfecv_benches_have_no_wall_clock_cap.py. |
 | 39-F2 | 39_training-8.md | FIXED | Batch alignment refused. Test test_cluster39_run_batched_alignment.py. |
 | 39-F3 | 39_training-8.md | FIXED | Failed concatenate raises. Test test_cluster39_run_batched_alignment.py. |
@@ -240,9 +240,9 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 39-F38 | 39_training-8.md | DEFERRED | Cap has no pipeline caller; project policy is wire-in, not delete; insertion point is a design decision. |
 | 39-F32 | 39_training-8.md | FIXED | Only float NaN rebranded; string 'NaN' kept. Test test_cluster39_polars_string_nan_is_data.py. |
 | 39-F19 | 39_training-8.md | FIXED | Low RAM evicts one entry per check (default choice). Test test_cluster39_low_ram_evicts_one_entry.py. |
-| 04-F11 | 04_data.md | FIXED | Provenance now states the beds are approximations, not published functions. Test test_cluster04_friedman_provenance_is_honest.py. |
+| 04-F11 | 04_data.md | FIXED | Published Friedman-2 is sqrt(x0^2 + (x1*x2 - 1/(x1*x3))^2) and Friedman-3 is atan((x1*x2 - 1/(x1*x3))/x0). The link vocabulary (BasisTerm kinds) has no 1/(a*b) term and no compound sqrt/atan form, so neither can be ... |
 | 04-F13 | 04_data.md | FIXED | Weights 1/(levels-1). Test test_cluster04_graded_cardinality_weights.py. |
-| 23-F2 | 23_root_modules-2.md | FIXED | Explicit leak_tolerance decides the verdict. Test test_cluster23_leak_verdict_uses_caller_tolerance.py. |
+| 23-F2 | 23_root_modules-2.md | FIXED | Leaking folds are decided with the same tolerance as the verdict (the caller's leak_tolerance when given), not a fixed 0.02, so leaky_row_positions agree with leak_detected. Regression coverage: the existing 50 ... |
 | 40-F13 | 40_training-9.md | FIXED | Cache hit stamps the pre-pipeline on the model. Test test_cluster40_cache_hit_stamps_pre_pipeline.py. |
 | 40-F18 | 40_training-9.md | FIXED | Unaligned split with group ids refused. Test test_cluster40_ma_crossover_refuses_unaligned_groups.py. |
 | 40-F3 | 40_training-9.md | FIXED | Multi-target regression monitors RMSE, not ICE. Test test_cluster40_multitarget_regression_uses_rmse.py. |
@@ -258,7 +258,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 34-F2 | 34_training-3.md | FIXED | Hints dropped by the finite filter still take top-k slots and are returned (commit 9c32cf0b1). Test test_cluster34_auto_base_mrmr_and_collinear.py. |
 | 34-F3 | 34_training-3.md | FIXED | Demoted candidates set the MRMR relevance scale (commit 9c32cf0b1). Test test_cluster34_auto_base_mrmr_and_collinear.py. |
 | 34-F4 | 34_training-3.md | FIXED | Collinear replay skipped re-checking non-borderline columns after a flip (commit 9c32cf0b1). Test test_cluster34_auto_base_mrmr_and_collinear.py. |
-| 34-F9 | 34_training-3.md | PARTIAL | Per-fold refit failure silently fell back to leaked global params; now WARNING. Spec not marked (unreachable from default discovery). Test test_cluster34_fold_refit_failure_is_visible.py. |
+| 34-F9 | 34_training-3.md | PARTIAL | Per-fold refit failure logged at WARNING with exception class (test_cluster34_fold_refit_failure_is_visible). Not done: marking the spec as leaked-param-scored; unreachable from default discovery since grouped ... |
 | 34-F10 | 34_training-3.md | FIXED | Upgraded multi-base spec carried the seed's tiny-rerank score; now uses the final kept set's CV RMSE. Test test_cluster34_multibase_upgrade_score.py. |
 | 34-F11 | 34_training-3.md | FIXED | Block-size search ignored sample_weight used by the final fit. Test test_cluster34_direct_multi_horizon_weighted_search.py. |
 | 34-F12 | 34_training-3.md | FIXED | Column set rebuilt per candidate column in warm-start rescore; built once per spec. Test test_cluster34_incremental_column_set_built_once.py. |
@@ -274,7 +274,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 34-F29 | 34_training-3.md | FIXED | clear borrowed from ContentMemo via shared attribute names. Own clear() now. Test test_cluster34_matrix_cache_clear.py. |
 | 34-F30 | 34_training-3.md | FIXED | Val-side target cast to float32 when attached, so bases differed from the train side. Target kept float64. Test test_cluster34_attach_keeps_target_float64.py. |
 | 34-F15 | 34_training-3.md | FIXED | Per-element Python tie ranking and PAVA loops. Vectorised ranking for finite input; PAVA compiled. Test test_cluster34_leakage_rank_and_pava.py. |
-| 34-F14 | 34_training-3.md | DEFERRED | Column gathers per 8192-row block. One gather per column needs n x F memory (about 6.4 GB at 3.2M x 500); a column-chunked Gram is a redesign. Owner decision on memory budget. |
+| 34-F14 | 34_training-3.md | DEFERRED | Gathering every column once for all rows needs n x F floats (about 6.4 GB at 3.2M x 500 float32), which defeats the block design. A column-chunked Gram would need a redesign of the pairwise pass. Owner decision on the ... |
 | 34-F17 | 34_training-3.md | DEFERRED | Carry test: 20 MI calls per column. The batched kernel has a different null (block-shuffled codes). Numerical change; needs benchmark and owner sign-off. |
 | 34-F20 | 34_training-3.md | DEFERRED | Warm-start data signature on the full frame. A sampled signature can reuse stale specs. Owner decision. |
 | 34-F21 | 34_training-3.md | PARTIAL | Finite mask reused after impute (4 passes to 2). No new test; 40 existing auto-base tests pass. |
@@ -320,3 +320,166 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 04-F18 | 04_data.md | FIXED | Renamed to coverage_adjusted_plugin. Test test_cluster04_oracle_estimator_names_are_honest.py. |
 | 04-F15 | 04_data.md | DEFERRED | Allowlisted exploration helper with a wrong body; intent needs confirming. |
 | 04-F21 | 04_data.md | FIXED | Probes keep donor missingness. Test test_cluster04_probe_keeps_donor_missingness.py. |
+| 04-F1 | 04_data.md | FIXED | count branch uses count_mean(scale*unit_score), intercept no longer added twice. Test tests/data/datasets/test_count_target_intercept_once.py. Commit below. |
+| 04-F2 | 04_data.md | FIXED | TargetSpec rejects a logloss or accuracy ceiling on a binary target (was silently ignored). Tests tests/data/datasets/test_binary_ceiling_metric_rejected.py. Commit below. |
+| 04-F3 | 04_data.md | FIXED | Multiclass class scores come from multiclass_class_scores: rotated additive weights per class plus the link's interactions and basis terms for every class. Tests tests/data/datasets/test_multiclass_scores_keep_interactio |
+| 04-F4 | 04_data.md | FIXED | link_regions passes the link's regional gate to every column it reads, so FeatureTruth.region is set at both generator call sites. Test tests/data/datasets/test_link_region_reaches_feature_truth.py. Commit below. |
+| 04-F5 | 04_data.md | FIXED | Latent reflections are now graph edges (latent -> reflected column), so the M-bias collider sees its second arm and gets role M_COLLIDER. Also: instrument-convention test aligned with 04-F6; explicit t latent family kept |
+| 04-F6 | 04_data.md | FIXED | Convention fixed in _declared_kind_role: copy/proxy kinds mark the target, the instrument kind marks its source (instrument -> treatment is causal). Test tests/data/datasets/test_declared_roles_follow_the_edge_convention |
+| 04-F7 | 04_data.md | FIXED | realize_latent refuses an unknown family instead of drawing Student-t(4). Tests tests/data/datasets/test_latent_unknown_family_rejected.py. Commit below. |
+| 04-F8 | 04_data.md | FIXED | _exact_mi_independent averages the row entropies within each bin (H(Y/X in bin) = mean H(p_i)) instead of the entropy at the bin-mean probability. Test tests/data/datasets/test_exact_mi_averages_row_entropy.py. Commit be |
+| 04-F9 | 04_data.md | FIXED | mi_reference memo key includes a blake2b digest of the column data and labels. Test tests/data/datasets/test_truth_mi_memo_keys_on_data.py. Commit below. |
+| 04-F10 | 04_data.md | FIXED | count_ceiling sums every row exactly in blocks (the 2001-row prefix extrapolation is gone). Test tests/data/datasets/test_count_ceiling_sums_every_row.py; 5 existing count tests pass. Commit below. |
+| 04-F12 | 04_data.md | FIXED | Simpson group is a fair sign (new rademacher family, -1/+1), so the interaction reverses sign between subgroups as documented. Tests tests/data/datasets/test_simpson_group_is_a_sign.py; existing simpson bed test passes. ... |
+| 08-F1 | 08_feature_engineering-1.md | FIXED | build_nca_projection fits NCA on the rows it is applied to: the internal StandardScaler (fit then discarded) is removed. Test tests/feature_engineering/transformer/test_nca_projection_lives_in_the_applied_space.py; exist |
+| 08-F2 | 08_feature_engineering-1.md | FIXED | All 15 Mode-A out-of-fold output arrays start as NaN (baseline_surprise, adversarial_flip, anomaly_score_features, class_distance, and the 11 grep-found files), so an uncovered row is NaN, not 0.0. Test tests/feature_eng |
+| 09-F4 | 09_feature_engineering-2.md | FIXED | Jackknife endpoint weights are no longer proportional: the upper endpoint favours positives and the lower negatives. Test tests/feature_engineering/transformer/test_jackknife_endpoints_weight_classes_differently.py. Comm |
+| 09-F5 | 09_feature_engineering-2.md | FIXED | Regression quantile heads of the spread fan are sorted per row, so q10 <= q50 <= q90 holds. Test tests/feature_engineering/transformer/test_quantile_fan_is_ordered.py. Commit below. |
+| 09-F6 | 09_feature_engineering-2.md | FIXED | Degenerate folds return NaN (not 0.0) in density_weighted_smote, pure_pos_smote and pseudo_smote. Test tests/feature_engineering/transformer/test_smote_degenerate_fold_is_nan.py covers the density-weighted path. Commit b |
+| 09-F7 | 09_feature_engineering-2.md | DEFERRED | Layer 2 in Mode A consumes layer-1 OOF features of training rows that were produced by folds sharing those rows, so the stacking is optimistic. A fix re-folds layer 1 inside each layer-2 fold (nested OOF), which changes ... |
+| 09-F8 | 09_feature_engineering-2.md | FIXED | Positional encoding no longer applies a 1e6 modulus, so distinct positions are not aliased; precision in float32 is documented and controlled by dtype. Test tests/feature_engineering/transformer/test_positional_encoding_ |
+| 09-F9 | 09_feature_engineering-2.md | FIXED | Geodesic minimum over targets uses one virtual-source Dijkstra (O(rows) memory) instead of a dense (targets x rows) matrix. Test tests/feature_engineering/transformer/test_geodesic_min_over_sources.py equals the per-sour |
+| 09-F10 | 09_feature_engineering-2.md | FIXED | Top-k proximity selects the largest k directly instead of partitioning a negated copy of the dense block. The dense block itself stays: the measured note in the code shows every pair shares a leaf. Test tests/feature_eng |
+| 09-F11 | 09_feature_engineering-2.md | FIXED | Binary MDL binning refuses a target with more than two labels (was mis-indexing the two-class count arrays). Test tests/feature_engineering/transformer/test_mdl_binary_refuses_three_labels.py. Commit below. |
+| 09-F12 | 09_feature_engineering-2.md | FIXED | Empty correct-subset distances are the package far sentinel (1e6) for both mean and nearest, in a module-level _nn_dist_to_subset. Test tests/feature_engineering/transformer/test_trust_empty_subset_is_far.py. Commit belo |
+| 09-F13 | 09_feature_engineering-2.md | FIXED | Local PCA centres each neighbour matrix on the neighbour mean instead of the query row. Test tests/feature_engineering/transformer/test_lid_centres_on_the_neighbour_mean.py. Commit below. |
+| 10-F1 | 10_feature_selection-1.md | FIXED | Adaptive-guards bench scores the refit on the untouched holdout split; the concatenated re-split is gone. Test tests/feature_selection/test_bench_holdout_auc_is_unseen.py. Commit below. |
+| 10-F2 | 10_feature_selection-1.md | FIXED | honest_auc fits on the search rows and scores the untouched holdout, at all three call sites. Test tests/feature_selection/test_bench_interaction_holdout_is_unseen.py. Commit below. |
+| 10-F3 | 10_feature_selection-1.md | FIXED | logreg_holdout_auc returns chance (0.5) for an empty selection instead of scoring all columns. Test tests/feature_selection/test_bench_logreg_empty_selection_is_chance.py. Commit below. |
+| 11-F1 | 11_feature_selection-2.md | FIXED | _integer_bins ranks finite values only; missing rows take bin 0 instead of the top bin. Test tests/feature_selection/test_bench_integer_bins_missing_not_top.py. Commit below. |
+| 11-F2 | 11_feature_selection-2.md | FIXED | RFECV empty selection scores chance (0.5) in the importance-aggregation bench instead of refitting on every column. Test tests/feature_selection/test_bench_rfecv_empty_selection_is_chance.py. Commit below. |
+| 11-F3 | 11_feature_selection-2.md | DEFERRED | Searched arms report the max over many in-sample candidates while truth, joint and als are single candidates, so the comparison is not like for like. The fix is a study-design change (same candidate sets, or held-out sco |
+| 12-F1 | 12_feature_selection-3.md | FIXED | Staleness default root walks up to the .git folder instead of the module directory, so the git paths match. Test tests/feature_selection/test_staleness_repo_root_is_the_git_root.py. Commit below. |
+| 12-F19 | 12_feature_selection-3.md | FIXED | Bench arms are cap60 (the old MRMR width) and cap250; the earlier None arm equalled MRMR's default 250 and so duplicated cap250. Test tests/feature_selection/test_mrmrcap_bench_arms_differ.py. Commit below. |
+| 12-F21 | 12_feature_selection-3.md | FIXED | cv_curve takes a ranker and ranks each fold on its training rows; the noise-floor bench passes lgbm_gain_ranking. Test tests/feature_selection/test_noise_floor_ranks_inside_folds.py. Commit below. |
+| 12-F22 | 12_feature_selection-3.md | FIXED | Robust noise-floor bench passes a per-fold gain ranker (_gain_order) to cv_curve, so folds rank their own training rows. Test tests/feature_selection/test_noise_floor_robust_gain_order.py. Commit below. |
+| 12-F24 | 12_feature_selection-3.md | FIXED | Protected core is the intersection of Boruta and MRMR accepts (agreed_core), matching the docstring. Test tests/feature_selection/test_protected_core_is_the_intersection.py. Commit below. |
+| 13-F1 | 13_feature_selection-4.md | FIXED | Under premerge, Subset() expands accepted representatives back to their cluster members and indexes the pre-collapse frame. Test tests/feature_selection/test_boruta_subset_keeps_premerge_members.py; existing premerge tes |
+| 13-F2 | 13_feature_selection-4.md | FIXED | The stability path builds the shared fit state before returning, so Subset, results_to_csv and plot read set attributes. Test tests/feature_selection/test_boruta_stability_path_has_fit_state.py; existing stability tests ... |
+| 14-F1 | 14_feature_selection-5.md | DEFERRED | The auto tightening compares the value to its default (3.0), so an explicit 3.0 is overridden. Telling explicit from default needs a None sentinel in the public signature, and the training config (training/fs_params/shap |
+| 14-F2 | 14_feature_selection-5.md | FIXED | Target imbalance of a float target counts labelled rows only; NaN is no longer a class. Test tests/feature_selection/test_auto_tune_imbalance_ignores_missing_labels.py; 22 existing auto-tune tests pass. Commit below. |
+| 15-F1 | 15_feature_selection-6.md | FIXED | A NaN estimator score makes the fold score NaN (worst case cannot be read from the other estimators); a fully scored fold still takes the minimum. Test tests/feature_selection/test_rfecv_fold_min_counts_failed_estimators |
+| 15-F2 | 15_feature_selection-6.md | FIXED | The dispatcher completes ragged per-run tables with fi_missing_policy before the tree and linear aggregators run, as the legacy path does. Test tests/feature_selection/test_dispatched_agg_imputes_ragged_runs.py; 3 existi |
+| 17-F1 | 17_metrics.md | FIXED | MaxError kernels propagate NaN residuals (x != x check in the three comparison sites of both regression modules), matching MAE/MSE. Test tests/metrics/test_max_error_propagates_nan.py; 142 existing regression metric test |
+| 17-F2 | 17_metrics.md | FIXED | variance_weighted R2 with all-constant outputs averages the per-output sklearn scores (1.0 for a perfect fit) instead of returning 0.0. Tests tests/metrics/test_r2_variance_weighted_constant_targets.py; 74 existing R2 te |
+| 17-F3 | 17_metrics.md | FIXED | fast_tweedie_deviance (power 0) checks lengths and shapes before the difference, so a column prediction no longer broadcasts to N*N pairs. Test tests/metrics/test_tweedie_power_zero_length_check.py; 18 existing deviance ... |
+| 17-F4 | 17_metrics.md | FIXED | Weighted regression kernels check sample_weight against the row count before indexing (the three weight-taking entry points); the deviance wrappers were already covered by the shape check in 17-F3. Test tests/metrics/tes |
+| 17-F5 | 17_metrics.md | FIXED | accuracy_ratio returns NaN when any score is non-finite, instead of a ratio built from NaN rows as tie blocks. Test tests/metrics/test_accuracy_ratio_nan_scores.py; 28 existing CAP/AR tests pass. Commit below. |
+| 17-F6 | 17_metrics.md | FIXED | apply_cutpoints refuses non-finite predictions (integer grades cannot carry NaN) instead of grading NaN as the top class. Tests tests/metrics/classification/test_apply_cutpoints_refuses_nan.py; the existing ordinal-cutpo |
+| 17-F7 | 17_metrics.md | FIXED | Multiclass confusion wrappers (MCC and the confusion block) refuse labels outside [0, K) before the kernel, which skips them silently. Tests tests/metrics/test_multiclass_confusion_refuses_out_of_range_labels.py; 36 existing multiclass/MCC tests pass. Commit below. |
+| 17-F8 | 17_metrics.md | FIXED | fast_calibration_metrics checks that y_true and y_pred have the same length before its serial kernel (inline, since the body is compiled). Test tests/metrics/test_fast_calibration_metrics_length_checked.py; 99 existing c |
+| 17-F9 | 17_metrics.md | DEFERRED | Degenerate reports use ICE = 1.0 as a worst-case placeholder, but a real model's ICE can exceed 1.0, so the placeholder can beat it. The report contract (module docstring) promises finite floats to consumers (plots, threshold search, string builders); choosing a larger finite placeholder or NaN changes that contract for every caller, so it waits for a decision. |
+| 18-F1 | 18_models.md | FIXED | Confidence threshold uses the finite uncertainties only; a NaN row is never confident, so one missing member no longer empties the confident set (on by default). Test tests/models/test_confidence_estimates_ignore_nan_row |
+| 18-F2 | 18_models.md | DEFERRED | Multiclass (N, K) member predictions are flattened to N*K and skipped by the length gate, so their NNLS/Caruana weights never get fitted. A fix needs a scoring choice for a multiclass member (true-class probability or mu |
+| 18-F3 | 18_models.md | FIXED | Target-MAE gate reads a binary (n, 2) predict_proba as its positive column (_as_gate_vector), not as 2n flattened values, so the MAE is no longer NaN and the block is no longer skipped. Test tests/models/test_gate_vector |
+| 18-F4 | 18_models.md | DEFERRED | Level-1 ensembles are appended as (entry, train_df, val_df, test_df) tuples and level 2+ reads val_probs/oof_probs from the tuple. Unwrapping at append is the natural fix, but downstream readers of the level tuple (the s |
+| 18-F5 | 18_models.md | FIXED | batch_numaggs passes whiten_means=False as the serial path does. Test tests/models/test_batch_numaggs_matches_serial_whitening.py is a source-level guard (weak: it checks the call text, not the output); 74 existing numag |
+| 20-F1 | 20_reporting-1.md | DEFERRED | The current labels pass the existing tests: a lognormal (long positive residual tail) reads RIGHT-SKEW, and the swap the audit proposes breaks that test. The asymmetry metric (tail medians of the detrended QQ) is itself ... |
+| 20-F2 | 20_reporting-1.md | FIXED | Implied AUC of a Fisher J is Phi(sqrt(J)/sqrt(2)) for J as the squared Mahalanobis distance; the earlier Phi(sqrt(J)/2) understated every separability figure. Test tests/reporting/test_implied_auc_formula.py; 25 existing |
+| 20-F3 | 20_reporting-1.md | FIXED | NDCG bootstrap builds its resample gather in row blocks (bounded memory) with the same seeded draws. Test tests/reporting/test_bootstrap_ndcg_ci_blocks.py matches a row-by-row reference; 115 existing LTR/bootstrap tests ... |
+| 20-F4 | 20_reporting-1.md | FIXED | Calendar encodings are used as computed on the non-missing rows; the second full-length mask index (IndexError on any NaT, swallowed by the caller) is gone. Test tests/reporting/test_calendar_features_with_nat.py; 4 existing calendar tests pass. Commit below. |
+| 20-F5 | 20_reporting-1.md | FIXED | Target drift verdict does not run the binary class-1 proportion test for multiclass targets; it reports the mean shift and states that no drift flag applies. Test tests/reporting/test_target_drift_multiclass_no_false_fla |
+| 20-F6 | 20_reporting-1.md | FIXED | Adversarial validation on a frame with no scalar column returns an annotated skip instead of fitting a 0-feature model. Test tests/reporting/test_adversarial_all_embedding_frame.py; 150 existing adversarial/drift tests p |
+| 21-F1 | 21_reporting-2.md | FIXED | Empty label arrays map to an empty index instead of raising at classes.min(), so the designed no-data path is reached. Test tests/reporting/test_risk_coverage_empty_labels.py; 28 existing risk-coverage tests pass. Commit |
+| 21-F2 | 21_reporting-2.md | FIXED | Slice finder feeds the 3-way combo builder the feature rows that match the finite errors (mat filtered with row_mask on the NaN path). Test tests/reporting/test_slice_finder_nan_errors_arity3.py; 50 existing slice tests ... |
+| 21-F3 | 21_reporting-2.md | FIXED | Per-instance and interaction SHAP builders skip a multi-output CatBoost model before shap's TreeExplainer, as shap_panels already does. Test tests/reporting/test_shap_multioutput_catboost_is_skipped.py (monkeypatched; it |
+| 21-F4 | 21_reporting-2.md | FIXED | Scatter subsample past the cap slices symmetric and asymmetric per-point error arrays with the same indices (on a copy of the spec). Test tests/reporting/test_scatter_subsample_keeps_error_bars_aligned.py; 61 existing sc |
+| 22-F1 | 22_root_modules-1.md | FIXED | Independence summary reads 1.0 (fully redundant) when every member is constant, instead of 0.0 (independent), so odds_ratio_combine warns. Test tests/calibration/test_independence_all_constant_members_is_redundant.py; 30 |
+| 22-F2 | 22_root_modules-1.md | FIXED | A calibrator whose OOF outputs are non-finite is excluded from candidate scoring (logged), instead of being scored over its finite rows. Test tests/calibration/test_candidate_with_nan_outputs_is_excluded.py; 340 existing |
+| 22-F3 | 22_root_modules-1.md | DEFERRED | get_postcalibrators imports netcal, pycalib, ml_insights, betacal and venn_abers unguarded, and the calibrator list references their attributes directly. Making each optional means restructuring the whole zoo list per li |
+| 22-F4 | 22_root_modules-1.md | FIXED | Confidence shrinkage fully shrinks an output with no confidence (weight 0), including when the confidence map is empty; the early return that gave raw predictions is removed, and a segment without a confidence is also fu |
+| 22-F5 | 22_root_modules-1.md | FIXED | Band correction clips only the corrected in-band values; out-of-band predictions are unchanged, as the docstring states. Test tests/calibration/test_band_correction_leaves_out_of_band_unchanged.py; 7 existing band tests ... |
+| 22-F6 | 22_root_modules-1.md | FIXED | replay_cv_results returns the loaded mapping; the loop variable no longer shadows it. The existing replay assertions had encoded the bug (they checked for the inner run's key) and now assert the loaded structure. Tests ... |
+| 22-F7 | 22_root_modules-1.md | FIXED | Probability generator names only the n_informative columns that reach X, so n_informative < n_classes no longer crashes. Test tests/data/test_synthetic_probability_fewer_informative_than_classes.py; 16 existing synthetic |
+| 22-F8 | 22_root_modules-1.md | FIXED | Stratified bootstrap groups are keyed by the label value itself (a list of per-label index arrays), so fractional labels no longer merge. Test tests/evaluation/test_stratified_bootstrap_fractional_labels.py; 72 existing ... |
+| 23-F1 | 23_root_modules-2.md | FIXED | When more than a quarter of resamples fail, the bootstrap CI spans the surviving range (as the docstring documents) and the result carries degraded=True. Test tests/evaluation/test_bootstrap_degraded_ci_spans_survivors.p |
+| 23-F3 | 23_root_modules-2.md | FIXED | Missing group ids (NaN/None) are one group in the leakage guard, so a shared missing id across a split raises. Test tests/evaluation/test_group_leakage_nan_ids.py; 43 existing leakage tests pass. Commit below. |
+| 23-F4 | 23_root_modules-2.md | FIXED | rank_agreement counts only concordant pairs (both orderings equal); a tie in either ranking is not agreement. Test tests/evaluation/test_rank_agreement_ignores_ties.py; 23 existing blend-selection tests pass. Commit belo |
+| 24-F2 | 24_root_modules-3.md | FIXED | timeseries walk kernels now return exclusive end including the crossing element (forward) and inclusive start for the backward walk; regression tests in tests/feature_engineering/test_cumsum_walk_window_bounds.py; test_c |
+| 24-F3 | 24_root_modules-3.md | FIXED | backward walk now visits index 0 (range covers right_index-1..0); covered by test_backward_walk_reaches_index_zero |
+| 24-F4 | 24_root_modules-3.md | FIXED | integer input promoted to float64 in rolling_moving_average; test_rolling_moving_average_integer_input.py |
+| 24-F5 | 24_root_modules-3.md | FIXED | adjust=True now equals pandas ewm(adjust=True) via zero-seed numerator over 1-(1-alpha)^(t+1); test_ewma_adjust_is_causal.py; test_ewma_residual_recurrence_njit reference updated |
+| 24-F6 | 24_root_modules-3.md | FIXED | CUSUM reference mean is the expanding mean of prior rows; auto threshold is MAD of the first 30 rows; test_cusum_is_causal.py; test_cusum_walk_njit reference updated to causal form |
+| 24-F7 | 24_root_modules-3.md | FIXED | NaN/None states no longer count as possession; test_state_duration_and_sentinel_guards.py |
+| 24-F8 | 24_root_modules-3.md | FIXED | sentinel detection is numeric-only, non-bool, and needs at least 3 other levels; same test file |
+| 24-F9 | 24_root_modules-3.md | FIXED | IDW, label-dispersion and gradient drop the query point itself when query is the reference pool (shared _drop_self_match); tests/feature_engineering/test_spatial_query_is_ref_and_nan_queries.py |
+| 24-F10 | 24_root_modules-3.md | FIXED | knn_within_bucket_aggregate drops the self-match when query is reference; same test file |
+| 24-F11 | 24_root_modules-3.md | FIXED | knn_gradient uses zero-filled coords for the design matrix and marks non-finite query rows singular, so no NaN reaches the batched SVD/solve; same test file |
+| 24-F12 | 24_root_modules-3.md | FIXED | rolling_longest_monotone_run returns NaN for windows containing a non-finite value; tests/feature_engineering/test_feature_edge_cases_24_f12_to_f15.py |
+| 24-F13 | 24_root_modules-3.md | FIXED | nearest_past_join indexes unresolved rows through the positional copy; same test file |
+| 24-F14 | 24_root_modules-3.md | FIXED | create_ts_features_parallel returns (None, None) for an empty span before dividing; same test file |
+| 24-F15 | 24_root_modules-3.md | FIXED | mps shift fills the vacated tail from the last shifted position; same test file |
+| 24-F16 | 24_root_modules-3.md | DEFERRED | causal per-row prefix weights for scheme 0 depend on the prefix length m, so a cumsum rewrite needs a per-scheme derivation; output is correct, only O(m^2) cost. Needs a design decision |
+| 24-F17 | 24_root_modules-3.md | DEFERRED | causal KDE re-runs the grid per prefix; the fix needs incremental KDE, a design change beyond a local patch. Output is correct, only cost |
+| 24-F18 | 24_root_modules-3.md | FIXED | NaN entity kept as its own group (dropna=False); test_tfidf_entity_nan_and_case.py |
+| 24-F19 | 24_root_modules-3.md | FIXED | OOV check compares lowercased tokens when the vectorizer lowercases; same test file |
+| 24-F20 | 24_root_modules-3.md | FIXED | with fit_on_train_only the member stage receives the train partition, matching MRMR |
+| 24-F21 | 24_root_modules-3.md | FIXED | corr_clusters divides Z.T@Z by n (population sd); test_hybrid_ddof_and_raw_labels.py |
+| 24-F22 | 24_root_modules-3.md | FIXED | cohort helper returns raw column labels, so non-string labels match; same test file |
+| 25-F1 | 25_root_modules-4.md | FIXED | weighted quantile above the last midpoint returns the group max; tests/inference/test_entity_collapse_quantile_above_last_midpoint.py |
+| 25-F3 | 25_root_modules-4.md | FIXED | label_ranking_average_precision scores degenerate rows 1.0 and keeps them in the mean (sklearn); tests/metrics/test_multilabel_extras.py compares full arrays |
+| 25-F4 | 25_root_modules-4.md | FIXED | label_ranking_loss keeps degenerate rows with loss 0 in the mean (sklearn) |
+| 25-F5 | 25_root_modules-4.md | FIXED | multilabel inference remap also for two columns (len(probs) >= 2); tests/metrics/test_multiclass_labels_fairness_bins.py |
+| 25-F6 | 25_root_modules-4.md | FIXED | isinstance(str) before the special-name membership test; same test file |
+| 25-F7 | 25_root_modules-4.md | FIXED | excluded rare bins become NaN in bins; same test file |
+| 25-F8 | 25_root_modules-4.md | FIXED | bootstrap distribution and resampler factory check length and return NaN for NaN scores (sibling convention); tests/metrics/test_auc_entry_checks_and_thread_safe_resampler.py |
+| 25-F9 | 25_root_modules-4.md | FIXED | resampler scratch buffers are thread-local; concurrency regression in the same file |
+| 25-F10 | 25_root_modules-4.md | FIXED | fast_aucs_per_group_optimized checks length, refuses NaN with ValueError and normalises labels; same file |
+| 25-F11 | 25_root_modules-4.md | FIXED | binary label normaliser raises for more than two distinct labels; same file |
+| 25-F12 | 25_root_modules-4.md | FIXED | non-finite values are still dropped, now logged with counts (warn option of the finding); tests/metrics/test_cluster25_entry_checks_and_fold_fits.py |
+| 25-F13 | 25_root_modules-4.md | FIXED | MAPE checks length before the kernels; same test file |
+| 25-F14 | 25_root_modules-4.md | FIXED | XGBoost interaction path uses native_contrib_kwargs for DMatrix and predict; same test file |
+| 25-F15 | 25_root_modules-4.md | FIXED | eval_fraction splits within the training fold; the test fold never reaches fit; same test file |
+| 25-F16 | 25_root_modules-4.md | FIXED | ETR no longer receives the CatBoost iterations key; same test file |
+| 25-F17 | 25_root_modules-4.md | FIXED | isotonic refit slices sorted contiguous group segments (one sort); same test file checks per-group monotonicity |
+| 25-F18 | 25_root_modules-4.md | FIXED | a column is a drop candidate only if unimportant in every training fold, importances on training rows only. Residual: the fold's held-out rows still shape the other folds' masks; a fully nested variant is a design option |
+| 25-F19 | 25_root_modules-4.md | FIXED | NaN epochs are skipped before the baseline and weights; a RuntimeWarning fires when no epoch is finite; same test file |
+| 26-F1 | 26_root_modules-5.md | FIXED | non-mutating cleaning path assigns per column (no assign(**kwargs)); tests/preprocessing/test_cluster26_preprocessing_fixes.py |
+| 26-F2 | 26_root_modules-5.md | FIXED | dedup gate tests only float NaN, so pd.NA no longer hits bool(); same file |
+| 26-F3 | 26_root_modules-5.md | FIXED | tree branch scores against supplied bounds as the non-tree branch does; same file |
+| 26-F5 | 26_root_modules-5.md | FIXED | auto-discovered non-numeric columns take mode under median/mean; same file |
+| 27-F1 | 27_root_modules-6.md | FIXED | edge blend reads a snapshot of the hard predictions; tests/training/test_direct_horizon_edge_blend_from_hard.py |
+| 27-F2 | 27_root_modules-6.md | FIXED | polars persist path fits a real SimpleImputer, so sklearn's dtype state is set; covered by tests/inference/test_predict_nan_guard_polars_native.py and the schema drift matrix |
+| 27-F3 | 27_root_modules-6.md | FIXED | fingerprint digests __slots__ and __dict__ state for objects without get_params; tests/training/test_cluster27_fingerprint_threshold_backends.py |
+| 27-F4 | 27_root_modules-6.md | FIXED | positive class is the larger label (y == max) in _counts_at and the minority count; same file |
+| 27-F5 | 27_root_modules-6.md | FIXED | duplicated buckets read member slices from one stable argsort; covered by test_biz_val_training_pseudo_group_reconstruction.py |
+| 27-F6 | 27_root_modules-6.md | FIXED | cb/lgb RFECV built only when the class is installed and the backend is requested, else None; same file tests the helper |
+| 28-F1 | 28_root_modules-7.md | FIXED | NaT rows dropped before binning, order maps back to original rows; tests/training/test_cluster28_suite_fixes.py |
+| 28-F3 | 28_root_modules-7.md | FIXED | single-class y_true uses label 1 as the positive class, matching probs column 1; no separate test (internal branch of the exploss metric) |
+| 28-F4 | 28_root_modules-7.md | FIXED | sort mode returns NaN rows verbatim with a RuntimeWarning; same test file |
+| 28-F5 | 28_root_modules-7.md | FIXED | TTA jitter uses nanstd (NaN-safe) at all three sites; same test file |
+| 28-F8 | 28_root_modules-7.md | FIXED | dotted components checked against denylist prefixes in the older loader; same test file |
+| 28-F9 | 28_root_modules-7.md | FIXED | write_ added to denied prefixes; same test file |
+| 28-F10 | 28_root_modules-7.md | FIXED | automl_target_label defaults to None and the run target name is used; same test file |
+| 28-F13 | 28_root_modules-7.md | FIXED | fallback retry goes through _train_model_with_f_phase; no separate test |
+| 28-F15 | 28_root_modules-7.md | FIXED | drift cache key digests the full content (blake2b over row hashes); same test file |
+| 28-F18 | 28_root_modules-7.md | FIXED | the unimplemented carrier stamp is replaced by a logged warning; no separate test |
+| 29-F1 | 29_root_modules-8.md | FIXED | -P only on Python 3.11+ (empty flag tuple on older interpreters); tests/utils/test_native_import_probe.py and tests/utils/test_cluster29_utils_fixes.py |
+| 29-F2 | 29_root_modules-8.md | FIXED | strided sample taken before the dense copy; n keeps the true row count; same test file |
+| 29-F3 | 29_root_modules-8.md | FIXED | unmeasurable dimensions bucket to the string marker nan, not 0.0; same test file |
+| 29-F4 | 29_root_modules-8.md | FIXED | structured/void dtype hashes the whole buffer; same test file |
+| 29-F5 | 29_root_modules-8.md | FIXED | preprocess_glue NaN guard matches preprocess_sglue; no separate test (votenrank suite passed) |
+| 29-F6 | 29_root_modules-8.md | FIXED | array-likes are written as a frame, other types raise TypeError; same test file |
+| 31-F1 | 31_system.md | FIXED | -P gated on Python 3.11+; PYTHONPATH still carries the import root; no separate test (subprocess command construction) |
+| 31-F2 | 31_system.md | FIXED | an ok sweep that persisted 0 regions counts as failed; cmd_refresh returns non-zero for 0; tests/system/test_cluster31_kernel_tuning_fixes.py |
+| 31-F3 | 31_system.md | FIXED | lock records pid:start-token; a live pid with a mismatching token is stale; same test file; test_kernel_tuning_lock_race.py assertion updated to the pid field |
+| 32-F1 | 32_training-1.md | FIXED | an empty rows list returns an empty frame before set_index; no separate test (LTR skip path) |
+| 32-F2 | 32_training-1.md | FIXED | a probability matrix takes the true-class probability and its bootstrap CI; tests/training/test_cluster32_baseline_fixes.py |
+| 32-F3 | 32_training-1.md | FIXED | one validation shard falls back to single-validation early stopping with one warning; no separate test |
+| 32-F4 | 32_training-1.md | FIXED | a non-finite global mean returns the minimum pseudocount (finite); tests/training/test_cluster32_baseline_fixes.py. Residual: the finding's preferred option, dropping non-finite y before the estimate, is not implemented; |
+| 32-F5 | 32_training-1.md | FIXED | nanmedian and nanquantile for the quantile baselines; no separate test |
+| 32-F6 | 32_training-1.md | FIXED | nanstd for the cross-output scale, non-finite scales skipped, non-finite normalized means excluded before the pick; no separate test |
+| 33-F1 | 33_training-2.md | FIXED | the CatBoost categorical NaN fill failure is logged at WARNING with the error type; the except is kept broad (not narrowed) so the fill never raises into predict; no separate test |
+| 33-F2 | 33_training-2.md | FIXED | label-stacking failure logged at WARNING; no separate test |
+| 40-F6 | 40_training-9.md | FIXED | unseen validation labels raise instead of mapping to a neighbouring class; no separate test beyond the suite run |
+| 40-F12 | 40_training-9.md | FIXED | kwargs are filtered by signature and the fit is called once, so a TypeError inside a fit propagates; tests/training/test_cluster40_pipeline_fixes.py |
+| 40-F14 | 40_training-9.md | FIXED | duplicated index labels no longer multiply rows: both FE joins are positional; tests/training/test_cluster40_pipeline_fixes.py |
+| 40-F19 | 40_training-9.md | FIXED | array-valued parameters are keyed by shape, dtype and content digest; tests/training/test_cluster40_pipeline_fixes.py |
+| 41-F1 | 41_training-10.md | DEFERRED | not changed: the NaN categorical predict mapping needs the sentinel contract confirmed with the fit side |
+| 41-F2 | 41_training-10.md | FIXED | verbose NDCG logging uses .get so an eval_at without 10 cannot raise; no separate test |
+| 41-F3 | 41_training-10.md | FIXED | NaN temporal labels count as missing in the polars path, matching the pandas twin; no separate test |
+| 41-F4 | 41_training-10.md | DEFERRED | not changed: the early branches skip the skew check; reordering changes the rationale text, needs a decision on the intended output |
+| 41-F5 | 41_training-10.md | DEFERRED | not changed: per-group masks are an O(G*n) performance issue; a groupby rewrite needs a benchmark decision |
+| 41-F6 | 41_training-10.md | FIXED | GroupKFold with fewer groups than k returns no shards, as the docstring promises; no separate test |
+| 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
+| 42-F2 | 42_votenrank.md | FIXED | sub-leaderboards inherit allow_partial and partial_fill; no separate test |
