@@ -251,15 +251,18 @@ def _maybe_pass_sample_weight(
     import inspect as _inspect
     if sw is not None and len(sw) != len(y):
         raise ValueError(f"_maybe_pass_sample_weight: sample_weight length {len(sw)} != y length {len(y)}")
+    if sw is not None and not np.isfinite(np.asarray(sw, dtype=np.float64)).all():
+        raise ValueError("_maybe_pass_sample_weight: sample_weight has non-finite entries")
     if eval_set is None:
         # No eval data (small folds skip the carve): an early-stopping clone would raise, so train the deployed model's
         # round count instead (``fitted_source`` is the fitted model the clone was taken from).
         _disable_early_stopping(fit_callable, fitted_source)
+    # Bound before the try: a signature failure below used to reach the handler with _kwargs unbound (audit 35-F15).
+    _kwargs: dict = {}
     try:
         _sig = _inspect.signature(fit_callable.fit)
         _params = _sig.parameters
         _accepts_var_kw = any(p.kind == _inspect.Parameter.VAR_KEYWORD for p in _params.values())
-        _kwargs: dict = {}
         if sw is not None and ("sample_weight" in _params or _accepts_var_kw):
             _kwargs["sample_weight"] = sw
         if eval_set is not None and ("eval_set" in _params or _accepts_var_kw):
@@ -269,7 +272,7 @@ def _maybe_pass_sample_weight(
         if _kwargs:
             return fit_callable.fit(X, y, **_kwargs)
     except (TypeError, ValueError) as exc:
-        logger.debug(
+        logger.warning(
             "_maybe_pass_sample_weight: combined fit with kwargs %s failed (%s); retrying without them.",
             sorted(_kwargs.keys()), exc,
         )
@@ -278,8 +281,8 @@ def _maybe_pass_sample_weight(
         try:
             return fit_callable.fit(X, y, sample_weight=sw)
         except (TypeError, ValueError) as exc:
-            logger.debug(
-                "_maybe_pass_sample_weight: sample_weight-only fit failed (%s); falling back to unweighted fit.",
+            logger.warning(
+                "_maybe_pass_sample_weight: sample_weight-only fit failed (%s); falling back to an UNWEIGHTED fit.",
                 exc,
             )
     return fit_callable.fit(X, y)

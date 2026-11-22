@@ -109,3 +109,4 @@ Coverage and method:
 - 35-F9: FIXED. External holdout key includes a frame content digest. Test tests/training/composite/test_cluster35_holdout_digest_distinguishes_content.py.
 - 35-F5: FIXED. Each fold keeps one slot (NaN when unusable), so the paired test zips by fold. Test tests/training/composite/test_cluster35_stepwise_fold_slots.py.
 - 35-F6: FIXED. Stacked target float64 at both fit entry points; AST guard test (test_cluster35_stacked_target_float64_guard)
+- 35-F15: FIXED. _kwargs bound before the try; non-finite weights refused; both fallbacks logged at WARNING (test_cluster35_sample_weight_fallback; 69 related tests pass)

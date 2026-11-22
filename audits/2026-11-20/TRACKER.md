@@ -78,6 +78,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F4 | 35_training-4.md | FIXED | Non-finite raw baseline silently disabled the gate. Fails closed with WARNING. Test test_cluster35_raw_baseline_fail_closed.py. |
 | 35-F6 | 35_training-4.md | FIXED | Target float32 before the residual. float64 at both entry points. Test test_cluster35_stacked_target_float64_guard.py. |
 | 35-F8 | 35_training-4.md | FIXED | Digest of U-dtype strings joined without boundaries. Length-prefixed. Test test_cluster35_digest_and_flags.py. |
+| 35-F15 | 35_training-4.md | FIXED | _kwargs unbound on signature failure; weighted-fit fallback logged at DEBUG. Test test_cluster35_sample_weight_fallback.py. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |
