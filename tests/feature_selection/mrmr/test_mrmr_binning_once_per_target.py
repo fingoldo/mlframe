@@ -75,11 +75,18 @@ def test_supervised_strategy_bins_again_for_another_target(monkeypatch):
     assert len(calls) > 0, "a supervised strategy must recompute its edges for another target"
 
 
+# KNOWN GAP, NOT IMPLEMENTED ON PURPOSE (decision 2026-11-23, tracker row MRMR-COMPOSITE-BIN-ONCE).
+# Found fix: give the child fit the parent's column codes sliced by the child's rows, for target-independent strategies (their edges do not depend on y, so the same rows and the same edges give the same
+# codes). Supervised strategies keep re-binning: the child target is T = y - beta*u, not y, so their edges differ.
+# Why it is not implemented: the child fit runs only with fe_target_mix_candidates=True, which is OFF by default, and the measurement of 2026-11-23 (PLAN-05, three fixtures, nine seeds) found no value
+# in that search: no change in what is selected, one +0.005 R2, at 1.1-2.8x the wall. The fix would touch the fit path (codes handed from parent to child, cache keys by row subset) to speed up a mode that
+# nobody should switch on. strict=True: the day the fix lands the test XPASSes and fails the run, which forces removing this marker.
+@pytest.mark.xfail(strict=True, reason="child fit of the target mix re-bins its row subset; fix not implemented because the candidate search showed no value (PLAN-05, MRMR-COMPOSITE-BIN-ONCE)")
 @pytest.mark.parametrize("strategy", ["quantile_spacing", "freedman_diaconis", "sturges", "uniform"])
 def test_composite_child_fit_adds_no_column_binning(monkeypatch, strategy):
-    """The target-mix child fit (``fe_target_mix_candidates=True``) fits on a row subset of the parent. It must reuse the parent's codes (the same rows, the same edges), not bin the columns again.
+    """The target-mix child fit (``fe_target_mix_candidates=True``) fits on a row subset of the parent. It should reuse the parent's codes (the same rows, the same edges), not bin the columns again.
 
-    RED on purpose: the child bins its subset again (the edge memo keys on content, and the subset has different content). Fix: the child takes the parent's column codes by row. Only target-independent strategies are pinned (a supervised strategy must re-bin: the child target T differs). Left RED on purpose, no xfail, as a reminder; the fix waits for PLAN-05 to show the candidate search has value. Tracked under MRMR-COMPOSITE-BIN-ONCE.
+    Pinned for target-independent strategies only; marked xfail (strict) because the fix is deliberately not implemented, see the comment above.
     """
     X, _y_bin, y_reg = _frame(n=1500)
     cols.clear_edge_memo()

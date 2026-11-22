@@ -2995,6 +2995,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # The candidate search of the mix (one child MRMR fit per base, each about the cost of the whole fit) is OFF by default: on six continuous datasets (additive, interaction, two interactions, level plus
         # interaction, periodic plus trend, noise; 10000 x 12) and the 20000 x 20 benchmark it proposed 30 candidates and the rescue admitted none, with identical selections, at 3.5-7.5 times the wall of the fit
         # without it. The bases and their provenance (what ``TargetOffsetRegressor`` reads) are still recorded. ``True`` restores the candidate search.
+        # Re-measured 2026-11-23 with ``_benchmarks/target_mix/mix_value.py`` (y = 3*x0 + share*x1*x2 + noise, n=6000, p=10, 3 seeds per row; held-out R2 of a ridge on the selection):
+        #   share 4 %, noise 0.3: R2 0.9857/0.9858/0.9871 OFF vs 0.9904/0.9858/0.9871 ON, wall 11-34 s vs 29-40 s, the x1*x2 term found in both modes;
+        #   share 1.8 %, noise 0.6: R2 0.9594/0.9600/0.9593 in both modes, term found in both, wall 6-23 s vs 18-26 s;
+        #   share 0.8 %, noise 1.0: R2 0.8925/0.8900/0.8951 in both modes, term found in neither.
+        # Nine fits gave one +0.005 R2 and never changed what is found, at 1.1-2.8x the wall, so the default stays False. Details: audits/2026-11-23/PLAN_target_transform_in_mrmr.md (PLAN-05).
         fe_target_mix_candidates: bool = False,
         # With ``redundancy_policy='drop'`` the same held-out evidence prunes a selected engineered column, or a raw column no engineered column is built from, that does not lower the held-out
         # residual of the rest of the selection significantly. A raw operand of an engineered column (``fe_drop_redundant_raw_operands``) is pruned unless it improves the held-out fit of a LINEAR
