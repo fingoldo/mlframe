@@ -133,6 +133,20 @@ def _between_group_variance_ratio(values: np.ndarray, inverse: np.ndarray, n_gro
     return float(min(1.0, max(0.0, 1.0 - (ssw / (n - n_groups)) / (sst / (n - 1)))))
 
 
+def _structurally_exempt(spec, causal_exempt: bool, target_col) -> bool:
+    """True when the structural gate does not judge ``spec``: no base, a multi-base spec (logged, audit 35-F36), or a causal base."""
+    base_col = getattr(spec, "base_column", "")
+    if not base_col or getattr(spec, "extra_base_columns", None):  # single-base only
+        # Multi-base specs are not judged by this gate. The bypass used to be silent; it is logged now (audit 35-F36).
+        if base_col:
+            logger.warning("structural fragility gate not applied to multi-base spec %s (extra_base_columns=%s); it passes unchecked.",
+                           getattr(spec, "name", base_col), tuple(getattr(spec, "extra_base_columns", ()) or ()))
+        return True
+    # Causal-provenance exemption: a strictly-causal base re-injects a REAL per-row previous value at inverse, so it stays
+    # in-range on unseen groups. Provenance only, never a heuristic; gated by causal_base_gate_exempt.
+    return bool(causal_exempt and is_causal_base_name(base_col, target_col))
+
+
 def apply_structural_fragility_gate(
     self,
     df: Any,
@@ -189,20 +203,10 @@ def apply_structural_fragility_gate(
     _causal_exempt = bool(getattr(cfg, "causal_base_gate_exempt", True))
     _tcol = getattr(self, "_target_col", None)
     for spec in kept_specs:
+        if _structurally_exempt(spec, _causal_exempt, _tcol):
+            survivors.append(spec)
+            continue
         base_col = getattr(spec, "base_column", "")
-        if not base_col or getattr(spec, "extra_base_columns", None):  # single-base only
-            # Multi-base specs are not judged by this gate. The bypass used to be silent; it is logged now (audit 35-F36).
-            if base_col:
-                logger.warning("structural fragility gate not applied to multi-base spec %s (extra_base_columns=%s); it passes unchecked.",
-                               getattr(spec, "name", base_col), tuple(getattr(spec, "extra_base_columns", ()) or ()))
-            survivors.append(spec)
-            continue
-        # Causal-provenance exemption: a strictly-causal base (grouped-causal engineered / named lag) re-injects a REAL
-        # per-row previous value at inverse, so it stays in-range on unseen groups -- the between-group-level fragility
-        # this gate detects does not apply. Provenance only, never a heuristic; gated by causal_base_gate_exempt.
-        if _causal_exempt and is_causal_base_name(base_col, _tcol):
-            survivors.append(spec)
-            continue
         try:
             base = _extract_column_array(df, base_col, rows=rows).astype(np.float64)
         except Exception as e:  # the same base is read at predict: a base the gate cannot read cannot be served

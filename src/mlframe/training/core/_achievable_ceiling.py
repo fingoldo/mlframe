@@ -345,6 +345,13 @@ def _with_supplied_lag(df: Any, lag_values: Any) -> tuple[Any, str]:
     return out, _SUPPLIED_LAG_COLUMN
 
 
+def _attach_supplied_lag_if_needed(df: Any, lag_col: Any, lag_values: Any, n: int) -> tuple[Any, Any]:
+    """A supplied lag with no detected column is still a causal base: attach it so the candidates can use it (audit 37-F2)."""
+    if lag_col is None and lag_values is not None and np.asarray(lag_values).reshape(-1).shape[0] == n:
+        return _with_supplied_lag(df, lag_values)
+    return df, lag_col
+
+
 def _lag_floor_rmse(df, target_col, lag_values, n, rows_hold, y_hold):
     """AR failsafe (lag_predict) RMSE on the holdout rows, with the detected causal lag column (None when the frame has none)."""
     lag_rmse = float("nan")
@@ -469,9 +476,7 @@ def measure_achievable_ceiling(
 
     # (b) AR failsafe (lag_predict) RMSE on the SAME holdout rows.
     lag_col, lag_rmse = _lag_floor_rmse(df, target_col, lag_values, n, rows_hold, y_hold)
-    if lag_col is None and lag_values is not None and np.asarray(lag_values).reshape(-1).shape[0] == n:
-        # A supplied lag with no detected column is still a causal base: attach it so the candidates and the composite evaluation can use it.
-        df, lag_col = _with_supplied_lag(df, lag_values)
+    df, lag_col = _attach_supplied_lag_if_needed(df, lag_col, lag_values, n)
 
     # (c) OPTIMISTIC achievable-composite ceiling: best (min-RMSE) linear-residual reconstruction over candidate bases.
     base_cands = _pick_base_candidates(df, feature_cols, target_col, lag_col, y_sub, idx_all, max_base_candidates)
