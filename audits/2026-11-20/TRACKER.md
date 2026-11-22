@@ -110,6 +110,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F44 | 35_training-4.md | PARTIAL | Repeated integer check at the grouping call site removed. Dead helpers kept as allowlisted test references. Test test_cluster35_low_card_check_once.py. |
 | 35-F45 | 35_training-4.md | FIXED | Bootstrap posterior result lacked posterior_kind, n_samples, degrees_of_freedom and sigma2_posterior_mean. Added on both variants. Test test_cluster35_bootstrap_result_keys.py. |
 | 35-F46 | 35_training-4.md | PARTIAL | _residualise used an absolute 1e-12 constant test. Now relative. Mid-module imports left in place. Test test_cluster35_residualise_relative_constant.py. |
+| 35-F47 | 35_training-4.md | FIXED | Dead _groups_screen assignment and a missing blank line in _tiny_rerank.py. The None now goes straight into the call. Test: 231 existing rerank tests pass. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |

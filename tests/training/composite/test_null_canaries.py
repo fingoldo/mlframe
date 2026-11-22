@@ -179,6 +179,7 @@ NULL_CANARIES = {
 }
 # Functions the name/argmin heuristic matches that do not choose among candidates by a score, with the reason.
 _NOT_SELECTION = {
+    "discovery/_yscale_holdout_gate.py::_select_worst_candidate": "takes the worst of one spec's own reconstructions (shipped params vs params refit on the fit groups), not a choice among candidate specs; the decision it feeds is judged by the y-scale gate and its tests",
     "hpo_ensembling.py::_nested_selection_score": "scores the stepwise selection on held-out rows (the selection itself is stepwise_ensemble_selection, canaried elsewhere); it chooses nothing",
     "discovery/_tiny_rerank_process.py::_cloudpickle": "imports the cloudpickle module; 'pick' is in the name, no candidate is chosen",
     "discovery/_tiny_rerank.py::_cv_selector_knobs": "reads the configured CV selector knobs into a tuple; the selector itself is the one under test elsewhere",
