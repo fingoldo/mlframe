@@ -409,8 +409,8 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 24-F13 | 24_root_modules-3.md | FIXED | nearest_past_join indexes unresolved rows through the positional copy; same test file |
 | 24-F14 | 24_root_modules-3.md | FIXED | create_ts_features_parallel returns (None, None) for an empty span before dividing; same test file |
 | 24-F15 | 24_root_modules-3.md | FIXED | mps shift fills the vacated tail from the last shifted position; same test file |
-| 24-F16 | 24_root_modules-3.md | DEFERRED | causal per-row prefix weights for scheme 0 depend on the prefix length m, so a cumsum rewrite needs a per-scheme derivation; output is correct, only O(m^2) cost. Needs a design decision |
-| 24-F17 | 24_root_modules-3.md | DEFERRED | causal KDE re-runs the grid per prefix; the fix needs incremental KDE, a design change beyond a local patch. Output is correct, only cost |
+| 24-F16 | 24_root_modules-3.md | DEFERRED | Poly weights depend on window length; exact O(1) update not possible; cap changes results. Owner decision. |
+| 24-F17 | 24_root_modules-3.md | DEFERRED | Causal KDE recomputed per prefix; bounded lookback changes the estimate. Owner decision. |
 | 24-F18 | 24_root_modules-3.md | FIXED | NaN entity kept as its own group (dropna=False); test_tfidf_entity_nan_and_case.py |
 | 24-F19 | 24_root_modules-3.md | FIXED | OOV check compares lowercased tokens when the vectorizer lowercases; same test file |
 | 24-F20 | 24_root_modules-3.md | FIXED | with fit_on_train_only the member stage receives the train partition, matching MRMR |

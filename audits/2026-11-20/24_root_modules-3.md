@@ -183,3 +183,5 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F28: DEFERRED. read this pass; judgement or performance item deferred (see cluster report)
 - 24-F29: DEFERRED. read this pass; judgement or performance item deferred (see cluster report)
 - 24-F30: DOCUMENTED. The complement fallback is pinned by tests/feature_engineering/test_aggregated_view_based.py; the subset_direct feature flags it in the feature names. No behaviour change.
+- 24-F16: DEFERRED. Poly recency weights depend on the window length m, so the prefix sums cannot be updated in O(1); exp weights could use a recurrence, but a window cap changes results. Needs an owner decision on the cap or exact-cost trade-off.
+- 24-F17: DEFERRED. Causal KDE re-runs the grid over every prefix; a bounded lookback changes the estimate. Needs an owner decision on the lookback before a change.
