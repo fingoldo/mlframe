@@ -944,3 +944,4 @@
 | 35-F55 | PARTIAL | One shared subset_rows in _frame_ops for both gated models (test_cluster35_shared_subset_rows; 61 existing gated tests pass, one pre-existing numba failure confirmed on master). The glm _is_polars_df re-export is kept because a test imports it. |
 | 35-F56 | WON'T FIX | Docstring cites the defining module, varying_size_top_k_subsets._cluster_anchors, which is correct. The import through feature_selection.shared is a re-export of that same function. No drift to fix. |
 | 35-F57 | FIXED | Pointless try/except around list(names) removed (list() of an attribute does not raise here); 13 existing extremes tests pass; removal only, so no separate test. |
+| 36-F9 | FIXED | Class factories are inspected for sample_weight from the fit signature without constructing an estimator; callables are still called (test_cluster36_factory_signature_no_construction; 44 existing multi-stage tests pass, one pre-existing numba failure) |

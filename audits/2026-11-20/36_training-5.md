@@ -38,3 +38,4 @@ Coverage honesty: this pass is partial. Read fully: `composite/meta.py`, `compos
 - 36-F7: FIXED. Imputed NaN meta-feature rows in the stacker are counted and logged at WARNING. Verified by reading; no unit test.
 - 36-F6: FIXED. More CV folds than rows raises ValueError naming both numbers, instead of an empty-fold search returning an arbitrary winner. Test tests/training/composite/test_cluster36_hpo_refuses_more_folds_than_rows.py.
 - 36-F8: DEFERRED. Stage-2 is trained on OOF meta-features but predicts from full-refit ones, a train/serve skew in the stacking design. Fixing it changes the stacker's method, an owner decision.
+- 36-F9: FIXED. Class factories are inspected for sample_weight from the fit signature without constructing an estimator; callables are still called (test_cluster36_factory_signature_no_construction; 44 existing multi-stage tests pass, one pre-existing numba failure)

@@ -121,6 +121,15 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F55 | 35_training-4.md | PARTIAL | Two copies of _subset_rows with different polars detection. One shared helper in _frame_ops. glm _is_polars_df re-export kept (a test imports it). Test test_cluster35_shared_subset_rows.py. |
 | 35-F56 | 35_training-4.md | WON'T FIX | Docstring cites the defining module (varying_size_top_k_subsets._cluster_anchors), which is correct; the shared import is a re-export. No drift. |
 | 35-F57 | 35_training-4.md | FIXED | Pointless try/except around list(names). Removed. 13 existing extremes tests pass; no separate test (removal). |
+| 36-F1 | 36_training-5.md | FIXED | time_ordering restricted to covered rows, length-checked before nested selection. See DISPOSITIONS. |
+| 36-F2 | 36_training-5.md | FIXED | sample_weight to raw estimator gated by _model_fit_accepts_sample_weight on both fits. See DISPOSITIONS. |
+| 36-F3 | 36_training-5.md | FIXED | Stage-2 sample_weight gated like stage 1. No separate test. |
+| 36-F4 | 36_training-5.md | FIXED | Proba wrapper refuses non-binary classifiers at fit. Test tests/training/composite/test_cluster36_s*. |
+| 36-F5 | 36_training-5.md | FIXED | Failed candidate fold logs at WARNING with the exception class. Read and verified; no separate test. |
+| 36-F6 | 36_training-5.md | FIXED | More CV folds than rows raises ValueError naming both numbers. Test test_cluster36_hpo_refuses_more_folds_than_rows.py. |
+| 36-F7 | 36_training-5.md | FIXED | Imputed NaN meta-feature rows logged at WARNING. Read and verified; no separate test. |
+| 36-F8 | 36_training-5.md | DEFERRED | Stage-2 trained on OOF meta-features but predicts from full-refit ones (design train/serve skew). Owner decision. |
+| 36-F9 | 36_training-5.md | FIXED | Class factories inspected for sample_weight without constructing an estimator. Test test_cluster36_factory_signature_no_construction.py. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |

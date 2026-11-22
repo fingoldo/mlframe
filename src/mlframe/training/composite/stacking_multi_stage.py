@@ -28,6 +28,20 @@ from sklearn.base import BaseEstimator, clone
 from .ensemble.feature_stacking import composite_oof_predictions
 from .post_shim import _model_fit_accepts_sample_weight
 
+
+def _factory_accepts_sample_weight(factory) -> bool:
+    """Whether a stage-1 factory's estimator takes sample_weight, read without building the estimator when the factory is a class.
+
+    Building a throwaway estimator just to inspect ``fit`` cost one construction per auxiliary target (audit 36-F9). A class exposes its
+    ``fit`` signature directly; a plain callable can only be asked by calling it.
+    """
+    import inspect
+
+    if isinstance(factory, type):
+        params = inspect.signature(factory.fit).parameters
+        return "sample_weight" in params or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+    return _model_fit_accepts_sample_weight(factory())
+
 logger = logging.getLogger(__name__)
 
 
@@ -170,7 +184,7 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
             effective_factory = (lambda f=factory: _ProbaAsPredictWrapper(f())) if wants_proba else factory
             y_aux = np.asarray(y_auxiliary[aux_name])
             stage1_fit_kwargs: dict[str, Any] = {}
-            if sample_weight_arr is not None and _model_fit_accepts_sample_weight(factory()):
+            if sample_weight_arr is not None and _factory_accepts_sample_weight(factory):
                 stage1_fit_kwargs["sample_weight"] = sample_weight_arr
             oof_pred = composite_oof_predictions(
                 effective_factory, X, y_aux, n_splits=self.n_splits, random_state=self.random_state, fit_kwargs=stage1_fit_kwargs or None,
