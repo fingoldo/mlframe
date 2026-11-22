@@ -500,6 +500,7 @@ class TestDefaultThresholdPinned:
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
             dcd_enable=True,
+            fe_max_steps=0,  # the contract is DCD's alone: with FE on, a SIR direction built from the three duplicates takes the cluster's anchor
             dcd_tau_cluster=0.5,
             full_npermutations=50,
             verbose=0,
@@ -534,6 +535,7 @@ class TestOptInThresholdTwoTriggersSwap:
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
             dcd_enable=True,
+            fe_max_steps=0,  # the contract is DCD's alone: with FE on, a SIR direction built from the three duplicates takes the cluster's anchor
             dcd_tau_cluster=0.5,
             dcd_cluster_size_threshold=2,
             full_npermutations=50,
@@ -722,6 +724,7 @@ class TestNoRegressionLayer41:
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
             dcd_enable=True,
+            fe_max_steps=0,  # the contract is DCD's alone: with FE on, a SIR direction built from the three duplicates takes the cluster's anchor
             dcd_tau_cluster=0.5,
             verbose=0,
             random_seed=0,
@@ -773,6 +776,7 @@ class TestOptInEndToEnd:
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
             dcd_enable=True,
+            fe_max_steps=0,  # the contract is DCD's alone: with FE on, a SIR direction built from the three duplicates takes the cluster's anchor
             dcd_tau_cluster=0.5,
             dcd_cluster_size_threshold=2,
             full_npermutations=50,
