@@ -231,7 +231,11 @@ def auto_aware_gate(
     """
     if not transform_predictions:
         return [], {}, "nnls"
-    corr_matrix, _names = residual_correlation_matrix(transform_predictions)
+    # The protocol measures the correlation of RESIDUALS (y - prediction), not of the predictions. Accurate predictors of one target
+    # share the target signal, so their predictions correlate strongly even when their errors are independent (audit 35-F22).
+    _y = np.asarray(y_train, dtype=np.float64).ravel()
+    residuals = {name: _y - np.asarray(pred, dtype=np.float64).ravel() for name, pred in transform_predictions.items()}
+    corr_matrix, _names = residual_correlation_matrix(residuals)
     max_corr = max_off_diagonal_correlation(corr_matrix)
     if max_corr >= redundancy_threshold:
         survivors, weights = shapley_aware_gate(transform_predictions, y_train, min_weight=min_weight, **(engine_kwargs or {}))
