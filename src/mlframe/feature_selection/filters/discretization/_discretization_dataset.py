@@ -454,6 +454,15 @@ def _exact_integer_columns(df, numerical_cols: list, dt, is_polars: bool):
     return df, dt
 
 
+_NUMERIC_BLOCK_BYTES = 256 * 1024 * 1024
+"""Bytes of the float copy of one block of numeric columns in ``categorize_dataset``: a frame wider than this goes through in column blocks, so the copy of the whole frame (3.4 GB at 500000 x 1715 float32) never exists."""
+
+
+def _row_count(df: Any) -> int:
+    """Rows of a pandas or polars frame."""
+    return int(df.height) if hasattr(df, "height") else len(df)
+
+
 @fe_timed("stage:categorize_dataset")
 def categorize_dataset(
     df: pd.DataFrame | pl.DataFrame | pl.LazyFrame,
@@ -498,62 +507,73 @@ def categorize_dataset(
 
     _dt = _discretize_input_dtype()
     df, _dt = _exact_integer_columns(df, numerical_cols, _dt, _is_polars)
-    if _is_polars:
-        # An all-categorical polars frame (no numeric columns) makes df.select([]).to_numpy() collapse to shape (0, 0)
-        # - ZERO rows - so the later per-column np.append(numeric, categorical) raises a row-count mismatch. Build an
-        # explicit (n_rows, 0) array instead so the categorical branch initialises/extends a full-height matrix (pandas
-        # already yields (n, 0) here).
-        if numerical_cols:
-            arr = df.select(numerical_cols).to_numpy().astype(_dt, copy=False)
+    def _codes_of(cols: list) -> np.ndarray:
+        """The codes of the numeric columns ``cols``: their float copy lives only inside this call, so a wide frame goes through in column blocks (each column is discretised on its own)."""
+        if _is_polars:
+            # An all-categorical polars frame (no numeric columns) makes df.select([]).to_numpy() collapse to shape (0, 0)
+            # - ZERO rows - so the later per-column np.append(numeric, categorical) raises a row-count mismatch. Build an
+            # explicit (n_rows, 0) array instead so the categorical branch initialises/extends a full-height matrix (pandas
+            # already yields (n, 0) here).
+            if cols:
+                arr = df.select(cols).to_numpy().astype(_dt, copy=False)
+            else:
+                arr = np.empty((df.height, 0), dtype=_dt)
         else:
-            arr = np.empty((df.height, 0), dtype=_dt)
+            arr = df[cols].to_numpy(dtype=_dt, na_value=np.nan)
+
+        # Snapshot the NaN positions BEFORE _handle_missing rewrites them: the
+        # "separate_bin" strategy fills NaN with the column median so np.percentile
+        # produces clean edges, then we overwrite the same positions in the
+        # discretized output with bin=n_bins (max+1 per column). Net effect: NaN
+        # gets its own honest category that MI estimators see correctly.
+        # Include 'propagate' alongside
+        # 'separate_bin' so NaN positions get re-routed to the dedicated NaN
+        # bin instead of silently colliding with the top real bin via
+        # np.searchsorted(NaN -> ej.size).
+        # A frame without a NaN needs neither the mask (500 MB of booleans at 500000 x 1000, alive for the whole categorisation) nor the fill: ``_handle_missing`` returns ``arr`` untouched then, whatever the
+        # strategy. The check runs in row tiles, so no full-size temporary is made to answer it.
+        _any_nan = _array_has_nan(arr)
+        _nan_mask = np.isnan(arr) if (_any_nan and missing_strategy in ("separate_bin", "propagate") and arr.size > 0) else None
+
+        # Unified NaN handling for both pandas and polars. Pass the already-computed ``_nan_mask`` (when
+        # available) so _handle_missing does not rescan ``arr`` for NaN a second time.
+        if _any_nan:
+            arr = _handle_missing(arr, strategy=missing_strategy, nan_mask=_nan_mask)
+
+        # per-column adaptive bin chooser.
+        # When ``nbins_strategy`` is provided, compute per-column edges via the
+        # _adaptive_nbins dispatcher, apply them with np.searchsorted, and pad to
+        # the global max nbins so downstream MRMR sees a uniform-nbins matrix.
+        #
+        # PERF NOTE: the unsupervised path below
+        # (nbins_strategy is None -> _discretize_2d_array_col_cached -> discretize_2d_array) ALREADY routes to the
+        # CUDA quantile kernel where it wins (measured 2.89x: 1276ms->442ms on the (20000,2000) discretize op;
+        # size-gated via _DISCRETIZE_SPEC). The SUPERVISED path here (mdlp/optimal_joint/...) has NO GPU kernel -
+        # measured ~10.5s at (20000,2000) (~52s extrapolated to 100k) vs ~3.4s for the CUDA-eligible quantile path.
+        # A CUDA MDLP would be a large NEW recursive-supervised kernel; it is DEFERRED behind the dominant Fleuret
+        # CMI redundancy loop (~290s at 100k) which the batched-CUDA CMI kernel attacks first. A cheaper interim
+        # lever (column-parallelising per_feature_edges) is a candidate if MDLP discretization becomes the wall.
+        if nbins_strategy is not None:
+            data, per_col_bins = _discretize_with_nbins_strategy(arr, cols, nbins_strategy, nbins_strategy_kwargs, y_for_strategy, cache_dir, dtype)
+        else:
+            # Unsupervised numeric path: each column binned independently of others AND of the target, so per-column
+            # codes are cached cross-instance (huge win across a suite's many targets on one feature frame). Bit-identical.
+            data = _discretize_2d_array_col_cached(
+                arr, n_bins=n_bins, method=method, min_ncats=min_ncats, dtype=dtype,
+                discretize_2d_array=discretize_2d_array,
+            )
+
+        if _nan_mask is not None and _nan_mask.any():
+            _assign_nan_bin_codes(data, _nan_mask, nbins_strategy, per_col_bins if nbins_strategy is not None else None, n_bins, arr)
+        return data
+
+    block_cols = max(1, int(_NUMERIC_BLOCK_BYTES // max(1, _row_count(df) * np.dtype(_dt).itemsize)))
+    if len(numerical_cols) <= block_cols:
+        data = _codes_of(numerical_cols)
     else:
-        arr = df[numerical_cols].to_numpy(dtype=_dt, na_value=np.nan)
-
-    # Snapshot the NaN positions BEFORE _handle_missing rewrites them: the
-    # "separate_bin" strategy fills NaN with the column median so np.percentile
-    # produces clean edges, then we overwrite the same positions in the
-    # discretized output with bin=n_bins (max+1 per column). Net effect: NaN
-    # gets its own honest category that MI estimators see correctly.
-    # Include 'propagate' alongside
-    # 'separate_bin' so NaN positions get re-routed to the dedicated NaN
-    # bin instead of silently colliding with the top real bin via
-    # np.searchsorted(NaN -> ej.size).
-    # A frame without a NaN needs neither the mask (500 MB of booleans at 500000 x 1000, alive for the whole categorisation) nor the fill: ``_handle_missing`` returns ``arr`` untouched then, whatever the
-    # strategy. The check runs in row tiles, so no full-size temporary is made to answer it.
-    _any_nan = _array_has_nan(arr)
-    _nan_mask = np.isnan(arr) if (_any_nan and missing_strategy in ("separate_bin", "propagate") and arr.size > 0) else None
-
-    # Unified NaN handling for both pandas and polars. Pass the already-computed ``_nan_mask`` (when
-    # available) so _handle_missing does not rescan ``arr`` for NaN a second time.
-    if _any_nan:
-        arr = _handle_missing(arr, strategy=missing_strategy, nan_mask=_nan_mask)
-
-    # per-column adaptive bin chooser.
-    # When ``nbins_strategy`` is provided, compute per-column edges via the
-    # _adaptive_nbins dispatcher, apply them with np.searchsorted, and pad to
-    # the global max nbins so downstream MRMR sees a uniform-nbins matrix.
-    #
-    # PERF NOTE: the unsupervised path below
-    # (nbins_strategy is None -> _discretize_2d_array_col_cached -> discretize_2d_array) ALREADY routes to the
-    # CUDA quantile kernel where it wins (measured 2.89x: 1276ms->442ms on the (20000,2000) discretize op;
-    # size-gated via _DISCRETIZE_SPEC). The SUPERVISED path here (mdlp/optimal_joint/...) has NO GPU kernel -
-    # measured ~10.5s at (20000,2000) (~52s extrapolated to 100k) vs ~3.4s for the CUDA-eligible quantile path.
-    # A CUDA MDLP would be a large NEW recursive-supervised kernel; it is DEFERRED behind the dominant Fleuret
-    # CMI redundancy loop (~290s at 100k) which the batched-CUDA CMI kernel attacks first. A cheaper interim
-    # lever (column-parallelising per_feature_edges) is a candidate if MDLP discretization becomes the wall.
-    if nbins_strategy is not None:
-        data, per_col_bins = _discretize_with_nbins_strategy(arr, numerical_cols, nbins_strategy, nbins_strategy_kwargs, y_for_strategy, cache_dir, dtype)
-    else:
-        # Unsupervised numeric path: each column binned independently of others AND of the target, so per-column
-        # codes are cached cross-instance (huge win across a suite's many targets on one feature frame). Bit-identical.
-        data = _discretize_2d_array_col_cached(
-            arr, n_bins=n_bins, method=method, min_ncats=min_ncats, dtype=dtype,
-            discretize_2d_array=discretize_2d_array,
-        )
-
-    if _nan_mask is not None and _nan_mask.any():
-        _assign_nan_bin_codes(data, _nan_mask, nbins_strategy, per_col_bins if nbins_strategy is not None else None, n_bins, arr)
+        blocks = [_codes_of(numerical_cols[c0 : c0 + block_cols]) for c0 in range(0, len(numerical_cols), block_cols)]
+        data = np.concatenate(blocks, axis=1, dtype=np.result_type(*[b.dtype for b in blocks]))  # the widest code type any block needed, the one a single pass would have chosen
+        del blocks
 
     categorical_cols, new_vals = _factorize_categorical_columns(_is_polars, categorical_cols_detected, df, pl, max_categorical_cardinality)
     data, dtype = _encode_categorical_block(categorical_cols, new_vals, missing_strategy, dtype, data)
