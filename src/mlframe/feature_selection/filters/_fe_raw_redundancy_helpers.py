@@ -454,10 +454,9 @@ def _heldout_ridge_r2(X: np.ndarray, y: np.ndarray, frac: float = 0.7) -> Option
     with (first ``frac`` rows train, remainder score; no shuffle, matching the endtoend uplift split). Returns
     None on any degenerate/estimator fault so the caller leaves its decision unchanged."""
     try:
-        from sklearn.linear_model import Ridge
-        from sklearn.preprocessing import StandardScaler
-        from sklearn.pipeline import make_pipeline
         from mlframe.metrics.core import fast_r2_score
+
+        from ._linear_probes import ScaledRidge
     except ImportError as e:
         log_throttle(logger, "_fe_raw_redundancy_helpers.ridge_import", logging.WARNING, "sklearn/mlframe metric imports failed, the held-out Ridge probe is skipped: %s", e)
         return None
@@ -470,7 +469,7 @@ def _heldout_ridge_r2(X: np.ndarray, y: np.ndarray, frac: float = 0.7) -> Option
     if sp < 50 or (n - sp) < 50 or float(np.std(y[:sp])) < 1e-12:
         return None
     try:
-        model = make_pipeline(StandardScaler(), Ridge(alpha=1.0)).fit(X[:sp], y[:sp])
+        model = ScaledRidge(alpha=1.0).fit(X[:sp], y[:sp])
         return float(fast_r2_score(y[sp:], model.predict(X[sp:])))
     except Exception as e:
         logger.warning("_heldout_ridge_r2: Ridge fit/score failed, caller leaves its decision unchanged: %s", e)

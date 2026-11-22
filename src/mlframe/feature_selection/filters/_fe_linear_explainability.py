@@ -82,9 +82,7 @@ def raws_linearly_explain_y(
                 Xn = X[num_cols].to_numpy(dtype=np.float64, copy=False)  # Intentional float64: sklearn LinearRegression R^2 gate design; solved in float64
                 yy = yc
             Xn = np.nan_to_num(Xn, nan=0.0, posinf=0.0, neginf=0.0)
-            from sklearn.linear_model import LinearRegression
-            from sklearn.preprocessing import StandardScaler
-            from sklearn.pipeline import make_pipeline
+            from ._linear_probes import ScaledOLS, cross_val_r2
 
             # an IN-SAMPLE R^2 has no columns-vs-rows guard -
             # empirically confirmed on pure noise (n=2000, matching this function's own max_rows default)
@@ -99,13 +97,11 @@ def raws_linearly_explain_y(
             n_splits = min(5, max(2, Xn.shape[0] // 50))
             if n_splits < 2 or Xn.shape[0] < 2 * n_splits:
                 return False  # too few rows to CV meaningfully - keep the passes (correctness over speed)
-            from sklearn.model_selection import KFold, cross_val_score
+            from sklearn.model_selection import KFold
 
             kf = KFold(n_splits=n_splits, shuffle=True, random_state=int(seed))
-            pipe = make_pipeline(StandardScaler(), LinearRegression())
-            cv_r2 = cross_val_score(pipe, Xn, yy, cv=kf, scoring="r2")
-            r2 = float(np.mean(cv_r2))
-            return r2 >= thresh
+            r2 = cross_val_r2(ScaledOLS, Xn, yy, list(kf.split(Xn)))
+            return r2 is not None and r2 >= thresh
     except Exception as e:
         # best-effort: the linear probe is an optimisation; on failure the nonlinear FE passes run instead, slower but correct.
         log_throttle(logger, "fe_linear_explain.probe_failed", logging.WARNING, "raws_linearly_explain_y: CV linear-fit probe failed, running the nonlinear FE passes (correctness over speed): %s", e)

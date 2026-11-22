@@ -16,6 +16,8 @@ from typing import Any, Optional
 
 import numpy as np
 
+from mlframe.utils.log_throttle import log_throttle
+
 from ._unary_op_table import UNARY_OP_CODES
 
 logger = logging.getLogger(__name__)
@@ -84,13 +86,14 @@ def unary_stack_cuda(d_x: Any, codes_d: Any, xmin: float) -> Optional[Any]:
         from ._fe_gpu_vram import fe_gpu_has_vram_cushion
 
         if not fe_gpu_has_vram_cushion(nu * n * d_x.dtype.itemsize):
+            log_throttle(logger, "unary_stack_cuda.no_cushion", logging.WARNING, "unary_stack_cuda: no VRAM cushion for the (%d, %d) stack; the per-unary path runs instead (slower)", nu, n)
             return None
         out = cp.empty((nu, n), dtype=d_x.dtype)
         shift = float(1e-5 - xmin) if xmin <= 0.0 else 0.0
         _kernel(cp)(d_x, codes_d, np.int64(n), d_x.dtype.type(shift), bool(xmin > 0.0), out)
         return out
     except Exception as exc:  # nosec B110 - any device or compile failure falls back to the per-unary cupy path
-        logger.debug("unary_stack_cuda unavailable (%s: %s); using the per-unary path", type(exc).__name__, exc)
+        log_throttle(logger, "unary_stack_cuda.unavailable", logging.WARNING, "unary_stack_cuda unavailable (%s: %s); using the per-unary path (slower)", type(exc).__name__, exc)
         try:
             import cupy as _cp
 

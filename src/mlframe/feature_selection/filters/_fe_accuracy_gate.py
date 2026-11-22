@@ -91,10 +91,10 @@ def _newton_probe_enabled() -> bool:
 
 def _held_out_probe_score(Xfull, *, tr, va, y_enc, classification, binary):
     """Fit a standardized logistic/linear probe on this fold's train rows ``tr`` of ``Xfull`` and return its score on the held-out rows ``va`` (ROC-AUC for binary, the hit rate for multiclass, R^2 for regression)."""
-    from sklearn.linear_model import LogisticRegression, Ridge
     from mlframe.metrics.core import fast_r2_score, fast_roc_auc
 
     from ._fe_accuracy_gate_newton import fit_logistic_ridge_newton
+    from ._linear_probes import ScaledLogistic, ScaledRidge
 
     # The train-fold mean and (population) standard deviation, a zero spread mapped to 1 as StandardScaler does; the scikit-learn transformer cost about half of a probe in input validation and its incremental moments.
     Xtr = Xfull[tr]
@@ -113,8 +113,7 @@ def _held_out_probe_score(Xfull, *, tr, va, y_enc, classification, binary):
                 with parallel_kernel_entry():  # the AUC ranks with a parallel numba kernel: one thread in it at a time when candidates are probed concurrently
                     # Intentional float64: the Newton weights are double precision, so the held-out score is computed in that precision
                     return fast_roc_auc(y_enc[va], 1.0 / (1.0 + np.exp(-(np.asarray(Xv, dtype=np.float64) @ _w + _b))))
-        m = LogisticRegression(max_iter=200, C=1.0)
-        m.fit(Xt, y_enc[tr])
+        m = ScaledLogistic(C=1.0, max_iter=200).fit(Xt, y_enc[tr])
         if binary:
             with parallel_kernel_entry():
                 return fast_roc_auc(y_enc[va], m.predict_proba(Xv)[:, 1])
@@ -127,9 +126,7 @@ def _held_out_probe_score(Xfull, *, tr, va, y_enc, classification, binary):
     if _ridge is not None:
         # Intentional float64: the closed-form weights are double precision, so the held-out score is computed in that precision
         return fast_r2_score(y_enc[va], np.asarray(Xv, dtype=np.float64) @ _ridge[0] + _ridge[1])
-    m = Ridge(alpha=1.0)
-    m.fit(Xt, y_enc[tr])
-    return fast_r2_score(y_enc[va], m.predict(Xv))
+    return fast_r2_score(y_enc[va], ScaledRidge(alpha=1.0).fit(Xt, y_enc[tr]).predict(Xv))
 
 
 def _probe_splits(X_base: np.ndarray, y: np.ndarray, *, classification: bool, n_splits: int, seed: int, groups: np.ndarray | None):

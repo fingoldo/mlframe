@@ -572,11 +572,8 @@ def _usability_scorers(classification: bool, y_cont: np.ndarray) -> Optional[tup
     """CV scorer factory ``_mk`` (scaled logistic / OLS pipeline), the multi-class log-loss, and the encoded labels; None when a classification target has < 2 classes.
 
     Returns ``(_mk, _logloss, y_enc, n_classes)``."""
-    from sklearn.linear_model import LinearRegression, LogisticRegression
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.pipeline import make_pipeline
-
     from ._added_information_gate import _dense_codes
+    from ._linear_probes import ScaledLogistic, ScaledOLS
 
     # CLASSIFICATION mode: the LINEAR downstream for a classification target is a LOGISTIC
     # model, and the deployed objective is a CLASSIFICATION metric - so the wrapper must score by
@@ -595,7 +592,7 @@ def _usability_scorers(classification: bool, y_cont: np.ndarray) -> Optional[tup
 
         def _mk():
             """Build a fresh scaled-logistic-regression pipeline (classification path CV scorer/pre-rank model)."""
-            return make_pipeline(StandardScaler(), LogisticRegression(max_iter=200))
+            return ScaledLogistic(max_iter=200)
 
         from sklearn.metrics import log_loss as _log_loss
         _labels = np.arange(n_classes)
@@ -618,7 +615,7 @@ def _usability_scorers(classification: bool, y_cont: np.ndarray) -> Optional[tup
         # nothing. Kept OLS (the gold-standard wrapper that matches the deployed objective). Do not re-add.
         def _mk():
             """Build a fresh scaled-OLS-linear-regression pipeline (regression path CV scorer/pre-rank model)."""
-            return make_pipeline(StandardScaler(), LinearRegression())
+            return ScaledOLS()
     return _mk, _logloss, y_enc, n_classes
 
     # INCREMENTAL CV (was a PERF TODO): the regression scorer no longer refits a
