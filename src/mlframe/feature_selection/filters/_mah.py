@@ -343,12 +343,12 @@ def _pair_gain_conditional(cur, i, axis):
 
 
 @njit(nogil=True, cache=True)
-def _best_adjacent_merge_conditional(cur, axis):
-    """Index of the adjacent pair along ``axis`` with the largest positive :func:`_pair_gain_conditional`, or ``-1`` when no merge shortens the code."""
+def _best_adjacent_merge_conditional(cur, axis, cut_cost=0.0):
+    """Index of the adjacent pair along ``axis`` with the largest positive :func:`_pair_gain_conditional` (plus ``cut_cost``, the code length of naming the cut a merge removes), or ``-1`` when no merge shortens the code."""
     best_gain = 0.0
     best_i = -1
     for i in range(cur.shape[axis] - 1):
-        gain = _pair_gain_conditional(cur, i, axis)
+        gain = _pair_gain_conditional(cur, i, axis) + cut_cost
         if gain > best_gain:
             best_gain = gain
             best_i = i
@@ -356,7 +356,7 @@ def _best_adjacent_merge_conditional(cur, axis):
 
 
 @njit(nogil=True, cache=True)
-def _greedy_merge_core(joint, conditional=True, merge_columns=True):
+def _greedy_merge_core(joint, conditional=True, merge_columns=True, name_cuts=False):
     """Column merges then row merges of ``joint``: the merged table and the merge positions, as arrays of the number of merges made.
 
     ``conditional=True`` (the default) merges on the conditional code length of the other variable (:func:`_pair_gain_conditional`) and may merge down to one slice, so a column with no
@@ -376,7 +376,8 @@ def _greedy_merge_core(joint, conditional=True, merge_columns=True):
     row_merges = np.empty(max(cur.shape[0], 1), dtype=np.int64)
     n_row = 0
     while cur.shape[0] > floor:
-        best_i = _best_adjacent_merge_conditional(cur, 0) if conditional else _best_adjacent_merge(cur, 0)
+        cut_cost = math.log(max(2.0, float(cur.shape[0] - 1))) if name_cuts else 0.0
+        best_i = _best_adjacent_merge_conditional(cur, 0, cut_cost) if conditional else _best_adjacent_merge(cur, 0)
         if best_i < 0:
             break
         row_merges[n_row] = best_i
@@ -418,7 +419,7 @@ def _mi_from_joint(joint: np.ndarray) -> float:
     return mi
 
 
-def _greedy_merge_with_history(joint: np.ndarray, conditional: bool = True, merge_columns: bool = True) -> tuple[np.ndarray, list[int], list[int]]:
+def _greedy_merge_with_history(joint: np.ndarray, conditional: bool = True, merge_columns: bool = True, name_cuts: bool = False) -> tuple[np.ndarray, list[int], list[int]]:
     """Identical SCI-greedy merge to ``_greedy_merge_bins`` but ALSO records
     which row/col positions got merged at each step.
 
@@ -426,6 +427,7 @@ def _greedy_merge_with_history(joint: np.ndarray, conditional: bool = True, merg
         joint: ``(K_x, K_y)`` joint count matrix to merge; it is copied, not modified.
         conditional: merge on the conditional code length of the other variable (default); ``False`` is the earlier joint criterion.
         merge_columns: also merge the columns (the target's bins); ``False`` merges rows only.
+        name_cuts: charge the code length of naming each kept cut among the remaining ones (a merge that removes a cut saves ``log`` of their number).
 
     Returns:
         merged (K_x', K_y'): the post-merge joint table.
@@ -433,7 +435,7 @@ def _greedy_merge_with_history(joint: np.ndarray, conditional: bool = True, merg
             that merged with index+1.
         col_merges (list[int]): same for columns.
     """
-    merged, row_merges, col_merges = _greedy_merge_core(joint, conditional, merge_columns)
+    merged, row_merges, col_merges = _greedy_merge_core(joint, conditional, merge_columns, name_cuts)
     return np.asarray(merged), row_merges.tolist(), col_merges.tolist()
 
 

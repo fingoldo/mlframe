@@ -92,3 +92,13 @@ def test_the_joint_criterion_is_still_reachable_as_the_reference():
     joint = np.array([[400.0, 400.0]] * 6)
     merged, _, _ = _mah._greedy_merge_with_history(joint, False, False)
     assert merged.shape[0] == 2
+
+
+def test_naming_the_cuts_removes_more_bins_and_is_off_by_default():
+    """``name_cuts=True`` charges the code length of naming each kept cut: it merges at least as much as the default, which is unchanged."""
+    rng = np.random.default_rng(4)
+    joint = np.column_stack([rng.integers(280, 330, 16), rng.integers(260, 340, 16)]).astype(float)
+    base = _mah._greedy_merge_with_history(joint, True, False)[0]
+    named = _mah._greedy_merge_with_history(joint, True, False, True)[0]
+    assert named.shape[0] <= base.shape[0]
+    np.testing.assert_array_equal(_mah._greedy_merge_with_history(joint, True, False, False)[0], base)
