@@ -122,7 +122,9 @@ def _transform_pair_cached(memo: dict | None, pp: Any, X_train: Any, X_holdout: 
     the pair is computed once. An unfitted pipeline is fit as a fold clone per component and is never shared.
     """
     if memo is None or pp is None or not _pp_is_fitted(pp):
-        return _transform_pair_via(pp, X_train, X_holdout, y_train=y_train)
+        # refit_supervised is forwarded here too: the memoised branch below forwards it, and dropping it on the uncached path gave
+        # a supervised selector no refit on the fold (audit 35-F49).
+        return _transform_pair_via(pp, X_train, X_holdout, y_train=y_train, refit_supervised=refit_supervised)
     # A fold refit of a shared fitted pipeline is deterministic in the fold's slices too, so it is memoised the same way:
     # components built from one strategy share the pipeline, and each would otherwise refit the selector again.
     key = (id(pp), id(X_train), id(X_holdout), bool(refit_supervised))
