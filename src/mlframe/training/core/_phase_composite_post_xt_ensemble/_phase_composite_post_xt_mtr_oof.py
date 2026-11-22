@@ -56,7 +56,7 @@ def _nnls_one_column(A_k: np.ndarray, b_k: np.ndarray, kk: int, n_surv: int) -> 
 
     try:
         w_k, _ = nnls(A_k, b_k, maxiter=200)
-        return w_k
+        return np.asarray(w_k, dtype=np.float64)
     except RuntimeError as exc:
         # One hard column must not forfeit the NNLS win for every other column.
         logger.warning("[MTR CT_ENSEMBLE] NNLS did not converge for column %d (%s); equal-mean weights for that column only.", kk, exc)
