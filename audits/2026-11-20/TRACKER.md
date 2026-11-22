@@ -101,6 +101,8 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F35 | 35_training-4.md | PARTIAL | Spec with under 50 in-domain fit rows passed the y-scale gate unchecked. Now rejected with a ledger entry. No direct test (needs a full gate fixture). |
 | 35-F36 | 35_training-4.md | PARTIAL | Multi-base specs bypass the structural fragility gate silently. Bypass now logged at WARNING; gating them is an owner decision. Test test_cluster35_structural_gate_multibase_logged.py. |
 | 35-F37 | 35_training-4.md | FIXED | WAIC scoring failures swallowed at DEBUG; spec silently skipped in tie-break. Now WARNING naming spec and exception. Test test_cluster35_waic_failure_logged.py. |
+| 35-F38 | 35_training-4.md | FIXED | kNN MI loop duplicated in _mi_to_target and _mi_per_feature_knn. One copy now. Test test_cluster35_knn_mi_single_loop.py. |
+| 35-F39 | 35_training-4.md | FIXED | fit_stacked and fit_stacked_on_residual repeated ranking and group derivation. Shared helpers _rank_pass1_specs and _train_group_ids. Test test_cluster35_stacked_shared_helpers.py. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |
