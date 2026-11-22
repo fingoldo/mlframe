@@ -182,9 +182,8 @@ def detect_gpu_in_use(mlframe_models: Sequence[str]) -> list[str]:
                             detected.append("xgboost")
                     except ImportError:
                         detected.append("xgboost")
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
+            except Exception as e:  # nosec B110 - non-fatal, but a failed probe must not read as "no GPU" silently (audit 35-F18)
+                logger.warning("xgboost GPU probe failed (%s); treating the GPU as not detected.", e)
         except ImportError:
             pass
     if any(f in families for f in ("cb", "catboost")):
@@ -193,7 +192,7 @@ def detect_gpu_in_use(mlframe_models: Sequence[str]) -> list[str]:
             if get_gpu_device_count() > 0:
                 detected.append("catboost")
         except Exception as e:  # nosec B110 - optional dependency import guard
-            logger.debug("catboost GPU device count probe failed: %s", e)
+            logger.warning("catboost GPU device count probe failed (%s); treating the GPU as not detected.", e)
     return detected
 
 
@@ -393,7 +392,7 @@ def _wrap_fitted_inner(spec: dict, inner_clone: Any, fitted_params: dict, y_trai
             groups_train = np.asarray(_extract_groups(raw_rows, group_column))
             groups_train = groups_train if valid is None else groups_train[valid]
         except (KeyError, ValueError, TypeError) as err:  # the frame lacks the column: the envelope falls back to its proxy
-            logger.debug("OOF wrap: no %r groups on the refit rows (%s).", group_column, err)
+            logger.warning("OOF wrap: no %r groups on the refit rows (%s); the T-clip envelope falls back to its proxy.", group_column, err)
     return CompositeTargetEstimator.from_fitted_inner(
         fitted_inner=inner_clone,
         transform_name=spec["transform_name"],

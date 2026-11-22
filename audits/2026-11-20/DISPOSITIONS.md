@@ -904,3 +904,4 @@
 | 35-F15 | FIXED | _kwargs bound before the try; non-finite weights refused; both fallbacks logged at WARNING (test_cluster35_sample_weight_fallback; 69 related tests pass) |
 | 35-F16 | FIXED | Group counts from one np.unique pass via _group_counts; equivalence test (test_cluster35_group_counts_one_pass) |
 | 35-F17 | FIXED | predict logs a WARNING naming the component and the count of non-finite rows; blend still NaN on those rows (test_cluster35_predict_nonfinite_component_warns) |
+| 35-F18 | FIXED | GPU probe failures (xgboost, catboost) and the refit-groups fallback now log at WARNING; xgboost probe path tested (test_cluster35_gpu_probe_failure_warns); refit-groups path not separately tested |
