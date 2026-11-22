@@ -51,6 +51,9 @@ class OutputCalibrator:
         if sigmoid_fit not in _VALID_SIGMOID_FITS:
             raise ValueError(f"OutputCalibrator: sigmoid_fit must be one of {_VALID_SIGMOID_FITS}; got {sigmoid_fit!r}.")
         self.method = method
+        # The method the caller asked for. A degenerate fit switches ``method`` to "linear" for that fit only; the next fit starts from
+        # this again (audit 35-F23).
+        self._requested_method = method
         # "platt" = maximum-likelihood logistic fit (the correct Platt map, default since qual-16); "ols_logit" =
         # the legacy OLS-on-centred-logit map, kept opt-in for byte-identical replay of pre-qual-16 fits.
         self.sigmoid_fit = sigmoid_fit
@@ -99,6 +102,7 @@ class OutputCalibrator:
 
         Needs at least 3 finite rows; below that (or a degenerate constant-prediction column) it fits the identity map so ``predict`` is a safe pass-through. The caller is responsible for ensuring ``raw_pred`` are OUT-OF-FOLD predictions (no leakage).
         """
+        self.method = self._requested_method
         p, t, w = self._clean(raw_pred, y, sample_weight)
         if p.shape[0] < 3 or np.ptp(p) <= 0.0:
             # Too few rows or constant predictions: identity map (pass-through).
