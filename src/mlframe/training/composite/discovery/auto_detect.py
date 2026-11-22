@@ -205,23 +205,9 @@ def detect_group_column_candidates(
     """
     if _is_polars_df(df):
         if candidate_columns is None:
-            # Mirror the pandas branch: keep non-numeric columns AND low-cardinality integer columns so the
-            # int-as-cat heuristic (memory project_mlframe_int_as_cat_detector) treats both frame flavours the same.
-            import polars as pl_local
-            int_dtypes = {pl_local.Int8, pl_local.Int16, pl_local.Int32, pl_local.Int64, pl_local.UInt8, pl_local.UInt16, pl_local.UInt32, pl_local.UInt64}
-            cand: list[str] = []
-            for c in df.columns:
-                if not _is_numeric_column(df, c):
-                    cand.append(c)
-                    continue
-                try:
-                    dtype = df.schema[c]
-                except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-                    logging.getLogger(__name__).debug("suppressed: %s", e)
-                    continue
-                if dtype in int_dtypes and df.get_column(c).drop_nulls().n_unique() <= max_unique:
-                    cand.append(c)
-            candidate_columns = cand
+            # Same rule as the other polars candidate path (non-numeric + low-cardinality integers, temporal excluded), in one helper
+            # so the two cannot drift (audit 35-F40).
+            candidate_columns = _polars_default_cat_candidates(df, max_unique)
     elif isinstance(df, pd.DataFrame):
         if candidate_columns is None:
             # Default: ALL non-numeric columns + low-cardinality numeric (int) ones.
