@@ -32,6 +32,7 @@ import pandas as pd
 
 from mlframe.feature_engineering.latent_interaction_svd import FittedLatentInteractionSvd, latent_interaction_features
 from ._composite_fe_shared import attach_new_columns, to_pandas
+from ._target_encoding_composite_fe import _normalize_entity_key
 
 logger = logging.getLogger(__name__)
 
@@ -44,9 +45,20 @@ def _join_embeddings(df: Any, group_ids_split: Optional[np.ndarray], row_emb: "p
         # A split with rows and no aligned group ids would keep no embedding columns while the others gain them: a schema drift (40-F15). Refuse.
         raise ValueError(f"latent-interaction SVD: the {split_name or 'given'} split has no row index aligned with group_ids; refusing an inconsistent schema across splits")
     n = df.shape[0] if hasattr(df, "shape") else 0
-    lut = {idx: row for idx, row in zip(row_emb.index, row_emb.to_numpy())}
-    zero_vec = np.zeros(row_emb.shape[1])
-    vecs = np.array([lut.get(gid, zero_vec) for gid in group_ids_split])
+    # Keys are normalised like the target-encoding replay (3 and 3.0 are one entity), and each unique id is looked up once:
+    # the old per-row dict lookup on raw keys cost a Python call per row and missed dtype-drifted ids (audit 40-F23).
+    row_vals = row_emb.to_numpy(dtype=np.float64)
+    emb_keys = pd.Index([_normalize_entity_key(g) for g in row_emb.index])
+    keep = ~emb_keys.duplicated(keep="last")
+    emb_keys = emb_keys[keep]
+    row_vals = row_vals[keep]
+    n_emb = row_vals.shape[0]
+    table = np.vstack([row_vals, np.zeros((1, row_vals.shape[1]))])  # last row is the zero vector for missing ids
+    codes, uniques = pd.factorize(np.asarray(group_ids_split, dtype=object))
+    u_pos = np.asarray(emb_keys.get_indexer([_normalize_entity_key(g) for g in uniques]), dtype=np.int64)
+    u_pos = np.where(u_pos < 0, n_emb, u_pos)
+    row_idx = np.where(codes >= 0, u_pos[np.maximum(codes, 0)], n_emb)
+    vecs = table[row_idx]
     cols = [f"{column_prefix}_{c}" for c in row_emb.columns]
     new_cols = pd.DataFrame(vecs, columns=cols, index=range(n))
     return attach_new_columns(df, new_cols)
