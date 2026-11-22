@@ -47,52 +47,61 @@ extern "C" __global__ void logistic_cv_newton(const VT_* __restrict__ V, const l
     // column means and population standard deviations over the train rows (below 1e-12 -> scale 1)
     for (int j = 0; j <= s; ++j) {
         const int col = (j < s) ? sel[j] : ccol;
+        const long long vo = (long long)col * ldv;   // offset of this column in the column-major V
         double a = 0.0;
-        for (int i = tid; i < ntr; i += nthr) a += V[tr[i] * ldv + col];
+        for (int i = tid; i < ntr; i += nthr) a += V[vo + tr[i]];
         red[tid] = a; __syncthreads();
         for (int st = nthr >> 1; st > 0; st >>= 1) { if (tid < st) red[tid] += red[tid + st]; __syncthreads(); }
         const double m = red[0] / ntr; __syncthreads();
         double q = 0.0;
-        for (int i = tid; i < ntr; i += nthr) { const double d = V[tr[i] * ldv + col] - m; q += d * d; }
+        for (int i = tid; i < ntr; i += nthr) { const double d = V[vo + tr[i]] - m; q += d * d; }
         red[tid] = q; __syncthreads();
         for (int st = nthr >> 1; st > 0; st >>= 1) { if (tid < st) red[tid] += red[tid + st]; __syncthreads(); }
         if (tid == 0) { double sdv = sqrt(red[0] / ntr); mu[j] = m; sd[j] = (sdv < 1e-12) ? 1.0 : sdv; }
         __syncthreads();
     }
+    // X is column-major (column j occupies X[j * ntr .. j * ntr + ntr)) so that threads reading one column read consecutive rows
     for (int i = tid; i < ntr; i += nthr) {
-        for (int j = 0; j <= s; ++j) { const int col = (j < s) ? sel[j] : ccol; X[(long long)i * kk + j] = (V[tr[i] * ldv + col] - mu[j]) / sd[j]; }
-        X[(long long)i * kk + s + 1] = 1.0;
+        for (int j = 0; j <= s; ++j) { const int col = (j < s) ? sel[j] : ccol; const long long vo = (long long)col * ldv; X[(long long)j * ntr + i] = (V[vo + tr[i]] - mu[j]) / sd[j]; }
+        X[(long long)(s + 1) * ntr + i] = 1.0;
     }
-    for (int j = tid; j < kk; j += nthr) w[j] = 0.0;
+    for (int k = tid; k < kk; k += nthr) w[k] = 0.0;
     if (tid == 0) flag = 0;
     __syncthreads();
     int status = 2;                              // 2: no convergence within max_iter
     for (int it = 0; it < max_iter; ++it) {
         for (int i = tid; i < ntr; i += nthr) {
             double z = 0.0;
-            for (int j = 0; j < kk; ++j) z += X[(long long)i * kk + j] * w[j];
+            for (int j = 0; j < kk; ++j) z += X[(long long)j * ntr + i] * w[j];
             const double p = 1.0 / (1.0 + exp(-z));
             wd[i] = p * (1.0 - p);
             r[i] = p - ((yenc[tr[i]] == 1) ? 1.0 : 0.0);
         }
         __syncthreads();
+        // H and g entries one at a time: the whole block sweeps the train rows of one column pair (or column with r) with a strided loop
+        // and tree-reduces the partial sums, so the row index is the thread-derived one and the column index is uniform across the block
         const int npair = kk * (kk + 1) / 2;
-        for (int e = tid; e < npair + kk; e += nthr) {
-            if (e < npair) {
-                int j = 0, rem = e;
+        for (int e = 0; e < npair + kk; ++e) {
+            const bool isg = (e >= npair);
+            int j = 0, l = 0;
+            double acc = 0.0;
+            if (!isg) {
+                int rem = e;
                 while (rem > j) { rem -= j + 1; ++j; }   // e = j (j + 1) / 2 + l, l <= j
-                const int l = rem;
-                double acc = 0.0;
-                for (int i = 0; i < ntr; ++i) acc += wd[i] * X[(long long)i * kk + j] * X[(long long)i * kk + l];
-                H[j * kk + l] = acc; H[l * kk + j] = acc;
+                l = rem;
+                for (int i = tid; i < ntr; i += nthr) acc += wd[i] * X[(long long)j * ntr + i] * X[(long long)l * ntr + i];
             } else {
-                const int j = e - npair;
-                double acc = 0.0;
-                for (int i = 0; i < ntr; ++i) acc += r[i] * X[(long long)i * kk + j];
-                g[j] = acc + ((j < kk - 1) ? lam * w[j] : 0.0);
+                j = e - npair;
+                for (int i = tid; i < ntr; i += nthr) acc += r[i] * X[(long long)j * ntr + i];
             }
+            red[tid] = acc; __syncthreads();
+            for (int st = nthr >> 1; st > 0; st >>= 1) { if (tid < st) red[tid] += red[tid + st]; __syncthreads(); }
+            if (tid == 0) {
+                if (!isg) { H[j * kk + l] = red[0]; H[l * kk + j] = red[0]; }
+                else g[j] = red[0] + ((j < kk - 1) ? lam * w[j] : 0.0);
+            }
+            __syncthreads();
         }
-        __syncthreads();
         if (tid == 0) {
             for (int j = 0; j < kk - 1; ++j) H[j * kk + j] += lam;
             // Gauss elimination with partial pivoting on [H | g]; the step lands in g
@@ -127,7 +136,7 @@ extern "C" __global__ void logistic_cv_newton(const VT_* __restrict__ V, const l
     if (status == 0) {
         for (int i = tid; i < nva; i += nthr) {
             double z = w[s + 1];
-            for (int j = 0; j <= s; ++j) { const int col = (j < s) ? sel[j] : ccol; z += (V[va[i] * ldv + col] - mu[j]) / sd[j] * w[j]; }
+            for (int j = 0; j <= s; ++j) { const int col = (j < s) ? sel[j] : ccol; const long long vo = (long long)col * ldv; z += (V[vo + va[i]] - mu[j]) / sd[j] * w[j]; }
             double p1 = 1.0 / (1.0 + exp(-z));
             p1 = fmin(fmax(p1, eps), 1.0 - eps);
             const double yv = (yenc[va[i]] == 1) ? 1.0 : 0.0;
@@ -173,7 +182,7 @@ def cv_candidates_binary(
     m_all = len(cand_idx)
     nf = len(folds)
     kk = s + 2
-    V = cp.ascontiguousarray(Vdev)
+    V = cp.ascontiguousarray(Vdev.T)  # column-major copy (columns x rows): the kernel gathers one column over the threads' rows, so consecutive threads read consecutive elements
     kern = kernel_logistic_cv(cp, V.dtype)
     sel_dev = cp.asarray(np.asarray(selected if s else [0], dtype=np.int32))
     cand_dev = cp.asarray(np.asarray(cand_idx, dtype=np.int32))
