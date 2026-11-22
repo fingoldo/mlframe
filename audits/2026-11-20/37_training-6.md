@@ -91,3 +91,4 @@ Severity counts: P0 0, P1 8, P2 21, P3 23, total 52.
 - 37-F6: FIXED. refit_capped_stack takes and uses sample_weight, and the call site passes the OOF weights; tests/training/composite/test_cluster37_venn_refit.py
 - 37-F7: FIXED. group sizes come from one np.unique pass; no separate test
 - 37-F8: FIXED. a failed fingerprint cross-check distrusts the precomputed bundle and logs at WARNING; no separate test
+- 37-F1: FIXED. Median fill for out-of-domain T applies only to rows outside the train split; a training row stays missing (test_cluster37_composite_t_no_train_label_fill). Existing test pinned the old fill and was updated to put the violating row outside train; 281 existing composite phase tests pass, 1 pre-existing numba failure.

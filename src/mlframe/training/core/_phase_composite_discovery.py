@@ -76,7 +76,11 @@ def composite_t_full(transform: Any, spec: Any, y_arr: np.ndarray, base_full: np
         t_train = t_full[filtered_train_idx]
         t_train = t_train[np.isfinite(t_train)]
         if t_train.size > 0:
-            t_full[~np.isfinite(t_full)] = float(np.median(t_train))
+            # Only rows OUTSIDE the train split take the fill: they need a value to be scored. A training row whose base leaves the domain
+            # stays missing, so no made-up label is trained on (audit 37-F1).
+            train_mask = np.zeros(t_full.shape[0], dtype=bool)
+            train_mask[np.asarray(filtered_train_idx, dtype=np.intp)] = True
+            t_full[~np.isfinite(t_full) & ~train_mask] = float(np.median(t_train))
         t_full[~np.isfinite(np.asarray(y_arr, dtype=np.float64))] = np.nan
     return t_full, t_raw
 
