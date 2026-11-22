@@ -157,6 +157,33 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 37-F50 | 37_training-6.md | FIXED | Redundant tier alias removed. |
 | 37-F51 | 37_training-6.md | PARTIAL | Redundant placeholder removed; helper rename not done. |
 | 37-F52 | 37_training-6.md | FIXED | Binary-only Venn-Abers message tidied. |
+| 38-F1 | 38_training-7.md | FIXED | Suite-wide ensemble no longer spans targets (9d0472dca). |
+| 38-F2 | 38_training-7.md | FIXED | Conformal residuals use pre-recalibration predictions (9d0472dca). |
+| 38-F3 | 38_training-7.md | FIXED | Fit-predict-only detector skips val OD filter explicitly (9d0472dca). |
+| 38-F4 | 38_training-7.md | FIXED | Warning matches caller behaviour (prior ensemble kept). |
+| 38-F5 | 38_training-7.md | FIXED | Bool cast on a copy. Test test_cluster38_predict_and_fit_side_effects.py. |
+| 38-F6 | 38_training-7.md | FIXED | Empty per-type dict skipped. Test test_cluster38_predict_and_fit_side_effects.py. |
+| 38-F7 | 38_training-7.md | FIXED | PySR skip logged at WARNING regardless of verbose. |
+| 38-F8 | 38_training-7.md | FIXED | Non-neural time reset once per target. |
+| 38-F9 | 38_training-7.md | DEFERRED | Needs explicit group-column name from extractor (design). |
+| 38-F10 | 38_training-7.md | DEFERRED | Owner decision: delete or finish the weight-iteration refactor. |
+| 38-F11 | 38_training-7.md | FIXED | Stale other-format metadata file removed on save. |
+| 38-F12 | 38_training-7.md | FIXED | Embedding detection requires non-scalar shape. |
+| 38-F13 | 38_training-7.md | FIXED | Failed split extraction logged at WARNING. |
+| 38-F14 | 38_training-7.md | FIXED | Composition states described entry and count. |
+| 38-F15 | 38_training-7.md | FIXED | No bare clone appended on prediction failure. |
+| 38-F16 | 38_training-7.md | FIXED | Temporal audit receives real target type for regression/binary. |
+| 38-F17 | 38_training-7.md | FIXED | set() hoisted out of comprehensions. |
+| 38-F18 | 38_training-7.md | FIXED | Dead expression removed. |
+| 38-F19 | 38_training-7.md | FIXED | Duplicate logger removed. |
+| 38-F20 | 38_training-7.md | FIXED | Docstring corrected (no strong-ref window). |
+| 38-F21 | 38_training-7.md | PARTIAL | Comment corrected; repr-keyed fallback documented, not re-keyed. |
+| 38-F22 | 38_training-7.md | DEFERRED | Owner decision: remove unused parameter or guard cast. |
+| 38-F23 | 38_training-7.md | FIXED | Documented: first regression target drives stratification. |
+| 38-F24 | 38_training-7.md | DEFERRED | Needs explicit target_type contract decision. |
+| 38-F25 | 38_training-7.md | FIXED | Narrowing suffix widened to 8 hex characters. |
+| 38-F26 | 38_training-7.md | FIXED | AssertionError message and warning text corrected. |
+| 38-F27 | 38_training-7.md | FIXED | Filtered-subset threshold skip logged and default stamped. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |

@@ -302,7 +302,10 @@ def _stamp_decision_threshold(key: str, probs, label: str, owner=None, owner_nam
     arr = _np.asarray(probs)
     pos = arr[:, 1] if arr.ndim == 2 and arr.shape[1] >= 2 else arr.ravel()
     if pos.shape[0] != y.shape[0]:
-        return  # a confidence-filtered subset cannot be scored against the full val target
+        # A confidence-filtered subset cannot be scored against the full val target: record the default and say so (38-F27).
+        logger.info("threshold tuning skipped for %s: %d probability rows vs %d val targets (filtered subset); default 0.5 kept", key, pos.shape[0], y.shape[0])
+        thresholds[key], paths[key] = 0.5, "default_0.5"
+        return
     thresholds[key] = float(_tune(y, pos, metric=metric))
     paths[key] = "tuned"
     if verbose:

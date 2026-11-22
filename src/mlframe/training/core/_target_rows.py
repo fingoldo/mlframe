@@ -66,7 +66,7 @@ class TargetRows:
         pos = {k: (empty if k in splits else v) for k, v in self.pos.items()}
         n_labelled = {k: (0 if k in splits else v) for k, v in self.n_labelled.items()}
         dropped = self.dropped | frozenset(splits)
-        signature = self.signature + "-" + mask_signature(np.array([s in dropped for s in SPLIT_INDEX_FIELDS]))[:4]
+        signature = self.signature + "-" + mask_signature(np.array([s in dropped for s in SPLIT_INDEX_FIELDS]))[:8]
         return TargetRows(signature=signature, mask=self.mask, idx=idx, pos=pos, n_labelled=n_labelled, n_total=self.n_total, dropped=dropped)
 
 

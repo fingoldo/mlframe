@@ -968,3 +968,30 @@
 | 37-F50 | FIXED | Redundant tier alias removed; no behaviour change |
 | 37-F51 | PARTIAL | Redundant placeholder assignment removed; helper not renamed (call still goes through the lazy module proxy) |
 | 37-F52 | FIXED | Binary-only error message no longer points at out-of-scope one-vs-rest; Venn-Abers tests pass |
+| 38-F1 | FIXED | Suite-wide ensemble not built across targets (commit 9d0472dca; test_cluster38_suite_ensemble_targets.py) |
+| 38-F2 | FIXED | Recalibrated calib predictions no longer re-stamped for conformal residuals (commit 9d0472dca) |
+| 38-F3 | FIXED | fit_predict-only detector skips the val OD filter explicitly with WARNING (commit 9d0472dca) |
+| 38-F4 | FIXED | Warning now states the caller keeps the prior ensemble, matching behaviour; no test |
+| 38-F5 | FIXED | Bool-to-int8 cast runs on a shallow copy; test_cluster38_predict_and_fit_side_effects.py |
+| 38-F6 | FIXED | Empty per-type dict skipped before taking the first item; test_cluster38_predict_and_fit_side_effects.py |
+| 38-F7 | FIXED | PySR y-length mismatch and extraction failure logged at WARNING regardless of verbose; no test |
+| 38-F8 | FIXED | Non-neural time reset moved out of the pre-pipeline loop (once per target); no test |
+| 38-F9 | DEFERRED | Group column protection needs an explicit group-column name from the extractor; design change |
+| 38-F10 | DEFERRED | Owner decision: delete _run_one_weight_iteration or finish the refactor |
+| 38-F11 | FIXED | Save removes the other-format metadata file so readers cannot load stale metadata; no test |
+| 38-F12 | FIXED | Embedding detection requires a non-scalar shape; no test |
+| 38-F13 | FIXED | Failed split extraction for a high-cardinality column logged at WARNING; failed split not recorded in metadata; no test |
+| 38-F14 | FIXED | Composition record states described_entry=0 and entry_count; no test |
+| 38-F15 | FIXED | No bare model_clone appended on all-split prediction failure; skip is the single visible outcome; no test |
+| 38-F16 | FIXED | Temporal audit gets the real target type for regression and binary; other types skipped; no test |
+| 38-F17 | FIXED | set() hoisted out of comprehensions (4 sites); no test |
+| 38-F18 | FIXED | Dead metadata.get expression removed |
+| 38-F19 | FIXED | Duplicate logger assignment removed |
+| 38-F20 | FIXED | Docstring corrected: cache holds the ndarray, no strong-ref window; no test |
+| 38-F21 | PARTIAL | Comment corrected (repr is not identity); fallback still keyed on repr, documented rather than re-keyed |
+| 38-F22 | DEFERRED | Unused precomputed_category_union parameter: owner decision (remove or guard the strict cast) |
+| 38-F23 | FIXED | Documented: only the first regression target drives bucket stratification |
+| 38-F24 | DEFERRED | target_type=None default: needs an explicit contract decision |
+| 38-F25 | FIXED | Narrowing signature suffix widened from 4 to 8 hex characters |
+| 38-F26 | FIXED | AssertionError carries a message; pure-selector warning text corrected |
+| 38-F27 | FIXED | Threshold tuning skip on filtered subset logged and stamped default_0.5; no test |
