@@ -195,7 +195,7 @@ def cv_candidates_binary(
         shared = (kk * kk + 3 * kk + 2 * (s + 1) + threads) * 8
         for lo in range(0, m_all, chunk):
             mb = min(chunk, m_all - lo)
-            kern((mb,), (threads,), (V, np.int64(V.shape[1]), tr, np.int32(ntr), va, np.int32(nva), sel_dev, np.int32(s), cand_dev, np.int32(lo), y64, np.float64(lam), np.float64(tol), np.int32(newton_max_iter), np.float64(logloss_eps), xs, wd, rr, ll, status, np.int32(fo * m_all + lo)), shared_mem=shared)  # launch-ok: the block width is part of the kernel's shared-memory layout (one double per thread), see ``threads`` above
+            kern((mb,), (threads,), (V, np.int64(V.shape[1]), tr, np.int32(ntr), va, np.int32(nva), sel_dev, np.int32(s), cand_dev, np.int32(lo), y64, np.float64(lam), np.float64(tol), np.int32(newton_max_iter), np.float64(logloss_eps), xs, wd, rr, ll, status, np.int32(fo * m_all + lo)), shared_mem=shared)  # launch-ok: the block width is part of the kernel's shared-memory layout (one double per thread), see ``threads`` above  # Intentional float64: the Newton solver and the log-loss run at double, read back in one copy
     host = cp.asnumpy(cp.concatenate([ll.ravel(), status.ravel().astype(cp.float64)]))  # ONE read: the logloss of every (fold, candidate) and the fit statuses
     ll_h = host[: nf * m_all].reshape(nf, m_all)
     st_h = host[nf * m_all :].reshape(nf, m_all)
