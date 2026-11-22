@@ -1,0 +1,117 @@
+"""MRMR-level pins of the binning reuse across targets: a target-independent ``nbins_strategy`` bins a column once for every target of a suite, a supervised one bins it again for each target.
+
+The unit-level pins live in ``tests/feature_selection/discretization/test_unsupervised_edges_reused_across_targets.py`` (``per_feature_edges``) and ``test_discretize_col_cache.py``. These run the whole MRMR fit: a second fit on the same columns with another target must compute no column edges for an unsupervised strategy, and must compute them again for a supervised one.
+"""
+
+from __future__ import annotations
+
+import warnings
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from mlframe.feature_selection.filters import _adaptive_nbins_columns as cols
+from mlframe.feature_selection.filters.mrmr import MRMR
+
+
+def _frame(n: int = 800, seed: int = 0):
+    """Eight numeric columns; two targets of different types on the same rows (a binary one and a regression one)."""
+    rng = np.random.default_rng(seed)
+    X = pd.DataFrame(rng.standard_normal((n, 8)), columns=[f"x{i}" for i in range(8)])
+    y_bin = (X["x0"] + 0.5 * rng.standard_normal(n) > 0).astype(np.int8)
+    y_reg = (X["x1"] * X["x2"] + 0.3 * rng.standard_normal(n)).astype(np.float64)
+    return X, y_bin, y_reg
+
+
+def _count_uncached(monkeypatch) -> list:
+    """The column-edge computations that really run (a memo hit does not reach the uncached builder), each recorded as a copy of the column."""
+    calls: list = []
+    real = cols._compute_col_edges_uncached
+
+    def counting(col, *args, **kwargs):
+        """Record one real computation (a copy of the column) and delegate."""
+        calls.append(np.array(col, copy=True))
+        return real(col, *args, **kwargs)
+
+    monkeypatch.setattr(cols, "_compute_col_edges_uncached", counting)
+    return calls
+
+
+def _fit(X, y, strategy: str):
+    """One MRMR fit with the strategy and no feature engineering, so only the binning of the raw columns is counted."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return MRMR(verbose=0, random_seed=0, nbins_strategy=strategy, fe_max_steps=0).fit(X, y)
+
+
+@pytest.mark.parametrize("strategy", ["quantile_spacing", "freedman_diaconis", "sturges", "uniform"])
+def test_unsupervised_strategy_bins_each_column_once_across_targets(monkeypatch, strategy):
+    """The first target bins the raw columns; the second target (another type) computes no column edge again."""
+    X, y_bin, y_reg = _frame()
+    cols.clear_edge_memo()
+    calls = _count_uncached(monkeypatch)
+    _fit(X, y_bin, strategy)
+    first = len(calls)
+    calls.clear()
+    _fit(X, y_reg, strategy)
+    # The target itself is one of the binned columns of a fit (its own edges depend on the target, so it is recomputed); the pin is on the FEATURE columns.
+    target = np.asarray(y_reg, dtype=np.float64)
+    feature_recomputed = [c for c in calls if not np.allclose(c, target, atol=1e-6)]  # MRMR casts the target (float32), so compare with a tolerance
+    assert first > 0, "the first fit must bin the columns"
+    assert len(feature_recomputed) == 0, f"{strategy}: the second target re-bound {len(feature_recomputed)} feature column(s) that were binned for the first target"
+
+
+def test_supervised_strategy_bins_again_for_another_target(monkeypatch):
+    """Contrast: ``mdlp`` depends on the target, so the second target recomputes the edges (the pin is that it does NOT reuse them)."""
+    X, y_bin, y_reg = _frame()
+    cols.clear_edge_memo()
+    calls = _count_uncached(monkeypatch)
+    _fit(X, y_bin, "mdlp")
+    first = len(calls)
+    calls.clear()
+    _fit(X, y_reg, "mdlp")
+    assert first > 0
+    assert len(calls) > 0, "a supervised strategy must recompute its edges for another target"
+
+
+def test_composite_child_fit_adds_no_column_binning(monkeypatch):
+    """The target-mix child fit (``fe_target_mix_candidates=True``) fits on a row subset of the parent. It must reuse the parent's codes (the same rows, the same edges), not bin the columns again.
+
+    RED on purpose: the child bins its subset again (the edge memo keys on content, and the subset has different content). Fix: the child takes the parent's column codes by row. Tracked as PLAN-02 under MRMR-COMPOSITE-BIN-ONCE.
+    """
+    X, _y_bin, y_reg = _frame(n=1500)
+    cols.clear_edge_memo()
+    calls = _count_uncached(monkeypatch)
+    _fit_with_mix(X, y_reg, mix=False)
+    main_only = len(calls)
+    calls.clear()
+    cols.clear_edge_memo()
+    fits = _count_fit_calls(monkeypatch)
+    _fit_with_mix(X, y_reg, mix=True)
+    with_child = len(calls)
+    # Non-vacuous: the child fit must actually have run, otherwise zero extra binning proves nothing.
+    assert len(fits) == 2, f"expected the main fit and one composite child fit, got {len(fits)} MRMR.fit call(s)"
+    assert main_only > 0
+    assert with_child == main_only, f"the composite child re-bound {with_child - main_only} column(s) the main fit had already binned ({main_only} main, {with_child} with the child)"
+
+
+def _count_fit_calls(monkeypatch) -> list:
+    """Record every ``MRMR.fit`` call (the main fit and each child fit of the target mix)."""
+    calls: list = []
+    real = MRMR.fit
+
+    def counting(self, *args, **kwargs):
+        """Record one fit and delegate."""
+        calls.append(1)
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(MRMR, "fit", counting)
+    return calls
+
+
+def _fit_with_mix(X, y, mix: bool):
+    """One MRMR fit with the target-mix second pass on or off (the child fit runs only when both candidates and enable are on)."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return MRMR(verbose=0, random_seed=0, nbins_strategy="quantile_spacing", fe_max_steps=1, fe_target_mix_enable=mix, fe_target_mix_candidates=mix).fit(X, y)
