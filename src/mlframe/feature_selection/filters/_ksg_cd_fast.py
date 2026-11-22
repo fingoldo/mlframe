@@ -126,15 +126,44 @@ _COLUMNS_BLOCK_BYTES = 128 * 1024 * 1024  # host bytes of the float64 working co
 _NOISE_TILE_ELEMENTS = 4_000_000  # elements of one tile of the Kraskov noise (32 MB in float64)
 
 
+def _row_tiles(n: int, p: int) -> "list[tuple[int, int]]":
+    """Row ranges of about ``_NOISE_TILE_ELEMENTS`` cells, so a temporary of one tile replaces one of the whole (n, p) block."""
+    step = max(1, int(_NOISE_TILE_ELEMENTS // max(1, p)))
+    return [(r0, min(n, r0 + step)) for r0 in range(0, n, step)]
+
+
+def _column_std(X: np.ndarray) -> np.ndarray:
+    """Population std of every column of ``X``, as ``X.std(axis=0)`` but through row tiles: that call holds a temporary of the whole block (443 MB at 500000 x 110 float64) while the
+    noise and the next stage's blocks are also resident."""
+    n, p = X.shape
+    total = np.zeros(p)
+    for r0, r1 in _row_tiles(n, p):
+        total += X[r0:r1].sum(axis=0)
+    mean = total / n
+    sq = np.zeros(p)
+    for r0, r1 in _row_tiles(n, p):
+        sq += np.square(X[r0:r1] - mean).sum(axis=0)
+    return np.sqrt(sq / n)
+
+
+def _column_mean_abs(X: np.ndarray) -> np.ndarray:
+    """``np.mean(np.abs(X), axis=0)`` through row tiles (the plain form makes an absolute-value copy of the whole block)."""
+    n, p = X.shape
+    total = np.zeros(p)
+    for r0, r1 in _row_tiles(n, p):
+        total += np.abs(X[r0:r1]).sum(axis=0)
+    return total / n
+
+
 def ksg_mi_discrete_target(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, random_state: int) -> np.ndarray:
     """Drop-in for ``mutual_info_classif(X, y, discrete_features=False)``: double MI per column, nats."""
     # Intentional float64: reproduces sklearn mutual_info_classif, which scales and adds noise in double
     X = np.array(X, dtype=np.float64, copy=True)
     n = X.shape[0]
-    std = X.std(axis=0)
+    std = _column_std(X)
     std[std == 0.0] = 1.0
     X /= std
-    means = np.maximum(1.0, np.mean(np.abs(X), axis=0))
+    means = np.maximum(1.0, _column_mean_abs(X))
     rng = np.random.RandomState(int(random_state))
     # the noise block is drawn and added in row tiles: ``RandomState.standard_normal`` fills C order from one sequential stream, so tiles drawn one after the other are the values of a single (n, p) draw, and
     # ``(1e-10 * means) * noise`` is the same two products per cell; the (n, p) float64 draw and its product (two more copies of the block, ~1.4 GB at 30000 x 3018) are never held
