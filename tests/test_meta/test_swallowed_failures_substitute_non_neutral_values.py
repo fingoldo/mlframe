@@ -174,7 +174,7 @@ class TestATransientFaultDoesNotLatchAPermanentDowngrade:
     @pytest.mark.parametrize(
         "rel",
         [
-            "feature_selection/filters/batch_pair_usability_corr_gpu.py",
+            "feature_selection/filters/_batch_pair_cuda_probe.py",
             "feature_selection/filters/friend_graph_gpu.py",
             "feature_selection/filters/_batch_mi_noise_gate_kernels.py",
             "feature_selection/filters/_batch_pair_mi_cuda_kernels.py",
