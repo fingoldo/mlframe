@@ -74,3 +74,27 @@ def test_the_caches_are_bounded():
         _mah.mah_bin_edges(rng.standard_normal(400) + i, y)
     assert len(_mah._X_PLAN_CACHE) <= _mah._X_PLAN_CACHE_MAX_ENTRIES
     assert len(_mah._Y_MAP_CACHE) <= _mah._Y_MAP_CACHE_MAX_ENTRIES
+
+
+def test_ravel_views_of_one_target_share_one_binning(monkeypatch):
+    """``np.asarray(y).ravel()`` is a new object each call; the y-binning cache must still hit for views of the same buffer (it was keyed by the id of the argument and never did)."""
+    calls = []
+    real = _mah._compute_y_binning
+    monkeypatch.setattr(_mah, "_compute_y_binning", lambda y, k: (calls.append(1), real(y, k))[1])
+    monkeypatch.setattr(_mah, "_y_binning_by_multiset", lambda y, k: None)
+    _mah.clear_mah_y_binning_cache()
+    y = np.random.default_rng(1).integers(0, 3, 500)
+    for _ in range(5):
+        _mah._get_y_binning(np.asarray(y).ravel(), 16)
+    assert len(calls) == 1
+
+
+def test_a_read_only_column_view_is_planned_once(monkeypatch):
+    """Views of one read-only owner (the binner's frame) are keyed by the owner and the position, with no hash of the column; a different column of the owner gets its own plan."""
+    owner = np.asfortranarray(np.random.default_rng(2).standard_normal((800, 3)))
+    owner.setflags(write=False)
+    reference = [_reference_edges(owner[:, j], np.random.default_rng(3).integers(0, 2, 800)) for j in range(3)]
+    y = np.random.default_rng(3).integers(0, 2, 800)
+    for _ in range(2):
+        for j in range(3):
+            np.testing.assert_array_equal(_mah.mah_bin_edges(owner[:, j].astype(np.float64, copy=False), y), reference[j])

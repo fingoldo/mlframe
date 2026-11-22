@@ -239,12 +239,17 @@ def _attach_column_hook(codes_fn: Any, binner: Any, y_raw: np.ndarray, n_cols: i
     codes_fn.y_raw = y_raw
 
 
+#: Strategies whose honest null re-bins through ``PermutedTargetBinner``: ``optimal_joint`` / ``cv`` (a handful of edge sets per column) and the mah family (edges from the column and the permuted target
+#: alone; the binner skips the whole-frame ``categorize_dataset`` pass of every permutation and memoises the code column of each edge set).
+_NULL_BINNER_STRATEGIES = ("optimal_joint", "cv", "mah", "mah_sci", "sci", "marx")
+
+
 def _make_null_binner(self: Any, nbins_strategy: Any, x_for_cat: Any, cols: Any, dependent: set, fixed_codes: Any, strategy_for_categorize: Any, strategy_kwargs: Any) -> Any:
     """The binner that re-bins the target-dependent columns under permuted targets (see ``PermutedTargetBinner``), or ``None`` when the strategy or the frame is not covered.
 
     ``optimal_joint`` takes a handful of edge sets per column over the permutations: a binner that prepares the frame once and memoises the code column of each edge set replaces the whole-frame
     ``categorize_dataset`` pass per permutation (MLFRAME_OJ_NULL_BINNER=0 restores it)."""
-    if str(nbins_strategy).lower() not in ("optimal_joint", "cv") or os.environ.get("MLFRAME_OJ_NULL_BINNER", "1") == "0":
+    if str(nbins_strategy).lower() not in _NULL_BINNER_STRATEGIES or os.environ.get("MLFRAME_OJ_NULL_BINNER", "1") == "0":
         return None
     from mlframe.feature_selection.filters.discretization.shared import PermutedTargetBinner
 

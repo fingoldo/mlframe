@@ -99,10 +99,12 @@ def _compute_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
 
 def _get_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
     """Cached ``(yb, K_y)`` for ``y``+``K``, computed once per distinct ``y`` identity (see module docstring above)."""
-    key = (id(y), int(K))
+    ident = _view_identity(y, allow_writable=True)  # as before, the target is not written into while its binning is cached
+    anchor = ident[0] if ident is not None else y  # a view of a read-only owner is named by the owner and its position: ``ravel()`` of the same target is a new object every call
+    key = (id(anchor), ident[1] if ident is not None else None, int(K))
     with _Y_BINNING_LOCK:
         ent = _Y_BINNING_CACHE.get(key)
-        if ent is not None and ent[0]() is y:
+        if ent is not None and ent[0]() is anchor:
             _Y_BINNING_CACHE.move_to_end(key)
             return ent[1]
         dead = [k for k, v in _Y_BINNING_CACHE.items() if v[0]() is None]
@@ -111,7 +113,7 @@ def _get_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
         by_multiset = _y_binning_by_multiset(y, K)
         result = by_multiset if by_multiset is not None else _compute_y_binning(y, K)
         try:
-            ref = weakref.ref(y)
+            ref = weakref.ref(anchor)
         except TypeError as _exc:
             logger.debug("_get_y_binning fell back to its default after %s", type(_exc).__name__)
             return result  # y doesn't support weakref (unlikely for ndarray) - skip caching, still correct
@@ -130,9 +132,23 @@ def clear_mah_y_binning_cache() -> None:
         _Y_BINNING_CACHE.clear()
 
 
+def _view_identity(a: np.ndarray, *, allow_writable: bool = False) -> "tuple[object, tuple] | None":
+    """``(owner array, position of the view in it)`` when ``a`` is a view of an owner that cannot change (read-only; with ``allow_writable`` any owner, on the caller's promise not to write into it while cached), else ``None``.
+
+    ``np.asarray(y).ravel()`` makes a NEW array object of the same buffer on every call, so a cache keyed by ``id`` of the argument never hit; the owner and the view's offset, length and stride name the
+    same values for as long as the owner lives, and a read-only owner cannot change under the cache."""
+    root = a
+    while isinstance(root.base, np.ndarray):
+        root = root.base
+    if root.flags.writeable and not allow_writable:
+        return None
+    offset = a.__array_interface__["data"][0] - root.__array_interface__["data"][0]
+    return root, (offset, a.shape, a.strides, a.dtype.str)
+
+
 # X-SIDE PLAN CACHE: the quantile cut points of a column and its bin index depend on the column alone, yet the honest null of a supervised ``nbins_strategy`` asks for the edges of the SAME column under
 # every permutation of the target. Keyed by the content digest of the column and ``K``; bounded (a plan is an int16 vector of the column's length plus a short edge vector).
-_X_PLAN_CACHE: "OrderedDict[tuple[bytes, int, int], tuple[np.ndarray, np.ndarray, int]]" = OrderedDict()
+_X_PLAN_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()
 _X_PLAN_CACHE_MAX_ENTRIES = 512
 _X_PLAN_LOCK = threading.Lock()
 
@@ -143,12 +159,16 @@ def _x_plan(x: np.ndarray, K: int) -> "tuple[np.ndarray, np.ndarray, int] | None
     The numbers are those ``mah_bin_edges`` derives inline; they are memoised by the content of the column."""
     import hashlib
 
-    key = (hashlib.blake2b(np.ascontiguousarray(x), digest_size=16).digest(), int(x.size), int(K))
+    ident = _view_identity(x)
+    if ident is not None:
+        key = (id(ident[0]), ident[1], int(K))  # a read-only owner: the view names the values, no hash of the column needed
+    else:
+        key = (hashlib.blake2b(np.ascontiguousarray(x), digest_size=16).digest(), int(x.size), int(K))
     with _X_PLAN_LOCK:
         hit = _X_PLAN_CACHE.get(key)
-        if hit is not None:
+        if hit is not None and (ident is None or hit[3]() is ident[0]):
             _X_PLAN_CACHE.move_to_end(key)
-            return hit if hit[2] > 0 else None
+            return hit[:3] if hit[2] > 0 else None
     qx = np.quantile(x, np.linspace(0, 1, K + 1))
     qx_unique = np.unique(qx)
     if qx_unique.size < 3:
@@ -157,8 +177,9 @@ def _x_plan(x: np.ndarray, K: int) -> "tuple[np.ndarray, np.ndarray, int] | None
         initial_inner = qx_unique[1:-1].astype(np.float64)  # Intentional float64: initial inner edges for the MAH statistic
         xb = np.searchsorted(initial_inner, x, side="right")
         plan = (initial_inner, xb.astype(np.int16), int(xb.max()) + 1)
+    owner_ref = weakref.ref(ident[0]) if ident is not None else (lambda: None)
     with _X_PLAN_LOCK:
-        _X_PLAN_CACHE[key] = plan
+        _X_PLAN_CACHE[key] = (*plan, owner_ref)
         while len(_X_PLAN_CACHE) > _X_PLAN_CACHE_MAX_ENTRIES:
             _X_PLAN_CACHE.popitem(last=False)  # evict-ok: a miss recomputes the plan
     return plan if plan[2] > 0 else None
