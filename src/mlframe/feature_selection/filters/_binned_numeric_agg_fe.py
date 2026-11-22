@@ -584,7 +584,7 @@ def _top_agg_by_variance(X, acands, max_agg_cols):
 
 
 def _group_selection_y_codes(y: Any) -> np.ndarray:
-    """Integer codes of ``y`` for the group relevance proxy: its classes when it has few distinct values, else its deciles; computed in float64 so large integer labels stay distinct."""
+    """Integer codes of ``y`` for the group relevance proxy: its classes when it has few distinct values, else its deciles; computed in double precision so large integer labels stay distinct."""
     y_arr = np.asarray(y.to_numpy() if hasattr(y, "to_numpy") else y, dtype=np.float64).ravel()  # Intentional float64: float32 merges integer labels above 2**24
     if not _has_more_distinct_than(y_arr, FEW_CLASSES_MAX):  # already categorical / few classes
         _, y_codes = np.unique(y_arr, return_inverse=True)
