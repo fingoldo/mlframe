@@ -1,0 +1,123 @@
+"""Per-column statistics MRMR already computed during ``fit``, returned as ``MRMR.column_stats_`` (a DataFrame, one row per column of the final code matrix) and ``MRMR.fit_meta_`` (a dict of fit-level values).
+
+NOTHING is computed here: every number is read from a table the fit built for its own use (the code matrix's per-column bin counts, the screen's marginal-MI cache ``cached_MIs``, its confirmed-MI cache
+``cached_confident_MIs`` and its entropy cache). A column the fit never scored in a table has ``NaN`` in that field.
+
+META-LEARNING NOTE (MBHO, the hyper-parameter tuner): these rows are the intended training data of its meta-learner. One fit yields one (column descriptors -> fate of the column) table: how many bins the
+column was cut into, how much information it carries about the target (``mi_with_target``, its confirmed form ``mi_confident`` with ``mi_confidence``), the entropy of its codes, and, after the fit, whether
+the column was selected (``in_output``, ``support_rank``, ``mrmr_gain``, ``origin``, ``dropped_by`` joined by name from ``fe_provenance_``). ``fit_meta_`` carries the fit-level context that makes tables of different
+fits comparable (rows, classes of the target and their entropy, the effective relevance gate, the binning strategy). Keep the field names stable: a tuner reading old tables relies on them.
+
+Columns of ``column_stats_``:
+  ``column``           name in the final column list (raw input columns, then engineered ones)
+  ``position``         index of the column in the code matrix
+  ``is_engineered``    True for a column built by the FE stages (not one of ``feature_names_in_``)
+  ``nbins``            number of bins (distinct codes allowed) of the column in the code matrix
+  ``mi_with_target``   marginal MI(column; target) in nats, from the screen's cache
+  ``mi_confident``     the bootstrapped (permutation-confirmed) gain of the column, when the screen confirmed it
+  ``mi_confidence``    the confidence of that gain
+  ``entropy``          H(column codes) in nats, from the screen's entropy cache. That cache is filled only by the relevance / redundancy routes that need entropies of variable sets (fleuret, JMIM); on the
+                       default route the entropies are formed inside the njit MI kernels and not kept, so the field is NaN there (nothing is recomputed to fill it)
+  ``su``               symmetric uncertainty ``2 * MI / (H(column) + H(target))`` of the two numbers above (NaN when an entropy is missing)
+  ``origin``, ``in_output``, ``support_rank``, ``mrmr_gain``, ``dropped_by``  from ``fe_provenance_`` once the fit has finished (see :func:`join_provenance`)
+"""
+
+from __future__ import annotations
+
+import logging
+import math
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+from mlframe.utils.log_throttle import log_throttle
+
+logger = logging.getLogger(__name__)
+
+__all__ = ["record_column_stats", "join_provenance"]
+
+_PROVENANCE_FIELDS = ("origin", "in_output", "support_rank", "mrmr_gain", "dropped_by")
+
+
+def _entropy_of(entropy_cache: Any, position: int) -> float:
+    """H(codes of column ``position``) from the screen's entropy cache (keyed by the underscore-joined variable indices), NaN when the screen never needed it."""
+    if not entropy_cache:
+        return float("nan")
+    key = str(position)
+    if key in entropy_cache:
+        return float(entropy_cache[key])
+    return float("nan")
+
+
+def _target_entropy(freqs_y: Any) -> float:
+    """Entropy in nats of the target's class frequencies (the vector the fit already holds)."""
+    if freqs_y is None:
+        return float("nan")
+    p = np.asarray(freqs_y, dtype=np.float64)  # Intentional float64: entropy of class frequencies, a statistic
+    p = p[p > 0]
+    return float(-(p * np.log(p)).sum()) if p.size else float("nan")
+
+
+def record_column_stats(self: Any, cols: Any, nbins: Any, cached_MIs: Any, screen_caches: Any, freqs_y: Any, classes_y: Any, effective_min_relevance_gain: Any = None) -> None:
+    """Fill ``self.column_stats_`` and ``self.fit_meta_`` from what the fit holds (called once, after the support is assigned). Never raises: metadata must not change a fit."""
+    try:
+        entropy_cache, confident = (screen_caches[0], screen_caches[2]) if screen_caches else (None, None)
+        names = [str(c) for c in cols]
+        names_in = getattr(self, "feature_names_in_", None)
+        raw_names = set(str(c) for c in (names_in if names_in is not None else []))
+        n = len(names)
+        nb = np.asarray(nbins).ravel() if nbins is not None else np.full(n, np.nan)
+        rows = {
+            "column": names,
+            "position": list(range(n)),
+            "is_engineered": [(nm not in raw_names) for nm in names],
+            "nbins": [float(nb[i]) if i < nb.size else float("nan") for i in range(n)],
+            "mi_with_target": [float(cached_MIs[(i,)]) if cached_MIs is not None and (i,) in cached_MIs else float("nan") for i in range(n)],
+        }
+        gain, conf = [], []
+        for i in range(n):
+            entry = confident.get((i,)) if confident else None
+            gain.append(float(entry[0]) if entry is not None else float("nan"))
+            conf.append(float(entry[1]) if entry is not None else float("nan"))
+        rows["mi_confident"], rows["mi_confidence"] = gain, conf
+        rows["entropy"] = [_entropy_of(entropy_cache, i) for i in range(n)]
+        h_y = _target_entropy(freqs_y)
+        rows["su"] = [
+            (2.0 * mi / (h + h_y)) if (not math.isnan(mi) and not math.isnan(h) and not math.isnan(h_y) and (h + h_y) > 0.0) else float("nan")
+            for mi, h in zip(rows["mi_with_target"], rows["entropy"])
+        ]
+        self.column_stats_ = pd.DataFrame(rows)
+        self.fit_meta_ = {
+            "n_rows": len(classes_y) if classes_y is not None else -1,
+            "n_columns": n,
+            "n_classes_y": len(freqs_y) if freqs_y is not None else -1,
+            "target_entropy": h_y,
+            "class_frequencies": [float(v) for v in np.asarray(freqs_y).ravel()] if freqs_y is not None else [],
+            "nbins_strategy": getattr(self, "nbins_strategy", None),
+            "quantization_nbins": getattr(self, "quantization_nbins", None),
+            "effective_min_relevance_gain": float(effective_min_relevance_gain) if effective_min_relevance_gain is not None else float("nan"),
+            "fe_interaction_ii_floor": float(getattr(self, "fe_interaction_ii_floor_", None) or float("nan")),
+        }
+    except Exception as exc:  # metadata only
+        self.column_stats_ = None
+        self.fit_meta_ = None
+        log_throttle(logger, "column_stats.record", logging.WARNING, "column_stats: the per-column statistics could not be collected (%r)", exc)
+
+
+def join_provenance(self: Any) -> None:
+    """Add the selection fate of every column to ``column_stats_`` (``origin``, ``in_output``, ``support_rank``, ``mrmr_gain``, ``dropped_by`` of ``fe_provenance_``, matched by feature name).
+    Columns the provenance does not list keep NaN / None. Never raises."""
+    try:
+        stats = getattr(self, "column_stats_", None)
+        prov = getattr(self, "fe_provenance_", None)
+        if stats is None or prov is None or not len(prov):
+            return
+        keyed = prov.drop_duplicates("feature_name").set_index("feature_name")
+        for field in _PROVENANCE_FIELDS:
+            if field in keyed.columns:
+                stats[field] = stats["column"].map(keyed[field])
+        if "in_output" in stats.columns:
+            stats["in_output"] = stats["in_output"].fillna(False).astype(bool)  # a column the provenance does not list was not part of the output
+    except Exception as exc:  # metadata only
+        log_throttle(logger, "column_stats.join", logging.WARNING, "column_stats: the selection fate could not be joined (%r)", exc)
