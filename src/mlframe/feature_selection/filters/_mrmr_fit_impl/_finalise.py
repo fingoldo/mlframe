@@ -264,7 +264,24 @@ def _accept_rescue_candidates(self, data, nbins, target_indices, cols, _above_fl
     return list(_accepted)
 
 
-def _commit_fallback_support(self, _topk, _raw_mi, n_engineered_out, _min_fb):
+def _top_column_pvalue(data, nbins, target_index, cols_index, honest_codes_fn=None) -> float:
+    """Permutation p-value of one column's marginal MI against the target: ``(1 + R) / (B + 1)``, R = null maxima at or above the observed MI (the same null as the rescue gate).
+
+    NaN when the test cannot run; a NaN p-value never makes a column look informative (see ``_commit_fallback_support``).
+    """
+    from ._fallback_maxt import FAMILY_ALPHA, fallback_maxt_floor
+
+    try:
+        obs, null_max = fallback_maxt_floor(data, nbins, int(target_index), [int(cols_index)], FAMILY_ALPHA, honest_codes_fn=honest_codes_fn)
+        null_sorted = np.sort(np.asarray(null_max, dtype=np.float64))
+        exceed = null_sorted.shape[0] - np.searchsorted(null_sorted, float(np.asarray(obs).ravel()[0]), side="left")
+        return float((1.0 + exceed) / (null_sorted.shape[0] + 1.0))
+    except Exception as exc:  # a p-value that cannot be computed is reported as missing, never as significant
+        logger.warning("MRMR fallback: the permutation p-value of the kept column could not be computed (%s).", exc)
+        return float("nan")
+
+
+def _commit_fallback_support(self, _topk, _raw_mi, n_engineered_out, _min_fb, p_value=float("nan")):
     """Install the rescued support and its metadata on ``self``; returns the user-facing fallback message."""
     # int64 to match every other support_ assignment in the fit body; a bare np.array(list[int]) is
     # int32 on Windows, an inconsistency that can bite dtype-sensitive downstream concatenation.
@@ -272,7 +289,10 @@ def _commit_fallback_support(self, _topk, _raw_mi, n_engineered_out, _min_fb):
     self.n_features_ = len(_topk) + n_engineered_out
     self.fallback_used_ = True
     _top_mi = float(_raw_mi[0][1]) if _raw_mi else 0.0
-    _uninformative = _top_mi <= 0.0
+    # Informative means the kept column carries signal: a positive MI AND a permutation p-value that passes the significance level. Positive MI alone is not evidence (AUD23-71: pure noise keeps a column with MI 0.0032 and reported uninformative=False).
+    from ._fallback_maxt import FAMILY_ALPHA
+    _p_ok = bool(np.isfinite(p_value) and p_value <= FAMILY_ALPHA)
+    _uninformative = (_top_mi <= 0.0) or not _p_ok
     _fallback_msg = (
         f"MRMR: screening returned 0 features; falling "
         f"back to the {self.n_features_} raw feature(s) "
@@ -306,6 +326,7 @@ def _commit_fallback_support(self, _topk, _raw_mi, n_engineered_out, _min_fb):
         "uninformative": bool(_uninformative),
         "n_scored_candidates": len(_raw_mi),
         "min_features_fallback": int(_min_fb),
+        "top_p_value": float(p_value) if np.isfinite(p_value) else None,
     }
     return _fallback_msg
 
@@ -379,7 +400,12 @@ def _apply_min_features_fallback(self, _min_fb, cols, data, target_indices, nbin
             _floor_raw_mi(_topk, n_engineered_out, _min_fb, _raw_mi, _abs_floor)
             _topk = _rescue_empty_topk(self, _topk, n_engineered_out, _raw_mi, _rescue_allowed_idx, _name_to_cols_idx, _cached)
             if _topk:
-                _fallback_msg = _commit_fallback_support(self, _topk, _raw_mi, n_engineered_out, _min_fb)
+                _p_top = float("nan")
+                _top_name = self.feature_names_in_[_topk[0]] if _topk[0] < len(self.feature_names_in_) else None
+                _top_cols = _name_to_cols_idx.get(_top_name)
+                if _top_cols is not None:
+                    _p_top = _top_column_pvalue(data, nbins, int(target_indices[0]), _top_cols, honest_codes_fn=getattr(self, "_honest_null_codes_fn", None))
+                _fallback_msg = _commit_fallback_support(self, _topk, _raw_mi, n_engineered_out, _min_fb, p_value=_p_top)
         except Warning:  # a warning promoted to an error by the caller's filter (simplefilter("error")) is theirs to receive, not a fallback failure
             raise
         except Exception as _exc:
