@@ -29,7 +29,7 @@ import pandas as pd
 
 def _concat(X: pd.DataFrame, cols: dict) -> pd.DataFrame:
     """The current seam: one concat along columns."""
-    return pd.concat([X, pd.DataFrame(cols, index=X.index)], axis=1)
+    return pd.concat([X, pd.DataFrame(cols, index=X.index, copy=False)], axis=1)
 
 
 def _shallow_setitem(X: pd.DataFrame, cols: dict) -> pd.DataFrame:
@@ -49,7 +49,7 @@ def _frame(n: int, p: int, seed: int = 0) -> pd.DataFrame:
     data: dict = {f"c{i}": rng.normal(size=n) for i in range(p)}
     data["cat"] = pd.Categorical(rng.integers(0, 5, size=n))
     data["i64"] = rng.integers(0, 100, size=n)
-    return pd.DataFrame(data)
+    return pd.DataFrame(data, copy=False)
 
 
 def run(repeats: int = 5) -> list[dict]:

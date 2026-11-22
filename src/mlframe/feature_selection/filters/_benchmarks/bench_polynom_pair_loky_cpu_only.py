@@ -70,7 +70,7 @@ def _make_data(n=30000, n_cols=8, seed=0):
     rng = np.random.default_rng(seed)
     cols = [f"c{i}" for i in range(n_cols)]
     data = {c: rng.standard_normal(n) for c in cols}
-    X = pd.DataFrame(data)
+    X = pd.DataFrame(data, copy=False)
     # target with a non-monotone pair signal so the optimiser has real work.
     a, b = X["c0"].values, X["c1"].values
     logit = 1.5 * (a * a - b * b) + 0.5 * X["c2"].values

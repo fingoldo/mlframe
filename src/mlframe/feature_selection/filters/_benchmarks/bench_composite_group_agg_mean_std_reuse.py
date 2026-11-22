@@ -52,7 +52,7 @@ def main() -> None:
     cols: dict[str, Any] = {"g1": rng.integers(0, 8, n), "g2": rng.integers(0, 6, n)}
     for k in range(12):
         cols[f"v{k}"] = rng.normal(size=n)
-    X = pd.DataFrame(cols)
+    X = pd.DataFrame(cols, copy=False)
     gsets = [("g1", "g2")]
     nums = [f"v{k}" for k in range(12)]
     print(f"groupby-dominated (n={n:_}, 1 low-card key x 12 num_cols): {_bench(X, gsets, nums):.1f} ms")

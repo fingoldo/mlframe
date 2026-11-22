@@ -25,7 +25,7 @@ def _make_frame(n: int, n_num: int, n_groups: int, seed: int = 0) -> pd.DataFram
     data: dict[str, Any] = {"grp": rng.integers(0, n_groups, size=n)}
     for j in range(n_num):
         data[f"x{j}"] = rng.normal(size=n)
-    return pd.DataFrame(data)
+    return pd.DataFrame(data, copy=False)
 
 
 def _bench(fn, X, group_cols, num_cols, repeats: int = 5) -> float:

@@ -57,7 +57,7 @@ def bench_pairwise(old_mod, new_mod, p=40, n=100_000, seed=0):
     rng = np.random.default_rng(seed)
     cols = [f"c{i}" for i in range(p)]
     # Distinct-ish positive values so most ratio pairs survive redundancy gate.
-    X = pd.DataFrame({c: rng.normal(5.0, 2.0, size=n) for c in cols})
+    X = pd.DataFrame({c: rng.normal(5.0, 2.0, size=n) for c in cols}, copy=False)
 
     old_df, old_acc = old_mod.pairwise_ratio_features(X, cols)
     new_df, new_acc = new_mod.pairwise_ratio_features(X, cols)
@@ -88,7 +88,7 @@ def bench_grouped(old_mod, new_mod, n=200_000, n_groups=500, n_num=4, seed=0):
     num_cols = [f"x{i}" for i in range(n_num)]
     for c in num_cols:
         data[c] = rng.normal(0.0, 1.0, size=n)
-    X = pd.DataFrame(data)
+    X = pd.DataFrame(data, copy=False)
 
     old_df, _old_rec = old_mod.grouped_delta_features(X, "grp", num_cols)
     new_df, new_rec = new_mod.grouped_delta_features(X, "grp", num_cols)
@@ -100,7 +100,7 @@ def bench_grouped(old_mod, new_mod, n=200_000, n_groups=500, n_num=4, seed=0):
     data2 = {"grp": g2}
     for c in num_cols:
         data2[c] = rng.normal(0.0, 1.0, size=n)
-    X_test = pd.DataFrame(data2)
+    X_test = pd.DataFrame(data2, copy=False)
     name_z = new_mod.engineered_name_grouped_delta_std(num_cols[0], "grp")
     rec = new_rec[name_z]
     old_app = old_mod.apply_grouped_delta(X_test, rec)

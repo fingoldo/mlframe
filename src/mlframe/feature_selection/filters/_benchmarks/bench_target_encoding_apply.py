@@ -57,7 +57,7 @@ def main():
 
     # INT source column (fast path): ~10% unseen -> global_mean fallback.
     cats_int = rng.integers(0, card + 30, size=n)
-    X_int = pd.DataFrame({col: cats_int})
+    X_int = pd.DataFrame({col: cats_int}, copy=False)
     old = old_mod.apply_target_encoding(X_int, col, recipe)
     new = new_mod.apply_target_encoding(X_int, col, recipe)
     if not (np.array_equal(old, new)):
@@ -71,7 +71,7 @@ def main():
     cats_obj = toks[rng.integers(0, card + 30, size=n)]
     lookup_obj = {f"c{k}": float(rng.normal(0.3, 0.1)) for k in range(card)}
     recipe_obj = {"lookup": lookup_obj, "global_mean": 0.275}
-    X_obj = pd.DataFrame({col: cats_obj})
+    X_obj = pd.DataFrame({col: cats_obj}, copy=False)
     old_o = old_mod.apply_target_encoding(X_obj, col, recipe_obj)
     new_o = new_mod.apply_target_encoding(X_obj, col, recipe_obj)
     if not (np.array_equal(old_o, new_o)):

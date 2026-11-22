@@ -28,7 +28,7 @@ from mlframe.feature_selection.filters.stability import StabilityMRMR
 
 def _make_data(n, p, seed=0):
     rng = np.random.default_rng(seed)
-    X = pd.DataFrame(rng.standard_normal((n, p)), columns=[f"f{i}" for i in range(p)])
+    X = pd.DataFrame(rng.standard_normal((n, p)), columns=[f"f{i}" for i in range(p)], copy=False)
     y = pd.Series((X["f0"] + X["f1"] > 0).astype(int))
     return X, y
 

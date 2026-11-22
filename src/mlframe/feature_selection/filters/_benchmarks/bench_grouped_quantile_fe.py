@@ -37,7 +37,7 @@ def _make_data(n: int, n_groups: int, seed: int = 0):
     z = (x - loc) / scale
     p = 1.0 / (1.0 + np.exp(-z))
     y = (rng.random(n) < p).astype(np.int64)
-    X = pd.DataFrame({"grp": g, "num": x})
+    X = pd.DataFrame({"grp": g, "num": x}, copy=False)
     return X, y
 
 

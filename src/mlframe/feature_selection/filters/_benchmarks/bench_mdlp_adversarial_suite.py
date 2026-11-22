@@ -141,7 +141,7 @@ def scen_pure_confounder(n: int, seed: int, corr_strength: float = 0.9):
             "noise2": rng.integers(0, 50, n).astype(np.float64),
             "noise3": rng.standard_normal(n) * 100.0,
         }
-    )
+    , copy=False)
     return X, y
 
 
