@@ -41,7 +41,8 @@ def resolve_pair_gates_batch(
 
     def _scalar(i: int) -> tuple:
         """The reference result for pair ``i``."""
-        return scalar_resolve(pairs[i], pair_mis[i], ind_sums[i], single_mis=(singles[0][i], singles[1][i]), **common)
+        result: tuple = scalar_resolve(pairs[i], pair_mis[i], ind_sums[i], single_mis=(singles[0][i], singles[1][i]), **common)
+        return result
 
     if mi.dtype != np.float64 or ies.dtype != np.float64 or s0.dtype != np.float64 or s1.dtype != np.float64:
         return [_scalar(i) for i in range(n)]

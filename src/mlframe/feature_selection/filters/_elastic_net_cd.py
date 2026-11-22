@@ -12,8 +12,8 @@ from numba import njit
 
 
 @njit(cache=True, nogil=True)
-def _cd_kernel(Xc, yc, alpha, l1_ratio, max_iter, tol, w):
-    """Coordinate descent on the centred design ``Xc`` and target ``yc``; ``w`` holds the start and receives the solution. Returns the number of sweeps made and whether it converged."""
+def _column_sq_sums(Xc):
+    """Sum of squares of every column of ``Xc``."""
     n, p = Xc.shape
     sq = np.zeros(p)
     for j in range(p):
@@ -21,11 +21,44 @@ def _cd_kernel(Xc, yc, alpha, l1_ratio, max_iter, tol, w):
         for i in range(n):
             s += Xc[i, j] * Xc[i, j]
         sq[j] = s
+    return sq
+
+
+@njit(cache=True, nogil=True)
+def _add_scaled_column(resid, Xc, j, scale):
+    """``resid += scale * Xc[:, j]`` in place."""
+    for i in range(resid.shape[0]):
+        resid[i] += Xc[i, j] * scale
+
+
+@njit(cache=True, nogil=True)
+def _column_dot(Xc, j, resid):
+    """``Xc[:, j] . resid``."""
+    rho = 0.0
+    for i in range(resid.shape[0]):
+        rho += Xc[i, j] * resid[i]
+    return rho
+
+
+@njit(cache=True, nogil=True)
+def _soft_threshold_step(rho, l1, denom):
+    """The coordinate update ``S(rho, l1) / denom`` of the elastic net (``S`` the soft threshold)."""
+    if rho > l1:
+        return (rho - l1) / denom
+    if rho < -l1:
+        return (rho + l1) / denom
+    return 0.0
+
+
+@njit(cache=True, nogil=True)
+def _cd_kernel(Xc, yc, alpha, l1_ratio, max_iter, tol, w):
+    """Coordinate descent on the centred design ``Xc`` and target ``yc``; ``w`` holds the start and receives the solution. Returns the number of sweeps made and whether it converged."""
+    n, p = Xc.shape
+    sq = _column_sq_sums(Xc)
     resid = yc.copy()
     for j in range(p):
         if w[j] != 0.0:
-            for i in range(n):
-                resid[i] -= Xc[i, j] * w[j]
+            _add_scaled_column(resid, Xc, j, -w[j])
     l1 = n * alpha * l1_ratio
     l2 = n * alpha * (1.0 - l1_ratio)
     for sweep in range(max_iter):
@@ -36,26 +69,13 @@ def _cd_kernel(Xc, yc, alpha, l1_ratio, max_iter, tol, w):
                 continue
             old = w[j]
             if old != 0.0:
-                for i in range(n):
-                    resid[i] += Xc[i, j] * old
-            rho = 0.0
-            for i in range(n):
-                rho += Xc[i, j] * resid[i]
-            if rho > l1:
-                new = (rho - l1) / (sq[j] + l2)
-            elif rho < -l1:
-                new = (rho + l1) / (sq[j] + l2)
-            else:
-                new = 0.0
+                _add_scaled_column(resid, Xc, j, old)
+            new = _soft_threshold_step(_column_dot(Xc, j, resid), l1, sq[j] + l2)
             w[j] = new
             if new != 0.0:
-                for i in range(n):
-                    resid[i] -= Xc[i, j] * new
-            move = abs(new - old)
-            if move > max_move:
-                max_move = move
-            if abs(new) > max_w:
-                max_w = abs(new)
+                _add_scaled_column(resid, Xc, j, -new)
+            max_move = max(max_move, abs(new - old))
+            max_w = max(max_w, abs(new))
         if max_move <= tol * max(1.0, max_w):
             return sweep + 1, True
     return max_iter, False
@@ -81,13 +101,7 @@ def _cd_gram_kernel(G, q, alpha, l1_ratio, n, max_iter, tol, w):
             if gjj == 0.0:
                 continue
             old = w[j]
-            rho = grad[j] + gjj * old
-            if rho > l1:
-                new = (rho - l1) / (gjj + l2)
-            elif rho < -l1:
-                new = (rho + l1) / (gjj + l2)
-            else:
-                new = 0.0
+            new = _soft_threshold_step(grad[j] + gjj * old, l1, gjj + l2)
             w[j] = new
             delta = new - old
             if delta != 0.0:

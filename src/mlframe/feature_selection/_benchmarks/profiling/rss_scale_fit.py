@@ -205,7 +205,7 @@ if os.environ.get("RSS_TRACE_CUSHION", "").strip():  # record every VRAM-cushion
         _CUSHION_CALLS.append((int(nbytes), bool(ok), sys._getframe(1).f_code.co_filename.split("filters")[-1] + ":" + sys._getframe(1).f_code.co_name))
         return ok
 
-    _vram.fe_gpu_has_vram_cushion = _traced_cushion
+    _vram.fe_gpu_has_vram_cushion = _traced_cushion  # type: ignore[assignment]  # the spy keeps the wrapped function's call shape
 
 if os.environ.get("RSS_LOG_INFO", "").strip():  # comma-separated logger names switched to INFO on stdout (a throttled INFO line then shows why a path was declined)
     import logging as _lg
@@ -307,7 +307,7 @@ try:
     if _CUSHION_CALLS:
         import collections as _co
 
-        _agg = _co.defaultdict(lambda: [0, 0, 0])
+        _agg: dict = _co.defaultdict(lambda: [0, 0, 0])
         for _nb, _ok, _who in _CUSHION_CALLS:
             _row = _agg[_who]
             _row[0 if _ok else 1] += 1
@@ -328,8 +328,8 @@ try:
         import json
 
         _state = {k: getattr(_sel, k, None) for k in ("support_", "feature_names_out_", "selected_features_")}
-        _prov = getattr(_sel, "fe_provenance_", None)
-        _led = getattr(_sel, "fe_rejection_ledger_", None)
+        _prov: Any = getattr(_sel, "fe_provenance_", None)
+        _led: Any = getattr(_sel, "fe_rejection_ledger_", None)
         if hasattr(_led, "to_csv"):  # the per-candidate verdicts, for the first-divergence diff of two runs
             _led.to_csv(_dump + ".ledger.csv", index=False)
         _state["fe_provenance_"] = _prov.to_dict("records") if hasattr(_prov, "to_dict") else repr(_prov)  # the full survivor table, not its truncated repr
@@ -400,11 +400,11 @@ if os.environ.get("RSS_GARBAGE_AFTER_FIT", "").strip():  # what sits in referenc
     _frame_objs = [o for o in _garbage if type(o).__name__ == "frame"]
     _ref_types = _co.Counter(type(r).__name__ for fo in _frame_objs for r in gc.get_referrers(fo) if id(r) in _ids and r is not _garbage)
     print("GARBAGE what refers to the stack frames:", dict(_ref_types.most_common(8)), flush=True)
-    _exc = _co.Counter(type(o).__name__ for o in _garbage if isinstance(o, BaseException))
-    print("GARBAGE exceptions:", dict(_exc.most_common(8)), "| tracebacks:", sum(1 for o in _garbage if type(o).__name__ == "traceback"), flush=True)
-    _holders = _co.Counter()
+    _exc_types = _co.Counter(type(o).__name__ for o in _garbage if isinstance(o, BaseException))
+    print("GARBAGE exceptions:", dict(_exc_types.most_common(8)), "| tracebacks:", sum(1 for o in _garbage if type(o).__name__ == "traceback"), flush=True)
+    _holders: Any = _co.Counter()
     for fo in _frame_objs:
-        _big = [k for k, v in fo.f_locals.items() if isinstance(v, (pd.DataFrame, np.ndarray)) and getattr(v, "nbytes", 0) + (getattr(v, "memory_usage", lambda **k: 0)(deep=False).sum() if isinstance(v, pd.DataFrame) else 0) > 50e6]
+        _big = [k for k, v in fo.f_locals.items() if isinstance(v, (pd.DataFrame, np.ndarray)) and getattr(v, "nbytes", 0) + (v.memory_usage(deep=False).sum() if isinstance(v, pd.DataFrame) else 0) > 50e6]
         if _big:
             _holders[(fo.f_code.co_name, tuple(_big[:3]))] += 1
     print("GARBAGE frames holding a local over 50 MB:", dict(_holders.most_common(8)), flush=True)

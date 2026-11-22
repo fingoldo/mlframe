@@ -111,8 +111,8 @@ def _newton_blas(A: np.ndarray, y: np.ndarray, lam: float, max_iter: int, grad_t
     n, p = A.shape
     reg = np.full(p, lam)
     reg[-1] = 0.0  # the intercept is not penalised
-    w = np.zeros(p)
-    z = np.zeros(n)
+    w: np.ndarray = np.zeros(p)
+    z: np.ndarray = np.zeros(n)
     f = n * np.log(2.0)
     tol = grad_tol * max(1.0, float(n)) ** 0.5
     for _ in range(max_iter):

@@ -181,7 +181,7 @@ class _FrameColumns(dict):
 def fe_extract_columns(X: Any, names: Iterable[str]) -> dict[str, np.ndarray]:
     """Extract the named columns of ``X`` (pandas / polars) as ``{name: 1d numpy array}`` - per-column views, no
     whole-frame copy. Used to move engineered columns off an augmented frame for a native re-append onto another frame."""
-    out: dict[str, np.ndarray] = _FrameColumns()
+    out = _FrameColumns()
     out.source = X if is_pandas(X) else None
     for nm in names:
         if is_pandas(X):

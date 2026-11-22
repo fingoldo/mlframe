@@ -143,7 +143,7 @@ def _column_std(X: np.ndarray) -> np.ndarray:
     sq = np.zeros(p)
     for r0, r1 in _row_tiles(n, p):
         sq += np.square(X[r0:r1] - mean).sum(axis=0)
-    return np.sqrt(sq / n)
+    return np.asarray(np.sqrt(sq / n))
 
 
 def _column_mean_abs(X: np.ndarray) -> np.ndarray:

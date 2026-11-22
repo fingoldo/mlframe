@@ -30,7 +30,7 @@ def _standardise_fit(X: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
 def standardised(X: np.ndarray) -> np.ndarray:
     """``StandardScaler().fit_transform(X)``: the columns minus their mean over their population standard deviation (a constant column keeps a spread of 1, so it comes out as zeros)."""
     mean, scale = _standardise_fit(X)
-    return (np.asarray(X, dtype=np.float64) - mean) / scale
+    return np.asarray((np.asarray(X, dtype=np.float64) - mean) / scale)
 
 
 class ScaledOLS:
@@ -47,7 +47,7 @@ class ScaledOLS:
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predictions for the rows of ``X``."""
-        return ((np.asarray(X, dtype=np.float64) - self.mean_) / self.scale_) @ self.coef_ + self.intercept_
+        return np.asarray(((np.asarray(X, dtype=np.float64) - self.mean_) / self.scale_) @ self.coef_ + self.intercept_)
 
     def score(self, X: np.ndarray, y: np.ndarray) -> float:
         """Coefficient of determination of the predictions for ``X`` against ``y`` (``1 - SSE / SST``; 1.0 for a constant ``y`` fitted exactly and 0.0 otherwise, as scikit-learn returns)."""
@@ -165,7 +165,7 @@ class ScaledLogistic:
     def decision_function(self, X: np.ndarray) -> np.ndarray:
         """Scores of the rows of ``X``: a vector for two classes, a ``(n, k)`` table for more."""
         z = ((np.asarray(X, dtype=np.float64) - self.mean_) / self.scale_) @ self.coef_.T + self.intercept_
-        return z.ravel() if self.coef_.shape[0] == 1 else z
+        return np.asarray(z.ravel() if self.coef_.shape[0] == 1 else z)
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         """Class probabilities, columns ordered as ``classes_``."""
@@ -175,11 +175,11 @@ class ScaledLogistic:
             return np.column_stack([1.0 - p1, p1])
         z = z - z.max(axis=1, keepdims=True)
         e = np.exp(z)
-        return e / e.sum(axis=1, keepdims=True)
+        return np.asarray(e / e.sum(axis=1, keepdims=True))
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Most probable class labels."""
-        return self.classes_[np.argmax(self.predict_proba(X), axis=1)]
+        return np.asarray(self.classes_[np.argmax(self.predict_proba(X), axis=1)])
 
 
 class PlainRidge:
@@ -206,7 +206,7 @@ class PlainRidge:
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predictions for the rows of ``X``."""
-        return np.asarray(X, dtype=np.float64) @ self.coef_ + self.intercept_
+        return np.asarray(np.asarray(X, dtype=np.float64) @ self.coef_ + self.intercept_)
 
 
 class RffSampler:
@@ -237,7 +237,7 @@ class RffSampler:
         proj += self.random_offset_
         np.cos(proj, proj)
         proj *= (2.0 / self.n_components) ** 0.5
-        return proj
+        return np.asarray(proj)
 
     def fit_transform(self, X: np.ndarray, y: object = None) -> np.ndarray:
         """``fit`` then ``transform`` on the same rows."""

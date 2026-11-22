@@ -299,7 +299,7 @@ def plugin_mi_classif_batch_rank_cuda_resident(
         if part is None:
             return None
         parts.append(np.asarray(part))
-    return np.concatenate(parts)
+    return np.asarray(np.concatenate(parts))
 
 
 def _plugin_mi_classif_batch_rank_block(

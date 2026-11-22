@@ -63,7 +63,7 @@ logger = logging.getLogger(__name__)
 # resident-cache pattern): a recycled id (y GC'd, allocator reuses the address) fails the ``ref() is y`` check and
 # recomputes, never returning a stale binning. Small bound (a handful of concurrent fits/folds) since each entry is
 # only an O(n) int array, not a big buffer.
-_Y_BINNING_CACHE: "OrderedDict[tuple[int, int], tuple[weakref.ReferenceType, tuple[np.ndarray, int]]]" = OrderedDict()
+_Y_BINNING_CACHE: "OrderedDict[tuple, tuple[weakref.ReferenceType, tuple[np.ndarray, int]]]" = OrderedDict()
 _Y_BINNING_CACHE_MAX_ENTRIES = 8
 _Y_BINNING_LOCK = threading.Lock()
 
@@ -160,10 +160,11 @@ def _x_plan(x: np.ndarray, K: int) -> "tuple[np.ndarray, np.ndarray, int] | None
     import hashlib
 
     ident = _view_identity(x)
+    key: tuple
     if ident is not None:
         key = (id(ident[0]), ident[1], int(K))  # a read-only owner: the view names the values, no hash of the column needed
     else:
-        key = (hashlib.blake2b(np.ascontiguousarray(x), digest_size=16).digest(), int(x.size), int(K))
+        key = (hashlib.blake2b(np.ascontiguousarray(x).data, digest_size=16).digest(), int(x.size), int(K))
     with _X_PLAN_LOCK:
         hit = _X_PLAN_CACHE.get(key)
         if hit is not None and (ident is None or hit[3]() is ident[0]):

@@ -85,7 +85,7 @@ def refine_near_collapsed_supervised_edges(
                 extra = hit[1]
     if extra is None:
         extra = _fallback_edges(np.asarray(finite, dtype=np.float64), base, fallback_nbins)
-        if memo_key is not None:
+        if memo_key is not None and uniq is not None:
             with _FALLBACK_MEMO_LOCK:
                 _FALLBACK_MEMO[memo_key] = (uniq, extra)
                 while len(_FALLBACK_MEMO) > _FALLBACK_MEMO_MAX:

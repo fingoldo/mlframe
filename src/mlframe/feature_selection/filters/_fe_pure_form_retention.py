@@ -237,7 +237,8 @@ def _raws_already_explain_y(X: Any, y_cont: np.ndarray, base_names: list, is_clf
             if _wide:
                 from sklearn.model_selection import KFold
 
-                _r2 = float(cross_val_r2(ScaledOLS, _Xg, _yg, list(KFold(3, shuffle=True, random_state=int(seed)).split(_Xg))))
+                _cv_r2 = cross_val_r2(ScaledOLS, _Xg, _yg, list(KFold(3, shuffle=True, random_state=int(seed)).split(_Xg)))
+                _r2 = float(_cv_r2) if _cv_r2 is not None else 0.0
             else:
                 _r2 = float(ScaledOLS().fit(_Xg, _yg).score(_Xg, _yg))
             if _r2 >= 0.92:
