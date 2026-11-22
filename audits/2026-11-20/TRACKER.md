@@ -477,6 +477,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 40-F19 | 40_training-9.md | FIXED | array-valued parameters are keyed by shape, dtype and content digest; tests/training/test_cluster40_pipeline_fixes.py |
 | 40-F27 | 40_training-9.md | FIXED | Per-column float32 fallback rebuilds the frame from its labels; integer column labels no longer raise. Test test_cluster40_int_column_labels_convert.py. |
 | 40-F22 | 40_training-9.md | PARTIAL | fit refuses NaN/inf relevance labels; predict checks feature count. Column names and order not checked. Test test_cluster40_ranker_refuses_nan_labels_and_bad_width.py. |
+| 40-F29 | 40_training-9.md | PARTIAL | Config refuses bad batch_size, sequence_preprocessing, ema_decay, num_classes at construction. mixup_alpha not checked (0 disables mixup). Test test_cluster40_recurrent_config_validates_fields.py. |
 | 41-F1 | 41_training-10.md | FIXED | Predict maps categorical-dtype NaN to the fit-time sentinel. Test test_cluster41_catboost_predict_nan_categorical.py. |
 | 41-F2 | 41_training-10.md | FIXED | verbose NDCG logging uses .get so an eval_at without 10 cannot raise; no separate test |
 | 41-F3 | 41_training-10.md | FIXED | NaN temporal labels count as missing in the polars path, matching the pandas twin; no separate test |
