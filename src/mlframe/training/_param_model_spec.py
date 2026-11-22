@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -54,6 +55,50 @@ class SelectorSpec:
         return out
 
 
+def _split_top_level(text: str) -> "list[str]":
+    """``text`` split at the commas that are not inside brackets."""
+    parts, depth, start = [], 0, 0
+    for i, ch in enumerate(text):
+        if ch in "[(":
+            depth += 1
+        elif ch in "])":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append(text[start:i].strip())
+            start = i + 1
+    parts.append(text[start:].strip())
+    return [p for p in parts if p]
+
+
+def to_pep604(source: str) -> str:
+    """``source`` with every ``Optional[X]`` written ``X | None`` and every ``Union[A, B]`` written ``A | B``, and the typing import line trimmed to the names still used.
+
+    ``typing._type_repr`` renders an optional annotation as ``Optional[X]`` up to Python 3.13 and as ``X | None`` from 3.14, so a module rendered on one interpreter differed from the committed one
+    rendered on another and the ``--check`` of the generator failed. The generated modules use the PEP 604 form on every interpreter."""
+    pattern = re.compile(r"\b(Optional|Union)\[")
+    while True:
+        m = pattern.search(source)
+        if m is None:
+            break
+        depth, i = 1, m.end()
+        while depth and i < len(source):
+            depth += {"[": 1, "]": -1}.get(source[i], 0)
+            i += 1
+        inner = source[m.end() : i - 1]
+        parts = _split_top_level(inner)
+        joined = " | ".join(parts) + (" | None" if m.group(1) == "Optional" else "")
+        source = source[: m.start()] + joined + source[i:]
+    lines = source.split("\n")
+    for k, line in enumerate(lines):
+        if line.startswith("from typing import "):
+            names = [n.strip() for n in line[len("from typing import ") :].split(",")]
+            rest = "\n".join(lines[:k] + lines[k + 1 :])
+            kept = [n for n in names if re.search(r"\b" + re.escape(n) + r"\b", rest)]
+            lines[k] = f"from typing import {', '.join(kept)}" if kept else ""
+            break
+    return "\n".join(lines)
+
+
 def render_spec(spec: SelectorSpec, regenerate_hint: str) -> str:
     """Source of the module for one spec."""
     source = str(
@@ -68,6 +113,7 @@ def render_spec(spec: SelectorSpec, regenerate_hint: str) -> str:
     )
     import black
 
+    source = to_pep604(source)
     # Formatted the way the repository formats its code, so the committed module equals the render byte for byte and ``--check`` stays exact.
     return black.format_str(source, mode=black.Mode(line_length=BLACK_LINE_LENGTH))
 
