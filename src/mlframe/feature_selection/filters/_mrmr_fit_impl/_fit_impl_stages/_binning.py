@@ -38,6 +38,13 @@ def _validated_target_classes(y: np.ndarray, max_y_classes: int = 64) -> "np.nda
     return np.searchsorted(edges, y, side="right")
 
 
+def _fold_support(self) -> "int | None":
+    """The ``min_support`` handed to ``categorize_dataset``: the configured one under ``categorical_fold_strategy="min_support"``, else ``None`` (the frequency cap alone)."""
+    if getattr(self, "categorical_fold_strategy", "frequency") != "min_support":
+        return None
+    return int(getattr(self, "categorical_fold_min_support", 5))
+
+
 def _target_dependent_columns(x, cols) -> "set[str] | None":
     """Names among ``cols`` whose supervised codes can change when the target is permuted.
 
@@ -166,7 +173,7 @@ def start_discretization_warmup(self: Any, X: Any, y: Any) -> None:
 
             categorize_dataset(
                 df=frame, method=self.quantization_method, n_bins=self.quantization_nbins, dtype=self.quantization_dtype,
-                max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None), missing_strategy=self.nan_strategy,
+                max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None), categorical_fold_min_support=_fold_support(self), missing_strategy=self.nan_strategy,
                 nbins_strategy=strategy, nbins_strategy_kwargs=kwargs, y_for_strategy=y_for, cache_dir=getattr(self, "cache_dir", None),
             )
         except Exception as exc:
@@ -292,7 +299,7 @@ def _install_honest_null_hook(
             method=self.quantization_method,
             n_bins=self.quantization_nbins,
             dtype=_code_alloc_dtype(self),
-            max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None),
+            max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None), categorical_fold_min_support=_fold_support(self),
             missing_strategy=_strategy_for_categorize,
             nbins_strategy=_nbins_strategy,
             nbins_strategy_kwargs=_null_strategy_kwargs,
@@ -474,7 +481,7 @@ def _discretize_inputs_part1(
         method=self.quantization_method,
         n_bins=self.quantization_nbins,
         dtype=_code_alloc_dtype(self),
-        max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None),
+        max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None), categorical_fold_min_support=_fold_support(self),
         missing_strategy=_strategy_for_categorize,
         nbins_strategy=_nbins_strategy,
         nbins_strategy_kwargs=_nbins_strategy_kwargs,

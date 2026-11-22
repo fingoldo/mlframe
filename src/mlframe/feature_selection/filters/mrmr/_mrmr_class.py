@@ -38,6 +38,7 @@ from sklearn.model_selection import BaseCrossValidator
 from ._mrmr_param_constants import (
     _VALID_QUANTIZATION_METHODS,
     _VALID_NAN_STRATEGIES,
+    _VALID_CATEGORICAL_FOLD_STRATEGIES,
     _VALID_MRMR_RELEVANCE_ALGOS,
     _VALID_MRMR_REDUNDANCY_ALGOS,
     _VALID_NBINS_STRATEGIES,
@@ -346,6 +347,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # regardless (the analytic null guards on >=5 expected/cell); capping DENSIFIES the cells (better MI) AND lets the whole codes matrix stay a narrow int
         # - set to <=127 to keep the compact-codes storage int8 (4x smaller) even when legitimate high-card categoricals exist.
         max_categorical_cardinality: int | None = 127,
+        # How the rare levels of a categorical column are folded before it is coded. ``"frequency"`` (default) is the cap above and nothing else. ``"min_support"`` also folds, into the same
+        # "other" bucket, every level seen on fewer than ``categorical_fold_min_support`` rows even when the column is under the cap: a cell of a few rows gives a plug-in MI that measures only
+        # its own noise (the analytic null already assumes >= 5 expected rows per cell). The mapping is decided per frame, from the level counts of that frame, with no use of the target.
+        categorical_fold_strategy: str = "frequency",
+        categorical_fold_min_support: int = 5,
         # per-feature adaptive bin chooser. Default ``'mdlp'`` (Fayyad-Irani 1993, with njit-accelerated kernel) is the honest combined-ranking winner of the F1
         # leaderboard (``|err vs truth| + noise_floor``: MDLP 0.107, Sturges 0.135, quantile10 0.139, OptimalJoint 0.167, FD 0.175). MDLP is the only strategy
         # with a TRUE zero no-signal floor, which directly improves MRMR's relevance gate against false-positive feature picks. Pass ``nbins_strategy=None`` to
@@ -3254,6 +3260,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
     # the valid options (fix audit row FS-P2-1). See that sibling for the per-constant notes.
     _VALID_QUANTIZATION_METHODS = _VALID_QUANTIZATION_METHODS
     _VALID_NAN_STRATEGIES = _VALID_NAN_STRATEGIES
+    _VALID_CATEGORICAL_FOLD_STRATEGIES = _VALID_CATEGORICAL_FOLD_STRATEGIES
     _VALID_MRMR_RELEVANCE_ALGOS = _VALID_MRMR_RELEVANCE_ALGOS
     _VALID_MRMR_REDUNDANCY_ALGOS = _VALID_MRMR_REDUNDANCY_ALGOS
     _VALID_NBINS_STRATEGIES = _VALID_NBINS_STRATEGIES

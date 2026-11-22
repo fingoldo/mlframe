@@ -15,6 +15,7 @@ from __future__ import annotations
 # listing the valid options. fix audit row FS-P2-1.
 _VALID_QUANTIZATION_METHODS = ("quantile", "uniform")
 _VALID_NAN_STRATEGIES = ("separate_bin", "fillna_zero", "ffill_bfill", "propagate", "raise")
+_VALID_CATEGORICAL_FOLD_STRATEGIES = ("frequency", "min_support")
 _VALID_MRMR_RELEVANCE_ALGOS = ("fleuret", "pld")
 _VALID_MRMR_REDUNDANCY_ALGOS = ("fleuret", "pld_max", "pld_mean")
 # adaptive per-feature bin-edge chooser.

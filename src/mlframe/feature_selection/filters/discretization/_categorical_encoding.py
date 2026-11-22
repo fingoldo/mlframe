@@ -32,7 +32,7 @@ def _transposed_block(mat: np.ndarray, j0: int, j1: int) -> np.ndarray:
     return blk
 
 
-def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int) -> np.ndarray:
+def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int, *, min_support: int | None = None) -> np.ndarray:
     """Collapse the rare-category tail of each column so no column exceeds ``max_cardinality`` distinct codes.
 
     Per column: the ``max_cardinality - 1`` MOST FREQUENT codes keep distinct ids ``0..max_cardinality-2`` (ordered by
@@ -42,6 +42,10 @@ def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int) -> n
     unreliable anyway (the analytic null already guards on >=5 expected/cell) - folding the rare tail DENSIFIES the cells
     (better MI) while capping the code range so the whole codes matrix fits a narrow int (int8 for cap<=127). Operates on
     a double code matrix (the ``_multi_col_factorize_native`` output) and returns double.
+
+    ``min_support`` (the ``"min_support"`` fold strategy; ``None`` keeps the behaviour above bit for bit): a level seen on fewer than ``min_support`` rows is folded into the "other" bucket even when the
+    column is under the cap, because a cell of fewer than a handful of rows gives a plug-in MI that only measures the cell's own noise. The levels that stay are the frequent ones (frequency desc, at most
+    ``max_cardinality - 1``); the folded ones share the code just after them, so the codes stay dense. A column in which no level is below ``min_support`` and which is under the cap is unchanged.
     """
     if max_cardinality is None or max_cardinality < 2 or codes_2d.size == 0:
         return codes_2d
@@ -61,9 +65,20 @@ def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int) -> n
                 continue
             # cardinality = number of distinct non-negative codes; cheap via max (codes are dense 0..k-1 from factorize).
             card = int(finite.max()) + 1
+            counts = np.bincount(finite.astype(np.int64), minlength=card)
+            if min_support is not None and int(min_support) > 1:
+                thin = (counts > 0) & (counts < int(min_support))
+                if thin.any():
+                    # fold the thin levels (and any excess above the cap) into one bucket placed right after the kept levels
+                    order = np.argsort(-counts, kind="stable")
+                    kept = [int(c) for c in order if counts[c] >= int(min_support)][: max_cardinality - 1]
+                    remap = np.full(card, len(kept), dtype=_crit_np_dtype())
+                    remap[np.asarray(kept, dtype=np.int64)] = np.arange(len(kept), dtype=_crit_np_dtype())
+                    col[mask] = remap[finite.astype(np.int64)]
+                    changed = True
+                    continue
             if card <= max_cardinality:
                 continue
-            counts = np.bincount(finite.astype(np.int64), minlength=card)
             # keep the (cap-1) most frequent as 0..cap-2 (freq desc); everything else -> the "other" bucket cap-1.
             # kind="stable" so two categories tied exactly at the cutoff boundary have a deterministic, documented tie-break (first-seen/lowest-index order)
             # rather than relying on the non-guaranteed default sort's tie behaviour across numpy versions/architectures. Sort by NEGATED counts (descending) directly,

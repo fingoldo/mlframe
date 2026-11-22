@@ -46,6 +46,8 @@ class MRMRParams(BaseModel):
     quantization_nbins: int = 10
     quantization_dtype: Any = None
     max_categorical_cardinality: int | None = 127
+    categorical_fold_strategy: str = "frequency"
+    categorical_fold_min_support: int = 5
     nbins_strategy: (
         Literal[
             "auto",
