@@ -15,6 +15,9 @@ LATEST RESULTS (2026-11-21, tree b786940de, `rss_scale_fit.py ROWS COLS all`, on
                    about 120 s at 100 % CPU in the CPU pair MI (batch_pair_mi_prange_cols) at t = 480-600 s. The same size took about 604 s in the middle of the day; it was not re-run in between.
     1000000 x 1000: NOT RUN: MRMR.fit refuses before the first stage ('refusing to allocate for n*p=1_000_000_000 (~4.00 GB int32 working set) on a host with 6.73 GB available RAM') after the 4 GB frame is built;
                    status ValueError after 39.8 s. The host would need roughly 4 GB more free RAM than this machine has after the frame.
+TARGET KINDS (2026-11-22, `bench_target_strategy_matrix.py 20000 20`, mdlp, one fresh process per cell; BENCH_TARGET picks the kind): binary 32.2 s, multiclass 50.2, regression 50.2, count 54.3, multilabel 49.6,
+    multitarget 61.5, heavy_tail 51.6, zero_inflated 48.8. The same grid at the start of the day: regression 298 s, multitarget 495 s, zero_inflated 194 s (the auto-scorer batch declined every continuous target,
+    and the default-on target-mix second pass fitted two child MRMRs: now `fe_target_mix_candidates=False`). `support_` lists raw columns only, so a fit that selects engineered columns can show 0 selected.
 Wall times on this machine spread by up to 50 % between runs of one code state; read differences below about 15 % as noise unless several fits per side were taken.
 """
 from typing import Any
