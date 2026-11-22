@@ -187,6 +187,11 @@ BASELINE = Path(__file__).resolve().parent / "_loc_over_1k_baseline.json"
 # the arguments to `check_prospective_fe_pairs` already visible in the serial branch. Left exempt
 # BY DESIGN, same class as `_pairs_core.py` / `_fit_impl_core.py` above.
 # - src/mlframe/feature_selection/filters/_mrmr_fe_step/_step_core.py
+# Ceiling raised 2026-11-22 from 3618 to 3634 LOC for filters/mrmr/_mrmr_class.py, deliberately. The 16 lines are
+# functional, not shuffled code: the uint8 code storage with range-checked column append (9f4148466), the
+# resident-code registries bounded by bytes (42f389b9f), and the reentrant macOS fit lock (2692079aa). The
+# irreducible MRMR class body is the reason it cannot be carved below the limit without moving its parameter
+# documentation out of __init__, which is a separate decision; the growth stays within the shared slack.
 
 
 def test_no_mlframe_file_exceeds_1k_loc() -> None:

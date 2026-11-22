@@ -95,42 +95,7 @@ from ._pair_operand_blocks import operand_block_limit, pair_chunks_by_operand_bl
 
 logger = logging.getLogger(__name__)
 
-from numba import cuda as _nb_cuda
-
-try:
-    from pyutilz.core.pythonlib import is_cuda_available as _pyutilz_is_cuda_available
-
-    _CUDA_AVAIL = _pyutilz_is_cuda_available()
-except ImportError as e:
-    # pyutilz genuinely absent: expected on a lean install, permanent, quiet.
-    logger.debug("pyutilz.core.pythonlib unavailable (%s); falling back to numba.cuda.is_available().", e)
-except Exception as e:
-    # This is the `_select_mi_backend` mechanism exactly, and it is worth a WARNING rather than a debug line:
-    # the probe module imports code that touches CUDA at import time, so a TRANSIENT device fault raised here
-    # is indistinguishable from "no CUDA" -- and because `_CUDA_AVAIL` is resolved once at MODULE IMPORT, that
-    # one hiccup disables this module's CUDA kernels for the entire process, invisibly.
-    logger.warning(
-        "is_cuda_available() probe raised %s (%s) during module import, which is NOT 'pyutilz absent'. "
-        "_CUDA_AVAIL is resolved ONCE at import, so if this was a transient device fault this module's CUDA "
-        "kernels are disabled for the whole process. Falling back to numba.cuda.is_available().",
-        type(e).__name__,
-        e,
-    )
-    try:
-        _CUDA_AVAIL = bool(getattr(_nb_cuda, "is_available", lambda: False)()) if _nb_cuda is not None else False
-    except Exception as e2:
-        logger.warning("numba.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e2)
-        _CUDA_AVAIL = False
-
-# Require numba.cuda to actually compile+launch a kernel (not just device presence) so a cudatoolkit/NVVM
-# mismatch routes to CPU instead of raising NvvmSupportError mid-dispatch (mirrors batch_pair_mi_gpu.py).
-try:
-    from ._internals import numba_cuda_can_compile as _numba_cuda_can_compile
-
-    _CUDA_AVAIL = _CUDA_AVAIL and _numba_cuda_can_compile()
-except Exception as e:
-    logger.warning("numba_cuda_can_compile() check failed, assuming CUDA unavailable: %s", e)
-    _CUDA_AVAIL = False
+from ._batch_pair_cuda_probe import _CUDA_AVAIL, _nb_cuda  # the CUDA probe lives in its own module
 
 # Integer dispatch enum for the 9 forms - matches usability_form_corrs's _single_forms + _pair_forms order
 # EXACTLY (single: x0, x1, x0sq, x1sq; pair: x0/x1f, x1/x0f, x0sq/x1f, x1sq/x0f, x0*x1) so a caller can map
