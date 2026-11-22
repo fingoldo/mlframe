@@ -106,6 +106,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F40 | 35_training-4.md | FIXED | Polars int-as-cat candidate logic duplicated; the two copies differed on temporal columns. One helper. Test test_cluster35_polars_candidates_one_helper.py. |
 | 35-F41 | 35_training-4.md | FIXED | bayesian_alpha_fit let a NaN pair reach the regression and returned a NaN posterior silently. Pairs dropped, counted and logged. Test test_cluster35_bayesian_nonfinite_dropped.py. |
 | 35-F42 | 35_training-4.md | DEFERRED | A broken process pool reruns every task serially. Documented as deliberate; correctness unaffected. Partial retrieval is a design change, owner decision. |
+| 35-F43 | 35_training-4.md | FIXED | Three paths had no test: CDF with enforce_non_crossing=False, mixture soft_routing, calibrated gated outlier. Smoke tests added. Test test_cluster35_untested_paths_smoke.py. |
 | 35-F11 | 35_training-4.md | FIXED | Early logratio raise removed; base<=0 rows go to the fallback. Test test_cluster35_quantile_logratio_nonpositive_base.py. |
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |
