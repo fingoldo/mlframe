@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 from numba import njit, prange
 
-from ._ksg_cd_fast import _psi_table
+from ._ksg_cd_fast import _column_mean_abs, _column_std, _psi_table, _row_tiles
 from ._numba_utils_shared import radix_order_f64
 
 
@@ -122,12 +122,16 @@ def ksg_mi_continuous_target(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, 
     X = np.array(X, dtype=np.float64, copy=True)
     y = np.array(np.asarray(y).ravel(), dtype=np.float64, copy=True)
     n = X.shape[0]
-    std = X.std(axis=0)
+    std = _column_std(X)
     std[std == 0.0] = 1.0
     X /= std
-    means = np.maximum(1.0, np.mean(np.abs(X), axis=0))
+    means = np.maximum(1.0, _column_mean_abs(X))
     rng = np.random.RandomState(int(random_state))
-    X += 1e-10 * means * rng.standard_normal(size=X.shape)  # the (n, p) draw comes first, then the target's, exactly as sklearn orders its stream
+    # the (n, p) draw comes first, then the target's, exactly as sklearn orders its stream; ``standard_normal`` fills C order from one sequential stream, so row tiles drawn one after the other
+    # are the values of a single (n, p) draw, and neither the draw nor its product with the scale is ever held whole (two more copies of the block at the 500000-row memory peak)
+    noise_scale = 1e-10 * means
+    for r0, r1 in _row_tiles(n, X.shape[1]):
+        X[r0:r1] += noise_scale * rng.standard_normal(size=(r1 - r0, X.shape[1]))
     ystd = y.std()
     y /= ystd if ystd != 0.0 else 1.0
     y += 1e-10 * max(1.0, float(np.mean(np.abs(y)))) * rng.standard_normal(size=n)
