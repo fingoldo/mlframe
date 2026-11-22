@@ -494,6 +494,7 @@ def _gpu_apply_prewarp(cp, x, spec):
     basis = str(spec["basis"])
     buf_t = crit_float_dtype()
     # The affine preprocess runs on the operand in its own precision and only its result is narrowed to the buffer type: narrowing the raw operand first erases a spread that sits on a large offset.
+    # Intentional float64: non-float inputs upcast to double, native float32 and float64 are kept as-is
     xw = x if x.dtype in (cp.float32, cp.float64) else x.astype(cp.float64)
     if basis == "fourier_adaptive":
         pp = dict(spec["preprocess"])
