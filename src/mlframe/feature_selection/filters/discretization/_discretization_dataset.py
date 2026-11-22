@@ -477,6 +477,7 @@ def categorize_dataset(
     cache_dir: Optional[str] = None,
     max_categorical_cardinality: Optional[int] = None,
     categorical_fold_min_support: Optional[int] = None,
+    categorical_fold_target: Optional[np.ndarray] = None,
 ) -> tuple[np.ndarray, list[str], np.ndarray]:
     """Convert a DataFrame into an ordinal-encoded ``(n_samples, n_features)`` array. Accepts pandas or polars (DataFrame or LazyFrame - materialised at the
     boundary). ``missing_strategy`` controls NaN handling: see :func:`_handle_missing`."""
@@ -576,7 +577,7 @@ def categorize_dataset(
         data = np.concatenate(blocks, axis=1, dtype=np.result_type(*[b.dtype for b in blocks]))  # the widest code type any block needed, the one a single pass would have chosen
         del blocks
 
-    categorical_cols, new_vals = _factorize_categorical_columns(_is_polars, categorical_cols_detected, df, pl, max_categorical_cardinality, categorical_fold_min_support)
+    categorical_cols, new_vals = _factorize_categorical_columns(_is_polars, categorical_cols_detected, df, pl, max_categorical_cardinality, categorical_fold_min_support, categorical_fold_target)
     data, dtype = _encode_categorical_block(categorical_cols, new_vals, missing_strategy, dtype, data)
 
     # ``data.max(axis=0)`` raises on an empty reduction axis (0 columns OR 0 rows): return a typed empty result so callers
@@ -594,14 +595,14 @@ def categorize_dataset(
     return data, numerical_cols + categorical_cols, nbins
 
 
-def _fold_cap(max_categorical_cardinality, min_support) -> "int | None":
+def _fold_cap(max_categorical_cardinality, min_support, fold_by_target=False) -> "int | None":
     """The cardinality cap handed to ``cap_categorical_cardinality``: the configured one, or (when only ``min_support`` asks for a fold) a cap no column reaches."""
     if max_categorical_cardinality is not None and max_categorical_cardinality != 0:
         return int(max_categorical_cardinality)
-    return 2**31 - 1 if min_support else None
+    return 2**31 - 1 if min_support or fold_by_target else None
 
 
-def _factorize_categorical_columns(_is_polars, categorical_cols_detected, df, pl, max_categorical_cardinality, categorical_fold_min_support=None):
+def _factorize_categorical_columns(_is_polars, categorical_cols_detected, df, pl, max_categorical_cardinality, categorical_fold_min_support=None, categorical_fold_target=None):
     """Factorize the categorical columns (polars-detected or pandas-selected) into integer codes; levels thinner than ``categorical_fold_min_support`` rows (when given) are folded with the rare tail."""
     from mlframe.feature_selection.filters.discretization import (
         _multi_col_factorize_native,
@@ -621,12 +622,12 @@ def _factorize_categorical_columns(_is_polars, categorical_cols_detected, df, pl
             _coded = df.select(cast_exprs)
             categorical_cols = categorical_cols_detected
             new_vals = _coded.to_numpy()
-            _cap = _fold_cap(max_categorical_cardinality, categorical_fold_min_support)
+            _cap = _fold_cap(max_categorical_cardinality, categorical_fold_min_support, categorical_fold_target is not None)
             if _cap is not None:
                 # Fold the rare-category tail so the polars path honors the cap exactly like the pandas branch below;
                 # cap_categorical_cardinality needs float64 to write the remapped codes (physical codes are unsigned).
                 from mlframe.feature_selection.filters.discretization import cap_categorical_cardinality
-                new_vals = cap_categorical_cardinality(new_vals.astype(_crit_np_dtype(), copy=False), _cap, min_support=categorical_fold_min_support)
+                new_vals = cap_categorical_cardinality(new_vals.astype(_crit_np_dtype(), copy=False), _cap, min_support=categorical_fold_min_support, target_codes=categorical_fold_target)
         else:
             categorical_cols = []
             new_vals = None
@@ -636,10 +637,10 @@ def _factorize_categorical_columns(_is_polars, categorical_cols_detected, df, pl
         if categorical_factors.shape[1] > 0:
             categorical_cols = categorical_factors.columns.values.tolist()
             new_vals = _multi_col_factorize_native(categorical_factors)
-            _cap = _fold_cap(max_categorical_cardinality, categorical_fold_min_support)
+            _cap = _fold_cap(max_categorical_cardinality, categorical_fold_min_support, categorical_fold_target is not None)
             if _cap is not None:
                 from mlframe.feature_selection.filters.discretization import cap_categorical_cardinality
-                new_vals = cap_categorical_cardinality(new_vals, _cap, min_support=categorical_fold_min_support)
+                new_vals = cap_categorical_cardinality(new_vals, _cap, min_support=categorical_fold_min_support, target_codes=categorical_fold_target)
         else:
             new_vals = None
     return categorical_cols, new_vals

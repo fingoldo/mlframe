@@ -45,7 +45,16 @@ def _fold_support(self) -> "int | None":
     return int(getattr(self, "categorical_fold_min_support", 5))
 
 
-def _target_dependent_columns(x, cols) -> "set[str] | None":
+def _fold_target(self, y: Any) -> "np.ndarray | None":
+    """Class codes of the target ``y`` for ``categorical_fold_strategy="target_stat"`` (``None`` under any other strategy, for a missing target or one with fewer than two classes)."""
+    if getattr(self, "categorical_fold_strategy", "frequency") != "target_stat" or y is None:
+        return None
+    from mlframe.feature_selection.filters.discretization._categorical_target_fold import target_classes
+
+    return target_classes(np.asarray(y))
+
+
+def _target_dependent_columns(x, cols, *, include_categorical: bool = False) -> "set[str] | None":
     """Names among ``cols`` whose supervised codes can change when the target is permuted.
 
     Those are the numeric columns with more distinct finite values than the low-cardinality cap of the supervised binner. Every other column (categorical, or numeric with few
@@ -58,7 +67,11 @@ def _target_dependent_columns(x, cols) -> "set[str] | None":
 
     if not isinstance(x, pd.DataFrame):
         return None
-    return {str(c) for c in cols if c in x.columns and pd.api.types.is_numeric_dtype(x[c]) and _has_more_than_distinct(x[c], _LOW_CARD_CAP)}
+    numeric = {str(c) for c in cols if c in x.columns and pd.api.types.is_numeric_dtype(x[c]) and _has_more_than_distinct(x[c], _LOW_CARD_CAP)}
+    if not include_categorical:
+        return numeric
+    # the target-aware categorical fold maps levels from the target, so those columns' codes change under a permuted target as well
+    return numeric | {str(c) for c in cols if c in x.columns and not pd.api.types.is_numeric_dtype(x[c])}
 
 
 _DISTINCT_PROBE_ROWS = 4096
@@ -276,7 +289,7 @@ def _install_honest_null_hook(
 
     # Only the columns whose codes depend on the target are re-binned per permutation; the others keep their observed codes (copied now, so a later in-place
     # edit of ``data`` cannot change them).
-    _dependent_names = _target_dependent_columns(_x_for_cat, cols)
+    _dependent_names = _target_dependent_columns(_x_for_cat, cols, include_categorical=getattr(self, "categorical_fold_strategy", "frequency") == "target_stat")
     _dependent: set = _dependent_names if _dependent_names is not None else set()
     _fixed_codes = None
     if _dependent_names is not None and len(_dependent) < len(cols):
@@ -299,7 +312,7 @@ def _install_honest_null_hook(
             method=self.quantization_method,
             n_bins=self.quantization_nbins,
             dtype=_code_alloc_dtype(self),
-            max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None), categorical_fold_min_support=_fold_support(self),
+            max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None), categorical_fold_min_support=_fold_support(self), categorical_fold_target=_fold_target(self, y_perm),
             missing_strategy=_strategy_for_categorize,
             nbins_strategy=_nbins_strategy,
             nbins_strategy_kwargs=_null_strategy_kwargs,
@@ -476,12 +489,15 @@ def _discretize_inputs_part1(
             except Exception as exc:
                 logger.warning("mrmr: y coercion for discretization-strategy selection failed: %r", exc, exc_info=True)
                 _y_for_strategy = None
+    _fold_codes = None
+    if getattr(self, "categorical_fold_strategy", "frequency") == "target_stat" and target_names:
+        _fold_codes = _fold_target(self, np.asarray(_x_for_cat[target_names[0]]))
     data, cols, nbins = categorize_dataset(
         df=_x_for_cat,
         method=self.quantization_method,
         n_bins=self.quantization_nbins,
         dtype=_code_alloc_dtype(self),
-        max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None), categorical_fold_min_support=_fold_support(self),
+        max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None), categorical_fold_min_support=_fold_support(self), categorical_fold_target=_fold_codes,
         missing_strategy=_strategy_for_categorize,
         nbins_strategy=_nbins_strategy,
         nbins_strategy_kwargs=_nbins_strategy_kwargs,

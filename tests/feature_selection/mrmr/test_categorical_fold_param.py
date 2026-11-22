@@ -20,7 +20,7 @@ def test_defaults_keep_the_frequency_cap_only():
     assert c.get_params()["categorical_fold_strategy"] == "min_support" and c.get_params()["categorical_fold_min_support"] == 8
 
 
-@pytest.mark.parametrize("kwargs", [dict(categorical_fold_strategy="target_stat"), dict(categorical_fold_strategy=None), dict(categorical_fold_min_support=1), dict(categorical_fold_min_support=2.5)])
+@pytest.mark.parametrize("kwargs", [dict(categorical_fold_strategy="auto"), dict(categorical_fold_strategy=None), dict(categorical_fold_min_support=1), dict(categorical_fold_min_support=2.5)])
 def test_bad_values_fail_at_fit_start(kwargs):
     """An unknown strategy, ``None``, a support below 2 or a non-integer support is a ``ValueError`` before any work."""
     X = pd.DataFrame({"a": np.arange(60, dtype=float), "b": np.arange(60)[::-1].astype(float)})

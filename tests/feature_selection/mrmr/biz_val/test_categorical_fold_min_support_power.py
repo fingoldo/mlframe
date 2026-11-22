@@ -48,3 +48,41 @@ def test_min_support_recovers_the_real_categorical_that_the_thin_tail_hides():
     plain = _selected("frequency", seeds)
     assert folded == 4, (folded, plain)
     assert plain <= 1, (folded, plain)
+
+
+def _rare_signal_frame(seed: int, n_big: int = 1380, thin: int = 300, fraud: int = 6):
+    """Five big levels at a 3 % positive rate and 300 levels of three rows each, six of which (random ones) are positive on all three rows."""
+    rng = np.random.default_rng(300 + seed)
+    big = rng.integers(0, 5, n_big)
+    level = np.concatenate([big, np.repeat(np.arange(5, 5 + thin), 3)])
+    fraud_levels = set(rng.choice(thin, fraud, replace=False).tolist())
+    y = np.concatenate([(rng.random(n_big) < 0.03).astype(int), np.concatenate([np.ones(3, int) if k in fraud_levels else np.zeros(3, int) for k in range(thin)])])
+    order = rng.permutation(level.size)
+    df = pd.DataFrame({"noise": rng.standard_normal(level.size), "cat": pd.Series(level[order].astype(str)).astype("category")})
+    return df, y[order]
+
+
+def _rare_selected(strategy: str, seeds) -> int:
+    """How many of the ``seeds`` keep ``cat`` in the support."""
+    hits = 0
+    for s in seeds:
+        df, y = _rare_signal_frame(s)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            m = MRMR(verbose=0, random_seed=s, fe_max_steps=0, categorical_fold_strategy=strategy).fit(df, y)
+        hits += "cat" in list(m.get_feature_names_out())
+    return hits
+
+
+@pytest.mark.slow
+def test_target_stat_keeps_the_rare_informative_levels_that_the_other_folds_lose():
+    """Six three-row levels that are all positive (against a 3 % base rate) among 300 thin levels: ``target_stat`` finds the column on every seed, the frequency cap on none, ``min_support`` on at most half.
+
+    Measured on 8 seeds: frequency 0 / 8, min_support 3 / 8, target_stat 8 / 8; four seeds are asserted. ``min_support`` folds the informative levels together with the 294 uninformative ones; the frequency cap
+    (305 levels, cap 127) keeps the first 126 by count, which ties at three rows, so the informative levels are a matter of order."""
+    seeds = range(4)
+    by_target = _rare_selected("target_stat", seeds)
+    by_support = _rare_selected("min_support", seeds)
+    by_frequency = _rare_selected("frequency", seeds)
+    assert by_target == 4, (by_target, by_support, by_frequency)
+    assert by_frequency <= 1 and by_support <= 2, (by_target, by_support, by_frequency)

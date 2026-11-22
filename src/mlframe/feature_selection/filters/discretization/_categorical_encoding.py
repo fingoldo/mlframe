@@ -32,7 +32,22 @@ def _transposed_block(mat: np.ndarray, j0: int, j1: int) -> np.ndarray:
     return blk
 
 
-def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int, *, min_support: int | None = None) -> np.ndarray:
+def _fold_all_by_target(codes_2d: np.ndarray, max_cardinality: int, target_codes: np.ndarray) -> np.ndarray:
+    """Every column of ``codes_2d`` folded by the target; the matrix is copied only when a column changes."""
+    from ._categorical_target_fold import fold_column_by_target
+
+    out = codes_2d
+    for j in range(codes_2d.shape[1]):
+        col = codes_2d[:, j]
+        folded = fold_column_by_target(col, target_codes, max_cardinality)
+        if folded is not col and not np.array_equal(folded, col):
+            if out is codes_2d:
+                out = codes_2d.copy()
+            out[:, j] = folded
+    return out
+
+
+def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int, *, min_support: int | None = None, target_codes: np.ndarray | None = None) -> np.ndarray:
     """Collapse the rare-category tail of each column so no column exceeds ``max_cardinality`` distinct codes.
 
     Per column: the ``max_cardinality - 1`` MOST FREQUENT codes keep distinct ids ``0..max_cardinality-2`` (ordered by
@@ -43,12 +58,17 @@ def cap_categorical_cardinality(codes_2d: np.ndarray, max_cardinality: int, *, m
     (better MI) while capping the code range so the whole codes matrix fits a narrow int (int8 for cap<=127). Operates on
     a double code matrix (the ``_multi_col_factorize_native`` output) and returns double.
 
+    ``target_codes`` (the ``"target_stat"`` strategy; the class of every row, ``-1`` for a missing one): the levels of each column are merged by the target (``_categorical_target_fold``), so a level whose class mix
+    differs from the others' is kept apart however few rows it has, and ``min_support`` is not used.
+
     ``min_support`` (the ``"min_support"`` fold strategy; ``None`` keeps the behaviour above bit for bit): a level seen on fewer than ``min_support`` rows is folded into the "other" bucket even when the
     column is under the cap, because a cell of fewer than a handful of rows gives a plug-in MI that only measures the cell's own noise. The levels that stay are the frequent ones (frequency desc, at most
     ``max_cardinality - 1``); the folded ones share the code just after them, so the codes stay dense. A column in which no level is below ``min_support`` and which is under the cap is unchanged.
     """
     if max_cardinality is None or max_cardinality < 2 or codes_2d.size == 0:
         return codes_2d
+    if target_codes is not None:
+        return _fold_all_by_target(codes_2d, max_cardinality, target_codes)
     out = codes_2d
     _copied = False
     _n, p = codes_2d.shape

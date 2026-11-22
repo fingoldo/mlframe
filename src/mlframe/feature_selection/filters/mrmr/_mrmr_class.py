@@ -349,7 +349,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         max_categorical_cardinality: int | None = 127,
         # How the rare levels of a categorical column are folded before it is coded. ``"frequency"`` (default) is the cap above and nothing else. ``"min_support"`` also folds, into the same
         # "other" bucket, every level seen on fewer than ``categorical_fold_min_support`` rows even when the column is under the cap: a cell of a few rows gives a plug-in MI that measures only
-        # its own noise (the analytic null already assumes >= 5 expected rows per cell). The mapping is decided per frame, from the level counts of that frame, with no use of the target.
+        # its own noise (the analytic null already assumes >= 5 expected rows per cell); it uses no target, so it can also fold a thin level that carries the signal. ``"target_stat"`` merges levels the target
+        # cannot tell apart (G statistic of the merge against the BIC price, cheapest merge first) and keeps a level apart however few rows it has when its class mix differs; the column is then target-dependent and
+        # the permutation null refolds it for every permuted target. The mapping is decided per frame.
         categorical_fold_strategy: str = "frequency",
         categorical_fold_min_support: int = 5,
         # per-feature adaptive bin chooser. Default ``'mdlp'`` (Fayyad-Irani 1993, with njit-accelerated kernel) is the honest combined-ranking winner of the F1
