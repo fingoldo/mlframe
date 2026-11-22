@@ -297,9 +297,13 @@ def _median_constant(self, params: dict[str, Any]) -> float:
     return _finite_median_fallback(params)
 
 
+_RESOLVE_LAG = object()
+"""Sentinel: ``apply_smart_fallback`` resolves the lag itself. Pass a precomputed ``lag_vals`` (or None) to skip that."""
+
+
 def apply_smart_fallback(
     self, y_hat: np.ndarray, deep_ood: np.ndarray, base_raw: np.ndarray,
-    domain_ok: np.ndarray, X: Any, params: dict[str, Any],
+    domain_ok: np.ndarray, X: Any, params: dict[str, Any], lag_vals: Any = _RESOLVE_LAG,
 ) -> None:
     """Overwrite deeply-OOD rows in ``y_hat`` (in place) with the smart fallback.
 
@@ -313,7 +317,9 @@ def apply_smart_fallback(
     if not rows.any():
         return
     idx = np.where(rows)[0]
-    lag_vals = _resolve_lag_values(self, X, base_raw, y_hat.size)
+    # A quantile predict resolves the lag once per batch and passes it in; re-resolving per quantile repeated the same work (audit 35-F27).
+    if lag_vals is _RESOLVE_LAG:
+        lag_vals = _resolve_lag_values(self, X, base_raw, y_hat.size)
     use_median = self.fallback_predict == "y_train_median"
     if lag_vals is not None:
         v = lag_vals[idx]

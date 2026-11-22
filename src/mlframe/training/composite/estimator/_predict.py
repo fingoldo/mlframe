@@ -605,6 +605,10 @@ def predict_quantile(
     # was never counted -- runtime_stats_["y_clip_low_hits"/"y_clip_high_hits"] silently never moved for the
     # quantile path even while clipping was actually happening on every batch.
     _y_low_total = _y_high_total = 0
+    # The causal lag depends on the batch only, not on the quantile level: resolve it once for every column (audit 35-F27).
+    _lag_once = None
+    if deep_ood is not None:
+        _lag_once = _soft_shrink._resolve_lag_values(self, X, base_arr, int(np.asarray(domain_ok).shape[0]))
 
     def _invert_one(t_col: np.ndarray) -> np.ndarray:
         """T-clip (parity with predict) + domain-aware inverse + y-clip for one
@@ -626,7 +630,7 @@ def predict_quantile(
         # Smart fallback for deeply out-of-distribution rows, same as predict() -- runs on the
         # RAW (un-shrunk) base so a lag-as-base failsafe uses the true observed value.
         if deep_ood is not None:
-            _soft_shrink.apply_smart_fallback(self, y_col, deep_ood, base_arr, domain_ok, X, params)
+            _soft_shrink.apply_smart_fallback(self, y_col, deep_ood, base_arr, domain_ok, X, params, lag_vals=_lag_once)
         _y_low_total += int(np.sum(y_col < low))
         _y_high_total += int(np.sum(y_col > high))
         return np.asarray(np.clip(y_col, low, high))
