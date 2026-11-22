@@ -76,3 +76,10 @@ Status values follow the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTU
 | TODO | AUD23-68 | GPU kernels | Row drop for non-power-of-two tree width; safe at current call sites, unguarded | _fe_batched_mi_cmi.py:93, _fe_batched_mi_cmi_hist.py:276-278 | FUTURE; guard if a new call site adds a width |
 | TODO | AUD23-69 | GPU kernels | rstride zero when block width below 8 (no rows counted, no error) | _fe_batched_mi_cmi.py:113 | HYPOTHESIS; add assertion on block width |
 | TODO | AUD23-70 | GPU kernels | Out-of-range codes spill into the next column's histogram; relies on host bounds | _fe_batched_mi_cmi.py:85,119,148, _batch_pair_mi_cuda_kernels.py:206, _cmi_cuda.py:208 | HYPOTHESIS; check host guards |
+
+## Plan (ordered; the first item precedes the audit fixes)
+
+| Status | ID | Item | Detail | Note |
+|---|---|---|---|---|
+| TODO | PLAN-01 | Profile and optimise clustering of correlated factors (cluster_aggregate_* and dcd_*) | Owner request 2026-11-23: profile before the audit fixes. Measure the stage walls on correlated groups at 20000 x 50 and 100000 x 100, with cluster_aggregate and DCD on, off, both, using cProfile plus the stage ledger (dcd_discover_and_swap, cluster_basis). Target: find the dominant cost; optimise it; prove selection unchanged on the same seeds. Run after linear_oof finishes (timed batch). | Earlier measurement (one fit each, 6000 x 20 groups): stage walls 0.21 s DCD and 0.08 s cluster_basis of 65 s; so the cost is not there. The profile must still show where the time of the 20 s gap between cluster on and off goes (the DCD-on fit was 65 s, DCD-off 44 s, but first fits pay cold start). Repeat fits per side before reading any difference. |
+| TODO | PLAN-02 | Reproduce and fix the audit findings in tracker order (AUD23-51, AUD23-60 first) | Each fix needs a failing test first, then the fix, then the test passing. | Starts after PLAN-01. |
