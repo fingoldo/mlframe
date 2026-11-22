@@ -152,6 +152,9 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 34-F28 | 34_training-3.md | FIXED | BoundedMemo ran builds under its lock; re-entrant build deadlocked. Build now outside the lock. Test test_cluster34_bounded_memo_build_outside_lock.py. |
 | 34-F34 | 34_training-3.md | FIXED | No test for BoundedMemo eviction. Test test_cluster34_bounded_memo_eviction.py. |
 | 34-F35 | 34_training-3.md | FIXED | No test for abs_corr_all_no_copy. Reference test on float32 strided input. Test test_cluster34_abs_corr_no_copy_matches_reference.py. |
+| 34-F32 | 34_training-3.md | FIXED | Bench NEW arm used the config default, which excludes the widened transforms. Built explicitly. Test test_cluster34_bench_new_pool_is_explicit.py. |
+| 34-F33 | 34_training-3.md | FIXED | Strict-win counts: the default counted per challenger, not per scenario. Per-scenario helper. Test test_cluster34_bench_strict_wins_per_scenario.py. |
+| 34-F16 | 34_training-3.md | DEFERRED | Calibration gate has no caller; wire in or remove the public export. Owner decision. |
 | 40-F9 | 40_training-9.md | FIXED | All-null categorical maps to unknown code at predict. Test test_cluster40_all_null_categorical_predicts.py. |
 | 40-F10 | 40_training-9.md | FIXED | Unequal hidden_layers refused at construction (default choice; per-layer sizes not supported by the builder). Test test_cluster40_ranker_refuses_unequal_hidden_layers.py. |
 | 40-F15 | 40_training-9.md | FIXED | Entity-time module refuses an unaligned split (test test_cluster40_entity_time_refuses_unaligned_split.py). Latent-SVD, MA no-group path and nearest-past-join still open. |
