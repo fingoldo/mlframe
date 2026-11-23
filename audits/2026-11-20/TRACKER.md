@@ -617,6 +617,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 27-F20 | 27_root_modules-6.md | FIXED | format_metric docstring example matches output. Test test_cluster27_format_metric_docstring_examples.py. |
 | 29-F29 | 29_root_modules-8.md | FIXED | Failing post-import callback logged; the rest still run. Test test_cluster29_post_import_callbacks_all_run.py. |
 | 29-F32 | 29_root_modules-8.md | FIXED | Plain numbers such as -3.5 are not prefixed; formulas still are. Test test_cluster29_csv_safe_numbers_untouched.py. |
+| 29-F38 | 29_root_modules-8.md | FIXED | Failed KTC lookup logs WARNING naming the fallback. Test test_cluster29_ktc_lookup_failure_warns.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |

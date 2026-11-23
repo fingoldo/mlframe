@@ -1145,3 +1145,4 @@
 | 27-F20 | FIXED | format_metric docstring example corrected to the actual output (0.000012); test pins every documented example. Test test_cluster27_format_metric_docstring_examples.py. |
 | 29-F29 | FIXED | A raising post-import callback is logged with its traceback and the remaining callbacks still run. Test test_cluster29_post_import_callbacks_all_run.py; 3 existing post-import tests pass. |
 | 29-F32 | FIXED | Plain signed numbers are not formula-prefixed; real formulas still are. Test test_cluster29_csv_safe_numbers_untouched.py (8 passing); existing formula-injection tests (3) pass. |
+| 29-F38 | FIXED | A failing KTC cache lookup logs a WARNING naming the fallback backend, instead of DEBUG. Test test_cluster29_ktc_lookup_failure_warns.py; 13 existing KTC/gated-blend tests pass. |
