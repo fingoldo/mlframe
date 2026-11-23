@@ -572,6 +572,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 14-F13 | 14_feature_selection-5.md | FIXED | Failed thread pin logs WARNING. Test test_cluster14_thread_pin_failure_warns.py. |
 | 22-F41 | 22_root_modules-1.md | FIXED | Failed bootstrap resamples counted and reported in one WARNING. Test test_cluster22_failed_resamples_warn.py. |
 | 22-F37 | 22_root_modules-1.md | FIXED | interval dtypes no longer canonicalise as int. Test test_cluster22_dtype_canon_interval.py. |
+| 22-F38 | 22_root_modules-1.md | FIXED | Docstring corrected: dotted names import their parent package. Docstring-only, no test. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |

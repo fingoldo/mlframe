@@ -1100,3 +1100,4 @@
 | 14-F13 | FIXED | A failed thread pin logs a WARNING naming the parameters instead of a debug line. Test test_cluster14_thread_pin_failure_warns.py. |
 | 22-F41 | FIXED | Bootstrap resamples whose metric raises are counted and reported in one WARNING with the failed and total counts. Test test_cluster22_failed_resamples_warn.py. |
 | 22-F37 | FIXED | Dtype family prefixes match only when followed by a bit width, so interval dtypes are not mapped to int codes. Test test_cluster22_dtype_canon_interval.py. |
+| 22-F38 | FIXED | module_available docstring now states that a dotted name imports its parent package to locate the child. Docstring-only correction; no behaviour change, no test. |
