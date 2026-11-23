@@ -276,8 +276,12 @@ def _warn_degenerate_binary_target(model_name, perc):
         )
 
 
-def _binary_model_name(model_name, train_t, target):
-    """Append the train (or whole-target) positive rate to a binary/multiclass model name, then run the degenerate-target guard."""
+def _binary_model_name(model_name, train_t, target, *, binary=True):
+    """Append the train (or whole-target) positive rate to a binary/multiclass model name.
+
+    The degenerate-target guard only applies to binary targets (41-F7): for multiclass
+    the rate is the class-1 share, so a missing label 1 is not a single-class target.
+    """
     # Binary / multiclass -- train rate on the model_name; per-split
     # contextual rates are appended downstream in _compute_split_metrics.
     train_perc = _binary_pos_rate(train_t)
@@ -290,14 +294,16 @@ def _binary_model_name(model_name, train_t, target):
         perc = _binary_perc_from_whole_target(target)
         model_name += f" BT={perc*100:.0f}%"
 
-    _warn_degenerate_binary_target(model_name, perc)
+    if binary:
+        _warn_degenerate_binary_target(model_name, perc)
     return model_name
 
 
 def _select_regression_target(target_type, cur_target_name, model_name, composite_names, train_t, target):
     """Select the target for the regression target type."""
-    if target_type == TargetTypes.REGRESSION:
+    target_type = TargetTypes(target_type)
+    if target_type.is_any_regression:
         return _regression_model_name(cur_target_name, model_name, composite_names, train_t, target)
     if target_type == TargetTypes.MULTILABEL_CLASSIFICATION:
         return _multilabel_model_name(model_name, train_t, target)
-    return _binary_model_name(model_name, train_t, target)
+    return _binary_model_name(model_name, train_t, target, binary=target_type == TargetTypes.BINARY_CLASSIFICATION)

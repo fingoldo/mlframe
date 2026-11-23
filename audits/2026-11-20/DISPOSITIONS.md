@@ -1029,3 +1029,4 @@
 | 41-F16 | FIXED | Non-numeric feature values coerce to NaN (pd.to_numeric errors=coerce) in the calibration-by-feature and heatmap renderers, as the comment promised (training/reporting/_reporting_probabilistic_calib.py); tests/training/reporting/test_cluster41_feature_values_coerce_nonnumeric.py |
 | 41-F18 | FIXED | A numeric transform that changes width without feature names raises instead of positionally guessing (training/strategies/base.py _NumericOnlyTransformer); tests/training/test_cluster41_numeric_transform_no_positional_guess.py |
 | 41-F19 | FIXED | Cache budget no longer floored at 2 GiB above the free-RAM cap; test test_cluster41_cache_budget_respects_free_ram.py |
+| 41-F7 | FIXED | Quantile and multi-target regression use the regression name; the single-class warning runs only for binary targets. Test test_cluster41_target_name_by_task_type.py. |
