@@ -26,6 +26,7 @@ def test_bins_are_uint8_with_the_same_codes_as_the_int64_reference():
     bins, ks, names = J._bin_columns(df, nbins=10)
     assert names == list(df.columns)
     ref = J._quantile_bin_batched(np.ascontiguousarray(df.to_numpy(), dtype=J._crit_np_dtype()), nbins=10)
+    assert len(bins) == len(names) > 0, "no column was binned, so the loop below would check nothing"
     for j, b in enumerate(bins):
         assert b.dtype == np.uint8
         assert np.array_equal(b.astype(np.int64), ref[:, j])
