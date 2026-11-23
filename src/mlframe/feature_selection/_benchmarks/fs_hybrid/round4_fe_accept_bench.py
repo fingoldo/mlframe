@@ -170,7 +170,12 @@ def run_bed(name, X, y, seed=0):
     t0 = time.time(); ranked, pairs = shallow_tree_signals(Xtr, ytr, seed=seed)
     print(f"[{name}] shallow-tree: {len(ranked)} nonzero-imp feats, {len(pairs)} candidate pairs, "
           f"top {pairs[:4]}  ({round(time.time()-t0,1)}s)", flush=True)
-    base = ranked[:25] if len(ranked) >= 1 else list(Xtr.columns)[:25]
+    if len(ranked) >= 1:
+        base = ranked[:25]
+    else:
+        # No nonzero importances: the base is the first 25 columns by position, which is not a signal ranking. Say so (12-F94).
+        base = list(Xtr.columns)[:25]
+        print(f"[{name}] WARNING: no nonzero-importance features; base falls back to the first 25 columns by position", flush=True)
 
     # build all candidate products once (train + test)
     prod_tr = build_products(Xtr, pairs)
