@@ -1156,3 +1156,4 @@
 | 30-F6 | FIXED | Unverified speed claims in the changepoint benchmark comments replaced with neutral wording. Comment-only; no behaviour change. |
 | 30-F3 | FIXED | Unused logger and logging import removed from the DTW GPU banded benchmark. Import check passes; no behaviour change. |
 | 28-F50 | FIXED | Removed the duplicate SimpleNamespace import (aliased copy) and used the plain name. The repeated _pre_pipeline_groups reset is left in place: it is only redundant if the attribute is already None, which this change does not establish. Regression: module import check and a related trainer test pass. |
+| 28-F55 | FIXED | Removed the no-op del of a parameter (it freed nothing while the caller held the frame); _maybe_clean_ram still runs. Import check passes; the removed branch had no observable effect, so no test. |

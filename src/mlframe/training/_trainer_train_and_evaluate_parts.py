@@ -444,11 +444,7 @@ def _train_and_evaluate_train_runs_sequentially_may(splits_config, metrics_out, 
 def _train_and_evaluate_run_test_df_none(_run_test, df, test_df, train_df):
     """Block of train_and_evaluate_model starting at ``if _run_test and ((df is not None) or (test_df is not None)):``."""
     if _run_test and ((df is not None) or (test_df is not None)):
-        try:
-            if train_df is not None:
-                del train_df
-        except NameError:
-            pass
+        # ``del`` of a parameter frees nothing while the caller still holds the frame; RAM is reclaimed by _maybe_clean_ram (28-F55).
         _maybe_clean_ram()
 
 

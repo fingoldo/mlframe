@@ -628,6 +628,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 30-F6 | 30_signal.md | FIXED | Unverified speed claims in benchmark comments made neutral. Comment-only, no test. |
 | 30-F3 | 30_signal.md | FIXED | Unused logger removed from the DTW GPU benchmark. Import check only, no test. |
 | 28-F50 | 28_root_modules-7.md | PARTIAL | Duplicate SimpleNamespace import removed; repeated _pre_pipeline_groups reset kept (redundancy not established). Import check and a related trainer test pass; no new test. |
+| 28-F55 | 28_root_modules-7.md | FIXED | No-op del of a parameter removed; _maybe_clean_ram unchanged. Import check only, no test (no observable effect). |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
