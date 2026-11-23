@@ -615,6 +615,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 27-F23 | 27_root_modules-6.md | WON'T FIX | Stubs raise on purpose; precompute_all does not call them; tests pin the raise. |
 | 27-F25 | 27_root_modules-6.md | FIXED | GPU backend uses the absolute-PATH smi rule. Test test_cluster27_gpu_backend_absolute_path.py. |
 | 27-F20 | 27_root_modules-6.md | FIXED | format_metric docstring example matches output. Test test_cluster27_format_metric_docstring_examples.py. |
+| 29-F29 | 29_root_modules-8.md | FIXED | Failing post-import callback logged; the rest still run. Test test_cluster29_post_import_callbacks_all_run.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
