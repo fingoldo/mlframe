@@ -247,9 +247,7 @@ def _resolve_knee_prescreen_cap(importance, default_cap: int, *, floor: int = _A
 def _resolve_brute_force_max_features(default: int = _DEFAULT_BRUTE_FORCE_MAX_FEATURES) -> int:
     """Per-HW brute-force cap, falling back to the module default.
 
-    A cache-tuned override was attempted here via the non-existent ``kernel_tuning_cache.get(key,
-    default=...)`` API described in ``_shap_proxy_cluster_su_bitmap._resolve_bitmap_min_features`` -
-    removed as dead, always-``default``-returning code."""
+    This resolver returns its default; no per-hardware override is read (14-F11)."""
     return default
 
 
@@ -272,8 +270,7 @@ def _resolve_brute_force_n_sub_gate(default: int = _DEFAULT_BRUTE_FORCE_N_SUB_GA
     """Per-HW feasibility cap on enumerated subset count. Above this the dispatcher falls through
     to ``beam`` regardless of ``brute_force_max_features``.
 
-    A cache-tuned override was attempted here via the same non-existent ``kernel_tuning_cache.get``
-    API - removed as dead, always-``default``-returning code."""
+    This resolver returns its default; no per-hardware override is read (14-F11)."""
     return default
 
 
@@ -285,16 +282,14 @@ def _resolve_cluster_su_auto_max_features(
     scan no longer amortises the iter73-era 33x-over-naive cost into a wall-clock win vs the
     vectorised Pearson |corr|).
 
-    A cache-tuned override was attempted here via the same non-existent ``kernel_tuning_cache.get``
-    API - removed as dead, always-``default``-returning code."""
+    This resolver returns its default; no per-hardware override is read (14-F11)."""
     return default
 
 
 def _resolve_adaptive_prescreen_thresholds():
     """Return the (stability, delta) threshold list, ordered descending by stability.
 
-    A cache-tuned override was attempted here via the same non-existent ``kernel_tuning_cache.get``
-    API - removed as dead, always-source-default code. Always coerced to a tuple of (float, int)
+    No per-hardware override is read here (14-F11). Always coerced to a tuple of (float, int)
     pairs sorted by descending stability.
     """
     raw = _DEFAULT_ADAPTIVE_PRESCREEN_THRESHOLDS
