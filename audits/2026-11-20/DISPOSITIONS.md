@@ -1109,3 +1109,4 @@
 | 22-F43 | FIXED | Throttle key is the stable name post_train_calib_target_coerce_failed instead of a line number. Test test_cluster22_throttle_key_stable.py. |
 | 22-F45 | WON'T FIX | The per-improvement deepcopy is required for correctness: a snapshot taken only at stop would be a live reference that keeps mutating, so best_model_ would hold the final degraded weights (the bug the code comment records). Performance cost is accepted; the suggested fix reintroduces that bug. |
 | 22-F35 | FIXED | Docstring corrected: the exact-own-value claim holds only for k=1; for k>1 a subsample row is the mean of its k nearest subsample rows. Docstring-only; no behaviour change, no test. |
+| 22-F36 | FIXED | NaN check in PdOrdinalEncoder.transform reads the native dtype (pd.isna) instead of copying the output to float64. Test test_cluster22_ordinal_nan_check.py. |
