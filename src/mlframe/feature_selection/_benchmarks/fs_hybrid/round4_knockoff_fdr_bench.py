@@ -60,6 +60,8 @@ def main():
 
     def knockoff_cut(feats, tag):
         if len(feats) < 5:
+            # Say why the block did not run; a silent return looked like a passing result (12-F97).
+            print(f"  [{tag}] SKIPPED: {len(feats)} feature(s) < 5, the knockoff cut needs at least 5", flush=True)
             return
         t0 = time.time()
         W = knockoff_importance(mk, Xtr[feats], ytr, random_state=0, w_statistic="gain")
