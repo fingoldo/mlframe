@@ -5,11 +5,6 @@ from __future__ import annotations
 # LOGGING
 # ----------------------------------------------------------------------------------------------------------------------------
 
-import logging
-
-logger = logging.getLogger(__name__)
-
-"""Categorical feature engineering for ML. Optimized & rich set of aggregates for 1d vectors."""
 
 # pylint: disable=wrong-import-order,wrong-import-position,unidiomatic-typecheck,pointless-string-statement
 

@@ -1308,3 +1308,4 @@
 | 25-F55 | FIXED | MI docstrings corrected from the fixed 0-14 range to the validated [0, 127] / [0, n_bins) contract (three sites). Test tests/feature_selection/test_cluster25_mi_bin_range_doc.py (source pins). |
 | 25-F57 | FIXED | Ridge prefilter scans candidate sizes ascending, so the smallest qualifying size wins regardless of input order (fixed earlier in 7565c18fd). Covered by tests/feature_selection/test_cluster25_prefilter_unsorted_sizes.py and the nested-CV prefilter test (3 pass). |
 | 25-F58 | FIXED | Varying-size anchor de-duplication uses a set for membership while keeping the rank order (fixed earlier in 7a797751d). Covered by the existing varying-size subset tests (exit 0). |
+| 25-F59 | FIXED | Removed the unused logger, its import and the stray module-level string from optbinning. Test tests/feature_selection/test_cluster25_optbinning_cleanup.py (source pins; module imports). |
