@@ -1239,3 +1239,4 @@
 | 13-F29 | FIXED | par_threshold falls back to swept_max*100 (never-wins sentinel, same as cuda_threshold) instead of 50_000. Test tests/feature_selection/test_cluster13_par_threshold_sentinel.py (source pin). |
 | 42-F13 | FIXED | Tie count uses nunique(dropna=False) at both sites, so NaN ranks count as one shared value. Test tests/votenrank/test_cluster42_tie_count_nan.py. |
 | 42-F14 | FIXED | Optimality-gap ranking drops the redundant DataFrame rebuild; np.minimum already returns a DataFrame with the same index and columns (verified equal). Covered by the existing gamma/optimality tests in tests/votenrank/test_cluster42_gamma_and_solver_status.py (4 pass). |
+| 42-F15 | FIXED | Dated timing numbers and the 2026-07-10 claim removed from the confidence-gated bench docstring; the run command and dispatch pointer are kept. Test tests/votenrank/test_cluster42_bench_docstring_no_numbers.py. |

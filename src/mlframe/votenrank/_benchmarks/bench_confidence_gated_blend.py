@@ -2,17 +2,12 @@
 
 Run: ``python -m mlframe.votenrank._benchmarks.bench_confidence_gated_blend``
 
-Backend comparison at n=1,000,000 (host input), 2026-07-10: numpy 20.7ms, njit 4.4ms, njit_parallel 3.6ms,
-cupy resident 0.8ms, cupy end-to-end (H2D+compute+D2H) 8.5ms -- njit_parallel wins for host input at this
-size; cupy only wins when the caller already holds GPU-resident arrays. Dispatch is routed through KTC (see
-``_confidence_gated_blend_ktc_dispatch.py``); rejected the naive "always cupy" choice since e2e transfer cost
-loses to njit_parallel for the common host-array calling convention.
+Measured backend timings are not kept in this docstring: they drift with the host and the code. The dispatch
+rationale lives in ``_confidence_gated_blend_ktc_dispatch.py``, and the timings belong in the dated report
+(see the bench output). Run it to measure on the current machine (42-F15).
 
-NOTE: the FIRST several calls at a brand-new shape in a fresh process pay a one-time cost while the KTC
-``async_sweep`` background thread measures all backends (incl. compiling njit and probing cupy) concurrently
-with the foreground loop -- confirmed via a warmed-cache/separate-process re-run at n=10,000 that steady-state
-per-call cost is sub-millisecond, matching njit_parallel. This is expected ``async_sweep=True`` behavior, not
-a regression.
+The first calls at a new shape in a fresh process pay a one-time cost while the KTC ``async_sweep`` thread
+measures the backends; that is expected ``async_sweep=True`` behaviour, not a regression.
 """
 from __future__ import annotations
 
