@@ -1176,3 +1176,4 @@
 | 18-F18 | FIXED | Docstring corrected: probabilistic outputs are averaged across per-class correlations, not collapsed to the last column. Docstring-only; no behaviour change, no test. |
 | 18-F16 | FIXED | Removed the never-read ENSEMBLE_STREAMING_THRESHOLD_BYTES constant; the streaming choice is driven by EnsemblingConfig.quantile_budget_bytes. Regression: 7 existing ensembling tests pass. |
 | 14-F9 | WON'T FIX | np.asarray(np.asarray(base).copy()) performs one copy; the outer asarray is a no-op on an ndarray, so rewriting it saves nothing. Cosmetic only. |
+| 14-F10 | FIXED | Removed the orphan comment about a TreeSHAP cell threshold that is not defined in the file. Comment-only; no behaviour change. |

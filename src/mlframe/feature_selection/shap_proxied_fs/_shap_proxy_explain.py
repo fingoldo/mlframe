@@ -208,7 +208,6 @@ _BASE_BLOAT_REL_TOL = 0.25
 # Max allowed relative additivity violation: |base + phi.sum(1) - margin| / (|margin| scale).
 _ADDITIVITY_REL_TOL = 1e-2
 
-# Cells (rows x columns) from which ``auto`` sends a supported xgboost / lightgbm model to the CUDA TreeSHAP instead of the numba one. Below it the upload and launch overhead is not repaid on a typical card.
 def _n_trees(est) -> int:
     """Number of trees of a fitted xgboost / lightgbm model (0 when it cannot be read), the model-size axis of the TreeSHAP backend choice."""
     try:
