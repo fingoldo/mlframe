@@ -1062,3 +1062,4 @@
 | 39-F45 | FIXED | Character entropy counts with a single Counter over chained characters. Test test_cluster39_char_entropy_counter.py. |
 | 39-F55 | FIXED | set_params raises ValueError for unknown keys and method names instead of warning or overwriting. Test test_cluster39_set_params_unknown_raises.py. |
 | 39-F25 | FIXED | James-Stein pooled-variance residuals use one pandas map per fit instead of a dict lookup per row. Test test_cluster39_js_variance_vectorised.py. |
+| 39-F26 | DEFERRED | CUDA-lost CPU fallback reloads in float32 while the primary is fp16. Choosing between matching the dtype (CPU fp16 kernel support varies) and documenting the mid-run precision change is a policy decision for the owner. |
