@@ -197,7 +197,7 @@ def _edges_from_uniform(x: np.ndarray, n_bins: int) -> np.ndarray:
 
 
 def qs_nbins(n: int, alpha: float = 0.30) -> int:
-    """Quantile Spacing nbins: ``n_q = min(round(alpha * N), round(2 * N ** (1/3)))``, clamped to [3, 64].
+    """Quantile Spacing nbins: ``n_q = min(round(alpha * N), round(2 * N ** (1/3)))``, clamped to [3, 32] (``_QS_DEFAULT_MAX_BINS``).
 
     Gupta et al. *Entropy* 23(6):740, 2021 (https://arxiv.org/abs/2102.12675) show that alpha in [0.25, 0.35] is insensitive to sample size and distribution; the default alpha=0.30 is the middle of that
     band. Alone, ``alpha * N`` reaches the clamp of 64 at N = 214 and stays there: 64 bins at every realistic N, which is not an adaptive rule. At 6000 rows with 120 noise columns the 64 x 64 pair tables
@@ -212,12 +212,15 @@ def qs_nbins(n: int, alpha: float = 0.30) -> int:
     return int(max(3, min(_qs_max_bins(), raw, rice)))
 
 
+_QS_DEFAULT_MAX_BINS = 32  # measured 2026-11-23 (100000 x 100 ALL wall 50.3 / 40.3 / 36.7 s at 64 / 32 / 16; OOF binary AUC 0.9530 / 0.9536 / 0.9315, regression R2 0.8858 / 0.8890 / 0.8888)
+
+
 def _qs_max_bins() -> int:
-    """Upper clamp of :func:`qs_nbins` (default 64; ``MLFRAME_QS_MAX_BINS`` overrides, never below 3)."""
+    """Upper clamp of :func:`qs_nbins` (default ``_QS_DEFAULT_MAX_BINS`` = 32; ``MLFRAME_QS_MAX_BINS`` overrides, never below 3)."""
     import os
 
     raw = os.environ.get("MLFRAME_QS_MAX_BINS", "").strip()
-    return max(3, int(raw)) if raw.isdigit() else 64
+    return max(3, int(raw)) if raw.isdigit() else _QS_DEFAULT_MAX_BINS
 
 
 def edges_qs(x: np.ndarray, alpha: float = 0.30) -> np.ndarray:

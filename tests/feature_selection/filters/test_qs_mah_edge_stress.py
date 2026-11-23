@@ -26,10 +26,10 @@ from mlframe.feature_selection.filters._mah import _compute_y_binning, clear_mah
 
 
 def test_qs_nbins_no_overflow_at_extreme_n():
-    """``qs_nbins`` must stay clamped in [3, 64] even at astronomically large N (no int overflow, no
+    """``qs_nbins`` must stay clamped in [3, 32] even at astronomically large N (no int overflow, no
     runaway bin count that would blow up downstream joint histograms)."""
     # 1000 -> 20: the Rice cap 2 * N ** (1/3) of ``qs_nbins`` (64 at every N from 214 lost a categorical interaction at N = 6000)
-    expected = {0: 1, 1: 1, 2: 3, 10: 3, 1000: 20, 10**6: 64, 10**12: 64, 10**18: 64}
+    expected = {0: 1, 1: 1, 2: 3, 10: 3, 1000: 20, 10**6: 32, 10**12: 32, 10**18: 32}
     got = {n: qs_nbins(n) for n in expected}
     assert got == expected
 
@@ -37,7 +37,7 @@ def test_qs_nbins_no_overflow_at_extreme_n():
 def test_qs_nbins_alpha_extremes_stay_clamped():
     """Alpha outside the recommended [0.25, 0.35] band (a caller typo/misuse) must still clamp, not
     silently explode the bin count or collapse to 0."""
-    expected = {0.0: 3, 1e-9: 3, 0.99: 64, 5.0: 64, -1.0: 3}
+    expected = {0.0: 3, 1e-9: 3, 0.99: 32, 5.0: 32, -1.0: 3}
     got = {alpha: qs_nbins(100_000, alpha=alpha) for alpha in expected}
     assert got == expected
 
@@ -286,7 +286,15 @@ def test_biz_val_mah_mi_detects_real_dependence_above_independence_floor():
     assert mi_indep <= 0.05, f"expected near-zero mah_mi under independence, got {mi_indep}"
 
 
-def test_qs_nbins_grows_with_n_instead_of_sitting_at_the_cap():
-    """The bin count follows the Rice rule below the cap (36 at 6000 rows, 54 at 20000) and is the cap from about 33000 rows; the old rule gave 64 from 214 rows on."""
-    got = {n: qs_nbins(n) for n in (214, 1000, 6000, 20000, 40000)}
-    assert got == {214: 12, 1000: 20, 6000: 36, 20000: 54, 40000: 64}
+def test_qs_nbins_grows_with_n_up_to_the_cap():
+    """The bin count follows the Rice rule below the cap of 32 (12 at 214 rows, 20 at 1000, 32 from about 4100 rows); the first rule gave 64 from 214 rows on, which lost a categorical interaction at 6000 rows."""
+    got = {n: qs_nbins(n) for n in (214, 1000, 3000, 6000, 20000, 40000)}
+    assert got == {214: 12, 1000: 20, 3000: 29, 6000: 32, 20000: 32, 40000: 32}
+
+
+def test_the_cap_is_set_by_the_environment(monkeypatch):
+    """``MLFRAME_QS_MAX_BINS`` moves the clamp (an experiment knob); a malformed value keeps the default."""
+    monkeypatch.setenv("MLFRAME_QS_MAX_BINS", "16")
+    assert qs_nbins(100_000) == 16
+    monkeypatch.setenv("MLFRAME_QS_MAX_BINS", "x")
+    assert qs_nbins(100_000) == 32
