@@ -1288,3 +1288,4 @@
 | 20-F29 | FIXED | Confusion-matrix hidden-values note is joined to the title only when a title is set, so a missing title no longer becomes the literal 'None'. Test tests/reporting/test_cluster20_confusion_title_none.py (source pin); existing confusion-matrix tests pass. |
 | 20-F28 | FIXED | Binary composer docstring corrected to the real default panel constant (ROC PR SCORE_DIST THRESHOLD); KS and GAIN stated as opt-in. Test tests/reporting/test_cluster20_binary_default_panels_doc.py. |
 | 20-F31 | FIXED | Deleted the unreachable duplicate empty-row guard in _interval_band_panel (the first guard returns before it). Test tests/reporting/test_cluster20_interval_band_single_guard.py (source pin); 37 existing quantile-chart tests pass. |
+| 20-F32 | FIXED | Error-bias binning warning reworded to describe a skipped feature, not a fallback. Test tests/reporting/test_cluster20_error_bias_warning_text.py (source pin). |
