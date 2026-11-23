@@ -27,7 +27,8 @@ def _canonical_group_key_series(group: np.ndarray) -> pd.Series:
     arr = np.asarray(group)
     if np.issubdtype(arr.dtype, np.floating):
         is_nan = np.isnan(arr)
-        is_whole = ~is_nan & (arr == np.floor(arr))
+        # inf == floor(inf) is True, so infinities must be excluded here or their int64 cast is undefined (22-F40).
+        is_whole = np.isfinite(arr) & (arr == np.floor(arr))
         safe_int_arr = np.where(is_whole, arr, 0).astype(np.int64)
         keys = np.where(is_whole, safe_int_arr.astype(str), arr.astype(str)).astype(object)
         keys[is_nan] = np.nan
