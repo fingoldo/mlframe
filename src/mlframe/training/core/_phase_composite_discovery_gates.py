@@ -340,7 +340,9 @@ def _drop_below_honest_gain_floor(pending: list[dict], composite_target_discover
             return float(_min_gain)
         return max(float(_min_gain), _min_gain_z * float(_se))
 
-    _below = [p for p in pending if p.get("rmse_gain") and p["gain"] <= _floor_for(p)]
+    # ``not (gain > floor)`` rather than ``gain <= floor``: a NaN gain compares False both ways and would
+    # otherwise pass the floor and consume a full fit (37-F26). Non-finite gains are dropped explicitly.
+    _below = [p for p in pending if p.get("rmse_gain") and not (float(p["gain"]) > _floor_for(p))]
     if not _below:
         return pending
     logger.info(

@@ -1045,3 +1045,5 @@
 | 39-F56 | FIXED | Lookahead slow-weight commit failure logs at WARNING, stating predictions use fast weights. |
 | 39-F69 | FIXED | Lookahead commit failure logs at WARNING with exc_info (same site as 39-F56). |
 | 39-F70 | FIXED | Optimizer and scheduler names read with getattr fallback, so partial/non-class objects no longer raise AttributeError. |
+| 37-F26 | FIXED | Honest-gain floor drops specs whose gain is not strictly above the floor, so a NaN gain is dropped. Test test_cluster37_nan_gain_dropped_and_merge_logged.py. |
+| 37-F29 | FIXED | A back-merge skipped on row-count change logs a WARNING naming the dropped engineered columns. Test test_cluster37_nan_gain_dropped_and_merge_logged.py. |

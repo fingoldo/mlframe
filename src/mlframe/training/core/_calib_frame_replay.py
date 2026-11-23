@@ -98,7 +98,13 @@ def _back_merge_new_columns(pre: Any, post: Any) -> Any:
     """Append to ``pre`` the columns ``post`` gained over it, keeping ``pre``'s own (raw, unencoded) columns as they are."""
     pre_cols = set(pre.columns)
     new_cols = [c for c in post.columns if c not in pre_cols]
-    if not new_cols or len(pre) != len(post):
+    if not new_cols:
+        return pre
+    if len(pre) != len(post):
+        logger.warning(
+            "_back_merge_new_columns: row count changed (pre=%d, post=%d); skipping merge and dropping %d engineered column(s): %s",
+            len(pre), len(post), len(new_cols), new_cols,
+        )
         return pre
     if isinstance(pre, pl.DataFrame):
         if isinstance(post, pl.DataFrame):
