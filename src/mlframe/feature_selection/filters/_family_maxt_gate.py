@@ -617,7 +617,11 @@ def _quantile_codes(v: np.ndarray, n_bins: int) -> tuple[np.ndarray, int]:
         # candidate could never pass the family test.
         return np.searchsorted(levels, v).astype(np.int64), int(levels.size)
     edges = np.unique(np.quantile(v, np.linspace(0.0, 1.0, n_bins + 1)))
-    codes = np.clip(np.searchsorted(edges, v, side="right") - 1, 0, max(len(edges) - 2, 0)).astype(np.int64)
+    if edges.size < 3:
+        # Heavily tied column (most values equal, a few distinct ones): the quantile edges collapse to one bin, so every value would get code 0
+        # and the column would carry no information. Fall back to its exact levels, the same coding as the few-distinct-values case above.
+        return np.searchsorted(levels, v).astype(np.int64), int(levels.size)
+    codes = np.clip(np.searchsorted(edges, v, side="right") - 1, 0, edges.size - 2).astype(np.int64)
     return codes, int(codes.max()) + 1
 
 
