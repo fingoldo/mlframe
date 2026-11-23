@@ -260,7 +260,8 @@ def summarize(smoke):
     for key in sorted(groups):
         g = groups[key]
         prec, rec = _mean([r["precision"] for r in g]), _mean([r["recall"] for r in g])
-        f1 = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
+        # Mean of the per-cell F1, not the F1 of the mean precision and recall: those differ whenever cells vary (13-F31).
+        f1 = _mean([2 * r["precision"] * r["recall"] / (r["precision"] + r["recall"]) if (r["precision"] + r["recall"]) > 0 else 0.0 for r in g])
         reg, v, n = key
         print(f"{reg:<12} {v:>8} {n:>6} {prec:>6.3f} {rec:>6.3f} {f1:>6.3f} "
               f"{_mean([r['auc_lgbm'] for r in g]):>9.4f} {_mean([r['auc_logit'] for r in g]):>10.4f} "
