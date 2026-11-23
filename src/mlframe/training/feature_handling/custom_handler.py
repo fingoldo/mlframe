@@ -197,7 +197,9 @@ class CustomHandler:
                 else:
                     raise TypeError("not pandas")
             except (ImportError, TypeError):
-                col_array = np.asarray(df)
+                # An ndarray has no column names, so ``self.column`` cannot select anything; returning the
+                # whole matrix would hand the transformer every column (39-F23). Refuse instead.
+                raise TypeError(f"_extract_column needs a polars or pandas DataFrame to select column {self.column!r}; " f"got {type(df).__name__}")
         # Normalise to 2-D for sklearn compatibility.
         if col_array.ndim == 1:
             col_array = col_array.reshape(-1, 1)
