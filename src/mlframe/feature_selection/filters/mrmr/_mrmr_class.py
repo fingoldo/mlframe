@@ -3415,6 +3415,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
                 continue
             fv = _fresh_dict.get(k, v) if _fresh_dict is not None else v
             state[k] = copy.deepcopy(fv) if isinstance(fv, (list, dict, set)) else fv
+        # ``signature`` is a fitted attribute set in ``__init__``, not a constructor parameter, so none of the injections above cover it: a pickle written before it existed
+        # would raise on the next fit (the same-content skip and the fit cache read it). ``None`` is the value of a fresh estimator.
+        state.setdefault("signature", None)
         self.__dict__.update(state)
 
     @hygienic_fit
