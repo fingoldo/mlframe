@@ -22,7 +22,7 @@ def test_every_config_of_a_pair_sees_the_same_capped_factor_set(monkeypatch):
     n = 1500
     X = pd.DataFrame({f"f{i}": rng.standard_normal(n) for i in range(6)})
     y = ((X["f0"] * X["f1"] + X["f2"] / (1 + X["f3"].abs()) + 0.3 * rng.standard_normal(n)) > 0).astype(np.int64)
-    MRMR(verbose=0, random_state=0, n_jobs=1, fit_cache_max=0, fe_max_external_validation_factors=2).fit(X, y)
+    MRMR(verbose=0, random_state=0, n_jobs=1, fit_cache_max=0, fe_max_external_validation_factors=2, nbins_strategy=None).fit(X, y)  # fixed quantile bins: the fixture needs tied leaders, which the finer bins of quantile_spacing at 1500 rows do not produce
     assert seen, "no pair reached the external-validation loop with tied leaders; the fixture needs adjusting"
     assert all(n_ext <= 2 and cap in (0, None, 2) for n_ext, cap in seen), seen
     assert all(cap in (0, None) for n_ext, cap in seen if n_ext == 2), seen
