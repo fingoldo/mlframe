@@ -48,6 +48,10 @@
       "count": 1,
       "note": "row-count sweep grids of separate kernels (basis cells, LOF, the summary-pair prerank and per-member tuning), each sized to its own crossover"
     },
+    "literal-set::(20000, 30000)::feature_selection/filters/_fe_accuracy_gate_newton.py feature_selection/filters/_gpu_resident_radix_ktc.py": {
+      "count": 1,
+      "note": "The newton docstring quotes the 20000 x 50 and 30000 x 100 measurement sizes as prose; the radix sweep grid is the only value that is ever read, so the two cannot drift as a source of truth."
+    },
     "literal-set::(5000, 10000)::feature_selection/filters/_tail_dependence_gpu.py feature_selection/shap_proxied_fs/_shap_proxy_score_margin_ktc.py models/ensembling/per_member_tuning.py preprocessing/cleaning.py": {
       "count": 1,
       "note": "a per-tuner element sweep grid and a continuous-variable check; the two sites are independent"
