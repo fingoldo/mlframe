@@ -348,7 +348,8 @@ class CascadeArm(BaseArm):
         result = cascade_select(
             X, np.asarray(y), lambda: _small_tree(self.random_state), n_boruta_iterations=15, cv=3, forward_max_features=self.forward_max_features, random_state=self.random_state
         )
-        final = [str(c) for c in result["final_selected"] if str(c) in set(names)]
+        _names_set = set(names)  # built once per statement, not per comprehension item (11-F15)
+        final = [str(c) for c in result["final_selected"] if str(c) in _names_set]
         return {"support": _mask_from_names(names, final), "provenance": {"n_boruta": len(result.get("boruta_confirmed", [])), "n_forward": len(result.get("forward_selected", []))}}
 
 
@@ -379,7 +380,8 @@ class CascadeStableArm(BaseArm):
             forward_max_features=self.forward_max_features,
         )
         frequency = {str(k): float(v) for k, v in dict(result["selection_frequency"]).items()}
-        stable = [str(c) for c in result["stable_selected"] if str(c) in set(names)]
+        _names_set = set(names)  # built once per statement, not per comprehension item (11-F15)
+        stable = [str(c) for c in result["stable_selected"] if str(c) in _names_set]
         return {
             "support": _mask_from_names(names, stable),
             "score": np.asarray([frequency.get(n, 0.0) for n in names], dtype=np.float64),
@@ -536,7 +538,8 @@ class RegistryWrappedArm(BaseArm):
         names = _feature_names(X)
         model = self._build()
         model.fit(X, pd.Series(np.asarray(y)))
-        selected = [str(c) for c in model.get_feature_names_out() if str(c) in set(names)]
+        _names_set = set(names)  # built once per statement, not per comprehension item (11-F15)
+        selected = [str(c) for c in model.get_feature_names_out() if str(c) in _names_set]
         return {
             "support": _mask_from_names(names, selected),
             "provenance": {"registry_factory": f"_instantiate_{self.which}", "wrapped": type(model).__name__, "reduction": float(getattr(model, "reduction_", float("nan")))},

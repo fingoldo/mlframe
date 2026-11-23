@@ -698,7 +698,8 @@ class MRMRArm(BaseArm):
         else:
             prefix = tuple(int(i) for i in raw_support if 0 <= int(i) < len(names))
         selected = [str(c) for c in extract_selected(model, names)]
-        known = [c for c in selected if c in set(names)]
+        _names_set = set(names)  # built once per statement, not per comprehension item (11-F15)
+        known = [c for c in selected if c in _names_set]
         support = _mask_from_names(names, known)
         if not prefix:
             prefix = tuple(int(i) for i in np.flatnonzero(support))
@@ -818,7 +819,8 @@ class RFECVArm(BaseArm):
             random_state=self.random_state,
         )
         model.fit(X, pd.Series(np.asarray(y)))
-        selected = [str(c) for c in extract_selected(model, names) if str(c) in set(names)]
+        _names_set = set(names)  # built once per statement, not per comprehension item (11-F15)
+        selected = [str(c) for c in extract_selected(model, names) if str(c) in _names_set]
         ranking = _rfecv_rank_vector(model, names, selected)
         internal_score, internal_metric = _rfecv_internal_optimum(model)
         return {
@@ -876,7 +878,8 @@ class BorutaShapArm(BaseArm):
         with np.errstate(invalid="ignore"):
             means = {str(c): float(np.nan_to_num(np.nanmean(np.asarray(hist[c], dtype=np.float64)), nan=0.0)) for c in names}
         score = np.array([means[n] for n in names], dtype=np.float64)
-        selected = [str(c) for c in getattr(model, "selected_features_", []) if str(c) in set(names)]
+        _names_set = set(names)  # built once per statement, not per comprehension item (11-F15)
+        selected = [str(c) for c in getattr(model, "selected_features_", []) if str(c) in _names_set]
         return {"support": _mask_from_names(names, selected), "score": score, "n_model_fits": self.n_trials, "provenance": {"n_trials": self.n_trials, "n_tentative": len(getattr(model, "tentative_", []) or [])}}
 
 
@@ -925,7 +928,8 @@ class ShapProxiedArm(BaseArm):
             verbose=False,
         )
         model.fit(X, pd.Series(np.asarray(y)))
-        selected = [str(c) for c in getattr(model, "selected_features_", []) if str(c) in set(names)]
+        _names_set = set(names)  # built once per statement, not per comprehension item (11-F15)
+        selected = [str(c) for c in getattr(model, "selected_features_", []) if str(c) in _names_set]
         report = getattr(model, "shap_proxy_report_", None)
         return {
             "support": _mask_from_names(names, selected),
