@@ -73,8 +73,9 @@ def run(name, X, y, seeds=(0, 1, 2)):
         for tag, cls in (("baseline", HybridSelector), ("richtree", RichTreeHybrid)):
             t0 = time.time()
             h = cls(vote=1, use_fe=True, random_state=sd).fit(Xtr, ytr)
-            a = downstream(h.transform(Xtr), h.transform(Xte), ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)
-            rows.append(dict(bed=name, seed=sd, variant=tag, n=int(h.transform(Xte).shape[1]), fit_s=round(time.time()-t0,1), auc_mean=am, **a))
+            Xte_t = h.transform(Xte)  # transformed once, reused for the AUC and the width (12-F93)
+            a = downstream(h.transform(Xtr), Xte_t, ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)
+            rows.append(dict(bed=name, seed=sd, variant=tag, n=int(Xte_t.shape[1]), fit_s=round(time.time()-t0,1), auc_mean=am, **a))
             print(f"  [{name}] sd{sd} {tag:9s} n={rows[-1]['n']:3d} {rows[-1]['fit_s']:6.1f}s mean={am} {a}", flush=True)
     return rows
 
