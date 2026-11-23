@@ -47,7 +47,7 @@ def pair_probe_dtype(requested: Any, nbins: Any, col_a: int, col_b: int) -> Any:
 
     The merged class id of a pair runs up to ``nbins[col_a] * nbins[col_b]``, so two columns of 30 bins overflow int8 (``merge_vars: class id does not fit the working dtype``); the rescue read that error as "redundant"
     and dropped the candidate, which left a count / quantile fit with no selected column."""
-    from mlframe.feature_selection.filters.discretization._code_dtype import narrowest_code_dtype
+    from mlframe.feature_selection.filters.discretization.shared import narrowest_code_dtype
 
     need = int(nbins[col_a]) * int(nbins[col_b])
     wide = narrowest_code_dtype(0, need)

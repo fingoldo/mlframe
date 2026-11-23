@@ -9,7 +9,7 @@ import hashlib
 import logging
 
 import numpy as np
-from mlframe.feature_selection.filters.discretization._code_storage_plan import code_alloc_dtype as _code_alloc_dtype
+from mlframe.feature_selection.filters.discretization.shared import code_alloc_dtype as _code_alloc_dtype
 from mlframe._array_buffer import array_buffer
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 import os
@@ -49,7 +49,7 @@ def _fold_target(self, y: Any) -> "np.ndarray | None":
     """Class codes of the target ``y`` for ``categorical_fold_strategy="target_stat"`` (``None`` under any other strategy, for a missing target or one with fewer than two classes)."""
     if getattr(self, "categorical_fold_strategy", "frequency") != "target_stat" or y is None:
         return None
-    from mlframe.feature_selection.filters.discretization._categorical_target_fold import target_classes
+    from mlframe.feature_selection.filters.discretization.shared import target_classes
 
     return target_classes(np.asarray(y))
 
@@ -91,7 +91,7 @@ def _compact_code_storage(data):
         try:
             _dmin = int(data.min())
             _dmax = int(data.max())
-            from mlframe.feature_selection.filters.discretization._code_dtype import narrowest_code_dtype
+            from mlframe.feature_selection.filters.discretization.shared import narrowest_code_dtype
 
             _store_dt: Optional[type] = narrowest_code_dtype(_dmin, _dmax)  # int8 up to 127, uint8 for 0..255 (a 256-cardinality categorical), int16 above
             if _store_dt in (np.int32, np.int64):
@@ -448,7 +448,7 @@ def _categorical_cardinalities(x_for_cat: Any, limit: int = 64) -> "list[int] | 
 
 def _plan_code_storage_for_fit(self: Any, nbins_strategy: Any, nbins_strategy_kwargs: Any, x_for_cat: Any) -> Any:
     """Resolve the code dtype from this fit's binning settings, record it as ``code_storage_plan_`` and return the plan (``quantization_dtype`` is a hint: see ``plan_code_storage``)."""
-    from mlframe.feature_selection.filters.discretization._code_storage_plan import plan_code_storage
+    from mlframe.feature_selection.filters.discretization.shared import plan_code_storage
 
     plan = plan_code_storage(
         n_bins=int(self.quantization_nbins),

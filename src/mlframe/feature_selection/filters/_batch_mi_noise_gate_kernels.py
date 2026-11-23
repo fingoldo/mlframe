@@ -15,7 +15,7 @@ import logging
 import math
 
 import numpy as np
-from mlframe.feature_selection.filters.info_theory._reject_count import reject_count
+from mlframe.feature_selection.filters.info_theory.shared import reject_count
 from numba import njit, prange
 
 logger = logging.getLogger(__name__)

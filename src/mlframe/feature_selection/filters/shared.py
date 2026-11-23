@@ -54,9 +54,14 @@ from ._device_sort_safe import device_argsort, device_sort
 from ._kernel_types import render
 from ._fe_gpu_batch._devices import assert_kernel_buffers
 
+from ._ksg_dispatch import ksg_mi_columns
+from ._ksg_cd_fast import ksg_mi_discrete_target
+from ._orthogonal_univariate_fe._orth_mi_backends import contingency_mi_nats
+from ._modulus_perm_null import host_residue_path, perm_best_mis
+from ._y_encoding import encode_y_for_classif_mi
+
 __all__ = [
     "ContentMemo",
-    "render",
     "apply_conditional_gate",
     "apply_integer_lattice",
     "apply_pairwise_modular",
@@ -69,15 +74,22 @@ __all__ = [
     "cheap_modular_scan",
     "cheap_row_argmax_scan",
     "class_mi_fe_applicable",
+    "contingency_mi_nats",
     "crit_float_dtype",
     "crit_np_dtype",
     "device_argsort",
     "device_sort",
+    "encode_y_for_classif_mi",
     "escalate_modulus",
     "hashable_params_signature",
+    "host_residue_path",
     "is_integer_col",
+    "ksg_mi_columns",
+    "ksg_mi_discrete_target",
     "mi",
+    "perm_best_mis",
     "perm_pvalue",
+    "render",
     "su_redundancy_matrix",
     "validate_artifact_dict",
 ]

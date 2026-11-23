@@ -181,13 +181,13 @@ def _modulus_search_pvalue(X, y, hit, best_mi: float, nbins: int, n_perm: int, s
 
     rng = np.random.default_rng(int(seed))
     y_arr = np.asarray(y)
-    from mlframe.feature_selection.filters._modulus_perm_null import host_residue_path
+    from mlframe.feature_selection.filters.shared import host_residue_path
 
     if not host_residue_path():
         ge = sum(1 for _ in range(int(n_perm)) if escalate_modulus(X, rng.permutation(y_arr), hit, nbins=nbins)[1] >= best_mi)
         return _canonical_perm_pvalue(ge, int(n_perm))
-    from mlframe.feature_selection.filters._modulus_perm_null import perm_best_mis
-    from mlframe.feature_selection.filters._y_encoding import encode_y_for_classif_mi
+    from mlframe.feature_selection.filters.shared import perm_best_mis
+    from mlframe.feature_selection.filters.shared import encode_y_for_classif_mi
 
     # Permutations are drawn in the same sequence as the per-permutation loop and scored in blocks, so memory stays at
     # about 64 MB of encoded targets however large n is.
