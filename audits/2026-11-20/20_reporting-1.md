@@ -112,3 +112,4 @@ Counts below are the number of files under `tests/` whose text names the functio
 - 20-F26: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F27: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F1: WON'T FIX. Not reproduced: the label swap was tried and reverted. The WORM verdict already labels a long positive-tail residual RIGHT-SKEW (tests/reporting/test_worm_plot_verdict_is_operative.py pins it, 13 pass on HEAD), so the finding's premise fails
+- 20-F30: WON'T FIX. _per_query_groups has no production caller, but it is the parity reference for the live group slices: two tests import it, and the shared uncalled-functions allowlist classifies it as a deliberately kept reference. Not deleted.
