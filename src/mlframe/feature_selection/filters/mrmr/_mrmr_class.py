@@ -205,7 +205,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
 
     Parameters
     ----------
-        cv : int, cross-validation generator or an iterable, default=None
+        cv : int, cross-validation generator or an iterable, default=3
 
     Attributes
     ----------
@@ -550,7 +550,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         interactions_order_reversed: bool = False,
         max_veteranes_interactions_order: int = 1,
         only_unknown_interactions: bool = False,
-        # FAST-SEARCH MASTER TOGGLE (default ON). Trades the EXHAUSTIVE FE search tail
+        # FAST-SEARCH MASTER TOGGLE (default OFF, see ``fe_fast_search`` below). Trades the EXHAUSTIVE FE search tail
         # for a substantially faster fit that still recovers the signal. When True AND the user has
         # NOT explicitly overridden a sub-knob (the value still equals its package default), fit()
         # temporarily applies a fast profile and restores every knob in ``finally`` (so clone /

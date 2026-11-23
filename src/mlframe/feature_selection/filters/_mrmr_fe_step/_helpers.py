@@ -11,6 +11,8 @@ import logging
 
 import pandas as pd
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 
@@ -39,7 +41,7 @@ def _non_numeric_column_indices(X, cols) -> set:
     except Exception:
         # Returning set() marks EVERY column numeric, which can let a string/categorical column reach the
         # numeric basis and crash downstream - log the introspection failure instead of swallowing silently.
-        logger.debug("_non_numeric_column_indices: dtype introspection failed; treating all columns as numeric", exc_info=True)
+        log_throttle(logger, "fe_helpers.non_numeric_dtype_probe", logging.WARNING, "_non_numeric_column_indices: dtype introspection failed, every column is treated as numeric (a string column may reach the numeric basis)", exc_info=True)
         return set()
     return idx
 
