@@ -62,3 +62,4 @@ So the audit is incomplete. Roughly 60% of the manifest lines were not read, so 
 - 15-F17: FIXED. All-NaN column gets mean 0 and std 1 in the knockoff standardisation, so its knockoff is finite. Test test_cluster15_knockoff_all_nan_column.py.
 - 15-F12: FIXED. Deleted the unused nested _is_discrete (superseded by _is_discrete_v2, which is kept and used). Tests tests/feature_selection/test_cluster15_unused_is_discrete_removed.py plus tests/feature_selection/contracts/test_importance.py.
 - 15-F14: FIXED. _scaled_coef logs a throttled WARNING when std scaling is skipped for non-numeric data (was a silent pass); coefficients stay unscaled. Test tests/feature_selection/test_cluster15_scaled_coef_warns.py.
+- 15-F18: FIXED. Univariate prescreen treats a falsy prescreen_top_k as no cap, matching the mRMR prescreen (0 kept nothing before). Tests tests/feature_selection/test_cluster15_prescreen_topk_zero.py (behavioural).

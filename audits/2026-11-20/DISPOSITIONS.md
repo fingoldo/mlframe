@@ -1242,3 +1242,4 @@
 | 42-F15 | FIXED | Dated timing numbers and the 2026-07-10 claim removed from the confidence-gated bench docstring; the run command and dispatch pointer are kept. Test tests/votenrank/test_cluster42_bench_docstring_no_numbers.py. |
 | 15-F12 | FIXED | Deleted the unused nested _is_discrete (superseded by _is_discrete_v2, which is kept and used). Tests tests/feature_selection/test_cluster15_unused_is_discrete_removed.py plus tests/feature_selection/contracts/test_importance.py. |
 | 15-F14 | FIXED | _scaled_coef logs a throttled WARNING when std scaling is skipped for non-numeric data (was a silent pass); coefficients stay unscaled. Test tests/feature_selection/test_cluster15_scaled_coef_warns.py. |
+| 15-F18 | FIXED | Univariate prescreen treats a falsy prescreen_top_k as no cap, matching the mRMR prescreen (0 kept nothing before). Tests tests/feature_selection/test_cluster15_prescreen_topk_zero.py (behavioural). |
