@@ -638,6 +638,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 26-F27 | 26_root_modules-5.md | PARTIAL | ScatterPanelSpec length checks added; HistogramPanelSpec.bar_colors contract ambiguous for pre-binned data, left. Test test_cluster26_scatter_spec_lengths.py. |
 | 26-F34 | 26_root_modules-5.md | DEFERRED | Import-time env write and CatBoost Pool patch may be relied on by importers outside the suite entry; moving them is an owner decision. |
 | 26-F19 | 26_root_modules-5.md | FIXED | Mutation of the caller's XGBoost model documented in the docstring (needed: early stopping is a constructor parameter). Docstring-only, no test. |
+| 28-F61 | 28_root_modules-7.md | FIXED | Unused matplotlib import removed from trainer-configure helpers. Regression: 37 importing tests pass. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |

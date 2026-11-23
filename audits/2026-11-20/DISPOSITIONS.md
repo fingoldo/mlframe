@@ -1167,3 +1167,4 @@
 | 26-F27 | PARTIAL | ScatterPanelSpec validates x/y/point_color/point_size lengths at construction. HistogramPanelSpec.bar_colors not checked: its length contract is ambiguous for pre-binned data and no consumer pins it. Test test_cluster26_scatter_spec_lengths.py (3 passing); 47 existing spec tests pass. |
 | 26-F34 | DEFERRED | Import-time env write and catboost.Pool monkeypatch in mlframe.training are relied on by callers that never enter the suite entry point; moving them changes behaviour for every importer. Owner decision on where the shim must install. |
 | 26-F19 | FIXED | The set_params side effect for XGBoost is documented in the docstring: XGBoost takes early stopping as a constructor parameter, so the mutation is needed. Docstring-only; no behaviour change, no test. |
+| 28-F61 | FIXED | Removed the unused optional matplotlib import in the trainer-configure helpers (no name use, no importer). Regression: the two importing tests pass (37). |
