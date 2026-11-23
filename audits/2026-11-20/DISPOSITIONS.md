@@ -1290,3 +1290,4 @@
 | 20-F31 | FIXED | Deleted the unreachable duplicate empty-row guard in _interval_band_panel (the first guard returns before it). Test tests/reporting/test_cluster20_interval_band_single_guard.py (source pin); 37 existing quantile-chart tests pass. |
 | 20-F32 | FIXED | Error-bias binning warning reworded to describe a skipped feature, not a fallback. Test tests/reporting/test_cluster20_error_bias_warning_text.py (source pin). |
 | 20-F33 | FIXED | Model-comparison bar colours use the loop index (was an O(K^2) names.index lookup, equal to i for unique names); the duplicated Spearman comment block is reduced to one copy. Test tests/reporting/test_cluster20_model_comparison_index.py; 58 existing model-comparison tests pass. |
+| 20-F34 | FIXED | Multilabel ROC and calibration legend entries shorten their class labels through the multiclass helper. Test tests/reporting/test_cluster20_multilabel_legend_names.py; 46 existing multilabel tests pass. |
