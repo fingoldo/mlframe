@@ -204,7 +204,9 @@ def plot_confusion_matrix(
     ax.set_ylabel(ylabel)
     if include_values and K and display.size > _CELL_TEXT_MAX:
         # Silently dropping the annotations reads as "this matrix has no numbers", not "there were too many to show".
-        title = f"{title}\n(per-cell values hidden: {display.size:,} cells exceeds the {_CELL_TEXT_MAX} readable limit)"
+        note = f"(per-cell values hidden: {display.size:,} cells exceeds the {_CELL_TEXT_MAX} readable limit)"
+        # An absent title must not become the literal "None" in the note (20-F29).
+        title = f"{title}\n{note}" if title else note
     if title:
         ax.set_title(title, fontsize=10)
 
