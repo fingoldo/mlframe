@@ -138,6 +138,9 @@ ALL_SCENARIOS = {**{name: ADVERSARIAL_SCENARIOS[name] for name in GATE_SCENARIOS
 
 def make(scenario: str, seed: int = 0, n: int = 5000):
     scenario = _LEGACY_ALIASES.get(scenario, scenario)
+    if scenario not in ALL_SCENARIOS:
+        # Name the valid choices instead of a bare KeyError with no list to pick from (12-F101).
+        raise KeyError(f"unknown scenario {scenario!r}; valid names: {sorted(ALL_SCENARIOS)}")
     builder = ALL_SCENARIOS[scenario]
     if scenario in ADVERSARIAL_SCENARIOS and scenario == "linear_gaussian_lowdim_n200" and n == 5000:
         return builder(seed)  # this bed's whole point is n=200; do not silently inflate it to the shared default
