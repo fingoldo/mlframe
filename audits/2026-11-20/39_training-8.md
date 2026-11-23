@@ -153,3 +153,13 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F57: FIXED. Negative and NaN categorical codes map to the reserved row instead of category 0. Tests updated in test_categorical_embeddings.py.
 - 39-F21: FIXED. Object-column fingerprints hash by value (hash_pandas_object), not PyObject pointers. Test test_cluster39_object_column_hash_by_value.py.
 - 39-F22: FIXED. fit() retries without y only for a y-signature mismatch, the same narrowing fit_transform uses; genuine TypeErrors surface. Test test_cluster39_custom_fit_narrow_retry.py.
+- 39-F41: DEFERRED. Stale-lock reclaim was removed deliberately (class docstring says so); restoring it changes lock behaviour, so the owner must pick reclaim vs documented no-reclaim. Module docstring is the only stale claim.
+- 39-F68: DEFERRED. The per-step sync detects an all-zero batch at runtime; moving the check to prep time means validating sample_weight before the epoch, a design change to the weight pipeline. Owner to confirm the approach.
+- 39-F39: FIXED. CUDA runtime failure in keep-n auto sizing falls back to 2 with a WARNING instead of breaking every acquire. Test test_cluster39_keep_n_cuda_failure.py.
+- 39-F45: FIXED. Character entropy counts with a single Counter over chained characters. Test test_cluster39_char_entropy_counter.py.
+- 39-F55: FIXED. set_params raises ValueError for unknown keys and method names instead of warning or overwriting. Test test_cluster39_set_params_unknown_raises.py.
+- 39-F25: FIXED. James-Stein pooled-variance residuals use one pandas map per fit instead of a dict lookup per row. Test test_cluster39_js_variance_vectorised.py.
+- 39-F26: DEFERRED. CUDA-lost CPU fallback reloads in float32 while the primary is fp16. Choosing between matching the dtype (CPU fp16 kernel support varies) and documenting the mid-run precision change is a policy decision for the owner.
+- 39-F28: DEFERRED. Derived memory/cache values are written into the user's sub-configs and re-read as explicit on a model_dump round trip. Fixing it needs a design choice (keep derived values out of the sub-configs, or track their provenance across serialisation). Owner decision.
+- 39-F44: PARTIAL. Datetime token construction is vectorised (np.char.add), pinned to the per-element formula. The object-token loop (_canonical_cat_token per value) and the _objectwise_isnull per-row loop are still Python loops. Test test_cluster39_datetime_tokens_vectorised.py.
+- 39-F29: FIXED. Concurrent misses on one cache key elect a leader; other callers wait and then read the memory tier. Test test_cluster39_cache_single_flight.py.
