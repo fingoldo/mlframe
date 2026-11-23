@@ -28,6 +28,7 @@ DELIBERATE_LATCHES = {
     "_CMI_GPU_FAILED": "circuit breaker, re-armed per fit by _rearm_gpu_circuit_breakers",
     "_MI_DIRECT_GPU_FAILED": "circuit breaker, re-armed per fit by _rearm_gpu_circuit_breakers",
     "_CUDA_USABLE_CACHE": "retries inside the call and only pins the verdict once they are exhausted; a mixed answer across callers would split one fit between device and CPU kernels",
+    "_GPU_ARGSORT_AVAILABLE": "a sort that fails on the device is not retried for the rest of the process, so one transient fault does not put every later metric on a failing GPU; the availability cache resets it, so the latch is re-armed with that cache",
     "_CB_GPU_USABLE_CACHE": "same shape, plus a genuine-absence signature for a wheel built without GPU support; the probe fit costs ~4s so re-probing per caller is not an option",
 }
 
