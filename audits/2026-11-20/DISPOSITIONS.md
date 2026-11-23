@@ -1095,3 +1095,4 @@
 | 18-F15 | DEFERRED | Streaming harmonic mean maps a zero prediction to a finite 1e150 sentinel, so it finishes near 3e-150 while the materialised path returns 0. Fixing it needs a zero-indicator channel in the streaming accumulator, which changes its memory footprint. Owner to approve the accumulator change. |
 | 14-F12 | FIXED | split_into_train_test refuses an empty features_indices with a ValueError instead of indexing [0]. Test test_cluster14_split_empty_features_raises.py. |
 | 15-F17 | FIXED | All-NaN column gets mean 0 and std 1 in the knockoff standardisation, so its knockoff is finite. Test test_cluster15_knockoff_all_nan_column.py. |
+| 13-F22 | DEFERRED | Dead branch: the row-alignment check is always true (both arrays have n rows). Removing it or asserting the invariant touches the residual pipeline's None contract, and no cheap direct test reaches it. Deferred with the shap_proxied dead-branch cleanup. |
