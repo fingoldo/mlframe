@@ -25,10 +25,13 @@ entirely -- imputation, resampling, reweighting rather than a different scorer.
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, Tuple
 
 from mlframe.data.datasets.scenarios._common import probes
 from mlframe.data.datasets.spec import CeilingTarget, DatasetSpec, EdgeSpec, FeatureSpec, GateSpec, LinkSpec, MissingnessSpec, TargetSpec
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["missingness_trio_spec", "rare_class_spec", "covariate_shift_spec", "concept_shift_spec", "RARE_PREVALENCE", "RARE_MIN_ROWS"]
 
@@ -89,14 +92,18 @@ def rare_class_spec(n_noise: int = 30, n_samples: int = RARE_MIN_ROWS, ceiling: 
     and no comparison between the two could then attribute a difference to either.
     """
     informative, weights = _linear_core(5)
+    effective_n = max(int(n_samples), RARE_MIN_ROWS)
+    if effective_n != int(n_samples):
+        # The floor keeps enough positives to measure against; say so instead of silently overriding the caller (04-F31).
+        logger.warning("rare_class_spec: n_samples=%s raised to the RARE_MIN_ROWS floor %s", n_samples, RARE_MIN_ROWS)
     return DatasetSpec(
         name=f"rare_class_{int(prevalence * 1000):03d}permille",
-        n_samples=max(int(n_samples), RARE_MIN_ROWS),
+        n_samples=effective_n,
         root_seed=seed,
         features=informative + probes(n_noise),
         targets=(TargetSpec(name="y", prevalence=prevalence, link=LinkSpec(kind="logistic", coefficients=weights), calibrate_to=CeilingTarget(metric="auc", value=ceiling)),),
         edges=tuple(EdgeSpec(source=column, target="y") for column in weights),
-        provenance={"family": "observation", "purpose": "imbalance reached by intercept shift, so sample size is not confounded with balance"},
+        provenance={"family": "observation", "purpose": "imbalance reached by intercept shift, so sample size is not confounded with balance", "requested_n_samples": str(int(n_samples))},
     )
 
 

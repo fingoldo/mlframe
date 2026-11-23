@@ -1192,3 +1192,4 @@
 | 37-F27 | FIXED | Full-length base columns are built once per base name within the domain-violation check (per-call cache _full_base). Pinned by tests/training/core/test_cluster37_domain_violation_base_cache.py (source-level). |
 | 04-F34 | FIXED | sample_categorical clamps the drawn index to K-1 when rounding leaves the cumulative sum under 1. Test tests/data/test_cluster04_sample_categorical_in_range.py. |
 | 04-F32 | FIXED | Scenario name index refuses duplicate names (_index_by_name raises ValueError). Tests tests/data/test_cluster04_scenario_names_unique.py. |
+| 04-F31 | FIXED | rare_class_spec keeps the RARE_MIN_ROWS floor but logs a WARNING when it raises the caller's n_samples, and records requested_n_samples in provenance. Tests tests/data/test_cluster04_rare_class_floor_is_visible.py. |
