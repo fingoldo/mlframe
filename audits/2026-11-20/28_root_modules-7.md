@@ -174,3 +174,4 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F52: FIXED. Bare raise AssertionError in load_and_prepare_dataframe replaced with a TypeError naming the function and the received type. Test tests/training/test_cluster28_preprocessing_typed_error.py; 5 loader tests in test_preprocessing pass.
 - 28-F51: FIXED. Narrowing helper docstring now says non-finite values (NaN features) also yield None, matching the behaviour. Test tests/training/test_cluster28_narrow_numeric_docstring.py (3 pass).
 - 28-F53: FIXED. Object-label stack uses arr.tolist() (np.stack converts each element itself, so the result is identical; checked on array and list elements). Test tests/training/test_cluster28_object_stack_equivalence.py (2 pass).
+- 28-F55: FIXED. The no-op del of a parameter and its unreachable NameError handler were removed earlier (93739ee10); related trainer tests pass (11). Recorded here, where the disposition was missing.
