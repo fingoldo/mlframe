@@ -1074,3 +1074,5 @@
 | 42-F8 | FIXED | Removed the no-op full-table reindex in Leaderboard.__init__. Test test_cluster42_majority_graph_and_table.py. |
 | 42-F9 | FIXED | Majority graph computes the below/above weighted sums once per model and reuses them for wins and ties. Values pinned by test_cluster42_majority_graph_and_table.py. |
 | 42-F11 | FIXED | Votenrank bench imports sigmoid from the family's _bench_shared module; the package-root copy stays for the other benches. Test test_cluster42_bench_sigmoid_shared.py. |
+| 42-F10 | FIXED | Minimax benchmark times and checks the shipped Leaderboard.minimax_ranking; the duplicate _new_minimax copy is removed; the old formulation stays as a fixture. Test test_cluster42_minimax_bench_uses_shipped.py. |
+| 42-F12 | DEFERRED | Repeated cProfile/perf_counter boilerplate across about a dozen bench scripts: a cross-file cleanup with no behaviour impact; deferred so the benches are not churned in this pass. |

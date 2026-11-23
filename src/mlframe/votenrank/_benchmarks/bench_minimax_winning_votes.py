@@ -29,18 +29,6 @@ def _old_minimax(ranks, weights, models):
     return (-pd.Series(data=out, index=pd.Series(models, name="Name"))).sort_values(ascending=False)
 
 
-def _new_minimax(ranks, weights, models):
-    out = []
-    for model in models:
-        row = ranks.loc[model]
-        less = ((ranks < row) * weights).sum(axis=1)
-        greater = ((ranks > row) * weights).sum(axis=1)
-        models_scores = less * (less > greater)
-        opponents = models_scores.drop(model)
-        out.append(opponents.max() if not opponents.empty else 0.0)
-    return (-pd.Series(data=out, index=pd.Series(models, name="Name"))).sort_values(ascending=False)
-
-
 def _tbl_for(n_models, n_tasks, seed=0):
     """The raw score table the ranks below are derived from, so the shipped Leaderboard can be built too."""
     rng = np.random.default_rng(seed)
@@ -59,32 +47,32 @@ def _make(n_models, n_tasks, seed=0):
 
 
 def bench(n_models, n_tasks, reps=20):
-    ranks, weights, models = _make(n_models, n_tasks)
-    # identity
-    a = _old_minimax(ranks, weights, models)
-    b = _new_minimax(ranks, weights, models)
-    if not (a.equals(b)):
-        raise AssertionError("identity FAILED")
+    """Time the shipped ``Leaderboard.minimax_ranking`` against the frozen pre-change copy kept as a fixture (42-F10).
 
-    # ...and against what actually ships, not only against the other local copy. Both frozen forms above
-    # can agree with each other while diverging from Leaderboard.minimax_ranking.
+    The shipped class is the thing being measured, so it is both the identity reference and the timed path; the
+    frozen copy only exists to show the speedup relative to the old formulation.
+    """
     from mlframe.votenrank.leaderboard import Leaderboard
 
-    shipped = Leaderboard(_tbl_for(n_models, n_tasks)).minimax_ranking()
-    if not (np.allclose(shipped.loc[b.index].to_numpy(), b.to_numpy(), equal_nan=True)):
-        raise AssertionError(f"bench copy diverges from the shipped minimax_ranking: shipped={shipped.to_dict()} bench={b.to_dict()}")
+    ranks, weights, models = _make(n_models, n_tasks)
+    lb = Leaderboard(_tbl_for(n_models, n_tasks))
+    shipped = lb.minimax_ranking()
+    old_scores = _old_minimax(ranks, weights, models)
+    if not np.allclose(shipped.loc[old_scores.index].to_numpy(), old_scores.to_numpy(), equal_nan=True):
+        raise AssertionError(f"frozen fixture diverges from the shipped minimax_ranking: shipped={shipped.to_dict()} fixture={old_scores.to_dict()}")
 
     def t(fn):
+        """Best-of-``reps`` wall time of ``fn``."""
         best = float("inf")
         for _ in range(reps):
-            s = time.perf_counter()
-            fn(ranks, weights, models)
-            best = min(best, time.perf_counter() - s)
+            s0 = time.perf_counter()
+            fn()
+            best = min(best, time.perf_counter() - s0)
         return best
 
-    old = t(_old_minimax)
-    new = t(_new_minimax)
-    print(f"n_models={n_models} n_tasks={n_tasks}: OLD={old*1e3:.3f}ms NEW={new*1e3:.3f}ms " f"speedup={old/new:.3f}x identity=OK")
+    old = t(lambda: _old_minimax(ranks, weights, models))
+    new = t(lb.minimax_ranking)
+    print(f"n_models={n_models} n_tasks={n_tasks}: OLD={old*1e3:.3f}ms SHIPPED={new*1e3:.3f}ms speedup={old/new:.3f}x identity=OK")
 
 
 if __name__ == "__main__":
