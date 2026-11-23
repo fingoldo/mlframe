@@ -164,7 +164,7 @@ def test_oat_cardinality_bias_correction(cardinality_bias_correction):
 
 
 # 'optimal_joint' admits a confounder noise col so it is exercised on exact_dup only (where it is clean); the rest run both contracts.
-@pytest.mark.parametrize("nbins_strategy", [None, "mdlp", "fayyad_irani"])
+@pytest.mark.parametrize("nbins_strategy", [None, "mdlp", "mdlp_validated"])
 def test_oat_nbins_strategy(nbins_strategy):
     """Oat nbins strategy."""
     _assert_both_contracts(f"nbins_strategy={nbins_strategy}", nbins_strategy=nbins_strategy)

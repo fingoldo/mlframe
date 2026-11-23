@@ -1280,7 +1280,7 @@ def test_iter569_audit_pass_6_axes_flow_to_kwargs():
     mrmr_a.update(use_mrmr_fs=False)
     mrmr_b = dict(mrmr_a)
     mrmr_b.update(
-        mrmr_nbins_strategy_cfg="quantile",
+        mrmr_nbins_strategy_cfg="quantile_spacing",
         mrmr_mi_correction_cfg="chao_shen",
         mrmr_redundancy_aggregator_cfg="jmim",
         mrmr_bur_lambda_cfg=0.5,
@@ -1330,7 +1330,7 @@ def test_iter569_audit_pass_6_axes_flow_to_kwargs():
     on_axes = dict(base_axes)
     on_axes.update(
         use_mrmr_fs=True,
-        mrmr_nbins_strategy_cfg="quantile",
+        mrmr_nbins_strategy_cfg="quantile_spacing",
         mrmr_mi_correction_cfg="chao_shen",
         mrmr_redundancy_aggregator_cfg="jmim",
         mrmr_bur_lambda_cfg=0.5,
@@ -1342,7 +1342,7 @@ def test_iter569_audit_pass_6_axes_flow_to_kwargs():
     c_on = _build_combo(models=("cb",), axes=on_axes, seed=0)
     kw = build_mrmr_kwargs(c_on)
     assert kw is not None, "build_mrmr_kwargs must return dict when use_mrmr_fs=True"
-    assert kw["nbins_strategy"] == "quantile"
+    assert kw["nbins_strategy"] == "quantile_spacing"
     assert kw["mi_correction"] == "chao_shen"
     assert kw["redundancy_aggregator"] == "jmim"
     assert kw["bur_lambda"] == 0.5
@@ -1819,13 +1819,13 @@ def test_iter594_audit_pass_7_axes_flow_to_kwargs():
 
     # (c-quad) #4 has a COMPOUND gate: collapsed_fallback_nbins only fires
     # when nbins_strategy is one of the supervised methods that can actually
-    # collapse a column. With nbins_strategy='quantile' (unsupervised) the
+    # collapse a column. With nbins_strategy='quantile_spacing' (unsupervised) the
     # fallback is never reached even with use_mrmr_fs=True, so the axis must
     # canon-collapse there too.
     quantile_a = dict(base_axes)
     quantile_a.update(
         use_mrmr_fs=True,
-        mrmr_nbins_strategy_cfg="quantile",
+        mrmr_nbins_strategy_cfg="quantile_spacing",
         mrmr_collapsed_fallback_nbins_cfg=3,
     )
     quantile_b = dict(quantile_a)

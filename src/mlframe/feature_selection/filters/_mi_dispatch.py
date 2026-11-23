@@ -85,7 +85,7 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
         estimator_kwargs: Forwarded verbatim to the chosen estimator (e.g.
             ``{'k': 7}`` for KSG, ``{'n_epochs': 800}`` for MINE).
         nbins_strategy: For 'plug_in' only - the per-column bin-chooser
-            strategy ('auto', 'fd', 'qs', 'knuth', 'mdlp', etc.). When None,
+            strategy ('freedman_diaconis', 'quantile_spacing', 'knuth', 'mdlp', etc.). When None,
             uses fixed 10-quantile bins (legacy default).
         nbins_strategy_kwargs: kwargs for the strategy (e.g. ``{'qs_alpha': 0.25}``).
         miller_madow: For 'plug_in' only - subtract MM bias correction at the
@@ -135,7 +135,7 @@ def _score_plug_in(x: np.ndarray, y_arr: np.ndarray, *, nbins_strategy: Optional
     strategy_kwargs = dict(nbins_strategy_kwargs or {})
     if nbins_strategy is None:
         nbins_strategy = "freedman_diaconis"
-    needs_y = nbins_strategy.lower() in ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated", "optimal_joint", "cv")
+    needs_y = nbins_strategy in ("mdlp", "mdlp_validated", "optimal_joint", "mah")
     y_for_strategy = y_arr if needs_y else None
     edges_list = per_feature_edges(
         x.reshape(-1, 1), y=y_for_strategy,
@@ -165,8 +165,8 @@ def _score_aggregator(x: np.ndarray, y_arr: np.ndarray, *, kind: str, nbins_stra
     from ._mi_aggregator import median_mi_panel, genie_mi_panel
     from ._ksg import mixed_ksg_mi
     estimators = {
-        "fd": lambda a, b: _score_plug_in(a, np.asarray(b), nbins_strategy="freedman_diaconis", nbins_strategy_kwargs={}, miller_madow=True),
-        "qs": lambda a, b: _score_plug_in(a, np.asarray(b), nbins_strategy="qs", nbins_strategy_kwargs={}, miller_madow=True),
+        "freedman_diaconis": lambda a, b: _score_plug_in(a, np.asarray(b), nbins_strategy="freedman_diaconis", nbins_strategy_kwargs={}, miller_madow=True),
+        "quantile_spacing": lambda a, b: _score_plug_in(a, np.asarray(b), nbins_strategy="quantile_spacing", nbins_strategy_kwargs={}, miller_madow=True),
         "mixed_ksg": lambda a, b: float(mixed_ksg_mi(a, np.asarray(b).astype(_crit_np_dtype()), k=5)),
     }
     fn = median_mi_panel if kind == "median" else genie_mi_panel

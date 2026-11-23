@@ -38,6 +38,7 @@ from sklearn.model_selection import BaseCrossValidator
 from ._mrmr_param_constants import (
     _VALID_QUANTIZATION_METHODS,
     _VALID_NAN_STRATEGIES,
+    _VALID_CATEGORICAL_FOLD_STRATEGIES,
     _VALID_MRMR_RELEVANCE_ALGOS,
     _VALID_MRMR_REDUNDANCY_ALGOS,
     _VALID_NBINS_STRATEGIES,
@@ -346,14 +347,20 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # regardless (the analytic null guards on >=5 expected/cell); capping DENSIFIES the cells (better MI) AND lets the whole codes matrix stay a narrow int
         # - set to <=127 to keep the compact-codes storage int8 (4x smaller) even when legitimate high-card categoricals exist.
         max_categorical_cardinality: int | None = 127,
-        # per-feature adaptive bin chooser. Default ``'mdlp'`` (Fayyad-Irani 1993, with njit-accelerated kernel) is the honest combined-ranking winner of the F1
-        # leaderboard (``|err vs truth| + noise_floor``: MDLP 0.107, Sturges 0.135, quantile10 0.139, OptimalJoint 0.167, FD 0.175). MDLP is the only strategy
-        # with a TRUE zero no-signal floor, which directly improves MRMR's relevance gate against false-positive feature picks. Pass ``nbins_strategy=None`` to
-        # restore the earlier fixed ``quantization_nbins`` quantile behaviour. The MRMR hot path stays exclusively on the plug-in MI njit kernel chain
-        # (mi_direct / fleuret / permutation); alternative MI estimator families (KSG, neural, copula, aggregators) live in their own modules for ad-hoc /
-        # benchmark use only and are explicitly NOT wired into MRMR.fit().
-        nbins_strategy: str = "mdlp",
-        # ``nbins_strategy='mdlp'`` now runs significance-gated ("validated")
+        # How the rare levels of a categorical column are folded before it is coded. ``"frequency"`` (default) is the cap above and nothing else. ``"min_support"`` also folds, into the same
+        # "other" bucket, every level seen on fewer than ``categorical_fold_min_support`` rows even when the column is under the cap: a cell of a few rows gives a plug-in MI that measures only
+        # its own noise (the analytic null already assumes >= 5 expected rows per cell); it uses no target, so it can also fold a thin level that carries the signal. ``"target_stat"`` merges levels the target
+        # cannot tell apart (G statistic of the merge against the BIC price, cheapest merge first) and keeps a level apart however few rows it has when its class mix differs; the column is then target-dependent and
+        # the permutation null refolds it for every permuted target. The mapping is decided per frame.
+        categorical_fold_strategy: str = "frequency",
+        categorical_fold_min_support: int = 5,
+        # per-feature adaptive bin chooser. Default ``'quantile_spacing'`` (owner decision 2026-11-23). It depends on the column only, never on the target, so a suite of targets bins each column once and the
+        # composite child fit can reuse the codes. Measured (_benchmarks/nbins_strategy, linear model out of fold, 20000 x 50, 2 seeds): binary AUC 0.951 (mdlp 0.931), regression R2 0.888 (mdlp 0.891, uniform 0.884),
+        # wall 21 / 40 s per fold (mdlp 40 / 58 s), the fewest noise sources on regression (0.02). The cost: on the ground-truth sweep of raw-column selection its F1 is 0.64 against 0.73 for mdlp (more false
+        # positives, 0.30 against 0.15); ``nbins_strategy='mdlp'`` restores that. Pass ``nbins_strategy=None`` for the earlier fixed ``quantization_nbins`` quantile behaviour. The MRMR hot path stays exclusively on
+        # the plug-in MI njit kernel chain (mi_direct / fleuret / permutation); alternative MI estimator families live in their own modules and are NOT wired into MRMR.fit().
+        nbins_strategy: str = "quantile_spacing",
+        # ``nbins_strategy='mdlp'`` runs significance-gated ("validated")
         # splitting by DEFAULT instead of the classic in-sample MDL threshold + depth cap -
         # measured real accuracy win on held-out RMSE (see supervised_binning.py's
         # ``mdlp_bin_edges`` docstring) at a 20-80x per-column cost. Pass
@@ -2987,6 +2994,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # The candidate search of the mix (one child MRMR fit per base, each about the cost of the whole fit) is OFF by default: on six continuous datasets (additive, interaction, two interactions, level plus
         # interaction, periodic plus trend, noise; 10000 x 12) and the 20000 x 20 benchmark it proposed 30 candidates and the rescue admitted none, with identical selections, at 3.5-7.5 times the wall of the fit
         # without it. The bases and their provenance (what ``TargetOffsetRegressor`` reads) are still recorded. ``True`` restores the candidate search.
+        # Re-measured 2026-11-23 with ``_benchmarks/target_mix/mix_value.py`` (y = 3*x0 + share*x1*x2 + noise, n=6000, p=10, 3 seeds per row; held-out R2 of a ridge on the selection):
+        #   share 4 %, noise 0.3: R2 0.9857/0.9858/0.9871 OFF vs 0.9904/0.9858/0.9871 ON, wall 11-34 s vs 29-40 s, the x1*x2 term found in both modes;
+        #   share 1.8 %, noise 0.6: R2 0.9594/0.9600/0.9593 in both modes, term found in both, wall 6-23 s vs 18-26 s;
+        #   share 0.8 %, noise 1.0: R2 0.8925/0.8900/0.8951 in both modes, term found in neither.
+        # Nine fits gave one +0.005 R2 and never changed what is found, at 1.1-2.8x the wall, so the default stays False. Details: audits/2026-11-23/PLAN_target_transform_in_mrmr.md (PLAN-05).
         fe_target_mix_candidates: bool = False,
         # With ``redundancy_policy='drop'`` the same held-out evidence prunes a selected engineered column, or a raw column no engineered column is built from, that does not lower the held-out
         # residual of the rest of the selection significantly. A raw operand of an engineered column (``fe_drop_redundant_raw_operands``) is pruned unless it improves the held-out fit of a LINEAR
@@ -3254,6 +3266,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
     # the valid options (fix audit row FS-P2-1). See that sibling for the per-constant notes.
     _VALID_QUANTIZATION_METHODS = _VALID_QUANTIZATION_METHODS
     _VALID_NAN_STRATEGIES = _VALID_NAN_STRATEGIES
+    _VALID_CATEGORICAL_FOLD_STRATEGIES = _VALID_CATEGORICAL_FOLD_STRATEGIES
     _VALID_MRMR_RELEVANCE_ALGOS = _VALID_MRMR_RELEVANCE_ALGOS
     _VALID_MRMR_REDUNDANCY_ALGOS = _VALID_MRMR_REDUNDANCY_ALGOS
     _VALID_NBINS_STRATEGIES = _VALID_NBINS_STRATEGIES

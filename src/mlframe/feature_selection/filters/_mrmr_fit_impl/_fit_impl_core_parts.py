@@ -198,7 +198,7 @@ def _fit_impl_part9(_ret_fit_impl_part7: Any, self: Any, y: pd.DataFrame | pd.Se
 
     drop_prefetched(self)  # a prefetch the rounds never took (no FE step ran) is forgotten here
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._post_selection import _friend_graph_analysis
-    return False, MRMR, _hashable_params_signature, recipes, fe, _y_np, X, signature, _cache_key, start_time, ran_out_of_time, _fe_family_on, verbose, cols, data, nbins, target_indices, categorical_vars_names, engineered_recipes, _effective_min_relevance_gain, _persisted_dcd_state, selected_vars, predictors, cached_MIs, classes_y, _eng_continuous_snapshot, _friend_graph_analysis
+    return False, MRMR, _hashable_params_signature, recipes, fe, _y_np, X, signature, _cache_key, start_time, ran_out_of_time, _fe_family_on, verbose, cols, data, nbins, target_indices, categorical_vars_names, engineered_recipes, _effective_min_relevance_gain, _persisted_dcd_state, selected_vars, predictors, cached_MIs, classes_y, _eng_continuous_snapshot, _friend_graph_analysis, _persisted_screen_caches, freqs_y
 
 
 def _fit_impl_part8() -> tuple[Any, ...]:

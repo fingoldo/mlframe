@@ -16,7 +16,7 @@ import numpy as np
 
 from ._code_dtype import narrowest_code_dtype
 
-_MDLP_STRATEGIES = ("mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated")
+_MDLP_STRATEGIES = ("mdlp", "mdlp_validated")
 _SIGNED = (np.int8, np.int16, np.int32, np.int64)
 DEFAULT_MDLP_MAX_DEPTH = 8
 DEFAULT_MAX_ADAPTIVE_NBINS = 256

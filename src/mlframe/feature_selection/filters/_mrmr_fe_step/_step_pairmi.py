@@ -97,6 +97,14 @@ def _prefill_cached_pair_mis(
     return written
 
 
+def all_pairs_cached(ids: Any, cached_MIs: dict, cached_confident_MIs: dict) -> bool:
+    """True when every pair of ``ids`` has its MI under the canonical sorted key (the key ``_prefill_cached_pair_mis`` and ``compute_pairs_mis`` write).
+
+    ``ids`` is a set whose iteration order is not ascending once small raw indices mix with later engineered ones, so a pair read off ``combinations(ids, 2)`` is looked up sorted: the unsorted
+    lookup missed pairs the batch precompute had filled, and a loky process pool (9 s of worker start-up) was spawned to compute nothing."""
+    return all((k in cached_MIs or k in cached_confident_MIs) for k in (tuple(sorted(p)) for p in combinations(ids, 2)))
+
+
 def _use_serial_pair_sweep(n_jobs: int, n_pairs: int, below_perm_floor: bool, pairs_all_cached) -> tuple[bool, bool]:
     """Return ``(run_serial, all_pairs_cached)``; ``pairs_all_cached`` is a zero-argument callable scanning the pair cache.
 
@@ -334,7 +342,7 @@ def _compute_pair_mis_and_floor_part2(
     _legacy_sweep_t0 = perf_counter()
     _below_perm_floor = fe_npermutations < _LOKY_POOL_MIN_FE_NPERMUTATIONS
     _run_serial, _all_pairs_precomputed = _use_serial_pair_sweep(
-        n_jobs, n_pairs, _below_perm_floor, lambda: all((p in cached_MIs or p in cached_confident_MIs) for p in combinations(numeric_vars_to_consider, 2))
+        n_jobs, n_pairs, _below_perm_floor, lambda: all_pairs_cached(numeric_vars_to_consider, cached_MIs, cached_confident_MIs)
     )
     if _run_serial:
         if verbose and _below_perm_floor and not _all_pairs_precomputed and n_jobs > 1 and n_pairs >= max(2, n_jobs):

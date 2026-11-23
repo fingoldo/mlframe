@@ -58,7 +58,7 @@ def test_adaptive_categorize_dataset_matches_per_column_searchsorted_at_finite_p
             try:
                 data_new, _cols_new, _nbins_new = categorize_dataset(
                     df,
-                    nbins_strategy="fd",
+                    nbins_strategy="freedman_diaconis",
                     missing_strategy="separate_bin",
                     dtype=np.int32,
                 )

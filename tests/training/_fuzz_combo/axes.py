@@ -1160,12 +1160,11 @@ AXES: dict[str, tuple[Any, ...]] = {
     # restores the pre-2026-05-29 fixed quantile binning behaviour.
     # filters/mrmr.py:224. "mdlp_validated" added 2026-07-19 (commit
     # 228be12f0): holdout-validated MDLP, same collapsed_fallback_nbins gate
-    # as "mdlp"/"fayyad_irani" (combo.py canonical_key). "optimal_joint"/"cv"
-    # (pre-existing, previously unfuzzed) are CV-based joint binning --
-    # "cv" is a pure alias resolving to "optimal_joint" internally
-    # (_adaptive_nbins.py:489-490); both hit the same collapsed-fallback
-    # gate as fayyad_irani (_adaptive_nbins.py:679).
-    "mrmr_nbins_strategy_cfg": ("mdlp", "quantile", "mdlp_validated", "optimal_joint", "cv"),
+    # as "mdlp" (combo.py canonical_key). "optimal_joint" is CV-based joint binning
+    # (pre-existing, previously unfuzzed); it hits the same collapsed-fallback
+    # gate as mdlp. Every strategy has ONE name (no aliases): "quantile_spacing"
+    # replaces the former "quantile" / "qs", and "cv" no longer exists.
+    "mrmr_nbins_strategy_cfg": ("mdlp", "quantile_spacing", "mdlp_validated", "optimal_joint"),
     # MRMR Wave 8 F13 -- Chao-Shen entropy bias correction. filters/mrmr.py:229.
     # 3 algorithmic branches; pair exercises default vs CS.
     "mrmr_mi_correction_cfg": ("none", "chao_shen"),

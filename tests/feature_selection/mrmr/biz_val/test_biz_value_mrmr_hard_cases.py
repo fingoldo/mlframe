@@ -122,11 +122,9 @@ class TestSignalDetection:
         [
             None,  # legacy fixed quantization (control)
             "mdlp",  # default - supervised; iter MDLP collapse fix
-            "fayyad_irani",  # alias of mdlp
             "freedman_diaconis",  # unsupervised, robust
             "sturges",  # unsupervised, simple
-            "qs",  # quantile-spacing
-            "auto",  # = freedman_diaconis
+            "quantile_spacing",
         ],
     )
     def test_engineered_feature_only_predicts_y_xor_synergy(self, nbins_strategy):

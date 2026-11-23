@@ -80,7 +80,7 @@ def _fit_impl_scoped(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Se
     )
     if _ret_fit_impl_part9[0]:
         return _ret_fit_impl_part9[1]
-    MRMR, _hashable_params_signature, recipes, fe, _y_np, X, signature, _cache_key, start_time, ran_out_of_time, _fe_family_on, verbose, cols, data, nbins, target_indices, categorical_vars_names, engineered_recipes, _effective_min_relevance_gain, _persisted_dcd_state, selected_vars, predictors, cached_MIs, classes_y, _eng_continuous_snapshot, _friend_graph_analysis = _ret_fit_impl_part9[1:]
+    MRMR, _hashable_params_signature, recipes, fe, _y_np, X, signature, _cache_key, start_time, ran_out_of_time, _fe_family_on, verbose, cols, data, nbins, target_indices, categorical_vars_names, engineered_recipes, _effective_min_relevance_gain, _persisted_dcd_state, selected_vars, predictors, cached_MIs, classes_y, _eng_continuous_snapshot, _friend_graph_analysis, _persisted_screen_caches, freqs_y = _ret_fit_impl_part9[1:]
 
     cols, data, nbins, selected_vars = _friend_graph_analysis(
         self,
@@ -141,6 +141,11 @@ def _fit_impl_scoped(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Se
         _eng_continuous_snapshot,
         selected_vars,
     )
+
+    # Per-column statistics the fit already holds (bins, marginal / confirmed MI, entropy): kept as ``column_stats_`` / ``fit_meta_``. Training data of the MBHO meta-learner, see ``_column_stats``.
+    from .._column_stats import record_column_stats
+
+    record_column_stats(self, cols, nbins, cached_MIs, _persisted_screen_caches, freqs_y, classes_y, _effective_min_relevance_gain)
 
     # ---------------------------------------------------------------------------------------------------------------
     # Report FS results

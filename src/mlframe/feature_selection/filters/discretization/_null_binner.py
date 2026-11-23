@@ -138,7 +138,7 @@ class PermutedTargetBinner:
     def _prescore(self, y: np.ndarray) -> "Optional[list]":
         """Score the candidate bin counts of every column for ``y`` in one parallel kernel (``optimal_joint`` with a plan cache), once the plans of all columns are cached."""
         cache = self._kwargs.get("optimal_joint_plan_cache")
-        if cache is None or str(self._strategy).lower() not in ("optimal_joint", "cv") or (y.dtype.kind == "f" and not np.isfinite(y).all()):
+        if cache is None or str(self._strategy).lower() not in ("optimal_joint",) or (y.dtype.kind == "f" and not np.isfinite(y).all()):
             return None
         from .._optimal_joint_edges import pack_plans, prescore_best_m
 

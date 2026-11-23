@@ -25,7 +25,7 @@ import pytest
 
 # Strategies whose per-column nbins commonly exceeds ctor n_bins=4 and
 # therefore trigger the collision pre-fix.
-COLLIDING_STRATEGIES = ["fd", "sturges", "qs"]
+COLLIDING_STRATEGIES = ["freedman_diaconis", "sturges", "quantile_spacing"]
 
 
 @pytest.mark.parametrize("strategy", COLLIDING_STRATEGIES)

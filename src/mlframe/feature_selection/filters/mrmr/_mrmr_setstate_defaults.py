@@ -268,6 +268,9 @@ _SETSTATE_LEGACY_DEFAULTS = {
     # Engineered columns by producing group ({group: {"emitted", "kept_for_screen", "selected"}}) and by FE stage (a list of {"stage", "recommended", "new_columns", "by_group"}: the cascades, then steps 1..fe_max_steps); also in fe_provenance_.attrs and get_fe_report().
     "fe_family_counts_": None,
     "fe_step_counts_": None,
+    # Per-column statistics the last fit held (a DataFrame, see ``_column_stats``) and the fit-level context (a dict); None on a legacy pickle.
+    "column_stats_": None,
+    "fit_meta_": None,
     "_fe_emitted_by_group_": None,
     "_fe_step_counts_acc_": None,
     # The process-global family-wall ledger at the start of the last fit; fe_family_wall_ is the difference at its end. None on a legacy pickle, read as an empty ledger.

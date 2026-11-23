@@ -102,6 +102,7 @@ from ._numba_utils import _entropy_from_counts_njit
 # The best-split search of every significance-validated path (the observed split and each of the permutation draws) is the incremental kernel: O(1) per candidate instead of O(K_y), 6.5x faster at
 # n = 10 000, K_y = 16 with the same candidates and tie rule (gains agree to 1e-13; the best index differs only where two candidates tie exactly). The old kernel stays in supervised_binning.
 from .supervised_binning import _mdlp_best_split_inc_njit as _mdlp_best_split_njit
+from .supervised_binning import integer_class_codes as _integer_class_codes
 
 
 @njit(nogil=True, cache=True)
@@ -686,7 +687,7 @@ def mdlp_bin_edges_validated(
     if not _finite_mask.all():
         x = x[_finite_mask]
         _y_arr = _y_arr[_finite_mask]
-    y_i = _y_arr.astype(np.int64)
+    y_i = _integer_class_codes(_y_arr)
     if x.size == 0:
         return np.array([-np.inf, np.inf], dtype=np.float64)  # Intentional float64: empty split-edge vector keeps the float64 edge contract
     x, y_i = _dedupe_xy(x, y_i)
@@ -914,7 +915,7 @@ def mdlp_bin_edges_oos_validated(
     if not _finite_mask.all():
         x = x[_finite_mask]
         _y_arr = _y_arr[_finite_mask]
-    y_i = _y_arr.astype(np.int64)
+    y_i = _integer_class_codes(_y_arr)
     if x.size == 0:
         return np.array([-np.inf, np.inf], dtype=np.float64)  # Intentional float64: empty split-edge vector keeps the float64 edge contract
 
