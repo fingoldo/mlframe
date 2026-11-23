@@ -185,7 +185,7 @@ def _build_elasticnet_regressor(config: LinearModelConfig) -> BaseEstimator:
         alpha=config.alpha,
         # Route through the shared helper so elasticnet respects the same fallback
         # behavior as SGD/elasticnet-classifier paths (keeps single source of truth).
-        l1_ratio=_get_l1_ratio(config) if config.penalty == "elasticnet" else config.l1_ratio,
+        l1_ratio=config.l1_ratio,  # both branches of the old conditional returned config.l1_ratio (28-F62)
         random_state=config.random_state,
         max_iter=config.max_iter,
         tol=config.tol,
