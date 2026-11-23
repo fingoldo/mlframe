@@ -41,6 +41,10 @@ def valuation_sample_weight(values: np.ndarray, *, mode: str = "clip_negative", 
     n = values.shape[0]
     if n == 0:
         return values
+    # NaN/inf valuations are a data problem; refuse them here rather than let them surface as the internal-bug RuntimeError below (22-F34).
+    n_bad = int(np.count_nonzero(~np.isfinite(values)))
+    if n_bad:
+        raise ValueError(f"valuation_sample_weight: {n_bad} non-finite valuation(s) (NaN or inf); clean the valuations before weighting.")
 
     if mode == "clip_negative":
         w = np.maximum(values, floor)

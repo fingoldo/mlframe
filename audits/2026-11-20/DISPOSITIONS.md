@@ -1102,3 +1102,4 @@
 | 22-F37 | FIXED | Dtype family prefixes match only when followed by a bit width, so interval dtypes are not mapped to int codes. Test test_cluster22_dtype_canon_interval.py. |
 | 22-F38 | FIXED | module_available docstring now states that a dotted name imports its parent package to locate the child. Docstring-only correction; no behaviour change, no test. |
 | 22-F40 | FIXED | Infinite group labels get their own string keys; the integer branch requires finite values. Test test_cluster22_group_keys_inf.py. |
+| 22-F34 | FIXED | Non-finite valuations raise a ValueError naming the count, instead of the internal-bug RuntimeError. Test test_cluster22_weights_nonfinite_valueerror.py. |
