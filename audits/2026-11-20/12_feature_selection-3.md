@@ -213,3 +213,4 @@ Counts: P0 0, P1 22, P2 57, P3 22 (101 rows). The rows marked [v] are the ones I
 - 12-F18: FIXED. _quantile_block returns an explicit 'No finite tau' line instead of crashing on an empty tau list. Test tests/feature_selection/test_cluster12_quantile_block_empty.py.
 - 12-F85: FIXED. main returns the count of failed runs and the entry point exits 1 when any failed (was len(rows), so the else branch was unreachable). Test tests/feature_selection/test_cluster12_ablation_main_exit_count.py.
 - 12-F99: FIXED. Three run scripts (run_phase0, run_scm_beds, run_synth_control) exit 1 when no cell executed; was count >= 0, so always 0. Test tests/feature_selection/test_cluster12_run_scripts_zero_cells_fail.py (source-level pin; the mains need real beds).
+- 12-F86: FIXED. Per-estimator summary prints 'no runs (n=0)' when the subset is empty instead of min/max on an empty array (--seeds 0). Test tests/feature_selection/test_cluster12_parity_zero_seeds_summary.py.
