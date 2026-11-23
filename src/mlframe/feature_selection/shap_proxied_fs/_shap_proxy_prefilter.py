@@ -259,7 +259,8 @@ def _frame_values(X):
         if any(isinstance(dt, pd.api.extensions.ExtensionDtype) for dt in X.dtypes):
             try:
                 return X.to_numpy(dtype=np.float64, na_value=np.nan)  # Intentional float64: the SHAP proxy matrix is double, so the nullable columns and the z-score blocks keep their native precision
-            except (ValueError, TypeError):
+            except (ValueError, TypeError) as exc:
+                log_throttle(logger, "shap_proxy._frame_values_object", logging.WARNING, "SHAP proxy: nullable frame has no float view, falling back to an object array: %s", exc)
                 return X.values
         return X.values
     return np.asarray(X)
