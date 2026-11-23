@@ -714,7 +714,7 @@ def mi_classif_batch_chunked(X: pd.DataFrame | np.ndarray, y: np.ndarray, *, nbi
     each materialised the FULL engineered matrix as one double precision array to batch-score MI - O(n * n_engineered)
     peak RAM that OOMs at scale (measured (16000, 20000) double precision = 2.38 GiB), worst for the combinatorial
     triplet/quadruplet cross-basis families. MI is PER-COLUMN, so scoring in column blocks is BIT-IDENTICAL to
-    the all-at-once call FOR ANY chunk size while bounding peak extra RAM. ``chunk_cols`` defaults to a RAM-aware
+    the all-at-once call at the same working dtype (``_crit_np_dtype()``), for any chunk size, while bounding peak extra RAM. ``chunk_cols`` defaults to a RAM-aware
     width (see ``_mi_chunk_cols_for`` - bounds the BLOCK BYTES, so it is safe at large n too, not just wide p);
     pass an explicit value to override. Accepts a pandas DataFrame (sliced via ``iloc``, so only the block is
     materialised) or a 2-D ndarray. Returns the (p,) per-column MI array."""
