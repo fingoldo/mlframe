@@ -116,3 +116,4 @@ Severity counts: P0 0, P1 8, P2 21, P3 23, total 52.
 - 37-F52: FIXED. Binary-only error message no longer points at out-of-scope one-vs-rest; Venn-Abers tests pass
 - 37-F26: FIXED. Honest-gain floor drops specs whose gain is not strictly above the floor, so a NaN gain is dropped. Test test_cluster37_nan_gain_dropped_and_merge_logged.py.
 - 37-F29: FIXED. A back-merge skipped on row-count change logs a WARNING naming the dropped engineered columns. Test test_cluster37_nan_gain_dropped_and_merge_logged.py.
+- 37-F25: FIXED. Watchdog skips for a missing group column or absent base columns log a WARNING. Test test_cluster37_watchdog_skip_logged.py.

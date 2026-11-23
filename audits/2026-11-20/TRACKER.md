@@ -519,6 +519,8 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 39-F70 | 39_training-8.md | FIXED | Optimizer/scheduler name via getattr. No direct test. |
 | 37-F26 | 37_training-6.md | FIXED | NaN honest-gain specs are dropped by the floor. Test test_cluster37_nan_gain_dropped_and_merge_logged.py. |
 | 37-F29 | 37_training-6.md | FIXED | Skipped back-merge logs WARNING with row counts and dropped columns. Test test_cluster37_nan_gain_dropped_and_merge_logged.py. |
+| 37-F25 | 37_training-6.md | FIXED | Watchdog skips for missing group/base columns log WARNING. Test test_cluster37_watchdog_skip_logged.py. |
+| 41-F10 | 41_training-10.md | FIXED | Single-target picker gets (min, max), not a per-row list. Test test_cluster41_single_picker_gets_span.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |

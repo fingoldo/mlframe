@@ -140,3 +140,9 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F32: FIXED. Only float NaN cells become the null sentinel; the string 'NaN' in a string column is kept as data. Test tests/training/test_cluster39_polars_string_nan_is_data.py.
 - 39-F19: FIXED. Decision (default taken): low system RAM alone evicts one entry per check and yields; a cache over its size limit still evicts until under it. Tests tests/training/test_cluster39_low_ram_evicts_one_entry.py.
 - 39-F20: FIXED. Persistence on with no DiskKey logs a throttled WARNING that the disk tier is unused (feature_handling/cache.py); tests/training/test_cluster39_disk_tier_key_warning.py
+- 39-F7: FIXED. Categorical cast failures in predict_from_models log at WARNING with the column name.
+- 39-F8: FIXED. Volatility-router val-predict failure logs at WARNING with traceback. Test test_cluster39_logging_levels_visible.py.
+- 39-F10: FIXED. allowed_targets typo warning is emitted at any verbosity. Test test_cluster39_logging_levels_visible.py.
+- 39-F56: FIXED. Lookahead slow-weight commit failure logs at WARNING, stating predictions use fast weights.
+- 39-F69: FIXED. Lookahead commit failure logs at WARNING with exc_info (same site as 39-F56).
+- 39-F70: FIXED. Optimizer and scheduler names read with getattr fallback, so partial/non-class objects no longer raise AttributeError.

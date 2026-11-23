@@ -1047,3 +1047,5 @@
 | 39-F70 | FIXED | Optimizer and scheduler names read with getattr fallback, so partial/non-class objects no longer raise AttributeError. |
 | 37-F26 | FIXED | Honest-gain floor drops specs whose gain is not strictly above the floor, so a NaN gain is dropped. Test test_cluster37_nan_gain_dropped_and_merge_logged.py. |
 | 37-F29 | FIXED | A back-merge skipped on row-count change logs a WARNING naming the dropped engineered columns. Test test_cluster37_nan_gain_dropped_and_merge_logged.py. |
+| 37-F25 | FIXED | Watchdog skips for a missing group column or absent base columns log a WARNING. Test test_cluster37_watchdog_skip_logged.py. |
+| 41-F10 | FIXED | Single-target polars granularity picker receives (min, max), as the multi path does. Test test_cluster41_single_picker_gets_span.py. |
