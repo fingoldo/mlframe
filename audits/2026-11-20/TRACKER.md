@@ -509,6 +509,8 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 41-F24 | 41_training-10.md | FIXED | Ensemble NaN gate uses validation scores only; NaN test scores are floored at scoring time. Test test_cluster41_nan_gate_is_val_only.py. |
 | 41-F21 | 41_training-10.md | FIXED | XGBoost category map: unmapped string columns are dropped with WARNING, not given a per-frame Enum. Test test_cluster41_xgb_unmapped_string_column_dropped.py. |
 | 41-F17 | 41_training-10.md | FIXED | Confusion-derived metrics use the tuned threshold, same as precision/recall/F1. Test test_cluster41_confusion_block_uses_tuned_threshold.py. |
+| 41-F14 | 41_training-10.md | DEFERRED | Probability metrics from one-hot predict() when predict_proba is missing: suppressing them spans several paths, owner decision pending. |
+| 41-F26 | 41_training-10.md | DEFERRED | Dead ranking helpers (rrf_fuse, borda_fuse, _binned_mi, _group_features_mi_njit): wire in or remove is an owner call; tests exercise them. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
