@@ -94,3 +94,4 @@ Scope: 142 files from `audits/2026-11-20/manifests/13_feature_selection-4.txt`, 
 - 13-F31: FIXED. Regime summary F1 is the mean of per-cell F1 values. Test tests/feature_selection/test_cluster13_regime_summary_f1.py (source pin).
 - 13-F32: FIXED. Wide-scaling progress log path honours MLFRAME_BENCH_OUT and defaults under _benchmarks/_results; no hard-coded D: drive. Test tests/feature_selection/test_cluster13_wide_progress_path.py.
 - 13-F30: PARTIAL. Package docstring names ~/.pyutilz/kernel_tuning and says hw_fingerprint lives in pyutilz. Not changed: the dispatch.py 75k/10k CUDA crossover claim (the fallback always returns njit), which is a separate code-vs-doc question. Test tests/feature_selection/test_cluster13_kernel_cache_doc_paths.py.
+- 13-F29: FIXED. par_threshold falls back to swept_max*100 (never-wins sentinel, same as cuda_threshold) instead of 50_000. Test tests/feature_selection/test_cluster13_par_threshold_sentinel.py (source pin).
