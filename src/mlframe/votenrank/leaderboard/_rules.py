@@ -196,8 +196,8 @@ def optimality_gap_ranking(self, gamma: int) -> pd.Series:
     if self.is_partial:
         table = _fill_partial(self, table)
 
-    gap_scores_np = np.minimum(table, gamma) - gamma
-    gap_scores = pd.DataFrame(index=table.index, columns=table.columns, data=gap_scores_np)
+    # np.minimum on a DataFrame already returns a DataFrame with the same index and columns; no rebuild (42-F14).
+    gap_scores = np.minimum(table, gamma) - gamma
     return (gap_scores * self.weights / self.weights.sum()).sum(axis=1).sort_values(ascending=False)
 
 

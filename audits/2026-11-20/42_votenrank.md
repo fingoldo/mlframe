@@ -59,3 +59,4 @@ Verification: two behaviours were reproduced with a read-only Python probe (`PYT
 - 42-F10: FIXED. Minimax benchmark times and checks the shipped Leaderboard.minimax_ranking; the duplicate _new_minimax copy is removed; the old formulation stays as a fixture. Test test_cluster42_minimax_bench_uses_shipped.py.
 - 42-F12: DEFERRED. Repeated cProfile/perf_counter boilerplate across about a dozen bench scripts: a cross-file cleanup with no behaviour impact; deferred so the benches are not churned in this pass.
 - 42-F13: FIXED. Tie count uses nunique(dropna=False) at both sites, so NaN ranks count as one shared value. Test tests/votenrank/test_cluster42_tie_count_nan.py.
+- 42-F14: FIXED. Optimality-gap ranking drops the redundant DataFrame rebuild; np.minimum already returns a DataFrame with the same index and columns (verified equal). Covered by the existing gamma/optimality tests in tests/votenrank/test_cluster42_gamma_and_solver_status.py (4 pass).
