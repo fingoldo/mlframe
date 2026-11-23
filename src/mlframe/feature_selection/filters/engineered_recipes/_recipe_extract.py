@@ -57,6 +57,24 @@ def _extract_column(X: Any, name: str, col_cache: "dict[str, np.ndarray] | None"
 
 
 _NAN_CODE_KEY = "__MLFRAME_CAT_NAN__"
+# Present (value 1) in a code map whose keys are TYPED (``"int:1"``, ``"str:1"``): a column that holds both the integer 1 and the string "1" has two codes at fit time, and the plain
+# ``str(value)`` key would merge them into one entry (AUD23-07). Maps without the flag keep the plain keys, so every existing recipe replays unchanged.
+_TYPED_KEYS_FLAG = "__MLFRAME_CAT_TYPED__"
+
+
+def _typed_key(value: Any) -> str:
+    """``type:value`` key of a category in a typed code map; numpy scalar types are folded to the Python names (``np.int64`` -> ``int``, ``np.str_`` -> ``str``)."""
+    if isinstance(value, (bool, np.bool_)):
+        kind = "bool"
+    elif isinstance(value, (int, np.integer)):
+        kind = "int"
+    elif isinstance(value, (float, np.floating)):
+        kind = "float"
+    elif isinstance(value, str):
+        kind = "str"
+    else:
+        kind = type(value).__name__
+    return f"{kind}:{value}"
 
 
 def build_category_code_map(values: Any, block_has_nan: bool | None = None) -> dict:
@@ -101,14 +119,24 @@ def build_category_code_map(values: Any, block_has_nan: bool | None = None) -> d
     ser = values if isinstance(values, pd.Series) else pd.Series(values)
     if isinstance(ser.dtype, pd.CategoricalDtype):
         cats = ser.cat.categories
-        base = {str(c): int(i) for i, c in enumerate(cats)}
+        typed = len({str(c) for c in cats}) < len(cats)
+        base = {(_typed_key(c) if typed else str(c)): int(i) for i, c in enumerate(cats)}
         col_has_nan = bool(ser.isna().any())
     elif ser.dtype.kind in ("O", "U", "S", "b") or str(ser.dtype) in ("string", "boolean"):
         codes, uniques = pd.factorize(ser, use_na_sentinel=True)
-        base = {str(u): int(i) for i, u in enumerate(uniques)}
+        typed = len({str(u) for u in uniques}) < len(uniques)  # 1 and "1" are two categories with one str(): plain keys would merge their codes
+        base = {(_typed_key(u) if typed else str(u)): int(i) for i, u in enumerate(uniques)}
         col_has_nan = bool((np.asarray(codes) < 0).any())
     else:
         return {}
+    result = _shifted_code_map(base, col_has_nan, block_has_nan)
+    if typed:
+        result[_TYPED_KEYS_FLAG] = 1
+    return result
+
+
+def _shifted_code_map(base: dict, col_has_nan: bool, block_has_nan: bool | None) -> dict:
+    """The code map with the block-level ``+1`` NaN shift applied (see :func:`build_category_code_map`)."""
     # Whether the +1 shift applies is a BLOCK property in ``categorize_dataset``
     # (shifts the whole block if ANY categorical column has a NaN), not a
     # per-column one. When the caller knows the block-level answer, honour it;
@@ -134,6 +162,7 @@ def _codes_from_cat_map(vals: np.ndarray, cat_code_map: dict, n_bins: int, recip
     # even through pandas, so vectorising it buys almost nothing while complicating this correctness-critical
     # (serving-time recipe replay) path. Kept as the clear loop.
     _nan_code = cat_code_map.get(_NAN_CODE_KEY)
+    _typed = _TYPED_KEYS_FLAG in cat_code_map
     out = np.empty(len(vals), dtype=np.int64)
     for _i, _v in enumerate(vals):
         if _v is None or (pd is not None and _v is pd.NA) or (isinstance(_v, float) and _v != _v):  # pd.NA is what a pandas string / boolean column holds for a missing cell
@@ -142,9 +171,10 @@ def _codes_from_cat_map(vals: np.ndarray, cat_code_map: dict, n_bins: int, recip
                 continue
             _code = None  # NaN unseen at fit -> unknown_strategy below
         else:
-            _code = cat_code_map.get(str(_v))
+            _code = cat_code_map.get(_typed_key(_v) if _typed else str(_v))
             if _code is None and isinstance(_v, (float, np.floating)) and float(_v).is_integer():
-                _code = cat_code_map.get(str(int(_v)))  # an integer category that arrived as float (a NaN elsewhere promoted the column)
+                _int_key = f"int:{int(_v)}" if _typed else str(int(_v))
+                _code = cat_code_map.get(_int_key)  # an integer category that arrived as float (a NaN elsewhere promoted the column)
         if _code is None:
             if unknown_strategy == "raise":
                 raise ValueError(

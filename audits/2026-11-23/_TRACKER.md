@@ -12,7 +12,7 @@ Status values follow the other trackers: RESOLVED, PARTIAL, TODO, REJECTED, FUTU
 | TODO | AUD23-04 | concurrency | Merge of stage state loses an attribute created by two stages in different groups (last setattr wins) | _fe_stage_concurrency.py:132-133, _hybrid_orth_family_variants/_concurrent.py:104-127 | OPEN; reproduce with two groups sharing a new name |
 | TODO | AUD23-05 | concurrency | Rebuilt list discards earlier appends from another stage | _fe_stage_concurrency.py:120-124 | OPEN; same reproduction as AUD23-04 |
 | TODO | AUD23-06 | concurrency | A failed kept stage drops the successful siblings' state (sequential run keeps it) | _fe_stage_concurrency.py:233-237 | OPEN; decide semantics with owner |
-| TODO | AUD23-07 | transform | Cat-FE replay maps key by str(), so int 1 and string "1" collide | engineered_recipes/_recipe_extract.py:108 | OPEN; reproduce on [1, "1", 2] |
+| RESOLVED 2026-11-23 | AUD23-07 | transform | Cat-FE replay maps key by str(), so int 1 and string "1" collide | engineered_recipes/_recipe_extract.py:108 | OPEN; reproduce on [1, "1", 2] |
 | TODO | AUD23-08 | transform | Cat-FE replay map built before the min_support fold; the fold shifts codes at transform | _recipe_extract.py:62-124 vs discretization/_categorical_encoding.py:89-99 | OPEN; reproduce with a thin level |
 | TODO | AUD23-09 | transform | Non-integer categorical source without cat_code_map becomes constant code 0, no error | _recipe_extract.py:236-237 | OPEN; reproduce with legacy recipe |
 | TODO | AUD23-10 | transform | ndarray input is not checked for column order | _mrmr_validate_transform.py:611-614, 844-846 | FIX (docstring) plus test; no behaviour change |
