@@ -61,3 +61,7 @@ Not verified: possible `fastmath=True` interaction with the `np.isfinite` guards
 - 08-F15: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
 - 08-F16: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
 - 08-F17: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
+- 08-F18: FIXED. fit_bgmm_and_sample raises a clear ValueError naming the caller when there are no minority rows, instead of numpy's integers(0, 0) error. Test test_cluster08_bgmm_empty_minority.py; 3 existing sampler tests pass.
+- 08-F19: FIXED. kth_nearest_dists refuses k < 1, which silently indexed the farthest column. The documented clipping above the subset size is kept. Test test_cluster08_kth_nearest_k_positive.py (2 passing); 47 existing caller tests pass.
+- 08-F20: FIXED. prefer_hnsw_at_n default is now None (the sentinel), so an explicit 50_000 is honoured instead of deferring to the tuned choice. Test test_cluster08_knn_explicit_hnsw_threshold.py (2 passing); 17 existing knn helper tests pass.
+- 08-F21: FIXED. The duplicated LightGBM baseline is kept by design (it also predicts on a query set); a drift-guard test pins its out-of-fold predictions to the shared helper's for binary and regression. Test test_cluster08_baseline_oof_paths_agree.py (2 passing).

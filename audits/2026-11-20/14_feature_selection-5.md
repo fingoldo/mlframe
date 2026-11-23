@@ -44,3 +44,7 @@ Scope: 63 files from `audits/2026-11-20/manifests/14_feature_selection-5.txt` (s
 - 14-F1: FIXED. su_seeded_snr_z defaults to None (unset); an explicit value always wins, so an explicit 3.0 under proxy_mode=auto is no longer replaced by 4.5 (_shap_proxied_methods.py _su_screen_snr_z); tests/feature_selection/shap_proxied/test_cluster14_explicit_snr_z_pin_wins.py
 - 14-F12: FIXED. split_into_train_test refuses an empty features_indices with a ValueError instead of indexing [0]. Test test_cluster14_split_empty_features_raises.py.
 - 14-F13: FIXED. A failed thread pin logs a WARNING naming the parameters instead of a debug line. Test test_cluster14_thread_pin_failure_warns.py.
+- 14-F9: WON'T FIX. np.asarray(np.asarray(base).copy()) performs one copy; the outer asarray is a no-op on an ndarray, so rewriting it saves nothing. Cosmetic only.
+- 14-F10: FIXED. Removed the orphan comment about a TreeSHAP cell threshold that is not defined in the file. Comment-only; no behaviour change.
+- 14-F8: FIXED. Permutation buffer built with one C-order copy instead of ascontiguousarray().copy(), which copied twice for a non-contiguous input. Equivalence checked on a non-contiguous view (same values, C-contiguous, writable, no shared memory). Regression: 5 existing SHAP-proxy cluster tests pass.
+- 14-F11: FIXED. Stale docstrings citing the non-existent kernel_tuning_cache.get API replaced with accurate statements (wrappers are live and kept). Docstring-only; module imports; no behaviour change.

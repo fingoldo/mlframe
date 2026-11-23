@@ -210,7 +210,8 @@ def compute_row_attention(
         if keep_columns is None:
             matrix, names = apply_dedupe(matrix, names, dedupe_threshold=dedupe_threshold)
         # Rebrand column prefix per caller.
-        names = [n.replace("attn_", f"{column_prefix}_") if column_prefix != "attn" else n for n in names]
+        # Replace only the leading prefix; a bare replace also rewrote any "attn_" occurring later in a name (09-F42).
+        names = [f"{column_prefix}_" + n[len("attn_") :] if (column_prefix != "attn" and n.startswith("attn_")) else n for n in names]
         if keep_columns is not None:
             # The dedupe keeps a data-dependent subset, so Mode B cannot rediscover Mode A's columns from its own batch: take exactly the Mode A frame's columns.
             missing = [c for c in keep_columns if c not in names]
