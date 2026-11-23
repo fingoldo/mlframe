@@ -323,6 +323,14 @@ try:
     _sup = sorted(int(v) for v in np.asarray(getattr(_sel, 'support_', [])).ravel())
     print(f'selected {len(_sup)} columns, sum {sum(_sup)}: {_sup[:20]}', flush=True)
     print(f'engineered {len(getattr(_sel, "_engineered_features_", None) or [])} features', flush=True)  # support_ lists raw columns only: a fit whose raws are all covered by engineered columns has support_ == []
+    try:  # which of the five generating columns x0..x4 the output covers, as a raw output column or as a source inside an engineered name
+        import re as _re
+
+        _names = [str(c) for c in _sel.get_feature_names_out()]
+        _covered = sorted({int(m) for nm in _names for m in _re.findall(r"(?<![A-Za-z0-9])x(\d+)(?![0-9])", nm) if int(m) <= 4})
+        print(f"SOURCES covered {_covered} of [0, 1, 2, 3, 4]; {len(_names)} output columns: {_names[:12]}", flush=True)
+    except Exception as _exc:
+        print("SOURCES unavailable:", type(_exc).__name__, _exc, flush=True)
     if os.environ.get("RSS_FAMILY_WALLS", "").strip():  # the fit's own per-family wall table (summed over threads, so it exceeds the fit wall under concurrency)
         _fw = getattr(_sel, "fe_family_wall_", None) or {}
         print("FAMILY_WALLS " + "; ".join(f"{k}={v['wall_s']:.1f}s/{v['calls']}" for k, v in list(_fw.items())[:45]), flush=True)
