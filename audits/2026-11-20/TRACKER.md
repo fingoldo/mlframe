@@ -635,6 +635,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 26-F25 | 26_root_modules-5.md | FIXED | Docstring corrected: worst-K on the bounded subsample above DIAG_ROW_CAP. Docstring-only, no test. |
 | 26-F16 | 26_root_modules-5.md | FIXED | LOF novelty crash fixed; contamination cutoff uses a stable sort so ties are deterministic and the docstring is accurate. Test test_cluster26_lof_novelty_scores.py. |
 | 26-F26 | 26_root_modules-5.md | DEFERRED | Saved-at-submit recording is deliberate for sync/async parity; a failed async save needs a worker-to-dict update path (design). |
+| 26-F27 | 26_root_modules-5.md | PARTIAL | ScatterPanelSpec length checks added; HistogramPanelSpec.bar_colors contract ambiguous for pre-binned data, left. Test test_cluster26_scatter_spec_lengths.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
