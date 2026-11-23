@@ -121,7 +121,6 @@ from ._trainer_train_and_evaluate_parts import (  # noqa: F401  -- carved helper
     _train_and_evaluate_run_test_df_none,
     _train_and_evaluate_was_trained_instead_silently,
 )
-from types import SimpleNamespace as _SimpleNamespace
 
 
 def _copy_reporting_display_fields(st, reporting) -> None:
@@ -677,7 +676,7 @@ def train_and_evaluate_model(
     """
     # Lazy import of parent-resident helpers: ``.trainer`` re-imports this sibling at its bottom, so a top-level ``from .trainer
     # import ...`` would create a hard cycle the meta-test flags.
-    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
+    st = SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     st._mono_patience_cfg = None
     st.t0_metrics = None
     from .trainer import ConfidenceAnalysisConfig, PredictionsContainer

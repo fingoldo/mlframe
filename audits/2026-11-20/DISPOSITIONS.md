@@ -1155,3 +1155,4 @@
 | 30-F5 | FIXED | Changepoint benchmark builds its series outside the timers; _run accepts a prebuilt y. Test test_cluster30_changepoint_bench_prebuilt_series.py. |
 | 30-F6 | FIXED | Unverified speed claims in the changepoint benchmark comments replaced with neutral wording. Comment-only; no behaviour change. |
 | 30-F3 | FIXED | Unused logger and logging import removed from the DTW GPU banded benchmark. Import check passes; no behaviour change. |
+| 28-F50 | FIXED | Removed the duplicate SimpleNamespace import (aliased copy) and used the plain name. The repeated _pre_pipeline_groups reset is left in place: it is only redundant if the attribute is already None, which this change does not establish. Regression: module import check and a related trainer test pass. |
