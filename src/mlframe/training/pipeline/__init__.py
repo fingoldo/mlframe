@@ -180,7 +180,6 @@ def _build_extension_steps(config: PreprocessingExtensionsConfig, n_features: in
 def _build_dim_reducer(name: str, n_components: int, random_state: int):
     """Instantiate the named dimensionality-reduction estimator with the given output width/seed."""
     if name == "UMAP":
-        import importlib.util as _ilu
         if not module_available("umap"):
             raise ImportError("UMAP requires `pip install umap-learn`")
         import umap
