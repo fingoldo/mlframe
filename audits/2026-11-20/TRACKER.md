@@ -642,6 +642,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 08-F18 | 08_feature_engineering-1.md | FIXED | Empty minority set raises a clear error naming the caller. Test test_cluster08_bgmm_empty_minority.py. |
 | 08-F19 | 08_feature_engineering-1.md | FIXED | k below 1 refused in kth_nearest_dists; clipping kept. Test test_cluster08_kth_nearest_k_positive.py. |
 | 18-F17 | 18_models.md | FIXED | Unreachable except NameError removed; _gate_stats is a parameter. Regression: 71 existing ensembling tests. |
+| 18-F18 | 18_models.md | FIXED | Docstring corrected: per-class correlations averaged, not last column. Docstring-only, no test. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |

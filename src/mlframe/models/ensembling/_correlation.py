@@ -113,7 +113,7 @@ def compute_high_correlation_pairs(
 
     Diversity is checked once on whichever prediction array is universally available across members, in this precedence:
     ``val_preds -> test_preds -> train_preds -> val_probs -> test_probs -> train_probs``. Probabilistic outputs collapse
-    to a single column (last) for the correlation proxy; full multinomial diversity is overkill for near-duplicate detection.
+    to a per-class correlation matrix, averaged across classes (NaN-aware) into one proxy; full multinomial diversity is overkill for near-duplicate detection (18-F18).
     Members with a constant vector on the chosen split (std == 0) or fewer than 2 finite shared samples are skipped, not flagged.
 
     No mutation here - the caller decides what to do (WARN, persist, drop). Today the only caller (``score_ensemble``) just warns.
