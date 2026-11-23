@@ -12,6 +12,7 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from mlframe.utils.array_shape import ndim_of, shape_of
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.models.ensembling")
@@ -340,7 +341,7 @@ def run_stacking_aware_gate(
             _ordered_tags.append(_tag)
             _saw_preds[_tag] = _p_arr.astype(np.float64)
         if not _saw_preds:
-            _multiclass_members = any(np.asarray(p).ndim == 2 and np.asarray(p).shape[1] > 2 for p in _gate_preds_for_check)
+            _multiclass_members = any(ndim_of(p) == 2 and shape_of(p)[1] > 2 for p in _gate_preds_for_check)
             if _multiclass_members:
                 # (N, K>2) member probabilities are not weighted here: the gate fit is 1-D on the positive class. Say so
                 # explicitly instead of blaming the row count (audit 18-F2).

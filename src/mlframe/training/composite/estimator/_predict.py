@@ -20,6 +20,7 @@ from ._estimator_helpers import _carry_forward_fill
 from ._routing import inner_input as _inner_input
 from ._routing import resolve_transform as get_transform
 from ._inner_frame import frame_for_inner
+from mlframe.utils.array_shape import length_of
 from mlframe.training.composite.transforms.shared import call_transform
 
 logger = logging.getLogger(__name__)
@@ -608,7 +609,7 @@ def predict_quantile(
     # The causal lag depends on the batch only, not on the quantile level: resolve it once for every column (audit 35-F27).
     _lag_once = None
     if deep_ood is not None:
-        _lag_once = _soft_shrink._resolve_lag_values(self, X, base_arr, int(np.asarray(domain_ok).shape[0]))
+        _lag_once = _soft_shrink._resolve_lag_values(self, X, base_arr, length_of(domain_ok))
 
     def _invert_one(t_col: np.ndarray) -> np.ndarray:
         """T-clip (parity with predict) + domain-aware inverse + y-clip for one
