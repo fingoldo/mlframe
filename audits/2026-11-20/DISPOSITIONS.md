@@ -1054,3 +1054,4 @@
 | 39-F43 | FIXED | Multi-column DataFrame targets raise instead of being raveled. Test test_cluster39_hf_e5_unc_target_coerce.py. |
 | 39-F42 | FIXED | Tokenizer role names (pad/eos/bos/unk/sep/cls/mask), cache_key and token_type are not masked as secrets. Test test_cluster39_secret_name_masking.py. |
 | 39-F57 | FIXED | Negative and NaN categorical codes map to the reserved row instead of category 0. Tests updated in test_categorical_embeddings.py. |
+| 39-F21 | FIXED | Object-column fingerprints hash by value (hash_pandas_object), not PyObject pointers. Test test_cluster39_object_column_hash_by_value.py. |

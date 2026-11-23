@@ -370,6 +370,19 @@ def _polars_rows_payload(df: Any, cols_sorted: list, sample_idx: np.ndarray) -> 
     return buf.getvalue()
 
 
+def _column_value_bytes(series: Any) -> bytes:
+    """Content bytes of one pandas column, stable across processes (39-F21).
+
+    ``to_numpy().tobytes()`` on an object column hashes the PyObject pointers, so equal strings hash differently per
+    process and a reused address can collide. Object columns are hashed by value with ``hash_pandas_object``.
+    """
+    import pandas as pd
+
+    if series.dtype == object:
+        return pd.util.hash_pandas_object(series, index=False).to_numpy().tobytes()
+    return series.to_numpy().tobytes()
+
+
 def _pandas_rows_payload(df: Any, cols_sorted: list, sample_idx: np.ndarray) -> bytes:
     """Bytes of the sampled rows of a pandas frame, hashed per column from the underlying numpy buffers."""
     sub = df.iloc[sample_idx][cols_sorted]
@@ -379,7 +392,7 @@ def _pandas_rows_payload(df: Any, cols_sorted: list, sample_idx: np.ndarray) -> 
         h_outer = xxhash.xxh3_64()
         for c in cols_sorted:
             try:
-                col_bytes = sub[c].to_numpy().tobytes()
+                col_bytes = _column_value_bytes(sub[c])
             except Exception as e:
                 logger.debug("to_numpy().tobytes() failed for column %r, falling back to str(to_list()): %s", c, e)
                 col_bytes = str(sub[c].to_list()).encode("utf-8")
@@ -394,7 +407,7 @@ def _pandas_rows_payload(df: Any, cols_sorted: list, sample_idx: np.ndarray) -> 
     parts: list = []
     for c in cols_sorted:
         try:
-            parts.append(sub[c].to_numpy().tobytes())
+            parts.append(_column_value_bytes(sub[c]))
         except Exception as e:
             logger.debug("to_numpy().tobytes() failed for column %r, falling back to str(to_list()): %s", c, e)
             parts.append(str(sub[c].to_list()).encode("utf-8"))
