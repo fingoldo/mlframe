@@ -207,7 +207,7 @@ class _MRMRFitStagesMixin:
             return self._fit_multioutput(X, y, groups, sample_weight, _mo_strategy, fit_params)
         return None
 
-    def _fit_body_try_identity_shortcut(self, X: Any, y: Any, st: Any) -> Any:
+    def _fit_body_try_identity_shortcut(self, X: Any, y: Any, st: Any, sample_weight: Any = None) -> Any:
         """Probe the cross-target identity cache; returns ``self`` after the identity shortcut on a hit, else None."""
         # #2 cross-target identity cache.
         st._identity_skip = bool(getattr(self, "mrmr_skip_when_prior_was_identity", False))
@@ -225,7 +225,7 @@ class _MRMRFitStagesMixin:
         if st._identity_skip:
             # Covers X, y (when ``mrmr_identity_cache_include_y``) and this selector's params. Read, store and the self-refit check below all
             # use this one key.
-            st._x_fp = _mrmr_identity_cache_key(self, X, y)
+            st._x_fp = _mrmr_identity_cache_key(self, X, y, sample_weight)
             with _MRMR_IDENTITY_FP_LOCK:
                 _prior_entry = st._cache_dict.get(st._x_fp)
             # Entry is either a legacy bool or the (is_id, prior_y_sample) tuple stored below.

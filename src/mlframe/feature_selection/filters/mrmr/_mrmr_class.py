@@ -3517,7 +3517,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # so a downstream report / UI can SEE what the frame contained. Wrapped so a
         # diagnostic failure can never break a fit that would otherwise succeed.
         record_degenerate_column_audit(self, X)
-        _identity_result = self._fit_body_try_identity_shortcut(X, y, st)
+        _identity_result = self._fit_body_try_identity_shortcut(X, y, st, sample_weight)
         if _identity_result is not None:
             return _identity_result
 

@@ -178,7 +178,7 @@ class _MRMRFitBodyBlocksMixin:
 
     def _fit_body_stash_fingerprint_identity_bool(self, _identity_skip, _x_fp, X, y, _cache_dict):
         """Block of _fit_body starting at ``if _identity_skip and _x_fp is not None:``."""
-        from .._mrmr_fingerprints import _MRMR_IDENTITY_FP_LOCK, _mrmr_y_corr_sample  # lazy: keeps this leaf module out of the package import cycle
+        from .._mrmr_fingerprints import _MRMR_IDENTITY_FP_LOCK, identity_cache_put, _mrmr_y_corr_sample  # lazy: keeps this leaf module out of the package import cycle
 
         if _identity_skip and _x_fp is not None:
             try:
@@ -193,7 +193,7 @@ class _MRMRFitBodyBlocksMixin:
                 # numeric sample (cheap; never the full y). The value stays back-compatible: legacy bool
                 # readers still see truthiness, and the read path below handles both bool and tuple.
                 with _MRMR_IDENTITY_FP_LOCK:
-                    _cache_dict[_x_fp] = (bool(_is_id), _mrmr_y_corr_sample(y) if _is_id else None)
+                    identity_cache_put(_cache_dict, _x_fp, (bool(_is_id), _mrmr_y_corr_sample(y) if _is_id else None))
                 if _is_id:
                     # Remember which (X, y) fingerprint THIS instance's own real fit produced, so a
                     # later self-refit on the identical pair defers to _fit_impl's precise same-instance
