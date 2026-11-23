@@ -73,3 +73,4 @@ Reading coverage: every manifest file was read in full (all of `calibration/`, `
 - 17-F19: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
 - 17-F20: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
 - 17-F23: FIXED. Module docstring of _classification_extras_blocks.py rewritten to describe its three block kernels and point to _classification_extras.py for the public metrics. Test tests/metrics/test_cluster17_blocks_docstring.py.
+- 17-F24: FIXED. top_k_accuracy emits a UserWarning when k >= K, as its docstring promises; the NaN return is unchanged. Test tests/metrics/test_cluster17_topk_warns.py.
