@@ -109,6 +109,9 @@ def tau_estimates(
 def _quantile_block(taus: Sequence[float], declared_r: int, effects: Sequence[float]) -> List[str]:
     """Render the planning table for the three planning quantiles of the observed ``tau`` distribution."""
     arr = np.asarray([t for t in taus if np.isfinite(t)], dtype=np.float64)
+    if arr.size == 0:
+        # No finite tau: the quantiles and max are undefined, so say so instead of crashing on the report path (12-F18).
+        return ["", "No finite tau observed; no planning table."]
     lines = [
         "",
         (f"Observed tau over {arr.size} (scenario, arm) contrasts: "
