@@ -23,6 +23,7 @@ from typing import Any, List, Optional, Tuple, Union
 import numpy as np
 
 from mlframe.reporting.charts._catboost_guards import catboost_pool_rebuild_risk
+from mlframe.utils.array_shape import shape_of
 from mlframe.reporting.charts.pdp_ice import (
     DEFAULT_PDP_GRID, DEFAULT_PDP_SAMPLE, _as_2d, _feat_label, compute_pdp_2d, pdp_2d_support_counts,
 )
@@ -127,7 +128,9 @@ def compose_pdp_2d_figure(
         ax.axis("off")
         ax.text(0.5, 0.5, "2-D PDP not computed:\n" + risk, ha="center", va="center", fontsize=10, wrap=True)
         return fig
-    n_cols = len(names) if names is not None else (np.asarray(X).reshape(len(X), -1).shape[1])
+    # The column count from the shape, not a full copy of the frame just to read it (20-F40); 1-D input counts as one column.
+    _xshape = shape_of(X)
+    n_cols = len(names) if names is not None else (_xshape[1] if len(_xshape) > 1 else 1)
 
     if feat_x is None or feat_y is None:
         pair = _default_pair(model, X, names, n_cols)
