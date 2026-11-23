@@ -664,6 +664,10 @@ class KnockoffArm(BaseArm):
 
 
 # ------------------------------------------------------------------------------------------------- mlframe selectors, BARE
+def bare_mrmr_kwargs(max_runtime_mins: float, random_seed: int, fe_max_steps: int = 0) -> Dict[str, Any]:
+    """The one keyword set every MRMR arm and wrapper is built with, so they differ only by what they say they differ by (11-F19)."""
+    return {"verbose": 0, "fe_max_steps": fe_max_steps, "n_jobs": -1, "random_seed": random_seed, "max_runtime_mins": max_runtime_mins}
+
 class MRMRArm(BaseArm):
     """MRMR driven BARE (not via ``registry``, which wraps it in nothing but still differs in defaults).
 
@@ -685,7 +689,7 @@ class MRMRArm(BaseArm):
         """Build the unfitted MRMR; a variant arm overrides only this, so extraction stays identical."""
         from mlframe.feature_selection.filters import MRMR
 
-        return MRMR(verbose=0, fe_max_steps=(1 if self.fe else 0), n_jobs=-1, random_seed=self.random_seed, max_runtime_mins=self.max_runtime_mins)
+        return MRMR(**bare_mrmr_kwargs(self.max_runtime_mins, self.random_seed, fe_max_steps=(1 if self.fe else 0)))
 
     def _compute(self, X, y):
         """Fit MRMR and read its selection-order ``support_`` through the shared extractor."""
