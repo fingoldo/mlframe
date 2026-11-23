@@ -111,8 +111,14 @@ def replay(scenario: str, seed: int, expected_hash: Optional[str] = None, *, wit
 
 
 def replay_from_record(record: Dict[str, Any]) -> ReplayResult:
-    """Replay the bed one stored cell was run on, reading the scenario, seed and hash out of the record."""
-    return replay(str(record.get("scenario", "")), int(record.get("dataset_seed", 0)), record.get("spec_hash"))
+    """Replay the bed one stored cell was run on, reading the scenario, seed and hash out of the record.
+
+    A record without ``dataset_seed`` is refused: defaulting to 0 would rebuild a different bed and report it as the one the
+    result was measured on (04-F30).
+    """
+    if "dataset_seed" not in record:
+        raise ValueError(f"replay_from_record: record for scenario {record.get('scenario')!r} has no dataset_seed; cannot rebuild the bed it was run on.")
+    return replay(str(record.get("scenario", "")), int(record["dataset_seed"]), record.get("spec_hash"))
 
 
 def replay_report(records: List[Dict[str, Any]]) -> List[str]:
