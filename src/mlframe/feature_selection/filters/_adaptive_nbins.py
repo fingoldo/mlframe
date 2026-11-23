@@ -209,7 +209,15 @@ def qs_nbins(n: int, alpha: float = 0.30) -> int:
         return 1
     raw = round(alpha * n)
     rice = round(2.0 * float(n) ** (1.0 / 3.0))
-    return int(max(3, min(64, raw, rice)))
+    return int(max(3, min(_qs_max_bins(), raw, rice)))
+
+
+def _qs_max_bins() -> int:
+    """Upper clamp of :func:`qs_nbins` (default 64; ``MLFRAME_QS_MAX_BINS`` overrides, never below 3)."""
+    import os
+
+    raw = os.environ.get("MLFRAME_QS_MAX_BINS", "").strip()
+    return max(3, int(raw)) if raw.isdigit() else 64
 
 
 def edges_qs(x: np.ndarray, alpha: float = 0.30) -> np.ndarray:
