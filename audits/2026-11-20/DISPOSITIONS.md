@@ -1136,3 +1136,4 @@
 | 28-F71 | FIXED | The categorical column set is built once per call rather than once per feature. Output unchanged. Regression: 53 existing drift-report tests pass. |
 | 27-F22 | FIXED | Title positive rate counts the larger label as positive, matching the decision-threshold block (labels {1, 2} no longer read as 0%). Test test_cluster27_title_rate_positive_larger_label.py. |
 | 27-F21 | FIXED | recalibrate on an unfitted DistributionalRecalibrator raises RuntimeError instead of returning the identity. Test test_cluster27_unfitted_recalibrator_raises.py; 19 existing calibration tests pass. |
+| 27-F18 | FIXED | select_from_pareto logs a WARNING when no frontier point is scored and the first iteration is returned by default. Test test_cluster27_pareto_default_warns.py; 45 existing Pareto/aggregation tests pass. |
