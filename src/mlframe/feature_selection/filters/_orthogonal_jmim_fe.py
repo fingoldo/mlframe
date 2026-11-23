@@ -154,7 +154,7 @@ def _bin_columns(
     except (TypeError, ValueError):
         arr64 = None
     if arr64 is not None and np.isfinite(arr64).all():
-        bins_arr = _quantile_bin_batched(arr64, nbins=int(nbins))
+        bins_arr = _quantile_bin_batched(arr64, nbins=int(nbins), dtype=np.uint8 if int(nbins) <= 255 else np.int64)
         ks = [(int(bins_arr[:, j].max()) + 1) if bins_arr.shape[0] else 1 for j in range(bins_arr.shape[1])]
         ks = [max(1, k) for k in ks]
         # The columns are kept at the narrowest width that holds their codes (an eighth of int64 when every column has at most 255 levels, which the quantile bins always do): the consumers cast a column to

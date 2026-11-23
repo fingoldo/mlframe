@@ -51,7 +51,7 @@ def leg_eng_col_name(cols: "tuple[str, ...]", code: str, degs: "tuple[int, ...]"
     return "*".join(cols) + "__" + "_".join(f"{code}{d}" for d in degs)
 
 
-def quantile_bin_batched(arr: np.ndarray, nbins: int) -> np.ndarray:
+def quantile_bin_batched(arr: np.ndarray, nbins: int, dtype: "np.dtype | type" = np.int64) -> np.ndarray:
     """Vectorised equi-frequency bin of a 2-D (n, k) all-finite float array.
 
     Computes ``np.quantile(arr, qs, axis=0)`` ONCE for the whole batch (the underlying
@@ -60,9 +60,13 @@ def quantile_bin_batched(arr: np.ndarray, nbins: int) -> np.ndarray:
     dense int64 bin codes matching the contract of ``_quantile_bin`` on the all-finite path:
     the same edges (after ``np.unique`` dedup) and the same ``side='right'`` searchsorted
     convention. Bit-equivalent to ``_quantile_bin`` on all-finite numeric input; the
-    per-column fallback handles mixed-NaN / Inf data via the original per-column path."""
+    per-column fallback handles mixed-NaN / Inf data via the original per-column path.
+
+    ``dtype`` is the code dtype of the result (int64 by default); ``np.uint8`` holds ``nbins <= 255`` codes in an eighth of the memory, for callers that cast a column back before arithmetic on it."""
     n, k = arr.shape
-    out = np.zeros((n, k), dtype=np.int64)
+    if np.dtype(dtype).itemsize == 1 and int(nbins) > 255:
+        raise ValueError(f"nbins={nbins} codes do not fit {np.dtype(dtype)}")
+    out = np.zeros((n, k), dtype=dtype)
     if n == 0 or k == 0:
         return out
     done = _full_edge_codes(arr, int(nbins), out)
@@ -71,7 +75,7 @@ def quantile_bin_batched(arr: np.ndarray, nbins: int) -> np.ndarray:
     cols = np.flatnonzero(~done)
     arr = arr[:, cols]
     out_all = out
-    out = np.zeros((n, cols.size), dtype=np.int64)
+    out = np.zeros((n, cols.size), dtype=dtype)
     k = cols.size
     qs = np.linspace(0.0, 1.0, int(nbins) + 1)
     edges_all = np.quantile(arr, qs, axis=0)  # shape (nbins+1, k)
@@ -79,10 +83,10 @@ def quantile_bin_batched(arr: np.ndarray, nbins: int) -> np.ndarray:
         col_edges = np.unique(edges_all[:, j])
         if col_edges.size <= 2:
             if col_edges.size == 2:
-                out[:, j] = (arr[:, j] >= col_edges[1]).astype(np.int64)
+                out[:, j] = (arr[:, j] >= col_edges[1]).astype(dtype)
             continue
         inner = col_edges[1:-1]
-        out[:, j] = np.searchsorted(inner, arr[:, j], side="right").astype(np.int64)
+        out[:, j] = np.searchsorted(inner, arr[:, j], side="right").astype(dtype)
     out_all[:, cols] = out
     return out_all
 
