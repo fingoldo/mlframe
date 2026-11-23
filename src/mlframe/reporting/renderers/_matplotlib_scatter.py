@@ -267,15 +267,13 @@ def _draw_perfect_fit_line(p, n, x, y, ax):
         # `colors.py` documents as being done to stop exactly this drift: repainting PERFECT_FIT_LINE would have
         # moved the plotly y=x line and left this one green, from the same spec, with nothing flagging it.
         ax.plot([lo, hi], [lo, hi], color=PERFECT_FIT_LINE, linestyle="--", label="Perfect fit")
-        if not p.equal_aspect:
-            # Probability-vs-probability (calibration): the diagonal spans corner-to-corner at any aspect, so let
-            # the panel fill its cell width and align with the histogram below; xlim/ylim are applied just after.
-            pass
-        elif p.xlim is not None or p.ylim is not None:
+        # Without equal_aspect (probability-vs-probability calibration) the diagonal spans corner-to-corner at any aspect, so the
+        # panel fills its cell width and aligns with the histogram below; xlim/ylim are applied just after (21-F23).
+        if p.equal_aspect and (p.xlim is not None or p.ylim is not None):
             # Explicit limits given: "datalim" would discard set_xlim to satisfy equal aspect (large bubble
             # markers then drive x far past the data); "box" keeps the fixed limits and squares via the box.
             ax.set_aspect("equal", "box")
-        else:
+        elif p.equal_aspect:
             # Equal lo..hi limits on both axes already make the diagonal a true 45-degree line; square via the box
             # ("box" respects the fixed limits). "datalim" would instead adjust the limits to satisfy the aspect and
             # log "Ignoring fixed x limits to fulfill fixed data aspect" on every scatter panel.
