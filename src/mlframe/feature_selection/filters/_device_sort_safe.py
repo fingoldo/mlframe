@@ -99,7 +99,8 @@ def device_exclusive(fn: _F) -> _F:
             import cupy as cp
 
             pool = _current_pool(cp)
-        except Exception:  # best-effort: no cupy, so nothing shares a device to serialise
+        except Exception as exc:  # no cupy, so nothing shares a device to serialise
+            logger.debug("device exclusive: no usable cupy pool, running unserialised: %s", exc)
             return fn(*args, **kwargs)
         if pool is None:
             return fn(*args, **kwargs)

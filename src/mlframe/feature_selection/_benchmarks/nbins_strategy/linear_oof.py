@@ -18,6 +18,7 @@ The MRMR settings are the all-families ones of ``family_scale.all_families_kwarg
 """
 
 from __future__ import annotations
+import logging
 
 import argparse
 import json
@@ -159,6 +160,7 @@ def strategy_row(strategy: str, X: pd.DataFrame, y: pd.Series, folds: list, targ
             a, b, names = a[:, ok], b[:, ok], [nm for nm, k in zip(names, ok) if k]
         except Exception as exc:  # a failed fold scores as the prior: it shows in the table instead of aborting the run
             print(f"FOLDFAIL {strategy} {type(exc).__name__}: {str(exc)[:200]}", flush=True)
+            logging.getLogger(__name__).warning("fold failed for %s: %s", strategy, exc)
             names, a, b = [], np.empty((len(tr), 0)), np.empty((len(te), 0))
         walls.append(time.perf_counter() - t0)
         chosen.append(names)

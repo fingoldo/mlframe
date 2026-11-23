@@ -5,6 +5,7 @@ threads, sizes the pool with ``_adaptive_nbins._resolve_edge_jobs`` and folds no
 """
 
 from __future__ import annotations
+import logging
 
 import contextlib
 import threading
@@ -47,7 +48,8 @@ def _capture_device_scope() -> "Callable[[], Any]":
 
         device_id = int(cp.cuda.Device().id)
         allocator = cp.cuda.get_allocator()
-    except Exception:  # best-effort: no cupy or no device, so the workers are host-only and need no device scope
+    except Exception as exc:  # no cupy or no device: the workers are host-only and need no device scope
+        logging.getLogger(__name__).debug("edge pool: no device scope, workers are host-only: %s", exc)
         return nullcontext
 
     from contextlib import ExitStack

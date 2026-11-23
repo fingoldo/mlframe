@@ -41,6 +41,7 @@ Returns ``None`` on ANY cupy error (OOM / device fault) so the caller falls back
 pool (a +47s regression measured previously on the CMI perm-null port).
 """
 from __future__ import annotations
+import logging
 
 import os
 from typing import Any
@@ -71,7 +72,8 @@ def _tile_cell_budget(cp: Any) -> int:
         limit = int(pool.get_limit())
         if limit > 0:
             avail = min(avail, max(0, limit - int(pool.used_bytes())))
-    except Exception:  # best-effort: an unreadable device keeps the fixed budget; the OOM handler below still guards the call
+    except Exception as exc:  # an unreadable device keeps the fixed budget; the OOM handler below still guards the call
+        logging.getLogger(__name__).debug("permutation null: device budget unreadable, using the fixed tile: %s", exc)
         return _PERMNULL_PAIR_TILE_CELLS
     return max(1, min(_PERMNULL_PAIR_TILE_CELLS, int(avail * 0.5) // _TILE_BYTES_PER_CELL))
 
