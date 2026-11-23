@@ -108,3 +108,4 @@ Scope: the 72 files in `audits/2026-11-20/manifests/09_feature_engineering-2.txt
 - 09-F31: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F1: RESOLVED. Random directions are unscaled; the d^{-1/4} scale moved to the inputs so the kernel is exp(q.k/sqrt(d)) as documented. Tests tests/feature_engineering/transformer/test_performer_kernel_identity.py; reference in test_performer_attention_key_side_stabilization.py updated.
 - 09-F42: FIXED. Rebrand now replaces only the leading attn_ prefix; regression test tests/feature_engineering/transformer/test_cluster09_row_attention_prefix_only.py.
+- 09-F39: FIXED. Scale tag uses round(ns*100) so 0.29 is n29 (int truncation gave n28). Test tests/feature_engineering/transformer/test_cluster09_diffusion_scale_tag.py.

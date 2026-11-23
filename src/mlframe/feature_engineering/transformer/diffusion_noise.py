@@ -126,7 +126,7 @@ def compute_diffusion_noise_features(
         cols: dict[str, np.ndarray] = {}
         col_idx = 0
         for ns in noise_scales:
-            ns_tag = f"n{int(ns*100):02d}"
+            ns_tag = f"n{round(ns * 100):02d}"  # round, not int: int(0.29*100) == 28 (09-F39)
             for k in _K_SCALES:
                 cols[f"{column_prefix}_{ns_tag}_pos_k{k}"] = feats[:, col_idx].astype(dtype, copy=False)
                 col_idx += 1
