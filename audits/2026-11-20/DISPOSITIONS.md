@@ -1113,3 +1113,4 @@
 | 25-F57 | FIXED | Prefilter scans candidate sizes ascending so the smallest qualifying size wins for unsorted input. Test test_cluster25_prefilter_unsorted_sizes.py. |
 | 25-F56 | FIXED | Dead marginals array removed from the MI kernel; output unchanged. Regression: existing MI parity and range tests (test_mi_cross_parity.py, test_mi_kernels_reject_out_of_range_codes.py), 28 passing. |
 | 25-F58 | FIXED | Anchor de-duplication uses a set for membership (O(1)) and keeps the list for rank order; output unchanged. Regression: test_biz_val_varying_size_top_k_subsets.py, test_varying_size_cluster_anchors_nan_and_offset.py, 6 passing. |
+| 25-F65 | FIXED | Brier score coerces y_prob to an array, so a list input no longer reaches numba untyped. Test test_cluster25_brier_list_probs.py. |
