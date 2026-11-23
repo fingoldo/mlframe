@@ -51,7 +51,7 @@ jobs:
         id: pyutilz-pin
         run: echo "sha=$(python3 scripts/read_pyutilz_pin.py uv.lock)" >> "$GITHUB_OUTPUT"
 
-      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@d6e76b74b2c171ad79e4afcf3263113d0843af78  # v1.23.13  # pragma: allowlist secret
+      - uses: fingoldo/py-ci-shared/.github/actions/install-pyutilz@ce386d61d3cb33490618517aa3619b2d366790f0  # v1.23.15  # pragma: allowlist secret
         with:
           pyutilz-extras: "system,pandas,polars,database"
           project-extras: ".[all,dev]"
