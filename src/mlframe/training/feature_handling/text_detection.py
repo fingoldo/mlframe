@@ -35,8 +35,10 @@ classified text".
 
 from __future__ import annotations
 
+import itertools
 import logging
 import math
+from collections import Counter
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
@@ -98,14 +100,9 @@ def _shannon_entropy_of_chars(values: List[str]) -> float:
 
     Empty input returns 0.0.
     """
-    char_counts: Dict[str, int] = {}
-    total = 0
-    for s in values:
-        if s is None:
-            continue
-        for c in s:
-            char_counts[c] = char_counts.get(c, 0) + 1
-            total += 1
+    # One C-level Counter pass over the chained characters instead of a Python loop per character (39-F45).
+    char_counts = Counter(itertools.chain.from_iterable(s for s in values if s is not None))
+    total = sum(char_counts.values())
     if total == 0:
         return 0.0
     h = 0.0
