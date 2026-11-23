@@ -183,6 +183,9 @@ class FamilyLapTimer:
         lap = self._lap()
         if lap.flag is not None:
             record_fe_family_wall("gate:" + lap.flag, perf_counter() - lap.t0)
+            if getattr(lap, "eid", 0):
+                _rss_exit(lap.eid, "gate:" + lap.flag)
+                lap.eid = 0
             lap.flag = None
 
     def gate(self, flag: str, is_on: bool) -> bool:
@@ -191,6 +194,7 @@ class FamilyLapTimer:
         if is_on:
             lap = self._lap()
             lap.flag = flag
+            lap.eid = _rss_enter() if _rss_tracking_enabled() else 0
             lap.t0 = perf_counter()
         return is_on
 

@@ -38,3 +38,16 @@ def test_off_by_default_records_nothing(monkeypatch):
     with T.fe_family_timer("x"):
         pass
     assert not T._FE_FAMILY_RSS
+
+
+def test_gate_laps_are_accounted_too(monkeypatch):
+    """The ``gate:<flag>`` laps (how the cascades are attributed) carry the same RSS figures."""
+    monkeypatch.setenv("MLFRAME_FE_FAMILY_RSS", "1")
+    T._FE_FAMILY_RSS.clear()
+    timer = T.FamilyLapTimer()
+    assert timer.gate("fe_demo_enable", True)
+    block = np.ones(25_000_000, dtype=np.float64)
+    time.sleep(0.3)
+    del block
+    timer.close()
+    assert T._FE_FAMILY_RSS["gate:fe_demo_enable"][0] > 150 * 2**20

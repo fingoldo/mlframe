@@ -299,6 +299,11 @@ try:
     if os.environ.get("RSS_FAMILY_WALLS", "").strip():  # the fit's own per-family wall table (summed over threads, so it exceeds the fit wall under concurrency)
         _fw = getattr(_sel, "fe_family_wall_", None) or {}
         print("FAMILY_WALLS " + "; ".join(f"{k}={v['wall_s']:.1f}s/{v['calls']}" for k, v in list(_fw.items())[:45]), flush=True)
+    if os.environ.get("MLFRAME_FE_FAMILY_RSS", "").strip() == "1":  # per family: highest RSS above the entry of a call / RSS still held at its exit, max over calls (MB); concurrent families overlap
+        from mlframe.feature_selection.filters import _fe_family_timing as _fft
+
+        _rows = sorted(_fft._FE_FAMILY_RSS.items(), key=lambda kv: kv[1][0], reverse=True)
+        print("FAMILY_RSS " + "; ".join(f"{k}=+{v[0] / 2**20:.0f}/+{v[1] / 2**20:.0f}" for k, v in _rows[:45]), flush=True)
     if _CALL_STATS:
         print("CALLS " + "; ".join(f"{k}: n={v[0]} wall={v[1]:.1f}s none={_CALL_NONE.get(k, 0)}" for k, v in _CALL_STATS.items()), flush=True)
         for _k, _v in _CALL_STATS.items():
