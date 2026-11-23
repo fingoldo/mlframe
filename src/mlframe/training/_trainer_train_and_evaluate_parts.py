@@ -263,7 +263,7 @@ def _train_and_evaluate_val_df_none(val_df, val_target, control, model_category,
                                 if "early_stopping_rounds" in model_obj.get_params():
                                     model_obj.set_params(early_stopping_rounds=None)
                             except Exception as _e_strip_es:  # nosec B110 - non-trivial body
-                                logger.debug(
+                                logger.warning(  # behaviour-changing: native ES stays wired alongside slice ES (28-F56)
                                     "%s does not expose set_params for early_stopping_rounds (%s); native ES stays wired alongside slice ES",
                                     model_type_name, _e_strip_es,
                                 )
