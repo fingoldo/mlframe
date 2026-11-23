@@ -1137,3 +1137,4 @@
 | 27-F22 | FIXED | Title positive rate counts the larger label as positive, matching the decision-threshold block (labels {1, 2} no longer read as 0%). Test test_cluster27_title_rate_positive_larger_label.py. |
 | 27-F21 | FIXED | recalibrate on an unfitted DistributionalRecalibrator raises RuntimeError instead of returning the identity. Test test_cluster27_unfitted_recalibrator_raises.py; 19 existing calibration tests pass. |
 | 27-F18 | FIXED | select_from_pareto logs a WARNING when no frontier point is scored and the first iteration is returned by default. Test test_cluster27_pareto_default_warns.py; 45 existing Pareto/aggregation tests pass. |
+| 27-F17 | FIXED | The iterations-to-max_iter validator works on a copy, so the caller's dict is not popped or written. Test test_cluster27_iterations_mapping_no_mutation.py; 17 existing model-config tests pass. |
