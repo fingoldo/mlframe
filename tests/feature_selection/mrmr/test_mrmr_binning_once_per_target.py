@@ -125,9 +125,9 @@ def _fit_with_mix(X, y, mix: bool, strategy: str = "quantile_spacing"):
         return MRMR(verbose=0, random_seed=0, nbins_strategy=strategy, fe_max_steps=1, fe_target_mix_enable=mix, fe_target_mix_candidates=mix).fit(X, y)
 
 
-def test_default_nbins_strategy_is_quantile_spacing():
-    """The default strategy depends on the column only (so a suite of targets bins once); the choice was measured in ``_benchmarks/nbins_strategy`` and decided by the owner on 2026-11-23."""
-    assert MRMR().nbins_strategy == "quantile_spacing"
+def test_default_nbins_strategy_is_sturges():
+    """The default strategy depends on the column only (so a suite of targets bins once); the choice was measured in ``_benchmarks/nbins_strategy`` and on a wide frame with a categorical interaction (``quantile_spacing`` clamps to 64 bins at every n and lost it), decided by the owner on 2026-11-23."""
+    assert MRMR().nbins_strategy == "sturges"
 
 
 @pytest.mark.parametrize("steps", [2, 3])

@@ -354,12 +354,14 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # the permutation null refolds it for every permuted target. The mapping is decided per frame.
         categorical_fold_strategy: str = "frequency",
         categorical_fold_min_support: int = 5,
-        # per-feature adaptive bin chooser. Default ``'quantile_spacing'`` (owner decision 2026-11-23). It depends on the column only, never on the target, so a suite of targets bins each column once and the
-        # composite child fit can reuse the codes. Measured (_benchmarks/nbins_strategy, linear model out of fold, 20000 x 50, 2 seeds): binary AUC 0.951 (mdlp 0.931), regression R2 0.888 (mdlp 0.891, uniform 0.884),
-        # wall 21 / 40 s per fold (mdlp 40 / 58 s), the fewest noise sources on regression (0.02). The cost: on the ground-truth sweep of raw-column selection its F1 is 0.64 against 0.73 for mdlp (more false
-        # positives, 0.30 against 0.15); ``nbins_strategy='mdlp'`` restores that. Pass ``nbins_strategy=None`` for the earlier fixed ``quantization_nbins`` quantile behaviour. The MRMR hot path stays exclusively on
-        # the plug-in MI njit kernel chain (mi_direct / fleuret / permutation); alternative MI estimator families live in their own modules and are NOT wired into MRMR.fit().
-        nbins_strategy: str = "quantile_spacing",
+        # per-feature adaptive bin chooser. Default ``'sturges'`` (owner decision 2026-11-23, replacing ``quantile_spacing`` the same day): it depends on the column only, never on the target, so a suite of targets bins
+        # each column once and the composite child fit can reuse the codes, and its bin count follows the row count (``ceil(log2 n) + 1``: 13 at 6000 rows, 15 at 20000). ``quantile_spacing`` is
+        # ``clamp(round(0.3 n), 3, 64)``, i.e. 64 equal-frequency bins at every n from 214 up: on a 6000-row frame with 120 noise columns the 64 x 64 pair tables raised the maxT floor above a real categorical
+        # interaction, which it lost in 3 of 3 seeds (``freedman_diaconis`` too), while ``sturges`` and ``uniform`` found it in 3 of 3 (``mdlp`` and ``optimal_joint`` as well, but they depend on the target).
+        # Measured on 20000 x 50 out of fold (``_benchmarks/nbins_strategy``): ``sturges`` binary AUC 0.950 against 0.951 and regression R2 0.886 against 0.888 for ``quantile_spacing``, ground-truth F1 0.67 against 0.64,
+        # wall 23 s against 21 s per fold. ``nbins_strategy='mdlp'`` gives the best ground-truth F1 (0.73) at twice the wall. Pass ``nbins_strategy=None`` to restore the earlier fixed ``quantization_nbins`` quantile
+        # behaviour. The MRMR hot path stays exclusively on the plug-in MI njit kernel chain (mi_direct / fleuret / permutation); alternative MI estimator families live in their own modules and are NOT wired into MRMR.fit().
+        nbins_strategy: str = "sturges",
         # ``nbins_strategy='mdlp'`` runs significance-gated ("validated")
         # splitting by DEFAULT instead of the classic in-sample MDL threshold + depth cap -
         # measured real accuracy win on held-out RMSE (see supervised_binning.py's

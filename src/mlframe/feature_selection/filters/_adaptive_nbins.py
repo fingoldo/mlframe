@@ -204,6 +204,9 @@ def qs_nbins(n: int, alpha: float = 0.30) -> int:
     Default alpha=0.30 picks the middle of that band. The clamp prevents
     bin-per-sample at large N (which would inflate plug-in MI bias) and prevents
     1-bin degeneracy at tiny N.
+
+    In effect this is 64 bins at EVERY n from 214 (``0.3 n >= 64``): the rule does not adapt to the row count. At 6000 rows with 120 noise columns the 64 x 64 pair tables raised
+    the maxT floor above a real categorical interaction (lost in 3 of 3 seeds), which is why it is not the MRMR default (see the ``nbins_strategy`` comment of ``MRMR``).
     """
     if n < 2:
         return 1
