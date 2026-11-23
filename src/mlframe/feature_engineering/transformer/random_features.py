@@ -329,11 +329,6 @@ def _coerce_input(
     raise TypeError(f"X must be polars.DataFrame or np.ndarray; got {type(X).__name__}.")
 
 
-# A module-level `_GPU_AUTO_CACHE` was declared here for the auto-GPU decision and never read or written: the probe
-# ran per call while readers of this file assumed it was memoised. Reinstating it means shared mutable state on a
-# threaded path, so it needs a lock around the whole get-or-probe sequence, like the caches in feature_selection.
-
-
 def _resolve_use_gpu(
     use_gpu: Union[bool, Literal["auto"]],
     *,
