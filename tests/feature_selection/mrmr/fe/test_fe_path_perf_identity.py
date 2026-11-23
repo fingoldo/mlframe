@@ -39,6 +39,7 @@ def _make(n: int, p: int, inf: int, seed: int):
 def _fit(n, p, inf, seed, fe_steps):
     """Fit MRMR with the pinned perf-lever config and return (sorted support indices, feature names) for selection-identity comparison."""
     kw = dict(
+        nbins_strategy="mdlp",  # the reference lists below were recorded under mdlp (the default until 2026-11-23); the test pins perf levers, not the binning choice
         quantization_nbins=8,
         interactions_max_order=1,
         full_npermutations=3,

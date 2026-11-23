@@ -965,6 +965,7 @@ class TestLayer44_LegacyPinByteIdentity:
             dcd_cluster_size_threshold=2,
             dcd_swap_method=method,
             full_npermutations=20,
+            nbins_strategy="mdlp",  # the three-duplicate frame provokes the swap under the binning this test was written for (the default until 2026-11-23)
             verbose=0,
             random_seed=0,
         ).fit(X, y)
