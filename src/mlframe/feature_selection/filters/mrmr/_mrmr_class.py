@@ -354,14 +354,13 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # the permutation null refolds it for every permuted target. The mapping is decided per frame.
         categorical_fold_strategy: str = "frequency",
         categorical_fold_min_support: int = 5,
-        # per-feature adaptive bin chooser. Default ``'mdlp'`` (Fayyad-Irani 1993, with njit-accelerated kernel) is the honest combined-ranking winner of the F1
-        # leaderboard (``|err vs truth| + noise_floor``: MDLP 0.107, Sturges 0.135, quantile10 0.139, OptimalJoint 0.167, FD 0.175). MDLP is the only strategy
-        # with a TRUE zero no-signal floor, which directly improves MRMR's relevance gate against false-positive feature picks. Pass ``nbins_strategy=None`` to
-        # restore the earlier fixed ``quantization_nbins`` quantile behaviour. The MRMR hot path stays exclusively on the plug-in MI njit kernel chain
-        # (mi_direct / fleuret / permutation); alternative MI estimator families (KSG, neural, copula, aggregators) live in their own modules for ad-hoc /
-        # benchmark use only and are explicitly NOT wired into MRMR.fit().
-        nbins_strategy: str = "mdlp",
-        # ``nbins_strategy='mdlp'`` now runs significance-gated ("validated")
+        # per-feature adaptive bin chooser. Default ``'quantile_spacing'`` (owner decision 2026-11-23). It depends on the column only, never on the target, so a suite of targets bins each column once and the
+        # composite child fit can reuse the codes. Measured (_benchmarks/nbins_strategy, linear model out of fold, 20000 x 50, 2 seeds): binary AUC 0.951 (mdlp 0.931), regression R2 0.888 (mdlp 0.891, uniform 0.884),
+        # wall 21 / 40 s per fold (mdlp 40 / 58 s), the fewest noise sources on regression (0.02). The cost: on the ground-truth sweep of raw-column selection its F1 is 0.64 against 0.73 for mdlp (more false
+        # positives, 0.30 against 0.15); ``nbins_strategy='mdlp'`` restores that. Pass ``nbins_strategy=None`` for the earlier fixed ``quantization_nbins`` quantile behaviour. The MRMR hot path stays exclusively on
+        # the plug-in MI njit kernel chain (mi_direct / fleuret / permutation); alternative MI estimator families live in their own modules and are NOT wired into MRMR.fit().
+        nbins_strategy: str = "quantile_spacing",
+        # ``nbins_strategy='mdlp'`` runs significance-gated ("validated")
         # splitting by DEFAULT instead of the classic in-sample MDL threshold + depth cap -
         # measured real accuracy win on held-out RMSE (see supervised_binning.py's
         # ``mdlp_bin_edges`` docstring) at a 20-80x per-column cost. Pass

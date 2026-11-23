@@ -19,6 +19,7 @@ Columns of ``column_stats_``:
   ``entropy``          H(column codes) in nats, from the screen's entropy cache. That cache is filled only by the relevance / redundancy routes that need entropies of variable sets (fleuret, JMIM); on the
                        default route the entropies are formed inside the njit MI kernels and not kept, so the field is NaN there (nothing is recomputed to fill it)
   ``su``               symmetric uncertainty ``2 * MI / (H(column) + H(target))`` of the two numbers above (NaN when an entropy is missing)
+  ``added_by_emit_both`` (True: a raw column in the output only because ``redundancy_policy='emit_both'`` re-attached it as an operand of a selected recipe; also listed in ``emit_both_added_``) and
   ``origin``, ``in_output``, ``support_rank``, ``mrmr_gain``, ``dropped_by``  from ``fe_provenance_`` once the fit has finished (see :func:`join_provenance`)
 """
 

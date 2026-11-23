@@ -11,7 +11,7 @@ import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 
-EXPECTED_COLUMNS = ["column", "position", "is_engineered", "nbins", "mi_with_target", "mi_confident", "mi_confidence", "entropy", "su", "origin", "in_output", "support_rank", "mrmr_gain", "dropped_by"]
+EXPECTED_COLUMNS = ["column", "position", "is_engineered", "nbins", "mi_with_target", "mi_confident", "mi_confidence", "entropy", "su", "added_by_emit_both", "origin", "in_output", "support_rank", "mrmr_gain", "dropped_by"]
 
 
 @pytest.fixture(scope="module")
@@ -55,7 +55,7 @@ def test_fit_meta_describes_the_target_and_the_gate(fitted):
     meta = m.fit_meta_
     assert meta["n_rows"] == len(X) and meta["n_classes_y"] == 2 and meta["n_columns"] == len(m.column_stats_)
     assert meta["target_entropy"] == pytest.approx(np.log(2.0), abs=1e-2)
-    assert meta["nbins_strategy"] == "mdlp" and meta["effective_min_relevance_gain"] > 0.0
+    assert meta["nbins_strategy"] == "quantile_spacing" and meta["effective_min_relevance_gain"] > 0.0
     assert sum(meta["class_frequencies"]) == pytest.approx(1.0)
 
 
