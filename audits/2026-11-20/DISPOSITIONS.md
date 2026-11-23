@@ -1306,3 +1306,4 @@
 | 22-F27 | DEFERRED | Timing helpers in _bench_timing_shared.py differ in warmup semantics and are called by about a dozen bench scripts; consolidating to one implementation per shape needs a decision on the kept signatures. Not changed. |
 | 25-F56 | FIXED | Unused marginals array removed from the MI kernel in an earlier commit (995050561); verified by the MI kernel tests (28 pass). Recorded here, where the disposition was missing. |
 | 25-F55 | FIXED | MI docstrings corrected from the fixed 0-14 range to the validated [0, 127] / [0, n_bins) contract (three sites). Test tests/feature_selection/test_cluster25_mi_bin_range_doc.py (source pins). |
+| 25-F57 | FIXED | Ridge prefilter scans candidate sizes ascending, so the smallest qualifying size wins regardless of input order (fixed earlier in 7565c18fd). Covered by tests/feature_selection/test_cluster25_prefilter_unsorted_sizes.py and the nested-CV prefilter test (3 pass). |
