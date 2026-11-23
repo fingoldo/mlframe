@@ -1160,3 +1160,4 @@
 | 26-F17 | FIXED | Removed the second copy of logger, NDIGITS, DATEFRACTS_CODES and DATEFRACTS_MULTIPLIERS in the cleaning helpers; values unchanged. Regression: 17 existing cleaning tests pass. |
 | 26-F33 | FIXED | Tuples are tagged in the canonical tree, so a tuple and a list with the same items no longer collide. Note: digests of tuple inputs change once, so existing tuple-keyed cache entries miss. Test test_cluster26_canonical_tuple_vs_list.py; 14 existing canonical/cache tests pass. |
 | 26-F18 | PARTIAL | Removed the dead bare-string block (commented-out loop) in cleaning.py. The bare string in _cleaning_helpers.py is explanatory prose with an example, left in place. Regression: 16 existing cleaning tests pass. |
+| 26-F25 | FIXED | Docstring corrected: above DIAG_ROW_CAP worst-K is computed on the bounded subsample, not the full arrays. Docstring-only; no behaviour change, no test. |
