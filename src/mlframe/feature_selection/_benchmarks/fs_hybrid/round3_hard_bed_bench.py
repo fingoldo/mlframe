@@ -68,8 +68,8 @@ def main():
             a = downstream_on_matrix(Ztr, Zte, ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)
             rows.append(dict(seed=sd, strategy=name, n=int(Ztr.shape[1]), n_eng=int(getattr(sel, "n_engineered_", 0)),
                              strong=len(raw & strong), weak=len(raw & weak), fit_s=round(dt, 1), auc=a, auc_mean=am))
-            print(f"sd{sd} {name:20s} n={rows[-1]['n']:3d} eng={rows[-1]['n_eng']:2d} strong={rows[-1]['strong']}/4 "
-                  f"weak={rows[-1]['weak']}/8 {dt:6.1f}s mean={am} auc={a}", flush=True)
+            print(f"sd{sd} {name:20s} n={rows[-1]['n']:3d} eng={rows[-1]['n_eng']:2d} strong={rows[-1]['strong']}/{len(strong)} "
+                  f"weak={rows[-1]['weak']}/{len(weak)} {dt:6.1f}s mean={am} auc={a}", flush=True)
     df = pd.DataFrame(rows)
     print("\n=== mean over seeds ===")
     g = df.groupby("strategy").agg(auc_mean=("auc_mean", "mean"), strong=("strong", "mean"), weak=("weak", "mean"),
