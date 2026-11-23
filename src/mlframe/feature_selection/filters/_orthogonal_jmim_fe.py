@@ -128,7 +128,7 @@ def _bin_columns(
 ) -> tuple[list[np.ndarray], list[int], list[str]]:
     """Quantile-bin every column of ``df``; return (bins, nbins_per_col, names).
 
-    Each bin array is dense int64 in ``[0, k_j - 1]`` where
+    Each bin array is dense (uint8 when every column has at most 255 levels, else int64) in ``[0, k_j - 1]`` where
     ``k_j = max(bins_j) + 1`` (the dense observed cardinality, which is
     what ``_jmim_scorer._joint_mi_3d_njit`` expects as ``K_x`` / ``K_z``).
     Constant columns collapse to a single bin (``k_j = 1``) - the JMIM
@@ -157,7 +157,10 @@ def _bin_columns(
         bins_arr = _quantile_bin_batched(arr64, nbins=int(nbins))
         ks = [(int(bins_arr[:, j].max()) + 1) if bins_arr.shape[0] else 1 for j in range(bins_arr.shape[1])]
         ks = [max(1, k) for k in ks]
-        bins = [np.ascontiguousarray(bins_arr[:, j]) for j in range(bins_arr.shape[1])]
+        # The columns are kept at the narrowest width that holds their codes (an eighth of int64 when every column has at most 255 levels, which the quantile bins always do): the consumers cast a column to
+        # int64 or uint8 at the point of use (``_candidate_score``, ``_jmim_scores_device``), so the values they see are the same; the int64 copies of 100000 x 572 columns held 590 MB (PLAN-10).
+        _narrow = np.uint8 if ks and max(ks) <= 255 else np.int64
+        bins = [np.ascontiguousarray(bins_arr[:, j], dtype=_narrow) for j in range(bins_arr.shape[1])]
         return bins, ks, names
     # Fallback: per-column path preserves the NaN / Inf handling of
     # ``_quantile_bin`` for mixed-finite data.
