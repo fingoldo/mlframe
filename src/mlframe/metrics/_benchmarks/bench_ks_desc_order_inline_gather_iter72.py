@@ -68,25 +68,27 @@ def bench_standalone(n, reps=100, trials=25):
     def run():
         return ex.ks_statistic(yt, ys)
 
-    ex._KS_INLINE_ORDERED_MIN_N = 10**18; v_old = run()
-    ex._KS_INLINE_ORDERED_MIN_N = 150_000; v_new = run()
-    if v_old != v_new:  # an explicit raise, so `python -O` cannot drop the identity check
-        raise AssertionError((v_old, v_new))
+    try:
+        ex._KS_INLINE_ORDERED_MIN_N = 10**18; v_old = run()
+        ex._KS_INLINE_ORDERED_MIN_N = 150_000; v_new = run()
+        if v_old != v_new:  # an explicit raise, so `python -O` cannot drop the identity check
+            raise AssertionError((v_old, v_new))
 
-    def best():
-        out = []
-        for _ in range(trials):
-            t0 = timer()
-            for _ in range(reps):
-                run()
-            out.append((timer() - t0) / reps)
-        return min(out), float(np.median(out))
+        def best():
+            out = []
+            for _ in range(trials):
+                t0 = timer()
+                for _ in range(reps):
+                    run()
+                out.append((timer() - t0) / reps)
+            return min(out), float(np.median(out))
 
-    ex._KS_INLINE_ORDERED_MIN_N = 10**18; o_min, o_med = best()
-    ex._KS_INLINE_ORDERED_MIN_N = 150_000; n_min, n_med = best()
-    ex._KS_INLINE_ORDERED_MIN_N = orig
-    print(f"standalone n={n:>7}: OLD min {o_min*1e6:8.1f}us | NEW min {n_min*1e6:8.1f}us | "
-          f"min {o_min/n_min:.3f}x med {o_med/n_med:.3f}x | identical={v_old==v_new}")
+        ex._KS_INLINE_ORDERED_MIN_N = 10**18; o_min, o_med = best()
+        ex._KS_INLINE_ORDERED_MIN_N = 150_000; n_min, n_med = best()
+        print(f"standalone n={n:>7}: OLD min {o_min*1e6:8.1f}us | NEW min {n_min*1e6:8.1f}us | "
+              f"min {o_min/n_min:.3f}x med {o_med/n_med:.3f}x | identical={v_old==v_new}")
+    finally:
+        ex._KS_INLINE_ORDERED_MIN_N = orig  # restored even if a timed run raises (17-F30)
 
 
 if __name__ == "__main__":
