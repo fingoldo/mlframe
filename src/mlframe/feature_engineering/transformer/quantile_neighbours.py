@@ -11,7 +11,7 @@ Why this matters:
   with ≥10% positives that mean-aggregation washes out.
 
 Mechanism:
-1. Build kNN graph on standardised X (cosine top-k via sklearn NearestNeighbors).
+1. Build kNN graph on standardised X (Euclidean top-k via sklearn NearestNeighbors; the default metric, not cosine) (09-F35).
 2. Per row: weighted softmax over top-k distances → per-neighbour weight w_i.
 3. Compute weighted quantile estimator: given (y_i, w_i) sorted by y, find the smallest y_i such that Σ_{j≤i} w_j ≥ q.
 4. Return q-quantile per row for each q in quantile_grid.
