@@ -496,5 +496,6 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 41-F13 | 41_training-10.md | FIXED | Failing normality test logged at WARNING; the fallback is visible. Test test_cluster41_normality_fallback_warns.py. |
 | 41-F27 | 41_training-10.md | FIXED | A failing collapse sensor is logged at WARNING, not debug. Test test_cluster41_collapse_sensor_failure_warns.py. |
 | 41-F8 | 41_training-10.md | FIXED | Timestamp bin starts differenced as datetime64: monthly bins get real unequal ages; the even-spacing fallback is a WARNING. Test test_cluster41_bin_ages_from_timestamps.py. |
+| 41-F11 | 41_training-10.md | DEFERRED | Not reproduced as stated: regression with one NaN still records the clustered-target check. Classification never records the ratio (clean or NaN); a separate design question. No code changed. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
 | 42-F2 | 42_votenrank.md | FIXED | sub-leaderboards inherit allow_partial and partial_fill; no separate test |
