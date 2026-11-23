@@ -7,6 +7,8 @@ returning in any cache key.
 import re
 from pathlib import Path
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 _SRC = Path(__file__).resolve().parents[2] / "src"
 _ORDER_INVARIANT_SUM = re.compile(r"hash_rows\(\)\.sum\(\)|\brow_hash\w*\.sum\(\)")
 
@@ -14,7 +16,9 @@ _ORDER_INVARIANT_SUM = re.compile(r"hash_rows\(\)\.sum\(\)|\brow_hash\w*\.sum\(\
 def test_no_source_line_sums_per_row_hashes():
     """A ``hash_rows()`` result or a row-hash variable must not be summed into a digest (40-F20)."""
     offenders = []
-    for path in sorted(_SRC.rglob("*.py")):
+    files = sorted(_SRC.rglob("*.py"))
+    assert_scanned_enough(len(files), "src/mlframe")
+    for path in files:
         for lineno, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
             if _ORDER_INVARIANT_SUM.search(line):
                 offenders.append(f"{path.relative_to(_SRC.parent)}:{lineno}: {line.strip()}")
