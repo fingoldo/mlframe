@@ -1122,3 +1122,4 @@
 | 25-F67 | FIXED | Miller-Madow occupancy counts histogram bins only; the non-finite slot is excluded. Test test_cluster25_kl_mm_excludes_nonfinite_slot.py; existing drift tests (43) pass. |
 | 25-F70 | FIXED | pinball_loss_per_alpha refuses duplicate alphas (the alpha-keyed result would drop a column's loss). Test test_cluster25_pinball_duplicate_alphas.py; 56 existing pinball/quantile tests pass. |
 | 25-F66 | DEFERRED | The 500_000 MAPE threshold may be a measured parallel crossover; switching it to the shared 100_000 constant changes performance without a benchmark. Needs a crossover benchmark before the constant is shared. |
+| 25-F69 | FIXED | Docstring corrected: multilabel_auc_per_label always loops per column and does not route to the batched GPU path, which is compute_batch_aucs. Docstring-only; no test. |

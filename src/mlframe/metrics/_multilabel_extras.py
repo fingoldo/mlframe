@@ -414,9 +414,8 @@ def multilabel_auc_per_label(
     NaN-flagged so downstream macro / weighted aggregations can skip
     them safely.
 
-    Internally batches through ``fast_roc_auc`` on each column. For
-    K > 5 and N >= 100k the batched-GPU path in ``compute_batch_aucs``
-    auto-routes; for smaller fits the per-column numba kernel wins.
+    Always loops ``fast_roc_auc`` over the columns; it never calls the batched-GPU path. That path lives in
+    ``compute_batch_aucs``, which is a separate entry point (25-F69).
     """
     yt = np.ascontiguousarray(y_true).astype(np.int64, copy=False)
     sc = np.ascontiguousarray(scores, dtype=np.float64)
