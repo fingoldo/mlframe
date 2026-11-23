@@ -646,6 +646,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 18-F16 | 18_models.md | FIXED | Never-read streaming threshold constant removed; the real switch is quantile_budget_bytes. Regression: 7 ensembling tests. |
 | 14-F9 | 14_feature_selection-5.md | WON'T FIX | Double asarray wrapper performs one copy; rewriting saves nothing. |
 | 14-F10 | 14_feature_selection-5.md | FIXED | Orphan comment about an undefined TreeSHAP threshold removed. Comment-only, no test. |
+| 14-F8 | 14_feature_selection-5.md | FIXED | One-copy permutation buffer (same result). Regression: test_biz_val_shap_proxy_cluster.py (5 passed). |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |

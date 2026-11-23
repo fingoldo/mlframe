@@ -525,7 +525,7 @@ def _permutation_importance_ranking(model_template, X_tr, y_tr, X_ev, y_ev, curr
     # name marshalling per ranking pass), bit-identical because the column order never changes.
     # Own a contiguous, writable copy (X_ev_arr may be a view into X_ev) so the in-place column
     # swaps below never touch the caller's buffer; ``predict`` needs C-contiguous input anyway.
-    X_perm = np.ascontiguousarray(X_ev_arr).copy()
+    X_perm = np.array(X_ev_arr, order="C", copy=True)  # one copy: ascontiguousarray(...).copy() copied twice for a non-contiguous input (14-F8)
     perm = rng.permutation(X_perm.shape[0])
     importances = np.zeros(len(cols), dtype=np.float64)  # Intentional float64: permutation-importance accumulator, summed across repeats
     for j in range(len(cols)):

@@ -1177,3 +1177,4 @@
 | 18-F16 | FIXED | Removed the never-read ENSEMBLE_STREAMING_THRESHOLD_BYTES constant; the streaming choice is driven by EnsemblingConfig.quantile_budget_bytes. Regression: 7 existing ensembling tests pass. |
 | 14-F9 | WON'T FIX | np.asarray(np.asarray(base).copy()) performs one copy; the outer asarray is a no-op on an ndarray, so rewriting it saves nothing. Cosmetic only. |
 | 14-F10 | FIXED | Removed the orphan comment about a TreeSHAP cell threshold that is not defined in the file. Comment-only; no behaviour change. |
+| 14-F8 | FIXED | Permutation buffer built with one C-order copy instead of ascontiguousarray().copy(), which copied twice for a non-contiguous input. Equivalence checked on a non-contiguous view (same values, C-contiguous, writable, no shared memory). Regression: 5 existing SHAP-proxy cluster tests pass. |
