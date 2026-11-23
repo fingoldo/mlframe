@@ -108,6 +108,8 @@ def _interp_with_gaps(x: np.ndarray, pos: np.ndarray, s: np.ndarray) -> np.ndarr
     left = np.clip(np.searchsorted(pos, x, side="right") - 1, 0, pos.shape[0] - 1)
     ok = fin[left] & fin[right]
     out[ok] = np.interp(x[ok], pos[fin], s[fin])
+    # Beyond the last sample the value is unknown, not the last value: np.interp would hold it flat (21-F17).
+    out[x > pos[-1]] = np.nan
     return out
 
 
@@ -148,7 +150,9 @@ def _metric_panel(
                 _aligned.append(s)
                 continue
             _pos = _sampled_positions(s.shape[0], n_iter, metric_period)
-            if _pos is not None and np.isfinite(s).all():
+            # Interpolate only when the samples reach the final iteration; a series that stops before it gets gaps past its last sample,
+            # since np.interp would hold the last value flat across iterations that were never logged (21-F17).
+            if _pos is not None and np.isfinite(s).all() and _pos[-1] >= n_iter - 1:
                 _aligned.append(np.interp(x, _pos, s))
             elif _pos is not None:
                 _aligned.append(_interp_with_gaps(x, _pos, s))
