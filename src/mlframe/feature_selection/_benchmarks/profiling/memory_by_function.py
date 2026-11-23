@@ -75,7 +75,7 @@ def main() -> None:
         fr = s.traceback[-1] if frames > 1 else s.traceback[0]
         print(f"MEM {s.size / 2**20:8.1f} MB  {s.count:7d} blocks  {os.path.relpath(fr.filename).replace(chr(92), '/')[-70:]}:{fr.lineno}", flush=True)
         if frames > 1:
-            for caller in list(s.traceback)[:-1][-4:][::-1]:
+            for caller in list(s.traceback)[:-1][-int(os.environ.get("CALLERS", "4")):][::-1]:
                 print(f"MEM      called from {os.path.relpath(caller.filename).replace(chr(92), '/')[-60:]}:{caller.lineno}", flush=True)
 
 
