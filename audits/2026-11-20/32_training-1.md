@@ -87,3 +87,5 @@ Grep and Read used for caller checks: `core/_phase_dummy_baselines.py` (the try/
 - 32-F18: FIXED. Cached benchmark arm uses one key across splits so it can hit; per-split keys never hit. Test test_cluster32_cache_arm_shares_key.py.
 - 32-F19: FIXED. TF-IDF arm B fills NA before casting, so both arms vectorise the same tokens. Test test_cluster32_tfidf_arms_equivalent.py.
 - 32-F20: FIXED. Ordered-encoder bench builds inputs outside the timers. Test test_cluster32_ordered_bench_prebuilt_inputs.py.
+- 32-F21: FIXED. The auto early-stopping rule is one function (resolve_early_stopping_rounds) used by get_training_configs and by the benchmark's auto arm. Test test_cluster32_early_stopping_rule_shared.py.
+- 32-F25: FIXED. Benchmark model names include scenario, mode, val size and seed, so cells sharing a workdir cannot collide. Test test_cluster32_val_size_model_names_unique.py.

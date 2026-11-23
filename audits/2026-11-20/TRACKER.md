@@ -557,6 +557,8 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 32-F18 | 32_training-1.md | FIXED | Cached bench arm uses one shared key so cache hits are exercised. Test test_cluster32_cache_arm_shares_key.py. |
 | 32-F19 | 32_training-1.md | FIXED | TF-IDF arm fills NA before cast; arms match. Test test_cluster32_tfidf_arms_equivalent.py. |
 | 32-F20 | 32_training-1.md | FIXED | Input generation moved out of the timed region. Test test_cluster32_ordered_bench_prebuilt_inputs.py. |
+| 32-F21 | 32_training-1.md | FIXED | Auto early-stopping rule is one shared function; bench calls it. Test test_cluster32_early_stopping_rule_shared.py. |
+| 32-F25 | 32_training-1.md | FIXED | Benchmark model name includes scenario and mode. Test test_cluster32_val_size_model_names_unique.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |

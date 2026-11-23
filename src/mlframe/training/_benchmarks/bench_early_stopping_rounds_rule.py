@@ -26,10 +26,11 @@ from sklearn.metrics import roc_auc_score, mean_squared_error
 
 from mlframe.training.core import train_mlframe_models_suite, predict_mlframe_models_suite
 from mlframe.training.configs import ReportingConfig, OutputConfig, TrainingSplitConfig
+from mlframe.training._helpers_training_configs import resolve_early_stopping_rounds
 from ._earlystop_bench_shared import make_fte as _make_fte, split as _split
 
 ITERATIONS = 3000
-AUTO_ES = max(2, ITERATIONS // 3)  # the current default rule, materialised for the bench cap used here
+AUTO_ES = resolve_early_stopping_rounds(0, ITERATIONS)  # the production auto rule, called rather than re-derived (32-F21)
 
 
 def _scenario_linear_noisy(seed, regression):
