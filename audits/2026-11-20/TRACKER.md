@@ -524,6 +524,8 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 39-F27 | 39_training-8.md | FIXED | E5 prefix also matches bare e5- names. Test test_cluster39_hf_e5_unc_target_coerce.py. |
 | 39-F40 | 39_training-8.md | FIXED | UNC paths use the UNC long-path form. Test test_cluster39_hf_e5_unc_target_coerce.py. |
 | 39-F43 | 39_training-8.md | FIXED | Multi-column DataFrame target raises. Test test_cluster39_hf_e5_unc_target_coerce.py. |
+| 39-F42 | 39_training-8.md | FIXED | Pad/cache/token-type identifiers are not masked as secrets. Test test_cluster39_secret_name_masking.py. |
+| 39-F57 | 39_training-8.md | FIXED | Negative and NaN codes go to the reserved row, not category 0. Test updated in test_categorical_embeddings.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |

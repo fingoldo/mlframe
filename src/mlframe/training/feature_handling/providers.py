@@ -53,6 +53,8 @@ _SECRET_KEY_PATTERNS = (
     "passwd",
 )
 
+_NON_SECRET_ROLE_TOKENS = frozenset({"pad", "eos", "bos", "unk", "sep", "cls", "mask", "cache", "type"})
+
 _ENV_PREFIX = "env:"
 
 # Word-boundary regex for secret-field detection. Substring matching let names like ``monkey`` /
@@ -92,6 +94,9 @@ def _is_secret_field(field_name: str) -> bool:
     """
     tokens = _SECRET_FIELD_TOKEN_RE.split(field_name.lower())
     token_set = {t for t in tokens if t}
+    # Tokenizer role names (pad_token, eos_token, ...), cache_key and token_type are identifiers, not credentials (39-F42).
+    if token_set & _NON_SECRET_ROLE_TOKENS and not token_set & {"secret", "password", "passwd", "credential", "credentials", "bearer"}:
+        return False
     return any(pat in token_set for pat in _SECRET_KEY_PATTERNS)
 
 

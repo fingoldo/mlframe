@@ -1052,3 +1052,5 @@
 | 39-F27 | FIXED | E5 prefix detection also matches names starting with e5- / e5_ / e5/. Test test_cluster39_hf_e5_unc_target_coerce.py. |
 | 39-F40 | FIXED | long_path_safe emits the UNC long form for \server shares. Test test_cluster39_hf_e5_unc_target_coerce.py. |
 | 39-F43 | FIXED | Multi-column DataFrame targets raise instead of being raveled. Test test_cluster39_hf_e5_unc_target_coerce.py. |
+| 39-F42 | FIXED | Tokenizer role names (pad/eos/bos/unk/sep/cls/mask), cache_key and token_type are not masked as secrets. Test test_cluster39_secret_name_masking.py. |
+| 39-F57 | FIXED | Negative and NaN categorical codes map to the reserved row instead of category 0. Tests updated in test_categorical_embeddings.py. |
