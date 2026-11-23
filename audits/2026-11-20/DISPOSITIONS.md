@@ -1032,3 +1032,4 @@
 | 41-F7 | FIXED | Quantile and multi-target regression use the regression name; the single-class warning runs only for binary targets. Test test_cluster41_target_name_by_task_type.py. |
 | 41-F22 | FIXED | Integer-valued float targets with few classes are treated as classification, so shards are stratified. Test test_cluster41_float_binary_target_stratified.py. |
 | 41-F12 | FIXED | Spearman ranks average tied values (scipy rankdata semantics), so hetero_spearman no longer depends on row order. Test test_cluster41_ranks_average_ties.py. |
+| 41-F9 | FIXED | Single-target temporal aggregation counts labelled rows in n_obs (polars and pandas), matching the multi-target path. Test test_cluster41_single_target_counts_labelled_rows.py. |

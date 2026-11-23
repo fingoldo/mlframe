@@ -135,7 +135,7 @@ def _aggregate_by_time_polars(
     # the per-bin aggregate -- bin counts grow O(n_obs / bin_width) so the saving
     # scales with input frame size.
     agg = _get_pandas_view(
-        df.select([timestamp_col, target_col]).with_columns(bin_expr.alias("__bin")).group_by("__bin").agg(pl.len().alias("n_obs"), rate_expr).sort("__bin")
+        df.select([timestamp_col, target_col]).with_columns(bin_expr.alias("__bin")).group_by("__bin").agg(pl.col(target_col).is_not_null().sum().alias("n_obs"), rate_expr).sort("__bin")
     )
     agg = agg.rename(columns={"__bin": "bin_start"})
     agg["bin_start"] = pd.to_datetime(agg["bin_start"])
@@ -231,7 +231,8 @@ def _aggregate_by_time_pandas(
         rate = s.groupby("__bin")[target_col].apply(lambda c: (c.dropna() > 0).mean() if c.notna().any() else float("nan"))
     else:
         rate = s.groupby("__bin")[target_col].mean()
-    n_obs = s.groupby("__bin")[target_col].size()
+    # Labelled rows only, matching the multi-target path (41-F9); size() counted unlabelled rows too.
+    n_obs = s.groupby("__bin")[target_col].count()
 
     agg = pd.DataFrame({
         "bin_start": rate.index,
