@@ -1179,3 +1179,4 @@
 | 14-F10 | FIXED | Removed the orphan comment about a TreeSHAP cell threshold that is not defined in the file. Comment-only; no behaviour change. |
 | 14-F8 | FIXED | Permutation buffer built with one C-order copy instead of ascontiguousarray().copy(), which copied twice for a non-contiguous input. Equivalence checked on a non-contiguous view (same values, C-contiguous, writable, no shared memory). Regression: 5 existing SHAP-proxy cluster tests pass. |
 | 14-F11 | FIXED | Stale docstrings citing the non-existent kernel_tuning_cache.get API replaced with accurate statements (wrappers are live and kept). Docstring-only; module imports; no behaviour change. |
+| 08-F20 | FIXED | prefer_hnsw_at_n default is now None (the sentinel), so an explicit 50_000 is honoured instead of deferring to the tuned choice. Test test_cluster08_knn_explicit_hnsw_threshold.py (2 passing); 17 existing knn helper tests pass. |

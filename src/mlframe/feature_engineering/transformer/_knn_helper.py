@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 
@@ -74,7 +74,7 @@ def knn_search(
     k: int,
     *,
     metric: str = "l2",
-    prefer_hnsw_at_n: int = 50_000,
+    prefer_hnsw_at_n: Optional[int] = None,
     hnsw_M: int = 16,
     hnsw_ef_construction: int = 200,
     hnsw_ef_search: int = 64,
@@ -130,7 +130,7 @@ def knn_search(
     # sklearn vs approximate hnsw) from the kernel_tuning_cache via get_or_tune --
     # AVX-512 boxes cross over earlier, low-core ARM later. An explicit
     # prefer_hnsw_at_n override still wins (keeps the threshold semantics).
-    if prefer_hnsw_at_n == 50_000:
+    if prefer_hnsw_at_n is None:  # None (not the value 50_000) is the sentinel, so an explicit 50_000 is honoured (08-F20)
         use_hnsw = _check_hnsw_available() and _KNN_SPEC.choose(n_subset=n_sub, d=int(X_subset.shape[1])) == "hnsw"
     else:
         use_hnsw = n_sub >= prefer_hnsw_at_n and _check_hnsw_available()
