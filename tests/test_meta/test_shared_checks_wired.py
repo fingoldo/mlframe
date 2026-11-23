@@ -966,6 +966,8 @@ _DECLARED_NARROWINGS: dict[str, str] = {
     r"pyproject::[tool.ruff]::exclude": "tests use the tests ruff config via their own hook; the rest is not the shipped package",
     r"pyproject::[tool.mypy]::exclude": "frozen bench/profiling scripts, not the package",
     "ci.yml::lint-blocking::with::interrogate-fail-under=100": "100 is the strictest bar, not a lowered one",
+    "ci.yml::test-meta::Run tests/test_meta::run::-m=not slow and not gpu and not multigpu": "slow, gpu and multigpu tests run in deep-nightly.yml, not on every PR",
+    "ci.yml::test::Run tests::run::--ignore=tests/test_meta": "the meta suite has its own test-meta job, so the shard job skips it",
     "ci.yml::lint-advisory::with::pip-audit-ignore-vulns=PYSEC-2025-194 PYSEC-2026-139 PYSEC-2026-3447": "advisories with no fixed release in the pinned dependency set; tracked as dependency debt, not a code defect",
     "ci.yml::lint-advisory::with::pip-audit-skip-packages=pyutilz py-ci-shared": "first-party packages pinned to git commits and not on PyPI, so the advisory scan cannot resolve them",
     "pandas-matrix.yml::test::Pandas-facing tests::run::-k=pandas and not speedup": "the matrix checks correctness only; the wall-clock claims run in the dedicated speedup jobs",
