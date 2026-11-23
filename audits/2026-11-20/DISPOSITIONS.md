@@ -1191,3 +1191,4 @@
 | 37-F28 | FIXED | Composite train mean is computed once in the caller and passed to the per-entry scorer (was recomputed per entry and per split). Pinned by tests/training/core/test_cluster37_train_mean_computed_once.py (source-level; no behavioural test). |
 | 37-F27 | FIXED | Full-length base columns are built once per base name within the domain-violation check (per-call cache _full_base). Pinned by tests/training/core/test_cluster37_domain_violation_base_cache.py (source-level). |
 | 04-F34 | FIXED | sample_categorical clamps the drawn index to K-1 when rounding leaves the cumulative sum under 1. Test tests/data/test_cluster04_sample_categorical_in_range.py. |
+| 04-F32 | FIXED | Scenario name index refuses duplicate names (_index_by_name raises ValueError). Tests tests/data/test_cluster04_scenario_names_unique.py. |
