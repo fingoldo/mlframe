@@ -73,7 +73,7 @@ def _rows_digest(rows: np.ndarray) -> bytes:
     """Collision-safe cache-key digest of a row-index array (a 64-bit ``hash()`` could return another fold's entry; audit 34-F27)."""
     import hashlib
 
-    return hashlib.blake2b(np.ascontiguousarray(rows).tobytes(), digest_size=16).digest()
+    return hashlib.blake2b(np.ascontiguousarray(rows).view(np.uint8).data, digest_size=16).digest()
 
 
 def _fold_dataset(x: np.ndarray, rows: np.ndarray, params: Dict[str, Any]) -> Any:
