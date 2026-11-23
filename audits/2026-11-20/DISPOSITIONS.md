@@ -1139,3 +1139,4 @@
 | 27-F18 | FIXED | select_from_pareto logs a WARNING when no frontier point is scored and the first iteration is returned by default. Test test_cluster27_pareto_default_warns.py; 45 existing Pareto/aggregation tests pass. |
 | 27-F17 | FIXED | The iterations-to-max_iter validator works on a copy, so the caller's dict is not popped or written. Test test_cluster27_iterations_mapping_no_mutation.py; 17 existing model-config tests pass. |
 | 27-F26 | FIXED | CUDA permutation importance restores the caller's device and train/eval mode instead of forcing cpu and eval. Test test_cluster27_cuda_fi_restores_net_state.py covers the CPU-only fallback; the CUDA restore branch is not exercised on this machine. |
+| 27-F24 | FIXED | CUDA_VISIBLE_DEVICES default moved from import time to the script entry point; importing the module no longer changes the process environment. Test test_cluster27_profile_import_keeps_env.py. |

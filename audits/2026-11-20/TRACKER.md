@@ -611,6 +611,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 27-F18 | 27_root_modules-6.md | FIXED | Unscored frontier fallback logs WARNING. Test test_cluster27_pareto_default_warns.py. |
 | 27-F17 | 27_root_modules-6.md | FIXED | Iterations validator copies the input dict. Test test_cluster27_iterations_mapping_no_mutation.py. |
 | 27-F26 | 27_root_modules-6.md | FIXED | CUDA permutation importance restores net device and mode. Test test_cluster27_cuda_fi_restores_net_state.py (CPU-only; CUDA restore branch unexercised here). |
+| 27-F24 | 27_root_modules-6.md | FIXED | CUDA visibility default set only when run as a script. Test test_cluster27_profile_import_keeps_env.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
