@@ -32,7 +32,7 @@ COLUMN_BLOCK = 32  # columns per launch: bounds the double copy of the block on 
 _SRC = r"""
 #define PB 8
 #define NC 4
-// dtype-ok: Intentional wide type, reviewed 2026-11-05: on purpose, floor(v * inv) of a timestamp needs the wide type as on the host; the host uploads double explicitly.
+// dtype-ok: Intentional wide type, reviewed 2026-11-05: on purpose, floor(v * inv) of a timestamp needs the wide type as on the host; the host uploads the wide type explicitly.
 extern "C" __global__ void parity_mi_grid(const {ACC}* __restrict__ V, const unsigned char* __restrict__ Y, const {ACC}* __restrict__ INV,
                                           const long long* __restrict__ cls_tot, const long long n, const int G, const int nc, {ACC}* __restrict__ out) {
     const int col = blockIdx.x;

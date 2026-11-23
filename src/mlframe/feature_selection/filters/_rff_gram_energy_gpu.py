@@ -89,11 +89,11 @@ def rff_gram_null_maxima_device(rbfs: Any, ridges: Any, Xs: np.ndarray, pairs: A
         X = cp.asarray(np.ascontiguousarray(Xs), dtype=cp.float32)
         a_idx = cp.asarray(np.fromiter((q[0] for q in pairs), dtype=np.int64, count=len(pairs)))
         b_idx = cp.asarray(np.fromiter((q[1] for q in pairs), dtype=np.int64, count=len(pairs)))
-        group = max(1, int((256 << 20) // max(1, n * n_features * 4)))  # surrogates per batch: the (g, n, D) cosine block stays near 256 MB
+        surrogate_block = max(1, int((256 << 20) // max(1, n * n_features * 4)))  # surrogates per batch: the (g, n, D) cosine block stays near 256 MB
         out = np.empty(len(rbfs), dtype=np.float64)  # Intentional float64: the null maxima are compared with a quantile on the host
-        for g0 in range(0, len(rbfs), group):
-            rb = rbfs[g0 : g0 + group]
-            rd = ridges[g0 : g0 + group]
+        for g0 in range(0, len(rbfs), surrogate_block):
+            rb = rbfs[g0 : g0 + surrogate_block]
+            rd = ridges[g0 : g0 + surrogate_block]
             W = cp.asarray(np.stack([np.asarray(r.random_weights_) for r in rb]), dtype=cp.float32)  # (g, p, D)
             off = cp.asarray(np.stack([np.asarray(r.random_offset_) for r in rb]), dtype=cp.float32)  # (g, D)
             cc = cp.asarray(np.stack([np.asarray(r.coef_, dtype=np.float64).ravel() * scale for r in rd]), dtype=cp.float32)  # (g, D)  # Intentional float64: scaled in double, stored float32 as the single route does

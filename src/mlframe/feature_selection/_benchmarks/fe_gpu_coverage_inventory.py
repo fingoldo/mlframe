@@ -374,6 +374,10 @@ GPU_BACKENDS: dict[str, tuple[tuple[str, ...], str, bool]] = {
 }
 
 CPU_TWINS: dict[str, tuple[str, str]] = {
+    "_grouped_quantile_fe": (
+        "_numba_utils_shared",
+        "the host path of the grouped quantile-rank scan is the numba kernel _member_pct_ranks_njit of _numba_utils_shared, which _grouped_quantile_fe imports and runs on the host when the kernel-tuning cache picks it",
+    ),
     "_shap_proxy_treeshap_interactions_gpu": (
         "_shap_proxy_treeshap_interactions",
         "the host path of the device conditioned-scan kernel is the numba conditioned-scan kernel interaction_tensor_reference of _shap_proxy_treeshap_interactions (two path scans per conditioning feature, prange over samples), the reference of the device equality tests",

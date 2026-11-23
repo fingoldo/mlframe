@@ -47,52 +47,61 @@ extern "C" __global__ void logistic_cv_newton(const VT_* __restrict__ V, const l
     // column means and population standard deviations over the train rows (below 1e-12 -> scale 1)
     for (int j = 0; j <= s; ++j) {
         const int col = (j < s) ? sel[j] : ccol;
+        const long long vo = (long long)col * ldv;   // offset of this column in the column-major V
         double a = 0.0;
-        for (int i = tid; i < ntr; i += nthr) a += V[tr[i] * ldv + col];
+        for (int i = tid; i < ntr; i += nthr) a += V[vo + tr[i]];
         red[tid] = a; __syncthreads();
         for (int st = nthr >> 1; st > 0; st >>= 1) { if (tid < st) red[tid] += red[tid + st]; __syncthreads(); }
         const double m = red[0] / ntr; __syncthreads();
         double q = 0.0;
-        for (int i = tid; i < ntr; i += nthr) { const double d = V[tr[i] * ldv + col] - m; q += d * d; }
+        for (int i = tid; i < ntr; i += nthr) { const double d = V[vo + tr[i]] - m; q += d * d; }
         red[tid] = q; __syncthreads();
         for (int st = nthr >> 1; st > 0; st >>= 1) { if (tid < st) red[tid] += red[tid + st]; __syncthreads(); }
         if (tid == 0) { double sdv = sqrt(red[0] / ntr); mu[j] = m; sd[j] = (sdv < 1e-12) ? 1.0 : sdv; }
         __syncthreads();
     }
+    // X is column-major (column j occupies X[j * ntr .. j * ntr + ntr)) so that threads reading one column read consecutive rows
     for (int i = tid; i < ntr; i += nthr) {
-        for (int j = 0; j <= s; ++j) { const int col = (j < s) ? sel[j] : ccol; X[(long long)i * kk + j] = (V[tr[i] * ldv + col] - mu[j]) / sd[j]; }
-        X[(long long)i * kk + s + 1] = 1.0;
+        for (int j = 0; j <= s; ++j) { const int col = (j < s) ? sel[j] : ccol; const long long vo = (long long)col * ldv; X[(long long)j * ntr + i] = (V[vo + tr[i]] - mu[j]) / sd[j]; }
+        X[(long long)(s + 1) * ntr + i] = 1.0;
     }
-    for (int j = tid; j < kk; j += nthr) w[j] = 0.0;
+    for (int k = tid; k < kk; k += nthr) w[k] = 0.0;
     if (tid == 0) flag = 0;
     __syncthreads();
     int status = 2;                              // 2: no convergence within max_iter
     for (int it = 0; it < max_iter; ++it) {
         for (int i = tid; i < ntr; i += nthr) {
             double z = 0.0;
-            for (int j = 0; j < kk; ++j) z += X[(long long)i * kk + j] * w[j];
+            for (int j = 0; j < kk; ++j) z += X[(long long)j * ntr + i] * w[j];
             const double p = 1.0 / (1.0 + exp(-z));
             wd[i] = p * (1.0 - p);
             r[i] = p - ((yenc[tr[i]] == 1) ? 1.0 : 0.0);
         }
         __syncthreads();
+        // H and g entries one at a time: the whole block sweeps the train rows of one column pair (or column with r) with a strided loop
+        // and tree-reduces the partial sums, so the row index is the thread-derived one and the column index is uniform across the block
         const int npair = kk * (kk + 1) / 2;
-        for (int e = tid; e < npair + kk; e += nthr) {
-            if (e < npair) {
-                int j = 0, rem = e;
+        for (int e = 0; e < npair + kk; ++e) {
+            const bool isg = (e >= npair);
+            int j = 0, l = 0;
+            double acc = 0.0;
+            if (!isg) {
+                int rem = e;
                 while (rem > j) { rem -= j + 1; ++j; }   // e = j (j + 1) / 2 + l, l <= j
-                const int l = rem;
-                double acc = 0.0;
-                for (int i = 0; i < ntr; ++i) acc += wd[i] * X[(long long)i * kk + j] * X[(long long)i * kk + l];
-                H[j * kk + l] = acc; H[l * kk + j] = acc;
+                l = rem;
+                for (int i = tid; i < ntr; i += nthr) acc += wd[i] * X[(long long)j * ntr + i] * X[(long long)l * ntr + i];
             } else {
-                const int j = e - npair;
-                double acc = 0.0;
-                for (int i = 0; i < ntr; ++i) acc += r[i] * X[(long long)i * kk + j];
-                g[j] = acc + ((j < kk - 1) ? lam * w[j] : 0.0);
+                j = e - npair;
+                for (int i = tid; i < ntr; i += nthr) acc += r[i] * X[(long long)j * ntr + i];
             }
+            red[tid] = acc; __syncthreads();
+            for (int st = nthr >> 1; st > 0; st >>= 1) { if (tid < st) red[tid] += red[tid + st]; __syncthreads(); }
+            if (tid == 0) {
+                if (!isg) { H[j * kk + l] = red[0]; H[l * kk + j] = red[0]; }
+                else g[j] = red[0] + ((j < kk - 1) ? lam * w[j] : 0.0);
+            }
+            __syncthreads();
         }
-        __syncthreads();
         if (tid == 0) {
             for (int j = 0; j < kk - 1; ++j) H[j * kk + j] += lam;
             // Gauss elimination with partial pivoting on [H | g]; the step lands in g
@@ -127,7 +136,7 @@ extern "C" __global__ void logistic_cv_newton(const VT_* __restrict__ V, const l
     if (status == 0) {
         for (int i = tid; i < nva; i += nthr) {
             double z = w[s + 1];
-            for (int j = 0; j <= s; ++j) { const int col = (j < s) ? sel[j] : ccol; z += (V[va[i] * ldv + col] - mu[j]) / sd[j] * w[j]; }
+            for (int j = 0; j <= s; ++j) { const int col = (j < s) ? sel[j] : ccol; const long long vo = (long long)col * ldv; z += (V[vo + va[i]] - mu[j]) / sd[j] * w[j]; }
             double p1 = 1.0 / (1.0 + exp(-z));
             p1 = fmin(fmax(p1, eps), 1.0 - eps);
             const double yv = (yenc[va[i]] == 1) ? 1.0 : 0.0;
@@ -173,7 +182,7 @@ def cv_candidates_binary(
     m_all = len(cand_idx)
     nf = len(folds)
     kk = s + 2
-    V = cp.ascontiguousarray(Vdev)
+    V = cp.ascontiguousarray(Vdev.T)  # column-major copy (columns x rows): the kernel gathers one column over the threads' rows, so consecutive threads read consecutive elements
     kern = kernel_logistic_cv(cp, V.dtype)
     sel_dev = cp.asarray(np.asarray(selected if s else [0], dtype=np.int32))
     cand_dev = cp.asarray(np.asarray(cand_idx, dtype=np.int32))
@@ -214,51 +223,62 @@ def cv_candidates_binary_reference(
     """``(len(cand_idx), n_folds)`` validation logloss of ``selected + [candidate]`` for every candidate.
 
     ``folds`` lists ``(train_mask, val_mask, trainable)`` per fold on device; a fold whose train labels hold a single class (``trainable`` False) yields ``inf`` for every candidate.
+
+    The folds are one batch: per-fold train and validation weights ``(nf, n)`` (a row outside a fold has a zero design row, which adds nothing to the Newton gradient or Hessian),
+    so every fold's standardization, design and Newton fit are stacked tensors; candidates are processed in blocks whose stacked designs fit the batch budget.
     """
     m_all = len(cand_idx)
-    out = np.empty((m_all, len(folds)), dtype=np.float64)  # Intentional float64: per-fold logloss accumulator
+    nf = len(folds)
+    out = np.empty((m_all, nf), dtype=np.float64)  # Intentional float64: per-fold logloss accumulator
+    if m_all == 0 or nf == 0:
+        return out
     s = len(selected)
     k = s + 1
+    n = int(yenc_dev.shape[0])
+    trainable = np.array([bool(f[2]) for f in folds])
+    idx_tr = [cp.nonzero(f[0])[0] if f[0].dtype == bool else f[0] for f in folds]  # masks or index arrays, as the caller passes either
+    idx_va = [cp.nonzero(f[1])[0] if f[1].dtype == bool else f[1] for f in folds]
+    f_tr = cp.concatenate([cp.full(int(t.shape[0]), f, dtype=cp.int64) for f, t in enumerate(idx_tr)])
+    f_va = cp.concatenate([cp.full(int(v.shape[0]), f, dtype=cp.int64) for f, v in enumerate(idx_va)])
+    Wtr = cp.zeros((nf, n), dtype=dtype)
+    Wva = cp.zeros((nf, n), dtype=dtype)
+    Wtr[f_tr, cp.concatenate(idx_tr)] = 1.0
+    Wva[f_va, cp.concatenate(idx_va)] = 1.0
+    cnt_tr = cp.maximum(Wtr.sum(axis=1), 1.0)  # (nf,); a non-trainable fold has no train rows and its result is replaced by inf below
+    cnt_va = cp.maximum(Wva.sum(axis=1), 1.0)
+    yv = (yenc_dev == 1).astype(dtype)  # (n,)
+    if s:
+        Xs = Vdev[:, cp.asarray(np.asarray(selected, dtype=np.int64))].astype(dtype)  # (n, s)
+        smu = (Wtr @ Xs) / cnt_tr[:, None]  # (nf, s)
+        ssd = cp.sqrt((Wtr[:, :, None] * (Xs[None, :, :] - smu[:, None, :]) ** 2).sum(axis=1) / cnt_tr[:, None])
+        ssd = cp.where(ssd < 1e-12, 1.0, ssd)
+        Ss = (Xs[None, :, :] - smu[:, None, :]) / ssd[:, None, :]  # (nf, n, s), every row standardized on its fold's train rows
     cand_arr = cp.asarray(np.asarray(cand_idx, dtype=np.int64))
-    cand_cols = Vdev[:, cand_arr]
-    for fo, (tr, va, trainable) in enumerate(folds):
-        if not trainable:
-            out[:, fo] = np.inf
-            continue
-        ytr = (yenc_dev[tr] == 1).astype(dtype)
-        yva = (yenc_dev[va] == 1).astype(dtype)
-        ntr = int(ytr.shape[0])
-        nva = int(yva.shape[0])
-        ctr = cand_cols[tr]
-        cva = cand_cols[va]
-        if s:
-            str_, sva = Vdev[tr][:, selected], Vdev[va][:, selected]
-            smu, ssd = str_.mean(axis=0), str_.std(axis=0)
-            ssd = cp.where(ssd < 1e-12, 1.0, ssd)
-            str_ = (str_ - smu) / ssd
-            sva = (sva - smu) / ssd
-        cmu, csd = ctr.mean(axis=0), ctr.std(axis=0)
+    cand_cols = Vdev[:, cand_arr].astype(dtype)  # (n, m_all)
+    # candidates per block: the stacked (nf, mb, n, k+1) designs stay inside the batch budget
+    cand_block = max(1, _BATCH_ELEMENT_BUDGET // max(1, nf * n * (k + 1)))
+    for lo in range(0, m_all, cand_block):
+        hi = min(m_all, lo + cand_block)
+        mb = hi - lo
+        C = cand_cols[:, lo:hi]  # (n, mb)
+        cmu = (Wtr @ C) / cnt_tr[:, None]  # (nf, mb)
+        csd = cp.sqrt((Wtr[:, :, None] * (C[None, :, :] - cmu[:, None, :]) ** 2).sum(axis=1) / cnt_tr[:, None])  # (nf, mb)
         csd = cp.where(csd < 1e-12, 1.0, csd)
-        ctr = (ctr - cmu) / csd
-        cva = (cva - cmu) / csd
-        chunk = max(1, _BATCH_ELEMENT_BUDGET // max(1, ntr * (k + 1)))
-        for lo in range(0, m_all, chunk):
-            hi = min(m_all, lo + chunk)
-            mb = hi - lo
-            A = cp.empty((mb, ntr, k + 1), dtype=dtype)
-            if s:
-                A[:, :, :s] = str_[None, :, :]
-            A[:, :, s] = ctr[:, lo:hi].T
-            A[:, :, k] = 1.0
-            w = _newton(cp, A, ytr, mb, k + 1, dtype, newton_max_iter, tol, lam, fallback_error)
-            B = cp.empty((mb, nva, k), dtype=dtype)
-            if s:
-                B[:, :, :s] = sva[None, :, :]
-            B[:, :, s] = cva[:, lo:hi].T
-            z = cp.einsum("bnk,bk->bn", B, w[:, :k]) + w[:, k : k + 1]
-            p1 = cp.clip(1.0 / (1.0 + cp.exp(-z)), logloss_eps, 1.0 - logloss_eps)
-            ll = -cp.mean(yva[None, :] * cp.log(p1) + (1.0 - yva[None, :]) * cp.log(1.0 - p1), axis=1)
-            out[lo:hi, fo] = cp.asnumpy(ll).astype(np.float64)  # Intentional float64: per-fold logloss accumulator
+        Cs = (C[None, :, :] - cmu[:, None, :]) / csd[:, None, :]  # (nf, n, mb)
+        A = cp.empty((nf, mb, n, k + 1), dtype=dtype)
+        if s:
+            A[:, :, :, :s] = Ss[:, None, :, :]
+        A[:, :, :, s] = Cs.transpose(0, 2, 1)
+        A[:, :, :, k] = 1.0
+        A *= Wtr[:, None, :, None]  # rows outside the fold's train set contribute nothing to the fit
+        w = _newton(cp, A.reshape(nf * mb, n, k + 1), yv, nf * mb, k + 1, dtype, newton_max_iter, tol, lam, fallback_error).reshape(nf, mb, k + 1)
+        z = cp.einsum("fnk,fmk->fmn", Ss, w[:, :, :s]) + Cs.transpose(0, 2, 1) * w[:, :, s : s + 1] + w[:, :, k : k + 1] if s else Cs.transpose(0, 2, 1) * w[:, :, s : s + 1] + w[:, :, k : k + 1]
+        p1 = cp.clip(1.0 / (1.0 + cp.exp(-z)), logloss_eps, 1.0 - logloss_eps)
+        yb = yv[None, None, :]
+        ll_rows = -(yb * cp.log(p1) + (1.0 - yb) * cp.log(1.0 - p1))  # (nf, mb, n)
+        ll = (ll_rows * Wva[:, None, :]).sum(axis=2) / cnt_va[:, None]  # (nf, mb): mean over each fold's validation rows
+        out[lo:hi, :] = cp.asnumpy(ll).T.astype(np.float64)  # Intentional float64: per-fold logloss accumulator
+    out[:, ~trainable] = np.inf
     return out
 
 
