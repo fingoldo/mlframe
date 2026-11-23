@@ -149,22 +149,8 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
         pb_idx = np.ascontiguousarray(pair_b, dtype=np.int64)
         nb = np.ascontiguousarray(nbins, dtype=np.int64)
 
-        # Per-pair MM bias (occupied joint-K), permutation-invariant. Recompute on host if not supplied so the
-        # device floor debiases IDENTICALLY to the CPU floor (which uses the same occupied joint-K bias).
-        d_mm = None
-        if mm_debias:
-            if mm_bias is None:
-                from ._permutation_null import _pairwise_occupied_joint_k
-
-                k_joint = _pairwise_occupied_joint_k(factors_data, pa, pb_idx, nb)
-                k_y = n_classes_y
-                # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-                _bias = (k_joint - 1).astype(np.float64) * float(k_y - 1) / (2.0 * n)
-                _bias[k_joint <= 1] = 0.0
-            else:
-                # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-                _bias = np.ascontiguousarray(mm_bias, dtype=np.float64)
-            d_mm = cp.asarray(_bias)[:, None]  # (n_pairs, 1)
+        # Per-pair MM bias (occupied joint-K), permutation-invariant; the device floor debiases identically to the CPU floor.
+        d_mm = _device_mm_bias(cp, factors_data, pa, pb_idx, nb, n_classes_y, n, mm_bias) if mm_debias else None
 
         inv_n = 1.0 / n
 
@@ -246,6 +232,21 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
         )
         trip_pair_maxt_gpu_circuit_breaker()
         return None
+
+
+def _device_mm_bias(cp, factors_data, pa, pb_idx, nb, n_classes_y, n, mm_bias):
+    """Device (n_pairs, 1) Miller-Madow bias; recomputed on host from the occupied joint-K when the caller did not supply it."""
+    if mm_bias is None:
+        from ._permutation_null import _pairwise_occupied_joint_k
+
+        k_joint = _pairwise_occupied_joint_k(factors_data, pa, pb_idx, nb)
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
+        _bias = (k_joint - 1).astype(np.float64) * float(n_classes_y - 1) / (2.0 * n)
+        _bias[k_joint <= 1] = 0.0
+    else:
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
+        _bias = np.ascontiguousarray(mm_bias, dtype=np.float64)
+    return cp.asarray(_bias)[:, None]
 
 
 def _is_cupy_out_of_memory(exc: BaseException) -> bool:
