@@ -64,8 +64,10 @@ def test_m2_oof_cache_eviction_is_lru_not_fifo(monkeypatch):
     impl would drop the oldest-INSERTED key regardless of last access.
     """
     # Reset the module-level cache for an isolated test.
-    monkeypatch.setattr(_cen, "_OOF_HOLDOUT_CACHE", type(_cen._OOF_HOLDOUT_CACHE)())
-    monkeypatch.setattr(_cen, "_OOF_HOLDOUT_CACHE_CAP", 3)
+    # The get/put functions read these names from their defining module, so the patch must target it, not the facade.
+    from mlframe.training.composite.ensemble import _oof_cache_keys as _keys
+    monkeypatch.setattr(_keys, "_OOF_HOLDOUT_CACHE", type(_keys._OOF_HOLDOUT_CACHE)())
+    monkeypatch.setattr(_keys, "_OOF_HOLDOUT_CACHE_CAP", 3)
 
     payload = (np.array([0.0]), np.array([0.0]), ["m"])
     _cen._oof_cache_put(("k1",), payload)
@@ -76,10 +78,10 @@ def test_m2_oof_cache_eviction_is_lru_not_fifo(monkeypatch):
     # Insert k4; LRU should evict k2 (the now-oldest by access), NOT k1.
     _cen._oof_cache_put(("k4",), payload)
 
-    assert ("k1",) in _cen._OOF_HOLDOUT_CACHE, "Recently-used k1 was evicted - cache is still FIFO."
-    assert ("k2",) not in _cen._OOF_HOLDOUT_CACHE, "Least-recently-used k2 was not evicted."
-    assert ("k3",) in _cen._OOF_HOLDOUT_CACHE
-    assert ("k4",) in _cen._OOF_HOLDOUT_CACHE
+    assert ("k1",) in _keys._OOF_HOLDOUT_CACHE, "Recently-used k1 was evicted - cache is still FIFO."
+    assert ("k2",) not in _keys._OOF_HOLDOUT_CACHE, "Least-recently-used k2 was not evicted."
+    assert ("k3",) in _keys._OOF_HOLDOUT_CACHE
+    assert ("k4",) in _keys._OOF_HOLDOUT_CACHE
 
 
 def test_m2_dropout_predict_is_deterministic_no_refit():
