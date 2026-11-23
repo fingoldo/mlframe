@@ -60,15 +60,9 @@ def _merge_cost(a, b, na, nb):
 
 
 @njit(cache=True, nogil=True)
-def _agglomerate(counts, threshold, max_groups):
-    """Group label of every row of ``counts`` (levels x classes): the cheapest merge goes first, and merging continues while the cheapest costs less than ``threshold`` or more than ``max_groups`` groups remain. A level with no rows keeps its own label."""
-    k = counts.shape[0]
-    cnt = counts.copy()
-    size = np.zeros(k)
-    for i in range(k):
-        size[i] = cnt[i].sum()
-    alive = size > 0.0
-    label = np.arange(k)
+def _initial_costs(cnt, size, alive):
+    """The symmetric ``(k, k)`` merge-cost matrix of the live levels (``inf`` for a dead level or the diagonal)."""
+    k = cnt.shape[0]
     cost = np.full((k, k), np.inf)
     for i in range(k):
         if not alive[i]:
@@ -78,35 +72,61 @@ def _agglomerate(counts, threshold, max_groups):
                 c = _merge_cost(cnt[i], cnt[j], size[i], size[j])
                 cost[i, j] = c
                 cost[j, i] = c
+    return cost
+
+
+def _cheapest_pair(cost, alive):
+    """The live pair ``(best cost, i, j)`` with the lowest merge cost, the first in row-major order on a tie (``(inf, -1, -1)`` when no pair is live)."""
+    k = cost.shape[0]
+    best = np.inf
+    bi = -1
+    bj = -1
+    for i in range(k):
+        if not alive[i]:
+            continue
+        for j in range(i + 1, k):
+            if alive[j] and cost[i, j] < best:
+                best = cost[i, j]
+                bi = i
+                bj = j
+    return best, bi, bj
+
+
+def _merge_levels(cnt, size, alive, label, cost, bi, bj):
+    """Merge level ``bj`` into ``bi`` in place: counts, sizes, labels and the cost row and column of ``bi`` are updated, those of ``bj`` are blanked."""
+    k = cnt.shape[0]
+    cnt[bi] += cnt[bj]
+    size[bi] += size[bj]
+    alive[bj] = False
+    for r in range(k):
+        if label[r] == bj:
+            label[r] = bi
+    for j in range(k):
+        cost[bj, j] = np.inf
+        cost[j, bj] = np.inf
+    for j in range(k):
+        if alive[j] and j != bi:
+            c = _merge_cost(cnt[bi], cnt[j], size[bi], size[j])
+            cost[bi, j] = c
+            cost[j, bi] = c
+
+
+def _agglomerate(counts, threshold, max_groups):
+    """Group label of every row of ``counts`` (levels x classes): the cheapest merge goes first, and merging continues while the cheapest costs less than ``threshold`` or more than ``max_groups`` groups remain. A level with no rows keeps its own label."""
+    k = counts.shape[0]
+    cnt = counts.copy()
+    size = np.zeros(k)
+    for i in range(k):
+        size[i] = cnt[i].sum()
+    alive = size > 0.0
+    label = np.arange(k)
+    cost = _initial_costs(cnt, size, alive)
     n_alive = int(alive.sum())
     while n_alive > 1:
-        best = np.inf
-        bi = -1
-        bj = -1
-        for i in range(k):
-            if not alive[i]:
-                continue
-            for j in range(i + 1, k):
-                if alive[j] and cost[i, j] < best:
-                    best = cost[i, j]
-                    bi = i
-                    bj = j
+        best, bi, bj = _cheapest_pair(cost, alive)
         if best >= threshold and n_alive <= max_groups:
             break
-        cnt[bi] += cnt[bj]
-        size[bi] += size[bj]
-        alive[bj] = False
-        for r in range(k):
-            if label[r] == bj:
-                label[r] = bi
-        for j in range(k):
-            cost[bj, j] = np.inf
-            cost[j, bj] = np.inf
-        for j in range(k):
-            if alive[j] and j != bi:
-                c = _merge_cost(cnt[bi], cnt[j], size[bi], size[j])
-                cost[bi, j] = c
-                cost[j, bi] = c
+        _merge_levels(cnt, size, alive, label, cost, bi, bj)
         n_alive -= 1
     return label
 

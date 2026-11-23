@@ -34,7 +34,7 @@ def sources(name: str) -> set:
 
 def r2(y, p) -> float:
     """Coefficient of determination."""
-    return 1 - np.sum((y - p) ** 2) / np.sum((y - y.mean()) ** 2)
+    return float(1 - np.sum((y - p) ** 2) / np.sum((y - y.mean()) ** 2))
 
 
 def main() -> None:

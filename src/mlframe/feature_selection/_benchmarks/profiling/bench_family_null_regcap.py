@@ -13,6 +13,7 @@ import os
 import statistics
 import sys
 import time
+from typing import Any
 
 os.environ.setdefault("MLFRAME_FE_GPU_STRICT", "1")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..")))
@@ -28,7 +29,7 @@ def compile_with_cap(cap: int):
     """Replace the v3 kernel getter by one that compiles with ``--maxrregcount=cap`` (0 keeps the default) and forgets the cache."""
     bits._kernels_v3.clear()
 
-    def getter(cp_, ny1, pb, cap_bins, real):
+    def getter(_cp, ny1, pb, cap_bins, real):
         """Compile one v3 variant with the register cap under test."""
         opts = (f"-DNY1={int(ny1)}", f"-DPB={int(pb)}", f"-DCAP={int(cap_bins)}") + ((f"--maxrregcount={cap}",) if cap else ())
         key = (ny1, pb, cap_bins, real, cap)
@@ -55,8 +56,8 @@ def main() -> None:
     codes = cp.asarray(rng.integers(0, a.bins, size=(a.n, a.k)).astype(np.int8))
     y = np.ascontiguousarray((rng.random(a.n) > 0.5).astype(np.int64))
     caps = [int(c) for c in a.caps.split(",")]
-    times = {c: [] for c in caps}
-    ref = {}
+    times: "dict[int, list[float]]" = {c: [] for c in caps}
+    ref: "dict[int, Any]" = {}
     for rnd in range(a.rounds + 1):
         for c in caps:
             compile_with_cap(c)

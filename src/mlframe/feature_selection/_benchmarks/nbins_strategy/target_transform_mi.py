@@ -7,6 +7,8 @@ linearisation of the cube case in a first run); ``log`` is skipped where the tar
 Run: ``python target_transform_mi.py``. Results and the plan they feed: ``audits/2026-11-23/PLAN_target_transform_in_mrmr.md``.
 """
 
+from typing import Any
+
 import numpy as np
 from sklearn.linear_model import Ridge
 from sklearn.ensemble import HistGradientBoostingRegressor
@@ -32,7 +34,7 @@ def ssq(z):
     """Inverse of the signed square root."""
     return np.sign(z) * z**2
 
-T={"identity":(lambda t:t,lambda z:z,True),"log":(np.log,np.exp,False),"cbrt":(np.cbrt,lambda z:z**3,True),"signed_sqrt":(ssqrt,ssq,True)}
+T: "dict[str, tuple[Any, Any, bool]]"={"identity":(lambda t:t,lambda z:z,True),"log":(np.log,np.exp,False),"cbrt":(np.cbrt,lambda z:z**3,True),"signed_sqrt":(ssqrt,ssq,True)}
 for kind in ("lognormal","cube","linear"):
     for seed in (0,1,2):
         X,y=make(kind,seed=seed); n=len(y); tr=np.arange(n)<n*0.7; te=~tr

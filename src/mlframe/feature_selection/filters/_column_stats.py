@@ -69,7 +69,7 @@ def record_column_stats(self: Any, cols: Any, nbins: Any, cached_MIs: Any, scree
         raw_names = set(str(c) for c in (names_in if names_in is not None else []))
         n = len(names)
         nb = np.asarray(nbins).ravel() if nbins is not None else np.full(n, np.nan)
-        rows = {
+        rows: "dict[str, Any]" = {
             "column": names,
             "position": list(range(n)),
             "is_engineered": [(nm not in raw_names) for nm in names],

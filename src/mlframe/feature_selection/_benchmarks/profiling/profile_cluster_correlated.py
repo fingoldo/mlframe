@@ -19,12 +19,13 @@ import pstats
 import sys
 import time
 import warnings
+from typing import Any
 
 warnings.simplefilter("ignore")
 for _k, _v in {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_VRAM_F32": "1"}.items():
     os.environ.setdefault(_k, _v)
 
-VARIANTS = {
+VARIANTS: "dict[str, dict[str, Any]]" = {
     "on": {},
     "off": {"cluster_aggregate_enable": False, "dcd_enable": False},
     "dcd_off": {"dcd_enable": False},

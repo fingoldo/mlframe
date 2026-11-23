@@ -66,7 +66,7 @@ def _linear(target: str):
 
 def _predict(model, X: np.ndarray, target: str) -> np.ndarray:
     """Probability of class 1 (binary) or the predicted value (regression)."""
-    return model.predict_proba(X)[:, 1] if target == "binary" else model.predict(X)
+    return np.asarray(model.predict_proba(X)[:, 1] if target == "binary" else model.predict(X))
 
 
 def metrics(target: str, y_true: np.ndarray, p: np.ndarray) -> dict:
@@ -99,15 +99,16 @@ def truth_recovery(selected: list) -> dict:
     """What the selected names recover of the generating columns: sources recall, the share of features that use a noise column, and the raw-only precision / recall."""
     if not selected:
         return {"sources_recall": 0.0, "noise_source_share": 0.0, "raw_precision": 0.0, "raw_recall": 0.0, "n_selected": 0, "n_engineered": 0}
-    used = set()
+    used: "set[str]" = set()
     noisy = 0
     raw = []
     for name in selected:
         src = sources_of(name)
         used |= src
         noisy += bool(src - TRUE_SOURCES)
-        if _RAW.match(name):
-            raw.append(int(_RAW.match(name).group(1)))
+        raw_match = _RAW.match(name)
+        if raw_match:
+            raw.append(int(raw_match.group(1)))
     hit = sum(1 for r in raw if r in TRUE_SOURCES)
     return {
         "sources_recall": len(used & TRUE_SOURCES) / len(TRUE_SOURCES),
