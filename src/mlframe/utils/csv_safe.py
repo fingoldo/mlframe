@@ -14,9 +14,22 @@ import pandas as pd
 _FORMULA_STARTS = ("=", "+", "-", "@", "\t", "\r")
 
 
+def _is_plain_number(value: str) -> bool:
+    """True when the string is a plain number such as ``-3.5`` or ``+2``, which spreadsheets read as a value, not a formula (29-F32)."""
+    try:
+        float(value)
+    except ValueError:
+        return False
+    return True
+
+
 def neutralise_cell(value: Any) -> Any:
-    """Return ``value`` unchanged unless it is a string that starts like a formula, in which case prefix a single quote."""
-    if isinstance(value, str) and value.startswith(_FORMULA_STARTS):
+    """Return ``value`` unchanged unless it is a string that starts like a formula, in which case prefix a single quote.
+
+    A plain number with a leading sign (``-3.5``, ``+2``) is not a formula and is left alone, so numeric-looking object-column
+    values are not changed (29-F32).
+    """
+    if isinstance(value, str) and value.startswith(_FORMULA_STARTS) and not _is_plain_number(value):
         return "'" + value
     return value
 

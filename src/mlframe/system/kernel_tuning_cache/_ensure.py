@@ -255,7 +255,7 @@ def _run_sweep(spec: Any, timeout_s: float) -> tuple:
     try:
         proc = subprocess.run(cmd, timeout=timeout_s, check=False, env=env)  # nosec B603 - fixed argv: this interpreter, this package, a registered kernel name
     except subprocess.TimeoutExpired as _exc:
-        logger.warning("_run_sweep fell back to its default after %s", type(_exc).__name__)
+        logger.warning("_run_sweep timed out (%s): the kernel sweep is recorded as timed out, not retried (31-F10)", type(_exc).__name__)
         return "timeout", f"exceeded the {timeout_s / 60:.0f} min per-kernel limit"
     if proc.returncode != 0:
         return "failed", f"the sweep process exited with code {proc.returncode}"

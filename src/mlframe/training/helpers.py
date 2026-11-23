@@ -112,9 +112,16 @@ def parse_catboost_devices(devices: str, all_gpus: list | None = None) -> List[D
     if invalid:
         raise ValueError(f"Invalid GPU indices {invalid}. Available range: 0-{max_index}")
 
-    # Filter GPU list
-    filtered_gpus = [gpu for gpu in all_gpus if gpu["index"] in device_indices]
-    return filtered_gpus
+    # Return the GPUs in the order the caller requested, each once (first occurrence wins). Filtering all_gpus returned them in
+    # device order, so "1:0" came back as [gpu0, gpu1] (28-F67).
+    by_index = {gpu["index"]: gpu for gpu in all_gpus}
+    seen: set = set()
+    ordered = []
+    for idx in device_indices:
+        if idx not in seen:
+            seen.add(idx)
+            ordered.append(by_index[idx])
+    return ordered
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------

@@ -676,7 +676,8 @@ def _compute_drift_invariant(
     # as categorical (value_counts on floats), which compute_categorical_drift_psi's own default
     # (_categorical_columns) never does.
     if feature_names is not None:
-        _cat_feature_names = [c for c in feature_names if c in set(_categorical_columns(train_df))]
+        _cat_set = set(_categorical_columns(train_df))  # built once, not once per feature (28-F71)
+        _cat_feature_names = [c for c in feature_names if c in _cat_set]
         if _cat_feature_names:
             categorical_psi = compute_categorical_drift_psi(train_df, val_df, test_df, feature_names=_cat_feature_names)
         else:

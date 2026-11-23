@@ -132,6 +132,7 @@ def fast_brier_score_loss(y_true: np.ndarray, y_prob: np.ndarray) -> float:
     if len(y_true) == 0:
         return float(np.nan)
     y_true = np.asarray(y_true)
+    y_prob = np.asarray(y_prob)  # a list reaches the numba kernel as an untyped reflected list (25-F65)
     if y_true.dtype.kind != "b" and (y_true.min() < 0 or y_true.max() > 1):
         # Two labels outside {0, 1} are mapped with the larger as positive (sklearn); the kernels square ``y - p`` for whatever label they get.
         from ._auc_labels import _binary_labels_01

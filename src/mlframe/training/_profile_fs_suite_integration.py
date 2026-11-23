@@ -20,8 +20,6 @@ import warnings
 
 logger = logging.getLogger(__name__)
 
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
-
 import numpy as np
 import pandas as pd
 
@@ -101,4 +99,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # Profiling runs on CPU: set the GPU mask only when this is run as a script, not as a side effect of importing (27-F24).
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
     main()

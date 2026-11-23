@@ -35,7 +35,12 @@ def _resolve_backend() -> str:
             _BACKEND = "nvml"
         except Exception as e:
             logger.debug("pynvml unavailable, falling back to nvidia-smi if present: %s", e)
-            _BACKEND = "smi" if shutil.which("nvidia-smi") else "none"
+            # Use the same absolute-PATH rule as the probe itself: a relative PATH entry must not select the smi backend (27-F25).
+            try:
+                _resolve_smi()
+                _BACKEND = "smi"
+            except FileNotFoundError:
+                _BACKEND = "none"
         return _BACKEND
 
 

@@ -278,8 +278,7 @@ def _deepseek_compute_mutual_information_kernel(
     if n_samples == 0:
         return np.zeros((n_targets, n_columns), dtype=out_dtype)
 
-    # Precompute marginals and sum_N_log_N for each column
-    marginals = np.zeros((n_columns, n_bins), dtype=hist_dtype)
+    # Precompute sum_N_log_N for each column (the per-column marginal counts were filled and never read, so they are not kept; 25-F56)
     sum_N_log_N = np.zeros(n_columns, dtype=out_dtype)
 
     for col in prange(n_columns):
@@ -287,7 +286,6 @@ def _deepseek_compute_mutual_information_kernel(
         for i in range(n_samples):
             val = data[i, col]
             counts[val] += 1
-        marginals[col] = counts
         s = 0.0
         for b in range(n_bins):
             c = counts[b]

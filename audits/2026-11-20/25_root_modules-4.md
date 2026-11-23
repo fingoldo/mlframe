@@ -161,3 +161,13 @@ Method: four parallel sub-audits read every listed file fully and grepped caller
 - 25-F52: DEFERRED. Duplicated bodies in _multilabel_extras.py: merging them needs an equivalence test per copy first. Deferred to a dedicated refactor pass.
 - 25-F53: DEFERRED. Duplicated logical-constraint loops: merging them needs an equivalence test per copy first. Deferred to a dedicated refactor pass.
 - 25-F35: DEFERRED. Keeping labels on the device changes cupy semantics for every caller and needs a GPU benchmark on real hardware before it can be called safe.
+- 25-F57: FIXED. Prefilter scans candidate sizes ascending so the smallest qualifying size wins for unsorted input. Test test_cluster25_prefilter_unsorted_sizes.py.
+- 25-F56: FIXED. Dead marginals array removed from the MI kernel; output unchanged. Regression: existing MI parity and range tests (test_mi_cross_parity.py, test_mi_kernels_reject_out_of_range_codes.py), 28 passing.
+- 25-F58: FIXED. Anchor de-duplication uses a set for membership (O(1)) and keeps the list for rank order; output unchanged. Regression: test_biz_val_varying_size_top_k_subsets.py, test_varying_size_cluster_anchors_nan_and_offset.py, 6 passing.
+- 25-F65: FIXED. Brier score coerces y_prob to an array, so a list input no longer reaches numba untyped. Test test_cluster25_brier_list_probs.py.
+- 25-F63: FIXED. rf_proximity_matrix checks the row count of X before applying the forest, so an oversized request is refused without the apply cost. Test test_cluster25_proximity_guard_before_apply.py; existing proximity tests (8) pass.
+- 25-F67: FIXED. Miller-Madow occupancy counts histogram bins only; the non-finite slot is excluded. Test test_cluster25_kl_mm_excludes_nonfinite_slot.py; existing drift tests (43) pass.
+- 25-F70: FIXED. pinball_loss_per_alpha refuses duplicate alphas (the alpha-keyed result would drop a column's loss). Test test_cluster25_pinball_duplicate_alphas.py; 56 existing pinball/quantile tests pass.
+- 25-F66: DEFERRED. The 500_000 MAPE threshold may be a measured parallel crossover; switching it to the shared 100_000 constant changes performance without a benchmark. Needs a crossover benchmark before the constant is shared.
+- 25-F69: FIXED. Docstring corrected: multilabel_auc_per_label always loops per column and does not route to the batched GPU path, which is compute_batch_aucs. Docstring-only; no test.
+- 25-F71: DEFERRED. The MAPE warmup diagnostic is an active CI investigation hook (env-gated) for a failure the code comments say is unresolved. Removing it discards the instrument; retire it once the CI issue is closed. Owner to decide.

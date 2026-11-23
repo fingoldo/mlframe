@@ -608,8 +608,8 @@ class _DatasetReuseMixin:
                 try:
                     if X_val[_c].dtype != _dt:
                         _realign[_c] = X_val[_c].astype(_dt)
-                except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                    logger.debug("suppressed: %s", e)
+                except Exception as e:  # nosec B110 - non-fatal, but LightGBM will then reject the mismatched categories: say so (28-F57)
+                    logger.warning("categorical cast of val column %r failed; LightGBM may reject the category mismatch: %s", _c, e)
                     pass
             if _realign:
                 X_val = X_val.assign(**_realign)
@@ -685,8 +685,8 @@ class _DatasetReuseMixin:
             try:
                 if X[_c].dtype != _dt:
                     _realign[_c] = X[_c].astype(_dt)
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
+            except Exception as e:  # nosec B110 - non-fatal, but LightGBM will then reject the mismatched categories: say so (28-F57)
+                logger.warning("categorical cast of predict column %r failed; LightGBM may reject the category mismatch: %s", _c, e)
                 pass
         return X.assign(**_realign) if _realign else X
 

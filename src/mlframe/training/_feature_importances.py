@@ -454,6 +454,9 @@ def _cuda_batched_permutation_importance(
         n = max_samples
     rng = np.random.default_rng(random_state)
     device = torch.device("cuda")
+    # Remember the caller's device and train/eval mode so they are restored, not forced to cpu/eval (26-F26 / 27-F26).
+    _orig_device = next(net.parameters()).device
+    _orig_training = net.training
     try:
         net = net.to(device)
         net.eval()
@@ -492,7 +495,8 @@ def _cuda_batched_permutation_importance(
         return _fail()
     finally:
         try:
-            net.to("cpu")
+            net.to(_orig_device)
+            net.train(_orig_training)
             torch.cuda.empty_cache()
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)

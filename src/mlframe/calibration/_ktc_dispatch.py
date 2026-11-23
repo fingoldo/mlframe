@@ -123,8 +123,11 @@ def _make_tuner(n: int, k: int) -> Callable[[], list[dict]]:
                 return cp.asnumpy(r)
 
             timings["cupy"] = measure_backend(_gpu_call)
+        except ImportError as exc:
+            logger.debug("odds_ratio_combine tuner: cupy not installed (%s)", exc)
         except Exception as exc:
-            logger.debug("odds_ratio_combine tuner: cupy unavailable/failed (%s)", exc)
+            # cupy is installed but the measurement failed: the backend choice is then made without it, so say so (22-F42).
+            logger.warning("odds_ratio_combine tuner: cupy measurement failed (%s); the backend choice excludes cupy", exc)
 
         if not timings:
             return [{"backend_choice": "njit_single", "n_samples_max": n, "n_members_max": k}]

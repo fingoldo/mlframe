@@ -126,7 +126,7 @@ def diversity_ablation_report(
 
     corr_matrix, corr_names = residual_correlation_matrix(oof_preds)
     if not (corr_names == names):
-        raise AssertionError
+        raise ValueError(f"residual correlation names {list(corr_names)} do not match the model names {list(names)} (29-F34)")
 
     best_model = max(individual_scores, key=lambda k: individual_scores[k]) if higher_score_is_better else min(individual_scores, key=lambda k: individual_scores[k])
     best_score = individual_scores[best_model]

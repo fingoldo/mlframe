@@ -22,9 +22,12 @@ is better (RMSE, log-loss): worse-shard variance pushes the returned value UP. `
 
 from __future__ import annotations
 
+import logging
 from typing import Literal, Sequence
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 AggregateMode = Literal["mean", "mean_minus_std", "median_minus_mad", "t_lcb", "quantile"]
 Direction = Literal["min", "max"]
@@ -238,6 +241,7 @@ def select_from_pareto(
     best_score: float | None = None
     best_iter: int = int(frontier_indices[0])
     sign_better = -1.0 if direction == "min" else 1.0
+    n_scored = 0  # frontier points that produced a risk score; 0 means the first point is returned by default (27-F18)
     q = float(risk_quantile) if direction == "min" else 1.0 - float(risk_quantile)
     for idx in frontier_indices:
         scores = np.asarray(iter_shard_scores[idx], dtype=float)
@@ -249,7 +253,13 @@ def select_from_pareto(
             risk_score = mean_i + float(_norm.ppf(q)) * std_i
         else:
             risk_score = float(np.quantile(scores, q))
+        n_scored += 1
         if best_score is None or sign_better * (risk_score - best_score) > 0:
             best_score = risk_score
             best_iter = int(idx)
+    if n_scored == 0:
+        logger.warning(
+            "select_from_pareto: no frontier point had shard scores or finite mean/std; returning the first frontier iteration (%d) by default",
+            best_iter,
+        )
     return best_iter

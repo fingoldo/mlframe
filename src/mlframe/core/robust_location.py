@@ -139,6 +139,12 @@ def _robust_mean_irls_parallel(x: np.ndarray, wcode: int, param: float, scale: f
     return float(a)
 
 
+def _require_finite(x: np.ndarray, name: str) -> None:
+    """Refuse NaN/inf: a NaN sorts to the end (biasing trimmed means) and propagates through the IRLS iterations (22-F44)."""
+    if not np.all(np.isfinite(x)):
+        raise ValueError(f"{name}: input contains {int(np.count_nonzero(~np.isfinite(x)))} non-finite value(s); drop or impute them first.")
+
+
 def robust_mean_mestimator(
     x: np.ndarray,
     *,
@@ -177,6 +183,7 @@ def robust_mean_mestimator(
     param = float(param)
     if param <= 0.0:
         raise ValueError(f"robust_mean_mestimator: param must be > 0, got {param}.")
+    _require_finite(x, "robust_mean_mestimator")
     wcode = WEIGHTS.index(weight)
     if x.shape[0] >= _ROBUST_MEAN_PARALLEL_MIN_N:
         return float(_robust_mean_irls_parallel(x, wcode, param, float(scale), int(max_iter), float(tol)))
@@ -192,6 +199,7 @@ def trimmed_mean(x: np.ndarray, proportion: float = 0.1) -> float:
     if not (0.0 <= proportion < 0.5):
         raise ValueError(f"trimmed_mean: proportion must be in [0, 0.5), got {proportion}.")
     x = np.ascontiguousarray(x, dtype=np.float64)
+    _require_finite(x, "trimmed_mean")
     n = x.shape[0]
     if n == 0:
         return np.nan

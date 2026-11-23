@@ -726,6 +726,9 @@ class _DMatrixReuseMixin:
 
         if _iter_metrics_cb is not None:
             self.iteration_metrics_ = _iter_metrics_cb.iteration_metrics_
+        elif hasattr(self, "iteration_metrics_"):
+            # A refit without the callback must not keep the previous fit's metrics (29-F37).
+            del self.iteration_metrics_
 
         return self
 

@@ -36,7 +36,11 @@ def max_decompressed_bytes() -> int:
     except ValueError as _exc:
         logger.warning("max_decompressed_bytes fell back to its default after %s", type(_exc).__name__)
         return _default_max_decompressed_bytes()
-    return value if value > 0 else 0
+    if value < 0:
+        # A negative value is almost certainly a typo, and it used to disable the cap silently. 0 remains the explicit disable (26-F32).
+        logger.warning("%s=%d is negative; using the default ceiling (0 disables the cap explicitly)", MAX_DECOMPRESSED_ENV, value)
+        return _default_max_decompressed_bytes()
+    return value
 
 
 class DecompressedSizeError(OSError):

@@ -223,7 +223,8 @@ def kl_divergence(
     qn = qc / (nq_tot if nq_tot > 0 else 1.0)
     kl = float(_kl_kernel(pn, qn, float(eps)))
     if bias_correction:
-        kl = max(kl - _kl_mm_bias(pc, qc, np_tot, nq_tot), 0.0)
+        # The last slot is the non-finite mass, not a histogram bin: exclude it from the occupied-bin count (25-F67). np_tot/nq_tot still include it.
+        kl = max(kl - _kl_mm_bias(pc[:-1], qc[:-1], np_tot, nq_tot), 0.0)
     return kl
 
 

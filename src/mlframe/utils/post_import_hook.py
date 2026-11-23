@@ -8,9 +8,11 @@ from __future__ import annotations
 import importlib.abc
 import importlib.machinery
 import sys
+import logging
 import threading
 from typing import Callable, Dict, List
 
+logger = logging.getLogger(__name__)
 _LOCK = threading.Lock()
 _PENDING: Dict[str, List[Callable[[], None]]] = {}
 _FINDER: "_PostImportFinder | None" = None
@@ -33,6 +35,14 @@ class _PostImportFinder(importlib.abc.MetaPathFinder):
         return None
 
 
+def _run_post_import_callback(callback: Callable[[], None], fullname: str) -> None:
+    """Run one callback; a failure is logged with its traceback and does not stop the caller's loop (29-F29)."""
+    try:
+        callback()
+    except Exception:
+        logger.exception("post-import callback for %s raised; running the remaining callbacks", fullname)
+
+
 class _CallbackLoader(importlib.abc.Loader):
     """Wraps a loader so the watched module's callbacks run after its ``exec_module``."""
 
@@ -49,8 +59,9 @@ class _CallbackLoader(importlib.abc.Loader):
         self._inner.exec_module(module)
         with _LOCK:
             callbacks = _PENDING.pop(self._fullname, [])
+        # One failing callback must not drop the rest: every callback is attempted, and each failure is logged (29-F29).
         for callback in callbacks:
-            callback()
+            _run_post_import_callback(callback, self._fullname)
 
     def __getattr__(self, name):
         """Forward anything else (``get_code``, ``is_package`` ...) to the wrapped loader."""

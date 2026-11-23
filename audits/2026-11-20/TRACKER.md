@@ -571,6 +571,56 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 04-F30 | 04_data.md | FIXED | replay_from_record refuses a missing dataset_seed. Test test_cluster04_replay_requires_seed.py. |
 | 14-F13 | 14_feature_selection-5.md | FIXED | Failed thread pin logs WARNING. Test test_cluster14_thread_pin_failure_warns.py. |
 | 22-F41 | 22_root_modules-1.md | FIXED | Failed bootstrap resamples counted and reported in one WARNING. Test test_cluster22_failed_resamples_warn.py. |
+| 22-F37 | 22_root_modules-1.md | FIXED | interval dtypes no longer canonicalise as int. Test test_cluster22_dtype_canon_interval.py. |
+| 22-F38 | 22_root_modules-1.md | FIXED | Docstring corrected: dotted names import their parent package. Docstring-only, no test. |
+| 22-F40 | 22_root_modules-1.md | FIXED | inf group labels keep their own key, not an undefined int64 cast. Test test_cluster22_group_keys_inf.py. |
+| 22-F34 | 22_root_modules-1.md | FIXED | NaN/inf valuations raise a ValueError naming the count. Test test_cluster22_weights_nonfinite_valueerror.py. |
+| 22-F39 | 22_root_modules-1.md | FIXED | ensure_no_infinity_pd copies the frame; caller untouched. Test test_cluster22_ensure_no_inf_copies.py. |
+| 22-F42 | 22_root_modules-1.md | FIXED | cupy measurement failure logs WARNING; missing cupy stays debug. Test test_cluster22_cupy_tuning_failure_warns.py. |
+| 22-F44 | 22_root_modules-1.md | FIXED | Robust location estimators refuse non-finite input. Test test_cluster22_robust_location_nonfinite.py. |
+| 22-F43 | 22_root_modules-1.md | FIXED | Throttle key is a stable name, not a line number. Test test_cluster22_throttle_key_stable.py. |
+| 22-F45 | 22_root_modules-1.md | WON'T FIX | Per-improvement snapshot is required for correctness (a stop-time snapshot would be a live reference to degraded weights). |
+| 22-F35 | 22_root_modules-1.md | FIXED | Docstring: exact own-value claim holds only for k=1. Docstring-only, no test. |
+| 22-F36 | 22_root_modules-1.md | FIXED | NaN check reads native dtype; no float64 copy. Test test_cluster22_ordinal_nan_check.py. |
+| 25-F57 | 25_root_modules-3.md | FIXED | Smallest qualifying candidate size wins for unsorted input. Test test_cluster25_prefilter_unsorted_sizes.py. |
+| 25-F56 | 25_root_modules-3.md | FIXED | Dead marginals array removed; output unchanged. Tests: test_mi_cross_parity.py, test_mi_kernels_reject_out_of_range_codes.py. |
+| 25-F58 | 25_root_modules-3.md | FIXED | Set-based anchor de-duplication; output unchanged. Tests: test_biz_val_varying_size_top_k_subsets.py, test_varying_size_cluster_anchors_nan_and_offset.py. |
+| 25-F65 | 25_root_modules-4.md | FIXED | Brier coerces y_prob to an array. Test test_cluster25_brier_list_probs.py. |
+| 26-F32 | 26_root_modules-5.md | FIXED | Negative decompression cap falls back to the default with a warning; 0 still disables. Test test_cluster26_decompress_cap_negative.py. |
+| 26-F14 | 26_root_modules-5.md | FIXED | Multi-class y refused in batch_univariate_auc. Test test_cluster26_auc_multiclass_refused.py. |
+| 26-F15 | 26_root_modules-5.md | FIXED | Silhouette excludes DBSCAN noise. Test test_cluster26_silhouette_excludes_noise.py. |
+| 26-F29 | 26_root_modules-5.md | FIXED | GPU DTW failure falls back with WARNING. Test test_cluster26_dtw_gpu_fallback_warns.py. |
+| 25-F63 | 25_root_modules-4.md | FIXED | Row-count guard before forest apply. Test test_cluster25_proximity_guard_before_apply.py. |
+| 25-F67 | 25_root_modules-4.md | FIXED | Miller-Madow occupancy excludes the non-finite slot. Test test_cluster25_kl_mm_excludes_nonfinite_slot.py. |
+| 25-F70 | 25_root_modules-4.md | FIXED | Duplicate alphas refused in pinball_loss_per_alpha. Test test_cluster25_pinball_duplicate_alphas.py. |
+| 25-F66 | 25_root_modules-4.md | DEFERRED | Hard-coded 500_000 MAPE threshold may be a measured crossover; switching to the shared constant needs a benchmark. |
+| 25-F69 | 25_root_modules-4.md | FIXED | Docstring corrected: per-column loop, no automatic GPU routing here. Docstring-only, no test. |
+| 25-F71 | 25_root_modules-4.md | DEFERRED | MAPE warmup diagnostic is a live, env-gated CI investigation hook; retire once the CI issue is closed. |
+| 28-F73 | 28_root_modules-2.md | FIXED | Bare model string keyed as one model, not per character. Test test_cluster28_suite_key_string_models.py. |
+| 28-F57 | 28_root_modules-2.md | FIXED | Failed LightGBM categorical casts log WARNING with the column. Test test_cluster28_lgb_cat_cast_warns.py. |
+| 28-F66 | 28_root_modules-2.md | FIXED | RMSE recommendations carry the extra-params keys. Test test_cluster28_rmse_recommendation_keys.py. |
+| 28-F62 | 28_root_modules-2.md | FIXED | No-op l1_ratio conditional replaced by config.l1_ratio; behaviour unchanged. Regression: existing linear-model tests (43). |
+| 28-F67 | 28_root_modules-2.md | FIXED | Devices returned in requested order, each once. Test test_cluster28_catboost_devices_requested_order.py. |
+| 28-F60 | 28_root_modules-2.md | FIXED | Unreachable (none) branch removed. Regression: test_catboost_text_feature_probe.py (14). |
+| 28-F64 | 28_root_modules-2.md | DEFERRED | Shared common_params mutated with trainset stats; later readers must be audited before the write is removed. |
+| 28-F70 | 28_root_modules-2.md | DEFERRED | Failed grid variant stored as an error dict; typed error object changes the public results contract. Owner decides. |
+| 28-F69 | 28_root_modules-2.md | DEFERRED | Frozenset vs tuple for same-named config field; unifying changes set operations. Needs consumer audit. |
+| 28-F71 | 28_root_modules-2.md | FIXED | Categorical set built once per call; output unchanged. Regression: existing drift-report tests (53). |
+| 27-F22 | 27_root_modules-6.md | FIXED | Title rate uses the larger label as positive, as the decision-threshold block does. Test test_cluster27_title_rate_positive_larger_label.py. |
+| 27-F21 | 27_root_modules-6.md | FIXED | Unfitted recalibrate raises instead of silent identity. Test test_cluster27_unfitted_recalibrator_raises.py. |
+| 27-F18 | 27_root_modules-6.md | FIXED | Unscored frontier fallback logs WARNING. Test test_cluster27_pareto_default_warns.py. |
+| 27-F17 | 27_root_modules-6.md | FIXED | Iterations validator copies the input dict. Test test_cluster27_iterations_mapping_no_mutation.py. |
+| 27-F26 | 27_root_modules-6.md | FIXED | CUDA permutation importance restores net device and mode. Test test_cluster27_cuda_fi_restores_net_state.py (CPU-only; CUDA restore branch unexercised here). |
+| 27-F24 | 27_root_modules-6.md | FIXED | CUDA visibility default set only when run as a script. Test test_cluster27_profile_import_keeps_env.py. |
+| 27-F23 | 27_root_modules-6.md | WON'T FIX | Stubs raise on purpose; precompute_all does not call them; tests pin the raise. |
+| 27-F25 | 27_root_modules-6.md | FIXED | GPU backend uses the absolute-PATH smi rule. Test test_cluster27_gpu_backend_absolute_path.py. |
+| 27-F20 | 27_root_modules-6.md | FIXED | format_metric docstring example matches output. Test test_cluster27_format_metric_docstring_examples.py. |
+| 29-F29 | 29_root_modules-8.md | FIXED | Failing post-import callback logged; the rest still run. Test test_cluster29_post_import_callbacks_all_run.py. |
+| 29-F32 | 29_root_modules-8.md | FIXED | Plain numbers such as -3.5 are not prefixed; formulas still are. Test test_cluster29_csv_safe_numbers_untouched.py. |
+| 29-F38 | 29_root_modules-8.md | FIXED | Failed KTC lookup logs WARNING naming the fallback. Test test_cluster29_ktc_lookup_failure_warns.py. |
+| 29-F37 | 29_root_modules-8.md | FIXED | Refit without capture clears stale iteration_metrics_. Test test_cluster29_xgb_refit_clears_iteration_metrics.py. |
+| 29-F34 | 29_root_modules-8.md | FIXED | Names mismatch raises ValueError listing both lists. Test test_cluster29_diversity_names_mismatch_message.py. |
+| 31-F10 | 31_system.md | FIXED | Timeout log states the timeout, not a fallback. Test test_cluster31_timeout_log_is_accurate.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |

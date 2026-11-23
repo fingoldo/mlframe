@@ -106,9 +106,12 @@ def _diverse_ranking(ranked_features: Sequence[str], clusters: dict, rotation: i
     for anchor, members in clusters.items():
         for m in members:
             seen_anchor_for[m] = anchor
+    # A set gives O(1) membership for the de-duplication; the list keeps the rank order (25-F58).
+    seen_anchors: set = set()
     for f in ranked_features:
         anchor = seen_anchor_for[f]
-        if anchor not in anchors_in_rank_order:
+        if anchor not in seen_anchors:
+            seen_anchors.add(anchor)
             anchors_in_rank_order.append(anchor)
 
     rotated_members = {}

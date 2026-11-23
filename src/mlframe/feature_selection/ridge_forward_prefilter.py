@@ -131,7 +131,8 @@ def ridge_coefficient_prefilter(
     # enormous relative allowance. Guarded on the sign so a negative best score (a worse-than-mean r2) does not
     # invert the inequality.
     _floor = best_score - abs(best_score) * tol if np.isfinite(best_score) else -np.inf
-    for size in candidate_sizes:
+    # Scan ascending so the SMALLEST size clearing the floor wins, whatever order the caller gave candidate_sizes in (25-F57).
+    for size in sorted(candidate_sizes):
         if size_scores[size] >= _floor:
             selected_idx = ranked_idx[:size]
             break

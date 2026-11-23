@@ -95,6 +95,11 @@ def rf_proximity_matrix(estimator: Any, X: Any = None, *, max_n: int = _DEFAULT_
     np.ndarray
         Symmetric ``(n, n)`` proximity in [0, 1] with unit diagonal. Convert to a distance with :func:`proximity_to_distance`.
     """
+    # Refuse before the forest is applied when the row count is known from X: apply is the expensive step (25-F63).
+    if X is not None and len(X) > max_n:
+        raise ValueError(
+            f"rf_proximity_matrix: n={len(X)} exceeds max_n={max_n}; the n x n proximity is O(n^2) memory. " f"Subsample rows or raise max_n explicitly."
+        )
     leaves = _leaves_from(estimator, X)
     n = leaves.shape[0]
     if n > max_n:
