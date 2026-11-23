@@ -58,3 +58,15 @@ def test_the_section_is_empty_without_a_fit():
     import types
 
     assert family_counts_section(types.SimpleNamespace()) == ""
+
+
+def test_two_recipes_with_one_name_are_one_column_and_the_first_wins():
+    """AUD23-40: a name identifies the engineered column (the stage merge keeps the first producer and logs "already produced by an earlier stage"), so ``group_counts`` counts distinct names and the first recipe's group."""
+    from types import SimpleNamespace
+
+    from mlframe.feature_selection.filters._fe_group_counts import group_counts
+
+    first = SimpleNamespace(name="f", kind="unary_binary", extra={})
+    second = SimpleNamespace(name="f", kind="hybrid_orth", extra={"basis": "hermite"})
+    other = SimpleNamespace(name="g", kind="hybrid_orth", extra={"basis": "hermite"})
+    assert group_counts([first, second, other]) == {"hybrid_orth:hermite": 1, "unary_binary": 1}
