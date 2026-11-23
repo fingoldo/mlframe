@@ -494,5 +494,6 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 41-F5 | 41_training-10.md | FIXED | Group loops use one stable sort and contiguous slices instead of O(G*n) masks. Test test_cluster41_group_stats_match_reference.py. |
 | 41-F6 | 41_training-10.md | FIXED | GroupKFold with fewer groups than k returns no shards, as the docstring promises; no separate test |
 | 41-F13 | 41_training-10.md | FIXED | Failing normality test logged at WARNING; the fallback is visible. Test test_cluster41_normality_fallback_warns.py. |
+| 41-F27 | 41_training-10.md | FIXED | A failing collapse sensor is logged at WARNING, not debug. Test test_cluster41_collapse_sensor_failure_warns.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
 | 42-F2 | 42_votenrank.md | FIXED | sub-leaderboards inherit allow_partial and partial_fill; no separate test |
