@@ -12,6 +12,7 @@ nothing from mlframe, so it is a leaf for any caller.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 # Aliases that mean one thing on disk and several things across polars / pandas / numpy. Everything else falls
@@ -30,6 +31,7 @@ _ALIASES = {
 # ``uint`` and ``int`` cannot be confused for each other here (``"uint8"`` does not start with ``"int"``), so the
 # order of this table is presentational only.
 _PREFIXES = (("uint", "u"), ("int", "i"), ("float", "f"))
+_FAMILY_RE = re.compile(r"^(uint|int|float)(\d*)$")
 
 
 def canonicalise_dtype(dt: Any) -> str:
@@ -39,9 +41,11 @@ def canonicalise_dtype(dt: Any) -> str:
     entry written by one backend is found by the other.
     """
     s = str(dt).strip().lower()
-    for prefix, short in _PREFIXES:
-        if s.startswith(prefix):
-            return short + s[len(prefix) :]
+    # Match the family prefix only when the rest is a bit width (digits). A bare startswith sent "interval[int64, right]"
+    # to "i..." because "interval" starts with "int" (22-F37).
+    m = _FAMILY_RE.match(s)
+    if m is not None:
+        return dict(_PREFIXES)[m.group(1)] + m.group(2)
     return _ALIASES.get(s, s)
 
 

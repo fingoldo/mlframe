@@ -1099,3 +1099,4 @@
 | 04-F30 | FIXED | replay_from_record refuses a record without dataset_seed instead of defaulting to 0. Test test_cluster04_replay_requires_seed.py. |
 | 14-F13 | FIXED | A failed thread pin logs a WARNING naming the parameters instead of a debug line. Test test_cluster14_thread_pin_failure_warns.py. |
 | 22-F41 | FIXED | Bootstrap resamples whose metric raises are counted and reported in one WARNING with the failed and total counts. Test test_cluster22_failed_resamples_warn.py. |
+| 22-F37 | FIXED | Dtype family prefixes match only when followed by a bit width, so interval dtypes are not mapped to int codes. Test test_cluster22_dtype_canon_interval.py. |
