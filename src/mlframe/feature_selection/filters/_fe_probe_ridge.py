@@ -22,7 +22,7 @@ def fit_ridge_closed_form(X: np.ndarray, y: np.ndarray, alpha: float) -> "tuple[
     gram[np.diag_indices_from(gram)] += float(alpha)
     try:
         w = np.linalg.solve(gram, Ac.T @ (t - y_mean))
-    except np.linalg.LinAlgError:
+    except np.linalg.LinAlgError:  # best-effort: None is the singular signal; each caller then solves by least squares or ScaledRidge
         return None
     if not np.isfinite(w).all():
         return None

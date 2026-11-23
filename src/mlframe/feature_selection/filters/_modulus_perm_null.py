@@ -8,6 +8,7 @@ per-permutation MI values are the ones the scalar path returns.
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import Any, cast
 
@@ -16,8 +17,11 @@ from numba import njit, prange
 
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._numba_utils import _quantile_bin_njit
+from mlframe.utils.log_throttle import log_throttle
 
 from ._pairwise_modular_fe import _combine, modulus_grid, select_modulus
+
+logger = logging.getLogger(__name__)
 
 
 @njit(cache=True, fastmath=True, parallel=True, nogil=True)
@@ -63,7 +67,8 @@ def host_residue_path() -> bool:
         from ._gpu_strict_fe import fe_gpu_device_born_modular_enabled
 
         return not bool(fe_gpu_device_born_modular_enabled())
-    except Exception:
+    except Exception as exc:
+        log_throttle(logger, "modulus_perm_null.host_residue_path_unknown", logging.WARNING, "modulus permutation null: the device-born probe failed, so the batched host null is assumed exact: %s", exc)
         return True
 
 
