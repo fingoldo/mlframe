@@ -1187,3 +1187,4 @@
 | 26-F18 | FIXED | Both dead bare-string blocks removed (cleaning.py earlier, _cleaning_helpers.py now). Existing cleaning tests pass (17). No behaviour change, so no new test. |
 | 39-F9 | FIXED | Persisted datetime dtype names resolve via np.dtype; unknown or non-numeric names raise ValueError instead of int8. Test tests/training/core/test_cluster39_persisted_dtype_strict.py. |
 | 39-F23 | FIXED | _extract_column refuses ndarray input with TypeError instead of passing the whole matrix; polars and pandas selection unchanged. Test tests/training/feature_handling/test_cluster39_custom_extract_column_refuses_ndarray.py. |
+| 39-F24 | DEFERRED | Owner decision. The rows never held out by a forward-chaining splitter have no past to encode from. Excluding only their own label from the prior still uses later labels (sibling time-aware test forbids that), so the fallback needs a policy: drop these rows, or use a documented constant. Not changed. |
