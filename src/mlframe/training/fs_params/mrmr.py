@@ -51,7 +51,7 @@ class MRMRParams(BaseModel):
     nbins_strategy: (
         Literal["sturges", "freedman_diaconis", "quantile_spacing", "uniform", "knuth", "bayesian_blocks", "mdlp", "mdlp_validated", "optimal_joint", "mah"]
         | None
-    ) = "sturges"
+    ) = "quantile_spacing"
     nbins_strategy_kwargs: dict | None = None
     max_adaptive_nbins: int = 127
     adaptive_nbins_large_n_reg: bool = True
