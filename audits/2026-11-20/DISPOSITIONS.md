@@ -1076,3 +1076,6 @@
 | 42-F11 | FIXED | Votenrank bench imports sigmoid from the family's _bench_shared module; the package-root copy stays for the other benches. Test test_cluster42_bench_sigmoid_shared.py. |
 | 42-F10 | FIXED | Minimax benchmark times and checks the shipped Leaderboard.minimax_ranking; the duplicate _new_minimax copy is removed; the old formulation stays as a fixture. Test test_cluster42_minimax_bench_uses_shipped.py. |
 | 42-F12 | DEFERRED | Repeated cProfile/perf_counter boilerplate across about a dozen bench scripts: a cross-file cleanup with no behaviour impact; deferred so the benches are not churned in this pass. |
+| 32-F8 | FIXED | Polars group-mean join matches null keys (nulls_equal=True), as the pandas path does. Test test_cluster32_polars_null_group_matches_pandas.py. |
+| 32-F17 | FIXED | Threshold benchmark seed uses zlib.crc32 (was already in code); pinned by test_cluster32_bench_seed_is_stable.py. |
+| 32-F9 | DEFERRED | CatBoost callbacks have no after-training hook, so the final round cannot be captured inside the callback when stride > 1. A fix needs the caller to capture the final round after fit (design). Owner decision. |

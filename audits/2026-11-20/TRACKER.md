@@ -548,6 +548,9 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 42-F11 | 42_votenrank.md | FIXED | Bench sigmoid now comes from the family's _bench_shared module. Test test_cluster42_bench_sigmoid_shared.py. |
 | 42-F10 | 42_votenrank.md | FIXED | Minimax bench times the shipped class; duplicate copy removed. Test test_cluster42_minimax_bench_uses_shipped.py. |
 | 42-F12 | 42_votenrank.md | DEFERRED | Bench profiling boilerplate across about a dozen scripts; cross-file cleanup, no behaviour impact. |
+| 32-F8 | 32_training-1.md | FIXED | Polars group-mean join matches null keys like the pandas path. Test test_cluster32_polars_null_group_matches_pandas.py. |
+| 32-F17 | 32_training-1.md | FIXED | Benchmark seed uses zlib.crc32 (already present); pinned. Test test_cluster32_bench_seed_is_stable.py. |
+| 32-F9 | 32_training-1.md | DEFERRED | CatBoost callback has no after-training hook; final-round capture needs caller-side design. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
