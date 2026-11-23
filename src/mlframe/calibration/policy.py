@@ -828,8 +828,7 @@ def pick_best_calibrator(
     # Secondary diagnostic: if a held-out ``probs``/``y`` pair is supplied, score the CHOSEN calibrator's ECE on it.
     # This never influences the selection above (which stays OOF-only for honesty); it is a side report so a caller can
     # see whether the OOF-picked calibrator generalises to a separate held-out slice.
-    secondary_ece: Optional[float] = None
-    secondary_ece = _score_calibrators_on_holdout(probs, y, chosen_name, oof_p_pos, oof_y_arr, n_bins, secondary_ece)
+    secondary_ece = _score_calibrators_on_holdout(probs, y, chosen_name, oof_p_pos, oof_y_arr, n_bins, None)  # None unless probs/y given (22-F28)
 
     plot_out: Optional[str] = None
     if emit_plot:
