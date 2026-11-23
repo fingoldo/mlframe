@@ -1125,3 +1125,4 @@
 | 25-F69 | FIXED | Docstring corrected: multilabel_auc_per_label always loops per column and does not route to the batched GPU path, which is compute_batch_aucs. Docstring-only; no test. |
 | 25-F71 | DEFERRED | The MAPE warmup diagnostic is an active CI investigation hook (env-gated) for a failure the code comments say is unresolved. Removing it discards the instrument; retire it once the CI issue is closed. Owner to decide. |
 | 28-F73 | FIXED | A bare model-name string is keyed as one model, not iterated per character. Test test_cluster28_suite_key_string_models.py; 26 existing artefact-cache tests pass. |
+| 28-F57 | FIXED | Failed categorical casts in the LightGBM shim (fit-time val and predict-time) log a WARNING naming the column. Test test_cluster28_lgb_cat_cast_warns.py; 5 existing shim tests pass. |

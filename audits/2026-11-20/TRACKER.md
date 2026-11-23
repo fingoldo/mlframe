@@ -597,6 +597,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 25-F69 | 25_root_modules-4.md | FIXED | Docstring corrected: per-column loop, no automatic GPU routing here. Docstring-only, no test. |
 | 25-F71 | 25_root_modules-4.md | DEFERRED | MAPE warmup diagnostic is a live, env-gated CI investigation hook; retire once the CI issue is closed. |
 | 28-F73 | 28_root_modules-2.md | FIXED | Bare model string keyed as one model, not per character. Test test_cluster28_suite_key_string_models.py. |
+| 28-F57 | 28_root_modules-2.md | FIXED | Failed LightGBM categorical casts log WARNING with the column. Test test_cluster28_lgb_cat_cast_warns.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
