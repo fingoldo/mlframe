@@ -79,6 +79,7 @@ def test_quadruplet_recipe_params_are_finite_and_replay_matches_with_missing_val
     assert quad
     assert len(quad) > 0, "no quadruplet recipe was replayed"
     for r in quad:
+        assert any(key.startswith("preprocess_params") for key in r.extra), f"{r.name} froze no preprocess params"
         for key, pp in r.extra.items():
             if key.startswith("preprocess_params"):
                 assert all(np.isfinite(v) for v in pp.values())
