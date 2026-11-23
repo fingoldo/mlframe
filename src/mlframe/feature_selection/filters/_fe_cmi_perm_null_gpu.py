@@ -243,6 +243,15 @@ def _key_pack_kernel32(cp: Any) -> Any:
     return _KEY_PACK_KERNEL32
 
 
+def _device_seed(seed: int, salt: int) -> int:
+    """Pack ``(seed, salt)`` into one 63-bit device seed, injectively on the 31-bit seed and 32-bit salt.
+
+    An XOR fold collides distinct candidates (``(2, 0)`` and ``(0, 1)`` both map to 2), so two candidates would share one
+    random stream. Packing keeps the components in disjoint bit ranges.
+    """
+    return ((int(seed) & 0x7FFFFFFF) << 32) | (int(salt) & 0xFFFFFFFF)
+
+
 class _DeviceRng:
     """The device random source of one permutation-null call: a counter-based Philox generator seeded with the call's seed, exposing the two draws the null uses (``randint`` and ``random_sample``).
 
@@ -377,11 +386,10 @@ def conditional_perm_null_gpu(
     if nperm < 1:
         return 0.0, 0.0
 
-    # Device RNG seeded from the SAME (seed, salt) the CPU path mixes -> reproducible per-candidate stream. The
-    # XOR-fold keeps the two 32-bit components distinct as a single 64-bit seed (cupy RandomState takes one seed);
-    # the exact stream differs from numpy's SeedSequence (acceptable: selection-equivalence, not byte-identity).
-    dev_seed = (int(seed) & 0xFFFFFFFF) ^ ((int(salt) & 0xFFFFFFFF) << 1)
-    rs = _DeviceRng(cp, dev_seed & 0x7FFFFFFFFFFFFFFF)
+    # Device RNG seeded from the SAME (seed, salt) the CPU path mixes -> reproducible per-candidate stream; the exact
+    # stream differs from numpy's SeedSequence (acceptable: selection-equivalence, not byte-identity).
+    dev_seed = _device_seed(seed, salt)
+    rs = _DeviceRng(cp, dev_seed)
 
     # x is held resident on device; y/z stay host (``batched_cmi_gpu`` consumes the (n,nperm) candidate matrix
     # on device but reads y/z as host ndarrays - it does its own H2D for them, once per call, not per perm).

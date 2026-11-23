@@ -362,6 +362,7 @@ def _baseline() -> "set[str]":
 
 def test_exceptions_carry_a_reason():
     """Every accepted loop states why it is not batched; a bare name is not an exception."""
+    assert _exceptions(), "no accepted exception to check"
     for key, reason in _exceptions().items():
         assert isinstance(reason, str) and len(reason) >= 120, f"exception {key} has no measured or structural reason"
 

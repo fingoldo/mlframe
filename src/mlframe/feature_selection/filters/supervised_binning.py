@@ -221,6 +221,20 @@ def _sorted_by_x(x: np.ndarray, y: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
     return np.ascontiguousarray(x[sorter].astype(np.float64)), np.ascontiguousarray(y[sorter])
 
 
+def _finite_sorted_views(x: np.ndarray, y_arr: np.ndarray, presorted: "tuple[np.ndarray, np.ndarray] | None") -> "tuple[np.ndarray, np.ndarray] | None":
+    """``(x_sorted, y_sorted)`` of the finite rows of ``x``, or ``None`` when no finite row is left.
+
+    A caller that already sorted the column passes ``presorted`` and the sort is skipped.
+    """
+    if presorted is not None:
+        x_sorted, y_sorted = presorted
+        return None if x_sorted.size == 0 else (x_sorted, y_sorted)
+    x, y = _drop_nonfinite_xy(x, y_arr)
+    if x.size == 0:
+        return None
+    return _sorted_by_x(x, y)
+
+
 def mdlp_bin_edges(
     x: np.ndarray,
     y: np.ndarray,
@@ -358,17 +372,11 @@ def mdlp_bin_edges(
     if scaled_min_split:
         min_split_size = max(int(min_split_size), int(0.02 * len(x)))
 
-    if presorted is not None:
-        x_sorted, y_sorted = presorted
-        x = x_sorted
-    else:
-        x, y = _drop_nonfinite_xy(x, _y_arr)
-    if x.size == 0:
+    _sorted = _finite_sorted_views(x, _y_arr, presorted)
+    if _sorted is None:
         # All-NaN / all-non-finite input: no splits computable.
         return np.array([-np.inf, np.inf], dtype=np.float64)  # Intentional float64: bin-edge / cut vector, compared against values at full precision
-
-    if presorted is None:
-        x_sorted, y_sorted = _sorted_by_x(x, y)
+    x_sorted, y_sorted = _sorted
 
     splits = _mdlp_sorted_splits(
         x_sorted, y_sorted, fast_mode=fast_mode, backend=backend, min_split_size=int(min_split_size), max_depth=int(max_depth),

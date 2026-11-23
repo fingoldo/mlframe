@@ -203,6 +203,7 @@ class TestMrmrNbinsStrategyNamesHaveNoAliases:
         """None of the former names is accepted; each canonical name is."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
+        assert self.REMOVED, "no removed strategy name to check"
         for old, new in self.REMOVED.items():
             assert old not in MRMR._VALID_NBINS_STRATEGIES, old
             assert new in MRMR._VALID_NBINS_STRATEGIES, new

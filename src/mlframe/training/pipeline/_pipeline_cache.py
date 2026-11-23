@@ -338,7 +338,7 @@ def _hash_polars_frame_rows(arr) -> str:
         row_hashes = arr.hash_rows()
         # The per-row hashes in ROW ORDER, not their sum: a sum is order-invariant, so two frames with the same rows in a
         # different order used to share one cache key (audit 40-F20).
-        row_bytes = row_hashes.to_numpy().tobytes()
+        row_bytes = np.ascontiguousarray(row_hashes.to_numpy()).view(np.uint8).data
     except _HASH_FASTPATH_EXC as _exc:
         # Tuple includes pyo3 PanicException (zero-column hash_rows).
         log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash fell back to its default after %s", type(_exc).__name__)
@@ -365,7 +365,7 @@ def _hash_pandas_frame_via_polars(arr) -> Optional[str]:
     # c0051 16 hashes saves ~1.9 s). hash_rows() is Rust-side
     # deterministic, identical guarantees to blake2b(tobytes) for
     # cache-key collision resistance.
-    pd_row_bytes: bytes | None
+    pd_row_bytes: memoryview | None
     if pl is not None and arr.shape[1] > 0:
         # Guard against zero-column frames: polars' ``hash_rows`` panics
         # at the Rust layer (``pyo3_runtime.PanicException: at least one
@@ -379,7 +379,7 @@ def _hash_pandas_frame_via_polars(arr) -> Optional[str]:
         try:
             pl_df = pl.from_pandas(arr)
             row_hashes = pl_df.hash_rows()
-            pd_row_bytes = row_hashes.to_numpy().tobytes()  # row order kept (audit 40-F20)
+            pd_row_bytes = np.ascontiguousarray(row_hashes.to_numpy()).view(np.uint8).data  # row order kept (audit 40-F20)
         except _HASH_FASTPATH_EXC:
             # Tuple includes pyo3 PanicException (zero-column
             # hash_rows). Fallback uses ``arr.to_numpy().tobytes()``.
@@ -573,7 +573,9 @@ def _param_key_repr(value) -> str:
     import numpy as np
 
     if isinstance(value, np.ndarray):
-        return f"ndarray{value.shape}:{value.dtype}:{hashlib.blake2b(np.ascontiguousarray(value).tobytes(), digest_size=16).hexdigest()}"
+        if value.dtype.hasobject:
+            return repr(value)
+        return f"ndarray{value.shape}:{value.dtype}:{hashlib.blake2b(np.ascontiguousarray(value).view(np.uint8).data, digest_size=16).hexdigest()}"
     return repr(value)
 
 

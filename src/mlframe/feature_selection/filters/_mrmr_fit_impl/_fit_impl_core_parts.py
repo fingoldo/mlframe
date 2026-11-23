@@ -46,6 +46,13 @@ in the sibling _helpers.py.
 """
 
 
+def _forget_unused_prefetch(self: Any) -> None:
+    """Drop a surrogate-seeder prefetch that the screening rounds never consumed."""
+    from mlframe.feature_selection.filters._gbm_seeder_prefetch import drop_prefetched
+
+    drop_prefetched(self)
+
+
 def _fit_impl_part9(_ret_fit_impl_part7: Any, self: Any, y: pd.DataFrame | pd.Series | np.ndarray) -> tuple[Any, ...]:
     """Extracted block of ``_fit_impl`` (part 9); returns the names the caller still uses."""
     predictors: Any = None
@@ -187,16 +194,13 @@ def _fit_impl_part9(_ret_fit_impl_part7: Any, self: Any, y: pd.DataFrame | pd.Se
     _eng_continuous_snapshot, _drop_temporary_targets = _fit_impl_part6(self, verbose, times_spent, sort_dict_by_value)
 
     X, selected_vars = _drop_temporary_targets(_is_polars_input, X, target_names, _dcd_state, selected_vars)
-
     # ---------------------------------------------------------------------------------------------------------------
     # Friend-graph post-analysis (diagnostic; optional pruning). Built here, while ``selected_vars``,
     # ``data``, ``nbins`` and ``target_indices`` are all still in cols-space, BEFORE the remap below
     # rebinds ``selected_vars`` to original-frame indices. When pruning is enabled the pruned cols-space
     # list flows through that same remap into ``support_``. Never allowed to break fit - guarded.
     # ---------------------------------------------------------------------------------------------------------------
-    from mlframe.feature_selection.filters._gbm_seeder_prefetch import drop_prefetched
-
-    drop_prefetched(self)  # a prefetch the rounds never took (no FE step ran) is forgotten here
+    _forget_unused_prefetch(self)  # a prefetch the rounds never took (no FE step ran) is forgotten here
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._post_selection import _friend_graph_analysis
     return False, MRMR, _hashable_params_signature, recipes, fe, _y_np, X, signature, _cache_key, start_time, ran_out_of_time, _fe_family_on, verbose, cols, data, nbins, target_indices, categorical_vars_names, engineered_recipes, _effective_min_relevance_gain, _persisted_dcd_state, selected_vars, predictors, cached_MIs, classes_y, _eng_continuous_snapshot, _friend_graph_analysis, _persisted_screen_caches, freqs_y
 

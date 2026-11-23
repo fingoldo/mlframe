@@ -566,7 +566,7 @@ def _full_content_key(df: Any) -> Any:
         row_hashes = pd.util.hash_pandas_object(df, index=False).to_numpy()
         dtypes = tuple(str(t) for t in df.dtypes)
         columns = tuple(map(str, df.columns))
-    digest = hashlib.blake2b(np.ascontiguousarray(row_hashes).tobytes(), digest_size=16).hexdigest()
+    digest = hashlib.blake2b(np.ascontiguousarray(row_hashes).view(np.uint8).data, digest_size=16).hexdigest()
     return (tuple(df.shape), columns, dtypes, digest)
 
 

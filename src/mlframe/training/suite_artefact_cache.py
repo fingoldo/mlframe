@@ -504,7 +504,7 @@ def _arg_fingerprint(value: Any) -> str:
         arr = np.ascontiguousarray(value.to_numpy() if hasattr(value, "to_numpy") else value)
         if arr.dtype.hasobject:
             return repr(value)
-        return f"array:{arr.dtype.str}:{arr.shape}:{hashlib.blake2b(arr.tobytes(), digest_size=16).hexdigest()}"
+        return f"array:{arr.dtype.str}:{arr.shape}:{hashlib.blake2b(arr.view(np.uint8).data, digest_size=16).hexdigest()}"
     return repr(value)
 
 

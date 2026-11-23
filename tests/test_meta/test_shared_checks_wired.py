@@ -823,6 +823,7 @@ _DOC_PARITY_IGNORED = {
     "dram_read_throughput",
     "dram_write_throughput",
     "gld_transactions_per_request",
+    "flop_dp_efficiency",  # nvprof metric name the CUDA guide quotes (the profiler's own identifier, not one of ours)
     "shared_load_transactions_per_request",
     "stall_memory_dependency",
     "stall_exec_dependency",
