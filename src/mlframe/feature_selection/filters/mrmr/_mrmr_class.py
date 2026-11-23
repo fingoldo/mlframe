@@ -379,7 +379,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         categorical_fold_strategy: str = "frequency",
         categorical_fold_min_support: int = 5,
         # per-feature adaptive bin chooser. Default ``'quantile_spacing'`` (the owner's choice of 2026-11-23): it depends on the column only, never on the target, so a suite of targets bins each column once
-        # and the composite child fit can reuse the codes. Its bin count follows the row count: ``min(round(0.3 n), round(2 n^(1/3)))`` clamped to [3, 32] (20 at 1000 rows, 32 from about 4100; the cap measured 2026-11-23: 100000 x 100 ALL wall 50.3 s at 64 against 40.3 s at 32, out-of-fold AUC 0.9530 against 0.9536). It was
+        # and the composite child fit can reuse the codes. Its bin count follows the row count: ``min(round(0.3 n), round(2 n^(1/3)))`` clamped to [3, 48] (20 at 1000 rows, 36 at 6000, 48 from about 13800; the cap measured 2026-11-23: 100000 x 100 ALL wall 50.3 s at 64 against 37.1 s at 48; out-of-fold 80000 x 50 binary AUC 0.9491 at 64, 0.9507 at 48, 0.9305 at 32 where one fold failed). It was
         # briefly replaced by ``sturges`` the same day, by the assistant and not on the owner's decision, because the old rule ``round(0.3 n)`` gave 64 bins at EVERY n from 214 up and lost a categorical interaction
         # in a 6000-row frame with 120 noise columns (3 of 3 seeds); with the rule above it is kept (3 of 3, as ``sturges``, ``uniform``, ``mdlp`` and ``optimal_joint`` do; ``freedman_diaconis`` loses it). Measured on
         # 20000 x 50 out of fold (``_benchmarks/nbins_strategy``, the old rule): binary AUC 0.951 against 0.950 for ``sturges``, regression R2 0.888 against 0.886, wall 21 s against 23 s per fold; ``mdlp`` has the best
