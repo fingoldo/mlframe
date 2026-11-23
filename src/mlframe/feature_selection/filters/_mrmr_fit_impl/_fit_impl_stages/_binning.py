@@ -413,6 +413,13 @@ def _strategy_kwargs(self: Any, _nbins_strategy: Any) -> Any:
         _md = max(2, int(np.floor(np.log2(int(_cap)))))
         _nbins_strategy_kwargs = dict(_nbins_strategy_kwargs or {})
         _nbins_strategy_kwargs.setdefault("max_depth", _md)
+        # The cap is deliberate (a narrow codes matrix) but it limits the numeric intervals of an MDLP column to 2**depth, which changes the selection on a column that wants more: say so once (AUD23-62).
+        if "max_depth" not in (getattr(self, "nbins_strategy_kwargs", None) or {}):
+            log_throttle(
+                logger, "_binning.mdlp_depth_cap", logging.INFO,
+                "nbins_strategy=%r: max_categorical_cardinality=%s caps the MDLP recursion at max_depth=%d, i.e. at most %d intervals per numeric column; pass nbins_strategy_kwargs={'max_depth': ...} or raise max_categorical_cardinality (255 and above leaves the default depth) to allow more.",
+                str(_nbins_strategy), int(_cap), _md, 2**_md,
+            )
     # Constructor-level shared adaptive-bin-count ceiling (knuth / bayesian_blocks / freedman_diaconis
     # - see MRMR.__init__'s max_adaptive_nbins docstring and _adaptive_nbins.MAX_ADAPTIVE_NBINS).
     # setdefault so an explicit per-method override in nbins_strategy_kwargs (e.g. "knuth_m_max_cap")
