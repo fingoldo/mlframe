@@ -579,6 +579,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 22-F42 | 22_root_modules-1.md | FIXED | cupy measurement failure logs WARNING; missing cupy stays debug. Test test_cluster22_cupy_tuning_failure_warns.py. |
 | 22-F44 | 22_root_modules-1.md | FIXED | Robust location estimators refuse non-finite input. Test test_cluster22_robust_location_nonfinite.py. |
 | 22-F43 | 22_root_modules-1.md | FIXED | Throttle key is a stable name, not a line number. Test test_cluster22_throttle_key_stable.py. |
+| 22-F45 | 22_root_modules-1.md | WON'T FIX | Per-improvement snapshot is required for correctness (a stop-time snapshot would be a live reference to degraded weights). |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
