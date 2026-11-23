@@ -1132,3 +1132,4 @@
 | 28-F60 | FIXED | Removed the unreachable '(none)' description branch: _bad_desc is only built inside if _bad. Regression: 14 existing CatBoost text-feature probe tests pass. |
 | 28-F64 | DEFERRED | process_model writes trainset_features_stats into the shared common_params. It may be relied on by later models in the same loop; removing the write needs an audit of every reader of common_params first. Deferred. |
 | 28-F70 | DEFERRED | A failed grid variant is stored as a plain error dict in a results dict of result objects. Changing it to a typed error object is a public results-contract change; no in-repo consumer reads these entries. Owner to choose the contract. |
+| 28-F69 | DEFERRED | DummyBaselinesConfig.apply_to_target_types is a frozenset (its own comment uses set difference) while the same-named baseline-diagnostics field is a tuple. Unifying the type changes set operations on the config; consumers need an audit first. Deferred. |
