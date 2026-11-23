@@ -149,6 +149,12 @@ def _plugin_target(y_arr: np.ndarray) -> np.ndarray:
             # otherwise all collapse to class 0.
             _, y_mi = np.unique(y_mi, return_inverse=True)
             y_mi = y_mi.astype(np.int64, copy=False)
+        elif y_mi.dtype.kind in "fc":
+            # A continuous target with more distinct values than the class cap: the batch reads it as integers, which
+            # truncates the whole range into class 0 (no signal). Quantile-bin it into 16 pseudo-classes, as the MDLP path does.
+            finite = np.isfinite(y_mi)
+            edges = np.quantile(y_mi[finite], np.linspace(0.0, 1.0, 17)[1:-1])
+            y_mi = np.searchsorted(edges, np.where(finite, y_mi, edges[0]), side="right").astype(np.int64)
     return y_mi
 
 
