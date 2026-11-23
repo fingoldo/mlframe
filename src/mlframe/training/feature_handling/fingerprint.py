@@ -379,8 +379,8 @@ def _column_value_bytes(series: Any) -> bytes:
     import pandas as pd
 
     if series.dtype == object:
-        return pd.util.hash_pandas_object(series, index=False).to_numpy().tobytes()
-    return series.to_numpy().tobytes()
+        return bytes(pd.util.hash_pandas_object(series, index=False).to_numpy().tobytes())
+    return bytes(series.to_numpy().tobytes())
 
 
 def _pandas_rows_payload(df: Any, cols_sorted: list, sample_idx: np.ndarray) -> bytes:

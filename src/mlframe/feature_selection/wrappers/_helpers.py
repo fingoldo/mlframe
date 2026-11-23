@@ -81,6 +81,12 @@ def _take_rows(y: Any, index: np.ndarray) -> Any:
     return y[index]
 
 
+def _require_nonempty_features(features_indices) -> None:
+    """Refuse an empty feature list: it has no first element to classify as name or position (14-F12)."""
+    if features_indices is not None and len(features_indices) == 0:
+        raise ValueError("split_into_train_test: features_indices is empty; pass None for all columns or at least one feature.")
+
+
 def split_into_train_test(
     X: pd.DataFrame | np.ndarray, y: pd.DataFrame | np.ndarray, train_index: np.ndarray, test_index: np.ndarray, features_indices: Union[np.ndarray, None] = None,
     X_estimator: np.ndarray | None = None, col_pos: dict | None = None,
@@ -96,9 +102,7 @@ def split_into_train_test(
     float32 would alter LightGBM splits), so the selection is unaffected. Only the X-DataFrame branch
     consults ``X_estimator``; the polars / ndarray branches are untouched.
     """
-    # An empty feature list has no first element to classify as name or position; refuse it up front (14-F12).
-    if features_indices is not None and len(features_indices) == 0:
-        raise ValueError("split_into_train_test: features_indices is empty; pass None for all columns or at least one feature.")
+    _require_nonempty_features(features_indices)
 
     X_train: Any
     X_test: Any
