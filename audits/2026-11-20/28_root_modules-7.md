@@ -171,3 +171,4 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F55: FIXED. Removed the no-op del of a parameter (it freed nothing while the caller held the frame); _maybe_clean_ram still runs. Import check passes; the removed branch had no observable effect, so no test.
 - 28-F61: FIXED. Removed the unused optional matplotlib import in the trainer-configure helpers (no name use, no importer). Regression: the two importing tests pass (37).
 - 28-F50: FIXED. The reset-then-read pair on _pre_pipeline_groups is replaced by passing None directly; the attribute is None on entry, so behaviour is unchanged. Regression: module import and a related trainer test pass.
+- 28-F52: FIXED. Bare raise AssertionError in load_and_prepare_dataframe replaced with a TypeError naming the function and the received type. Test tests/training/test_cluster28_preprocessing_typed_error.py; 5 loader tests in test_preprocessing pass.
