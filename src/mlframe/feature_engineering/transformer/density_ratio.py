@@ -44,11 +44,13 @@ _BANDWIDTHS = (0.5, 1.0, 2.0, 4.0)
 
 def _silverman_h(X: np.ndarray) -> float:
     """Silverman's rule-of-thumb bandwidth: h = (4 σ⁵ / 3 N)^(1/5). Returns scalar averaged across features."""
-    n, _d = X.shape
+    n, d = X.shape
     if n < 2:
         return 1.0
     sigma = X.std(axis=0).mean()
-    h = sigma * (4.0 / (3.0 * n)) ** 0.2
+    # Multivariate Silverman rule: (4/(d+2))^(1/(d+4)) * n^(-1/(d+4)). At d=1 this is the 1-D rule (4/(3n))^(1/5); the old 1-D factor
+    # was used for every d, which is far off for d=20 (09-F38).
+    h = sigma * (4.0 / (d + 2)) ** (1.0 / (d + 4)) * n ** (-1.0 / (d + 4))
     return float(max(h, 1e-3))
 
 
