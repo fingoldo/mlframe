@@ -570,6 +570,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 13-F22 | 13_feature_selection-4.md | DEFERRED | Always-true row-alignment check in residual round; dead-branch cleanup with the shap_proxied batch, no cheap direct test. |
 | 04-F30 | 04_data.md | FIXED | replay_from_record refuses a missing dataset_seed. Test test_cluster04_replay_requires_seed.py. |
 | 14-F13 | 14_feature_selection-5.md | FIXED | Failed thread pin logs WARNING. Test test_cluster14_thread_pin_failure_warns.py. |
+| 22-F41 | 22_root_modules-1.md | FIXED | Failed bootstrap resamples counted and reported in one WARNING. Test test_cluster22_failed_resamples_warn.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
