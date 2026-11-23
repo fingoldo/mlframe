@@ -1056,3 +1056,4 @@
 | 39-F57 | FIXED | Negative and NaN categorical codes map to the reserved row instead of category 0. Tests updated in test_categorical_embeddings.py. |
 | 39-F21 | FIXED | Object-column fingerprints hash by value (hash_pandas_object), not PyObject pointers. Test test_cluster39_object_column_hash_by_value.py. |
 | 39-F22 | FIXED | fit() retries without y only for a y-signature mismatch, the same narrowing fit_transform uses; genuine TypeErrors surface. Test test_cluster39_custom_fit_narrow_retry.py. |
+| 39-F41 | DEFERRED | Stale-lock reclaim was removed deliberately (class docstring says so); restoring it changes lock behaviour, so the owner must pick reclaim vs documented no-reclaim. Module docstring is the only stale claim. |
