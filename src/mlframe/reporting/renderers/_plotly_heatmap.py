@@ -265,7 +265,7 @@ def _heatmap(self, fig, p: HeatmapPanelSpec, row: int, col: int) -> None:
     _heatmap_threshold_contours(fig, p, go, row, col, drew_cell_text)
     _heatmap_trend_line(fig, p, go, row, col)
 
-    apply_heatmap_tick_budget(fig, p, row, col)
+    # The tick budget runs once, after the final layout, in the renderer's panel loop (21-F19).
     fig.update_xaxes(title_text=p.xlabel, row=row, col=col)
     # Row order must match matplotlib, which switches to origin="lower" for a density panel carrying
     # `trend_xy` (it reads bottom-up, row 0 = lowest value) and keeps the top-down matrix order otherwise.
