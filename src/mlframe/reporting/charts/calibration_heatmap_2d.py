@@ -226,7 +226,8 @@ def compose_calibration_heatmap_2d_figure(
     """RdYlGn_r heatmap of per-cell calibration ECE over a quantile grid of (feat_x, feat_y), worst-cell as headline.
 
     Both features are quantile-binned into an ``n_bins x n_bins`` grid (rows = ``feat_y`` low->high, cols = ``feat_x``); each
-    cell shows ``|mean(y_score) - mean(y_true)|`` (the cell-conditional calibration gap) coloured green (calibrated) to red
+    cell shows its binned ECE (score bins within the cell, support-weighted |mean score - mean target| per bin; scores
+    are expected in [0, 1]) (20-F38), coloured green (calibrated) to red
     (miscalibrated), annotated with the ECE and the cell support ``n``. Cells below the {floor}-row support floor are greyed
     (NaN) rather than shown as noise. The suptitle reports the worst cell's ECE + its ``(f_x bin, f_y bin)`` location and a
     traffic-light (< {green} green, < {red} amber, else red) -- a localized pocket the pooled / 1D views average away. A
