@@ -11,17 +11,8 @@ from typing import cast
 import numpy as np
 from numba import njit, prange
 
+from ._numba_utils import _psi_table  # shared njit helper, re-exported for callers of this module
 from ._numba_utils_shared import radix_order_f64
-
-
-@njit(cache=True, nogil=True)
-def _psi_table(n):
-    """digamma at integers 1..n via psi(m+1) = psi(m) + 1/m, psi(1) = -Euler gamma."""
-    out = np.zeros(n + 2)
-    out[1] = -0.5772156649015329
-    for m in range(1, n + 1):
-        out[m + 1] = out[m] + 1.0 / m
-    return out
 
 
 @njit(cache=True, nogil=True)
