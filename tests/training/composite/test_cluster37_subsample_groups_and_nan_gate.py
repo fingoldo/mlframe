@@ -13,7 +13,9 @@ def test_group_subsample_stays_group_disjoint_when_one_group_covers_most_rows():
         if pos is None:
             continue  # no group-disjoint subsample exists for this order; full set is group-disjoint by construction
         assert pos.size < 1000, "kept groups cover every row, so the subsample is not a subsample"
-        for g in set(groups[pos].tolist()):
+        kept = set(groups[pos].tolist())
+        assert kept, "the subsample kept no group"
+        for g in kept:
             assert np.all(np.isin(np.nonzero(groups == g)[0], pos)), "a group was split by the subsample"
 
 
@@ -22,5 +24,7 @@ def test_group_subsample_keeps_whole_groups_in_ordinary_case():
     groups = np.repeat(np.arange(100), 10)
     pos = _oof_subsample_positions(1000, groups, cap=300, seed=1)
     assert pos is not None and 0 < pos.size < 1000
-    for g in set(groups[pos].tolist()):
+    kept = set(groups[pos].tolist())
+    assert kept, "the subsample kept no group"
+    for g in kept:
         assert np.all(np.isin(np.nonzero(groups == g)[0], pos))
