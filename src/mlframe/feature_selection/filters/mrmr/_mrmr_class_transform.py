@@ -201,7 +201,10 @@ class _MRMRTransformMixin:
         import pandas as pd
         from .._usability_lists import materialize_usability_features
 
-        if not isinstance(base_out, pd.DataFrame):
+        # the container type of the output follows the input (AUD23-11): a pure-MI transform of an ndarray is an ndarray, so the union must not turn it into a DataFrame
+        # (a Pipeline / ColumnTransformer that expects arrays, or set_output=default, saw the type change with the flag); the names are in ``get_feature_names_out``
+        _was_frame = isinstance(base_out, pd.DataFrame)
+        if not _was_frame:
             cols = list(self.get_feature_names_out())
             arr = np.asarray(base_out)
             # get_feature_names_out already includes the union names; the base ndarray is narrower
@@ -217,10 +220,11 @@ class _MRMRTransformMixin:
         extra = self._usability_union_extra(nonlinear_names)
         self.usability_feature_groups_ = groups
         if not extra:
-            return base_out
+            return base_out if _was_frame else base_out.to_numpy()
         mat = materialize_usability_features(extra, X)
         mat.index = base_out.index
-        return pd.concat([base_out, mat], axis=1)
+        joined = pd.concat([base_out, mat], axis=1)
+        return joined if _was_frame else joined.to_numpy()
 
     def transform_usability(self, X, which: Literal["linear", "universal", "nonlinear"] = "linear"):
         """Materialise a USABILITY-AWARE feature space on ``X`` - the linear-downstream selection
