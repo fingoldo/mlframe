@@ -588,6 +588,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 25-F65 | 25_root_modules-4.md | FIXED | Brier coerces y_prob to an array. Test test_cluster25_brier_list_probs.py. |
 | 26-F32 | 26_root_modules-5.md | FIXED | Negative decompression cap falls back to the default with a warning; 0 still disables. Test test_cluster26_decompress_cap_negative.py. |
 | 26-F14 | 26_root_modules-5.md | FIXED | Multi-class y refused in batch_univariate_auc. Test test_cluster26_auc_multiclass_refused.py. |
+| 26-F15 | 26_root_modules-5.md | FIXED | Silhouette excludes DBSCAN noise. Test test_cluster26_silhouette_excludes_noise.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |

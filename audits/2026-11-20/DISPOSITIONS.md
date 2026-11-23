@@ -1116,3 +1116,4 @@
 | 25-F65 | FIXED | Brier score coerces y_prob to an array, so a list input no longer reaches numba untyped. Test test_cluster25_brier_list_probs.py. |
 | 26-F32 | FIXED | A negative MLFRAME_MAX_DECOMPRESSED_BYTES falls back to the default ceiling with a warning; 0 still disables explicitly. Test test_cluster26_decompress_cap_negative.py. |
 | 26-F14 | FIXED | batch_univariate_auc refuses multi-class targets instead of scoring label 1 one-vs-rest. Test test_cluster26_auc_multiclass_refused.py. |
+| 26-F15 | FIXED | Silhouette in clusterize excludes DBSCAN noise via _silhouette_without_noise; undefined with fewer than two real clusters. Tests test_cluster26_silhouette_excludes_noise.py; existing cluster tests (15) pass. |

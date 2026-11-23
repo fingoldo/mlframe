@@ -9,7 +9,21 @@ from sklearn.cluster import DBSCAN
 
 logger = logging.getLogger(__name__)
 
-def list_cluster_members(labels:Sequence,true_lables:Sequence)->None:
+def _silhouette_without_noise(X, labels):
+    """Silhouette over the clustered points only: DBSCAN noise (label -1) is not one cluster, so it is excluded (26-F15).
+
+    Returns None when fewer than two real clusters remain, where the silhouette is undefined.
+    """
+    from sklearn import metrics
+
+    labels = np.asarray(labels)
+    keep = labels != -1
+    if np.unique(labels[keep]).size < 2:
+        return None
+    return metrics.silhouette_score(np.asarray(X)[keep], labels[keep])
+
+
+def list_cluster_members(labels: Sequence, true_lables: Sequence) -> None:
     """Print, for each non-negative cluster id in ``labels``, the list of ``true_lables`` entries assigned to it."""
     labels_arr = np.asarray(labels)
     if labels_arr.size == 0:
@@ -48,7 +62,8 @@ def clusterize(X:Optional[Any]=None,true_labels:Optional[Sequence]=None,clusteri
     logger.info("Estimated number of clusters: %d", n_clusters_)
     logger.info("Estimated number of noise points: %d", n_noise_)
     if show_metrics:
-        if len(np.unique(labels))>1: logger.info("Silhouette Coefficient: %0.3f", metrics.silhouette_score(X, labels))
+        _sil = _silhouette_without_noise(X, labels)
+        if _sil is not None: logger.info("Silhouette Coefficient: %0.3f", _sil)
         if true_labels is not None:
             logger.info("Homogeneity: %0.3f", metrics.homogeneity_score(true_labels, labels))
             logger.info("Completeness: %0.3f", metrics.completeness_score(true_labels, labels))
