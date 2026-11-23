@@ -625,7 +625,8 @@ def _edge_pool(workers: int) -> Any:
         import psutil
 
         workers = max(int(workers), int(psutil.cpu_count(logical=True) or 1))
-    except Exception:
+    except Exception as exc:
+        logger.debug("edge pool: cpu count probe failed, using one worker: %s", exc)
         workers = max(int(workers), 1)
     with _EDGE_POOL_LOCK:
         if _EDGE_POOL is None or _EDGE_POOL_WORKERS < workers:

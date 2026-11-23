@@ -188,7 +188,8 @@ def _base_varies(arr) -> bool:
     "non-decreasing" and used to set the time-aware flag for every CV (audit 35-F3)."""
     try:
         values = np.asarray(arr, dtype=np.float64).ravel()
-    except (TypeError, ValueError):
+    except (TypeError, ValueError) as exc:
+        log_throttle(logger, "composite_tiny_rerank_base_unreadable", logging.WARNING, "[CompositeTargetDiscovery] a base column is not numeric, so it is treated as constant for the time-aware flag: %s", exc)
         return False
     finite = values[np.isfinite(values)]
     return finite.size > 1 and float(finite.max()) > float(finite.min())

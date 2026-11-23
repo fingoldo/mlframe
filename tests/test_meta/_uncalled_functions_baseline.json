@@ -1,5 +1,10 @@
 {
- "entries": {},
- "gate": "uncalled-functions",
- "schema": 1
+  "entries": {
+    "src/mlframe/data/datasets/replay.py::replay_from_record": {
+      "count": 1,
+      "note": "Public offline API of the replay module (listed in __all__): it rebuilds the bed behind one stored result cell and refuses a record without dataset_seed (04-F30). No production code reads results files back yet, so it has no caller; wiring it to a results loader is a separate feature. Accepted as a documented entry point."
+    }
+  },
+  "gate": "uncalled-functions",
+  "schema": 1
 }

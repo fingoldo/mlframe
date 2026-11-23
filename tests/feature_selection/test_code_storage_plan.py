@@ -127,3 +127,11 @@ def test_code_alloc_dtype_follows_the_plan_and_falls_back_to_the_request():
     assert code_alloc_dtype(fresh) is np.int32
     fresh._code_alloc_dtype = np.int8
     assert code_alloc_dtype(fresh) is np.int8
+
+
+def test_zero_categorical_cap_means_no_cap_like_none():
+    """A cap of 0 is the no-cap sentinel (as in the fold cap), so it must plan exactly like leaving the cap unset."""
+    uncapped = plan_code_storage(n_bins=10, categorical_cardinalities=[300])
+    zero_cap = plan_code_storage(n_bins=10, max_categorical_cardinality=0, categorical_cardinalities=[300])
+    assert zero_cap.alloc_dtype is uncapped.alloc_dtype
+    assert zero_cap.alloc_dtype is not np.int8

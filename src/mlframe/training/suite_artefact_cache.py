@@ -294,9 +294,10 @@ class SuiteArtefactCache:
             if key in self._lru or not _SAFE_KEY.fullmatch(key) or ".." in key:
                 continue
             try:
-                unknown.append((os.path.getmtime(os.path.join(self.cache_dir, name)), key))
-            except OSError:
+                mtime = os.path.getmtime(os.path.join(self.cache_dir, name))
+            except OSError:  # the entry vanished between listdir and stat: another process evicted it
                 continue
+            unknown.append((mtime, key))
         for mtime, key in sorted(unknown, reverse=True):
             self._lru[key] = mtime
             self._lru.move_to_end(key, last=False)

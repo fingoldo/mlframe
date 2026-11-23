@@ -98,7 +98,8 @@ def _default_total() -> int:
         import psutil
 
         avail = int(psutil.virtual_memory().available)
-    except Exception:  # without psutil the cap alone applies
+    except Exception as exc:  # without psutil the cap alone applies
+        logger.debug("host block budget: psutil unavailable, using the cap alone: %s", exc)
         return _MAX_BUDGET
     return max(_MIN_BUDGET, min(_MAX_BUDGET, avail // 3))
 

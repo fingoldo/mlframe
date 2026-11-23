@@ -119,7 +119,8 @@ def _pid_start_token(pid: int) -> str:
         import psutil
 
         return f"{psutil.Process(pid).create_time():.3f}"
-    except Exception:  # no psutil or the process is gone: no token, so the pid alone decides (the old behaviour)
+    except Exception as exc:  # no psutil or the process is gone: no token, so the pid alone decides (the old behaviour)
+        logger.debug("kernel tuning cache: no process start token for pid %s: %s", pid, exc)
         return ""
 
 

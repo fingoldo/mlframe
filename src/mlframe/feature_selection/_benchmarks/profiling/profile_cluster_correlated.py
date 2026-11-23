@@ -41,7 +41,7 @@ def make_data(generator: str, n: int, k: int, seed: int, noise: float = 0.85):
     elif generator == "two_groups":
         X, y, _info = make_two_latent_groups(n=n, k1=k, k2=k, noise=noise, n_noise=3, seed=seed)
     else:
-        raise SystemExit(f"unknown generator {generator!r}; expected latent or two_groups")
+        raise ValueError(f"unknown generator {generator!r}; expected latent or two_groups")
     df, ser = as_df(X, y)
     return df, ser
 

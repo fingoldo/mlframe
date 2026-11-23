@@ -19,7 +19,7 @@ from __future__ import annotations
 from typing import Any
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings
 import numpy as np, pandas as pd
 from itertools import combinations
 from collections import Counter
@@ -124,4 +124,5 @@ def main():
 
 
 if __name__ == "__main__":
+    warnings.filterwarnings("ignore")  # silenced for the bench run only, not at import
     main()

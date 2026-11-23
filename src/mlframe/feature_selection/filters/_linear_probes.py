@@ -8,7 +8,7 @@ minimiser of the same multinomial objective for more. The objectives are convex,
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 from numba import njit
@@ -244,7 +244,7 @@ class RffSampler:
         return self.fit(X).transform(X)
 
 
-def cross_val_r2(make_model, X: np.ndarray, y: np.ndarray, splits: "list[tuple[np.ndarray, np.ndarray]]") -> "Optional[float]":
+def cross_val_r2(make_model: Callable[[], Any], X: np.ndarray, y: np.ndarray, splits: "list[tuple[np.ndarray, np.ndarray]]") -> "Optional[float]":
     """Mean R^2 of ``make_model().fit(train).score(validation)`` over ``splits`` (a list of ``(train_idx, validation_idx)``); ``None`` without splits."""
     if not splits:
         return None

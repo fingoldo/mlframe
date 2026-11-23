@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Optional, cast
+from typing import Callable, Optional, cast
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ TRUE_VALUES = frozenset({"1", "true", "yes", "on", "y", "t"})
 FALSE_VALUES = frozenset({"0", "false", "no", "off", "n", "f", ""})
 
 
-def env_reader(name: str):
+def env_reader(name: str) -> Callable[[], Optional[str]]:
     """A zero-argument function that returns the CURRENT value of the environment variable ``name`` (``None`` when unset), for a switch read on a hot path.
 
     ``os.environ.get`` encodes the key on every call (1.5 us); the reader looks the key up, already encoded, in the dictionary ``os.environ`` itself keeps (0.09 us), so a value changed after the

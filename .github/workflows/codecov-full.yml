@@ -238,7 +238,7 @@ jobs:
           coverage report --ignore-errors
 
       - name: Upload combined coverage to Codecov
-        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@d6e76b74b2c171ad79e4afcf3263113d0843af78  # v1.23.13  # pragma: allowlist secret
+        uses: fingoldo/py-ci-shared/.github/actions/upload-codecov@ce386d61d3cb33490618517aa3619b2d366790f0  # v1.23.15  # pragma: allowlist secret
         with:
           files: ./coverage-full.xml
           flags: combined

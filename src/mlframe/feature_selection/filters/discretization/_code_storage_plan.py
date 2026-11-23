@@ -70,7 +70,7 @@ def plan_code_storage(
     ``categorical_cardinalities`` are the distinct counts of the categorical columns when known; without them a cap alone bounds the categorical codes and no cap leaves them unbounded (the discretiser widens on the observed range)."""
     bound, why = _numeric_bound(method, int(n_bins), nbins_strategy, nbins_strategy_kwargs, int(max_adaptive_nbins))
     reasons = [why]
-    cap = int(max_categorical_cardinality) if max_categorical_cardinality else 0
+    cap = int(max_categorical_cardinality) if max_categorical_cardinality is not None else 0  # 0 means no cap, as in _fold_cap
     if categorical_cardinalities:
         card = max(int(c) for c in categorical_cardinalities)
         cat_bound = min(card, cap) if cap else card  # the +1 NaN shift makes the top code equal to the number of distinct values

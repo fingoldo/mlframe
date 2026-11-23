@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Any
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings
 import numpy as np, pandas as pd
 from sklearn.model_selection import train_test_split
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -106,4 +106,5 @@ def main():
 
 
 if __name__ == "__main__":
+    warnings.filterwarnings("ignore")  # silenced for the bench run only, not at import
     main()

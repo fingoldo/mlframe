@@ -1,0 +1,10 @@
+{
+ "accepted": {
+  "tests/feature_selection/test_big_pool_device_fixes.py: time.sleep(0.05)": "deliberate overlap window: the sleep holds the device-exclusive section open so a second thread would be seen inside at once; the assertion is max-inside == 1, which holds under any timing",
+  "tests/feature_selection/test_numba_warmup_import_time.py: time.sleep(0.02)": "poll with a five-second deadline for the warm-up thread's flag; the wait is on a condition, the sleep only sets the polling interval",
+  "tests/feature_selection/test_numba_warmup_import_time.py: time.sleep(0.2)": "negative check: the sleep gives a thread that must not start time to start; the assertion (nothing ran) can only pass or fail on the logic, not on the wait",
+  "tests/feature_selection/test_numba_warmup_import_time.py: time.sleep(0.3)": "overlap window: the stand-in compile holds long enough for a second caller to block on it; the assertion is a single compile, which holds under any timing",
+  "tests/test_host_block_budget.py: time.sleep(0.15)": "overlap window inside a reserved unit: the sleep lets concurrent steps overlap so the peak is measured; the assertion is peak within budget, which holds under any timing",
+  "tests/training/feature_handling/test_cluster39_cache_single_flight.py: time.sleep(0.2)": "overlap window for single flight: the slow compute keeps the four barrier-released callers in flight together; the assertion is one invocation, which holds under any timing"
+ }
+}

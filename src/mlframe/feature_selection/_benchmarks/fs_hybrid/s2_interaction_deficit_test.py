@@ -13,7 +13,7 @@ TreeSHAP proxy -> idea REJECTED (the cheap-test prevented implementing a wrong-p
 """
 from __future__ import annotations
 import os, warnings
-os.environ.setdefault("TQDM_DISABLE", "1"); warnings.filterwarnings("ignore")
+os.environ.setdefault("TQDM_DISABLE", "1")
 import numpy as np
 from scipy.stats import spearmanr, pearsonr
 from scipy.special import expit
@@ -74,6 +74,7 @@ def run(scenario, seed=0, n_anchors=45):
 
 
 if __name__ == "__main__":
+    warnings.filterwarnings("ignore")  # silenced for the bench run only, not at import
     for sc in ["xor2", "base"]:
         pr, sr = run(sc)
         print(f"{sc:6s} corr(interaction_mass, honest-proxy): pearson={pr:.3f} spearman={sr:.3f} "
