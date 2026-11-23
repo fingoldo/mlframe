@@ -32,13 +32,29 @@ MRMR._FIT_CACHE.clear()
 ct0 = me.cpu_times(); t = time.perf_counter(); MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*data); w = time.perf_counter() - t
 ct1 = me.cpu_times(); stop.set(); th.join()
 import statistics as S
+# No samples means the fit was shorter than the sampler interval: report that and stop, rather than crash on empty statistics (13-F34).
+if not samples:
+    print("WALL", round(w, 1), "samples 0")
+    print("no samples: the fit was shorter than the sampling interval; no statistics to report")
+    raise SystemExit(0)
 own = [s[1] for s in samples]; tot = [s[2] for s in samples]
 print("WALL", round(w, 1), "samples", len(samples))
-print("cpu user %.1f s  system %.1f s  (system share %.0f%%)" % (ct1.user - ct0.user, ct1.system - ct0.system, 100 * (ct1.system - ct0.system) / max(1e-9, (ct1.user - ct0.user) + (ct1.system - ct0.system))))
-print("own cores avg %.2f p90 %.2f | system cores busy avg %.2f | others avg %.2f" % (S.mean(own), sorted(own)[int(.9 * len(own))], S.mean(tot), S.mean([max(0, t_ - o) for t_, o in zip(tot, own)])))
-print("available MB min %.0f avg %.0f | swap used MB max %.0f | rss MB max %.0f" % (min(s[3] for s in samples), S.mean(s[3] for s in samples), max(s[4] for s in samples), max(s[5] for s in samples)))
-pf = [s[6] for s in samples]; print("page faults total %d" % (pf[-1] - pf[0]))
-g = [s[7] for s in samples if s[7] >= 0]; print("gpu util avg %.0f max %d" % (S.mean(g), max(g)) if g else "gpu n/a")
+print(
+    "cpu user %.1f s  system %.1f s  (system share %.0f%%)"
+    % (ct1.user - ct0.user, ct1.system - ct0.system, 100 * (ct1.system - ct0.system) / max(1e-9, (ct1.user - ct0.user) + (ct1.system - ct0.system)))
+)
+print(
+    "own cores avg %.2f p90 %.2f | system cores busy avg %.2f | others avg %.2f"
+    % (S.mean(own), sorted(own)[int(0.9 * len(own))], S.mean(tot), S.mean([max(0, t_ - o) for t_, o in zip(tot, own)]))
+)
+print(
+    "available MB min %.0f avg %.0f | swap used MB max %.0f | rss MB max %.0f"
+    % (min(s[3] for s in samples), S.mean(s[3] for s in samples), max(s[4] for s in samples), max(s[5] for s in samples))
+)
+pf = [s[6] for s in samples]
+print("page faults total %d" % (pf[-1] - pf[0]))
+g = [s[7] for s in samples if s[7] >= 0]
+print("gpu util avg %.0f max %d" % (S.mean(g), max(g)) if g else "gpu n/a")
 
 # coarse timeline: seconds from the start of the fit, own cores and GPU utilisation in buckets of ~6 s (where the fit idles)
 t0 = samples[0][0] - 2.0 if samples else 0.0

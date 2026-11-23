@@ -7,6 +7,7 @@ Test hybrid(mrmr_synergy_cap=None=default) vs hybrid(mrmr_synergy_cap=250), 3 se
 PASS: hard_synth >= +0.01 mean AND synth/madelon within +/-0.005.
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -17,7 +18,6 @@ from round3_realdata_bench import load_real, downstream
 from synth import make_dataset
 from hard_synth import make_hard_dataset
 from hybrid_selector import HybridSelector
-
 
 # ``None`` lets MRMR use its own default, which is 250 (the same as the hybrid's cap), so the earlier None-vs-250 pair ran identical fits. The
 # comparison is the old MRMR width (60) against the hybrid's 250.
@@ -53,7 +53,7 @@ def main():
         d0 = df[(df.bed == bed) & (df.variant == "default")]["auc_mean"].mean()
         d1 = df[(df.bed == bed) & (df.variant == "cap250")]["auc_mean"].mean()
         print(f"  {bed:12s} cap250 {round(d1,4)} vs default {round(d0,4)}  d={round(d1-d0,4):+}")
-    df.to_csv("D:/Temp/round4_hybrid_mrmrcap_rows.csv", index=False)
+    df.to_csv(bench_out("round4_hybrid_mrmrcap_rows.csv"), index=False)
 
 
 if __name__ == "__main__":

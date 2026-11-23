@@ -664,6 +664,10 @@ class KnockoffArm(BaseArm):
 
 
 # ------------------------------------------------------------------------------------------------- mlframe selectors, BARE
+def bare_mrmr_kwargs(max_runtime_mins: float, random_seed: int, fe_max_steps: int = 0) -> Dict[str, Any]:
+    """The one keyword set every MRMR arm and wrapper is built with, so they differ only by what they say they differ by (11-F19)."""
+    return {"verbose": 0, "fe_max_steps": fe_max_steps, "n_jobs": -1, "random_seed": random_seed, "max_runtime_mins": max_runtime_mins}
+
 class MRMRArm(BaseArm):
     """MRMR driven BARE (not via ``registry``, which wraps it in nothing but still differs in defaults).
 
@@ -685,7 +689,7 @@ class MRMRArm(BaseArm):
         """Build the unfitted MRMR; a variant arm overrides only this, so extraction stays identical."""
         from mlframe.feature_selection.filters import MRMR
 
-        return MRMR(verbose=0, fe_max_steps=(1 if self.fe else 0), n_jobs=-1, random_seed=self.random_seed, max_runtime_mins=self.max_runtime_mins)
+        return MRMR(**bare_mrmr_kwargs(self.max_runtime_mins, self.random_seed, fe_max_steps=(1 if self.fe else 0)))
 
     def _compute(self, X, y):
         """Fit MRMR and read its selection-order ``support_`` through the shared extractor."""
@@ -698,7 +702,8 @@ class MRMRArm(BaseArm):
         else:
             prefix = tuple(int(i) for i in raw_support if 0 <= int(i) < len(names))
         selected = [str(c) for c in extract_selected(model, names)]
-        known = [c for c in selected if c in set(names)]
+        _names_set = set(names)  # built once per statement, not per comprehension item (11-F15)
+        known = [c for c in selected if c in _names_set]
         support = _mask_from_names(names, known)
         if not prefix:
             prefix = tuple(int(i) for i in np.flatnonzero(support))
@@ -818,7 +823,8 @@ class RFECVArm(BaseArm):
             random_state=self.random_state,
         )
         model.fit(X, pd.Series(np.asarray(y)))
-        selected = [str(c) for c in extract_selected(model, names) if str(c) in set(names)]
+        _names_set = set(names)  # built once per statement, not per comprehension item (11-F15)
+        selected = [str(c) for c in extract_selected(model, names) if str(c) in _names_set]
         ranking = _rfecv_rank_vector(model, names, selected)
         internal_score, internal_metric = _rfecv_internal_optimum(model)
         return {
@@ -876,7 +882,8 @@ class BorutaShapArm(BaseArm):
         with np.errstate(invalid="ignore"):
             means = {str(c): float(np.nan_to_num(np.nanmean(np.asarray(hist[c], dtype=np.float64)), nan=0.0)) for c in names}
         score = np.array([means[n] for n in names], dtype=np.float64)
-        selected = [str(c) for c in getattr(model, "selected_features_", []) if str(c) in set(names)]
+        _names_set = set(names)  # built once per statement, not per comprehension item (11-F15)
+        selected = [str(c) for c in getattr(model, "selected_features_", []) if str(c) in _names_set]
         return {"support": _mask_from_names(names, selected), "score": score, "n_model_fits": self.n_trials, "provenance": {"n_trials": self.n_trials, "n_tentative": len(getattr(model, "tentative_", []) or [])}}
 
 
@@ -925,7 +932,8 @@ class ShapProxiedArm(BaseArm):
             verbose=False,
         )
         model.fit(X, pd.Series(np.asarray(y)))
-        selected = [str(c) for c in getattr(model, "selected_features_", []) if str(c) in set(names)]
+        _names_set = set(names)  # built once per statement, not per comprehension item (11-F15)
+        selected = [str(c) for c in getattr(model, "selected_features_", []) if str(c) in _names_set]
         report = getattr(model, "shap_proxy_report_", None)
         return {
             "support": _mask_from_names(names, selected),

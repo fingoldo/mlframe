@@ -498,7 +498,7 @@ def _run_sweep_polyeval(n_iters: int = 5) -> list[dict]:
 
         # Find par_threshold: smallest n where njit_par <= njit (saving
         # at least 5% to absorb noise; otherwise stick with single-thread).
-        par_threshold = 50_000  # source default fallback
+        par_threshold = max(timing_table) * 100  # sentinel: njit_par never beats njit on this host, same convention as cuda_threshold (13-F29)
         for n in sorted(timing_table):
             row = timing_table[n]
             if row["njit_par"] < row["njit"] * 0.95:

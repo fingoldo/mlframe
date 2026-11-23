@@ -9,6 +9,7 @@ KILL: adding residual-screened dropped features does NOT improve AUC (residual i
 captured the recoverable signal -- the tree member may have closed this gap).
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -62,6 +63,9 @@ def run_bed(name, X, y, seed=0):
     df = pd.DataFrame(rows)
     base = float(df[df.variant == "hybrid"]["auc_mean"].iloc[0])
     best = df[df.variant != "hybrid"]["auc_mean"].max()
+    if best != best:  # NaN: no relay variant produced a score, so there is no verdict (12-F92)
+        print(f"[{name}] VERDICT: undefined, no relay variant ran (no dropped features)", flush=True)
+        return rows
     print(f"[{name}] VERDICT: best relay {best} vs hybrid {base} (d={round(best-base,4):+}) "
           f"{'-> residual-relay HELPS' if best > base + 0.003 else '-> no gain / KILL'}", flush=True)
     return rows
@@ -75,7 +79,7 @@ def main():
     Xr, yr, rname = load_real()
     print(f"\n=== {rname} {Xr.shape} ===", flush=True)
     allrows += run_bed(rname, Xr, yr)
-    pd.DataFrame(allrows).to_csv("D:/Temp/round4_residual_relay_rows.csv", index=False)
+    pd.DataFrame(allrows).to_csv(bench_out("round4_residual_relay_rows.csv"), index=False)
 
 
 if __name__ == "__main__":

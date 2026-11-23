@@ -238,7 +238,7 @@ class Leaderboard:
                     to_print = (ranking.apply(lambda x: f"{x:.2f}: ") + ranking.index).to_numpy()
                     result[f"Method: {method}, Params: {some_params}"] = to_print
 
-                    tie_numbers[f"Method: {method}, Params: {some_params}"] = ranking.shape[0] - ranking.nunique()
+                    tie_numbers[f"Method: {method}, Params: {some_params}"] = ranking.shape[0] - ranking.nunique(dropna=False)  # NaN ranks count as one shared value, not as absent (42-F13)
             else:
                 if task_groups is None:
                     _check_gamma_given(method, {})
@@ -252,7 +252,7 @@ class Leaderboard:
                     )
                 to_print = (ranking.apply(lambda x: f"{x:.2f}: ") + ranking.index).to_numpy()
                 result[f"Method: {method}, Params: {{}}"] = to_print
-                tie_numbers[f"Method: {method}, Params: {{}}"] = ranking.shape[0] - ranking.nunique()
+                tie_numbers[f"Method: {method}, Params: {{}}"] = ranking.shape[0] - ranking.nunique(dropna=False)  # NaN ranks count as one shared value, not as absent (42-F13)
 
         result_df = pd.DataFrame(result).rename(columns=PRETTY_NAMES)
         result_df.index = pd.Series(result_df.index + 1, name="Ranking position")

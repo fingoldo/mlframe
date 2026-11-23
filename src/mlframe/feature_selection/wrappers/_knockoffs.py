@@ -203,10 +203,11 @@ def select_features_fdr(W: dict, q: float = 0.1) -> list:
 
 
 def _knockoffs_and_swap_seed(X_arr: np.ndarray, random_state: int | None) -> tuple[np.ndarray, np.ndarray, Any]:
-    """Mean-imputed ``X_arr``, its Gaussian knockoffs, and the seed stream for the swap coins.
+    """Mean-imputed real ``X_arr``, its Gaussian knockoffs, and the seed stream for the swap coins.
 
     The knockoff noise and the swap coins draw from two children of one ``SeedSequence``: a shared seed made the coins a function of the knockoff draws.
-    NaNs are imputed in the real columns too, since the knockoff is built from mean-imputed values and a NaN left in the real slot would reveal which slot is real.
+    The knockoffs are built from the raw values (``make_gaussian_knockoffs`` handles NaN itself); only the real slot is mean-imputed afterwards,
+    since a NaN left there would reveal which slot is real (15-F19).
     """
     knockoff_seed, swap_seed = np.random.SeedSequence(random_state).spawn(2)
     X_tilde = make_gaussian_knockoffs(X_arr, random_state=int(knockoff_seed.generate_state(1)[0]))

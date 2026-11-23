@@ -142,6 +142,10 @@ def _refresh_via_new_registry(kernel_label: str, force: bool = False) -> int:
         print(f"# {kernel_label}: not found in the new registry", file=sys.stderr)
         return 1
     n = tune_spec(spec, force=force, skip_existing=True)
+    if not n:
+        # Zero regions is a failed tune, not success; the generic refresh path already returns 1 here (13-F27).
+        print(f"# {kernel_label}: tuning produced 0 regions", file=sys.stderr)
+        return 1
     print(f"# {kernel_label}: {'re-tuned' if force else 'ensured (skipped if code_version already cached)'} "
           f"via pyutilz.performance.kernel_tuning, {n} regions")
     return 0

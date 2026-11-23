@@ -27,6 +27,7 @@ METHOD (cheap, fit-once): run prod BorutaShap once at a HIGH n_trials cap with v
   for W). Compare accepted-set Jaccard(A4-5 stop vs full-cap) and trial savings. No extra model fits.
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -47,7 +48,7 @@ except ImportError:
     def _binom_p(x, n, p, alt):
         return _bt(int(x), n=int(n), p=p, alternative=alt)
 
-CK = "D:/Temp/queue_ideas_progress.txt"
+CK = bench_out("queue_ideas_progress.txt")
 ck = make_ckpt_writer(CK)
 
 
@@ -198,7 +199,7 @@ def main():
         print(f"  {r.bed:12s} n_run={r.n_trials_run} tail={r.residual_tentative} prod_alldecided={r.prod_alldecided_stop} | "
               f"naive(W=10) stop={r.a45_naive_stop} jac={r.a45_naive_jaccard} | "
               f"SAFE stop={r.a45_safe_stop} jac={r.a45_safe_jaccard} save~{r.safe_est_save_s}s", flush=True)
-    df.to_csv("D:/Temp/round4_adaptive_n_trials_rows.csv", index=False)
+    df.to_csv(bench_out("round4_adaptive_n_trials_rows.csv"), index=False)
     ck("A4-5 DONE")
 
 

@@ -57,7 +57,7 @@ def make_hard_dataset(n_samples: int = 6000, seed: int = 0):
     order = list(X.columns); rng.shuffle(order); X = X[order]
     truth = {
         "base": base, "relevant": base + redundant, "noise": noise,
-        "interaction_operands": ["ia", "ib"], "quadratic_operand": ["sq"],
+        "interaction_operands": ["ia", "ib"], "quadratic_operands": ["sq"],
         "strong": [f"str_{i}" for i in range(N_STRONG)],
         "weak_sparse": [f"weak_{j}" for j in range(N_WEAK)],
         "fe_block": ["ia", "ib", "sq"],

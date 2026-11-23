@@ -680,14 +680,18 @@ class ShapProxiedFitStepsMixin:
                             self.classification, resolve_metric(self.classification, self.metric),
                             cache=honest_cache, disk_cache=_core_disk_cache)
 
-                    assert _base_honest_loss_for_auto is not None  # computed above whenever mode is "core" or "auto"
+                    # Explicit check, not an assert: python -O strips asserts and would let None reach the arithmetic below (13-F24).
+                    if _base_honest_loss_for_auto is None:
+                        raise RuntimeError("base honest loss missing for core refine; computed above whenever mode is core or auto")
                     _use_core = auto_should_use_core_refine(
                         phi, tuple(int(u) for u in best_idx), unit_to_members, _base_honest_loss_for_auto, _confident_subset_loss
                     )
                     _refine_mode_effective = "core" if _use_core else "greedy"
 
                 if _refine_mode_effective == "core":
-                    assert _base_honest_loss_for_auto is not None  # computed above whenever mode is "core" or "auto"
+                    # Explicit check, not an assert: python -O strips asserts and would let None reach the arithmetic below (13-F24).
+                    if _base_honest_loss_for_auto is None:
+                        raise RuntimeError("base honest loss missing for core refine; computed above whenever mode is core or auto")
                     base_honest_loss = _base_honest_loss_for_auto
                     _tol_threshold = base_honest_loss + self.parsimony_tol * abs(base_honest_loss)
 

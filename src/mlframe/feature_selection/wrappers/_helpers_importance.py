@@ -294,19 +294,6 @@ def _conditional_permutation_importance(
     baseline = float(model.score(X, y))
     importances = np.zeros(p, dtype=float)
 
-    def _is_discrete(col: np.ndarray) -> bool:
-        """Superseded by ``_is_discrete_v2`` below (kept for reference / A-B); pragmatic proxy: integer dtype OR
-        <=10 unique non-null values routes the conditioning tree to a classifier."""
-        # Integer dtype OR <=10 unique non-null values: pragmatic proxy.
-        if np.issubdtype(col.dtype, np.integer):
-            return True
-        try:
-            mask = ~np.isnan(col.astype(float, copy=False))
-            uniq = np.unique(col[mask])
-        except (TypeError, ValueError):
-            uniq = np.unique(col)
-        return cast("bool", uniq.size <= 10)
-
     # Copy the matrix ONCE; every iteration mutates only column j and restores it in a
     # try/finally so the buffer re-enters each iteration identical to X_arr. The prior
     # per-repeat ``X_arr.copy()`` allocated a full p-column copy on every (j x repeat).

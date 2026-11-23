@@ -62,7 +62,8 @@ def main():
                 rng = np.random.default_rng(1000 * sd + b)
                 idx = rng.choice(len(Xtr), len(Xtr), replace=True)
                 Xb, yb = Xtr.iloc[idx].reset_index(drop=True), ytr.iloc[idx].reset_index(drop=True)
-                cnt.update(fit_support(Xb, yb, b))
+                # Seed per (outer seed, bootstrap): a bare ``b`` gave every outer seed the same RFECV streams (12-F91).
+                cnt.update(fit_support(Xb, yb, 1000 * sd + b))
             agg = [c for c in X.columns if cnt.get(c, 0) >= int(np.ceil(B / 2))]
             if not agg:
                 agg = [c for c, _ in cnt.most_common(5)]

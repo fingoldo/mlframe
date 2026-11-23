@@ -8,7 +8,7 @@ Frugal: n_jobs=2, one fit per (n,cap). The frame has a genuine zero-marginal syn
 pair (x0*x1) so the bootstrap has something real to find at cap=250.
 """
 from __future__ import annotations
-import time, warnings, gc
+import os, time, warnings, gc
 import numpy as np, pandas as pd
 warnings.filterwarnings("ignore")
 from mlframe.feature_selection.filters.mrmr import MRMR
@@ -17,6 +17,8 @@ N_JOBS = 2
 P = 200
 NS = [5000, 20000, 100000]
 CAPS = [60, 250]
+# Timing repeats per (n, cap) cell; the reported time is the median, not one noisy sample (12-F95).
+REPEATS = int(os.environ.get("CAP_REPEATS", "3"))
 
 
 def make(n, p=P, seed=5):
@@ -54,7 +56,11 @@ def main():
     for n in NS:
         df, ys = make(n)
         for cap in CAPS:
-            ft, ne, nsel = fit_time(df, ys, cap)
+            samples, ne, nsel = [], 0, 0
+            for _ in range(REPEATS):
+                t_fit, ne, nsel = fit_time(df, ys, cap)
+                samples.append(t_fit)
+            ft = float(np.median(samples))
             results[(n, cap)] = ft
             print(f"{n:>8} {cap:>5} {ft:>8.2f} {ne:>5} {nsel:>5}", flush=True)
         del df, ys; gc.collect()

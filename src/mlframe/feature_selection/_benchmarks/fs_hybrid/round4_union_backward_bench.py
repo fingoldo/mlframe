@@ -23,6 +23,7 @@ Memory-frugal under heavy concurrent load: all LightGBM / RFECV / permutation n_
 n_estimators, RFECV max_refits capped low (the union is small so few refits are needed). madelon cached to disk.
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 from typing import Any
 import logging
 
@@ -43,8 +44,8 @@ from hard_synth import make_hard_dataset
 from hybrid_selector import HybridSelector
 
 N_JOBS = 2
-PROGRESS = "D:/Temp/union_bw_progress.txt"
-MADELON_CACHE = "D:/Temp/union_bw_madelon_cache.pkl"
+PROGRESS = bench_out("union_bw_progress.txt")
+MADELON_CACHE = bench_out("union_bw_madelon_cache.pkl")
 
 
 def log(msg: str):
@@ -169,7 +170,7 @@ def main():
         log(f"madelon bed FAILED ({type(e).__name__}: {e}); primary beds stand")
 
     df = pd.DataFrame(allrows)
-    df.to_csv("D:/Temp/union_bw_rows.csv", index=False)
+    df.to_csv(bench_out("union_bw_rows.csv"), index=False)
     log("=== ALL ROWS ===\n" + df.to_string(index=False))
 
     # per-bed seed-averaged verdict vs baseline_hybrid
@@ -188,7 +189,7 @@ def main():
             summary.append(row)
             log(f"  {bed:12s} {v:16s} auc={row['auc_mean']:.4f} n={row['n']:.1f} d={d:+.4f}")
     sdf = pd.DataFrame(summary)
-    sdf.to_csv("D:/Temp/union_bw_summary.csv", index=False)
+    sdf.to_csv(bench_out("union_bw_summary.csv"), index=False)
 
     # machine verdict line
     log("=== A5-6 union_backward PASS/FAIL ===")

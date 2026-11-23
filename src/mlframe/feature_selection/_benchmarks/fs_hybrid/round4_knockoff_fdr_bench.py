@@ -10,6 +10,7 @@ FALSIFIABLE: does select_features_fdr cut 251 -> ~20-40 WITHOUT losing the all-f
 KILL: FDR returns [] (no threshold achieves q -> knockoffs degenerate), OR keeps >100, OR AUC drops > 0.01.
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -40,7 +41,7 @@ def main():
 
     # 1) RFECV -> its (over-selected) support (cached: the fit is ~220s, deterministic at random_state=0)
     import pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
-    cache = "D:/Temp/rfecv_madelon_support.pkl"
+    cache = bench_out("rfecv_madelon_support.pkl")
     t0 = time.time()
     if os.path.exists(cache):
         with open(cache, "rb") as _f:
@@ -59,6 +60,8 @@ def main():
 
     def knockoff_cut(feats, tag):
         if len(feats) < 5:
+            # Say why the block did not run; a silent return looked like a passing result (12-F97).
+            print(f"  [{tag}] SKIPPED: {len(feats)} feature(s) < 5, the knockoff cut needs at least 5", flush=True)
             return
         t0 = time.time()
         W = knockoff_importance(mk, Xtr[feats], ytr, random_state=0, w_statistic="gain")

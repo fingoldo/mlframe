@@ -300,8 +300,6 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
             effective_brute_force_cap, adaptive_info = _resolve_knee_prescreen_cap(importance_full, default_cap=effective_brute_force_max_features(self))
             report["adaptive_prescreen"] = adaptive_info
         elif ladder_mode == "hardcoded" and want_per_fold_phi and per_fold_phi_mean is not None and per_fold_phi_mean.shape[0] >= 2:
-            from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_phi_rank_stability
-
             stability = compute_phi_rank_stability(per_fold_phi_mean, top_k=2 * max(effective_brute_force_max_features(self), 40))
             effective_brute_force_cap = _resolve_adaptive_prescreen_width(stability, default_cap=effective_brute_force_max_features(self))
             adaptive_info = dict(

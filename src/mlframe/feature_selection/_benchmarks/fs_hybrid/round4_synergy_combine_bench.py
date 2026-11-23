@@ -15,6 +15,7 @@ Baseline = the shipped tree-member hybrid (binary cluster vote=1). PASS for any 
 >= +0.005 on a bed without regressing the others > 0.005. Reported with ALL numbers (no top-N filtering).
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 from typing import Any, cast
 import logging, os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
@@ -203,7 +204,7 @@ def main():
         for v in ("confidence", "referee", "tentative_rescue"):
             d = round(float(b.loc[v, "auc_mean"]) - base, 4)
             print(f"  {bed:12s} {v:18s} {b.loc[v,'auc_mean']} (d={d:+})")
-    df.to_csv("D:/Temp/round4_synergy_rows.csv", index=False)
+    df.to_csv(bench_out("round4_synergy_rows.csv"), index=False)
 
 
 if __name__ == "__main__":
