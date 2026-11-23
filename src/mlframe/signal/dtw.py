@@ -615,13 +615,13 @@ def dtw_dispatch(
         try:
             return dtw_cupy(x, y, window=window)
         except Exception as e:  # GPU path failed at runtime (OOM, driver hiccup) -> CPU fallback, never raise
-            logger.debug("dtw_cupy failed, falling back to dtw_cpu: %s", e)
+            logger.warning("dtw_cupy failed, falling back to dtw_cpu (slower): %s", e)  # a broken GPU path must be visible (26-F29)
             return dtw_cpu(x, y, window=window, psi=psi)
     if choice == "cuda" and _HAS_NB_CUDA:
         try:
             return dtw_cuda(x, y, window=window)
         except Exception as e:  # GPU path failed at runtime (OOM, driver hiccup) -> CPU fallback, never raise
-            logger.debug("dtw_cuda failed, falling back to dtw_cpu: %s", e)
+            logger.warning("dtw_cuda failed, falling back to dtw_cpu (slower): %s", e)  # a broken GPU path must be visible (26-F29)
             return dtw_cpu(x, y, window=window, psi=psi)
     return dtw_cpu(x, y, window=window, psi=psi)
 
