@@ -99,8 +99,8 @@ def device_exclusive(fn: _F) -> _F:
             import cupy as cp
 
             pool = _current_pool(cp)
-        except Exception:
-            return fn(*args, **kwargs)  # no cupy: nothing shares a device
+        except Exception:  # best-effort: no cupy, so nothing shares a device to serialise
+            return fn(*args, **kwargs)
         if pool is None:
             return fn(*args, **kwargs)
         with _exclusive_lock(pool):

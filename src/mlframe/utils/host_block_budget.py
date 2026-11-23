@@ -98,7 +98,7 @@ def _default_total() -> int:
         import psutil
 
         avail = int(psutil.virtual_memory().available)
-    except Exception:  # without psutil the cap alone applies
+    except Exception:  # best-effort: without psutil the cap alone applies
         return _MAX_BUDGET
     return max(_MIN_BUDGET, min(_MAX_BUDGET, avail // 3))
 

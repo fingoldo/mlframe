@@ -47,7 +47,7 @@ def _capture_device_scope() -> "Callable[[], Any]":
 
         device_id = int(cp.cuda.Device().id)
         allocator = cp.cuda.get_allocator()
-    except Exception:  # no cupy / no device: the workers are host-only
+    except Exception:  # best-effort: no cupy or no device, so the workers are host-only and need no device scope
         return nullcontext
 
     from contextlib import ExitStack

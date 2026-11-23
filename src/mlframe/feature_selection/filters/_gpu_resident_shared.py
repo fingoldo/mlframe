@@ -175,7 +175,7 @@ def _stash_byte_budget() -> int:
 
         limit = int(cp.get_default_memory_pool().get_limit())
         return max(1, int(limit * _STASH_POOL_FRACTION)) if limit > 0 else 256 * 1024 * 1024
-    except Exception:
+    except Exception:  # best-effort: only the stash budget is affected, the parked codes stay correct
         return 256 * 1024 * 1024
 
 

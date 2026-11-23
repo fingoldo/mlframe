@@ -71,7 +71,7 @@ def _tile_cell_budget(cp: Any) -> int:
         limit = int(pool.get_limit())
         if limit > 0:
             avail = min(avail, max(0, limit - int(pool.used_bytes())))
-    except Exception:  # an unreadable device keeps the fixed budget; the OOM handler below still guards the call
+    except Exception:  # best-effort: an unreadable device keeps the fixed budget; the OOM handler below still guards the call
         return _PERMNULL_PAIR_TILE_CELLS
     return max(1, min(_PERMNULL_PAIR_TILE_CELLS, int(avail * 0.5) // _TILE_BYTES_PER_CELL))
 
