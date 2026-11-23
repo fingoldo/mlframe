@@ -690,7 +690,9 @@ def batch_pair_mi_cuda_row_chunked(
 
     row_chunk_rows, pair_subchunk_rows, n_row_chunks, n_pair_subchunks = _plan_row_chunked_launches(n_samples, n_cols, n_pairs, n_classes_y, max_joint)
 
-    factors_data_c = np.ascontiguousarray(factors_data, dtype=np.int32)
+    # The codes are widened to int32 one row chunk at a time at the upload: widening the whole matrix first was a second, 4 x larger host copy of it (4.5 GB for 1000000 x 1130 int8 codes, the
+    # +3 GB jump that stopped the first 1M x 1000 run); anything that is not a plain ndarray (a lazy host view) keeps the whole-matrix conversion
+    factors_data_c = factors_data if (isinstance(factors_data, np.ndarray) and factors_data.ndim == 2) else np.ascontiguousarray(factors_data, dtype=np.int32)
     classes_y_c = np.ascontiguousarray(classes_y, dtype=np.int32)
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     freqs_y_c = np.ascontiguousarray(freqs_y, dtype=np.float64)
@@ -738,7 +740,7 @@ def batch_pair_mi_cuda_row_chunked(
         for row_start in range(0, n_samples, row_chunk_rows):
             row_end = min(row_start + row_chunk_rows, n_samples)
             chunk_rows = row_end - row_start
-            d_data_chunk = _nb_cuda.to_device(factors_data_c[row_start:row_end])
+            d_data_chunk = _nb_cuda.to_device(np.ascontiguousarray(factors_data_c[row_start:row_end], dtype=np.int32))
             d_cy_chunk = _nb_cuda.to_device(classes_y_c[row_start:row_end])
             if shared_mem_bytes > 0 and _CUDA_HIST_KERNEL_SHARED is not None:
                 _CUDA_HIST_KERNEL_SHARED[sub_n_pairs, threads_per_block, 0, shared_mem_bytes](
