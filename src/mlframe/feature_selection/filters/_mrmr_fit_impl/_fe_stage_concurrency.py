@@ -70,7 +70,7 @@ def memory_allows_concurrency(n_rows: int, n_cols: int) -> bool:
     allowed = need <= available
     if not allowed:
         log_throttle(
-            logger, "_fe_stage_concurrency.serialised", logging.INFO,
+            logger, "_fe_stage_concurrency.serialised", logging.WARNING,
             "stage concurrency off for this fit: %d x %d needs about %.1f GB for concurrent cascades (%.1fx the frame) against %.1f GB available; the cascades run one after the other",
             int(n_rows), int(n_cols), need / 2**30, factor, available / 2**30,
         )
