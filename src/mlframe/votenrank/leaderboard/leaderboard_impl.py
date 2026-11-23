@@ -132,7 +132,6 @@ class Leaderboard:
         # mean_ranking() / dowdall_ranking() which need only self.ranks.
         # Lazy-build the graph in _ensure_majority_graph() called from the
         # graph-using methods.
-        self.table = self.table.reindex(self.table.index)
 
         self.ranks = self.table.rank(method="min", ascending=False)
         self.max_ranks = self.table.rank(method="max", ascending=False)
@@ -153,14 +152,13 @@ class Leaderboard:
         Reset by build_ranks() (which sets self.majority_graph = None)."""
         if self.majority_graph is not None:
             return
-        wins = {
-            model: ((self.ranks.loc[model] < self.ranks) * self.weights).sum(axis=1) > ((self.ranks.loc[model] > self.ranks) * self.weights).sum(axis=1)
-            for model in self.models
-        }
-        ties = {
-            model: ((self.ranks.loc[model] < self.ranks) * self.weights).sum(axis=1) == ((self.ranks.loc[model] > self.ranks) * self.weights).sum(axis=1)
-            for model in self.models
-        }
+        # One pass per model: the weighted-below and weighted-above sums are computed once and reused for the win and tie tests (42-F9).
+        wins, ties = {}, {}
+        for model in self.models:
+            below = ((self.ranks.loc[model] < self.ranks) * self.weights).sum(axis=1)
+            above = ((self.ranks.loc[model] > self.ranks) * self.weights).sum(axis=1)
+            wins[model] = below > above
+            ties[model] = below == above
 
         self.majority_graph = pd.DataFrame(wins).transpose() + 0.5 * pd.DataFrame(ties).transpose() + np.eye(self.n_models) * 0.5
 

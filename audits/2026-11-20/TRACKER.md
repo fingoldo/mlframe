@@ -543,6 +543,8 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 42-F3 | 42_votenrank.md | FIXED | Sub-boards inherit allow_partial (code already); pinned by test. Test test_cluster42_gamma_and_solver_status.py. |
 | 42-F5 | 42_votenrank.md | FIXED | Non-infeasible linprog status logged as solver failure. Test test_cluster42_gamma_and_solver_status.py. |
 | 42-F6 | 42_votenrank.md | FIXED | Missing gamma raises a clear ValueError. Test test_cluster42_gamma_and_solver_status.py. |
+| 42-F8 | 42_votenrank.md | FIXED | No-op reindex removed from Leaderboard init. Test test_cluster42_majority_graph_and_table.py. |
+| 42-F9 | 42_votenrank.md | FIXED | Majority graph computes each weighted sum once. Test test_cluster42_majority_graph_and_table.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
