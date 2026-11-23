@@ -229,6 +229,13 @@ def missingness_count_fit(
     counts = _count_row_nans(X, cols)
     return counts, {"cols": tuple(str(c) for c in cols)}
 
+def _warn_absent_columns(kind: str, cols, present) -> None:
+    """Warn (throttled) when fit-time columns of a missingness recipe are absent from the transform frame: the replay keeps its documented value (absent contributes 0 / not missing), but a wrong value must not be silent (AUD23-57)."""
+    absent = [c for c in cols if c not in set(present)]
+    if absent:
+        log_throttle(logger, f"missingness_{kind}.absent_columns", logging.WARNING, "missingness %s replay: column(s) %s of the fit are absent at transform; they count as not missing, the output is NOT what a complete frame would give", kind, [str(c) for c in absent])
+
+
 def apply_missingness_count(
     X_test: pd.DataFrame, recipe: dict,
 ) -> np.ndarray:
@@ -245,6 +252,7 @@ def apply_missingness_count(
     # Intersect with X_test.columns; absent columns count as 0 (safer
     # than KeyError, matches the "graceful schema-drift" contract).
     cols_present = [c for c in cols if c in X_test.columns]
+    _warn_absent_columns("count", cols, cols_present)
     if not cols_present:
         return np.zeros(len(X_test), dtype=np.int32)
     return _count_row_nans(X_test, cols_present)
@@ -352,6 +360,7 @@ def apply_missingness_pattern(
     # schema-drift" contract used by missingness_count. The pattern
     # then resolves to "other" if it never appeared at fit.
     blocks = []
+    _warn_absent_columns("pattern", cols, [c for c in cols if c in X_test.columns])
     for c in cols:
         if c in X_test.columns:
             blocks.append(X_test[c].isna().to_numpy().astype(np.uint8))

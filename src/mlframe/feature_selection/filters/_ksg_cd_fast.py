@@ -157,9 +157,19 @@ def _column_mean_abs(X: np.ndarray) -> np.ndarray:
 
 def ksg_mi_discrete_target(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, random_state: int) -> np.ndarray:
     """Drop-in for ``mutual_info_classif(X, y, discrete_features=False)``: double MI per column, nats."""
+    n, p_all = X.shape
+    step = max(1, int(_COLUMNS_BLOCK_BYTES // max(1, 8 * n)))
+    if step < p_all:
+        # A block too wide for one float64 copy (the copy, the noise tile and the sorted columns of 100000 x 1000 are several GB): the columns are independent, so they go through in blocks, each scaled and
+        # jittered by itself with the noise drawn from ``RandomState(random_state + block index)``. The jitter is a tie-breaker of 1e-10 and the MI of a column does not depend on which stream it came from, but
+        # the values are no longer the ones sklearn's single (n, p) draw gives (the owner accepted that for the selection staying the same, 2026-11-23); the unblocked path below keeps the sklearn stream.
+        out = np.empty(p_all, dtype=np.float64)  # Intentional float64: MI statistic vector
+        for b, c0 in enumerate(range(0, p_all, step)):
+            c1 = min(p_all, c0 + step)
+            out[c0:c1] = ksg_mi_discrete_target(np.ascontiguousarray(X[:, c0:c1]), y, n_neighbors=n_neighbors, random_state=int(random_state) + b)
+        return out
     # Intentional float64: reproduces sklearn mutual_info_classif, which scales and adds noise in double
     X = np.array(X, dtype=np.float64, copy=True)
-    n = X.shape[0]
     std = _column_std(X)
     std[std == 0.0] = 1.0
     X /= std

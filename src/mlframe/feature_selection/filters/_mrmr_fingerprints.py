@@ -84,6 +84,16 @@ import threading as _threading
 
 _MRMR_IDENTITY_FP_CACHE: dict[str, bool] = {}
 _MRMR_IDENTITY_FP_LOCK = _threading.Lock()
+#: Most entries the process-wide identity cache keeps; the oldest are dropped first (it was unbounded: one entry per distinct (X, y, params) of a long-lived process, AUD23-49).
+_MRMR_IDENTITY_FP_CACHE_MAX = 4096
+
+
+def identity_cache_put(cache: dict, key: str, value: Any) -> None:
+    """Store ``value`` under ``key`` and drop the oldest entries beyond ``_MRMR_IDENTITY_FP_CACHE_MAX`` (insertion order); the caller holds ``_MRMR_IDENTITY_FP_LOCK``."""
+    cache.pop(key, None)  # a re-store moves the entry to the newest position
+    cache[key] = value
+    while len(cache) > _MRMR_IDENTITY_FP_CACHE_MAX:
+        cache.pop(next(iter(cache)))
 
 # ---------------------------------------------------------------------------------------------------------------
 # Layer 3 pre-batch: threshold for the dispatch_batch_pair_mi_chunked pre-fill path in _run_fe_step.
@@ -542,7 +552,7 @@ def _x_hash_memo_store(X: Any, key: tuple, digest: str) -> None:
 _MRMR_LAST_X_HASH_LOCK = _threading.RLock()
 
 
-def _mrmr_identity_cache_key(estimator, X, y) -> str:
+def _mrmr_identity_cache_key(estimator, X, y, sample_weight=None) -> str:
     """Key of ``estimator``'s entry in the cross-target identity cache: the X fingerprint, the optional y fingerprint, and the selector's params.
 
     ``MRMR.fit`` reads, stores and detects its own self-refit with this one key. Anything that seeds or probes the cache must build the key here
@@ -552,6 +562,11 @@ def _mrmr_identity_cache_key(estimator, X, y) -> str:
     if bool(getattr(estimator, "mrmr_identity_cache_include_y", False)):
         # Legitimately distinct targets on the same X get separate slots.
         key = key + "_yfp_" + _mrmr_compute_y_fingerprint_sample(y)
+    if sample_weight is not None:
+        # The weights change the relevance of every column, so an identity verdict reached under other weights (or none) must not license this fit to skip (AUD23-49).
+        # Full content, not the strided sample used for y: a weight vector that differs only between sampled rows must still change the key (8 bytes a row, far below one fit).
+        _w = np.ascontiguousarray(np.asarray(sample_weight, dtype=np.float64).reshape(-1))  # Intentional float64: fingerprint payload bytes of a cache key
+        key = key + "_wfp_" + hashlib.blake2b(_w.tobytes(), digest_size=10).hexdigest()
     # Without the params, a permissive config that legitimately returned identity on this X licensed a stricter one (fewer features, different
     # binning, other FE flags) to skip its fit and "select" every column it never scored. The in-object signature and ``_FIT_CACHE`` layers
     # already fold the same params signature.

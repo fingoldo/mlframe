@@ -36,6 +36,7 @@ from X alone, no y reference.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from typing import Any, Optional, Sequence
 
 import numpy as np
@@ -125,17 +126,13 @@ def _gate_best_degree_per_source(cand_to_source: list, cand_cols: list, cand_val
     return out_cols, meta
 
 
-def _build_degree_candidates(X: pd.DataFrame, cols: list, y_arr: np.ndarray, degree_range: tuple, basis: str, _dt: type) -> tuple[list, list, list]:
-    """Evaluate every (column, degree) cell; returns ``(cand_cols, cand_values, cand_to_source)`` where ``cand_to_source`` holds ``(src, degree, basis)``."""
+def _iter_degree_cells(X: pd.DataFrame, cols: list, y_arr: np.ndarray, degree_range: tuple, basis: str, _dt: type) -> "Iterator[tuple[str, np.ndarray, tuple[str, int, str]]]":
+    """Yield ``(name, values, (src, degree, basis))`` of every usable (column, degree) cell in the host order (unusable cells are skipped)."""
     # ---- Step 2: build the (col, degree) candidate matrix in one shot
     # Generate every basis_d(c) value column, route per-col basis once.
     # Naming carries the SOURCE plus a degree marker so we can recover the
     # argmax per source after the batch MI call.
     code = _BASIS_CODE
-    chosen_basis_per_col: dict[str, str] = {}
-    cand_cols: list[str] = []
-    cand_values: list[np.ndarray] = []
-    cand_to_source: list[tuple[str, int, str]] = []  # (src, degree, basis)
     for col in cols:
         x: np.ndarray = np.asarray(X[col].to_numpy(), dtype=_dt)  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
         finite_mask = np.isfinite(x)
@@ -154,7 +151,6 @@ def _build_degree_candidates(X: pd.DataFrame, cols: list, y_arr: np.ndarray, deg
                 "for col %r; skipping", chosen_basis, col,
             )
             continue
-        chosen_basis_per_col[col] = chosen_basis
         for d in degree_range:
             try:
                 vals = _evaluate_basis_column(x, chosen_basis, int(d))
@@ -172,10 +168,63 @@ def _build_degree_candidates(X: pd.DataFrame, cols: list, y_arr: np.ndarray, deg
                 continue
             if float(np.std(vals)) <= 1e-12:
                 continue
-            cand_cols.append(f"{col}__{code.get(chosen_basis, chosen_basis)}{int(d)}")
-            cand_values.append(vals)
-            cand_to_source.append((col, int(d), chosen_basis))
+            yield f"{col}__{code.get(chosen_basis, chosen_basis)}{int(d)}", vals, (col, int(d), chosen_basis)
+
+
+def _build_degree_candidates(X: pd.DataFrame, cols: list, y_arr: np.ndarray, degree_range: tuple, basis: str, _dt: type) -> tuple[list, list, list]:
+    """Evaluate every (column, degree) cell; returns ``(cand_cols, cand_values, cand_to_source)`` where ``cand_to_source`` holds ``(src, degree, basis)``."""
+    cand_cols: list[str] = []
+    cand_values: list[np.ndarray] = []
+    cand_to_source: list[tuple[str, int, str]] = []  # (src, degree, basis)
+    for name, vals, cell in _iter_degree_cells(X, cols, y_arr, degree_range, basis, _dt):
+        cand_cols.append(name)
+        cand_values.append(vals)
+        cand_to_source.append(cell)
     return cand_cols, cand_values, cand_to_source
+
+
+def _build_degree_candidate_matrix(X: pd.DataFrame, cols: list, y_arr: np.ndarray, degree_range: tuple, basis: str, _dt: type) -> "tuple[list, np.ndarray, list]":
+    """The lean twin of :func:`_build_degree_candidates` + ``np.column_stack(...).astype(criterion dtype)``: ``(cand_cols, cand_mat, cand_to_source)`` with ``cand_mat`` the ``(n, k)`` criterion-dtype matrix.
+
+    The list of float64 vectors, their float64 stack and the cast copy were about 20 bytes a cell (1.4 GB retained by this family at 500000 x 1000); here each source column's cells go to a criterion-dtype
+    block as they are built and the blocks are written into the matrix tile by tile, so the cost is the matrix plus one block."""
+    from ._fe_usability_signal import _crit_np_dtype
+    from ._numba_utils import rows_to_columns_into
+
+    crit = _crit_np_dtype()
+    n = len(X)
+    cand_cols: list[str] = []
+    cand_to_source: list[tuple[str, int, str]] = []
+    blocks: list[np.ndarray] = []
+    cur_src: "str | None" = None
+    cur_rows: list[np.ndarray] = []
+
+    def _flush() -> None:
+        """Move the pending source's cells into one criterion-dtype block."""
+        if cur_rows:
+            blk = np.empty((len(cur_rows), n), dtype=crit)
+            for i, v in enumerate(cur_rows):
+                blk[i] = v
+            blocks.append(blk)
+            cur_rows.clear()
+
+    for name, vals, cell in _iter_degree_cells(X, cols, y_arr, degree_range, basis, _dt):
+        if cell[0] != cur_src:
+            _flush()
+            cur_src = cell[0]
+        cur_rows.append(vals)
+        cand_cols.append(name)
+        cand_to_source.append(cell)
+        if len(cur_rows) >= 64:
+            _flush()
+    _flush()
+    cand_mat = np.empty((n, len(cand_cols)), dtype=crit)
+    at = 0
+    for i, blk in enumerate(blocks):
+        rows_to_columns_into(blk, cand_mat, at)
+        at += blk.shape[0]
+        blocks[i] = blk[:0]  # release the block as soon as it is written
+    return cand_cols, cand_mat, cand_to_source
 
 
 @fe_timed("adaptive_degree_basis")
@@ -267,14 +316,14 @@ def generate_adaptive_degree_basis_features(
         if not cand_cols:
             return pd.DataFrame(index=X.index), {}
     else:
-        cand_cols, cand_values, cand_to_source = _build_degree_candidates(X, cols, y_arr, degree_range, basis, _dt)
-
+        cand_cols, cand_mat, cand_to_source = _build_degree_candidate_matrix(X, cols, y_arr, degree_range, basis, _dt)
         if not cand_cols:
             return pd.DataFrame(index=X.index), {}
+        cand_values = LazyAdaptiveValues(X, cand_to_source, _dt)  # the winners are rebuilt on the host when asked for, as on the device path
 
         # ---- Step 3: ONE batch MI call across all (col, degree) candidates
-        cand_mat = np.column_stack(cand_values).astype(_crit_np_dtype(), copy=False)
         eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
+        del cand_mat
 
     out_cols, meta = _gate_best_degree_per_source(cand_to_source, cand_cols, cand_values, eng_mi, raw_mi_map, min_uplift)
     # the scoring ran on the criterion dtype; the emitted values are rebuilt on the float64 axis the recipe freezes, so fit and replay agree

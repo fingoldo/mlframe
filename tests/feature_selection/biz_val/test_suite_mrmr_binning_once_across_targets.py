@@ -64,17 +64,6 @@ def _run_suite(df: pd.DataFrame, strategy: str):
         )
 
 
-def _feature_edge_calls(calls: list, df: pd.DataFrame) -> list:
-    """The recorded computations that are feature columns of the frame (the target and its transforms are computed per target by design)."""
-    feats = [df[c].to_numpy(dtype=np.float64) for c in df.columns if c != "target"]
-    out = []
-    for c in calls:
-        arr = np.asarray(c, dtype=np.float64).ravel()
-        if any(arr.shape == f.shape and np.allclose(arr, f, atol=1e-5, equal_nan=True) for f in feats):
-            out.append(arr)
-    return out
-
-
 def test_unsupervised_strategy_bins_each_feature_once_across_the_targets_of_one_suite_call(monkeypatch):
     """Two targets of different types, the default strategy: every feature column is binned once, however many targets the call trains."""
     df = _frame()
@@ -82,11 +71,12 @@ def test_unsupervised_strategy_bins_each_feature_once_across_the_targets_of_one_
     calls = _count_uncached(monkeypatch)
     result, _meta = _run_suite(df, "quantile_spacing")
     assert len(result) >= 2, f"the call must train two target types, got {list(result)}"
-    feature_calls = _feature_edge_calls(calls, df)
+    # The suite hands MRMR a train split, not the frame it was given, so the columns are compared with each other: with no feature engineering the computations are the feature columns and each target's own
+    # column (distinct per target), so a repeated content is a feature binned again.
     n_features = df.shape[1] - 1
-    assert len(feature_calls) > 0, "the suite must bin the feature columns at least once"
-    keys = [hash(a.tobytes()) for a in feature_calls]
-    assert len(keys) == len(set(keys)), f"{len(keys) - len(set(keys))} feature binning(s) repeated an earlier one across the targets ({len(keys)} computed for {n_features} features)"
+    assert len(calls) >= n_features, "the suite must bin the feature columns at least once"
+    keys = [hash(np.ascontiguousarray(a).tobytes()) for a in calls]
+    assert len(keys) == len(set(keys)), f"{len(keys) - len(set(keys))} binning(s) repeated an earlier one across the targets ({len(keys)} computed for {n_features} features and 2 targets)"
 
 
 def test_supervised_strategy_rebins_for_another_target_contrast(monkeypatch):
@@ -95,6 +85,5 @@ def test_supervised_strategy_rebins_for_another_target_contrast(monkeypatch):
     cols.clear_edge_memo()
     calls = _count_uncached(monkeypatch)
     _run_suite(df, "mdlp")
-    feature_calls = _feature_edge_calls(calls, df)
-    keys = [hash(a.tobytes()) for a in feature_calls]
+    keys = [hash(np.ascontiguousarray(a).tobytes()) for a in calls]
     assert len(keys) > len(set(keys)), "a supervised strategy should re-bin each feature for the second target"

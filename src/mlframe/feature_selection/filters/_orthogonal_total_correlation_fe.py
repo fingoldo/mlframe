@@ -174,7 +174,7 @@ def _bin_dataframe_batched(
     when possible; fall back to per-column ``_quantile_bin`` for mixed
     finite / NaN data.
 
-    Returns a list of dense int64 bin arrays (one per column).
+    Returns a list of dense bin arrays (one per column; uint8 when ``nbins`` <= 255, else int64).
     """
     cols = list(df.columns)
     if not cols:
@@ -187,7 +187,8 @@ def _bin_dataframe_batched(
     except (TypeError, ValueError):
         arr64 = None
     if arr64 is not None and np.isfinite(arr64).all():
-        bins_arr = _quantile_bin_batched(arr64, nbins=int(nbins))
+        # codes as bytes when they fit (``bincount`` takes them, ``_factorize_pack`` casts to int64 at the point of use): the int64 block was 8 bytes a cell, the largest holder at 500000 rows (PLAN-10)
+        bins_arr = _quantile_bin_batched(arr64, nbins=int(nbins), dtype=np.uint8 if int(nbins) <= 255 else np.int64)
         return [np.ascontiguousarray(bins_arr[:, j]) for j in range(bins_arr.shape[1])]
     _dt = _crit_np_dtype()  # f32 under MLFRAME_CRIT_DTYPE_RELAXED (default); MI binning is scale-robust
     return [

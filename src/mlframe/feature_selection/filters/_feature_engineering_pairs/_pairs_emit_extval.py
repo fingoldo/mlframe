@@ -43,14 +43,23 @@ def _packed_factor_matrix(factors: Sequence[np.ndarray], n_rows: int) -> np.ndar
         cached = _PACKED_FACTORS
     if cached is not None and cached[1].shape == (n_rows, len(factors)) and len(cached[0]) == len(factors) and all(a is b for a, b in zip(cached[0], factors)):
         return cast(np.ndarray, cached[1])
-    rows = np.empty((len(factors), n_rows), dtype=np.float64)  # Intentional float64: ext-val parameter buffer keeps native float64 precision (see note at line 294)
-    for i, values in enumerate(factors):
-        rows[i] = values
-    packed = np.ascontiguousarray(rows.T)
-    del rows
+    # Intentional float64: ext-val parameter buffer keeps native float64 precision (see note at line 294)
+    packed = np.empty((n_rows, len(factors)), dtype=np.float64)
+    # the factors are copied in blocks of rows and transposed into the final matrix: the one-shot (k, n) staging matrix was a second copy of it (343 MB at 100000 x 429, the largest traced holder of the
+    # 100000 x 1000 fit), and a block of ``_PACK_BLOCK`` factors keeps the writes contiguous per source row
+    step = max(1, min(len(factors), _PACK_BLOCK_BYTES // max(1, 8 * n_rows)))
+    for f0 in range(0, len(factors), step):
+        f1 = min(len(factors), f0 + step)
+        stage = np.empty((f1 - f0, n_rows), dtype=np.float64)  # Intentional float64: as the packed matrix
+        for i in range(f0, f1):
+            stage[i - f0] = factors[i]
+        packed[:, f0:f1] = stage.T
     with _PACKED_FACTORS_LOCK:
         _PACKED_FACTORS = (tuple(factors), packed)
     return packed
+
+
+_PACK_BLOCK_BYTES = 32 * 1024 * 1024  # staging block of the packed factor matrix
 
 
 def _release_packed_factors() -> int:
