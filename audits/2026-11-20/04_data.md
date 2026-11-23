@@ -103,3 +103,4 @@ Scope: the 42 files in `audits/2026-11-20/manifests/04_data.txt`, all read in fu
 - 04-F34: FIXED. sample_categorical clamps the drawn index to K-1 when rounding leaves the cumulative sum under 1. Test tests/data/test_cluster04_sample_categorical_in_range.py.
 - 04-F32: FIXED. Scenario name index refuses duplicate names (_index_by_name raises ValueError). Tests tests/data/test_cluster04_scenario_names_unique.py.
 - 04-F31: FIXED. rare_class_spec keeps the RARE_MIN_ROWS floor but logs a WARNING when it raises the caller's n_samples, and records requested_n_samples in provenance. Tests tests/data/test_cluster04_rare_class_floor_is_visible.py.
+- 04-F29: FIXED. tail_gate_term builds only the quantile masks its direction uses; direction is validated first. Tests tests/data/test_cluster04_tail_gate_builds_needed_masks.py.
