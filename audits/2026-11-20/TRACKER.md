@@ -593,6 +593,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 25-F63 | 25_root_modules-4.md | FIXED | Row-count guard before forest apply. Test test_cluster25_proximity_guard_before_apply.py. |
 | 25-F67 | 25_root_modules-4.md | FIXED | Miller-Madow occupancy excludes the non-finite slot. Test test_cluster25_kl_mm_excludes_nonfinite_slot.py. |
 | 25-F70 | 25_root_modules-4.md | FIXED | Duplicate alphas refused in pinball_loss_per_alpha. Test test_cluster25_pinball_duplicate_alphas.py. |
+| 25-F66 | 25_root_modules-4.md | DEFERRED | Hard-coded 500_000 MAPE threshold may be a measured crossover; switching to the shared constant needs a benchmark. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
