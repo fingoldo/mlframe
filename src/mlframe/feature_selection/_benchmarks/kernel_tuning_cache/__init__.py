@@ -23,15 +23,17 @@ run and uses it forever after.
 Public API (lazy import everything; no side effects at module import)
 ---------------------------------------------------------------------
 
-* :func:`hw_fingerprint` -- short, stable per-host key
+* ``hw_fingerprint`` -- short, stable per-host key; it lives in
+  ``pyutilz.performance.kernel_tuning`` and is not re-exported here (13-F30)
 * :func:`get_dispatch_table` -- returns the cached dict for a kernel name;
   triggers an auto-tune sweep on cache miss
 * :func:`ensure_cache` -- explicit pre-warm hook (called from
   ``prewarm_fs_cupy_kernels`` so production callers get the auto-tune
   paid up-front instead of inside the first ``MRMR.fit``)
 
-The cache lives under ``$MLFRAME_KERNEL_CACHE_DIR`` (default
-``~/.mlframe/kernel_tuning/``). One JSON per ``hw_fingerprint``. Per-machine
+The cache lives under ``~/.pyutilz/kernel_tuning/`` by default (the location the
+CLI reads and writes; the path is owned by pyutilz, not by this package). One JSON per
+``hw_fingerprint``. Per-machine
 re-runs (e.g. driver update) require deleting the file; the auto-tune is
 idempotent.
 
