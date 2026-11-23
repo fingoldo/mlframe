@@ -327,6 +327,20 @@ def _train_mlframe_rank_protocol_beyond_just_group(_doc_field, df_features, trai
     return _doc_te, _doc_tr, _doc_va
 
 
+def _sanitize_test_scores(scores):
+    """Replace non-finite test scores with the member's lowest finite test score (or 0 if none), at scoring time (41-F24).
+
+    Keeps the member in the fused ensemble without letting test-set NaNs decide membership; a NaN row is
+    ranked at the member's floor instead of being dropped by a test-informed gate.
+    """
+    arr = np.asarray(scores, dtype=np.float64).copy()
+    finite = np.isfinite(arr)
+    if finite.all():
+        return arr
+    arr[~finite] = float(arr[finite].min()) if finite.any() else 0.0
+    return arr
+
+
 def _quality_gate_drop(keep_idx, models_dict, flavor_order):
     """Return ``(drop, best)``: the kept members whose val NDCG@10 is below half of the best finite NDCG, and that best value.
 
@@ -380,13 +394,10 @@ def _train_mlframe_rank_lockstep_rank_fusion_math(use_mlframe_ensembles, val_sco
         _gate_log: list[str] = []
         _keep_idx = list(range(len(flavor_order)))
 
-        # NaN gate: members whose val OR test scores contain any NaN cannot rank-fuse cleanly
-        # (RRF / Borda map NaN to last place silently which biases the fused order).
-        _nan_drop = [
-            i for i in _keep_idx
-            if not np.all(np.isfinite(np.asarray(val_scores_per_model[i], dtype=np.float64)))
-            or not np.all(np.isfinite(np.asarray(test_scores_per_model[i], dtype=np.float64)))
-        ]
+        # NaN gate: membership is decided on VALIDATION scores only (41-F24). Test scores must not
+        # influence which members the ensemble keeps; NaN test scores are handled at scoring time instead
+        # (see _sanitize_test_scores). Members with non-finite val scores cannot rank-fuse cleanly.
+        _nan_drop = [i for i in _keep_idx if not np.all(np.isfinite(np.asarray(val_scores_per_model[i], dtype=np.float64)))]
         if _nan_drop:
             _gate_log.append(f"NaN: dropped {[flavor_order[i] for i in _nan_drop]}")
             _keep_idx = [i for i in _keep_idx if i not in set(_nan_drop)]
@@ -426,7 +437,7 @@ def _train_mlframe_rank_lockstep_rank_fusion_math(use_mlframe_ensembles, val_sco
         # iterates over the post-gate slices below.
         _gated_flavor_order = [flavor_order[i] for i in _keep_idx]
         _gated_val_scores = [val_scores_per_model[i] for i in _keep_idx]
-        _gated_test_scores = [test_scores_per_model[i] for i in _keep_idx]
+        _gated_test_scores = [_sanitize_test_scores(test_scores_per_model[i]) for i in _keep_idx]
         if len(_gated_flavor_order) < 2:
             logger.warning(
                 "[ranker_ensemble gates] only %d member(s) survived post-gate " "(need >=2 to build a rank-fusion ensemble); skipping ensemble step.",
