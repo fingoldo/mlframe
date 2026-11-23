@@ -12,7 +12,7 @@ on the training rows and predicts the held-out rows. Per (target, strategy): ``p
 the data seeds. Binary metrics: AUC, log loss, accuracy, Brier. Regression metrics: R2, RMSE, MAE.
 
 TRUTH RECOVERY (the criterion of ``gt_sweep.py`` at the level a selection that contains engineered columns can be judged): every selected feature name is parsed for the source columns it uses (``x<i>``).
-``sources_recall`` is the share of the five generating columns (x0..x4) used by at least one selected feature; ``noise_source_share`` the share of selected features that use any noise column (x5..);
+``sources_recall`` is the share of the five generating columns (x0..x4) used by at least one selected feature; ``noise_source_share`` the share of selected features that use any noise column (x5..) as an INPUT, at any weight: an UPPER BOUND of the noise in the selection, not a count of noise signal. A noise column is often only a reference or a dither (an ordinal-pattern feature places x3 and x4 against a random column, which reveals their magnitudes; a SIR direction lists its candidate inputs), and the Fleuret gate admits such a feature because it has significant information about the signal columns given each selected one (tracker NOISE-IN-SELECTION, 2026-11-23). A loading-weighted share is the honest version (open);
 ``raw_precision`` / ``raw_recall`` look at the RAW selected columns only against {x0..x4}. ``fold sets`` is the number of different selected sets across the folds (1 = the same in every fold).
 The MRMR settings are the all-families ones of ``family_scale.all_families_kwargs``. Nothing else heavy may run beside it: the wall of a fold is part of the table.
 """
@@ -177,7 +177,7 @@ def render(rows: list, target: str) -> str:
     else:
         head = "strategy | pooled R2 | fold R2 mean +- std | pooled RMSE | pooled MAE"
         lead = lambda r: f"{r['pooled']['r2']:.4f} | {r['fold_mean']['r2']:.4f} +- {r['fold_std']['r2']:.4f} | {r['pooled']['rmse']:.4f} | {r['pooled']['mae']:.4f}"  # noqa: E731
-    lines = [f"[{target}] {head} | sources recall | noise-source share | raw precision | raw recall | n selected (engineered) | wall s/fold | fold sets | selected columns (fold 1)"]
+    lines = [f"[{target}] {head} | sources recall | noise-source share (upper bound) | raw precision | raw recall | n selected (engineered) | wall s/fold | fold sets | selected columns (fold 1)"]
     for r in rows:
         truth = (
             f"{r['sources_recall']:.2f} | {r['noise_source_share']:.2f} | {r['raw_precision']:.2f} | {r['raw_recall']:.2f} | {r['n_selected']:.1f} ({r['n_engineered']:.1f})"
