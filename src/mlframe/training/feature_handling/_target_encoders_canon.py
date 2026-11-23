@@ -318,6 +318,8 @@ def _coerce_y_to_float64(y) -> np.ndarray:
         return y.astype(np.float64, copy=False)
     try:
         import pandas as pd
+        if isinstance(y, pd.DataFrame) and y.shape[1] != 1:
+            raise ValueError(f"target must be a single column; got a DataFrame with {y.shape[1]} columns (39-F43)")
         if isinstance(y, (pd.Series, pd.DataFrame)):
             return np.asarray(y.to_numpy(dtype=np.float64, copy=False)).ravel()
     except ImportError:

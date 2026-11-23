@@ -146,3 +146,6 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F56: FIXED. Lookahead slow-weight commit failure logs at WARNING, stating predictions use fast weights.
 - 39-F69: FIXED. Lookahead commit failure logs at WARNING with exc_info (same site as 39-F56).
 - 39-F70: FIXED. Optimizer and scheduler names read with getattr fallback, so partial/non-class objects no longer raise AttributeError.
+- 39-F27: FIXED. E5 prefix detection also matches names starting with e5- / e5_ / e5/. Test test_cluster39_hf_e5_unc_target_coerce.py.
+- 39-F40: FIXED. long_path_safe emits the UNC long form for \server shares. Test test_cluster39_hf_e5_unc_target_coerce.py.
+- 39-F43: FIXED. Multi-column DataFrame targets raise instead of being raveled. Test test_cluster39_hf_e5_unc_target_coerce.py.
