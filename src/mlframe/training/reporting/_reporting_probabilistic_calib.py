@@ -133,6 +133,11 @@ def _top_importance_features(model: Any, columns: Sequence[str], top_k: int) -> 
     return [cols[i] for i in order]
 
 
+def _numeric_feature_values(values) -> np.ndarray:
+    """Feature values as float64; non-numeric entries (a categorical column) become NaN instead of raising (audit 41-F16)."""
+    return pd.to_numeric(pd.Series(np.asarray(values).ravel()), errors="coerce").to_numpy(dtype=np.float64)
+
+
 def _render_calibration_by_feature(
     *,
     df: pd.DataFrame,
@@ -167,7 +172,7 @@ def _render_calibration_by_feature(
         try:
             col = df[fname]
             fv = col.to_numpy() if hasattr(col, "to_numpy") else np.asarray(col)
-            fv = np.asarray(fv, dtype=np.float64).ravel()  # NaN for non-numeric; dropped downstream
+            fv = _numeric_feature_values(fv)  # non-numeric (categorical) values become NaN, as documented (audit 41-F16)
             if fv.shape[0] != yt.shape[0]:
                 continue
             het = compute_calibration_by_feature_heterogeneity(yt, pos_score, fv)
@@ -217,8 +222,8 @@ def _render_calibration_heatmap_2d(
     yt = y_true.to_numpy() if hasattr(y_true, "to_numpy") else np.asarray(y_true)
     try:
         cx, cy = df[fx_name], df[fy_name]
-        fx = np.asarray(cx.to_numpy() if hasattr(cx, "to_numpy") else cx, dtype=np.float64).ravel()
-        fy = np.asarray(cy.to_numpy() if hasattr(cy, "to_numpy") else cy, dtype=np.float64).ravel()
+        fx = _numeric_feature_values(cx.to_numpy() if hasattr(cx, "to_numpy") else cx)
+        fy = _numeric_feature_values(cy.to_numpy() if hasattr(cy, "to_numpy") else cy)
         if fx.shape[0] != yt.shape[0] or fy.shape[0] != yt.shape[0]:
             return
         res = compute_calibration_heatmap_2d(yt, pos_score, fx, fy)
