@@ -31,6 +31,7 @@ import numpy as np
 from .._fe_deadline import _state as _deadline_state
 from .._fe_family_timing import close_thread_laps
 from .._fe_deadline import fe_deadline_scope
+from mlframe.system import host_memory
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,32 @@ STAGE_VRAM_WEIGHTS_WITH_EARLY_A = (486.0, 461.0, 274.0, 110.0)
 def concurrency_enabled() -> bool:
     """Whether the cascades run concurrently: on by default, ``MLFRAME_FE_STAGE_CONCURRENCY=0`` runs them one by one."""
     return os.environ.get("MLFRAME_FE_STAGE_CONCURRENCY", "1").strip() != "0"
+
+
+#: The concurrent cascades hold about this many frames of working set together (measured 2026-11-23, 100000 x 1000 every family: 14 frames of growth concurrent against 9.6 serial, 500000 x 1000: 2.4).
+_CONCURRENT_FRAME_FACTOR = 4.0
+
+
+def memory_allows_concurrency(n_rows: int, n_cols: int) -> bool:
+    """Whether the cascades may run side by side: the float32 frame times ``_CONCURRENT_FRAME_FACTOR`` (``MLFRAME_FE_STAGE_CONCURRENCY_MEM_FACTOR`` overrides) must fit the available host RAM.
+
+    Measured on 100000 x 1000 with every family: concurrent 238.0 s and 5585 MB of growth, one after the other 254.1 s (+6.8 percent) and 3845 MB (-31 percent); on a host where the working set of four
+    stages does not fit, the slower order is the one that finishes (1M x 1000 on a 16 GB host). An unreadable RAM figure keeps the concurrent order."""
+    try:
+        factor = float(os.environ.get("MLFRAME_FE_STAGE_CONCURRENCY_MEM_FACTOR", "").strip() or _CONCURRENT_FRAME_FACTOR)
+        available = float(host_memory()[0])
+    except Exception as exc:
+        log_throttle(logger, "_fe_stage_concurrency.mem_probe", logging.INFO, "stage concurrency: available RAM unreadable (%r); the cascades keep their concurrent order", exc)
+        return True
+    need = factor * float(n_rows) * float(n_cols) * 4.0
+    allowed = need <= available
+    if not allowed:
+        log_throttle(
+            logger, "_fe_stage_concurrency.serialised", logging.INFO,
+            "stage concurrency off for this fit: %d x %d needs about %.1f GB for concurrent cascades (%.1fx the frame) against %.1f GB available; the cascades run one after the other",
+            int(n_rows), int(n_cols), need / 2**30, factor, available / 2**30,
+        )
+    return allowed
 
 
 def private_copy(estimator: Any) -> Any:
