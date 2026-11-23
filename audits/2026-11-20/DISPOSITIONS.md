@@ -1266,3 +1266,4 @@
 | 17-F21 | PARTIAL | Tweedie warn-count cache in _regression_deviance is bounded (cleared at 4096 keys). Not changed: the same unbounded pattern in _regression_extras.py (lines 122, 208) and _regression_benchmark.py (line 191), which the finding also names. Test tests/metrics/test_cluster17_warn_cache_bounded.py. |
 | 17-F31 | FIXED | Deleted the no-op placeholder expression in the Welford bench. Test tests/metrics/test_cluster17_no_placeholder_expression.py (source pin). |
 | 17-F30 | FIXED | KS bench restores the production gate in a finally clause, so an exception inside a timed run cannot leave it disabled. Test tests/metrics/test_cluster17_ks_bench_restores_gate.py (source pin). |
+| 17-F29 | FIXED | CRPS bench verifies the shipped function with one computation and one comparison. Test tests/metrics/test_cluster17_crps_bench_single_check.py (source pin). |
