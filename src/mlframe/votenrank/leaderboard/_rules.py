@@ -28,6 +28,10 @@ def mean_ranking(self, mean_type: str = "arithmetic") -> pd.Series:
     if mean_type == "arithmetic":
         return (table * self.weights / self.weights.sum()).sum(axis=1).sort_values(ascending=False)
     elif mean_type == "geometric":
+        # An all-NaN task column is a missing task, not a zero score; say so instead of the zero-score message (42-F7).
+        missing = [c for c in table.columns if table[c].isna().all()]
+        if missing:
+            raise ValueError(f"mean_ranking(mean_type='geometric'): task column(s) {missing} have no scores at all (the table is missing a task).")
         if not (table > 0).all().all():
             raise ValueError(
                 "mean_ranking(mean_type='geometric') requires every score to be strictly positive "

@@ -1066,3 +1066,5 @@
 | 39-F28 | DEFERRED | Derived memory/cache values are written into the user's sub-configs and re-read as explicit on a model_dump round trip. Fixing it needs a design choice (keep derived values out of the sub-configs, or track their provenance across serialisation). Owner decision. |
 | 39-F44 | PARTIAL | Datetime token construction is vectorised (np.char.add), pinned to the per-element formula. The object-token loop (_canonical_cat_token per value) and the _objectwise_isnull per-row loop are still Python loops. Test test_cluster39_datetime_tokens_vectorised.py. |
 | 39-F29 | FIXED | Concurrent misses on one cache key elect a leader; other callers wait and then read the memory tier. Test test_cluster39_cache_single_flight.py. |
+| 42-F4 | FIXED | Leaderboard refuses duplicate task column names. Test test_cluster42_duplicate_task_and_missing_task.py. |
+| 42-F7 | FIXED | Geometric mean names an all-NaN task column as missing, not as a zero score. Test test_cluster42_duplicate_task_and_missing_task.py. |

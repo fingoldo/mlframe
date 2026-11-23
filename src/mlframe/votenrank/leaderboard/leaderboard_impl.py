@@ -69,6 +69,10 @@ class Leaderboard:
             raise ValueError(f"Leaderboard: partial_fill must be 'min' or 'median', got {partial_fill!r}")
         self.partial_fill = partial_fill
         self.imputed_cells_ = [(str(table.index[int(r)]), str(table.columns[int(c)])) for r, c in zip(*np.where(table.isna().to_numpy()))]
+        # Duplicate task (column) names make list.index and self.weights address only the first occurrence (42-F4).
+        if not table.columns.is_unique:
+            dupes = table.columns[table.columns.duplicated()].unique().tolist()
+            raise ValueError(f"Leaderboard: duplicate task column name(s) {dupes}; every task must be a unique column.")
         self.table = table
         self.tasks = list(self.table.columns)
         self.n_tasks = len(self.tasks)
