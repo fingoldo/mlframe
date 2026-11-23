@@ -3002,6 +3002,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         #   share 0.8 %, noise 1.0: R2 0.8925/0.8900/0.8951 in both modes, term found in neither.
         # Nine fits gave one +0.005 R2 and never changed what is found, at 1.1-2.8x the wall, so the default stays False. Details: audits/2026-11-23/PLAN_target_transform_in_mrmr.md (PLAN-05).
         fe_target_mix_candidates: bool = False,
+        # TARGET-TRANSFORM SEARCH (default OFF; metadata only, MRMR never changes the target). For a continuous regression target the fit proposes monotone transforms (cbrt, signed square root, log
+        # for a positive target) by the equal-width-bin MI between the numeric columns and f(y), and accepts one only when a ridge model fitted on f(y) beats a ridge fitted on y on held-out rows, on the ORIGINAL
+        # scale, by a paired bootstrap (see ``_target_transform_search``). The verdict is ``target_transform_`` (name, accepted, proposals, gates); the training layer applies and inverts it. Measured
+        # 2026-11-23: it helps linear heads only (cbrt of a cubic target halves the ridge RMSE), not trees; the MI alone is biased (it proposes signed_sqrt on a linear target), hence the gate.
+        target_transform_search: bool = False,
         # With ``redundancy_policy='drop'`` the same held-out evidence prunes a selected engineered column, or a raw column no engineered column is built from, that does not lower the held-out
         # residual of the rest of the selection significantly. A raw operand of an engineered column (``fe_drop_redundant_raw_operands``) is pruned unless it improves the held-out fit of a LINEAR
         # model on the other columns, significantly and by at least this share of the target variance (a private linear term the engineered column cannot give a linear model).
