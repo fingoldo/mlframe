@@ -43,3 +43,15 @@ def test_a_few_distinct_values_get_exact_codes_not_quantile_bins():
     codes, n_codes = gate._quantile_codes(v, 4)
     assert n_codes == 2
     np.testing.assert_array_equal(codes, [0, 1, 0, 1, 1])
+
+
+def test_a_tied_column_with_a_few_signal_values_keeps_them_apart():
+    """96 zeros and the values 1 to 5 with ``n_bins=4``: the quantile edges collapse to [0, 5], but the signal values must not all share code 0.
+
+    Every value gets its own exact level, so the five non-zero values are distinguishable from the zeros and from one another.
+    """
+    v = np.concatenate([np.zeros(96), np.arange(1.0, 6.0)])
+    codes, n_codes = gate._quantile_codes(v, 4)
+    assert n_codes == 6
+    np.testing.assert_array_equal(codes[:96], np.zeros(96, dtype=np.int64))
+    np.testing.assert_array_equal(codes[96:], [1, 2, 3, 4, 5])
