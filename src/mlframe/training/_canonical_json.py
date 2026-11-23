@@ -43,8 +43,11 @@ def _canon(obj: Any, depth: int) -> Any:
         return obj if math.isfinite(obj) else {"__float__": repr(obj)}
     if isinstance(obj, dict):
         return {_key_text(k): _canon(v, depth + 1) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
+    if isinstance(obj, list):
         return [_canon(v, depth + 1) for v in obj]
+    if isinstance(obj, tuple):
+        # Tagged so a tuple and a list with the same items no longer serialise identically (26-F33).
+        return {"__tuple__": [_canon(v, depth + 1) for v in obj]}
     if isinstance(obj, (set, frozenset)):
         items = [_canon(v, depth + 1) for v in obj]
         return {"__set__": sorted(items, key=lambda v: _dumps_tree(v))}
