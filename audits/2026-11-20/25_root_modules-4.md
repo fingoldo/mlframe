@@ -172,3 +172,4 @@ Method: four parallel sub-audits read every listed file fully and grepped caller
 - 25-F69: FIXED. Docstring corrected: multilabel_auc_per_label always loops per column and does not route to the batched GPU path, which is compute_batch_aucs. Docstring-only; no test.
 - 25-F71: DEFERRED. The MAPE warmup diagnostic is an active CI investigation hook (env-gated) for a failure the code comments say is unresolved. Removing it discards the instrument; retire it once the CI issue is closed. Owner to decide.
 - 25-F56: FIXED. Unused marginals array removed from the MI kernel in an earlier commit (995050561); verified by the MI kernel tests (28 pass). Recorded here, where the disposition was missing.
+- 25-F55: FIXED. MI docstrings corrected from the fixed 0-14 range to the validated [0, 127] / [0, n_bins) contract (three sites). Test tests/feature_selection/test_cluster25_mi_bin_range_doc.py (source pins).

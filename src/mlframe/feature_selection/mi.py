@@ -153,7 +153,7 @@ def grok_compute_mutual_information(
 
     Parameters
     ----------
-    data            : int8 ndarray, shape (n_samples, n_cols), already binned 0-14
+    data            : int8 ndarray, shape (n_samples, n_cols), already binned into [0, n_bins) (validated against [0, 127], 25-F55)
     target_indices  : iterable of int column indices
     n_bins          : number of discrete bins (default 15)
 
@@ -238,7 +238,7 @@ def chatgpt_compute_mutual_information(
 
     Parameters
     ----------
-    data            : int8 ndarray, shape (n_samples, n_cols), already binned 0-14
+    data            : int8 ndarray, shape (n_samples, n_cols), already binned into [0, n_bins) (validated against [0, 127], 25-F55)
     target_indices  : iterable of int column indices
     n_bins          : number of discrete bins (default 15)
 
@@ -335,7 +335,7 @@ def deepseek_compute_mutual_information(
 
     Parameters
     ----------
-    data            : int8 ndarray, shape (n_samples, n_cols), already binned 0-14
+    data            : int8 ndarray, shape (n_samples, n_cols), already binned into [0, n_bins) (validated against [0, 127], 25-F55)
     target_indices  : iterable of int column indices
     n_bins          : number of discrete bins (default 15)
 
