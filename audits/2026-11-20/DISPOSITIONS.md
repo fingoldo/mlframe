@@ -1119,3 +1119,4 @@
 | 26-F15 | FIXED | Silhouette in clusterize excludes DBSCAN noise via _silhouette_without_noise; undefined with fewer than two real clusters. Tests test_cluster26_silhouette_excludes_noise.py; existing cluster tests (15) pass. |
 | 26-F29 | FIXED | A failing cupy or cuda DTW path falls back to the CPU result with a WARNING saying it is slower, not a debug line. Test test_cluster26_dtw_gpu_fallback_warns.py. |
 | 25-F63 | FIXED | rf_proximity_matrix checks the row count of X before applying the forest, so an oversized request is refused without the apply cost. Test test_cluster25_proximity_guard_before_apply.py; existing proximity tests (8) pass. |
+| 25-F67 | FIXED | Miller-Madow occupancy counts histogram bins only; the non-finite slot is excluded. Test test_cluster25_kl_mm_excludes_nonfinite_slot.py; existing drift tests (43) pass. |
