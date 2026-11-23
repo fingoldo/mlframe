@@ -1169,3 +1169,4 @@
 | 26-F19 | FIXED | The set_params side effect for XGBoost is documented in the docstring: XGBoost takes early stopping as a constructor parameter, so the mutation is needed. Docstring-only; no behaviour change, no test. |
 | 28-F61 | FIXED | Removed the unused optional matplotlib import in the trainer-configure helpers (no name use, no importer). Regression: the two importing tests pass (37). |
 | 28-F50 | FIXED | The reset-then-read pair on _pre_pipeline_groups is replaced by passing None directly; the attribute is None on entry, so behaviour is unchanged. Regression: module import and a related trainer test pass. |
+| 26-F27 | DEFERRED | Histogram bar_colors must match the drawn bar count, which is len(values) for pre-binned data but bins for raw data. The spec does not record which mode applies, so a single __post_init__ check would be wrong for one of them. Needs a spec field for the mode, an owner-approved API change. |

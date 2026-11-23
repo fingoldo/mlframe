@@ -635,7 +635,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 26-F25 | 26_root_modules-5.md | FIXED | Docstring corrected: worst-K on the bounded subsample above DIAG_ROW_CAP. Docstring-only, no test. |
 | 26-F16 | 26_root_modules-5.md | FIXED | LOF novelty crash fixed; contamination cutoff uses a stable sort so ties are deterministic and the docstring is accurate. Test test_cluster26_lof_novelty_scores.py. |
 | 26-F26 | 26_root_modules-5.md | DEFERRED | Saved-at-submit recording is deliberate for sync/async parity; a failed async save needs a worker-to-dict update path (design). |
-| 26-F27 | 26_root_modules-5.md | PARTIAL | ScatterPanelSpec length checks added; HistogramPanelSpec.bar_colors contract ambiguous for pre-binned data, left. Test test_cluster26_scatter_spec_lengths.py. |
+| 26-F27 | 26_root_modules-5.md | PARTIAL | ScatterPanelSpec length checks added (test_cluster26_scatter_spec_lengths.py). Histogram bar_colors check deferred: bar count depends on pre-binned vs raw mode, which the spec does not carry. |
 | 26-F34 | 26_root_modules-5.md | DEFERRED | Import-time env write and CatBoost Pool patch may be relied on by importers outside the suite entry; moving them is an owner decision. |
 | 26-F19 | 26_root_modules-5.md | FIXED | Mutation of the caller's XGBoost model documented in the docstring (needed: early stopping is a constructor parameter). Docstring-only, no test. |
 | 28-F61 | 28_root_modules-7.md | FIXED | Unused matplotlib import removed from trainer-configure helpers. Regression: 37 importing tests pass. |
