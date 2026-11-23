@@ -9,7 +9,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.feature_selection.filters._adaptive_nbins import _METHOD_ALIASES, per_feature_edges
+from mlframe.feature_selection.filters._adaptive_nbins import per_feature_edges
+from mlframe.feature_selection.filters._nbins_strategy_names import NBINS_STRATEGIES
 
 
 def _xy(n=3000, seed=0):
@@ -21,17 +22,17 @@ def _xy(n=3000, seed=0):
 
 
 def test_mah_resolves_to_itself_and_the_old_aliases_are_gone():
-    """The alias table keeps ``mah`` and carries none of the three removed names."""
-    assert _METHOD_ALIASES["mah"] == "mah"
+    """The accepted names keep ``mah`` and carry none of the three removed names."""
+    assert "mah" in NBINS_STRATEGIES
     for removed in ("mah_sci", "sci", "marx"):
-        assert removed not in _METHOD_ALIASES
+        assert removed not in NBINS_STRATEGIES
 
 
 @pytest.mark.parametrize("removed", ["mah_sci", "sci", "marx"])
 def test_a_removed_name_is_rejected_by_the_edge_dispatcher(removed):
     """``per_feature_edges`` raises for a name that is no longer a method."""
     X, y = _xy()
-    with pytest.raises(ValueError, match="unknown method"):
+    with pytest.raises(ValueError, match="unknown nbins_strategy"):
         per_feature_edges(X, y, method=removed, n_jobs=1)
 
 

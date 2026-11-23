@@ -46,27 +46,12 @@ class MRMRParams(BaseModel):
     quantization_nbins: int = 10
     quantization_dtype: Any = None
     max_categorical_cardinality: int | None = 127
+    categorical_fold_strategy: str = "frequency"
+    categorical_fold_min_support: int = 5
     nbins_strategy: (
-        Literal[
-            "auto",
-            "sturges",
-            "freedman_diaconis",
-            "fd",
-            "qs",
-            "quantile",
-            "uniform",
-            "knuth",
-            "blocks",
-            "mdlp",
-            "fayyad_irani",
-            "mdlp_validated",
-            "fayyad_irani_validated",
-            "optimal_joint",
-            "cv",
-            "mah",
-        ]
+        Literal["sturges", "freedman_diaconis", "quantile_spacing", "uniform", "knuth", "bayesian_blocks", "mdlp", "mdlp_validated", "optimal_joint", "mah"]
         | None
-    ) = "mdlp"
+    ) = "quantile_spacing"
     nbins_strategy_kwargs: dict | None = None
     max_adaptive_nbins: int = 127
     adaptive_nbins_large_n_reg: bool = True

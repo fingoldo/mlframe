@@ -128,7 +128,7 @@ def test_per_feature_edges_fast_mode_uses_njit_default():
             side_effect=fake_python,
         ),
     ):
-        per_feature_edges(x, y, method="fayyad_irani", mdlp_fast_mode=True)
+        per_feature_edges(x, y, method="mdlp", mdlp_fast_mode=True)
 
     assert call_record["njit"] >= 1, f"per_feature_edges(mdlp_fast_mode=True) must route to _mdlp_recurse_njit; call record: {call_record}"
     assert (
@@ -186,7 +186,7 @@ def test_per_feature_edges_default_uses_validated_split():
         patch("mlframe.feature_selection.filters.supervised_binning._mdlp_recurse", side_effect=fake_python),
         patch("mlframe.feature_selection.filters._mdlp_validated_split._mdlp_recurse_validated_bfs", side_effect=fake_validated),
     ):
-        per_feature_edges(x, y, method="fayyad_irani")
+        per_feature_edges(x, y, method="mdlp")
 
     assert call_record["validated"] >= 1, f"default per_feature_edges must route to _mdlp_recurse_validated_bfs; call record: {call_record}"
     assert (

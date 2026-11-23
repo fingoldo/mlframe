@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 
+import numpy as np
+
 logger = logging.getLogger("mlframe.feature_selection.filters.mrmr")
 
 
@@ -76,7 +78,7 @@ def _warn_demoted_nbins_strategy(self):
             f"places these demoted methods last: Knuth (combined 0.213), "
             f"Bayesian Blocks (0.233), MAH/SCI (0.373, collapses to ~2 bins). "
             f"Recommended: 'mdlp' (combined 0.107, only TRUE zero noise floor) "
-            f"for balanced production use; 'qs' (signal err 0.093 best, but "
+            f"for balanced production use; 'quantile_spacing' (signal err 0.093 best, but "
             f"noise floor 0.123 inflates false positives) when no-signal "
             f"columns are absent. Opt-out via ``warnings.filterwarnings('ignore', "
             f"category=UserWarning, module='mlframe.feature_selection.filters')``.",
@@ -133,11 +135,19 @@ def _warn_unimplemented_redundancy_algo(self):
         )
 
 
+def _validate_categorical_fold(self):
+    """``categorical_fold_min_support`` must be an integer of at least 2 (a level of one row is the noise this fold exists to remove, and 1 would fold nothing)."""
+    _support = getattr(self, "categorical_fold_min_support", 5)
+    if isinstance(_support, bool) or not isinstance(_support, (int, np.integer)) or int(_support) < 2:
+        raise ValueError(f"MRMR: categorical_fold_min_support must be an integer >= 2; got {_support!r}.")
+
+
 def _validate_string_params(self):
     """Raise ValueError on bad constructor strings. Each branch lists the accepted values verbatim so the error message is actionable."""
     _checks = (
         ("quantization_method", self._VALID_QUANTIZATION_METHODS),
         ("nan_strategy", self._VALID_NAN_STRATEGIES),
+        ("categorical_fold_strategy", self._VALID_CATEGORICAL_FOLD_STRATEGIES),
         ("mrmr_relevance_algo", self._VALID_MRMR_RELEVANCE_ALGOS),
         ("mrmr_redundancy_algo", self._VALID_MRMR_REDUNDANCY_ALGOS),
         ("fe_unary_preset", self._VALID_FE_UNARY_PRESETS),
@@ -166,7 +176,12 @@ def _validate_string_params(self):
         if not isinstance(_val, str):
             raise ValueError(f"MRMR: {_name} must be a string; got {type(_val).__name__}={_val!r}. " f"Valid values: {_valid}.")
         if _val not in _valid:
+            if _name == "nbins_strategy":
+                from mlframe.feature_selection.filters._nbins_strategy_names import unknown_nbins_strategy_message
+
+                raise ValueError(f"MRMR: {unknown_nbins_strategy_message(_val)}.")
             raise ValueError(f"MRMR: {_name}={_val!r} is not a recognised value. " f"Valid values: {_valid}.")
+    _validate_categorical_fold(self)
     _validate_default_scorer(self)
     _validate_hybrid_orth_string_params(self)
     _validate_cluster_aggregate_methods(self)

@@ -15,6 +15,7 @@ from __future__ import annotations
 # listing the valid options. fix audit row FS-P2-1.
 _VALID_QUANTIZATION_METHODS = ("quantile", "uniform")
 _VALID_NAN_STRATEGIES = ("separate_bin", "fillna_zero", "ffill_bfill", "propagate", "raise")
+_VALID_CATEGORICAL_FOLD_STRATEGIES = ("frequency", "min_support", "target_stat")
 _VALID_MRMR_RELEVANCE_ALGOS = ("fleuret", "pld")
 _VALID_MRMR_REDUNDANCY_ALGOS = ("fleuret", "pld_max", "pld_mean")
 # adaptive per-feature bin-edge chooser.
@@ -24,9 +25,9 @@ _VALID_MRMR_REDUNDANCY_ALGOS = ("fleuret", "pld_max", "pld_mean")
 # intentionally NOT routed into the MRMR hot loop.
 _VALID_NBINS_STRATEGIES = (
     None,
-    "auto", "sturges", "freedman_diaconis", "fd", "qs", "quantile", "uniform",
-    "knuth", "blocks",  # demoted to research-only with AccuracyWarning
-    "mdlp", "fayyad_irani", "mdlp_validated", "fayyad_irani_validated", "optimal_joint", "cv",
+    "sturges", "freedman_diaconis", "quantile_spacing", "uniform",
+    "knuth", "bayesian_blocks",  # demoted to research-only with AccuracyWarning
+    "mdlp", "mdlp_validated", "optimal_joint",
     "mah",  # Marx 2021 multi-dimensional adaptive histogram (SCI-guided merging of the feature's bins)
 )
 # opt-in validation sets.
@@ -43,7 +44,7 @@ _VALID_STABILITY_SELECTION_METHODS = (
 # for research / reproduction work but emit an ``AccuracyWarning`` so
 # downstream callers can opt-in explicitly.
 _DEMOTED_NBINS_STRATEGIES = (
-    "knuth", "blocks",
+    "knuth", "bayesian_blocks",
 )
 _VALID_FE_UNARY_PRESETS = ("minimal", "medium", "maximal")
 _VALID_FE_BINARY_PRESETS = ("minimal", "medium", "maximal")

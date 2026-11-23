@@ -15,10 +15,7 @@ import sys
 import time
 
 TARGETS = ("binary", "multiclass", "regression", "count", "multilabel", "multitarget", "heavy_tail", "zero_inflated")
-STRATEGIES = (
-    "mdlp", "mdlp_validated", "fayyad_irani", "fayyad_irani_validated", "optimal_joint", "cv", "mah", "mah_sci", "sci", "marx",
-    "auto", "sturges", "freedman_diaconis", "fd", "qs", "quantile", "uniform",
-)
+STRATEGIES = ("mdlp", "mdlp_validated", "optimal_joint", "mah", "sturges", "freedman_diaconis", "quantile_spacing", "uniform")
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 

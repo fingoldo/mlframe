@@ -406,15 +406,26 @@ def _mi_from_joint_counts_cupy(joint_counts_dev, fx_counts_dev, freqs_y_dev, n_s
     concern (the grid is already resident and small relative to the accumulator it replaces)."""
     inv_n = 1.0 / n_samples
     # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-    prob_x = fx_counts_dev.astype(_cp.float64) * inv_n  # (n_pairs, max_joint)
-    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
     prob_y = freqs_y_dev.astype(_cp.float64)  # (n_classes_y,)
-    # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
-    jf = joint_counts_dev.astype(_cp.float64) * inv_n  # (n_pairs, max_joint, n_classes_y)
-    denom = prob_x[:, :, None] * prob_y[None, None, :]
-    valid = (joint_counts_dev != 0) & (fx_counts_dev[:, :, None] != 0) & (prob_y[None, None, :] > 0.0)
-    terms = _cp.where(valid, jf * _cp.log(jf / denom), 0.0)
-    return terms.sum(axis=(1, 2))
+    n_pairs = int(joint_counts_dev.shape[0])
+    # The terms are built from about seven float64 temporaries of the accumulator's size; a pair-subchunk sized so that the ACCUMULATOR fits then ran out of memory in this step
+    # (463 MB requested at 2.14 GB held of a 2.58 GB pool, every run). Each pair's sum is independent, so the pairs go through in blocks whose temporaries stay near one accumulator.
+    block = max(1, -(-n_pairs // 8))
+    parts = []
+    for q0 in range(0, n_pairs, block):
+        q1 = min(q0 + block, n_pairs)
+        counts = joint_counts_dev[q0:q1]
+        fx = fx_counts_dev[q0:q1]
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
+        prob_x = fx.astype(_cp.float64) * inv_n  # (block, max_joint)
+        # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
+        jf = counts.astype(_cp.float64) * inv_n  # (block, max_joint, n_classes_y)
+        denom = prob_x[:, :, None] * prob_y[None, None, :]
+        valid = (counts != 0) & (fx[:, :, None] != 0) & (prob_y[None, None, :] > 0.0)
+        terms = _cp.where(valid, jf * _cp.log(jf / denom), 0.0)
+        parts.append(terms.sum(axis=(1, 2)))
+        del counts, fx, prob_x, jf, denom, valid, terms
+    return parts[0] if len(parts) == 1 else _cp.concatenate(parts)
 
 
 @numba.njit(cache=True, nogil=True)

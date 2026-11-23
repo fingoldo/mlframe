@@ -8,7 +8,7 @@ site that previously float-coerced the raw strings and raised
 ``could not convert string to float`` / ``TypeError: ufunc 'isfinite' ...`` /
 ``unsupported operand type(s) for /: 'str' and 'int'``.
 
-Also pins the ``nbins_strategy='quantile'`` alias acceptance (c0149).
+Also pins that ``nbins_strategy`` has no aliases (c0149 once pinned ``quantile``).
 """
 
 from __future__ import annotations
@@ -113,7 +113,7 @@ class TestMrmrFeStepNumericGuard:
         )
         sel = MRMR(
             fe_max_steps=1,
-            nbins_strategy="quantile",
+            nbins_strategy="quantile_spacing",
         )
         # Must complete without raising on the string column.
         sel.fit(X, y)
@@ -191,39 +191,39 @@ class TestMrmrOrphanRecipeReplay:
         assert "missing_input" in str(exc_info.value)
 
 
-class TestMrmrNbinsQuantileAlias:
-    """``nbins_strategy='quantile'`` is a natural user alias for quantile-spacing
-    ('qs') and must be accepted by the validator + dispatcher (fuzz c0149)."""
+class TestMrmrNbinsStrategyNamesHaveNoAliases:
+    """Every ``nbins_strategy`` has ONE name: the former synonyms (``quantile`` and ``qs`` for quantile spacing, ``fd`` and ``auto``, ``fayyad_irani``, ``cv``, ``blocks``, ...) are rejected with a message that names the replacement (fuzz c0149 pinned ``quantile``)."""
 
-    def test_quantile_alias_resolves_to_qs(self):
-        """Quantile alias resolves to qs."""
-        from mlframe.feature_selection.filters._adaptive_nbins import _METHOD_ALIASES
+    REMOVED = {
+        "quantile": "quantile_spacing", "qs": "quantile_spacing", "gupta": "quantile_spacing", "fd": "freedman_diaconis", "auto": "freedman_diaconis", "freedman-diaconis": "freedman_diaconis",
+        "fayyad_irani": "mdlp", "fayyad_irani_validated": "mdlp_validated", "cv": "optimal_joint", "blocks": "bayesian_blocks", "bb": "bayesian_blocks",
+    }
 
-        assert _METHOD_ALIASES["quantile"] == "qs"
-
-    def test_quantile_in_mrmr_valid_strategies(self):
-        """Quantile in mrmr valid strategies."""
+    def test_removed_names_are_not_valid_strategies(self):
+        """None of the former names is accepted; each canonical name is."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
-        assert "quantile" in MRMR._VALID_NBINS_STRATEGIES
+        for old, new in self.REMOVED.items():
+            assert old not in MRMR._VALID_NBINS_STRATEGIES, old
+            assert new in MRMR._VALID_NBINS_STRATEGIES, new
 
-    def test_per_feature_edges_accepts_quantile(self):
-        """Per feature edges accepts quantile."""
+    def test_per_feature_edges_names_the_replacement(self):
+        """The dispatcher refuses a removed name and says what to use."""
         from mlframe.feature_selection.filters._adaptive_nbins import per_feature_edges
 
-        rng = np.random.default_rng(7)
-        X = rng.standard_normal((500, 2))
-        edges = per_feature_edges(X, method="quantile")
-        assert len(edges) == 2
+        X = np.random.default_rng(7).standard_normal((500, 2))
+        for old, new in self.REMOVED.items():
+            with pytest.raises(ValueError, match=f"use '{new}'"):
+                per_feature_edges(X, y=np.zeros(500, dtype=np.int64), method=old)
+        assert len(per_feature_edges(X, method="quantile_spacing")) == 2
 
-    def test_mrmr_validate_accepts_quantile_strategy(self):
-        """Mrmr validate accepts quantile strategy."""
+    def test_mrmr_validate_names_the_replacement(self):
+        """The MRMR validator refuses a removed name with the replacement in the message; an unknown name lists the accepted ones."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
-        sel = MRMR(nbins_strategy="quantile")
-        # Pre-fix: ``_validate_string_params`` raised
-        # ``MRMR: nbins_strategy='quantile' is not a recognised value``.
-        assert sel._validate_string_params() is None
-        assert sel.nbins_strategy == "quantile"
-        with pytest.raises(ValueError, match="nbins_strategy='bogus' is not a recognised value"):
+        for old, new in self.REMOVED.items():
+            with pytest.raises(ValueError, match=f"use '{new}'"):
+                MRMR(nbins_strategy=old)._validate_string_params()
+        assert MRMR(nbins_strategy="quantile_spacing")._validate_string_params() is None
+        with pytest.raises(ValueError, match="unknown nbins_strategy='bogus'"):
             MRMR(nbins_strategy="bogus")._validate_string_params()

@@ -1,4 +1,4 @@
-"""Fused honest-null floor for ``nbins_strategy="optimal_joint"`` / ``"cv"``: every permutation inside one numba kernel instead of a Python re-binning per permutation.
+"""Fused honest-null floor for ``nbins_strategy="optimal_joint"``: every permutation inside one numba kernel instead of a Python re-binning per permutation.
 
 Per permutation the floor (``_honest_mdlp_null.honest_fdr_floor`` -> ``_honest_perm_best``) re-bins the pool on the permuted target through
 ``PermutedTargetBinner.codes``: the winning candidate bin count of every column from its cached plan (``prescore_best_m``: mean fold MI of each candidate
@@ -253,7 +253,7 @@ def oj_fused_floor(honest_codes_fn: Any, factors_data: np.ndarray, factors_nbins
         return None
     binner = getattr(honest_codes_fn, "binner", None)
     y_raw = getattr(honest_codes_fn, "y_raw", None)
-    if binner is None or y_raw is None or str(binner._strategy).lower() not in ("optimal_joint", "cv"):
+    if binner is None or y_raw is None or str(binner._strategy).lower() not in ("optimal_joint",):
         return None
     try:
         floor: Optional[float] = _floor(honest_codes_fn, binner, np.asarray(y_raw), factors_data, factors_nbins, y_idx, cols, n_permutations, quantile, base_seed, eval_rows)

@@ -17,6 +17,7 @@ from .._fe_deadline import fit_deadline_boundary as _fit_deadline_boundary
 from .._fe_family_timing import log_fe_family_summary as _log_fe_wall
 from .._mrmr_fe_provenance import record_family_wall as _record_family_wall
 from .._fe_group_counts import record_family_counts as _record_family_counts
+from .._column_stats import join_provenance as _join_column_stats_provenance
 from .._fe_gpu_strict import clear_auto_fit_n as _clear_auto_fit_n
 from .._fe_gpu_strict import set_auto_fit_n as _set_auto_fit_n
 from .._fe_rejection_ledger import populate_fe_rejection_ledger as _pop_rej
@@ -543,6 +544,7 @@ class _MRMRFitStagesMixin:
         record_leak_suspects(self, X, y)
         _record_family_wall(self)  # before the summary below clears the ledger
         _record_family_counts(self)
+        _join_column_stats_provenance(self)  # needs fe_provenance_, complete by here; column_stats_ itself is built inside the fit (MBHO meta-learning data, see _column_stats)
         _log_fe_wall()
         self._print_fit_summary()
         return result

@@ -22,10 +22,10 @@ def test_edges_equal_the_two_sort_path(monkeypatch):
 
     X, y = _frame()
     C.clear_edge_memo()
-    new = A.per_feature_edges(X, y, method="fayyad_irani", n_jobs=1, max_adaptive_nbins=10)
+    new = A.per_feature_edges(X, y, method="mdlp", n_jobs=1, max_adaptive_nbins=10)
     monkeypatch.setattr(C, "_presort_for_mdlp", lambda *a, **k: None)
     C.clear_edge_memo()
-    old = A.per_feature_edges(X, y, method="fayyad_irani", n_jobs=1, max_adaptive_nbins=10)
+    old = A.per_feature_edges(X, y, method="mdlp", n_jobs=1, max_adaptive_nbins=10)
     for j, (a, b) in enumerate(zip(new, old)):
         assert a.shape == b.shape and np.array_equal(a, b), j
 

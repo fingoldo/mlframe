@@ -137,7 +137,9 @@ def cv_loss(design: np.ndarray, y: np.ndarray, classification: bool, n_folds: in
         model = mk()
         if classification:
             model.fit(x[tr], y_enc[tr])
-            losses.append(logloss(y_enc[va], model.predict_proba(x[va])))
+            from ._usability_greedy_steps import _full_class_proba
+
+            losses.append(logloss(y_enc[va], _full_class_proba(model, model.predict_proba(x[va]), int(_n_classes))))
         else:
             model.fit(x[tr], y[tr])
             losses.append(float(np.mean(np.abs(y[va] - model.predict(x[va])))))

@@ -57,6 +57,25 @@ from mlframe.feature_selection.filters._device_sort_safe import device_argsort, 
 _PERMNULL_PAIR_TILE_CELLS = 24_000_000  # pb * n_pairs * n upper bound (int64 cells)
 
 
+#: Device bytes the entropy step of one tile holds per histogram cell: the int64 counts, their float64 cast, the probabilities, the mask and the log / where / product temporaries.
+_TILE_BYTES_PER_CELL = 64
+
+
+def _tile_cell_budget(cp: Any) -> int:
+    """Histogram cells one permutation tile may hold: ``_PERMNULL_PAIR_TILE_CELLS``, or less when the device (or the fit's pool cap, ``fe_gpu_pool``) has less than ``_TILE_BYTES_PER_CELL`` bytes per cell free.
+
+    A fixed 24M cells needed about 1.5 GB at once; with 2.1 GB of a 2.6 GB pool already in use the 463 MB temporary of the entropy step failed, the OOM tripped the circuit breaker and every later floor of the process ran on the CPU."""
+    try:
+        pool = cp.get_default_memory_pool()
+        avail = int(cp.cuda.Device().mem_info[0]) + int(pool.free_bytes())
+        limit = int(pool.get_limit())
+        if limit > 0:
+            avail = min(avail, max(0, limit - int(pool.used_bytes())))
+    except Exception:  # an unreadable device keeps the fixed budget; the OOM handler below still guards the call
+        return _PERMNULL_PAIR_TILE_CELLS
+    return max(1, min(_PERMNULL_PAIR_TILE_CELLS, int(avail * 0.5) // _TILE_BYTES_PER_CELL))
+
+
 def _joint_code_entropies(cp: Any, cls_x: Any, max_joint: int, inv_n: float) -> Any:
     """``-sum p log p`` of every row of the (n_pairs, n) joint X-code matrix ``cls_x`` (codes in ``[0, max_joint)``): one bincount over offset codes for a block of pairs and one row reduction, instead of a
     bincount, a mask and a reduction per pair. Cells beyond a pair's own cardinality are empty and add exactly zero."""
@@ -191,9 +210,13 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
         # Intentional float64: njit/CUDA kernel dtype contract (signatures and device buffers are float64 by design); kernel refactor deferred.
         d_maxes = cp.empty(nperm, dtype=cp.float64)
         # Tile perms so the (pb * n_pairs * n) flat-joint intermediate fits the card.
-        perm_chunk = max(1, _PERMNULL_PAIR_TILE_CELLS // max(1, n_pairs * n))
+        # the histogram of a tile is (pb * n_pairs * per_pair_extent) cells and the entropy step holds about five float64 copies of it: bound that product as well as the (pb * n_pairs * n) joint codes (a many-bin
+        # strategy gave a 1.95 GB bincount on a 4 GB card, the OOM tripped the circuit breaker and every later floor of the process ran on the CPU)
+        _cells = _tile_cell_budget(cp)
+        perm_chunk = max(1, min(_cells // max(1, n_pairs * n), _cells // max(1, n_pairs * per_pair_extent)))
         from mlframe.feature_selection.filters._permutation_null_pair_tiles import _pooled_pair_null_perm_tiles
-        _pooled_pair_null_perm_tiles(nperm, perm_chunk, y_perms, cp, n_pairs, per_pair_extent, cls_x, n_classes_y, inv_n, h_x, h_y, d_mm, d_maxes)
+        _pair_chunk = max(1, min(n_pairs, _cells // max(1, per_pair_extent)))  # a permutation's histogram of every pair above the budget: pairs in blocks
+        _pooled_pair_null_perm_tiles(nperm, perm_chunk, y_perms, cp, n_pairs, per_pair_extent, cls_x, n_classes_y, inv_n, h_x, h_y, d_mm, d_maxes, pair_chunk=_pair_chunk)
 
         maxes = cp.asnumpy(d_maxes)  # ONLY (nperm,) crosses back to host
         return float(np.quantile(maxes, float(quantile)))
