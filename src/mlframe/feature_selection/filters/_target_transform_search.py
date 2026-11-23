@@ -98,7 +98,7 @@ def _ridge_loss(X_fit: np.ndarray, z_fit: np.ndarray, X_eval: np.ndarray, y_eval
     pred_z = Ridge(alpha=alpha).fit(X_fit, z_fit).predict(X_eval)
     with np.errstate(over="ignore", invalid="ignore"):
         pred = np.clip(np.nan_to_num(t.inverse(pred_z), nan=y_hi, posinf=y_hi, neginf=y_lo), y_lo, y_hi)
-    return (pred - y_eval) ** 2
+    return np.asarray((pred - y_eval) ** 2)
 
 
 def gate_target_transform(
