@@ -66,6 +66,9 @@ def sample_during(fn, interval: float = 0.5, hardware: "list | None" = None) -> 
 
 def summarise(times: np.ndarray, cpu: np.ndarray, gpu: np.ndarray, window: float = 20.0) -> str:
     """Mean busy shares, idle fractions and a windowed timeline as text."""
+    # A fit shorter than the sample interval yields no samples; say so instead of indexing an empty array (13-F33).
+    if len(times) == 0:
+        return "no utilisation samples: the fit was shorter than the sampling interval"
     cores = cpu.shape[1]
     cpu_total = cpu.mean(axis=1)
     lines = [

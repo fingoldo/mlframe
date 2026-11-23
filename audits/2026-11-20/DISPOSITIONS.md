@@ -1228,3 +1228,4 @@
 | 13-F24 | FIXED | Both core-refine None guards are explicit RuntimeError checks instead of asserts that python -O strips. Test tests/feature_selection/test_cluster13_no_production_assert.py (source pin). |
 | 13-F17 | FIXED | Train_model retries without verbose only when the TypeError names the verbose keyword; any other TypeError raised inside fit propagates. Test tests/feature_selection/test_cluster13_boruta_train_model_retry.py. |
 | 13-F27 | PARTIAL | New-registry refresh returns 1 when tune_spec yields zero regions (was 0). Not changed: the cross-function return-code convention the finding also names. Test tests/feature_selection/test_cluster13_refresh_zero_regions_fails.py. |
+| 13-F33 | PARTIAL | summarise returns an explicit line when there are no utilisation samples (was an IndexError on times[-1]). Not changed: the cpu.shape[1] read is guarded by the same early return. Test tests/feature_selection/test_cluster13_utilization_summary_empty.py. |
