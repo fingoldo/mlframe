@@ -75,3 +75,4 @@ Name-reference counts are a grep of `tests/` for each public or load-bearing nam
 - 21-F13: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F14: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F15: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
+- 21-F18: FIXED. Perfect model gets a 'deferral cannot reduce error' verdict instead of 'insufficient data' (new branch for err_at_100 == 0). Test tests/reporting/test_cluster21_perfect_model_verdict.py drives build_risk_coverage_spec with a perfect model that has varying confidence.

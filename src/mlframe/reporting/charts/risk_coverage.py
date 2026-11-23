@@ -289,6 +289,9 @@ def build_risk_coverage_spec(
             verdict = f"Verdict: confidence is anti-informative -- deferring the 'worst' 20% RAISES error {abs(rel):.0f}%; do not gate on it."
         else:
             verdict = f"Verdict: deferring the worst 20% barely moves error ({err_at_100:.3g} -> {err_at_80:.3g}); confidence carries little signal."
+    elif np.isfinite(err_at_100) and np.isfinite(err_at_80) and err_at_100 == 0:
+        # A perfect model has no error for deferral to remove; say so rather than "insufficient data" (21-F18).
+        verdict = "Verdict: the model makes no errors at full coverage; deferral cannot reduce error."
     else:
         verdict = "Verdict: insufficient data to quantify a selective gain."
 
