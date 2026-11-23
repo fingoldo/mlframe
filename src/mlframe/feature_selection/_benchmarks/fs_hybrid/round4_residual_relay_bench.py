@@ -62,6 +62,9 @@ def run_bed(name, X, y, seed=0):
     df = pd.DataFrame(rows)
     base = float(df[df.variant == "hybrid"]["auc_mean"].iloc[0])
     best = df[df.variant != "hybrid"]["auc_mean"].max()
+    if best != best:  # NaN: no relay variant produced a score, so there is no verdict (12-F92)
+        print(f"[{name}] VERDICT: undefined, no relay variant ran (no dropped features)", flush=True)
+        return rows
     print(f"[{name}] VERDICT: best relay {best} vs hybrid {base} (d={round(best-base,4):+}) "
           f"{'-> residual-relay HELPS' if best > base + 0.003 else '-> no gain / KILL'}", flush=True)
     return rows
