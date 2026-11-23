@@ -41,6 +41,7 @@ def test_sort_xy_equals_stable_argsort(name):
     # the labels of every group of equal x agree as multisets (the radix order puts -0.0 before +0.0, equal values, so the order inside such a tie can differ)
     starts = np.flatnonzero(np.concatenate([[True], xs[1:] != xs[:-1], [True]]))
     want_ys = y[order]
+    assert len(starts[:-1]) == len(starts[1:]) > 0, "no group of equal x was compared"
     for lo, hi in zip(starts[:-1], starts[1:]):
         assert np.array_equal(np.sort(ys[lo:hi]), np.sort(want_ys[lo:hi]))
     if name in ("continuous", "extreme"):  # no ties at all: the order is exactly the stable one
