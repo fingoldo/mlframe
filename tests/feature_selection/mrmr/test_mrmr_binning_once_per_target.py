@@ -126,7 +126,7 @@ def _fit_with_mix(X, y, mix: bool, strategy: str = "quantile_spacing"):
 
 
 def test_default_nbins_strategy_is_quantile_spacing():
-    """The default strategy depends on the column only (so a suite of targets bins once); the choice was measured in ``_benchmarks/nbins_strategy`` and decided by the owner on 2026-11-23."""
+    """The default is the owner's choice of 2026-11-23: a strategy that depends on the column only (a suite of targets bins once) and whose bin count grows with N (see ``qs_nbins``)."""
     assert MRMR().nbins_strategy == "quantile_spacing"
 
 

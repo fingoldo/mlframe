@@ -67,8 +67,8 @@ def resolve_pair_gates_batch(
                 scalar_idx.append(int(i))
     bias = np.zeros(n, dtype=np.float64)
     if _pair_mm_bias:
-        for i, p in enumerate(pairs):
-            bias[i] = _pair_mm_bias.get(tuple(sorted(p)), 0.0)
+        for pos, p in enumerate(pairs):
+            bias[pos] = _pair_mm_bias.get(tuple(sorted(p)), 0.0)
     floor_cmp = mi - bias
     obs = floor_cmp if _prevalence_debias_auto else mi
     passes_prev = obs > ies * prev
@@ -81,6 +81,6 @@ def resolve_pair_gates_batch(
             except Exception as e:  # nosec B110 - best-effort path, the floor verdict stands (as in the scalar code)
                 logger.debug("family-wise partner test failed, keeping the floor verdict: %s", e)
     out = list(zip(passes_prev.tolist(), passes_maxt.tolist(), is_syn.tolist(), prev.tolist(), floor_cmp.tolist()))
-    for i in scalar_idx:
-        out[i] = _scalar(i)
+    for si in scalar_idx:
+        out[si] = _scalar(si)
     return out

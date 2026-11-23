@@ -220,7 +220,20 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
 
         maxes = cp.asnumpy(d_maxes)  # ONLY (nperm,) crosses back to host
         return float(np.quantile(maxes, float(quantile)))
-    except Exception:
+    except Exception as exc:
+        if _is_cupy_out_of_memory(exc):
+            # Recoverable: an out-of-memory error leaves the context healthy. Empty the pool and send THIS call to the exact CPU floor; the next call may fit (tripping the breaker sent every later floor of the
+            # process to the CPU: measured in a profiled 100000 x 100 fit, 693 MB refused under a 2.58 GB pool limit).
+            import logging
+
+            from mlframe.utils.log_throttle import log_throttle
+
+            _free_device_pool()
+            log_throttle(
+                logging.getLogger("mlframe.feature_selection.filters.mrmr"), "pair_maxt_resident.oom", logging.WARNING,
+                "resident order-2 pair-maxT floor ran out of device memory (%s); this call uses the CPU njit floor, the GPU path stays armed", exc,
+            )
+            return None
         # A WDDM-TDR cudaErrorLaunchFailure POISONS the CUDA context; returning None WITHOUT tripping the
         # breaker made every later FE step re-attempt the poisoned GPU and re-fault (a ~1h CPU floor made
         # invisible). Trip on the first fault so subsequent calls skip straight to the exact CPU njit floor.
@@ -231,6 +244,27 @@ def pooled_pair_permutation_null_joint_mi_floor_cupy(
         )
         trip_pair_maxt_gpu_circuit_breaker()
         return None
+
+
+def _is_cupy_out_of_memory(exc: BaseException) -> bool:
+    """Whether ``exc`` is cupy's device or pool out-of-memory error (recoverable, unlike a launch fault that poisons the context)."""
+    try:
+        import cupy as cp
+    except ImportError:  # no cupy, no cupy error
+        return False
+    return isinstance(exc, cp.cuda.memory.OutOfMemoryError)
+
+
+def _free_device_pool() -> None:
+    """Return the unused blocks of the default device pool so the next allocation can succeed; never raises."""
+    try:
+        import cupy as cp
+
+        cp.get_default_memory_pool().free_all_blocks()
+    except Exception as exc:  # best-effort cleanup, the CPU floor runs either way
+        import logging
+
+        logging.getLogger(__name__).debug("freeing the device pool failed: %s", exc)
 
 
 # Process-level circuit breaker (mirrors info_theory._cmi_cuda._CMI_GPU_FAILED). A WDDM-TDR

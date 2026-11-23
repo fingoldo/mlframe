@@ -37,6 +37,12 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 # ---------------------------------------------------------------------------
 
 
+# These tests pin the replay of the ``factorize`` / ``target_encoding`` recipe over categorical sources (``cat_code_maps``). Two newer families take the same (cat_a, cat_b) interaction before
+# the factorize family does: ``fe_cat_pair_enable`` emits it as a ``cat_pair_cross`` recipe with its own pair mapping, and ``fe_composite_group_agg_enable`` builds a group mean of a numeric column over the same
+# keys, which carries the same cell identity. Both are switched off here so the path under test is the one that runs; the default behaviour is covered by the cat_pair tests.
+_FACTORIZE_PATH = {"fe_cat_pair_enable": False, "fe_composite_group_agg_enable": False}
+
+
 def _xor_cat_frame(seed, n, as_categorical):
     """Two cat columns whose (a==b) synergy drives y -> forces a cat-FE
     ``factorize`` interaction recipe. Built as Categorical or object/string."""
@@ -74,7 +80,7 @@ def test_regression_categorical_factorize_replay_not_constant(as_categorical):
     Pre-fix: ``transform`` returned an all-zero (constant) column -> the
     selected synergy feature was destroyed at serving time."""
     df_tr, y_tr = _xor_cat_frame(7, 4000, as_categorical)
-    sel = MRMR(verbose=0, random_state=42, fe_max_steps=1)
+    sel = MRMR(verbose=0, random_state=42, fe_max_steps=1, **_FACTORIZE_PATH)
     sel.fit(df_tr, y_tr)
 
     recipes = [r for r in getattr(sel, "_engineered_recipes_", []) if r.kind in ("factorize", "target_encoding")]
@@ -279,7 +285,7 @@ def test_combined_cat_nan_wide_clf_no_serve_skew(n_classes):
     ``0..K-1`` from the per-column map while fit assigned ``1..K`` -> the
     (cat_a, cat_b) lookup mis-keyed at serving -> train/serve skew."""
     df_tr, y_tr = _combined_frame(7, 6000, n_classes, p_numeric=120)
-    sel = MRMR(verbose=0, random_state=42, fe_max_steps=1)
+    sel = MRMR(verbose=0, random_state=42, fe_max_steps=1, **_FACTORIZE_PATH)
     sel.fit(df_tr, y_tr)
 
     recipes = [
@@ -416,11 +422,13 @@ def test_classification_recovers_signal_and_uses_classif_path(n_classes):
     df = pd.DataFrame(X, columns=[f"x{i}" for i in range(p)])
     sel = MRMR(verbose=0, random_state=42)
     sel.fit(df, pd.Series(y, name="y"))
-    fni = list(sel.feature_names_in_)
-    sel_names = {fni[i] for i in sel.support_ if i < len(fni)}
-    # The two signal columns must be among the (few) selected features.
-    assert {"x0", "x1"} & sel_names, f"{n_classes}-class target: neither signal column selected; got {sel_names}"
-    assert len(sel.support_) >= 1
+    # The default redundancy policy drops a raw operand that a selected engineered feature subsumes (``support_`` lists raw columns only), so the signal is credited through the raw tokens of the output names.
+    import re
+
+    out_names = [str(c) for c in sel.get_feature_names_out()]
+    credited = {tok for nm in out_names for tok in re.findall(r"x\d+", nm)}
+    assert {"x0", "x1"} & credited, f"{n_classes}-class target: neither signal column is used by the output; got {out_names}"
+    assert len(out_names) >= 1
 
 
 # ---------------------------------------------------------------------------

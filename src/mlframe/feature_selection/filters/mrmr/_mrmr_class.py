@@ -229,7 +229,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
 
     Parameters
     ----------
-        cv : int, cross-validation generator or an iterable, default=None
+        cv : int, cross-validation generator or an iterable, default=3
 
     Attributes
     ----------
@@ -378,11 +378,13 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # the permutation null refolds it for every permuted target. The mapping is decided per frame.
         categorical_fold_strategy: str = "frequency",
         categorical_fold_min_support: int = 5,
-        # per-feature adaptive bin chooser. Default ``'quantile_spacing'`` (owner decision 2026-11-23). It depends on the column only, never on the target, so a suite of targets bins each column once and the
-        # composite child fit can reuse the codes. Measured (_benchmarks/nbins_strategy, linear model out of fold, 20000 x 50, 2 seeds): binary AUC 0.951 (mdlp 0.931), regression R2 0.888 (mdlp 0.891, uniform 0.884),
-        # wall 21 / 40 s per fold (mdlp 40 / 58 s), the fewest noise sources on regression (0.02). The cost: on the ground-truth sweep of raw-column selection its F1 is 0.64 against 0.73 for mdlp (more false
-        # positives, 0.30 against 0.15); ``nbins_strategy='mdlp'`` restores that. Pass ``nbins_strategy=None`` for the earlier fixed ``quantization_nbins`` quantile behaviour. The MRMR hot path stays exclusively on
-        # the plug-in MI njit kernel chain (mi_direct / fleuret / permutation); alternative MI estimator families live in their own modules and are NOT wired into MRMR.fit().
+        # per-feature adaptive bin chooser. Default ``'quantile_spacing'`` (the owner's choice of 2026-11-23): it depends on the column only, never on the target, so a suite of targets bins each column once
+        # and the composite child fit can reuse the codes. Its bin count follows the row count: ``min(round(0.3 n), round(2 n^(1/3)))`` clamped to [3, 64] (20 at 1000 rows, 36 at 6000, 54 at 20000). It was
+        # briefly replaced by ``sturges`` the same day, by the assistant and not on the owner's decision, because the old rule ``round(0.3 n)`` gave 64 bins at EVERY n from 214 up and lost a categorical interaction
+        # in a 6000-row frame with 120 noise columns (3 of 3 seeds); with the rule above it is kept (3 of 3, as ``sturges``, ``uniform``, ``mdlp`` and ``optimal_joint`` do; ``freedman_diaconis`` loses it). Measured on
+        # 20000 x 50 out of fold (``_benchmarks/nbins_strategy``, the old rule): binary AUC 0.951 against 0.950 for ``sturges``, regression R2 0.888 against 0.886, wall 21 s against 23 s per fold; ``mdlp`` has the best
+        # ground-truth F1 (0.73) at about twice the wall. Pass ``nbins_strategy=None`` to restore the earlier fixed ``quantization_nbins`` quantile behaviour. The MRMR hot path stays exclusively on the plug-in MI
+        # njit kernel chain (mi_direct / fleuret / permutation); alternative MI estimator families live in their own modules and are NOT wired into MRMR.fit().
         nbins_strategy: str = "quantile_spacing",
         # ``nbins_strategy='mdlp'`` runs significance-gated ("validated")
         # splitting by DEFAULT instead of the classic in-sample MDL threshold + depth cap -
@@ -572,7 +574,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         interactions_order_reversed: bool = False,
         max_veteranes_interactions_order: int = 1,
         only_unknown_interactions: bool = False,
-        # FAST-SEARCH MASTER TOGGLE (default ON). Trades the EXHAUSTIVE FE search tail
+        # FAST-SEARCH MASTER TOGGLE (default OFF, see ``fe_fast_search`` below). Trades the EXHAUSTIVE FE search tail
         # for a substantially faster fit that still recovers the signal. When True AND the user has
         # NOT explicitly overridden a sub-knob (the value still equals its package default), fit()
         # temporarily applies a fast profile and restores every knob in ``finally`` (so clone /
@@ -3024,6 +3026,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         #   share 0.8 %, noise 1.0: R2 0.8925/0.8900/0.8951 in both modes, term found in neither.
         # Nine fits gave one +0.005 R2 and never changed what is found, at 1.1-2.8x the wall, so the default stays False. Details: audits/2026-11-23/PLAN_target_transform_in_mrmr.md (PLAN-05).
         fe_target_mix_candidates: bool = False,
+        # TARGET-TRANSFORM SEARCH (default OFF; metadata only, MRMR never changes the target). For a continuous regression target the fit proposes monotone transforms (cbrt, signed square root, log
+        # for a positive target) by the equal-width-bin MI between the numeric columns and f(y), and accepts one only when a ridge model fitted on f(y) beats a ridge fitted on y on held-out rows, on the ORIGINAL
+        # scale, by a paired bootstrap (see ``_target_transform_search``). The verdict is ``target_transform_`` (name, accepted, proposals, gates); the training layer applies and inverts it. Measured
+        # 2026-11-23: it helps linear heads only (cbrt of a cubic target halves the ridge RMSE), not trees; the MI alone is biased (it proposes signed_sqrt on a linear target), hence the gate.
+        target_transform_search: bool = False,
         # With ``redundancy_policy='drop'`` the same held-out evidence prunes a selected engineered column, or a raw column no engineered column is built from, that does not lower the held-out
         # residual of the rest of the selection significantly. A raw operand of an engineered column (``fe_drop_redundant_raw_operands``) is pruned unless it improves the held-out fit of a LINEAR
         # model on the other columns, significantly and by at least this share of the target variance (a private linear term the engineered column cannot give a linear model).
@@ -3420,6 +3427,9 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
                 continue
             fv = _fresh_dict.get(k, v) if _fresh_dict is not None else v
             state[k] = copy.deepcopy(fv) if isinstance(fv, (list, dict, set)) else fv
+        # ``signature`` is a fitted attribute set in ``__init__``, not a constructor parameter, so none of the injections above cover it: a pickle written before it existed
+        # would raise on the next fit (the same-content skip and the fit cache read it). ``None`` is the value of a fresh estimator.
+        state.setdefault("signature", None)
         self.__dict__.update(state)
 
     @hygienic_fit
@@ -3517,7 +3527,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # so a downstream report / UI can SEE what the frame contained. Wrapped so a
         # diagnostic failure can never break a fit that would otherwise succeed.
         record_degenerate_column_audit(self, X)
-        _identity_result = self._fit_body_try_identity_shortcut(X, y, st)
+        _identity_result = self._fit_body_try_identity_shortcut(X, y, st, sample_weight)
         if _identity_result is not None:
             return _identity_result
 

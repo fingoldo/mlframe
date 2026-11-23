@@ -197,18 +197,19 @@ def _edges_from_uniform(x: np.ndarray, n_bins: int) -> np.ndarray:
 
 
 def qs_nbins(n: int, alpha: float = 0.30) -> int:
-    """Quantile Spacing nbins (Gupta 2021): ``n_q = round(alpha * N)``, clamped [3, 64].
+    """Quantile Spacing nbins: ``n_q = min(round(alpha * N), round(2 * N ** (1/3)))``, clamped to [3, 64].
 
-    Gupta et al. *Entropy* 23(6):740, 2021 (https://arxiv.org/abs/2102.12675) show
-    that alpha in [0.25, 0.35] is insensitive to sample size and distribution.
-    Default alpha=0.30 picks the middle of that band. The clamp prevents
-    bin-per-sample at large N (which would inflate plug-in MI bias) and prevents
-    1-bin degeneracy at tiny N.
+    Gupta et al. *Entropy* 23(6):740, 2021 (https://arxiv.org/abs/2102.12675) show that alpha in [0.25, 0.35] is insensitive to sample size and distribution; the default alpha=0.30 is the middle of that
+    band. Alone, ``alpha * N`` reaches the clamp of 64 at N = 214 and stays there: 64 bins at every realistic N, which is not an adaptive rule. At 6000 rows with 120 noise columns the 64 x 64 pair tables
+    raised the maxT floor above a real categorical interaction (lost in 3 of 3 seeds); the bin count of the Rice rule ``2 * N ** (1/3)`` (36 at N = 6000, 54 at 20000, the cap from about 33000 rows)
+    keeps it (3 of 3, as does 14 bins), so the count is the smaller of the two: Gupta's own rule for small N, a count that grows with N for larger N. The clamp prevents bin-per-sample at large N (which
+    would inflate plug-in MI bias) and 1-bin degeneracy at tiny N.
     """
     if n < 2:
         return 1
     raw = round(alpha * n)
-    return max(3, min(64, raw))
+    rice = round(2.0 * float(n) ** (1.0 / 3.0))
+    return int(max(3, min(64, raw, rice)))
 
 
 def edges_qs(x: np.ndarray, alpha: float = 0.30) -> np.ndarray:

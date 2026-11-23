@@ -297,6 +297,7 @@ def _edge_memo_key(col: np.ndarray, method_resolved: str, base: str, kwargs: dic
 # and counts depend on the column alone (a radix sort of the column, a tenth of the time of a mah-family fit). Bounded; a miss recomputes.
 _UNIQUE_FACTS: "OrderedDict[tuple, tuple[np.ndarray, np.ndarray]]" = OrderedDict()
 _UNIQUE_FACTS_MAX = 256
+_UNIQUE_FACTS_MAX_BYTES = 256 * 1024 * 1024  # the entries are 12 bytes a row of a continuous column: 256 of them were 1.5 GB at 500000 rows
 _UNIQUE_FACTS_LOCK = threading.Lock()
 _UNIQUE_FACTS_MIN_ROWS = 2048
 
@@ -315,8 +316,10 @@ def _unique_facts(finite: np.ndarray, col_sig: Optional[tuple]) -> "tuple[np.nda
         arr.setflags(write=False)  # shared between calls: a caller that wrote into them would corrupt the next column's edges
     with _UNIQUE_FACTS_LOCK:
         _UNIQUE_FACTS[col_sig] = facts
-        while len(_UNIQUE_FACTS) > _UNIQUE_FACTS_MAX:
-            _UNIQUE_FACTS.popitem(last=False)  # evict-ok: a miss recomputes the facts
+        _held = sum(int(a.nbytes) + int(b.nbytes) for a, b in _UNIQUE_FACTS.values())
+        while len(_UNIQUE_FACTS) > 1 and (len(_UNIQUE_FACTS) > _UNIQUE_FACTS_MAX or _held > _UNIQUE_FACTS_MAX_BYTES):
+            _old_u, _old_c = _UNIQUE_FACTS.popitem(last=False)[1]  # evict-ok: a miss recomputes the facts
+            _held -= int(_old_u.nbytes) + int(_old_c.nbytes)
     return facts
 
 

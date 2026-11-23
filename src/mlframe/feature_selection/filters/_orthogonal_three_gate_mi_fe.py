@@ -607,7 +607,7 @@ def score_features_by_kfold_oof_mi(
     return df
 
 
-def _quantile_bin_batched(mat: np.ndarray, nbins: int) -> np.ndarray:
+def _quantile_bin_batched(mat: np.ndarray, nbins: int, dtype: "np.dtype | type" = np.int64) -> np.ndarray:
     """Column-batched equivalent of ``_mi_greedy_cmi_fe._quantile_bin``: one ``np.quantile(mat, qs,
     axis=0)`` call over every ALL-FINITE column instead of ``p`` separate per-column ``np.quantile``
     calls (the O(n log n) partition-select cost ``_quantile_bin`` pays once per column).
@@ -627,7 +627,7 @@ def _quantile_bin_batched(mat: np.ndarray, nbins: int) -> np.ndarray:
     """
     mat = np.ascontiguousarray(mat, dtype=np.float64)  # Intentional float64: matrix operand for the MI statistic
     n_rows, p = mat.shape
-    out = np.zeros((n_rows, p), dtype=np.int64)
+    out = np.zeros((n_rows, p), dtype=dtype)
     if n_rows == 0 or p == 0:
         return out
     finite_per_col = np.isfinite(mat).all(axis=0)
@@ -638,7 +638,7 @@ def _quantile_bin_batched(mat: np.ndarray, nbins: int) -> np.ndarray:
 
         dense_mat = mat[:, dense_idx] if dense_idx.size != p else mat
         out[:, dense_idx] = quantile_bin_batched(
-            dense_mat, int(nbins)
+            dense_mat, int(nbins), dtype
         )  # the same edges, dedup and searchsorted convention, from the compiled quantile-codes block where every edge is distinct
     for j in partial_idx:
         out[:, j] = _quantile_bin(mat[:, j], nbins=nbins)
@@ -689,13 +689,13 @@ def _cmi_gate_scores(
     for c0 in range(0, len(columns), block):
         c1 = min(len(columns), c0 + block)
         eng_mat = engineered_X.iloc[:, c0:c1].to_numpy(dtype=np.float64)  # Intentional float64: engineered matrix for the CMI statistic
-        eng_bins_mat = _quantile_bin_batched(eng_mat, nbins)
+        eng_bins_mat = _quantile_bin_batched(eng_mat, nbins, dtype=np.uint8 if int(nbins) <= 255 else np.int64)  # codes narrow; the batched route and the per-column route below cast to int64 at the point of use
         batched = _cmi_gate_scores_batched(eng_bins_mat, y_bin, z_joint)
         if batched is not None:
             scores[c0:c1] = batched
         else:
             for k in range(c1 - c0):
-                scores[c0 + k] = float(_cmi_from_binned(np.ascontiguousarray(eng_bins_mat[:, k]), y_bin, z_joint))
+                scores[c0 + k] = float(_cmi_from_binned(np.ascontiguousarray(eng_bins_mat[:, k], dtype=np.int64), y_bin, z_joint))
         del eng_mat, eng_bins_mat
     return {c: float(scores[k]) for k, c in enumerate(columns)}
 

@@ -28,7 +28,8 @@ from mlframe.feature_selection.filters._mah import _compute_y_binning, clear_mah
 def test_qs_nbins_no_overflow_at_extreme_n():
     """``qs_nbins`` must stay clamped in [3, 64] even at astronomically large N (no int overflow, no
     runaway bin count that would blow up downstream joint histograms)."""
-    expected = {0: 1, 1: 1, 2: 3, 10: 3, 1000: 64, 10**6: 64, 10**12: 64, 10**18: 64}
+    # 1000 -> 20: the Rice cap 2 * N ** (1/3) of ``qs_nbins`` (64 at every N from 214 lost a categorical interaction at N = 6000)
+    expected = {0: 1, 1: 1, 2: 3, 10: 3, 1000: 20, 10**6: 64, 10**12: 64, 10**18: 64}
     got = {n: qs_nbins(n) for n in expected}
     assert got == expected
 
@@ -283,3 +284,9 @@ def test_biz_val_mah_mi_detects_real_dependence_above_independence_floor():
 
     assert mi_signal >= 0.20, f"expected mah_mi >= 0.20 nats on strong step dependence, got {mi_signal}"
     assert mi_indep <= 0.05, f"expected near-zero mah_mi under independence, got {mi_indep}"
+
+
+def test_qs_nbins_grows_with_n_instead_of_sitting_at_the_cap():
+    """The bin count follows the Rice rule below the cap (36 at 6000 rows, 54 at 20000) and is the cap from about 33000 rows; the old rule gave 64 from 214 rows on."""
+    got = {n: qs_nbins(n) for n in (214, 1000, 6000, 20000, 40000)}
+    assert got == {214: 12, 1000: 20, 6000: 36, 20000: 54, 40000: 64}

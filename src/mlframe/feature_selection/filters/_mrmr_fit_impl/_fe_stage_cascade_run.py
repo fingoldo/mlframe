@@ -21,7 +21,7 @@ from ._fe_stage_cascade_mid_a import _fe_stage_cascade_mid_a
 from ._fe_stage_cascade_mid_b import _fe_stage_cascade_mid_b, _stage_group_distance
 from ._fe_stage_cascade_mid_a import _stage_grouped_quantile
 from ._fe_stage_merge import _fe_merge_new_columns
-from ._fe_stage_concurrency import STAGE_WEIGHTS_WITH_EARLY_A, concurrency_enabled, run_stages_concurrently
+from ._fe_stage_concurrency import STAGE_WEIGHTS_WITH_EARLY_A, concurrency_enabled, memory_allows_concurrency, run_stages_concurrently
 from .._fe_dominant_candidate import dominant_candidate
 from .._fe_frame_ops import fe_drop_columns
 
@@ -154,7 +154,7 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
     # One column that already carries nearly all of y leaves nothing for the remaining families to add.
     if dominant_candidate(X, _y_np) is not None:
         return X, _raw_input_cols_pre_fe
-    if concurrency_enabled():
+    if concurrency_enabled() and memory_allows_concurrency(len(_X_step_input), _X_step_input.shape[1]):
         # no device plan for four stages: the three later cascades together, as before
         outs = run_stages_concurrently(self, [_stage_early_b, _stage_mid_a, _stage_mid_b], n_rows=len(_X_step_input))
         if outs is not None:
