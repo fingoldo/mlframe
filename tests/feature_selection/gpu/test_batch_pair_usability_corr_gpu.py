@@ -18,6 +18,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import (
     abs_pearson,
     pair_is_tail_concentrated_rankaware,
 )
+from mlframe.feature_selection.filters.batch_pair_tail_rankaware import batch_pair_tail_concentration_rankaware
 from mlframe.feature_selection.filters.batch_pair_usability_corr_gpu import (
     ALL_FORM_IDS,
     FORM_X0,
@@ -29,7 +30,6 @@ from mlframe.feature_selection.filters.batch_pair_usability_corr_gpu import (
     FORM_X1_SQ,
     FORM_X1SQ_DIV_X0,
     _CUDA_AVAIL,
-    batch_pair_tail_concentration_rankaware,
     batch_pair_usability_corr_cuda,
     batch_pair_usability_corr_cuda_warp,
     batch_pair_usability_corr_njit_parallel,

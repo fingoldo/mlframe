@@ -68,7 +68,7 @@ def _batch_usability_admission_verdicts(self, *, need_usability, y_continuous, c
         return _usability_verdict
     try:
         from .._fe_usability_signal import _corr_stride, _crit_np_dtype
-        from ..batch_pair_usability_corr_gpu import batch_pair_tail_concentration_rankaware
+        from ..batch_pair_tail_rankaware import batch_pair_tail_concentration_rankaware
 
         _min_corr_m = float(getattr(self, "fe_pair_usability_admission_min_corr", 0.6))
         _margin_m = float(getattr(self, "fe_pair_usability_admission_pairness_margin", 1.05))
