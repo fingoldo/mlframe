@@ -171,3 +171,4 @@ Method: four parallel sub-audits read every listed file fully and grepped caller
 - 25-F66: DEFERRED. The 500_000 MAPE threshold may be a measured parallel crossover; switching it to the shared 100_000 constant changes performance without a benchmark. Needs a crossover benchmark before the constant is shared.
 - 25-F69: FIXED. Docstring corrected: multilabel_auc_per_label always loops per column and does not route to the batched GPU path, which is compute_batch_aucs. Docstring-only; no test.
 - 25-F71: DEFERRED. The MAPE warmup diagnostic is an active CI investigation hook (env-gated) for a failure the code comments say is unresolved. Removing it discards the instrument; retire it once the CI issue is closed. Owner to decide.
+- 25-F56: FIXED. Unused marginals array removed from the MI kernel in an earlier commit (995050561); verified by the MI kernel tests (28 pass). Recorded here, where the disposition was missing.
