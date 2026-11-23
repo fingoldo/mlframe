@@ -77,7 +77,7 @@ def _temporal_to_epoch_ns_tokens(arr_int_ns: np.ndarray, null_mask: np.ndarray) 
     as one flavour then transformed as another then misses every key and returns the prior for every
     row -- the same drift the bool/float canonicalisation guards. Nanosecond epoch is flavour-neutral
     and lossless, so all three paths route here for a single canonical token."""
-    toks = np.array(["dt:" + str(int(v)) for v in arr_int_ns], dtype=object)
+    toks = np.char.add("dt:", np.asarray(arr_int_ns, dtype=np.int64).astype(str)).astype(object)  # vectorised (39-F44)
     if null_mask.any():
         toks[null_mask] = _NULL_SENTINEL
     return toks
