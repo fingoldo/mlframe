@@ -584,6 +584,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 22-F36 | 22_root_modules-1.md | FIXED | NaN check reads native dtype; no float64 copy. Test test_cluster22_ordinal_nan_check.py. |
 | 25-F57 | 25_root_modules-3.md | FIXED | Smallest qualifying candidate size wins for unsorted input. Test test_cluster25_prefilter_unsorted_sizes.py. |
 | 25-F56 | 25_root_modules-3.md | FIXED | Dead marginals array removed; output unchanged. Tests: test_mi_cross_parity.py, test_mi_kernels_reject_out_of_range_codes.py. |
+| 25-F58 | 25_root_modules-3.md | FIXED | Set-based anchor de-duplication; output unchanged. Tests: test_biz_val_varying_size_top_k_subsets.py, test_varying_size_cluster_anchors_nan_and_offset.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
