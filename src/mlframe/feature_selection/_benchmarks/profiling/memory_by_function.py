@@ -3,7 +3,7 @@
 ``rss_scale_fit.py`` names the innermost frame of the MAIN thread at each new peak, but the memory of a fit with concurrent stages is held by worker threads, so that name says little. numpy registers its array
 allocations with ``tracemalloc``, so a snapshot at the peak lists the code lines that own the live bytes, whichever thread allocated them.
 
-Usage: ``python -m mlframe.feature_selection._benchmarks.profiling.memory_by_function ROWS COLS [all|default]`` (env ``MIN_STEP_MB`` the growth that triggers a snapshot, default 400; ``TOP`` default 18). Tracing slows the
+Usage: ``python -m mlframe.feature_selection._benchmarks.profiling.memory_by_function ROWS COLS [all|default]`` (env ``MIN_STEP_MB`` the growth that triggers a snapshot, default 400; ``TOP`` default 18; ``FRAMES`` the stack depth kept per allocation, default 1: with more, each row lists the calling lines). Tracing slows the
 fit by a factor of two to three: use a smaller frame than the one under study (the allocation sites do not change with the row count) and nothing else heavy beside it.
 """
 
@@ -55,7 +55,8 @@ def main() -> None:
                 peak["t"] = time.perf_counter() - t0
                 last_snap_rss = rss
 
-    tracemalloc.start(1)
+    frames = int(os.environ.get("FRAMES", "1"))
+    tracemalloc.start(frames)
     th = threading.Thread(target=watch, daemon=True)
     th.start()
     MRMR(verbose=0, random_seed=0, n_jobs=1, skip_retraining_on_same_content=False, **kw).fit(X, y)
@@ -67,12 +68,15 @@ def main() -> None:
     if snap is None:
         print("MEM no snapshot: the RSS never grew by MIN_STEP_MB")
         return
-    stats = snap.statistics("lineno")
+    stats = snap.statistics("lineno" if frames == 1 else "traceback")
     total = sum(s.size for s in stats)
     print(f"MEM traced live bytes in that snapshot {total / 2**20:.0f} MB (the RSS growth also holds untraced native and device-driver memory)")
     for s in stats[:top]:
-        fr = s.traceback[0]
+        fr = s.traceback[-1] if frames > 1 else s.traceback[0]
         print(f"MEM {s.size / 2**20:8.1f} MB  {s.count:7d} blocks  {os.path.relpath(fr.filename).replace(chr(92), '/')[-70:]}:{fr.lineno}", flush=True)
+        if frames > 1:
+            for caller in list(s.traceback)[:-1][-4:][::-1]:
+                print(f"MEM      called from {os.path.relpath(caller.filename).replace(chr(92), '/')[-60:]}:{caller.lineno}", flush=True)
 
 
 if __name__ == "__main__":
