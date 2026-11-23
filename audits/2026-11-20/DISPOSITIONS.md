@@ -1199,3 +1199,4 @@
 | 04-F28 | PARTIAL | _collapse_redundant builds each group's member set once (was per remaining member). Still open: _is_m_collider recomputes graph.descendants per parent, and _declared_kind_role scans all edges per node; both need caller-level caching. Test tests/data/test_cluster04_collapse_redundant_classes.py. |
 | 11-F14 | FIXED | Deleted the no-op bare expression nbins + 1 in variant a. No behaviour change; covered by the 9 existing tests in tests/feature_selection/fe/factory/test_offset_kernels.py (pass). |
 | 11-F18 | FIXED | rel_improvement keeps NaN for a non-positive baseline but logs a WARNING naming the cause. Test tests/feature_selection/fe/factory/test_cluster11_rel_improvement_logs_nan.py. |
+| 11-F16 | FIXED | Rank-aggregation arm refuses a feature missing from the aggregate with KeyError instead of padding it with the minimum score. Test tests/feature_selection/test_cluster11_rank_aggregate_missing_refused.py. |
