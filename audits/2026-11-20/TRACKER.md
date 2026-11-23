@@ -601,6 +601,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 28-F66 | 28_root_modules-2.md | FIXED | RMSE recommendations carry the extra-params keys. Test test_cluster28_rmse_recommendation_keys.py. |
 | 28-F62 | 28_root_modules-2.md | FIXED | No-op l1_ratio conditional replaced by config.l1_ratio; behaviour unchanged. Regression: existing linear-model tests (43). |
 | 28-F67 | 28_root_modules-2.md | FIXED | Devices returned in requested order, each once. Test test_cluster28_catboost_devices_requested_order.py. |
+| 28-F60 | 28_root_modules-2.md | FIXED | Unreachable (none) branch removed. Regression: test_catboost_text_feature_probe.py (14). |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
