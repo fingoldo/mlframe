@@ -24,6 +24,7 @@ import json
 import os
 import re
 import time
+from typing import Optional
 import warnings
 
 import numpy as np
@@ -135,13 +136,14 @@ def reference_rows(X: pd.DataFrame, y: pd.Series, folds: list, target: str) -> l
     return rows
 
 
-def strategy_row(strategy: str, X: pd.DataFrame, y: pd.Series, folds: list, target: str) -> dict:
+def strategy_row(strategy: str, X: pd.DataFrame, y: pd.Series, folds: list, target: str, extra: Optional[dict] = None) -> dict:
     """One strategy: MRMR inside each fold, the linear model on its selected columns, the out-of-fold summaries and the truth recovery (mean over the folds)."""
     from mlframe.feature_selection._benchmarks.profiling import family_scale as F
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     kwargs = F.all_families_kwargs()
     kwargs["nbins_strategy"] = strategy
+    kwargs.update(extra or {})
     oof = np.full(len(y), np.nan)
     chosen, walls, recoveries = [], [], []
     for tr, te in folds:
@@ -197,6 +199,7 @@ def main() -> None:
     ap.add_argument("--targets", default="binary,regression")
     ap.add_argument("--seeds", default="0")
     ap.add_argument("--strategies", default=DEFAULT_STRATEGIES)
+    ap.add_argument("--mrmr", default="", help="extra MRMR keyword arguments as JSON, e.g. '{\"redundancy_policy\": \"emit_both\"}'")
     ap.add_argument("--out", default="")
     args = ap.parse_args()
     results: list = []
@@ -207,7 +210,7 @@ def main() -> None:
             folds = list(splitter.split(X, y))
             rows = reference_rows(X, y, folds, target)
             for st in args.strategies.split(","):
-                rows.append(strategy_row(st, X, y, folds, target))
+                rows.append(strategy_row(st, X, y, folds, target, json.loads(args.mrmr) if args.mrmr else None))
                 print(f"ROW {json.dumps({'target': target, 'seed': seed, **rows[-1]})}", flush=True)
             for r in rows:
                 results.append({"target": target, "seed": seed, **r})

@@ -759,7 +759,8 @@ def _collect_engineered_operands(_eb_recipes, _eb_raw_names, _eb_cols_idx, _eb_s
 
 
 def _readd_redundancy_dropped_engineered(self, selected_vars, cols, data, target_indices, nbins, _allowed_raw_idx, verbose):
-    """Re-add selected engineered features dropped by the redundancy policy."""
+    """Re-add selected engineered features dropped by the redundancy policy. The raw columns added here are recorded in ``emit_both_added_`` (names; reset on every fit)."""
+    self.emit_both_added_ = []
     if getattr(self, "redundancy_policy", "emit_both") != "drop" and selected_vars:
         try:
             _eb_raw_names = set(self.feature_names_in_)
@@ -781,6 +782,7 @@ def _readd_redundancy_dropped_engineered(self, selected_vars, cols, data, target
                 selected_vars.append(int(_idx))
                 _eb_sel_set.add(int(_idx))
                 _eb_added.append(_op)
+            self.emit_both_added_ = list(_eb_added)
             if _eb_added and verbose:
                 logger.info("MRMR emit_both operand re-attach: added %d raw operand(s) that add information beyond their selected engineered features: %s", len(_eb_added), _eb_added)
         except Exception as _eb_exc:

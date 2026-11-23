@@ -37,6 +37,7 @@ def retain_recipe_operands_final(self: Any) -> list[str]:
         return []
     self.support_ = np.array([*support, *(index[nm] for nm in added)], dtype=np.int64)
     self.n_features_ = int(self.support_.size) + len(recipes)
+    self.emit_both_added_ = [*(getattr(self, "emit_both_added_", None) or []), *added]  # raw columns kept ONLY because of the emit_both policy, for downstream audits and column_stats_
     self._raw_redundancy_dropped_ = set(getattr(self, "_raw_redundancy_dropped_", None) or set()) - set(added)
     if hasattr(self, "support_nonlinear_"):
         self.support_nonlinear_ = self.support_

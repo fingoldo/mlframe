@@ -110,6 +110,9 @@ def join_provenance(self: Any) -> None:
     Columns the provenance does not list keep NaN / None. Never raises."""
     try:
         stats = getattr(self, "column_stats_", None)
+        if stats is not None:
+            added = set(getattr(self, "emit_both_added_", None) or ())
+            stats["added_by_emit_both"] = stats["column"].isin(added)  # True: the raw column is in the output only because redundancy_policy='emit_both' re-attached it as an operand of a selected recipe
         prov = getattr(self, "fe_provenance_", None)
         if stats is None or prov is None or not len(prov):
             return
