@@ -1150,3 +1150,4 @@
 | 29-F34 | FIXED | Names mismatch in diversity ablation raises ValueError listing both lists, instead of an empty AssertionError. Test test_cluster29_diversity_names_mismatch_message.py; 8 existing diversity/correlation tests pass. |
 | 31-F10 | FIXED | The sweep timeout log says the kernel timed out instead of describing a fallback that never ran. Test test_cluster31_timeout_log_is_accurate.py; 3 existing kernel-tuning fix tests pass. |
 | 31-F11 | FIXED | The source-root check in _run_sweep is an explicit RuntimeError instead of an assert that python -O strips. Test test_cluster31_timeout_log_is_accurate.py (2 passing, incl. the missing-__file__ case). |
+| 31-F12 | FIXED | Removed the dead hasattr check on args.dims: the explain subparser always defines --dims. Regression: 24 existing kernel-tuning CLI tests pass. |
