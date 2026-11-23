@@ -6,7 +6,9 @@ from __future__ import annotations
 import os
 import time
 
-PROG = r"D:/Temp/synergy_scale_bench/progress.txt"
+# Written under MLFRAME_BENCH_OUT when set, otherwise under _results next to this package; the hard-coded D: path
+# aborted the first checkpoint on any host without a D: drive and created a stray "D:" directory on POSIX (13-F32).
+PROG = os.path.join(os.environ.get("MLFRAME_BENCH_OUT") or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "_results"), "synergy_scale_bench", "progress.txt")
 
 
 def ck(msg: str) -> None:

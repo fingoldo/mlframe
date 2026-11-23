@@ -92,3 +92,4 @@ Scope: 142 files from `audits/2026-11-20/manifests/13_feature_selection-4.txt`, 
 - 13-F35: FIXED. Stage sampler slices the leaves to 12 before printing; the list-comprehension-for-side-effects is replaced by a loop. Test tests/feature_selection/test_cluster13_stage_leaves_capped.py (source pin).
 - 13-F26: FIXED. Both interaction-proxy fallbacks catch (ValueError, TypeError, RuntimeError, LinAlgError) instead of Exception, so programmer errors surface. Test tests/feature_selection/test_cluster13_interaction_fallback_narrow.py plus the existing shap_proxy interaction-proxy tests (8 pass).
 - 13-F31: FIXED. Regime summary F1 is the mean of per-cell F1 values. Test tests/feature_selection/test_cluster13_regime_summary_f1.py (source pin).
+- 13-F32: FIXED. Wide-scaling progress log path honours MLFRAME_BENCH_OUT and defaults under _benchmarks/_results; no hard-coded D: drive. Test tests/feature_selection/test_cluster13_wide_progress_path.py.
