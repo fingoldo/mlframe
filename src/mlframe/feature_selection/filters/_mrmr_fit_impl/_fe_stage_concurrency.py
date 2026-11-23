@@ -257,8 +257,11 @@ def run_stages_concurrently(
             raise errors[0]
         # merge_count sees the first stage's result (the stages it may drop have not been looked at yet)
         keep = max(1, min(len(stages), int(merge_count([futures[0].result()] + [None] * (len(stages) - 1)))))
-    for err in errors[:keep]:
+    for failed_at, err in enumerate(errors[:keep]):
         if err is not None:
+            # a sequential run has the state of the stages BEFORE the failing one on the estimator when the failure surfaces (a caller that survives it keeps their engineered columns and recipes); the
+            # concurrent run merged nothing before raising, so those stages' results were lost (AUD23-06). The stages after the failing one are not merged: a sequential run never reached them.
+            merge_stage_state(estimator, base, copies[:failed_at])
             raise err  # the first failure in stage order among the kept stages; a dropped stage would not have run sequentially
     outcomes: "list[Any]" = [f.result() for f in futures[:keep]]
     merge_stage_state(estimator, base, copies[:keep])
