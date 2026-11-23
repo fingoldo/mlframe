@@ -10,10 +10,14 @@ so this submodule imports nothing from a sibling.
 from __future__ import annotations
 
 from mlframe.feature_selection.filters._fe_frame_ops import fe_column_values
+import logging
 from typing import Any
 
 import numpy as np
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+from mlframe.utils.log_throttle import log_throttle
+
+logger = logging.getLogger(__name__)
 
 try:
     import pandas as pd
@@ -263,5 +267,10 @@ def _coerce_to_int_with_nan_handling(
                 f"coerced. Pass ordinal-encoded ints or set "
                 f"unknown_strategy='clip'."
             ) from e
-        # Clip-equivalent fallback: all to 0
+        # Clip-equivalent fallback: all to 0. A string source with no stored code map is a recipe written before the map existed; its engineered column is CONSTANT at serving time, which must be said (AUD23-09).
+        log_throttle(
+            logger, f"recipe_extract.string_source_no_map.{recipe_name}.{col_name}", logging.WARNING,
+            "Recipe %r: column %r is %s with no stored cat_code_map (a recipe from before the map existed); under unknown_strategy=%r every value maps to code 0 and the engineered column is constant. Refit the selector to rebuild the map.",
+            recipe_name, col_name, vals.dtype, unknown_strategy,
+        )
         return np.zeros(len(vals), dtype=np.int64)
