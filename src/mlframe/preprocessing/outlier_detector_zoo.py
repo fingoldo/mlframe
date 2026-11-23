@@ -159,7 +159,7 @@ def select_outlier_threshold(
         ``IsolationForest.decision_function``-negated / ``negative_outlier_factor_``-negated scores already use).
     method
         ``"contamination"`` -- flag exactly the top ``round(contamination * n)`` highest-scoring rows (ties
-        broken by score order via ``argpartition``+stable rank); use when the expected outlier RATE is known,
+        broken by row order, later rows kept, via a stable sort); use when the expected outlier RATE is known,
         e.g. from domain knowledge or a labeled validation set.
         ``"percentile"`` -- flag rows with score strictly above the given percentile of the score distribution;
         use when only a cutoff quantile is known, not an exact count (differs from ``"contamination"`` when
@@ -200,7 +200,9 @@ def select_outlier_threshold(
         if n_flag >= n_finite:
             return np.asarray(finite_mask.copy())
         finite_idx = np.flatnonzero(finite_mask)
-        cutoff_idx = finite_idx[np.argpartition(arr[finite_idx], n_finite - n_flag)[n_finite - n_flag :]]
+        # Stable sort: ties at the cutoff resolve by row order (later rows are kept), so the selection is deterministic (26-F16).
+        order = np.argsort(arr[finite_idx], kind="stable")
+        cutoff_idx = finite_idx[order[n_finite - n_flag :]]
         flags = np.zeros(n, dtype=bool)
         flags[cutoff_idx] = True
         return flags
