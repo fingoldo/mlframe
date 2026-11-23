@@ -605,6 +605,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 28-F64 | 28_root_modules-2.md | DEFERRED | Shared common_params mutated with trainset stats; later readers must be audited before the write is removed. |
 | 28-F70 | 28_root_modules-2.md | DEFERRED | Failed grid variant stored as an error dict; typed error object changes the public results contract. Owner decides. |
 | 28-F69 | 28_root_modules-2.md | DEFERRED | Frozenset vs tuple for same-named config field; unifying changes set operations. Needs consumer audit. |
+| 28-F71 | 28_root_modules-2.md | FIXED | Categorical set built once per call; output unchanged. Regression: existing drift-report tests (53). |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
