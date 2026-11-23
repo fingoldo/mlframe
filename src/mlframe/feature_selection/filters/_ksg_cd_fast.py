@@ -162,7 +162,7 @@ def ksg_mi_discrete_target(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, ra
     if step < p_all:
         # A block too wide for one float64 copy (the copy, the noise tile and the sorted columns of 100000 x 1000 are several GB): the columns are independent, so they go through in blocks, each scaled and
         # jittered by itself with the noise drawn from ``RandomState(random_state + block index)``. The jitter is a tie-breaker of 1e-10 and the MI of a column does not depend on which stream it came from, but
-        # the values are no longer the ones sklearn's single (n, p) draw gives (the owner accepted that for the selection staying the same, 2026-11-23); the unblocked path below keeps the sklearn stream.
+        # the values are no longer the ones sklearn's single (n, p) draw gives (accepted because the selection stays the same); the unblocked path below keeps the sklearn stream.
         out = np.empty(p_all, dtype=np.float64)  # Intentional float64: MI statistic vector
         for b, c0 in enumerate(range(0, p_all, step)):
             c1 = min(p_all, c0 + step)

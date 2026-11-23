@@ -84,7 +84,7 @@ import threading as _threading
 
 _MRMR_IDENTITY_FP_CACHE: dict[str, bool] = {}
 _MRMR_IDENTITY_FP_LOCK = _threading.Lock()
-#: Most entries the process-wide identity cache keeps; the oldest are dropped first (it was unbounded: one entry per distinct (X, y, params) of a long-lived process, AUD23-49).
+#: Most entries the process-wide identity cache keeps; the oldest are dropped first (it was unbounded: one entry per distinct (X, y, params) of a long-lived process).
 _MRMR_IDENTITY_FP_CACHE_MAX = 4096
 
 

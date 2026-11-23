@@ -413,7 +413,7 @@ def _strategy_kwargs(self: Any, _nbins_strategy: Any) -> Any:
         _md = max(2, int(np.floor(np.log2(int(_cap)))))
         _nbins_strategy_kwargs = dict(_nbins_strategy_kwargs or {})
         _nbins_strategy_kwargs.setdefault("max_depth", _md)
-        # The cap is deliberate (a narrow codes matrix) but it limits the numeric intervals of an MDLP column to 2**depth, which changes the selection on a column that wants more: say so once (AUD23-62).
+        # The cap is deliberate (a narrow codes matrix) but it limits the numeric intervals of an MDLP column to 2**depth, which changes the selection on a column that wants more: say so once.
         if "max_depth" not in (getattr(self, "nbins_strategy_kwargs", None) or {}):
             log_throttle(
                 logger, "_binning.mdlp_depth_cap", logging.INFO,

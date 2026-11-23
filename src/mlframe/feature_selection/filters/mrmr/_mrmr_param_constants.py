@@ -40,7 +40,7 @@ _VALID_STABILITY_SELECTION_METHODS = (
 # Bayesian Blocks (MI_mean 0.272, weakest overall)
 # are demoted from the recommended option set. (MAH was demoted with them for the same reason, an MI_mean of 0.168
 # from a merge that collapsed every column to two bins; that was an error in the merge criterion and the regret
-# formula of ``_mah``, fixed on 2026-11-22, and MAH is a recommended option again under its one name ``mah``.) They remain selectable
+# formula of ``_mah``, fixed, and MAH is a recommended option again under its one name ``mah``.) They remain selectable
 # for research / reproduction work but emit an ``AccuracyWarning`` so
 # downstream callers can opt-in explicitly.
 _DEMOTED_NBINS_STRATEGIES = (

@@ -289,7 +289,7 @@ def _commit_fallback_support(self, _topk, _raw_mi, n_engineered_out, _min_fb, p_
     self.n_features_ = len(_topk) + n_engineered_out
     self.fallback_used_ = True
     _top_mi = float(_raw_mi[0][1]) if _raw_mi else 0.0
-    # Informative means the kept column carries signal: a positive MI AND a permutation p-value that passes the significance level. Positive MI alone is not evidence (AUD23-71: pure noise keeps a column with MI 0.0032 and reported uninformative=False).
+    # Informative means the kept column carries signal: a positive MI AND a permutation p-value that passes the significance level. Positive MI alone is not evidence (pure noise keeps a column with MI 0.0032 and reported uninformative=False).
     from ._fallback_maxt import FAMILY_ALPHA
     _p_ok = bool(np.isfinite(p_value) and p_value <= FAMILY_ALPHA)
     _uninformative = (_top_mi <= 0.0) or not _p_ok
