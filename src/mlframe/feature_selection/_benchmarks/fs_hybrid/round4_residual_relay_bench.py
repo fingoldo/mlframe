@@ -9,6 +9,7 @@ KILL: adding residual-screened dropped features does NOT improve AUC (residual i
 captured the recoverable signal -- the tree member may have closed this gap).
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -78,7 +79,7 @@ def main():
     Xr, yr, rname = load_real()
     print(f"\n=== {rname} {Xr.shape} ===", flush=True)
     allrows += run_bed(rname, Xr, yr)
-    pd.DataFrame(allrows).to_csv("D:/Temp/round4_residual_relay_rows.csv", index=False)
+    pd.DataFrame(allrows).to_csv(bench_out("round4_residual_relay_rows.csv"), index=False)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ drift out of sync across copies. Each benchmark script stays independently runna
 ``fs_hybrid/`` directory -- only the literal duplicated bodies move here.
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 
 import time
 
@@ -101,7 +102,7 @@ def checkpoint_at(progress_path: str, msg: str) -> None:
 def checkpoint(msg: str) -> None:
     """Append ``msg`` to the shared fe_richops progress log and echo it to stdout -- the checkpoint
     helper duplicated across the fe_richops control/main bench pair."""
-    with open(r"D:/Temp/fe_ops_progress.txt", "a", encoding="utf-8") as f:
+    with open(bench_out("fe_ops_progress.txt"), "a", encoding="utf-8") as f:
         f.write(msg + "\n")
     print(msg, flush=True)
 

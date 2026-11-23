@@ -13,7 +13,7 @@ KILL: returns near-251 (no cut), OR drops AUC > 0.01 vs all-features, OR over-cu
 
 This is a STANDALONE bench / post-hoc cut on the CV curve. Does NOT edit production files.
 
-MEASURED VERDICT (2026-06-04) -> SHIP (as a post-hoc CV-curve cut). Full numbers in D:/Temp/rfecv_floor_results.md.
+MEASURED VERDICT (2026-06-04) -> SHIP (as a post-hoc CV-curve cut). Full numbers in <bench out>/rfecv_floor_results.md.
   - The LITERAL task spec ('smallest N where real gain over real[0] clears the 95th-pct permuted gain', here
     noise_floor_first) is a SIGNAL-ONSET detector, NOT a stop rule: it fires at N=2 on BOTH madelon (AUC 0.68) and
     synth (0.63) -> over-cuts catastrophically. Kept only as a contrast. DO NOT use it.
@@ -26,10 +26,11 @@ MEASURED VERDICT (2026-06-04) -> SHIP (as a post-hoc CV-curve cut). Full numbers
     permuted CV curves on a LGBM-gain ranking; NO 220s RFECV refit needed (the cut runs on top-N-by-FI).
   - NOTE: the current RFECVSel('lgbm_perm') config (SearchConfig max_runtime_mins=3) TIMES OUT on madelon (2600x500
     with permutation FI) and returns all-500 with a 2-point cv_results_ curve -- so this bench uses the cached 251
-    support (D:/Temp/rfecv_madelon_support.pkl) as the over-selection baseline and a clean LGBM-gain ranking for the
+    support (<bench out>/rfecv_madelon_support.pkl) as the over-selection baseline and a clean LGBM-gain ranking for the
     per-N cut ordering. fit_rfecv_full/global_ranking below are retained but unused (the degenerate RFECV path).
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import os, sys, time, pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -42,8 +43,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from round3_realdata_bench import load_real, downstream
 import fs_selectors as S
 
-PROGRESS = "D:/Temp/rfecv_floor_progress.txt"
-FULL_CACHE = "D:/Temp/rfecv_madelon_full.pkl"  # full curve + per-N feature lists (NEW; old cache was support-only)
+PROGRESS = bench_out("rfecv_floor_progress.txt")
+FULL_CACHE = bench_out("rfecv_madelon_full.pkl")  # full curve + per-N feature lists (NEW; old cache was support-only)
 
 
 def checkpoint(msg: str):
@@ -257,7 +258,7 @@ def run_madelon(n_perm=3):
     # RFECV baseline = the documented over-selection (251). The pre-existing cache from the knockoff bench holds it;
     # the CURRENT RFECVSel config (max_runtime_mins=3) times out on madelon and returns all-500, so we DON'T use that
     # degenerate curve. We use a clean LGBM-gain ranking for the per-N cut ordering.
-    with open("D:/Temp/rfecv_madelon_support.pkl", "rb") as _f:
+    with open(bench_out("rfecv_madelon_support.pkl"), "rb") as _f:
         rfecv_support = pickle.load(_f)  # nosec B301  # deserialize-ok: dev-only benchmark cache; local file this script itself wrote
     rfecv_support = [c for c in rfecv_support if c in Xtr.columns]
     checkpoint(f"loaded RFECV 251-support cache: |support|={len(rfecv_support)}")
@@ -370,7 +371,7 @@ def main():
     lines.append("```\n" + sy["curve"].to_string(index=False) + "\n```\n\n")
     lines.append("```\n" + pd.DataFrame(sy["rows"]).sort_values("auc_mean", ascending=False).to_string(index=False) + "\n```\n")
 
-    with open("D:/Temp/rfecv_floor_results.md", "w", encoding="utf-8") as fh:
+    with open(bench_out("rfecv_floor_results.md"), "w", encoding="utf-8") as fh:
         fh.writelines(lines)
 
     # ---- verdict ----

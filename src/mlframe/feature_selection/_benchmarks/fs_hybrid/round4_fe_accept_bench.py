@@ -21,6 +21,7 @@ Memory-frugal (heavy concurrent load): n_jobs=4, n_estimators<=200, synth/hard_s
 stress only (artifact cached). stdout -> file. ASCII-only prints (cp1251).
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 from typing import Any
 import logging
 
@@ -44,7 +45,7 @@ import functools
 from _downstream_shared import checkpoint_at, build_products
 
 NJ = 4  # n_jobs cap under concurrent load
-PROGRESS = "D:/Temp/fe_accept_progress.txt"
+PROGRESS = bench_out("fe_accept_progress.txt")
 
 checkpoint = functools.partial(checkpoint_at, PROGRESS)
 
@@ -251,7 +252,7 @@ def main():
         checkpoint(f"hard_synth seed{seed} bed DONE")
 
     df = pd.DataFrame(allrows)
-    df.to_csv("D:/Temp/fe_accept_light_rows.csv", index=False)
+    df.to_csv(bench_out("fe_accept_light_rows.csv"), index=False)
     print("\n=== ALL (light beds) ===")
     print(df.to_string(index=False))
     print(verdict(df))
@@ -267,7 +268,7 @@ def main():
             checkpoint(f"{rname} seed0 bed DONE")
             allrows += mrows
             df = pd.DataFrame(allrows)
-            df.to_csv("D:/Temp/fe_accept_all_rows.csv", index=False)
+            df.to_csv(bench_out("fe_accept_all_rows.csv"), index=False)
             print("\n=== madelon rows ===")
             print(pd.DataFrame(mrows).to_string(index=False))
             print(verdict(df))
@@ -284,7 +285,7 @@ def main():
     out.append(pd.DataFrame(allrows).to_string(index=False))
     out.append("```")
     out.append(verdict(pd.DataFrame(allrows)))
-    with open("D:/Temp/fe_accept_results.md", "w", encoding="utf-8") as f:
+    with open(bench_out("fe_accept_results.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(out))
     checkpoint("DONE all beds; results written")
 

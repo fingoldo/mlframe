@@ -28,6 +28,7 @@ VERDICT: per-family beats shared by >= +0.005 on hard_synth or madelon WITHOUT h
 A clean NEGATIVE (one-size-fits-all holds even on split-signal) is a valuable, reportable result.
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import logging
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,7 @@ from synth import make_dataset
 from hard_synth import make_hard_dataset
 from hybrid_selector import HybridSelector
 
-PROG = "D:/Temp/permodel_progress.txt"
+PROG = bench_out("permodel_progress.txt")
 
 
 def _ckpt(msg):
@@ -293,7 +294,7 @@ def main():
         allrows.append(run_with_retry(name, X, y, seed))
 
     df = pd.DataFrame(allrows)
-    df.to_csv("D:/Temp/permodel_rows.csv", index=False)
+    df.to_csv(bench_out("permodel_rows.csv"), index=False)
 
     # aggregate per bed
     print("\n=== ALL ROWS ===", flush=True)

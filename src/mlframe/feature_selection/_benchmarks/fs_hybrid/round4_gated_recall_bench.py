@@ -22,6 +22,7 @@ uses n_jobs=-1 internally (unavoidable). Fitted hybrid outputs are CACHED to dis
 reruns skip the expensive (esp. madelon ~50-90s) fits.
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import os, sys, time, pickle, hashlib  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -41,8 +42,8 @@ from synth import make_dataset
 from hybrid_selector import HybridSelector
 
 NJOBS = 4  # cap for everything THIS bench controls (concurrent-load friendly)
-CACHE_DIR = "D:/Temp/gated_recall_cache"
-PROGRESS = "D:/Temp/gated_recall_progress.txt"
+CACHE_DIR = bench_out("gated_recall_cache")
+PROGRESS = bench_out("gated_recall_progress.txt")
 K_PERM = 20  # permutation-null shuffles
 NULL_PCTILE = 95  # admit a dropped feature iff real residual-MI > this pct of the null-max distribution
 SEEDS = (0, 1, 2)
@@ -195,8 +196,8 @@ def main():
             checkpoint(f"seed={seed} bed={bed} done d={round(gr-base,4):+} admitted={diag['n_admitted']}")
 
     df = pd.DataFrame(all_rows)
-    df.to_csv("D:/Temp/gated_recall_rows.csv", index=False)
-    pd.DataFrame(all_diag).to_csv("D:/Temp/gated_recall_diag.csv", index=False)
+    df.to_csv(bench_out("gated_recall_rows.csv"), index=False)
+    pd.DataFrame(all_diag).to_csv(bench_out("gated_recall_diag.csv"), index=False)
 
     # per-bed per-seed deltas + means
     print("\n=== PER-SEED (auc_mean = mean of lgbm/logit/knn) ===", flush=True)

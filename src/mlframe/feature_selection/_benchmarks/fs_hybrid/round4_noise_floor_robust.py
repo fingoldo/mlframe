@@ -3,6 +3,7 @@ and is the downstream win a property of the AUTO-LOCATED N (not just 'any small 
 across a neighborhood of N so we can see the plateau the rule landed on.
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import os, sys
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -14,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from round3_realdata_bench import load_real, downstream
 from round4_noise_floor_bench import cv_curve, noise_floor_plateau, noise_floor_first
 
-OUT = "D:/Temp/rfecv_floor_robust.txt"
+OUT = bench_out("rfecv_floor_robust.txt")
 
 
 def _gain_order(Xt, yt):

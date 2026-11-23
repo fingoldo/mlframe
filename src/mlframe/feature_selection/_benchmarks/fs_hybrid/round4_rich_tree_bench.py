@@ -8,6 +8,7 @@ prototype (subclass, NO production edit) folds rich operators of the SAME co-occ
 PASS: madelon/hard_synth >= +0.01 mean WITHOUT regressing synth > 0.005.
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -94,7 +95,7 @@ def main():
         b0 = df[(df.bed == bed) & (df.variant == "baseline")]["auc_mean"].mean()
         b1 = df[(df.bed == bed) & (df.variant == "richtree")]["auc_mean"].mean()
         print(f"  {bed:12s} richtree {round(b1,4)} vs baseline {round(b0,4)}  d={round(b1-b0,4):+}")
-    df.to_csv("D:/Temp/round4_rich_tree_rows.csv", index=False)
+    df.to_csv(bench_out("round4_rich_tree_rows.csv"), index=False)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ Variants: mrmr_fe (baseline) ; mrmr_fe + tree_rescue(K in {15,25}). PASS: madelo
 AND synth/hard_synth within +/-0.005 (gate must not fire / not hurt where MRMR is fine).
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import os, sys, time, math
 os.environ.setdefault("TQDM_DISABLE", "1")
 import warnings; warnings.filterwarnings("ignore")
@@ -94,7 +95,7 @@ def main():
         for v in ("mrmr_fe+rescue15", "mrmr_fe+rescue25"):
             if v in b.index:
                 print(f"  {bed:12s} {v:18s} {b.loc[v,'auc_mean']} (d={round(float(b.loc[v,'auc_mean'])-base,4):+})")
-    df.to_csv("D:/Temp/round4_mrmr_rescue_rows.csv", index=False)
+    df.to_csv(bench_out("round4_mrmr_rescue_rows.csv"), index=False)
 
 
 if __name__ == "__main__":

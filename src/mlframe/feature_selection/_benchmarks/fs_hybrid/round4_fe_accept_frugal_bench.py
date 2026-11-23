@@ -29,6 +29,7 @@ primary, madelon final stress only (cached + env-skippable). stdout -> file. ASC
 On OOM the outer driver sleeps 90s and retries once.
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 from typing import Any
 import os, sys, time, gc
 os.environ.setdefault("TQDM_DISABLE", "1")
@@ -50,7 +51,7 @@ import functools
 from _downstream_shared import checkpoint_at, build_products
 
 NJ = 2  # n_jobs cap under heavy concurrent load
-PROGRESS = "D:/Temp/fe_accept_progress.txt"
+PROGRESS = bench_out("fe_accept_progress.txt")
 GREEDY_FLOOR = 0.0015  # held-out AUC gain floor to accept another product
 TOPK = (5, 10)
 
@@ -267,7 +268,7 @@ def main():
     allrows = run_light(seeds)
 
     df = pd.DataFrame(allrows)
-    df.to_csv("D:/Temp/fe_accept_light_rows.csv", index=False)
+    df.to_csv(bench_out("fe_accept_light_rows.csv"), index=False)
     print("\n=== ALL (light beds) ===")
     print(df.to_string(index=False))
     print(verdict(df))
@@ -282,7 +283,7 @@ def main():
             checkpoint(f"{rname} seed0 bed DONE")
             allrows += mrows
             df = pd.DataFrame(allrows)
-            df.to_csv("D:/Temp/fe_accept_all_rows.csv", index=False)
+            df.to_csv(bench_out("fe_accept_all_rows.csv"), index=False)
             print("\n=== madelon rows ===")
             print(pd.DataFrame(mrows).to_string(index=False))
         except (MemoryError, Exception) as e:
@@ -303,7 +304,7 @@ def main():
     out.append(final_df.to_string(index=False))
     out.append("```")
     out.append(verdict(final_df))
-    with open("D:/Temp/fe_accept_results.md", "w", encoding="utf-8") as f:
+    with open(bench_out("fe_accept_results.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(out))
     checkpoint("DONE all beds; results written")
 

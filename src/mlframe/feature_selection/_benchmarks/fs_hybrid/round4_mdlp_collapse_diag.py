@@ -29,6 +29,7 @@ VERDICT: CONFIRMED if operands collapse to 1 bin under RAW MDLP but keep >1 bin 
 (and we report whether the PRODUCTION fallback already rescues them); REFUTED otherwise.
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import logging
 
 logger = logging.getLogger(__name__)
@@ -45,8 +46,8 @@ from round3_realdata_bench import load_real
 from mlframe.feature_selection.filters.supervised_binning import mdlp_bin_edges
 from mlframe.feature_selection.filters._adaptive_nbins import per_feature_edges
 
-PROGRESS = r"D:\Temp\mdlp_diag_progress.txt"
-RESULTS = r"D:\Temp\mdlp_diag_results.md"
+PROGRESS = bench_out("mdlp_diag_progress.txt")
+RESULTS = bench_out("mdlp_diag_results.md")
 
 
 def ckpt(msg: str):
