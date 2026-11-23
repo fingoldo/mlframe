@@ -6,7 +6,7 @@ Carved out of ``_step_pairs_rank`` (which re-exports every name here) to keep th
 from __future__ import annotations
 
 import logging
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 import numpy as np
 
@@ -209,7 +209,7 @@ _COARSE_MAX_SHARE = 0.2
 _COARSE_NOISE_MAX = 0.12
 
 
-def coarse_pair_form_keep(y_batch, operand_matrix, pair_a, pair_b, min_corr):
+def coarse_pair_form_keep(y_batch: np.ndarray, operand_matrix: np.ndarray, pair_a: Any, pair_b: Any, min_corr: float) -> Optional[np.ndarray]:
     """A boolean mask of the pairs that can still reach ``min_corr`` in their best pair form on all rows, from a coarse pass over about ``_COARSE_ROWS`` rows, or ``None`` (every pair stays) when the pass does not pay
     or cannot be trusted: a small pool, too few rows, coarse values too noisy (heavy-tailed columns) or a margin that keeps more than ``_COARSE_MAX_SHARE`` of the pairs.
 
@@ -235,7 +235,7 @@ def coarse_pair_form_keep(y_batch, operand_matrix, pair_a, pair_b, min_corr):
         log_throttle(logger, "usability_coarse_no_gain", logging.INFO, "usability verdicts: the margin keeps %d of %d pairs; all pairs scored on all rows", int(keep.sum()), n_pairs)
         return None
     log_throttle(logger, "usability_coarse_used", logging.INFO, "usability verdicts: coarse pass over %d pairs (stride %d, noise %.3f), %d scored on all rows", n_pairs, stride, noise, int(keep.sum()))
-    return keep
+    return np.asarray(keep)
 
 
 def _dominant_pair_by_linear_corr(scan_pks, ya_pre, cached_operand):

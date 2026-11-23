@@ -347,7 +347,7 @@ def _pair_mi_scalar_fm(fm, a, b, nb_a, nb_b, classes_y, freqs_y, n_samples, n_cl
 
 
 @njit(parallel=True, nogil=True, cache=True)
-def batch_pair_mi_prange_fm(fm, pair_a, pair_b, nbins, classes_y, freqs_y, cap=MAX_JOINT_CARDINALITY):
+def batch_pair_mi_prange_fm(fm: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, nbins: np.ndarray, classes_y: np.ndarray, freqs_y: np.ndarray, cap: int = MAX_JOINT_CARDINALITY) -> np.ndarray:
     """:func:`batch_pair_mi_prange` over a feature-major matrix ``fm[column, row]`` (``nbins`` and the pair indices address its rows); the same values bit for bit."""
     n_samples = fm.shape[1]
     n_pairs = pair_a.shape[0]
@@ -377,14 +377,14 @@ def batch_pair_mi_prange_fm(fm, pair_a, pair_b, nbins, classes_y, freqs_y, cap=M
     return out
 
 
-def batch_pair_mi_prange_cols(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y, cap=MAX_JOINT_CARDINALITY):
+def batch_pair_mi_prange_cols(factors_data: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, nbins: np.ndarray, classes_y: np.ndarray, freqs_y: np.ndarray, cap: int = MAX_JOINT_CARDINALITY) -> np.ndarray:
     """The CPU batch pair MI with contiguous column reads: the columns the pairs use are copied once into a feature-major matrix (rows of the copy are columns of ``factors_data``), so every pair reads two
     contiguous arrays instead of two strided ones (on a wide matrix each strided read is a cache miss per row). Values equal :func:`batch_pair_mi_prange` bit for bit, which stays as the reference."""
     if pair_a.shape[0] == 0 or factors_data.shape[0] == 0:
-        return batch_pair_mi_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y, cap)
+        return np.asarray(batch_pair_mi_prange(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y, cap))
     used = np.unique(np.concatenate((pair_a, pair_b)))
     fm = np.ascontiguousarray(factors_data[:, used].T)
-    return batch_pair_mi_prange_fm(fm, np.searchsorted(used, pair_a), np.searchsorted(used, pair_b), np.ascontiguousarray(nbins[used]), classes_y, freqs_y, cap)
+    return np.asarray(batch_pair_mi_prange_fm(fm, np.searchsorted(used, pair_a), np.searchsorted(used, pair_b), np.ascontiguousarray(nbins[used]), classes_y, freqs_y, cap))
 
 
 @njit(parallel=True, nogil=True, cache=True)
