@@ -141,7 +141,8 @@ def propagate_subsample_values(X_full: np.ndarray, X_subsample: np.ndarray, subs
     this helper to assign every OTHER row the mean value of its ``k`` nearest subsample neighbors
     (euclidean, unscaled -- callers should standardize ``X_full``/``X_subsample`` upstream if columns
     are on different scales, mirroring :func:`_knn_shapley.knn_shapley`'s own ``standardize`` contract).
-    Rows that ARE in the subsample keep their own value exactly (0-distance nearest neighbor).
+    For ``k=1`` a row that IS in the subsample keeps its own value exactly (its 0-distance nearest neighbor). For ``k>1`` it is
+    the mean over its ``k`` nearest subsample rows, itself included, so it is not returned unchanged (22-F35).
 
     ``X_full`` is processed in chunks of ``batch_full`` rows (mirrors :func:`_knn_shapley.knn_shapley`'s
     own ``batch_val`` chunking): a naive single ``cdist(X_full, X_subsample)`` materializes an
