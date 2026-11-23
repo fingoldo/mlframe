@@ -1151,3 +1151,4 @@
 | 31-F10 | FIXED | The sweep timeout log says the kernel timed out instead of describing a fallback that never ran. Test test_cluster31_timeout_log_is_accurate.py; 3 existing kernel-tuning fix tests pass. |
 | 31-F11 | FIXED | The source-root check in _run_sweep is an explicit RuntimeError instead of an assert that python -O strips. Test test_cluster31_timeout_log_is_accurate.py (2 passing, incl. the missing-__file__ case). |
 | 31-F12 | FIXED | Removed the dead hasattr check on args.dims: the explain subparser always defines --dims. Regression: 24 existing kernel-tuning CLI tests pass. |
+| 31-F13 | DEFERRED | Attribute calls named kernel_tuner match too widely, but real registrations are often written registry.kernel_tuner(...). Restricting matches risks skipping real tuners, so the fix needs module-alias resolution first. Deferred. |
