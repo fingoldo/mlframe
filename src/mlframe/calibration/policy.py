@@ -503,6 +503,7 @@ def _bootstrap_ece_with_indices(
     n_bootstrap = idx_matrix.shape[0]
     samples = np.empty(n_bootstrap, dtype=np.float64)
     valid = 0
+    n_failed = 0  # resamples whose metric raised; reported once below so a skewed CI is not silent (22-F41)
     if n_bins is not None:
         # Normalise to {0, 1} the SAME way the point estimate's own metric_fn (_ece_score) does --
         # otherwise a non-{0,1}-encoded y_true (e.g. {-1,+1}, {1,2}) feeds raw label values straight
@@ -524,12 +525,15 @@ def _bootstrap_ece_with_indices(
             try:
                 v = float(metric_fn(y_true[idx], y_pred[idx]))
             except Exception as exc:
+                n_failed += 1
                 logger.debug("bootstrap-ECE: metric_fn on resample %d failed; skipping resample: %r", b, exc, exc_info=True)
                 continue
             if not np.isfinite(v):
                 continue
             samples[valid] = v
             valid += 1
+    if n_failed:
+        logger.warning("bootstrap CI: %d of %d resamples failed and were skipped; the interval is based on %d", n_failed, n_bootstrap, valid)
     if valid == 0:
         raise ValueError("pick_best_calibrator: all resamples failed for a candidate")
     samples = samples[:valid]

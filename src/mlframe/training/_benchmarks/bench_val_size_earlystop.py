@@ -102,9 +102,16 @@ SCENARIOS = {
 }
 
 
-def _run_one(train_df, holdout_df, regression, val_size, seed, workdir):
+def _model_name(scenario: str, regression: bool, val_size: float, seed: int) -> str:
+    """Model name unique per (scenario, mode, val_size, seed): all cells share one workdir, so a name that omits any of these lets a
+    cell pick up another cell's artifact (32-F25)."""
+    mode = "reg" if regression else "clf"
+    return f"{scenario}_{mode}_vs_{int(val_size * 100)}_s{seed}"
+
+
+def _run_one(train_df, holdout_df, regression, val_size, seed, workdir, scenario="default"):
     fte = _make_fte(regression)
-    mname = f"vs_{int(val_size*100)}_s{seed}"
+    mname = _model_name(scenario, regression, val_size, seed)
     data_dir = os.path.join(workdir, mname)
     train_mlframe_models_suite(
         df=train_df,
@@ -149,7 +156,7 @@ def run_bench(val_sizes=(0.1, 0.15, 0.2), seeds=(0, 1, 2), regression_modes=(Fal
                 for seed in seeds:
                     train_df, holdout_df = sc_fn(seed, regression)
                     for vs in val_sizes:
-                        m = _run_one(train_df, holdout_df, regression, vs, seed, workdir)
+                        m = _run_one(train_df, holdout_df, regression, vs, seed, workdir, scenario=sc_name)
                         results[(sc_name, regression, seed, vs)] = m
     return results
 

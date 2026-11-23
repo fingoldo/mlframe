@@ -70,7 +70,7 @@ def get_tukey_fences_multiplier_for_quantile(
         quantile = 1 - quantile
 
     if sd_sigma is None:
-        if not (0 < nonoutlying_dist_percentage < 1.0):
+        if nonoutlying_dist_percentage is None or not (0 < nonoutlying_dist_percentage < 1.0):  # None would otherwise raise TypeError (22-F32)
             raise ValueError(f"nonoutlying_dist_percentage must be in (0, 1); " f"got {nonoutlying_dist_percentage!r}.")
         sd_sigma = get_sd_for_dist_percentage(nonoutlying_dist_percentage, dist=dist, **dist_kwargs)
 

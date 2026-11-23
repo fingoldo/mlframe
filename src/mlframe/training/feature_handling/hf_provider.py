@@ -90,7 +90,8 @@ def resolve_revision(model_name: str, explicit: Optional[str], pinned_revision: 
 def _needs_e5_prefix(model_name: str) -> bool:
     """Detect whether ``model_name`` belongs to the E5 embedding family, which requires a ``"passage: "``/``"query: "`` instruction prefix for good embedding quality."""
     name = model_name.lower()
-    return any(m in name for m in _E5_FAMILY_MARKERS)
+    # Bare names such as "e5-small" have no leading separator, so the marker check alone misses them (39-F27).
+    return name.startswith(("e5-", "e5_", "e5/")) or any(m in name for m in _E5_FAMILY_MARKERS)
 
 
 def _hf_cache_lock_path(model_name: str, revision: Optional[str]) -> str:

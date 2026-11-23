@@ -56,9 +56,8 @@ def _pin_threads_to_one(estimator: object) -> None:
     if pinned:
         try:
             estimator.set_params(**pinned)
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
-            pass
+        except Exception as e:  # nosec B110 - non-fatal by design, but the thread pin not applying must be visible (14-F13)
+            logger.warning("thread-pinning: set_params(%s) failed; the estimator keeps its default thread count: %s", sorted(pinned), e)
 
 
 def suppress_irritating_3rdparty_warnings() -> None:
@@ -82,6 +81,12 @@ def _take_rows(y: Any, index: np.ndarray) -> Any:
     return y[index]
 
 
+def _require_nonempty_features(features_indices) -> None:
+    """Refuse an empty feature list: it has no first element to classify as name or position (14-F12)."""
+    if features_indices is not None and len(features_indices) == 0:
+        raise ValueError("split_into_train_test: features_indices is empty; pass None for all columns or at least one feature.")
+
+
 def split_into_train_test(
     X: pd.DataFrame | np.ndarray, y: pd.DataFrame | np.ndarray, train_index: np.ndarray, test_index: np.ndarray, features_indices: Union[np.ndarray, None] = None,
     X_estimator: np.ndarray | None = None, col_pos: dict | None = None,
@@ -97,6 +102,7 @@ def split_into_train_test(
     float32 would alter LightGBM splits), so the selection is unaffected. Only the X-DataFrame branch
     consults ``X_estimator``; the polars / ndarray branches are untouched.
     """
+    _require_nonempty_features(features_indices)
 
     X_train: Any
     X_test: Any

@@ -174,7 +174,9 @@ def audit_target_over_time(
     # 1. Aggregation — prefer polars path when input is polars.
     if _HAS_POLARS and isinstance(df, pl.DataFrame):
         # Granularity check needs timestamps as a python iterable
-        ts_for_picker = df[timestamp_col].to_list()
+        # Pass (min, max) like the multi path: a to_list() built one Python datetime per row (41-F10).
+        _ts_col = df[timestamp_col]
+        ts_for_picker = (_ts_col.min(), _ts_col.max())
         chosen = _pick_granularity(ts_for_picker) if granularity == "auto" else granularity
         agg = _aggregate_by_time_polars(
             df,

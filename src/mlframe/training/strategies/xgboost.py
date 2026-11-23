@@ -236,17 +236,17 @@ class XGBoostStrategy(TreeModelStrategy):
                         len(_nonzero),
                         _nonzero,
                     )
-            # Still need to cover any pl.String / pl.Utf8 not present in
-            # the map (e.g. brand-new columns surfacing only after the
-            # map was built) -- fall back to per-DF Enum.
-            remaining = {name for name, dtype in df.schema.items() if (dtype in (pl.Utf8, pl.String)) and name not in category_map}
+            # String columns absent from the map (e.g. surfacing only in a val/test frame) cannot
+            # get a per-frame Enum: that Enum's codes would differ from training's. Drop them with a
+            # WARNING so train and predict frames stay code-consistent (41-F21).
+            remaining = sorted(name for name, dtype in df.schema.items() if (dtype in (pl.Utf8, pl.String)) and name not in category_map)
             if remaining:
-                fallback_exprs = []
-                for c in remaining:
-                    vals = df[c].drop_nulls().unique().cast(pl.String).to_list()
-                    enum_dtype = pl.Enum(sorted(set(vals)))
-                    fallback_exprs.append(pl.col(c).cast(pl.String).cast(enum_dtype).alias(c))
-                df = df.with_columns(fallback_exprs)
+                logger.warning(
+                    "[xgb cat-cast] dropping %d string column(s) missing from the category map (no train-time codes): %s",
+                    len(remaining),
+                    remaining,
+                )
+                df = df.drop(remaining)
             return df
 
         # No map supplied: legacy behaviour, but using pl.Enum (not

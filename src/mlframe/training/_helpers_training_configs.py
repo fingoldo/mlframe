@@ -396,6 +396,16 @@ def _build_lgb_params(
     return LGB_GENERAL_PARAMS
 
 
+def resolve_early_stopping_rounds(early_stopping_rounds: Optional[int], iterations: int) -> Optional[int]:
+    """Resolve the suite's early-stopping patience: ``None`` stays disabled, ``<= 0`` auto-derives ``max(2, iterations // 3)``, and a positive value is kept (32-F21).
+
+    Shared by ``get_training_configs`` and the early-stopping benchmark so the benchmark's "auto" arm is the production rule.
+    """
+    if early_stopping_rounds is not None and early_stopping_rounds <= 0:
+        return max(2, iterations // 3)
+    return early_stopping_rounds
+
+
 def _build_common_rfecv_params(rfecv_kwargs: dict | None, has_time: bool, early_stopping_rounds: Optional[int]) -> dict[str, Any]:
     """Build ``COMMON_RFECV_PARAMS``, picking the default CV splitter when the caller gave none."""
     if rfecv_kwargs is None:
@@ -514,8 +524,7 @@ def get_training_configs(
 
     # None = disabled (don't pass to model fit at all); 0 = auto (iterations // 3); int = as-is.
     early_stopping_disabled = early_stopping_rounds is None
-    if early_stopping_rounds is not None and early_stopping_rounds <= 0:
-        early_stopping_rounds = max(2, iterations // 3)
+    early_stopping_rounds = resolve_early_stopping_rounds(early_stopping_rounds, iterations)
 
     neg_ovr_roc_auc_score = NegOvrRocAuc()
 

@@ -4,8 +4,9 @@ The multi-target-regression per-column ensemble (``MTRPerColumnEqualMeanEnsemble
 weights. The question is which surface to fit them on:
 
   * ``equal_mean``: no fit; 1/n_components per (component, target). The current default.
-  * ``val_fit``: NNLS on component predictions over the suite's val fold -- but the components were early-stopped
-    against val, so this double-dips a biased surface (the same leak as the single-target A3-01).
+  * ``val_fit``: NNLS on component predictions over the val fold. This bench fits the components on train only with no
+    early stopping on val, so the early-stopping double-dip is NOT exercised here; this arm only measures fitting the
+    weights on a held-out fold (the double-dip premise is a property of real boosters, corrected per 32-F22).
   * ``oof_fit``: NNLS on honest train-K-fold OOF predictions -- each component re-fit on K-1 folds, predicting the
     held-out fold. No reuse of the early-stopping surface.
 
@@ -109,7 +110,7 @@ def _bench_seed(seed: int) -> dict:
     w_eq = np.full((n_comp, Y.shape[1]), 1.0 / n_comp)
     rmse_eq = _rmse(_apply(test_stack, w_eq), Yte)
 
-    # val_fit NNLS (leaky: components saw val for ES analog)
+    # val_fit NNLS: weights fit on val; components were fit on train only (no early stopping on val in this bench).
     val_stack = _predict_stack(Xval, fitted)
     w_val = _per_column_nnls(val_stack, Yval)
     rmse_val = _rmse(_apply(test_stack, w_val), Yte)

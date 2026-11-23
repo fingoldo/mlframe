@@ -121,6 +121,9 @@ def _is_classification_target(y: np.ndarray) -> bool:
     """Heuristic mirroring ``_shap_proxy_compose.py:55-56``: integer dtype + small cardinality."""
     if y.dtype.kind in ("i", "u", "b"):
         return int(np.unique(y).size) <= max(20, int(0.05 * y.size))
+    # Float-coded labels (0.0 / 1.0, typical after a NaN-capable cast) are classification too (41-F22).
+    if y.dtype.kind == "f" and y.size and np.all(np.isfinite(y)) and bool(np.all(np.mod(y, 1.0) == 0.0)):
+        return int(np.unique(y).size) <= max(20, int(0.05 * y.size))
     return False
 
 

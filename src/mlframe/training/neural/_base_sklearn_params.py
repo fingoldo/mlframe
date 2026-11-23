@@ -13,8 +13,6 @@ import logging
 from copy import deepcopy
 from typing import Any, Dict
 
-from mlframe.utils.log_throttle import log_throttle
-
 logger = logging.getLogger(__name__)
 
 
@@ -47,8 +45,10 @@ def set_params(self, **params: Any) -> Any:
     for key, value in params.items():
         if key in ("model_params", "datamodule_params"):
             setattr(self, key, deepcopy(value))  # deep copy nested dicts
-        elif hasattr(self, key):
+        elif hasattr(self, key) and not callable(getattr(self, key)):
             setattr(self, key, value)
         else:
-            log_throttle(logger, "base_sklearn_set_params_unknown_param", logging.WARNING, "Parameter %s not found in %s", key, self.__class__.__name__)
+            # Raise instead of warning: a silently ignored typo (set_params(lerning_rate=...)) makes GridSearchCV run identical
+            # configurations. Callables are refused too, so a parameter name cannot overwrite a method (39-F55).
+            raise ValueError(f"Invalid parameter {key!r} for {self.__class__.__name__}; it is not a settable attribute.")
     return self

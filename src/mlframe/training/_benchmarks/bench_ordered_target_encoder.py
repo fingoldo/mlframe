@@ -29,14 +29,14 @@ def _make_batch_inputs(n_rows: int, n_cats: int, n_cols: int, seed: int = 0):
     return columns, y, order
 
 
-def _run_separate_calls(n_rows: int, n_cats: int, n_cols: int) -> None:
-    columns, y, order = _make_batch_inputs(n_rows, n_cats, n_cols)
+def _run_separate_calls(columns, y, order) -> None:
+    """N separate ordered_target_encode calls on prebuilt inputs; generation is kept out of the timed region (32-F20)."""
     for cats in columns.values():
         ordered_target_encode(cats, y, order=order, smoothing=1.0)
 
 
-def _run_batch(n_rows: int, n_cats: int, n_cols: int) -> None:
-    columns, y, order = _make_batch_inputs(n_rows, n_cats, n_cols)
+def _run_batch(columns, y, order) -> None:
+    """One ordered_target_encode_batch call on prebuilt inputs (32-F20)."""
     ordered_target_encode_batch(columns, y, order=order, smoothing=1.0)
 
 
@@ -49,16 +49,18 @@ if __name__ == "__main__":
 
     print("\nordered_target_encode_batch vs N separate ordered_target_encode calls (shared y/order):")
     for n_rows, n_cats, n_cols in [(40_000, 2_000, 25), (200_000, 5_000, 25)]:
-        # warm up both paths once before timing.
-        _run_separate_calls(n_rows, n_cats, 2)
-        _run_batch(n_rows, n_cats, 2)
+        # Inputs are built once, outside both timers, so data generation does not dilute the speedup (32-F20).
+        columns, y, order = _make_batch_inputs(n_rows, n_cats, n_cols)
+        warm_cols = {k: columns[k] for k in list(columns)[:2]}
+        _run_separate_calls(warm_cols, y, order)
+        _run_batch(warm_cols, y, order)
 
         t0 = time.perf_counter()
-        _run_separate_calls(n_rows, n_cats, n_cols)
+        _run_separate_calls(columns, y, order)
         separate_wall = time.perf_counter() - t0
 
         t0 = time.perf_counter()
-        _run_batch(n_rows, n_cats, n_cols)
+        _run_batch(columns, y, order)
         batch_wall = time.perf_counter() - t0
 
         print(

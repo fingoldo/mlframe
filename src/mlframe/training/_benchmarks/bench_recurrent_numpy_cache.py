@@ -32,13 +32,18 @@ def _baseline(df: pd.DataFrame, trials: int) -> float:
 
 
 def _cached(df: pd.DataFrame, trials: int) -> float:
+    """Three splits sharing one cache key: the first call converts, the other two hit (32-F18).
+
+    The earlier per-split key (split, id(df)) never hit across splits, so this arm measured the same work as the
+    uncached arm and could not show a cache benefit.
+    """
     from mlframe.training.core._phase_recurrent import _coerce_features_to_float32
     samples = []
     for _ in range(trials):
         cache: Dict = {}
         t0 = time.perf_counter()
         for _split in ("train", "val", "test"):
-            _ = _coerce_features_to_float32(df, cache=cache, cache_key=(_split, id(df)))
+            _ = _coerce_features_to_float32(df, cache=cache, cache_key=("shared", id(df)))
         samples.append((time.perf_counter() - t0) * 1000.0)
     return statistics.median(samples)
 

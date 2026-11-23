@@ -377,6 +377,9 @@ def _add_mutually_correlated_features(
 ) -> None:
     """Add the features that depend on a random subset (>1) of the informative predictors."""
     if n_mutually_correlated > 0:
+        # A subset of size >1 needs at least 2 informative predictors; with fewer, range(2, n+1) is empty and choice() raises (22-F33).
+        if n_informative < 2:
+            raise ValueError(f"mutually-correlated features need n_informative >= 2 to draw a subset of size >1; got {n_informative}")
         # dependent on a random subset of predictors (>1). cont.
 
         for j in tqdmu(range(n_mutually_correlated), desc=rpad("mutually_correlated")):
@@ -431,6 +434,9 @@ def _add_unrelated_single_features(n_unrelated_single, n_samples, shift, scale, 
 def _add_unrelated_intercorrelated_features(n_unrelated_intercorrelated, n_unrelated_single, generator, n_samples, shift, scale, include_distributions, X, idx, fnames):
     """Add the features that depend on no true predictor but on each other."""
     if n_unrelated_intercorrelated > 0:
+        # Same constraint for the intercorrelated group: a subset of size >1 needs at least 2 single features (22-F33).
+        if n_unrelated_single < 2:
+            raise ValueError(f"unrelated intercorrelated features need n_unrelated_single >= 2; got {n_unrelated_single}")
         # features not dependent on any true predictor, but interdependent on themselves. cat or cont.
         for j in tqdmu(range(n_unrelated_intercorrelated), desc=rpad("unrelated_intercorrelated")):
             combs = list(combinations(range(n_unrelated_single), generator.choice(range(2, n_unrelated_single + 1))))

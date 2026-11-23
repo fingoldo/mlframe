@@ -22,6 +22,15 @@ from .settings import (
 # Weighted win margin a Condorcet winner must reach over every rival; 0 would accept a weighted tie, which ``condorcet_election`` does not count as a win.
 _CONDORCET_STRICT_MARGIN = 1e-6
 
+_METHODS_REQUIRING_GAMMA = frozenset({"optimality_gap"})
+
+
+def _check_gamma_given(method: str, params: dict) -> None:
+    """Raise a clear error when a method that needs ``gamma`` runs without one (42-F6), instead of a bare TypeError."""
+    if method in _METHODS_REQUIRING_GAMMA and "gamma" not in params:
+        raise ValueError(f"{method} requires 'gamma'; pass it explicitly, e.g. use_methods={{'{method}': {{'gamma': <value>}}}}.")
+
+
 class Leaderboard:
     """Model x task score table plus per-task weights; ranks/elects models via the methods mixed in from ``_rules``/``_cw``.
 
@@ -69,6 +78,10 @@ class Leaderboard:
             raise ValueError(f"Leaderboard: partial_fill must be 'min' or 'median', got {partial_fill!r}")
         self.partial_fill = partial_fill
         self.imputed_cells_ = [(str(table.index[int(r)]), str(table.columns[int(c)])) for r, c in zip(*np.where(table.isna().to_numpy()))]
+        # Duplicate task (column) names make list.index and self.weights address only the first occurrence (42-F4).
+        if not table.columns.is_unique:
+            dupes = table.columns[table.columns.duplicated()].unique().tolist()
+            raise ValueError(f"Leaderboard: duplicate task column name(s) {dupes}; every task must be a unique column.")
         self.table = table
         self.tasks = list(self.table.columns)
         self.n_tasks = len(self.tasks)
@@ -119,7 +132,6 @@ class Leaderboard:
         # mean_ranking() / dowdall_ranking() which need only self.ranks.
         # Lazy-build the graph in _ensure_majority_graph() called from the
         # graph-using methods.
-        self.table = self.table.reindex(self.table.index)
 
         self.ranks = self.table.rank(method="min", ascending=False)
         self.max_ranks = self.table.rank(method="max", ascending=False)
@@ -140,14 +152,13 @@ class Leaderboard:
         Reset by build_ranks() (which sets self.majority_graph = None)."""
         if self.majority_graph is not None:
             return
-        wins = {
-            model: ((self.ranks.loc[model] < self.ranks) * self.weights).sum(axis=1) > ((self.ranks.loc[model] > self.ranks) * self.weights).sum(axis=1)
-            for model in self.models
-        }
-        ties = {
-            model: ((self.ranks.loc[model] < self.ranks) * self.weights).sum(axis=1) == ((self.ranks.loc[model] > self.ranks) * self.weights).sum(axis=1)
-            for model in self.models
-        }
+        # One pass per model: the weighted-below and weighted-above sums are computed once and reused for the win and tie tests (42-F9).
+        wins, ties = {}, {}
+        for model in self.models:
+            below = ((self.ranks.loc[model] < self.ranks) * self.weights).sum(axis=1)
+            above = ((self.ranks.loc[model] > self.ranks) * self.weights).sum(axis=1)
+            wins[model] = below > above
+            ties[model] = below == above
 
         self.majority_graph = pd.DataFrame(wins).transpose() + 0.5 * pd.DataFrame(ties).transpose() + np.eye(self.n_models) * 0.5
 
@@ -175,9 +186,11 @@ class Leaderboard:
             if method in settings_dict:
                 params = ParameterGrid(settings_dict[method])
                 for some_params in params:
+                    _check_gamma_given(method, some_params)
                     election_result = func(**some_params)
                     result.append((f"Method: {method}, Params: {some_params}", election_result, len(election_result)))
             else:
+                _check_gamma_given(method, {})
                 election_result = func()
                 result.append((f"Method: {method}, Params: {{}}", election_result, len(election_result)))
         final = pd.DataFrame(result, columns=["method", "winners", "n_winners"])
@@ -212,6 +225,7 @@ class Leaderboard:
                 params = ParameterGrid(settings_dict[method])
                 for some_params in params:
                     if task_groups is None:
+                        _check_gamma_given(method, some_params)
                         ranking = func(**some_params)
                     else:
                         ranking = self.two_step_ranking(
@@ -227,6 +241,7 @@ class Leaderboard:
                     tie_numbers[f"Method: {method}, Params: {some_params}"] = ranking.shape[0] - ranking.nunique()
             else:
                 if task_groups is None:
+                    _check_gamma_given(method, {})
                     ranking = func()
                 else:
                     ranking = self.two_step_ranking(

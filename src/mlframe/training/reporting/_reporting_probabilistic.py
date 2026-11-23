@@ -428,6 +428,7 @@ def _base_calibration_report_kwargs(
 def _store_class_metrics(
     metrics, class_id, str_class_name, y_true, y_score, roc_auc, pr_auc, calibration_mae, calibration_std, brier_loss, ece, brier_reliability,
     brier_resolution, brier_uncertainty, ll, ice, class_integral_error, precision, recall, f1, custom_rice_metric, custom_ice_metric, class_robust_integral_error,
+    threshold=0.5,
 ) -> None:
     """Record one class's metrics in ``metrics[class_id]``, extended with the confusion-derived and probability-derived blocks.
 
@@ -452,7 +453,7 @@ def _store_class_metrics(
     )
     if custom_rice_metric and custom_rice_metric != custom_ice_metric:
         class_metrics["class_robust_integral_error"] = class_robust_integral_error
-    _report_probabilist_dropping_new_fields(y_score, y_true, class_metrics, roc_auc, str_class_name)
+    _report_probabilist_dropping_new_fields(y_score, y_true, class_metrics, roc_auc, str_class_name, threshold=threshold)
     metrics.update({class_id: class_metrics})
 
 
@@ -591,7 +592,7 @@ def _report_probabilistic_step1_produced_single_most(
             _store_class_metrics(
                 metrics, class_id, str_class_name, y_true, y_score, roc_auc, pr_auc, calibration_mae, calibration_std, brier_loss, ece, brier_reliability,
                 brier_resolution, brier_uncertainty, ll, ice, class_integral_error, precision, recall, f1, custom_rice_metric, custom_ice_metric,
-                class_robust_integral_error,
+                class_robust_integral_error, threshold=float(_fcr_kwargs.get("tuned_threshold", 0.5)),
             )
 
 
