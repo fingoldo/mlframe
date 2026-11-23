@@ -26,6 +26,8 @@ def fit_bgmm_and_sample(X_minority: np.ndarray, n_synthetic: int, n_components: 
     from sklearn.mixture import BayesianGaussianMixture
 
     n_min = X_minority.shape[0]
+    if n_min == 0:  # nothing to bootstrap from: name the cause rather than fail inside numpy's integers(0, 0) (08-F18)
+        raise ValueError(f"fit_bgmm_and_sample ({caller}): no minority rows to sample from.")
     if n_min < n_components + 1:
         return np.asarray(X_minority[np.random.default_rng(seed).integers(0, n_min, size=n_synthetic)].copy().astype(np.float32))
     bgm = BayesianGaussianMixture(
