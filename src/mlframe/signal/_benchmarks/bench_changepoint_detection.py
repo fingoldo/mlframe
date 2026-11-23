@@ -39,7 +39,7 @@ if __name__ == "__main__":
     _run(1_000, 3, "njit")  # warm the njit kernel before timing
 
     # ruptures' own l2 cost function calls np.var() per candidate window (no cumsum optimization); the njit
-    # backend below is ~100x faster and is the library default. See the module docstring's performance note.
+    # The njit backend is the library default; the speed ratio is whatever the timings printed below show (30-F6: the earlier '~100x' claim was not measured here).
     for n, n_regimes in [(2_000, 5), (5_000, 10), (50_000, 10)]:
         y = _make_series(n, n_regimes, seed=0)
         t0 = time.perf_counter()
@@ -47,7 +47,7 @@ if __name__ == "__main__":
         wall = time.perf_counter() - t0
         print(f"njit     n={n:>7,} n_regimes={n_regimes:>3} -> {wall * 1000:9.2f} ms")
 
-    for n, n_regimes in [(2_000, 5), (5_000, 10)]:  # ruptures backend capped smaller -- multi-second at 5,000
+    for n, n_regimes in [(2_000, 5), (5_000, 10)]:  # ruptures backend is capped smaller so the run stays short (30-F6: no timing claim here)
         y = _make_series(n, n_regimes, seed=0)
         t0 = time.perf_counter()
         _run(n, n_regimes, "ruptures", y=y)

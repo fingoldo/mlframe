@@ -1153,3 +1153,5 @@
 | 31-F12 | FIXED | Removed the dead hasattr check on args.dims: the explain subparser always defines --dims. Regression: 24 existing kernel-tuning CLI tests pass. |
 | 31-F13 | DEFERRED | Attribute calls named kernel_tuner match too widely, but real registrations are often written registry.kernel_tuner(...). Restricting matches risks skipping real tuners, so the fix needs module-alias resolution first. Deferred. |
 | 30-F5 | FIXED | Changepoint benchmark builds its series outside the timers; _run accepts a prebuilt y. Test test_cluster30_changepoint_bench_prebuilt_series.py. |
+| 30-F6 | FIXED | Unverified speed claims in the changepoint benchmark comments replaced with neutral wording. Comment-only; no behaviour change. |
+| 30-F3 | FIXED | Unused logger and logging import removed from the DTW GPU banded benchmark. Import check passes; no behaviour change. |
