@@ -121,3 +121,4 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F35: FIXED. Docstring corrected: the exact-own-value claim holds only for k=1; for k>1 a subsample row is the mean of its k nearest subsample rows. Docstring-only; no behaviour change, no test.
 - 22-F36: FIXED. NaN check in PdOrdinalEncoder.transform reads the native dtype (pd.isna) instead of copying the output to float64. Test test_cluster22_ordinal_nan_check.py.
 - 22-F28: FIXED. The secondary-ECE None is passed straight into the holdout helper; the redundant assignment is removed (the helper's parameter is the starting value, so the assignment was not dead). Covered by the calibration policy tests (4 pass).
+- 22-F29: DEFERRED. true_outcomes is unused in generate_similar_probs_logit_space and _random_walk, but these are public names called positionally by tests and the calibration API. Removing or documenting the parameter changes signatures: owner decision. Not changed.
