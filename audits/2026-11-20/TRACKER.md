@@ -505,6 +505,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 41-F22 | 41_training-10.md | FIXED | Float-coded binary targets are stratified in slice shards. Test test_cluster41_float_binary_target_stratified.py. |
 | 41-F12 | 41_training-10.md | FIXED | Residual-audit ranks average ties like scipy. Test test_cluster41_ranks_average_ties.py. |
 | 41-F9 | 41_training-10.md | FIXED | Single-target bin n_obs counts labelled rows, matching the multi path. Test test_cluster41_single_target_counts_labelled_rows.py. |
+| 41-F25 | 41_training-10.md | FIXED | Group-aware MRMR logs skipped categorical columns and documents the numeric-only scope. Test test_cluster41_mrmr_numeric_only_logged.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |

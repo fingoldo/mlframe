@@ -1033,3 +1033,4 @@
 | 41-F22 | FIXED | Integer-valued float targets with few classes are treated as classification, so shards are stratified. Test test_cluster41_float_binary_target_stratified.py. |
 | 41-F12 | FIXED | Spearman ranks average tied values (scipy rankdata semantics), so hetero_spearman no longer depends on row order. Test test_cluster41_ranks_average_ties.py. |
 | 41-F9 | FIXED | Single-target temporal aggregation counts labelled rows in n_obs (polars and pandas), matching the multi-target path. Test test_cluster41_single_target_counts_labelled_rows.py. |
+| 41-F25 | FIXED | Group-aware MRMR documents its numeric-only scope and logs the number of skipped non-numeric columns at WARNING. Test test_cluster41_mrmr_numeric_only_logged.py. |

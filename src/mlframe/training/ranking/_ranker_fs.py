@@ -447,8 +447,14 @@ def group_aware_mrmr_select(
     relevance(f) = group_aware_relevance (per-query MI of f with the relevance label); redundancy(f, S) = mean SU(f, s)
     over the already-selected S (SU is target-independent so pooling is correct). Pick argmax(relevance - w*redundancy),
     stop when no candidate clears the relevance floor or the marginal mRMR score turns non-positive. Returns column names.
+
+    Only numeric columns are considered: categorical / string / boolean columns are never selected by this path (41-F25).
+    The number of columns skipped this way is logged at WARNING so the exclusion is not silent.
     """
     cols = list(X_df.select_dtypes(include=[np.number]).columns)
+    n_skipped = len(X_df.columns) - len(cols)
+    if n_skipped:
+        logger.warning("group_aware_mrmr_select: skipped %d non-numeric column(s); this path selects numeric features only", n_skipped)
     if len(cols) <= 1:
         return cols
     arr = X_df[cols].to_numpy(dtype=np.float64)
