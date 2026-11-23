@@ -69,8 +69,8 @@ def _resolve_pipeline_cache_budget(fraction: Optional[float] = None) -> int:
         budget = int(total * fraction)
         # Never exceed what is free right now (minus the headroom floor):
         # training frames + transient transforms must still fit.
-        budget = min(budget, max(0, available - floor))
-        budget = max(2 * 1024 * 1024 * 1024, budget)
+        # No minimum on top of the cap: a 2 GiB floor used to override it and push a low-memory host into swap (audit 41-F19).
+        budget = max(0, min(budget, available - floor))
         return int(budget)
     except Exception as exc:
         logger.debug("pipeline-cache byte budget: psutil probe failed, using default limit: %s", exc)
