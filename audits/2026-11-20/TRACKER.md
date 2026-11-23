@@ -521,6 +521,9 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 37-F29 | 37_training-6.md | FIXED | Skipped back-merge logs WARNING with row counts and dropped columns. Test test_cluster37_nan_gain_dropped_and_merge_logged.py. |
 | 37-F25 | 37_training-6.md | FIXED | Watchdog skips for missing group/base columns log WARNING. Test test_cluster37_watchdog_skip_logged.py. |
 | 41-F10 | 41_training-10.md | FIXED | Single-target picker gets (min, max), not a per-row list. Test test_cluster41_single_picker_gets_span.py. |
+| 39-F27 | 39_training-8.md | FIXED | E5 prefix also matches bare e5- names. Test test_cluster39_hf_e5_unc_target_coerce.py. |
+| 39-F40 | 39_training-8.md | FIXED | UNC paths use the UNC long-path form. Test test_cluster39_hf_e5_unc_target_coerce.py. |
+| 39-F43 | 39_training-8.md | FIXED | Multi-column DataFrame target raises. Test test_cluster39_hf_e5_unc_target_coerce.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
