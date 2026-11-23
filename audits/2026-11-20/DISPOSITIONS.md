@@ -1184,3 +1184,4 @@
 | 08-F21 | FIXED | The duplicated LightGBM baseline is kept by design (it also predicts on a query set); a drift-guard test pins its out-of-fold predictions to the shared helper's for binary and regression. Test test_cluster08_baseline_oof_paths_agree.py (2 passing). |
 | 18-F20 | DEFERRED | The benchmark mirrors the ranking because the shipped _choose_ensemble_flavour takes only an ensembles dict, with no probe-order parameter. Calling the shipped logic for each probe order needs an API change in the chooser, owner decision. |
 | 09-F42 | FIXED | Rebrand now replaces only the leading attn_ prefix; regression test tests/feature_engineering/transformer/test_cluster09_row_attention_prefix_only.py. |
+| 26-F18 | FIXED | Both dead bare-string blocks removed (cleaning.py earlier, _cleaning_helpers.py now). Existing cleaning tests pass (17). No behaviour change, so no new test. |
