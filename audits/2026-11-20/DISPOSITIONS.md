@@ -1185,3 +1185,4 @@
 | 18-F20 | DEFERRED | The benchmark mirrors the ranking because the shipped _choose_ensemble_flavour takes only an ensembles dict, with no probe-order parameter. Calling the shipped logic for each probe order needs an API change in the chooser, owner decision. |
 | 09-F42 | FIXED | Rebrand now replaces only the leading attn_ prefix; regression test tests/feature_engineering/transformer/test_cluster09_row_attention_prefix_only.py. |
 | 26-F18 | FIXED | Both dead bare-string blocks removed (cleaning.py earlier, _cleaning_helpers.py now). Existing cleaning tests pass (17). No behaviour change, so no new test. |
+| 39-F9 | FIXED | Persisted datetime dtype names resolve via np.dtype; unknown or non-numeric names raise ValueError instead of int8. Test tests/training/core/test_cluster39_persisted_dtype_strict.py. |
