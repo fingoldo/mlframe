@@ -62,7 +62,7 @@ class _TraceState:
                 try:
                     used, limit = int(pool.used_bytes()), int(pool.get_limit())
                 except Exception as exc:  # the pool is only described, never needed
-                    logger.debug("gpu alloc trace: pool stats unavailable: %s", exc)
+                    logger.warning("gpu alloc trace: pool stats unavailable: %s", exc)
                     used, limit = -1, -1
                 self.oom_events.append({"requested_mb": round(size / 1e6, 1), "pool_used_mb": round(used / 1e6, 1), "pool_limit_mb": round(limit / 1e6, 1), "where": where, "thread": threading.current_thread().name})
 

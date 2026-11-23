@@ -17,7 +17,10 @@ import threading
 from collections import defaultdict
 from contextlib import contextmanager
 from time import perf_counter
-from typing import Any, Callable, Iterator, TypeVar
+from collections.abc import Iterator
+from typing import Any, Callable, TypeVar
+
+from mlframe.utils.log_throttle import log_throttle
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
@@ -57,7 +60,8 @@ def _process_rss() -> float:
         import psutil
 
         return float(psutil.Process().memory_info().rss)
-    except Exception:
+    except Exception as exc:
+        log_throttle(logger, "fe_family_timing.rss_unreadable", logging.WARNING, "fe family RSS unreadable, reporting 0: %s", exc)
         return 0.0
 
 
