@@ -59,17 +59,6 @@ DATEFRACTS_MULTIPLIERS = [24, 60, 60, 1000, 1000, 1000]
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-logger = logging.getLogger(__name__)
-
-
-NDIGITS = 10
-
-
-DATEFRACTS_CODES = "h m s ms us ns".split(" ")  # list('HTSLUN') for Pandas
-
-
-DATEFRACTS_MULTIPLIERS = [24, 60, 60, 1000, 1000, 1000]
-
 
 def _count_unique_fractional_parts(n_unique_fracts, fract_part, max_fract_digits, last_n_unique_fracts, min_fract_level_increase_perecent, n_unique_ints, nz_fract_digits):
     """Count the unique fractional parts at the current digit depth."""
