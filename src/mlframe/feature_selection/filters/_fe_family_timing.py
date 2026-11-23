@@ -35,6 +35,70 @@ _INFLIGHT = 0
 _MAX_INFLIGHT = 0
 
 
+# Opt-in resident-memory accounting (``MLFRAME_FE_FAMILY_RSS=1``): per family the highest process RSS seen while one of its calls ran above the RSS at that call's start ("peak over entry") and the
+# RSS still held when the call returned ("retained"); the figures are the maxima over the calls. ``tracemalloc`` does not see numba / cupy-host / driver memory (42 percent of the growth of a 100000 x 1000
+# fit), the process RSS does. Concurrent families overlap, so a peak over entry may include a sibling's allocations (the summary flags it like the walls).
+_FE_FAMILY_RSS: dict[str, list[float]] = {}
+_RSS_ACTIVE: dict[int, list[float]] = {}  # entry id -> [rss at entry, highest rss seen]
+_RSS_POLLER: "threading.Thread | None" = None
+_RSS_NEXT_ID = 0
+
+
+def _rss_tracking_enabled() -> bool:
+    """Whether the per-family RSS accounting is on (environment ``MLFRAME_FE_FAMILY_RSS=1``)."""
+    import os
+
+    return os.environ.get("MLFRAME_FE_FAMILY_RSS", "0").strip() == "1"
+
+
+def _process_rss() -> float:
+    """Resident set size of this process in bytes (0.0 when psutil cannot read it)."""
+    try:
+        import psutil
+
+        return float(psutil.Process().memory_info().rss)
+    except Exception:
+        return 0.0
+
+
+def _rss_poll_loop() -> None:
+    """Raise the highest-seen RSS of every active entry every 50 ms while at least one entry is active."""
+    import time
+
+    while True:
+        time.sleep(0.05)
+        rss = _process_rss()
+        with _LOCK:
+            for rec in _RSS_ACTIVE.values():
+                if rss > rec[1]:
+                    rec[1] = rss
+
+
+def _rss_enter() -> int:
+    """Register an entry with its starting RSS; start the poller on first use. Returns the entry id."""
+    global _RSS_POLLER, _RSS_NEXT_ID
+    rss = _process_rss()
+    with _LOCK:
+        _RSS_NEXT_ID += 1
+        eid = _RSS_NEXT_ID
+        _RSS_ACTIVE[eid] = [rss, rss]
+        if _RSS_POLLER is None:
+            _RSS_POLLER = threading.Thread(target=_rss_poll_loop, name="fe-family-rss", daemon=True)
+            _RSS_POLLER.start()
+    return eid
+
+
+def _rss_exit(eid: int, name: str) -> None:
+    """Close an entry and fold its peak over entry and retained growth into the per-family maxima."""
+    rss = _process_rss()
+    with _LOCK:
+        start, high = _RSS_ACTIVE.pop(eid, (rss, rss))
+        high = max(high, rss)
+        slot = _FE_FAMILY_RSS.setdefault(name, [0.0, 0.0])
+        slot[0] = max(slot[0], high - start)
+        slot[1] = max(slot[1], rss - start)
+
+
 @contextmanager
 def fe_family_timer(name: str) -> Iterator[None]:
     """Context manager that accumulates wall time and invocation count for ``name`` into the process-global ``_FE_FAMILY_WALL`` map under the lock."""
@@ -43,11 +107,14 @@ def fe_family_timer(name: str) -> Iterator[None]:
         _INFLIGHT += 1
         if _INFLIGHT > _MAX_INFLIGHT:
             _MAX_INFLIGHT = _INFLIGHT
+    _eid = _rss_enter() if _rss_tracking_enabled() else 0
     _t0 = perf_counter()
     try:
         yield
     finally:
         _dt = perf_counter() - _t0
+        if _eid:
+            _rss_exit(_eid, name)
         with _LOCK:
             _INFLIGHT -= 1
             slot = _FE_FAMILY_WALL[name]
@@ -192,3 +259,12 @@ def log_fe_family_summary(*, reset: bool = True) -> None:
     # accounting is broken; concurrent families genuinely double-count overlapping intervals.
     caveat = f"  [CONCURRENT: peak {peak} families in flight; walls overlap, shares are CPU-time not wall]" if overlapped else ""
     logger.info("MRMR FE per-family wall: %s  [total %.1fs]%s", "  ".join(parts), total, caveat)
+    with _LOCK:
+        mem_rows = sorted(_FE_FAMILY_RSS.items(), key=lambda kv: kv[1][0], reverse=True)
+        if reset:
+            _FE_FAMILY_RSS.clear()
+    if mem_rows:
+        logger.info(
+            "MRMR FE per-family RSS (MB, max over calls: peak above the entry / still held at exit): %s",
+            "  ".join(f"{name}=+{peak / 2**20:.0f}/+{kept / 2**20:.0f}" for name, (peak, kept) in mem_rows),
+        )
