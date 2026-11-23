@@ -190,7 +190,15 @@ def sampler():
             if rss - last_logged > 50e6:
                 last_logged = rss
                 _main_where, _others = _stack_snapshot()
-                events.append((time.perf_counter() - t0, (rss - base) / 1e6, _main_where + ("   | threads: " + "; ".join(sorted(set(_others))[:4]) if _others else "")))
+                _cpm = sys.modules.get("cupy")
+                _pool = ""
+                if _cpm is not None:  # the driver of a WDDM card maps the device pool into the process: RSS includes it (measured 2026-11-23, rss_vs_device.py)
+                    try:
+                        _dp = _cpm.get_default_memory_pool()
+                        _pool = f"   [device pool total {_dp.total_bytes() / 1e6:.0f} MB used {_dp.used_bytes() / 1e6:.0f} MB]"
+                    except Exception:
+                        _pool = ""
+                events.append((time.perf_counter() - t0, (rss - base) / 1e6, _main_where + _pool + ("   | threads: " + "; ".join(sorted(set(_others))[:4]) if _others else "")))
 
 
 _CUSHION_CALLS: list = []

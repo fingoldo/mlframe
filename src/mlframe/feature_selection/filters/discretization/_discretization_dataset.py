@@ -604,9 +604,19 @@ def categorize_dataset(
     if len(numerical_cols) <= block_cols:
         data = _codes_of(numerical_cols)
     else:
-        blocks = [_codes_of(numerical_cols[c0 : c0 + block_cols]) for c0 in range(0, len(numerical_cols), block_cols)]
-        data = np.concatenate(blocks, axis=1, dtype=np.result_type(*[b.dtype for b in blocks]))  # the widest code type any block needed, the one a single pass would have chosen
-        del blocks
+        # each block is written into the final matrix as it is made (``np.concatenate`` of the list held the blocks AND the result, 2 x 477 MB of int8 codes at 500000 x 1000); the matrix takes the widest
+        # code type any block needed, the one a single pass would have chosen, and is widened in place of a copy only when a later block needs more than the first
+        data = None
+        at = 0
+        for c0 in range(0, len(numerical_cols), block_cols):
+            part = _codes_of(numerical_cols[c0 : c0 + block_cols])
+            if data is None:
+                data = np.empty((part.shape[0], len(numerical_cols)), dtype=part.dtype)
+            elif np.result_type(data.dtype, part.dtype) != data.dtype:
+                data = data.astype(np.result_type(data.dtype, part.dtype))
+            data[:, at : at + part.shape[1]] = part
+            at += part.shape[1]
+            del part
 
     categorical_cols, new_vals = _factorize_categorical_columns(_is_polars, categorical_cols_detected, df, pl, max_categorical_cardinality, categorical_fold_min_support, categorical_fold_target)
     data, dtype = _encode_categorical_block(categorical_cols, new_vals, missing_strategy, dtype, data)
