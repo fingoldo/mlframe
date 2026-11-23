@@ -620,6 +620,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 29-F38 | 29_root_modules-8.md | FIXED | Failed KTC lookup logs WARNING naming the fallback. Test test_cluster29_ktc_lookup_failure_warns.py. |
 | 29-F37 | 29_root_modules-8.md | FIXED | Refit without capture clears stale iteration_metrics_. Test test_cluster29_xgb_refit_clears_iteration_metrics.py. |
 | 29-F34 | 29_root_modules-8.md | FIXED | Names mismatch raises ValueError listing both lists. Test test_cluster29_diversity_names_mismatch_message.py. |
+| 31-F10 | 31_system.md | FIXED | Timeout log states the timeout, not a fallback. Test test_cluster31_timeout_log_is_accurate.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |

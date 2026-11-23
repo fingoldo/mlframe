@@ -1148,3 +1148,4 @@
 | 29-F38 | FIXED | A failing KTC cache lookup logs a WARNING naming the fallback backend, instead of DEBUG. Test test_cluster29_ktc_lookup_failure_warns.py; 13 existing KTC/gated-blend tests pass. |
 | 29-F37 | FIXED | A refit without iteration-metric capture clears the previous fit's iteration_metrics_ on the XGB shim. Test test_cluster29_xgb_refit_clears_iteration_metrics.py; the existing GBDT cache test passes. |
 | 29-F34 | FIXED | Names mismatch in diversity ablation raises ValueError listing both lists, instead of an empty AssertionError. Test test_cluster29_diversity_names_mismatch_message.py; 8 existing diversity/correlation tests pass. |
+| 31-F10 | FIXED | The sweep timeout log says the kernel timed out instead of describing a fallback that never ran. Test test_cluster31_timeout_log_is_accurate.py; 3 existing kernel-tuning fix tests pass. |
