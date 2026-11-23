@@ -41,12 +41,14 @@ def test_mi_classif_batch_chunked_helper_bit_identical():
     for a DataFrame and an ndarray, both below and above the chunk boundary."""
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import mi_classif_batch_chunked
 
+    from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
     rng = np.random.default_rng(2)
     n = 2500
     y = (rng.random(n) < 0.5).astype(np.int64)
     for p in (300, 1200, 2500):  # spans the 1024 chunk boundary
         X = rng.standard_normal((n, p))
-        ref = _mi_classif_batch(X.astype(np.float64), y, nbins=10)
+        ref = _mi_classif_batch(X.astype(_crit_np_dtype()), y, nbins=10)  # the helper's working dtype, so the comparison is like-for-like
         got_arr = mi_classif_batch_chunked(X, y, nbins=10)  # ndarray path
         got_df = mi_classif_batch_chunked(pd.DataFrame(X), y, nbins=10)  # DataFrame path
         assert np.array_equal(got_arr, ref), f"ndarray helper != full at p={p}"
@@ -59,11 +61,13 @@ def test_helper_bit_identical_for_any_chunk_size_and_ram_aware_default():
     from mlframe.feature_selection.filters._orthogonal_univariate_fe import mi_classif_batch_chunked
     from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_mi_backends import _mi_chunk_cols_for
 
+    from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
+
     rng = np.random.default_rng(5)
     n, p = 2000, 500
     X = rng.standard_normal((n, p))
     y = (rng.random(n) < 0.5).astype(np.int64)
-    ref = _mi_classif_batch(X.astype(np.float64), y, nbins=10)
+    ref = _mi_classif_batch(X.astype(_crit_np_dtype()), y, nbins=10)
     for cc in (1, 7, 64, 333, 10_000):  # tiny..larger-than-p all bit-identical
         got = mi_classif_batch_chunked(X, y, nbins=10, chunk_cols=cc)
         assert np.array_equal(got, ref), f"chunk_cols={cc} not bit-identical"

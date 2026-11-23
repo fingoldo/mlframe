@@ -197,4 +197,7 @@ def long_path_safe(path: str) -> str:
     if path.startswith(_LONG_PATH_PREFIX):
         return path
     abspath = os.path.abspath(path)
+    # A UNC share needs the UNC long form; the plain prefix before a leading double backslash is malformed (39-F40).
+    if abspath.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + abspath[2:]
     return _LONG_PATH_PREFIX + abspath

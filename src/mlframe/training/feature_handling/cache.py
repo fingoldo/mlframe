@@ -127,6 +127,8 @@ class FeatureCache:
         # DiskKey from the InMemoryKey on every access.
         self._key_xref: Dict[InMemoryKey, DiskKey] = {}
         self._lock = threading.Lock()
+        # Single-flight: one pending Event per in-memory key being computed; concurrent misses wait instead of recomputing (39-F29).
+        self._inflight: Dict[InMemoryKey, threading.Event] = {}
         self._hits_mem = 0
         self._hits_disk = 0
         self._misses = 0
@@ -139,12 +141,14 @@ class FeatureCache:
         ``trainer_``/CUDA-tensor exclusion once already -- defensive guard against a future caller."""
         state = self.__dict__.copy()
         state["_lock"] = None
+        state["_inflight"] = {}
         return state
 
     def __setstate__(self, state: dict) -> None:
         """Restore state and re-create the ``threading.Lock`` dropped by ``__getstate__``."""
         self.__dict__.update(state)
         self._lock = threading.Lock()
+        self._inflight = {}
 
     # ------------------------------------------------------------------
     # Stats
@@ -188,15 +192,38 @@ class FeatureCache:
         sufficient for ndarrays / sparse matrices / dense lists. Pass
         a custom estimator only when the value is an opaque object.
         """
-        # 1. In-memory tier
-        with self._lock:
-            entry = self._mem.get(in_mem_key)
-            if entry is not None:
-                entry.access_count += 1
-                self._mem.move_to_end(in_mem_key)
-                self._hits_mem += 1
-                return entry.value
+        # 1. In-memory tier, with single-flight: the first miss for a key is the leader and computes it; any other
+        # caller for the same key waits for the leader, then re-checks memory (39-F29).
+        while True:
+            with self._lock:
+                entry = self._mem.get(in_mem_key)
+                if entry is not None:
+                    entry.access_count += 1
+                    self._mem.move_to_end(in_mem_key)
+                    self._hits_mem += 1
+                    return entry.value
+                pending = self._inflight.get(in_mem_key)
+                if pending is None:
+                    pending = threading.Event()
+                    self._inflight[in_mem_key] = pending
+                    break
+            pending.wait()
+        try:
+            return self._get_or_compute_uncached(in_mem_key, compute_fn, disk_key=disk_key, size_estimator=size_estimator)
+        finally:
+            with self._lock:
+                self._inflight.pop(in_mem_key, None)
+            pending.set()
 
+    def _get_or_compute_uncached(
+        self,
+        in_mem_key: InMemoryKey,
+        compute_fn: Callable[[], Any],
+        *,
+        disk_key: Optional[DiskKey] = None,
+        size_estimator: Optional[Callable[[Any], int]] = None,
+    ) -> Any:
+        """Disk tier and compute-fresh path; only the single-flight leader for ``in_mem_key`` calls this."""
         # 2. Disk tier (opt-in)
         if self._cfg.persistence != "off" and disk_key is None:
             # Persistence is on but the caller built no DiskKey: nothing is read or written to disk. Say so once, not silently (audit 39-F20).

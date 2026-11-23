@@ -315,7 +315,7 @@ class SimpleFeaturesAndTargetsExtractor(FeaturesAndTargetsExtractor):
                         _filtered[_tt] = _kept_for_tt
                         _kept.update(_kept_for_tt.keys())
             _missing = _allowed_set - _kept
-            if _missing and self.verbose:
+            if _missing:
                 logger.warning(
                     "allowed_targets filter: %d name(s) not found in built targets: %s. " "Built names: %s.",
                     len(_missing),

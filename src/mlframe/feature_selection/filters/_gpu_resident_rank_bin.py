@@ -287,15 +287,15 @@ def plugin_mi_classif_batch_rank_cuda_resident(
         from ._fe_gpu_vram import pool_column_block
 
         k = int(shape[1])
-        width = pool_column_block(cp, int(shape[0]), bytes_per_column_row=_RANK_MI_BYTES_PER_ELEMENT, budget_fraction=0.5, min_block=16, fallback=k, what="rank resident MI")
+        col_block = pool_column_block(cp, int(shape[0]), bytes_per_column_row=_RANK_MI_BYTES_PER_ELEMENT, budget_fraction=0.5, min_block=16, fallback=k, what="rank resident MI")
     except Exception as exc:  # no cupy or no readable pool: one call
         logger.debug("rank resident MI: block width unknown (%r); one call", exc)
         return _plugin_mi_classif_batch_rank_block(X_gpu, y_gpu, n_bins, y_min=y_min, n_classes=n_classes)
-    if width >= k:
+    if col_block >= k:
         return _plugin_mi_classif_batch_rank_block(X_gpu, y_gpu, n_bins, y_min=y_min, n_classes=n_classes)
     parts = []
-    for c0 in range(0, k, width):
-        part = _plugin_mi_classif_batch_rank_block(X_gpu[:, c0 : c0 + width], y_gpu, n_bins, y_min=y_min, n_classes=n_classes)
+    for c0 in range(0, k, col_block):
+        part = _plugin_mi_classif_batch_rank_block(X_gpu[:, c0 : c0 + col_block], y_gpu, n_bins, y_min=y_min, n_classes=n_classes)
         if part is None:
             return None
         parts.append(np.asarray(part))

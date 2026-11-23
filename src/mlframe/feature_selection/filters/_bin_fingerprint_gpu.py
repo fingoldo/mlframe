@@ -74,8 +74,8 @@ def pool_fingerprints(cp: Any, columns: Sequence[Any]) -> "list[int]":
     n = int(cols[0].shape[0])
     per_col = max(1, n * max(8 if c.dtype.name not in _C_TYPES else int(c.dtype.itemsize) for c in cols))
     budget = max(per_col, min(_STACK_BLOCK_BYTES, int(device_room(cp)) // 4))
-    step = max(1, budget // per_col)
+    col_block = max(1, budget // per_col)  # columns per stacked block: sized by the device budget, one launch per block
     fps: "list[int]" = []
-    for c0 in range(0, len(cols), step):
-        fps.extend(_block_fingerprints(cp, cols[c0 : c0 + step]))
+    for c0 in range(0, len(cols), col_block):
+        fps.extend(_block_fingerprints(cp, cols[c0 : c0 + col_block]))
     return fps

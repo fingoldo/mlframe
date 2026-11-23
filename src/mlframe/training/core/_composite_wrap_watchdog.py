@@ -152,12 +152,14 @@ def run_wrap_watchdog(wrapper: Any, spec: Any, split_df: Any, y_split: Any, *, c
         groups = None
         if transform.requires_groups:
             if not getattr(wrapper, "group_column", None):
+                logger.warning("composite wrap watchdog skipped for composite=%r split=%r: transform needs groups but wrapper has no group_column", composite_name, split_name)
                 return
             groups = _extract_groups(split_df, wrapper.group_column)
         base = None
         if transform.requires_base:
             cols = _watchdog_base_columns(spec)
             if not cols or not all(c in split_df for c in cols):
+                logger.warning("composite wrap watchdog skipped for composite=%r split=%r: base columns %r not present on the split", composite_name, split_name, cols)
                 return
             base = _watchdog_extract_base(split_df, cols)
             _check_base_read(wrapper, split_df, base, composite_name, split_name)

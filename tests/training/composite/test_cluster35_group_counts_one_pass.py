@@ -10,6 +10,7 @@ def test_group_counts_match_per_group_comparison():
     rng = np.random.default_rng(0)
     for groups in (rng.integers(0, 7, size=300), np.array(["a", "bb", "a", "c", "bb", "a"])):
         got = _group_counts(groups)
+        assert len(got) == len(np.unique(groups)) > 0
         for gid in np.unique(groups):
             assert got[gid] == int((groups == gid).sum())
         assert sum(got.values()) == len(groups)

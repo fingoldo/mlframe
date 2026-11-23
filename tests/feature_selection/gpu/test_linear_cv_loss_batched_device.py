@@ -25,6 +25,7 @@ def test_batched_losses_equal_the_host_scorer():
     ref = [lcl.cv_loss(c, y, True, 3, 0) for c in cols]
     got = lcl.cv_loss_columns_device(cols, y, True, 3, 0)
     assert got is not None and len(got) == len(cols)
+    assert len(ref) == len(got) > 0, "no candidate was scored"
     for a, b in zip(ref, got):
         assert (np.isinf(a) and np.isinf(b)) or abs(a - b) < 1e-7
 

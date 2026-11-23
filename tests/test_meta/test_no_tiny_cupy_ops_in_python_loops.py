@@ -16,9 +16,11 @@ The loop is flagged when the count is at least 3, or at least 2 when one of them
 Loops whose bound is small by construction (``range(nd)``, degrees, streams) are skipped only when the bound is a literal; others are reviewed by hand.
 
 Severity. A chunk or tile loop (a 3-argument ``range(start, stop, step)``, or a bound or iterable whose name ends in chunk/tile/block, optionally plural) is reported with severity
-``low`` instead of ``high``. The policy is to report, not exclude: these loops usually run a handful of iterations over big vectorised bodies, but nothing guarantees a small count (a tile
-loop can run tens of thousands of times), and an exclusion would silently drop them. ``low`` hits are baselined and fail the test like any other new hit; the tag only tells the reviewer
-which worklist entries to take first.
+``low`` instead of ``high``. ``low`` hits are baselined and fail the test like any other new hit; the tag only tells the reviewer which worklist entries to take first.
+
+Budget-sized blocks are accepted. A 3-argument ``range`` whose step is a block/chunk name assigned from a run-time expression (a memory budget or a division, not a literal) is not reported:
+its block is sized to the device memory budget, so each iteration already batches over the block and the iteration count is bounded by that budget. A literal block size, or a plain
+chunk parameter, is still reported as ``low``.
 
 Known limitations (findings A3, A4 and B2 in ``audits/tiny_cupy_detector_2026-10-19``): calls through attribute receivers other than ``self``, ``cls`` or a
 module alias are not followed; a loop with a single cupy call per iteration is not flagged even over a huge range; cupy operator launches
@@ -85,6 +87,25 @@ def _is_chunk_loop(loop: ast.For) -> bool:
     else:
         name = ""
     return name.lower().endswith(_CHUNK_SUFFIXES)
+
+
+def _is_budget_block_loop(loop: ast.For, scope: ast.AST) -> bool:
+    """True for a 3-argument ``range(0, n, block)`` whose step name ends in block/chunk and is assigned in ``scope`` from a run-time expression (a memory budget, a division), not a literal.
+
+    Such a block is sized to fit the device memory budget, so the loop runs as many iterations as the budget allows and each one already batches its work over the block's columns or rows.
+    The gate accepts it without a baseline entry; a block size that is a literal constant, or a loop whose step is not a block name, is still counted as before.
+    """
+    it = loop.iter
+    if not (isinstance(it, ast.Call) and isinstance(it.func, ast.Name) and it.func.id == "range" and len(it.args) == 3):
+        return False
+    step = it.args[2]
+    if not isinstance(step, ast.Name) or not step.id.lower().endswith(_CHUNK_SUFFIXES):
+        return False
+    for node in ast.walk(scope):
+        if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == step.id for t in node.targets):
+            if not isinstance(node.value, ast.Constant):
+                return True
+    return False
 
 
 def _cupy_names(tree: ast.AST) -> "tuple[set[str], set[str]]":
@@ -256,13 +277,13 @@ def tiny_cupy_loops(source: str, rel: "tuple[str, ...] | None" = None, root: Pat
     root_str = str(root)
     hits: list[tuple[str, int, str]] = []
 
-    def visit(node: ast.AST, func: str) -> None:
-        """Walk ``node`` carrying the name of the enclosing function."""
+    def visit(node: ast.AST, func: str, scope: ast.AST) -> None:
+        """Walk ``node`` carrying the name of the enclosing function and its scope node (for the block-size lookup)."""
         for child in ast.iter_child_nodes(node):
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                visit(child, child.name if func == "<module>" else f"{func}.{child.name}")
+                visit(child, child.name if func == "<module>" else f"{func}.{child.name}", child)
                 continue
-            if isinstance(child, ast.For) and not _is_small_literal_loop(child):
+            if isinstance(child, ast.For) and not _is_small_literal_loop(child) and not _is_budget_block_loop(child, scope):
                 calls = _cupy_calls(child.body, roots, bare) + _callee_calls(child.body, summ, root_str)
                 is_chunk = _is_chunk_loop(child)
                 # A chunk loop that launches an actual custom kernel (RawKernel/RawModule) is already doing the batched
@@ -280,9 +301,9 @@ def tiny_cupy_loops(source: str, rel: "tuple[str, ...] | None" = None, root: Pat
                     flagged = len(calls) >= 3
                 if flagged:
                     hits.append((func, child.lineno, "low" if is_chunk else "high"))
-            visit(child, func)
+            visit(child, func, scope)
 
-    visit(tree, "<module>")
+    visit(tree, "<module>", tree)
     return hits
 
 
@@ -326,9 +347,24 @@ def _current() -> "set[str]":
     return set(_current_hits())
 
 
+EXCEPTIONS = Path(__file__).with_name("_tiny_cupy_loops_exceptions.json")
+
+
+def _exceptions() -> "dict[str, str]":
+    """``{"<module path>::<function>": reason}``: loops accepted as they are, each with the measurement or structural reason that rules out batching them."""
+    return orjson.loads(EXCEPTIONS.read_text(encoding="utf-8"))
+
+
 def _baseline() -> "set[str]":
-    """The reviewed ``{"<module path>::<function>"}`` worklist."""
-    return set(orjson.loads(BASELINE.read_text(encoding="utf-8")))
+    """The reviewed ``{"<module path>::<function>"}`` worklist, together with the accepted exceptions (a stale exception fails the stale check like a stale entry)."""
+    return set(orjson.loads(BASELINE.read_text(encoding="utf-8"))) | set(_exceptions())
+
+
+def test_exceptions_carry_a_reason():
+    """Every accepted loop states why it is not batched; a bare name is not an exception."""
+    assert _exceptions(), "no accepted exception to check"
+    for key, reason in _exceptions().items():
+        assert isinstance(reason, str) and len(reason) >= 120, f"exception {key} has no measured or structural reason"
 
 
 def test_no_new_launch_bound_cupy_loops():
@@ -489,6 +525,34 @@ def test_chunk_named_bound_loop_is_low_severity():
     """A bound whose name ends in chunk/tile/block also gets the low severity."""
     named = "import cupy as cp\ndef f(x, n_chunks):\n    for c in range(n_chunks):\n        a = cp.bincount(x); b = cp.sum(a); cp.log(b)\n"
     assert tiny_cupy_loops(named) == [("f", 3, "low")]
+
+
+def test_budget_sized_block_loop_is_accepted():
+    """A block loop whose block size comes from a run-time budget expression is accepted (it batches over the block by design)."""
+    budgeted = (
+        "import cupy as cp\n"
+        "def pooled(x, k, budget):\n"
+        "    block = max(1, budget // max(1, k))\n"
+        "    for c0 in range(0, k, block):\n"
+        "        a = cp.bincount(x)\n"
+        "        b = cp.sum(a)\n"
+        "        c = cp.log(b)\n"
+    )
+    assert tiny_cupy_loops(budgeted) == []
+
+
+def test_literal_sized_block_loop_is_still_flagged():
+    """A block size fixed by a literal is not budget-derived, so the loop stays a low-severity hit."""
+    literal = (
+        "import cupy as cp\n"
+        "def pooled(x, k):\n"
+        "    block = 64\n"
+        "    for c0 in range(0, k, block):\n"
+        "        a = cp.bincount(x)\n"
+        "        b = cp.sum(a)\n"
+        "        c = cp.log(b)\n"
+    )
+    assert tiny_cupy_loops(literal) == [("pooled", 4, "low")]
 
 
 def test_module_alias_and_bare_cupy_import_are_counted():

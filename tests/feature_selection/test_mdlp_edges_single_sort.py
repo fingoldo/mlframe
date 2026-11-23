@@ -26,6 +26,7 @@ def test_edges_equal_the_two_sort_path(monkeypatch):
     monkeypatch.setattr(C, "_presort_for_mdlp", lambda *a, **k: None)
     C.clear_edge_memo()
     old = A.per_feature_edges(X, y, method="mdlp", n_jobs=1, max_adaptive_nbins=10)
+    assert len(new) == len(old) > 0, "no column was binned"
     for j, (a, b) in enumerate(zip(new, old)):
         assert a.shape == b.shape and np.array_equal(a, b), j
 

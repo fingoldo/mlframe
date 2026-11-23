@@ -256,14 +256,19 @@ def _sample(arr: np.ndarray, size: int, seed: int = 0) -> np.ndarray:
 
 
 def _ranks_via_scatter(x: np.ndarray) -> np.ndarray:
-    """Ordinal ranks (0-based) of ``x`` via one argsort + a scatter, instead of the
-    ``argsort(argsort(x))`` double-sort. One sort produces the order permutation; scattering
-    positional indices back through it yields the same ranks with half the sorting work.
-    Bit-identical to ``np.argsort(np.argsort(x)).astype(np.float64)`` (no ties: pure ordinal
-    ranking; ties: both forms break them by argsort's stable position, identically)."""
-    order = np.argsort(x)
+    """0-based ranks of ``x`` with ties assigned their average rank, matching ``scipy.stats.rankdata``.
+
+    One argsort gives the order; tied runs are found on the sorted values and each run gets the mean of
+    its positions (41-F12). Positional tie-breaking made ``hetero_spearman`` depend on row order whenever
+    a tree model emitted many identical predictions.
+    """
+    order = np.argsort(x, kind="stable")
+    sorted_x = x[order]
+    _, inverse, counts = np.unique(sorted_x, return_inverse=True, return_counts=True)
+    starts = np.cumsum(counts) - counts
+    avg_positions = starts + (counts - 1) / 2.0
     ranks = np.empty(x.size, dtype=np.float64)
-    ranks[order] = np.arange(x.size, dtype=np.float64)
+    ranks[order] = avg_positions[np.asarray(inverse).ravel()]
     return ranks
 
 
@@ -575,7 +580,8 @@ def audit_residuals(
         from pyutilz.stats.normality import normality_verdict as _nv
         normality_test = _nv(residuals)
     except Exception as _nv_err:
-        logger.debug(
+        # WARNING, not debug: a silent fallback drops the formal test from the verdict in normal logs (audit 41-F13).
+        logger.warning(
             "normality_verdict unavailable / failed: %s; " "audit will fall back to moment-cutoff heuristic only.",
             _nv_err,
         )

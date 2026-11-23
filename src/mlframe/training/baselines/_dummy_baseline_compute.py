@@ -290,7 +290,9 @@ def _per_group_predict_polars(
     # + 2 is_in scans (~0.5s each).
     def _predict_with_join(side_X: Any):
         """Left-join ``side_X``'s category column onto ``stats_df`` to attach per-group mean/size; unmatched groups get null stats (filled by the caller)."""
-        return side_X.select(cat_col).join(stats_df, on=cat_col, how="left")
+        # nulls_equal=True: a null group key matches the null group stats_df carries, as the pandas path does (dropna=False). A plain join
+        # left the null-key rows with no stats, so they fell back to the global mean on this path only (32-F8).
+        return side_X.select(cat_col).join(stats_df, on=cat_col, how="left", nulls_equal=True)
 
     train_joined = _predict_with_join(train_X)
     val_joined = _predict_with_join(val_X)

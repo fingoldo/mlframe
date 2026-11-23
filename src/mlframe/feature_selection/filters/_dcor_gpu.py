@@ -18,7 +18,7 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 _SRC = r"""
-// dtype-ok: Intentional wide accumulator type, reviewed 2026-11-05: narrow values with wide sums measured 45 ms against 46-49 ms (no gain, the {ACC} accumulations set the time); the host loads double on purpose (dvar2_x is a cancellation).
+// dtype-ok: Intentional wide accumulator type, reviewed 2026-11-05: narrow values with wide sums measured 45 ms against 46-49 ms (no gain, the {ACC} accumulations set the time); the host loads the wide type on purpose (dvar2_x is a cancellation).
 extern "C" __global__ void dcor_cols(const {ACC}* __restrict__ xs, const {ACC}* __restrict__ b, const int m, const int k, {ACC}* __restrict__ sums) {
     extern __shared__ {ACC} sm[];
     {ACC}* sx = sm;                     // this column's m values

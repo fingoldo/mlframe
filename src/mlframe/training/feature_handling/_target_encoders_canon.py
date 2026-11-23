@@ -77,7 +77,7 @@ def _temporal_to_epoch_ns_tokens(arr_int_ns: np.ndarray, null_mask: np.ndarray) 
     as one flavour then transformed as another then misses every key and returns the prior for every
     row -- the same drift the bool/float canonicalisation guards. Nanosecond epoch is flavour-neutral
     and lossless, so all three paths route here for a single canonical token."""
-    toks = np.array(["dt:" + str(int(v)) for v in arr_int_ns], dtype=object)
+    toks = np.char.add("dt:", np.asarray(arr_int_ns, dtype=np.int64).astype(str)).astype(object)  # vectorised (39-F44)
     if null_mask.any():
         toks[null_mask] = _NULL_SENTINEL
     return toks
@@ -318,6 +318,8 @@ def _coerce_y_to_float64(y) -> np.ndarray:
         return y.astype(np.float64, copy=False)
     try:
         import pandas as pd
+        if isinstance(y, pd.DataFrame) and y.shape[1] != 1:
+            raise ValueError(f"target must be a single column; got a DataFrame with {y.shape[1]} columns (39-F43)")
         if isinstance(y, (pd.Series, pd.DataFrame)):
             return np.asarray(y.to_numpy(dtype=np.float64, copy=False)).ravel()
     except ImportError:

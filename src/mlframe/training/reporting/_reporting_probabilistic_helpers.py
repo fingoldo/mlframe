@@ -260,7 +260,7 @@ def _report_probabilist_pr_auc_alone_gpu(group_ids, classes, is_multilabel, targ
     return _precomputed_aucs_per_class
 
 
-def _report_probabilist_dropping_new_fields(y_score, y_true, class_metrics, roc_auc, str_class_name):
+def _report_probabilist_dropping_new_fields(y_score, y_true, class_metrics, roc_auc, str_class_name, threshold=0.5):
     """Block of report_probabilistic_model_perf starting at ``try:``."""
     try:
         from mlframe.metrics.core import (
@@ -270,12 +270,10 @@ def _report_probabilist_dropping_new_fields(y_score, y_true, class_metrics, roc_
             lift_at_k,
         )
 
-        # Re-derive the hard prediction from y_score for this
-        # class. The threshold of 0.5 matches the historical
-        # ``fast_calibration_report`` convention used to compute
-        # the existing precision/recall/f1 row above.
+        # Re-derive the hard prediction from y_score at the SAME threshold the precision/recall/f1 row was computed
+        # with (the tuned one when present, else 0.5), so one class_metrics dict is internally consistent (41-F17).
         _y_score_arr = np.asarray(y_score, dtype=np.float64)
-        _y_pred_thr = (_y_score_arr >= 0.5).astype(np.int64)
+        _y_pred_thr = (_y_score_arr >= float(threshold)).astype(np.int64)
         _y_true_arr = np.asarray(y_true).astype(np.int64, copy=False)
 
         _cm_block = fast_binary_confusion_metrics_block(_y_true_arr, _y_pred_thr)

@@ -40,7 +40,9 @@ def _path_values(s: pd.Series):
 
 def _path_to_numpy(s: pd.Series):
     vec = TfidfVectorizer(max_features=500, ngram_range=(1, 1))
-    return vec.fit_transform(s.astype(str).to_numpy(dtype=object, na_value=""))
+    # Fill the NA first, then cast: the old order turned None into the token "None" before na_value applied, so this arm
+    # vectorised a different token set from arm A (32-F19).
+    return vec.fit_transform(s.to_numpy(dtype=object, na_value="").astype(str))
 
 
 def _path_series(s: pd.Series):

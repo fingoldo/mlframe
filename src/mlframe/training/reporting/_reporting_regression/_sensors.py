@@ -114,9 +114,8 @@ def run_collapse_sensor(
                 _above_hi = (_pred_max - float(y_train_max)) / float(y_train_std)
                 if _below_lo > 3.0 or _above_hi > 3.0:
                     _collapse_train_envelope = True
-            except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-                logger.debug("suppressed: %s", e)
-                pass
+            except Exception as e:  # nosec B110 - non-fatal, but a failing envelope probe is logged (audit 41-F27)
+                logger.warning("regression-collapse envelope probe failed (non-fatal): %s", e)
         if not (_collapse_std or _collapse_extrapolation or _collapse_mean_shift or _collapse_train_envelope):
             return
         # Disambiguate the branch by model name: Ridge / LinearRegression on a group-aware split with feature-distribution
@@ -181,7 +180,8 @@ def run_collapse_sensor(
             max_abs_error=_max_err, r2=_r2,
         )
     except Exception as _sensor_err:
-        logger.debug(
+        # WARNING, not debug: a sensor that breaks silently looks like a healthy run (audit 41-F27).
+        logger.warning(
             "regression-collapse-sensor probe failed (non-fatal): %s", _sensor_err,
         )
 

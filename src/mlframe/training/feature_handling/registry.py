@@ -150,8 +150,9 @@ def _resolve_keep_n(cache_cfg) -> int:
         free, _ = torch.cuda.mem_get_info()
         free_gb = free / 1e9
         return min(2, max(1, int(free_gb)))
-    except ImportError as _exc:
-        logger.debug("_resolve_keep_n fell back to its default after %s", type(_exc).__name__)
+    except (ImportError, RuntimeError, OSError) as _exc:
+        # A broken CUDA context makes mem_get_info raise RuntimeError; that must not break every acquire (39-F39).
+        logger.warning("_resolve_keep_n fell back to 2 after %s: %s", type(_exc).__name__, _exc)
         return 2
 
 

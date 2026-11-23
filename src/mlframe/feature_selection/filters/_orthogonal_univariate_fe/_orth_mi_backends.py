@@ -549,17 +549,17 @@ def _strict_mi_in_room_blocks(X: Any, y: Any, nbins: int, rank_binning: bool) ->
         from .._fe_gpu_vram import pool_column_block
 
         k = int(X.shape[1])
-        width = pool_column_block(
+        col_block = pool_column_block(
             cp, int(X.shape[0]), bytes_per_column_row=_STRICT_MI_BYTES_PER_ELEMENT_FACTOR * int(X.dtype.itemsize), budget_fraction=_STRICT_MI_BUDGET_FRACTION, min_block=16, fallback=k, what="strict resident MI"
         )
     except Exception as exc:  # no cupy or no readable pool: one call, as before
         logger.debug("strict resident MI: block width unknown (%r); one call", exc)
         return _strict_resident_mi(X, y, nbins, rank_binning)
-    if width >= k:
+    if col_block >= k:
         return _strict_resident_mi(X, y, nbins, rank_binning)
     parts = []
-    for c0 in range(0, k, width):
-        part = _strict_resident_mi(X[:, c0 : c0 + width], y, nbins, rank_binning)
+    for c0 in range(0, k, col_block):
+        part = _strict_resident_mi(X[:, c0 : c0 + col_block], y, nbins, rank_binning)
         if part is None:
             return None
         parts.append(np.asarray(part, dtype=np.float64))  # Intentional float64: MI statistic vector, as the single call returns it
@@ -714,7 +714,7 @@ def mi_classif_batch_chunked(X: pd.DataFrame | np.ndarray, y: np.ndarray, *, nbi
     each materialised the FULL engineered matrix as one double precision array to batch-score MI - O(n * n_engineered)
     peak RAM that OOMs at scale (measured (16000, 20000) double precision = 2.38 GiB), worst for the combinatorial
     triplet/quadruplet cross-basis families. MI is PER-COLUMN, so scoring in column blocks is BIT-IDENTICAL to
-    the all-at-once call FOR ANY chunk size while bounding peak extra RAM. ``chunk_cols`` defaults to a RAM-aware
+    the all-at-once call at the same working dtype (``_crit_np_dtype()``), for any chunk size, while bounding peak extra RAM. ``chunk_cols`` defaults to a RAM-aware
     width (see ``_mi_chunk_cols_for`` - bounds the BLOCK BYTES, so it is safe at large n too, not just wide p);
     pass an explicit value to override. Accepts a pandas DataFrame (sliced via ``iloc``, so only the block is
     materialised) or a 2-D ndarray. Returns the (p,) per-column MI array."""

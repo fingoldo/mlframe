@@ -278,15 +278,15 @@ def _oof_gather_into_kernel(cp, out_dtype):
 
 _OOF_GATHER_MULTI_SRC = r"""
 // dtype-ok: Intentional float64, reviewed 2026-11-20: ``fallback`` is the per-column fallback value row, a float64 array the host builds explicitly (the gathered table values it stands in for are float64).
-extern "C" __global__ void binagg_oof_gather_multi(const unsigned long long* __restrict__ idx_ptrs, const unsigned long long* __restrict__ tab_ptrs, const double* __restrict__ fallback,
+extern "C" __global__ void binagg_oof_gather_multi(const unsigned long long* __restrict__ idx_ptrs, const unsigned long long* __restrict__ tab_ptrs, const {REAL}* __restrict__ fallback,
                                                    const long long n, const int ncols, const long long col_stride, const long long row_stride, OUT_T* __restrict__ out) {
     const long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
     if (t >= n * (long long)ncols) return;
     const int c = (int)(t / n);
     const long long i = t - (long long)c * n;
     const long long* idx = (const long long*)idx_ptrs[c];
-    const double* table = (const double*)tab_ptrs[c];
-    const double v = table[idx[i]];
+    const {REAL}* table = (const {REAL}*)tab_ptrs[c];
+    const {REAL} v = table[idx[i]];
     out[c * col_stride + i * row_stride] = (OUT_T)(isfinite(v) ? v : fallback[c]);
 }
 """
@@ -301,7 +301,7 @@ def kernel_oof_gather_multi(cp, real):
         kern = _OOF_GATHER_MULTI_KERNELS.get(key)
         if kern is None:
             # Intentional float64: maps the output dtype key to its CUDA C type, both of which the caller selects
-            kern = cp.RawKernel(_OOF_GATHER_MULTI_SRC.replace("OUT_T", {"float32": "float", "float64": "double"}[key]), "binagg_oof_gather_multi")
+            kern = cp.RawKernel(_OOF_GATHER_MULTI_SRC.replace("OUT_T", {"float32": "float", "float64": "double"}[key]).replace("{REAL}", "double"), "binagg_oof_gather_multi")
             _OOF_GATHER_MULTI_KERNELS[key] = kern
     return kern
 

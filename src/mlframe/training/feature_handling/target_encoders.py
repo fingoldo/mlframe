@@ -62,6 +62,7 @@ from typing import (
 )
 
 import numpy as np
+import pandas as pd
 
 # _NULL_SENTINEL / _canonical_cat_token / _float_canonical_tokens / _objectwise_isnull /
 # _temporal_to_epoch_ns_tokens aren't referenced in this file's own body -- they're re-exported
@@ -406,12 +407,9 @@ class LeakageSafeEncoder:
         m_arr = np.array([means[c] for c in cats_with_data], dtype=np.float64)
         grand_mean = float(np.sum(n_arr * m_arr) / n_total)
 
-        # Pooled within-category variance: sum of each row's squared deviation from ITS OWN category
-        # mean, divided by the residual degrees of freedom (n_total - K). A dict lookup per row is the
-        # simplest correct implementation; this only runs once per fit (or once per fold), not per row
-        # of the hot transform path.
-        cat_mean_lookup = means
-        residuals = np.array([y_i - cat_mean_lookup.get(c, grand_mean) for c, y_i in zip(cats, y)], dtype=np.float64)
+        # Pooled within-category variance: each row's squared deviation from its own category mean (vectorised lookup; unseen -> grand mean).
+        row_means = pd.Series(np.asarray(cats, dtype=object)).map(means).fillna(grand_mean).to_numpy(dtype=np.float64)
+        residuals = np.asarray(y, dtype=np.float64) - row_means
         dof = n_total - K
         sq_resid = residuals**2 if w_rows is None else w_rows * residuals**2
         if dof <= 0:

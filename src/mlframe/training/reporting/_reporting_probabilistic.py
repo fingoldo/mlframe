@@ -381,7 +381,7 @@ def _append_class_summary(
         robust_integral_errors.append(f"{str_class_name}={class_robust_integral_error:.{report_ndigits}f}")
 
 
-def _class_plot_paths(plot_file, str_class_name: str, class_id: int, n_classes: int) -> tuple:
+def _class_plot_paths(plot_file, str_class_name: str, class_id: int, n_classes: int, *, multilabel: bool = False) -> tuple:
     """``(perfplot path, base path)`` of one class's reliability chart; ``("", "")`` without ``plot_file``.
 
     Every class gets a distinct filename: a bare ``_perfplot.png`` reused inside the class loop kept only the LAST class's chart for multiclass and multilabel runs. The class id keeps the
@@ -389,7 +389,8 @@ def _class_plot_paths(plot_file, str_class_name: str, class_id: int, n_classes: 
     if not plot_file:
         return "", ""
     slug = _slugify_class(str_class_name)
-    suffix = f"_perfplot_c{class_id}_{slug}" if n_classes != 2 else "_perfplot"
+    # A multilabel run with two labels is per-label too: the bare name only fits a single binary chart (audit 41-F15).
+    suffix = f"_perfplot_c{class_id}_{slug}" if (n_classes != 2 or multilabel) else "_perfplot"
     return f"{plot_file}{suffix}.png", f"{plot_file}{suffix}"
 
 
@@ -427,6 +428,7 @@ def _base_calibration_report_kwargs(
 def _store_class_metrics(
     metrics, class_id, str_class_name, y_true, y_score, roc_auc, pr_auc, calibration_mae, calibration_std, brier_loss, ece, brier_reliability,
     brier_resolution, brier_uncertainty, ll, ice, class_integral_error, precision, recall, f1, custom_rice_metric, custom_ice_metric, class_robust_integral_error,
+    threshold=0.5,
 ) -> None:
     """Record one class's metrics in ``metrics[class_id]``, extended with the confusion-derived and probability-derived blocks.
 
@@ -451,7 +453,7 @@ def _store_class_metrics(
     )
     if custom_rice_metric and custom_rice_metric != custom_ice_metric:
         class_metrics["class_robust_integral_error"] = class_robust_integral_error
-    _report_probabilist_dropping_new_fields(y_score, y_true, class_metrics, roc_auc, str_class_name)
+    _report_probabilist_dropping_new_fields(y_score, y_true, class_metrics, roc_auc, str_class_name, threshold=threshold)
     metrics.update({class_id: class_metrics})
 
 
@@ -531,7 +533,7 @@ def _report_probabilistic_step1_produced_single_most(
             class_robust_integral_error = custom_rice_metric(y_true=y_true, y_score=y_score)
             title += f", RICE={class_robust_integral_error:.{calib_report_ndigits}f}"
 
-        _class_perfplot, _class_base_path = _class_plot_paths(plot_file, str_class_name, class_id, len(classes))
+        _class_perfplot, _class_base_path = _class_plot_paths(plot_file, str_class_name, class_id, len(classes), multilabel=st.is_multilabel)
 
         _fcr_kwargs = _base_calibration_report_kwargs(
             y_true, y_score, title, _class_perfplot, use_weights, nbins, group_ids, figsize, show_perf_chart, calib_report_ndigits, verbose,
@@ -590,7 +592,7 @@ def _report_probabilistic_step1_produced_single_most(
             _store_class_metrics(
                 metrics, class_id, str_class_name, y_true, y_score, roc_auc, pr_auc, calibration_mae, calibration_std, brier_loss, ece, brier_reliability,
                 brier_resolution, brier_uncertainty, ll, ice, class_integral_error, precision, recall, f1, custom_rice_metric, custom_ice_metric,
-                class_robust_integral_error,
+                class_robust_integral_error, threshold=float(_fcr_kwargs.get("tuned_threshold", 0.5)),
             )
 
 

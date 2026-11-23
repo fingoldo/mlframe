@@ -60,7 +60,7 @@ def test_batch_equals_scalar(kwargs):
     pairs, pmis, ies, singles, kw = _case(seed, **kwargs)
     ref = _reference(pairs, pmis, ies, singles, kw)
     got = resolve_pair_gates_batch(pairs, pmis, ies, singles, scalar_resolve=_resolve_pair_prevalence_gate, col_codes_cache={}, **kw)
-    assert len(got) == len(ref) > 100
+    assert len(pairs) == len(ref) == len(got) > 100
     for p, r, g in zip(pairs, ref, got):
         assert (bool(r[0]), bool(r[1]), bool(r[2])) == (bool(g[0]), bool(g[1]), bool(g[2])), p
         assert float(r[3]) == float(g[3]) and float(r[4]) == float(g[4]), p

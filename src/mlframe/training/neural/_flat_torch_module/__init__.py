@@ -467,7 +467,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
             )
             logger.info(
                 "F-62: wrapped %s in Lookahead(k=%d, alpha=%.2f).",
-                self.optimizer.__name__,
+                getattr(self.optimizer, "__name__", type(self.optimizer).__name__),
                 self.hparams.lookahead_k,
                 self.hparams.lookahead_alpha,
             )
@@ -496,7 +496,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
             return optimizer
 
         # OneCycleLR needs total_steps computed from the trainer; cannot be expressed in static kwargs.
-        if self.lr_scheduler.__name__ == "OneCycleLR":
+        if getattr(self.lr_scheduler, "__name__", "") == "OneCycleLR":
 
             logger.info("Configuring OneCycleLR scheduler")
 
@@ -558,7 +558,7 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
                 if isinstance(base, Lookahead):
                     base.commit_slow_to_fast()
         except Exception as _lh_err:
-            logger.debug("F-B: Lookahead commit_slow_to_fast skipped (%s)", _lh_err)
+            logger.warning("F-B: Lookahead commit_slow_to_fast failed; predictions use the fast weights (%s)", _lh_err, exc_info=True)
 
         # F-D fix: invalidate predict caches before reloading checkpoint
         # so the next predict() doesn't replay a graph captured under

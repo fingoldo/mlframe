@@ -78,3 +78,17 @@ Grep and Read used for caller checks: `core/_phase_dummy_baselines.py` (the try/
 - 32-F12: DEFERRED. Below 50 rows the metric is in-sample. Returning a skip instead changes _fit_quick_and_score's return contract for its caller, a contract decision, deferred.
 - 32-F7: DEFERRED. Building the class universe from train alone changes how unseen validation and test labels are encoded downstream, and that encoding is not yet checked. Deferred until the encoding path is read end to end.
 - 32-F26: FIXED. The smoke script exits 1 when the suite raises instead of printing a pass line and returning 0. Verified by reading; the smoke run is a manual end-to-end script, not a unit test.
+- 32-F8: FIXED. Polars group-mean join matches null keys (nulls_equal=True), as the pandas path does. Test test_cluster32_polars_null_group_matches_pandas.py.
+- 32-F17: FIXED. Threshold benchmark seed uses zlib.crc32 (was already in code); pinned by test_cluster32_bench_seed_is_stable.py.
+- 32-F9: DEFERRED. CatBoost callbacks have no after-training hook, so the final round cannot be captured inside the callback when stride > 1. A fix needs the caller to capture the final round after fit (design). Owner decision.
+- 32-F14: DEFERRED. Per-drop X.loc copy is held per concurrent worker. Removing it needs _fit_quick_and_score to accept a column mask instead of a frame (API change across the baseline diagnostics). Owner to schedule.
+- 32-F13: FIXED. Baseline numba kernels use the NaN-safe fastmath flag set (no nnan/ninf), so NaN predictions propagate. Test test_cluster32_kernels_nan_propagates.py.
+- 32-F27: DEFERRED. Perf-only: the first full-size frame is built before the extra-target and ts knobs are known, then rebuilt. Avoiding it means reordering the benchmark's setup, which needs checking every use of df in between. Deferred.
+- 32-F18: FIXED. Cached benchmark arm uses one key across splits so it can hit; per-split keys never hit. Test test_cluster32_cache_arm_shares_key.py.
+- 32-F19: FIXED. TF-IDF arm B fills NA before casting, so both arms vectorise the same tokens. Test test_cluster32_tfidf_arms_equivalent.py.
+- 32-F20: FIXED. Ordered-encoder bench builds inputs outside the timers. Test test_cluster32_ordered_bench_prebuilt_inputs.py.
+- 32-F21: FIXED. The auto early-stopping rule is one function (resolve_early_stopping_rounds) used by get_training_configs and by the benchmark's auto arm. Test test_cluster32_early_stopping_rule_shared.py.
+- 32-F25: FIXED. Benchmark model names include scenario, mode, val size and seed, so cells sharing a workdir cannot collide. Test test_cluster32_val_size_model_names_unique.py.
+- 32-F22: FIXED. Corrected the benchmark docstring and comment: components are fit on train only with no early stopping on val, so the val arm does not exercise a double-dip. Docstring-only correction; no test (no behaviour changed).
+- 32-F23: DEFERRED. Verdict follows from the fixture's construction (model A strong on class 0, B on minorities). A real verdict needs real or independently generated multiclass data; owner to supply a dataset or accept a labelled synthetic claim.
+- 32-F24: DEFERRED. The near-duplicate pool builds the dedup verdict in by design. A recommendation needs a non-duplicated or real-data scenario; owner to decide the scenario.

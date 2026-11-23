@@ -77,7 +77,9 @@ def test_quadruplet_recipe_params_are_finite_and_replay_matches_with_missing_val
     X_aug, _, _, recipes = hybrid_orth_mi_quadruplet_fe_with_recipes(X, y, degrees=(2,), quadruplet_max_degree=1, top_quadruplet_count=1, min_uplift=1.0)
     quad = [r for r in recipes if r.kind == "orth_quadruplet_cross"]
     assert quad
+    assert len(quad) > 0, "no quadruplet recipe was replayed"
     for r in quad:
+        assert any(key.startswith("preprocess_params") for key in r.extra), f"{r.name} froze no preprocess params"
         for key, pp in r.extra.items():
             if key.startswith("preprocess_params"):
                 assert all(np.isfinite(v) for v in pp.values())

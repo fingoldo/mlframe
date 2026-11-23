@@ -48,3 +48,13 @@ Verification: two behaviours were reproduced with a read-only Python probe (`PYT
 
 - 42-F1: FIXED. tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test
 - 42-F2: FIXED. sub-leaderboards inherit allow_partial and partial_fill; no separate test
+- 42-F4: FIXED. Leaderboard refuses duplicate task column names. Test test_cluster42_duplicate_task_and_missing_task.py.
+- 42-F7: FIXED. Geometric mean names an all-NaN task column as missing, not as a zero score. Test test_cluster42_duplicate_task_and_missing_task.py.
+- 42-F3: FIXED. Two-step group sub-boards inherit allow_partial from the parent (already in code, line 281); pinned by test_partial_opt_in_reaches_two_step_group_rankings.
+- 42-F5: FIXED. linprog solver failures (status other than 2, infeasible) log a WARNING instead of being reported as infeasible. Test test_cluster42_gamma_and_solver_status.py.
+- 42-F6: FIXED. optimality_gap without gamma raises a ValueError naming the missing gamma at every elect/rank call site. Test test_cluster42_gamma_and_solver_status.py.
+- 42-F8: FIXED. Removed the no-op full-table reindex in Leaderboard.__init__. Test test_cluster42_majority_graph_and_table.py.
+- 42-F9: FIXED. Majority graph computes the below/above weighted sums once per model and reuses them for wins and ties. Values pinned by test_cluster42_majority_graph_and_table.py.
+- 42-F11: FIXED. Votenrank bench imports sigmoid from the family's _bench_shared module; the package-root copy stays for the other benches. Test test_cluster42_bench_sigmoid_shared.py.
+- 42-F10: FIXED. Minimax benchmark times and checks the shipped Leaderboard.minimax_ranking; the duplicate _new_minimax copy is removed; the old formulation stays as a fixture. Test test_cluster42_minimax_bench_uses_shipped.py.
+- 42-F12: DEFERRED. Repeated cProfile/perf_counter boilerplate across about a dozen bench scripts: a cross-file cleanup with no behaviour impact; deferred so the benches are not churned in this pass.

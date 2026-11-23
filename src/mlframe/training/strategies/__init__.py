@@ -327,6 +327,14 @@ def _resolve_model_spec(
     return key, entry, strat
 
 
+def _quiet_instance_strategy(entry: Any):
+    """Strategy for an estimator INSTANCE without the unknown-model WARNING: a predicate asks a yes/no question, not a dispatch (audit 41-F20)."""
+    strategy = _known_strategy(entry)
+    if strategy is None:
+        strategy = _strategy_of_halves(entry)
+    return strategy
+
+
 def is_catboost_model(entry: Any) -> bool:
     """True if ``entry`` (alias str, estimator instance, or ``(name, est)`` tuple) is a CatBoost model.
 
@@ -336,7 +344,9 @@ def is_catboost_model(entry: Any) -> bool:
     """
     if isinstance(entry, str):
         return entry.lower() in ("cb", "catboost")
-    return isinstance(get_strategy(entry), CatBoostStrategy)
+    if isinstance(entry, tuple):
+        return isinstance(get_strategy(entry), CatBoostStrategy)
+    return isinstance(_quiet_instance_strategy(entry), CatBoostStrategy)
 
 
 def is_neural_model(entry: Any) -> bool:
@@ -347,7 +357,9 @@ def is_neural_model(entry: Any) -> bool:
     """
     if isinstance(entry, str):
         return entry.lower() in ("mlp", "recurrent", "ngb", "lstm", "gru", "rnn", "transformer")
-    return isinstance(get_strategy(entry), (NeuralNetStrategy, RecurrentModelStrategy))
+    if isinstance(entry, tuple):
+        return isinstance(get_strategy(entry), (NeuralNetStrategy, RecurrentModelStrategy))
+    return isinstance(_quiet_instance_strategy(entry), (NeuralNetStrategy, RecurrentModelStrategy))
 
 
 from .pipeline_cache import (

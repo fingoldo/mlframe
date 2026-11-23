@@ -155,6 +155,85 @@ def _get_build_opcands_cm_kernel(cp, real_t: str = "double"):
     return ker
 
 
+_BUILD_OPCANDS_SETS_SRC = r"""
+extern "C" __global__
+void build_op_cands_sets(const {REAL}* __restrict__ M, const int* __restrict__ pi, const int* __restrict__ pj,
+                         const long long n, const int m, const int npairs, const int has_sum,
+                         const int k, const int S, {REAL}* __restrict__ out) {
+    // S sets of m operands each (M is (S*m, n), set s starts at row s*m); out is (S*k, n): the same candidate rows as the per-set kernel, set by set
+    long long t = (long long)blockIdx.x * blockDim.x + threadIdx.x;
+    long long per_set = n * (long long)k;
+    if (t >= per_set * (long long)S) return;
+    int s = (int)(t / per_set);
+    long long rem = t - (long long)s * per_set;
+    long long row = rem % n;
+    int c = (int)(rem / n);
+    const {REAL}* Ms = M + (long long)s * m * n;
+    double val;
+    if (c < m) {
+        val = Ms[(long long)c * n + row];
+    } else if (c < m + 4 * npairs) {
+        int q = c - m; int p = q >> 2; int o = q & 3;
+        double u = Ms[(long long)pi[p] * n + row], v = Ms[(long long)pj[p] * n + row];
+        val = o == 0 ? u * v : (o == 1 ? u - v : (o == 2 ? u / (fabs(v) < 1e-6 ? copysign(1e-6, v) : v) : u + v));
+    } else {
+        int r = c - m - 4 * npairs;
+        if (r <= 1) {
+            double acc = Ms[row];
+            for (int q = 1; q < m; ++q) { double w = Ms[(long long)q * n + row]; acc = isnan(acc) ? acc : (isnan(w) ? w : ((r == 0) ? (w > acc ? w : acc) : (w < acc ? w : acc))); }
+            val = acc;
+        } else {
+            double acc = 0.0;
+            for (int q = 0; q < m; ++q) acc += Ms[(long long)q * n + row];
+            val = acc;
+        }
+    }
+    out[(long long)s * k * n + (long long)c * n + row] = val;
+}
+"""
+
+_BUILD_OPCANDS_SETS_KERNELS: dict = {}
+_BUILD_OPCANDS_SETS_LOCK = threading.Lock()
+
+
+def _get_build_opcands_sets_kernel(cp, real_t: str = "double"):
+    """Lazily compile and cache the set-batched ``build_op_cands_sets`` RawKernel for the buffer element type ``real_t`` (``"float"`` or ``"double"``)."""
+    with _BUILD_OPCANDS_SETS_LOCK:
+        ker = _BUILD_OPCANDS_SETS_KERNELS.get(real_t)
+        if ker is None:
+            ker = cp.RawKernel(_BUILD_OPCANDS_SETS_SRC.replace("{REAL}", real_t), "build_op_cands_sets")
+            _BUILD_OPCANDS_SETS_KERNELS[real_t] = ker
+    return ker
+
+
+def _build_op_cands_block_cm(cp, sets: list, spans: list, total: int, out_dtype):
+    """The ``(total, n)`` candidate block of many operand sets in one launch per operand count: the sets of one arity are stacked and built by one
+    set-batched kernel, and their rows are written to their spans of the block with one row scatter. Same values as one
+    :func:`_build_best_existing_op_candidates_gpu_cm` per set (the same arithmetic per candidate)."""
+    n = int(sets[0][0].shape[0])
+    mat = cp.empty((total, n), dtype=out_dtype)
+    by_arity: dict = {}
+    for si, cols in enumerate(sets):
+        by_arity.setdefault(len(cols), []).append(si)
+    _real = "float" if out_dtype == cp.float32 else "double"
+    ker = _get_build_opcands_sets_kernel(cp, _real)
+    for m, members in by_arity.items():
+        pairs = [(i, j) for i in range(m) for j in range(i + 1, m)]
+        npairs = len(pairs)
+        has_sum = 1 if m >= 3 else 0
+        k = m + 4 * npairs + 2 + has_sum
+        S = len(members)
+        M = cp.ascontiguousarray(cp.stack([c for si in members for c in sets[si]], axis=0).astype(out_dtype, copy=False))  # (S*m, n)
+        pi, pj = _pair_index_arrays(cp, pairs)
+        out = cp.empty((S * k, n), dtype=out_dtype)
+        work = S * n * k
+        threads = block_size_for(ker, work_items=work)
+        ker(((work + threads - 1) // threads,), (threads,), (M, pi, pj, np.int64(n), np.int32(m), np.int32(npairs), np.int32(has_sum), np.int32(k), np.int32(S), out))
+        rows = np.concatenate([np.arange(spans[si][0], spans[si][1]) for si in members])
+        mat[cp.asarray(rows)] = out
+    return mat
+
+
 def _build_best_existing_op_candidates_gpu_cm(cols_arr_gpu: list, cp, out_dtype=None, out=None):
     """:func:`_build_best_existing_op_candidates_gpu` as a ``(k, n)`` column-major block (candidate ``c`` is row ``c``; same columns in the same order, same values).
 
@@ -373,9 +452,7 @@ def best_existing_op_mi_resident_many(
                 mat = cp.concatenate(blocks, axis=1)
                 del blocks
             else:
-                mat = cp.empty((total, int(sets[0][0].shape[0])), dtype=cdt)  # joined block filled in place: no per-set buffers, no concatenate copy
-                for cols_gpu, (lo, hi) in zip(sets, spans):
-                    _build_best_existing_op_candidates_gpu_cm(cols_gpu, cp, out_dtype=cdt, out=mat[lo:hi])
+                mat = _build_op_cands_block_cm(cp, sets, spans, total, cdt)  # the block of all sets, one launch per operand count
             if rank_binning:
                 from ._gpu_resident_rank_bin import plugin_mi_classif_batch_rank_cuda_resident
 

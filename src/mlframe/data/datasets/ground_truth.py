@@ -368,8 +368,8 @@ class GroundTruth:
         digest = hashlib.blake2b(digest_size=16)
         for name in sorted(columns):
             digest.update(name.encode("utf-8"))
-            digest.update(np.ascontiguousarray(columns[name]).tobytes())
-        digest.update(np.ascontiguousarray(labels).tobytes())
+            digest.update(np.ascontiguousarray(columns[name]).view(np.uint8).data)
+        digest.update(np.ascontiguousarray(labels).view(np.uint8).data)
         key = f"mi::{','.join(sorted(columns))}::{digest.hexdigest()}"
         if key not in self._memo:
             from mlframe.data.datasets._oracle import reference_mi

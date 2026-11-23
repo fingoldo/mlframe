@@ -36,9 +36,16 @@ def _bin_ages(kept_bins: list) -> list[float]:
         return []
     try:
         starts = np.asarray([b.bin_start for b in kept_bins])
-        return [float(v) for v in (starts[-1] - starts).astype("float64")]
+        if starts.dtype == object:
+            # Timestamps arrive as an object array, which cannot be subtracted: view them as datetime64 first (audit 41-F8).
+            starts = np.asarray(starts, dtype="datetime64[ns]")
+        diffs = starts[-1] - starts
+        if np.issubdtype(diffs.dtype, np.timedelta64):
+            diffs = diffs / np.timedelta64(1, "s")  # seconds; the unit cancels inside the maturity fit
+        return [float(v) for v in np.asarray(diffs, dtype="float64")]
     except (TypeError, ValueError) as exc:
-        logger.debug("bin_start values are not differenceable (%s); maturity audit falls back to even spacing", exc)
+        # WARNING, not debug: a silent fallback makes the audit assume evenly spaced ages with no visible signal (audit 41-F8).
+        logger.warning("bin_start values are not differenceable (%s); maturity audit falls back to even spacing", exc)
         return []
 
 

@@ -179,4 +179,4 @@ def fold_column_by_target(col: np.ndarray, y_codes: np.ndarray, max_cardinality:
     dense[order] = np.arange(order.size)
     out = col.copy()
     out[mask] = dense[row_group].astype(col.dtype)
-    return out
+    return np.asarray(out)

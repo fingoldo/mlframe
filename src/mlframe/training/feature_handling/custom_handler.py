@@ -33,6 +33,12 @@ from mlframe.training.feature_handling.handlers import CustomParams
 logger = logging.getLogger(__name__)
 
 
+def _is_y_signature_mismatch(exc: TypeError) -> bool:
+    """True when a TypeError is the transformer rejecting the ``y`` argument, not an unrelated failure inside ``fit`` (39-F22)."""
+    msg = str(exc).lower()
+    return ("argument" in msg or "positional" in msg or "keyword" in msg) and ("y" in msg or "2" in msg)
+
+
 def validate_custom_transformer(transformer: Any) -> None:
     """Check that ``transformer`` has the sklearn fit/transform contract.
 
@@ -113,9 +119,10 @@ class CustomHandler:
             try:
                 self.params.transformer.fit(column_data, y)
             except TypeError as exc:
-                # Some sklearn transformers expose ``fit(self, X)`` only; passing y trips a TypeError on the
-                # missing positional. Log so the operator can spot misconfigured "supervised" transformers
-                # that get silently demoted to unsupervised here.
+                # Retry without y only for the signature-mismatch class (39-F22), the same narrowing fit_transform uses:
+                # a genuine TypeError inside a supervised fit must surface instead of silently refitting unsupervised.
+                if not _is_y_signature_mismatch(exc):
+                    raise
                 logger.warning(
                     "CustomHandler(%r): transformer.fit(X, y) raised TypeError (%s); retrying with fit(X) only.",
                     self.column, exc,
@@ -156,8 +163,7 @@ class CustomHandler:
             # Narrow the retry to the y-signature mismatch class. Pre-fix any TypeError raised
             # deep inside ``fit_transform`` (shape mismatch, dtype incompatibility, etc.) silently
             # demoted to fit-only and re-ran the transformer twice, hiding the original error.
-            msg = str(exc).lower()
-            if y is not None and ("argument" in msg or "positional" in msg or "keyword" in msg) and ("y" in msg or "2" in msg):
+            if y is not None and _is_y_signature_mismatch(exc):
                 logger.warning(
                     "CustomHandler(%r): fit_transform(X, y) raised TypeError (%s); retrying with fit + transform.",
                     self.column, exc,

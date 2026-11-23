@@ -96,6 +96,42 @@ def combiner_mi_resident(
 _BATCH_BYTES = 48 * 1024 * 1024  # residues held on the device per chunk of combiners
 
 
+def _grid_block_one_call(cp, cg, mods_dev, groups, n_mods, n, yd, y_min, n_classes):
+    """The ``(C, n_mods)`` grid MIs of one chunk of combiners from ONE fused MI call.
+
+    Every effective-nbins group builds its residues and its interior edges as before; the edges of a group are padded with ``+inf`` up to the largest bin count, which
+    no finite residue reaches, so the codes and the histograms of every column are the ones its own group gives. The columns of all groups are then scored together. ``None`` when
+    the groups' edge or residue dtypes differ or the fused tile does not fit (the caller scores the groups one by one)."""
+    from ._fe_batched_mi import binned_mi_from_values_gpu
+    from ._hermite_fe_mi import _resident_mi_candidates, _shifted_y_cached
+
+    C = int(cg.shape[0])
+    maxB = max(groups)
+    xs, edges, dtypes = [], [], set()
+    for eff_nbins, idxs in groups.items():
+        sel = cp.asarray(np.asarray(idxs, dtype=np.int64))
+        residues = (cg[:, None, :] % mods_dev[sel][None, :, None]).astype(cp.float64).reshape(C * len(idxs), n)  # Intentional float64: GPU residue operand; kernel contract is float64
+        Xc, _, _, interior = _resident_mi_candidates(residues, int(eff_nbins), keep_dtype=False, relax_binning=True, x_is_cm=True)
+        xs.append(Xc)
+        dtypes.add((str(Xc.dtype), str(interior.dtype)))
+        pad_rows = maxB - int(eff_nbins)
+        edges.append(cp.concatenate([interior, cp.full((pad_rows, interior.shape[1]), cp.inf, dtype=interior.dtype)], axis=0) if pad_rows else interior)
+    if len(dtypes) != 1:
+        return None
+    yshift = _shifted_y_cached(yd, int(y_min)) if y_min else yd
+    mi = binned_mi_from_values_gpu(None, cp.concatenate(edges, axis=1), yshift, int(maxB), int(n_classes), codes_trusted=True, x_cm=cp.concatenate(xs, axis=0))
+    if mi is None:
+        return None
+    mi = np.asarray(mi, dtype=np.float64)  # Intentional float64: MI statistic output
+    out = np.empty((C, n_mods), dtype=np.float64)  # Intentional float64: grid MI statistic output
+    off = 0
+    for idxs in groups.values():
+        size = C * len(idxs)
+        out[:, np.asarray(idxs)] = mi[off : off + size].reshape(C, len(idxs))
+        off += size
+    return out
+
+
 def combiner_bases_and_grids_resident(
     combiners: Sequence[np.ndarray],
     y: Any,
@@ -150,7 +186,11 @@ def combiner_bases_and_grids_resident(
                 if mi is None:
                     return None
                 bases[a : a + len(chunk)] = np.asarray(mi, dtype=np.float64)  # Intentional float64: MI statistic output
-            for eff_nbins, idxs in groups.items():
+            block = _grid_block_one_call(cp, cg, mods_dev, groups, len(mods), n, yd, _ymin, _ncls)
+            if block is not None:
+                grids[a : a + len(chunk)] = block
+                continue
+            for eff_nbins, idxs in groups.items():  # fallback: the fused tile does not fit, one call per group of moduli
                 sel = cp.asarray(np.asarray(idxs, dtype=np.int64))
                 residues = (cg[:, None, :] % mods_dev[sel][None, :, None]).astype(cp.float64).reshape(len(chunk) * len(idxs), n)  # Intentional float64: GPU residue operand; kernel contract is float64
                 mis = _plugin_mi_classif_batch_cuda_resident(residues, yd, int(eff_nbins), y_min=_ymin, n_classes=_ncls, relax_binning=True, x_is_cm=True)

@@ -107,6 +107,10 @@ def generate_pareto_artifact(
     agg_history = getattr(callback, "slice_aggregate_history", None) or []
     n_iters = len(shard_history)
     min_iters = int(getattr(config, "pareto_plot_min_iterations", 10))
+    if n_iters == 0:
+        # No history at all: argmin/argmax and shard_history[0] below would raise, even with min_iterations=0 (audit 41-F23).
+        logger.info("slice-stable Pareto plot skipped for target=%s model=%s: no shard history", target_name, model_name)
+        return None
     if n_iters < min_iters:
         logger.info(
             "slice-stable Pareto plot skipped for target=%s model=%s: n_iters=%d < min=%d",

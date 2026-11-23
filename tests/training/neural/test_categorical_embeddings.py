@@ -74,8 +74,20 @@ def test_unseen_and_overflow_code_clamps_to_reserved_row_no_indexerror():
     reserved_vec = emb.embeddings[0](torch.tensor([4]))
     assert torch.allclose(out[2], reserved_vec[0])
     assert torch.allclose(out[3], reserved_vec[0])
+    # A negative code is a missing-value sentinel, not category 0: it lands on the reserved row too (39-F57).
+    assert torch.allclose(out[4], reserved_vec[0])
+
+
+def test_nan_code_maps_to_reserved_row_not_category_zero():
+    """A NaN code (missing value) maps to the reserved row, never to category 0 (39-F57)."""
+    emb = CategoricalEmbedding(cardinalities=[4], embed_dim=3)
+    emb.set_num_numeric(0)
+    x = torch.tensor([[float("nan")], [0.0]], dtype=torch.float32)
+    out = emb(x)
+    reserved_vec = emb.embeddings[0](torch.tensor([4]))
     row0 = emb.embeddings[0](torch.tensor([0]))
-    assert torch.allclose(out[4], row0[0])
+    assert torch.allclose(out[0], reserved_vec[0])
+    assert torch.allclose(out[1], row0[0])
 
 
 def test_pickle_round_trip_preserves_weights():

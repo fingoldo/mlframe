@@ -234,7 +234,15 @@ class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
                 except (AttributeError, ValueError, NotImplementedError, TypeError):
                     pass
                 if _out_cols is None:
-                    _out_cols = list(num_cols[:_n_out]) if _n_out <= len(num_cols) else [f"num_ext_{i}" for i in range(_n_out)]
+                    if _n_out > len(num_cols):
+                        _out_cols = [f"num_ext_{i}" for i in range(_n_out)]
+                    else:
+                        # Dropped columns with no feature names: a positional guess would assign values to the WRONG columns by name
+                        # (audit 41-F18). Fail loudly instead; the caller's per-model guard decides what to do.
+                        raise ValueError(
+                            f"numeric transformer changed width ({len(num_cols)} -> {_n_out}) and exposes no feature names; "
+                            "cannot map its output columns back without guessing"
+                        )
             transformed = _pd.DataFrame(transformed, columns=_out_cols, index=X.index)
         # Reassemble in the ORIGINAL column order so the cat columns keep their positions + names (the estimator reorders cats leading by name,
         # but downstream feature-name continuity + the input-width contract still expect a stable layout here). Only map back columns the inner

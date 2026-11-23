@@ -94,7 +94,8 @@ class CategoricalEmbedding(nn.Module):
         """Embed the leading ``n_cat`` code columns of ``x`` and concatenate with the untouched trailing numeric columns.
 
         Codes are cast to ``long`` and clamped to ``[0, cardinality]`` so an unseen-at-fit or out-of-range code lands
-        on the reserved last embedding row instead of raising ``IndexError`` at inference time.
+        on the reserved last embedding row instead of raising ``IndexError`` at inference time. Negative and NaN codes also map
+        to that reserved row rather than aliasing category 0.
         """
         if x.dim() != 2:
             raise ValueError(f"CategoricalEmbedding expects 2-D input (N, D); got shape {tuple(x.shape)}")
@@ -106,7 +107,11 @@ class CategoricalEmbedding(nn.Module):
             # Cast to long for the embedding lookup; clamp so an overflow code (>= card) maps to the reserved last row (index card) instead of
             # raising IndexError, and a negative code (e.g. a missing-value sentinel) clamps to row 0 instead -- pinned by
             # test_unseen_and_overflow_code_clamps_to_reserved_row_no_indexerror. Codes arrive as float (X is one float dtype) holding ints.
-            codes = x[:, i].long().clamp_(0, self.cardinalities[i])
+            # Negative and NaN codes (missing-value sentinels) must NOT alias category 0; they go to the reserved row (39-F57).
+            raw = x[:, i]
+            missing = ~torch.isfinite(raw) | (raw < 0)
+            codes = raw.nan_to_num(nan=0.0).long().clamp_(0, self.cardinalities[i])
+            codes = torch.where(missing, torch.full_like(codes, self.cardinalities[i]), codes)
             outs.append(emb(codes))
 
         if x.shape[1] > self.n_cat:

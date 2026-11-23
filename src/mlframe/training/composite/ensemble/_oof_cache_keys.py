@@ -56,7 +56,10 @@ def _full_array_digest(a: np.ndarray) -> int:
             h.update(len(encoded).to_bytes(8, "little"))
             h.update(encoded)
     else:
-        h.update(arr.tobytes())
+        if arr.dtype.hasobject:
+            h.update(repr(arr.tolist()).encode("utf-8", "surrogatepass"))
+        else:
+            h.update(np.ascontiguousarray(arr).view(np.uint8).data)
     return int.from_bytes(h.digest(), "little")
 
 
