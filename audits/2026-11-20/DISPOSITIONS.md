@@ -1093,3 +1093,4 @@
 | 22-F33 | FIXED | Subset draws with fewer than two members raise a clear ValueError instead of an empty-choice crash. Test test_cluster22_synthetic_subset_guard.py. |
 | 22-F32 | FIXED | Both sd_sigma and nonoutlying_dist_percentage unset raises a ValueError naming the parameter, instead of a TypeError. Test test_cluster22_tukey_both_none_is_valueerror.py. |
 | 18-F15 | DEFERRED | Streaming harmonic mean maps a zero prediction to a finite 1e150 sentinel, so it finishes near 3e-150 while the materialised path returns 0. Fixing it needs a zero-indicator channel in the streaming accumulator, which changes its memory footprint. Owner to approve the accumulator change. |
+| 14-F12 | FIXED | split_into_train_test refuses an empty features_indices with a ValueError instead of indexing [0]. Test test_cluster14_split_empty_features_raises.py. |

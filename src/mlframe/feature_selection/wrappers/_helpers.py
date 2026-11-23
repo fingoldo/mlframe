@@ -97,6 +97,9 @@ def split_into_train_test(
     float32 would alter LightGBM splits), so the selection is unaffected. Only the X-DataFrame branch
     consults ``X_estimator``; the polars / ndarray branches are untouched.
     """
+    # An empty feature list has no first element to classify as name or position; refuse it up front (14-F12).
+    if features_indices is not None and len(features_indices) == 0:
+        raise ValueError("split_into_train_test: features_indices is empty; pass None for all columns or at least one feature.")
 
     X_train: Any
     X_test: Any

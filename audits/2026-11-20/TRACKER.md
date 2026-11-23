@@ -565,6 +565,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 22-F33 | 22_root_modules-1.md | FIXED | Subset draws with fewer than two members raise a clear ValueError. Test test_cluster22_synthetic_subset_guard.py. |
 | 22-F32 | 22_root_modules-1.md | FIXED | Both-unset Tukey parameters raise ValueError. Test test_cluster22_tukey_both_none_is_valueerror.py. |
 | 18-F15 | 18_models.md | DEFERRED | Streaming harm sentinel gives ~3e-150 where materialised gives 0; needs a zero-indicator channel in the accumulator. |
+| 14-F12 | 14_feature_selection-5.md | FIXED | Empty features_indices raises ValueError. Test test_cluster14_split_empty_features_raises.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
