@@ -70,6 +70,7 @@ from __future__ import annotations
 from ._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS
 
 import logging
+import os
 from typing import Any, Optional, Sequence
 
 import numpy as np
@@ -290,10 +291,16 @@ def _routing_scores(routing_criterion: str, y_arr: np.ndarray, cand_mat: np.ndar
             _yz = (_yf - _yf.mean()) / _ystd
             # Intentional float64: the correlation statistics accumulate in double precision
             _m = cand_mat.mean(axis=0, dtype=np.float64)
-            _s = cand_mat.std(axis=0, dtype=np.float64)  # Intentional float64: as the mean above
+            _s = np.empty(cand_mat.shape[1], dtype=np.float64)  # Intentional float64: as the mean above
+            _num = np.empty(cand_mat.shape[1], dtype=np.float64)  # Intentional float64: the correlation numerator accumulates in double precision
+            # In column blocks: ``std`` of the whole matrix builds a centred float64 copy of it and ``astype`` another, 2 x 8 bytes a cell (2.9 GB and 3.8 GB at 100000 x 4800 on the host path); a block
+            # holds a few tens of MB and every column still sees the same rows in the same order.
+            _blk = max(1, int(_STATS_BLOCK_BYTES // max(1, 8 * cand_mat.shape[0])))
+            for _c0 in range(0, cand_mat.shape[1], _blk):
+                _c1 = min(cand_mat.shape[1], _c0 + _blk)
+                _s[_c0:_c1] = cand_mat[:, _c0:_c1].std(axis=0, dtype=np.float64)
+                _num[_c0:_c1] = cand_mat[:, _c0:_c1].astype(np.float64).T @ _yz
             _ok = _s > _REL_TOL * np.abs(cand_mat).max(axis=0)
-            # Intentional float64: the correlation numerator accumulates in double precision
-            _num = cand_mat.astype(np.float64, copy=False).T @ _yz
             route_score = np.abs(np.where(_ok, (_num - _m * _yz.sum()) / np.where(_ok, _s, 1.0), 0.0) / _yf.size)
         else:
             route_score = eng_mi
@@ -373,6 +380,56 @@ def _enumerate_routing_cells(
         cand_values.extend(c_values)
         cand_meta.extend(c_meta)
     return cand_cols, cand_values, cand_meta
+
+
+_STATS_BLOCK_BYTES = 64 * 1024 * 1024  # float64 working copy of one column block in the routing statistics
+
+
+def _routing_block_of_column(X: pd.DataFrame, col: str, transform_variants: tuple, candidate_bases: tuple, degrees: tuple) -> tuple:
+    """``(cand_cols, rows, cand_meta)`` of one source column with the cell vectors already at the criterion dtype as the ``(k, n)`` array ``rows`` (the float64 vectors are dropped at once; the winners are rebuilt by ``LazyRoutingValues``)."""
+    c_cols, c_values, c_meta = _routing_cells_of_column(X, col, transform_variants, candidate_bases, degrees)
+    rows = np.empty((len(c_values), len(X)), dtype=_crit_np_dtype())
+    for i, v in enumerate(c_values):
+        rows[i] = v
+    return c_cols, rows, c_meta
+
+
+def _enumerate_routing_blocks(
+    X: pd.DataFrame, cols: Sequence[str], transform_variants: tuple, candidate_bases: tuple, degrees: tuple, n_jobs: "int | None" = None
+) -> "tuple[list, np.ndarray, list]":
+    """The lean twin of ``_enumerate_routing_cells`` + ``_stack_candidates``: ``(cand_cols, cand_mat, cand_meta)`` with ``cand_mat`` the ``(n, k)`` criterion-dtype matrix, in the same cell order.
+
+    Holding every cell as a float64 vector and then stacking it cost 8 + 4 + 4 bytes a cell on the host path (the 100000 x 400 fit of 2026-11-23: 2.9 GB of vectors and 1.5 GB of staging rows); here a column's cells
+    go to a criterion-dtype block as they are built and the blocks are written into the final matrix tile by tile, so the peak is the blocks plus the matrix (2 x 4 bytes a cell) and falls to the matrix."""
+    import numba
+
+    from ._adaptive_nbins import _resolve_edge_jobs
+    from ._numba_utils import rows_to_columns_into
+
+    cols = list(cols)
+    jobs = _resolve_edge_jobs(n_jobs, len(cols))
+    if jobs <= 1 or len(cols) < 2 or numba.config.DISABLE_JIT:
+        per_col = [_routing_block_of_column(X, col, transform_variants, candidate_bases, degrees) for col in cols]
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+
+        first = _routing_block_of_column(X, cols[0], transform_variants, candidate_bases, degrees)
+        with ThreadPoolExecutor(max_workers=jobs) as pool:
+            rest = list(pool.map(lambda col: _routing_block_of_column(X, col, transform_variants, candidate_bases, degrees), cols[1:]))
+        per_col = [first, *rest]
+    cand_cols: list[str] = []
+    cand_meta: list[tuple[str, str, str, int]] = []
+    total = sum(block.shape[0] for _, block, _ in per_col)
+    cand_mat = np.empty((len(X), total), dtype=_crit_np_dtype())
+    at = 0
+    for i, (c_cols, block, c_meta) in enumerate(per_col):
+        cand_cols.extend(c_cols)
+        cand_meta.extend(c_meta)
+        if block.shape[0]:
+            rows_to_columns_into(block, cand_mat, at)
+        at += block.shape[0]
+        per_col[i] = ([], block[:0], [])  # release the block as soon as it is written
+    return cand_cols, cand_mat, cand_meta
 
 
 def _stack_candidates(cand_values: "list[np.ndarray]") -> np.ndarray:
@@ -487,13 +544,18 @@ def generate_conditional_basis_routing_features(
         if not cand_cols:
             return pd.DataFrame(index=X.index), {}
     else:
-        cand_cols, cand_values, cand_meta = _enumerate_routing_cells(X, cols, transform_variants, candidate_bases, degrees)
+        if os.environ.get("MLFRAME_ROUTING_HOST_LEAN", "1").strip() == "0":
+            cand_cols, cand_values, cand_meta = _enumerate_routing_cells(X, cols, transform_variants, candidate_bases, degrees)
+            cand_mat = _stack_candidates(cand_values) if cand_cols else np.empty((len(X), 0), dtype=_crit_np_dtype())
+        else:
+            # lean host path: criterion-dtype blocks, no float64 list of vectors; the winners are rebuilt like on the device path
+            cand_cols, cand_mat, cand_meta = _enumerate_routing_blocks(X, cols, transform_variants, candidate_bases, degrees)
+            cand_values = LazyRoutingValues(X, cand_meta)
 
         if not cand_cols:
             return pd.DataFrame(index=X.index), {}
 
         # ---- Step 3: ONE batch MI call across every candidate
-        cand_mat = _stack_candidates(cand_values)
         eng_mi = _mi_classif_batch(cand_mat, y_arr, nbins=nbins)
 
         route_score = _routing_scores(routing_criterion, y_arr, cand_mat, eng_mi)
