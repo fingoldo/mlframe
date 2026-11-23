@@ -1106,3 +1106,4 @@
 | 22-F39 | FIXED | ensure_no_infinity_pd works on a copy, so the caller's DataFrame keeps its infinities. Test test_cluster22_ensure_no_inf_copies.py. |
 | 22-F42 | FIXED | A cupy measurement failure is a WARNING that says cupy is excluded; a missing cupy stays at debug. Test test_cluster22_cupy_tuning_failure_warns.py. |
 | 22-F44 | FIXED | trimmed_mean and robust_mean_mestimator refuse NaN/inf with a ValueError instead of a biased or NaN result. Test test_cluster22_robust_location_nonfinite.py. |
+| 22-F43 | FIXED | Throttle key is the stable name post_train_calib_target_coerce_failed instead of a line number. Test test_cluster22_throttle_key_stable.py. |
