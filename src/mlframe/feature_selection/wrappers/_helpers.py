@@ -56,9 +56,8 @@ def _pin_threads_to_one(estimator: object) -> None:
     if pinned:
         try:
             estimator.set_params(**pinned)
-        except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
-            pass
+        except Exception as e:  # nosec B110 - non-fatal by design, but the thread pin not applying must be visible (14-F13)
+            logger.warning("thread-pinning: set_params(%s) failed; the estimator keeps its default thread count: %s", sorted(pinned), e)
 
 
 def suppress_irritating_3rdparty_warnings() -> None:
