@@ -52,3 +52,14 @@ def test_under_copy_on_write_a_hit_shares_the_blocks():
     stored = next(iter(M._BASIS_MEMO.values()))
     hit = U.generate_univariate_basis_features(X, degrees=(2, 3), basis="hermite")
     assert np.shares_memory(stored.iloc[:, 0].to_numpy(), hit.iloc[:, 0].to_numpy())
+
+
+def test_a_write_to_the_first_result_does_not_reach_the_stored_columns():
+    """The stored frame is a shallow copy under copy-on-write too: editing the FIRST (computed) result in place must leave the memo, and so the next hit, intact."""
+    X = _frame()
+    first = U.generate_univariate_basis_features(X, degrees=(2, 3), basis="hermite")
+    col = first.columns[0]
+    expected = first[col].to_numpy().copy()
+    first.loc[:, col] = -1.0e9
+    again = U.generate_univariate_basis_features(X, degrees=(2, 3), basis="hermite")
+    assert np.array_equal(again[col].to_numpy(), expected)

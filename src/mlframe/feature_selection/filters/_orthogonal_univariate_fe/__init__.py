@@ -391,7 +391,7 @@ def generate_univariate_basis_features(
             with _BASIS_MEMO_LOCK:
                 while _BASIS_MEMO and (len(_BASIS_MEMO) >= _BASIS_MEMO_MAX_ENTRIES or sum(int(d.memory_usage(index=False).sum()) for d in _BASIS_MEMO.values()) + size > _BASIS_MEMO_MAX_BYTES):
                     _BASIS_MEMO.pop(next(iter(_BASIS_MEMO)), None)  # evict-ok: a miss regenerates the basis columns
-                _BASIS_MEMO.setdefault(key, result.copy(deep=True))
+                _BASIS_MEMO.setdefault(key, result.copy(deep=not _copy_on_write_active()))  # shallow under copy-on-write: the stored and the returned frame share blocks until one is written, then that block alone is copied
     return result
 
 
