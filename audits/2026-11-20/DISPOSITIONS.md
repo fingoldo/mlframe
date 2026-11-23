@@ -1142,3 +1142,4 @@
 | 27-F24 | FIXED | CUDA_VISIBLE_DEVICES default moved from import time to the script entry point; importing the module no longer changes the process environment. Test test_cluster27_profile_import_keeps_env.py. |
 | 27-F23 | WON'T FIX | The two precompute stubs raise NotImplementedError on purpose: their docstrings explain the split-time dependency, precompute_all does not call them, and tests/training/test_caching_caching.py pins the raise. Removing them would break the public re-exports and meta-tests. |
 | 27-F25 | FIXED | Backend selection uses the same absolute-PATH nvidia-smi lookup as the probe, not a plain shutil.which on the full PATH. Test test_cluster27_gpu_backend_absolute_path.py; 7 existing GPU probe tests pass. |
+| 27-F20 | FIXED | format_metric docstring example corrected to the actual output (0.000012); test pins every documented example. Test test_cluster27_format_metric_docstring_examples.py. |
