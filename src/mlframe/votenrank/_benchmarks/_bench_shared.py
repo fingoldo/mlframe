@@ -10,3 +10,8 @@ import numpy as np
 def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Root-mean-squared error between ``y_true`` and ``y_pred``."""
     return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
+
+
+def sigmoid(z: np.ndarray) -> np.ndarray:
+    """Logistic sigmoid, elementwise (moved here from the package-root copy, 42-F11)."""
+    return np.asarray(1.0 / (1.0 + np.exp(-z)))

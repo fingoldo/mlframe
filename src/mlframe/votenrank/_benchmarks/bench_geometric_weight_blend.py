@@ -13,7 +13,7 @@ import numpy as np
 from sklearn.metrics import log_loss
 
 from mlframe.votenrank.geometric_weight_blend import geometric_weight_blend
-from mlframe._bench_rmse_shared import sigmoid as _sigmoid
+from mlframe.votenrank._benchmarks._bench_shared import sigmoid as _sigmoid  # shared helper module for this family (42-F11)
 
 
 def _log_loss(y_true, y_pred):
