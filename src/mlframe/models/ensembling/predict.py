@@ -396,11 +396,8 @@ def ensemble_probabilistic_predictions(
     return ensembled_predictions, uncertainty, confident_indices
 
 
-# Default memory budget for the materialised ensemble path. Above this,
-# `ensemble_probabilistic_predictions_streaming` is preferred.
-# 500 MB allows M=6, N=9M, K=5 (~2.2 GB materialised) to trigger streaming.
-# Users can override via EnsemblingConfig.quantile_budget_bytes.
-ENSEMBLE_STREAMING_THRESHOLD_BYTES = 500 * 1024 * 1024
+# The streaming-versus-materialised choice is driven by EnsemblingConfig.quantile_budget_bytes; an earlier module constant
+# with the same purpose was never read and has been removed (18-F16).
 
 
 def _push_transformed(acc: "_WelfordAccumulator", p: np.ndarray, ensemble_method: str) -> None:

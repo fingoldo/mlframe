@@ -1174,3 +1174,4 @@
 | 08-F19 | FIXED | kth_nearest_dists refuses k < 1, which silently indexed the farthest column. The documented clipping above the subset size is kept. Test test_cluster08_kth_nearest_k_positive.py (2 passing); 47 existing caller tests pass. |
 | 18-F17 | FIXED | Removed the unreachable except NameError around the gate-stats lookup: _gate_stats is a parameter, always bound. Behaviour unchanged; 71 existing ensembling tests pass. |
 | 18-F18 | FIXED | Docstring corrected: probabilistic outputs are averaged across per-class correlations, not collapsed to the last column. Docstring-only; no behaviour change, no test. |
+| 18-F16 | FIXED | Removed the never-read ENSEMBLE_STREAMING_THRESHOLD_BYTES constant; the streaming choice is driven by EnsemblingConfig.quantile_budget_bytes. Regression: 7 existing ensembling tests pass. |
