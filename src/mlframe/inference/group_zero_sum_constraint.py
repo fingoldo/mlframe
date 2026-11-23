@@ -194,9 +194,6 @@ def apply_group_zero_sum_constraint(
     # Isotonic re-fit towards the ORIGINAL preds order, then re-project onto the same constraint system so the
     # re-fit result (which can drift off the constraints) is snapped back to exactly satisfying them.
     iso_target = corrected.copy()
-    order = np.argsort(preds, kind="stable")
-    inv_order = np.empty_like(order)
-    inv_order[order] = np.arange(order.shape[0])
     # Sort once by (group, pred) and slice each group's contiguous segment; the former per-group mask scanned all n rows
     # for every group, O(n_groups * n) (audit 25-F17).
     sorted_by_group = np.lexsort((preds, group_codes))
