@@ -22,6 +22,15 @@ from .settings import (
 # Weighted win margin a Condorcet winner must reach over every rival; 0 would accept a weighted tie, which ``condorcet_election`` does not count as a win.
 _CONDORCET_STRICT_MARGIN = 1e-6
 
+_METHODS_REQUIRING_GAMMA = frozenset({"optimality_gap"})
+
+
+def _check_gamma_given(method: str, params: dict) -> None:
+    """Raise a clear error when a method that needs ``gamma`` runs without one (42-F6), instead of a bare TypeError."""
+    if method in _METHODS_REQUIRING_GAMMA and "gamma" not in params:
+        raise ValueError(f"{method} requires 'gamma'; pass it explicitly, e.g. use_methods={{'{method}': {{'gamma': <value>}}}}.")
+
+
 class Leaderboard:
     """Model x task score table plus per-task weights; ranks/elects models via the methods mixed in from ``_rules``/``_cw``.
 
@@ -179,9 +188,11 @@ class Leaderboard:
             if method in settings_dict:
                 params = ParameterGrid(settings_dict[method])
                 for some_params in params:
+                    _check_gamma_given(method, some_params)
                     election_result = func(**some_params)
                     result.append((f"Method: {method}, Params: {some_params}", election_result, len(election_result)))
             else:
+                _check_gamma_given(method, {})
                 election_result = func()
                 result.append((f"Method: {method}, Params: {{}}", election_result, len(election_result)))
         final = pd.DataFrame(result, columns=["method", "winners", "n_winners"])
@@ -216,6 +227,7 @@ class Leaderboard:
                 params = ParameterGrid(settings_dict[method])
                 for some_params in params:
                     if task_groups is None:
+                        _check_gamma_given(method, some_params)
                         ranking = func(**some_params)
                     else:
                         ranking = self.two_step_ranking(
@@ -231,6 +243,7 @@ class Leaderboard:
                     tie_numbers[f"Method: {method}, Params: {some_params}"] = ranking.shape[0] - ranking.nunique()
             else:
                 if task_groups is None:
+                    _check_gamma_given(method, {})
                     ranking = func()
                 else:
                     ranking = self.two_step_ranking(

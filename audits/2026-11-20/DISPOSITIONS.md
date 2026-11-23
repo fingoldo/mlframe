@@ -1068,3 +1068,6 @@
 | 39-F29 | FIXED | Concurrent misses on one cache key elect a leader; other callers wait and then read the memory tier. Test test_cluster39_cache_single_flight.py. |
 | 42-F4 | FIXED | Leaderboard refuses duplicate task column names. Test test_cluster42_duplicate_task_and_missing_task.py. |
 | 42-F7 | FIXED | Geometric mean names an all-NaN task column as missing, not as a zero score. Test test_cluster42_duplicate_task_and_missing_task.py. |
+| 42-F3 | FIXED | Two-step group sub-boards inherit allow_partial from the parent (already in code, line 281); pinned by test_partial_opt_in_reaches_two_step_group_rankings. |
+| 42-F5 | FIXED | linprog solver failures (status other than 2, infeasible) log a WARNING instead of being reported as infeasible. Test test_cluster42_gamma_and_solver_status.py. |
+| 42-F6 | FIXED | optimality_gap without gamma raises a ValueError naming the missing gamma at every elect/rank call site. Test test_cluster42_gamma_and_solver_status.py. |

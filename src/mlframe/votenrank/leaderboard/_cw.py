@@ -1,10 +1,14 @@
 """Constant-weights (CW) analysis: find task-metric weights (if any) for which a given ranking is consistent with the pairwise majority graph, via linear programming."""
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 from scipy.optimize import linprog
 
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 def _get_tasks_onehot(self, tasks: List[str]):
@@ -94,5 +98,6 @@ def _find_weights_for_majority_graph(
     )
     if sol["success"]:
         return {task: weight for task, weight in zip(self.tasks, sol["x"])}
-    else:
-        return None
+    if sol.get("status") != 2:  # status 2 is infeasible; any other failure is a solver error, not a verdict (42-F5)
+        logger.warning("linprog solver failed (status=%s: %s); the model is left unresolved, not reported infeasible", sol.get("status"), sol.get("message"))
+    return None
