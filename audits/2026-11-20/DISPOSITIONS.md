@@ -1090,3 +1090,4 @@
 | 32-F22 | FIXED | Corrected the benchmark docstring and comment: components are fit on train only with no early stopping on val, so the val arm does not exercise a double-dip. Docstring-only correction; no test (no behaviour changed). |
 | 32-F23 | DEFERRED | Verdict follows from the fixture's construction (model A strong on class 0, B on minorities). A real verdict needs real or independently generated multiclass data; owner to supply a dataset or accept a labelled synthetic claim. |
 | 32-F24 | DEFERRED | The near-duplicate pool builds the dedup verdict in by design. A recommendation needs a non-duplicated or real-data scenario; owner to decide the scenario. |
+| 22-F33 | FIXED | Subset draws with fewer than two members raise a clear ValueError instead of an empty-choice crash. Test test_cluster22_synthetic_subset_guard.py. |
