@@ -215,7 +215,7 @@ def _leaderboard_panel(
         title += f"\nN/A for: {_shown}{_more}"
     # Colour each bar like that model's ROC curve. A single flat colour meant a bar could not be matched to its
     # curve in the panel beside it, which is the whole point of putting them in one figure.
-    bar_colors = tuple(_MODEL_COLORS[names.index(names[i]) % len(_MODEL_COLORS)] for i in order_list)
+    bar_colors = tuple(_MODEL_COLORS[i % len(_MODEL_COLORS)] for i in order_list)  # i is the model's own index (20-F33)
     if len(bar_vals) >= 2:
         gap = abs(float(bar_vals[0]) - float(bar_vals[1]))
         if gap < _leaderboard_tie_eps(bar_vals):
@@ -345,10 +345,6 @@ def _corr_heatmap_panel(per_model: Mapping[str, Mapping[str, Any]], subsample: i
         # off-diagonal cell deep blue -- read as strong ANTI-correlation, the opposite of what the data says.
         color_vmin=-1.0,
         color_vmax=1.0,
-        # Spearman rho lives in [-1, 1] and RdBu_r's white midpoint means "no rank agreement", so the scale is
-        # pinned to that range rather than to the observed one. Left to autoscale, a matrix of genuinely weak
-        # positive correlations (0.20-0.25 off-diagonal, 1.00 on it) put white at ~0.6 and painted every
-        # off-diagonal cell deep blue -- read as strong ANTI-correlation, the opposite of what the data says.
         cell_text=corr,
         text_format=".2f",
         colorbar_label="Spearman rho",
