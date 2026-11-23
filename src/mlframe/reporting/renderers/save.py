@@ -99,7 +99,7 @@ def use_format_subfolders() -> bool:
 
 
 def resolve_output_path(
-    base_path: str, backend: str, fmt: str, *, multi_output: bool, subfolders: Optional[bool] = None, disambiguate_backend: bool = False
+    base_path: str, backend: str, fmt: str, *, multi_output: bool = False, subfolders: Optional[bool] = None, disambiguate_backend: bool = False
 ) -> str:
     """Full path for one saved figure, honouring the per-format subfolder layout.
 
@@ -459,7 +459,6 @@ def render_and_save_now(
         return handles if keep_handles else None
 
     # Filtering cannot change the on-disk names: a backend is only dropped when nothing is being saved.
-    multi_output = (len(_backends) > 1) or any(len(fmts) > 1 for _, fmts in _backends)
 
     # The backend name is dropped from the filename (see resolve_output_path's docstring) UNLESS two backends
     # in THIS call would both write the same format -- the one case the extension/subfolder can't disambiguate
@@ -495,7 +494,7 @@ def render_and_save_now(
         # ``resolve_output_path`` then composed a name out of the extension alone -- writing ``.matplotlib.png``
         # and ``.html`` into the process's working directory. Dot-prefixed, so ``ls`` never showed them.
         for fmt in fmts if will_save else ():
-            path = resolve_output_path(base_path, backend, fmt, multi_output=multi_output, subfolders=_subfolders, disambiguate_backend=fmt in _colliding_fmts)
+            path = resolve_output_path(base_path, backend, fmt, subfolders=_subfolders, disambiguate_backend=fmt in _colliding_fmts)  # multi_output is not read (21-F24)
             _dir = os.path.dirname(path)
             if _dir:
                 os.makedirs(_dir, exist_ok=True)
