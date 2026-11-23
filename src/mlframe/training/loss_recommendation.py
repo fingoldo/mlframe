@@ -197,6 +197,7 @@ def recommend_boosting_regression_loss(
             "cb": "RMSE",
             "lgb": "regression",
             "xgb": "reg:squarederror",
+            "lgb_extra_params": {}, "xgb_extra_params": {}, "cb_extra_params": {},  # same keys as the other branches (28-F66)
             "rationale": f"n_finite={n_finite} < {_MIN_SAMPLE_N} -- insufficient sample for kurtosis estimate; RMSE default.",
             "excess_kurt": excess_kurt,
             "n_finite": n_finite,
@@ -211,6 +212,7 @@ def recommend_boosting_regression_loss(
             "cb": "RMSE",
             "lgb": "regression",
             "xgb": "reg:squarederror",
+            "lgb_extra_params": {}, "xgb_extra_params": {}, "cb_extra_params": {},  # same keys as the other branches (28-F66)
             "rationale": (
                 f"excess_kurt={excess_kurt:.2f} > {_EXCESS_KURT_HUBER_FAILS} "
                 f"-- Huber gradient collapses on extreme-kurt residual "
@@ -285,6 +287,7 @@ def recommend_boosting_regression_loss(
         "cb": "RMSE",
         "lgb": "regression",
         "xgb": "reg:squarederror",
+        "lgb_extra_params": {}, "xgb_extra_params": {}, "cb_extra_params": {},  # same keys as the other branches (28-F66)
         "rationale": f"excess_kurt={excess_kurt:.2f} within Gaussian tolerance; RMSE default.",
         "excess_kurt": excess_kurt,
         "n_finite": n_finite,
