@@ -631,6 +631,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 28-F55 | 28_root_modules-7.md | FIXED | No-op del of a parameter removed; _maybe_clean_ram unchanged. Import check only, no test (no observable effect). |
 | 26-F17 | 26_root_modules-5.md | FIXED | Duplicate module-level definitions removed; values unchanged. Regression: 17 existing cleaning tests. |
 | 26-F33 | 26_root_modules-5.md | FIXED | Tuples tagged in canonical JSON; tuple vs list no longer collide. Existing tuple-keyed cache entries miss once. Test test_cluster26_canonical_tuple_vs_list.py. |
+| 26-F18 | 26_root_modules-5.md | PARTIAL | Dead commented-out string block in cleaning.py removed; explanatory bare string in _cleaning_helpers.py kept. Regression: 16 cleaning tests. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
