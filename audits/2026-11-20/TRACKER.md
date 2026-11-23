@@ -576,6 +576,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 22-F40 | 22_root_modules-1.md | FIXED | inf group labels keep their own key, not an undefined int64 cast. Test test_cluster22_group_keys_inf.py. |
 | 22-F34 | 22_root_modules-1.md | FIXED | NaN/inf valuations raise a ValueError naming the count. Test test_cluster22_weights_nonfinite_valueerror.py. |
 | 22-F39 | 22_root_modules-1.md | FIXED | ensure_no_infinity_pd copies the frame; caller untouched. Test test_cluster22_ensure_no_inf_copies.py. |
+| 22-F42 | 22_root_modules-1.md | FIXED | cupy measurement failure logs WARNING; missing cupy stays debug. Test test_cluster22_cupy_tuning_failure_warns.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |

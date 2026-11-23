@@ -1104,3 +1104,4 @@
 | 22-F40 | FIXED | Infinite group labels get their own string keys; the integer branch requires finite values. Test test_cluster22_group_keys_inf.py. |
 | 22-F34 | FIXED | Non-finite valuations raise a ValueError naming the count, instead of the internal-bug RuntimeError. Test test_cluster22_weights_nonfinite_valueerror.py. |
 | 22-F39 | FIXED | ensure_no_infinity_pd works on a copy, so the caller's DataFrame keeps its infinities. Test test_cluster22_ensure_no_inf_copies.py. |
+| 22-F42 | FIXED | A cupy measurement failure is a WARNING that says cupy is excluded; a missing cupy stays at debug. Test test_cluster22_cupy_tuning_failure_warns.py. |
