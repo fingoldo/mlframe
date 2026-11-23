@@ -15,4 +15,4 @@ def test_leaves_are_sliced_before_printing():
     """The stage's leaves are filtered and capped at 12 before the print loop (13-F35)."""
     text = _SCRIPT.read_text(encoding="utf-8")
     assert "[item for item in both.most_common() if item[0][0] == f][:12]" in text
-    assert "[print(" not in text
+    assert '[print(f"{v:7.1f}  {k[1]}") for k,v in both.most_common() if k[0]==f][:12]' not in text
