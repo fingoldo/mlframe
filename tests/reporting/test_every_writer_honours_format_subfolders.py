@@ -82,7 +82,7 @@ class TestTheWritersThatComposedTheirOwnNames:
 
     def test_resolve_output_path_is_what_decides(self, tmp_path, subfolders_on):
         """Pins the contract the writers now defer to, rather than each re-deriving the directory."""
-        assert resolve_output_path(str(tmp_path / "x"), "matplotlib", "png", multi_output=False).endswith(os.path.join("png", "x.png"))
+        assert resolve_output_path(str(tmp_path / "x"), "matplotlib", "png").endswith(os.path.join("png", "x.png"))
 
 
 class TestNoWriterComposesAnExtensionAgain:

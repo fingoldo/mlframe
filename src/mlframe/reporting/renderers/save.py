@@ -98,9 +98,7 @@ def use_format_subfolders() -> bool:
     return _FORMAT_SUBFOLDERS_DEFAULT
 
 
-def resolve_output_path(
-    base_path: str, backend: str, fmt: str, *, multi_output: bool = False, subfolders: Optional[bool] = None, disambiguate_backend: bool = False
-) -> str:
+def resolve_output_path(base_path: str, backend: str, fmt: str, *, subfolders: Optional[bool] = None, disambiguate_backend: bool = False) -> str:
     """Full path for one saved figure, honouring the per-format subfolder layout.
 
     The filename is unchanged by the layout, so a caller that knows the flat name can find the file by prepending
@@ -111,8 +109,7 @@ def resolve_output_path(
     ``subfolders`` is on, by directory too -- stamping the render backend into every name just repeated
     information the extension already carried. Set ``disambiguate_backend`` for the one real collision case,
     two backends both writing the SAME format in the same call (e.g. ``"plotly[png] + matplotlib[png]"``),
-    where the extension/subfolder alone cannot tell the files apart; ``multi_output`` is otherwise unused for
-    naming and kept only for callers that still pass it.
+    where the extension/subfolder alone cannot tell the files apart. (The former ``multi_output`` argument was never read and is removed, 21-F24.)
     """
     stem = f"{base_path}.{backend}.{fmt}" if disambiguate_backend else f"{base_path}.{fmt}"
     if not (subfolders if subfolders is not None else use_format_subfolders()):
@@ -494,7 +491,7 @@ def render_and_save_now(
         # ``resolve_output_path`` then composed a name out of the extension alone -- writing ``.matplotlib.png``
         # and ``.html`` into the process's working directory. Dot-prefixed, so ``ls`` never showed them.
         for fmt in fmts if will_save else ():
-            path = resolve_output_path(base_path, backend, fmt, subfolders=_subfolders, disambiguate_backend=fmt in _colliding_fmts)  # multi_output is not read (21-F24)
+            path = resolve_output_path(base_path, backend, fmt, subfolders=_subfolders, disambiguate_backend=fmt in _colliding_fmts)
             _dir = os.path.dirname(path)
             if _dir:
                 os.makedirs(_dir, exist_ok=True)

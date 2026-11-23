@@ -58,8 +58,8 @@ class TestLayout:
         """A caller that knows the flat name finds the file by prepending the format directory, nothing else."""
         base = str(tmp_path / "plot")
         render_and_save(spec, parse_plot_output_dsl("matplotlib[png]"), base, interactive=False, format_subfolders=True)
-        flat = resolve_output_path(base, "matplotlib", "png", multi_output=False, subfolders=False)
-        nested = resolve_output_path(base, "matplotlib", "png", multi_output=False, subfolders=True)
+        flat = resolve_output_path(base, "matplotlib", "png", subfolders=False)
+        nested = resolve_output_path(base, "matplotlib", "png", subfolders=True)
         assert os.path.basename(flat) == os.path.basename(nested)
         assert os.path.exists(nested) and not os.path.exists(flat)
 

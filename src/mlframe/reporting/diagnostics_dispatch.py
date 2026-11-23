@@ -79,7 +79,7 @@ def _png_path(base: str) -> str:
     """``base`` resolved to its .png destination under the active per-format layout."""
     from mlframe.reporting.renderers.save import resolve_output_path
 
-    return resolve_output_path(base, "matplotlib", "png", multi_output=False)
+    return resolve_output_path(base, "matplotlib", "png")
 
 
 def _save_figure(fig, plot_outputs: str, base_path: str) -> Optional[bool]:
@@ -107,7 +107,7 @@ def _save_figure(fig, plot_outputs: str, base_path: str) -> Optional[bool]:
             from mlframe.reporting.async_render_hooks import active_render_queue, submit_figure_save
             from mlframe.reporting.renderers.save import resolve_output_path
 
-            _path = resolve_output_path(base_path, "matplotlib", "png", multi_output=False)
+            _path = resolve_output_path(base_path, "matplotlib", "png")
             _queue = active_render_queue()
             if _queue is not None and submit_figure_save(_queue, fig, _path):
                 deferred = True  # the worker owns the figure now and closes it after saving
