@@ -62,8 +62,8 @@ def _equal_width_codes(v: np.ndarray, n_bins: int) -> np.ndarray:
 
 def _mutual_information(a: np.ndarray, b: np.ndarray) -> float:
     """Plug-in MI (nats) of two integer code vectors."""
-    joint = np.zeros((int(a.max()) + 1, int(b.max()) + 1))
-    np.add.at(joint, (a, b), 1.0)
+    ka, kb = int(a.max()) + 1, int(b.max()) + 1
+    joint = np.bincount(a * kb + b, minlength=ka * kb).astype(np.float64).reshape(ka, kb)  # bincount: np.add.at was 40 percent of the proposer at 1000 columns
     joint /= joint.sum()
     pa = joint.sum(1, keepdims=True)
     pb = joint.sum(0, keepdims=True)
