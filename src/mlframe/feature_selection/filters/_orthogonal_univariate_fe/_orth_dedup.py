@@ -318,8 +318,9 @@ def _pairwise_complete_abs_corr(Q: np.ndarray, R: np.ndarray) -> np.ndarray:
     FE pipeline's joblib-worker GPU contention (same lesson as ``lookup_mi_classif_backend``). cupy OOM -> numpy."""
     # Centre ONCE here rather than in each backend: all three share the raw-power-sum variance form and would
     # otherwise each need the same fix (and could drift apart). See ``_row_center_finite``.
+    same = R is Q  # the dedup of a block against itself passes ONE matrix twice: centring it twice built two identical full copies
     Q = _row_center_finite(Q)
-    R = _row_center_finite(R)
+    R = Q if same else _row_center_finite(R)
     backend = _resolve_pc_backend(Q.shape[0], R.shape[0], Q.shape[1])
     if backend == "njit":
         # Intentional float64: njit kernel operand contract (f64 signature)
