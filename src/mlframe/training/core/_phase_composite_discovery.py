@@ -532,6 +532,17 @@ def _run_composite_targ_nan_rows_domain_violations(_disc, train_df_pd, val_df_pd
     """Block of run_composite_target_discovery starting at ``for _spec in _disc.specs_:``."""
     from mlframe.training.composite import get_transform as _get_transform_local
 
+    # Full-length base columns are the same for every spec that shares a base name; build each once (37-F27).
+    _base_cache: dict = {}
+
+    def _full_base(_name):
+        """Return the full-length base column ``_name``, building it on first use."""
+        if _name not in _base_cache:
+            _base_cache[_name] = _build_full_column_from_splits(
+                _name, train_df_pd, val_df_pd, test_df_pd, train_idx, val_idx, test_idx, n_total=_y_arr.shape[0],
+            )
+        return _base_cache[_name]
+
     for _spec in _disc.specs_:
         _transform = _get_transform_local(_spec.transform_name)
         # Multi-base specs (extra_base_columns non-empty) need a
@@ -541,23 +552,10 @@ def _run_composite_targ_nan_rows_domain_violations(_disc, train_df_pd, val_df_pd
         # column raises ValueError("base has N columns but
         # fitted alphas has M entries") in the forward call.
         _extra_bases = tuple(getattr(_spec, "extra_base_columns", ()) or ())
-        _base_primary = _build_full_column_from_splits(
-            _spec.base_column,
-            train_df_pd, val_df_pd, test_df_pd,
-            train_idx, val_idx, test_idx,
-            n_total=_y_arr.shape[0],
-        )
+        _base_primary = _full_base(_spec.base_column)
         if _extra_bases:
             _base_cols = [_base_primary]
-            _base_cols.extend(
-                _build_full_column_from_splits(
-                    _eb_name,
-                    train_df_pd, val_df_pd, test_df_pd,
-                    train_idx, val_idx, test_idx,
-                    n_total=_y_arr.shape[0],
-                )
-                for _eb_name in _extra_bases
-            )
+            _base_cols.extend(_full_base(_eb_name) for _eb_name in _extra_bases)
             _base_full = np.column_stack(_base_cols)
         else:
             _base_full = _base_primary
