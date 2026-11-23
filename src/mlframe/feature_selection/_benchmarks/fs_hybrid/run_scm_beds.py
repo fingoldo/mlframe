@@ -55,4 +55,5 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(0 if main() >= 0 else 1)
+    # A run that executed no cells is a failure, not a success: the count must be positive (12-F99).
+    raise SystemExit(0 if main() > 0 else 1)
