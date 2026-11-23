@@ -1226,3 +1226,4 @@
 | 13-F25 | FIXED | 'pd' removed from shap_proxied_fs __all__ so a star import no longer exports the pandas module. Test tests/feature_selection/test_cluster13_shap_proxied_exports_and_imports.py. |
 | 13-F23 | FIXED | Redundant inner import of compute_phi_rank_stability removed from the hardcoded-ladder branch of _shap_proxied_fit.py (the import at the top of the function covers it; the finding's fit_steps line is not where the duplicate was). Test tests/feature_selection/test_cluster13_shap_proxied_exports_and_imports.py. |
 | 13-F24 | FIXED | Both core-refine None guards are explicit RuntimeError checks instead of asserts that python -O strips. Test tests/feature_selection/test_cluster13_no_production_assert.py (source pin). |
+| 13-F17 | FIXED | Train_model retries without verbose only when the TypeError names the verbose keyword; any other TypeError raised inside fit propagates. Test tests/feature_selection/test_cluster13_boruta_train_model_retry.py. |

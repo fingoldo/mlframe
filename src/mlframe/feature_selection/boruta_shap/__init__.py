@@ -557,7 +557,11 @@ class BorutaShap(BorutaShapProtocolMixin, TransformerMixin, BaseEstimator):
             try:
                 self.model_.fit(X, y, verbose=False, **(self.fit_params or {}))
 
-            except TypeError:
+            except TypeError as exc:
+                # Retry without ``verbose`` only when the estimator rejects that keyword; a TypeError raised inside fit
+                # is a real failure and must surface, not be retried and hidden (13-F17).
+                if "verbose" not in str(exc):
+                    raise
                 self.model_.fit(X, y, **(self.fit_params or {}))
 
     def transform(
