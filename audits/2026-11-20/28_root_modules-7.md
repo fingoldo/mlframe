@@ -157,3 +157,13 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F47: DEFERRED. Duplicated GTC cache state in the helpers module: deletion needs a check that nothing imports it. Deferred to the uncalled-functions pass.
 - 28-F48: DEFERRED. report_title is built and never emitted: wiring it in changes the train report, so it is an owner decision (emit or delete).
 - 28-F76: DEFERRED. Seven public or load-bearing functions have no test reference. Each needs a targeted test; deferred as a batch to its own change.
+- 28-F73: FIXED. A bare model-name string is keyed as one model, not iterated per character. Test test_cluster28_suite_key_string_models.py; 26 existing artefact-cache tests pass.
+- 28-F57: FIXED. Failed categorical casts in the LightGBM shim (fit-time val and predict-time) log a WARNING naming the column. Test test_cluster28_lgb_cat_cast_warns.py; 5 existing shim tests pass.
+- 28-F66: FIXED. Every RMSE recommendation carries lgb/xgb/cb_extra_params keys (empty), matching the other branches. Test test_cluster28_rmse_recommendation_keys.py; 15 existing loss-recommendation tests pass.
+- 28-F62: FIXED. Collapsed the no-op l1_ratio conditional: both branches returned config.l1_ratio, so behaviour is unchanged. Regression: 43 existing linear-model tests pass.
+- 28-F67: FIXED. parse_catboost_devices returns GPUs in the requested order, each once. Test test_cluster28_catboost_devices_requested_order.py; 37 existing device-parsing tests pass.
+- 28-F60: FIXED. Removed the unreachable '(none)' description branch: _bad_desc is only built inside if _bad. Regression: 14 existing CatBoost text-feature probe tests pass.
+- 28-F64: DEFERRED. process_model writes trainset_features_stats into the shared common_params. It may be relied on by later models in the same loop; removing the write needs an audit of every reader of common_params first. Deferred.
+- 28-F70: DEFERRED. A failed grid variant is stored as a plain error dict in a results dict of result objects. Changing it to a typed error object is a public results-contract change; no in-repo consumer reads these entries. Owner to choose the contract.
+- 28-F69: DEFERRED. DummyBaselinesConfig.apply_to_target_types is a frozenset (its own comment uses set difference) while the same-named baseline-diagnostics field is a tuple. Unifying the type changes set operations on the config; consumers need an audit first. Deferred.
+- 28-F71: FIXED. The categorical column set is built once per call rather than once per feature. Output unchanged. Regression: 53 existing drift-report tests pass.

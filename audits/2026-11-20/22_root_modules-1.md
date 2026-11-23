@@ -109,3 +109,14 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F33: FIXED. Subset draws with fewer than two members raise a clear ValueError instead of an empty-choice crash. Test test_cluster22_synthetic_subset_guard.py.
 - 22-F32: FIXED. Both sd_sigma and nonoutlying_dist_percentage unset raises a ValueError naming the parameter, instead of a TypeError. Test test_cluster22_tukey_both_none_is_valueerror.py.
 - 22-F41: FIXED. Bootstrap resamples whose metric raises are counted and reported in one WARNING with the failed and total counts. Test test_cluster22_failed_resamples_warn.py.
+- 22-F37: FIXED. Dtype family prefixes match only when followed by a bit width, so interval dtypes are not mapped to int codes. Test test_cluster22_dtype_canon_interval.py.
+- 22-F38: FIXED. module_available docstring now states that a dotted name imports its parent package to locate the child. Docstring-only correction; no behaviour change, no test.
+- 22-F40: FIXED. Infinite group labels get their own string keys; the integer branch requires finite values. Test test_cluster22_group_keys_inf.py.
+- 22-F34: FIXED. Non-finite valuations raise a ValueError naming the count, instead of the internal-bug RuntimeError. Test test_cluster22_weights_nonfinite_valueerror.py.
+- 22-F39: FIXED. ensure_no_infinity_pd works on a copy, so the caller's DataFrame keeps its infinities. Test test_cluster22_ensure_no_inf_copies.py.
+- 22-F42: FIXED. A cupy measurement failure is a WARNING that says cupy is excluded; a missing cupy stays at debug. Test test_cluster22_cupy_tuning_failure_warns.py.
+- 22-F44: FIXED. trimmed_mean and robust_mean_mestimator refuse NaN/inf with a ValueError instead of a biased or NaN result. Test test_cluster22_robust_location_nonfinite.py.
+- 22-F43: FIXED. Throttle key is the stable name post_train_calib_target_coerce_failed instead of a line number. Test test_cluster22_throttle_key_stable.py.
+- 22-F45: WON'T FIX. The per-improvement deepcopy is required for correctness: a snapshot taken only at stop would be a live reference that keeps mutating, so best_model_ would hold the final degraded weights (the bug the code comment records). Performance cost is accepted; the suggested fix reintroduces that bug.
+- 22-F35: FIXED. Docstring corrected: the exact-own-value claim holds only for k=1; for k>1 a subsample row is the mean of its k nearest subsample rows. Docstring-only; no behaviour change, no test.
+- 22-F36: FIXED. NaN check in PdOrdinalEncoder.transform reads the native dtype (pd.isna) instead of copying the output to float64. Test test_cluster22_ordinal_nan_check.py.
