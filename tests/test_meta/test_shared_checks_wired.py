@@ -540,6 +540,36 @@ _CHECK_THEN_ACT_EXEMPT: dict[tuple[str, str], str] = {
     ("filters/discretization/_null_binner.py", "codes"): (
         "per-(column, bin count) edge slot is a pure function of the column and count. Measured 0.62x under 4 threads (8 permutations, 200k rows): outer threads only add contention over the nested per-feature threading, so holding the lock across compute would cost nothing here."
     ),
+    ("filters/_adaptive_nbins_columns.py", "_unique_facts"): (
+        "content-keyed memo of unique_with_counts: a concurrent miss computes the same facts and the last write stores an identical value; the lock covers each lookup and store."
+    ),
+    ("filters/_adaptive_nbins_columns.py", "_memoised_fallback"): (
+        "identity-and-settings memo of the fallback edges: a pure function of the key, so a concurrent miss stores the same edges."
+    ),
+    ("filters/_feature_engineering_pairs/_pairs_operand_floor.py", "_permutation_bank"): (
+        "permutation bank keyed by (n, n_perm, seed): the draw is deterministic, so a concurrent miss stores identical permutations."
+    ),
+    ("filters/_mah.py", "_x_plan"): (
+        "quantile plan keyed by the column's content or owner identity: a pure function of the key; a concurrent miss stores the same plan."
+    ),
+    ("filters/_mah.py", "_y_binning_by_multiset"): (
+        "target map keyed by the label-count multiset: a pure function of the key; a concurrent miss stores the same map."
+    ),
+    ("filters/_resident_candidate_mi.py", "_pair_index_arrays"): (
+        "pair-index upload memo keyed by (device, pairs): a concurrent miss uploads the same arrays and the store overwrites an identical value."
+    ),
+    ("filters/_unified_fe_gate.py", "raw_mi_noise_floor"): (
+        "raw-MI noise-floor memo keyed by the matrix and target hashes: a pure function of the key; both branches re-read the memo under the lock before computing."
+    ),
+    ("reporting/_diagnostics_adversarial.py", "_render_adversarial_panel"): (
+        "adversarial-validation memo keyed by the frames' signature; the fit runs outside the lock by design, and two misses store the same spec (audit 26-F22)."
+    ),
+    ("training/composite/discovery/_per_base_x.py", "get_or_build"): (
+        "double-checked insert: the second block re-reads under the lock and the first stored value wins (audit 34-F28)."
+    ),
+    ("training/suite_artefact_cache.py", "_adopt_unknown_disk_entries"): (
+        "only called from _evict_lru_locked, whose callers hold self._lock; the gate cannot see the caller's lock."
+    ),
 }
 
 
