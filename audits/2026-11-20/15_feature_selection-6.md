@@ -60,3 +60,4 @@ So the audit is incomplete. Roughly 60% of the manifest lines were not read, so 
 - 15-F10: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
 - 15-F11: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
 - 15-F17: FIXED. All-NaN column gets mean 0 and std 1 in the knockoff standardisation, so its knockoff is finite. Test test_cluster15_knockoff_all_nan_column.py.
+- 15-F12: FIXED. Deleted the unused nested _is_discrete (superseded by _is_discrete_v2, which is kept and used). Tests tests/feature_selection/test_cluster15_unused_is_discrete_removed.py plus tests/feature_selection/contracts/test_importance.py.
