@@ -1035,3 +1035,4 @@
 | 41-F9 | FIXED | Single-target temporal aggregation counts labelled rows in n_obs (polars and pandas), matching the multi-target path. Test test_cluster41_single_target_counts_labelled_rows.py. |
 | 41-F25 | FIXED | Group-aware MRMR documents its numeric-only scope and logs the number of skipped non-numeric columns at WARNING. Test test_cluster41_mrmr_numeric_only_logged.py. |
 | 41-F24 | FIXED | NaN gate decides membership on validation scores only; NaN test scores are floored at scoring time. Test test_cluster41_nan_gate_is_val_only.py. |
+| 41-F21 | FIXED | String columns absent from the XGBoost category map are dropped with a WARNING instead of getting a per-frame Enum. Test test_cluster41_xgb_unmapped_string_column_dropped.py. |
