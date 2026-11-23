@@ -1115,3 +1115,4 @@
 | 25-F58 | FIXED | Anchor de-duplication uses a set for membership (O(1)) and keeps the list for rank order; output unchanged. Regression: test_biz_val_varying_size_top_k_subsets.py, test_varying_size_cluster_anchors_nan_and_offset.py, 6 passing. |
 | 25-F65 | FIXED | Brier score coerces y_prob to an array, so a list input no longer reaches numba untyped. Test test_cluster25_brier_list_probs.py. |
 | 26-F32 | FIXED | A negative MLFRAME_MAX_DECOMPRESSED_BYTES falls back to the default ceiling with a warning; 0 still disables explicitly. Test test_cluster26_decompress_cap_negative.py. |
+| 26-F14 | FIXED | batch_univariate_auc refuses multi-class targets instead of scoring label 1 one-vs-rest. Test test_cluster26_auc_multiclass_refused.py. |
