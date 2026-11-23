@@ -619,7 +619,8 @@ class MBHOptimizer:
                     if len(all_best_indices) > 1:
                         expected_fitness[all_best_indices] += distances[all_best_indices]
 
-            self.expected_fitness = expected_fitness
+        # Set in both modes, so the exploration plot never shows a stale score (25-F62).
+        self.expected_fitness = expected_fitness
         return expected_fitness
 
     def _track_best_and_worst(self, next_candidate, next_evaluation) -> None:

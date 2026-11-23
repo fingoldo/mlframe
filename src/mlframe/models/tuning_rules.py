@@ -61,7 +61,7 @@ def check_condition(condition: Any, params: dict) -> bool:
     dict, it is treated as a plain boolean (e.g. a precomputed flag like ``GPU_ENABLED``).
     """
     if isinstance(condition, (dict, HashableDict)):
-        # must hold on all the conditions!
+        # Holds when ANY listed condition matches (OR across fields and values, the first match returns True) (25-F62).
         for cond_field, cond_value in condition.items():
             if isinstance(cond_value, list):
                 for sub_value in cond_value:
