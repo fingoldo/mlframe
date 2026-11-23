@@ -72,7 +72,8 @@ def _fit_anomaly_score(method: str, X: Any, *, random_state: int, detector_kwarg
         )
     detector = make_outlier_detector(method, random_state=random_state, **detector_kwargs)
     if method == "lof":
-        detector.fit_predict(X)
+        # fit, then read the training-sample scores: fit_predict is refused in novelty mode (26-F16). For novelty=False this is the same value.
+        detector.fit(X)
         raw = detector.negative_outlier_factor_
     else:
         detector.fit(X)
