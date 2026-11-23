@@ -129,6 +129,35 @@ def _leak_verdict(leaky_scores, honest_scores, honest_mean: float, inflation: fl
     return tolerance, leak_pvalue, leak_detected
 
 
+def _remediation_inflation(
+    df_sorted: pd.DataFrame,
+    y_sorted: np.ndarray,
+    chunks: list,
+    n_splits: int,
+    remediated_feature: np.ndarray,
+    order: np.ndarray,
+    fit_transform_fn: Any,
+    estimator_factory: Any,
+    scoring: Any,
+) -> float:
+    """Residual inflation of the remediated feature against an honest refit, measured on the fold validation rows."""
+    # Re-score the folds with the CALLER-VISIBLE remediated array standing in for the suspect feature, against
+    # an honest refit of the ORIGINAL feature. Two things have to hold for the remediation to be trustworthy,
+    # and both are measured here rather than assumed: the stitched series must carry no residual advantage on
+    # a fold's validation rows, and ``remediated_feature[order]`` must round-trip back to the sorted series a
+    # consumer would expect -- an index-alignment bug in the inverse permutation shows up as inflation.
+    #
+    # The previous implementation recursed into this function with a callback that ignored its ``fit_df``
+    # argument, so the leaky and honest branches were handed element-for-element identical arrays; the
+    # inflation was exactly 0.0 by construction and ``remediation_verified`` was True for every input,
+    # including one where the remediation had genuinely failed.
+    verif_leaky, verif_honest, _ = _score_expanding_folds(
+        df_sorted, y_sorted, chunks, n_splits, remediated_feature[order], fit_transform_fn, estimator_factory, scoring, None
+    )
+    remediation_inflation = float(np.mean(verif_leaky) - np.mean(verif_honest))
+    return remediation_inflation
+
+
 def detect_expanding_window_feature_leakage(
     df: pd.DataFrame,
     time_col: str,
@@ -258,20 +287,9 @@ def detect_expanding_window_feature_leakage(
         assert remediated_sorted is not None
         remediated_feature = remediated_sorted[inverse_order]
 
-        # Re-score the folds with the CALLER-VISIBLE remediated array standing in for the suspect feature, against
-        # an honest refit of the ORIGINAL feature. Two things have to hold for the remediation to be trustworthy,
-        # and both are measured here rather than assumed: the stitched series must carry no residual advantage on
-        # a fold's validation rows, and ``remediated_feature[order]`` must round-trip back to the sorted series a
-        # consumer would expect -- an index-alignment bug in the inverse permutation shows up as inflation.
-        #
-        # The previous implementation recursed into this function with a callback that ignored its ``fit_df``
-        # argument, so the leaky and honest branches were handed element-for-element identical arrays; the
-        # inflation was exactly 0.0 by construction and ``remediation_verified`` was True for every input,
-        # including one where the remediation had genuinely failed.
-        verif_leaky, verif_honest, _ = _score_expanding_folds(
-            df_sorted, y_sorted, chunks, n_splits, remediated_feature[order], fit_transform_fn, estimator_factory, scoring, None
+        remediation_inflation = _remediation_inflation(
+            df_sorted, y_sorted, chunks, n_splits, remediated_feature, order, fit_transform_fn, estimator_factory, scoring
         )
-        remediation_inflation = float(np.mean(verif_leaky) - np.mean(verif_honest))
 
         result["remediated_feature"] = remediated_feature
         result["leaky_row_positions"] = leaky_row_positions
