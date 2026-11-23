@@ -80,8 +80,53 @@ def _fit(n, p, inf, seed, fe_steps):
 # (gate_mask__f_13__f_26, sub(log(f_13),log(f_15))). Plain python (no conftest settings) still gives the old support.
 _REF_FE = {
     "params": dict(n=4000, p=30, inf=8, seed=0, fe_steps=1),
-    "support": [7, 13, 14, 19, 23, 26, 29],
-    "names": ['f_23', 'f_29', 'f_26', 'f_14', 'f_13', 'f_7', 'f_19', 'sub(div(exp(f_7),sign(gate_mask__f_23__f_15__t-1.28123)),mul(sign(f_19),exp(gate_mask__f_7__f_13__t-0.643104)))', 'add(neg(f_7),f_26)', 'div(sign(f_19),exp(gate_mask__f_14__f_15__t-0.60264))', 'gate_mask__f_13__f_26__t-1.26659', 'f_14__modsin_24', 'f_13*f_14*f_26__He1_He1_He1', 'f_23*f_29*f_7__He1_He1_He1', 'f_14*f_23*f_29__He1_He1_He1', 'gate_mask__f_23__f_15__t-1.28123', 'f_14*f_19*f_26__He1_He1_He1', 'f_14*f_15*f_19__He1_He1_He1', 'sub(log(f_13),log(f_15))', 'mul(sign(f_14),log(f_15))', 'mul(log(f_13),sign(f_19))', 'div(sign(f_7),log(f_15))'],
+    "support": [7, 13, 14, 15, 23, 26, 29],
+    # Re-captured 2026-11-23 under the test-session settings (conftest), the file policy for a genuine selection change from an unrelated fix. A bisect over the 1590 commits since the last capture
+    # (2026-11-04) names 57762e7a5 as the first one that moves it: the validated-MDLP permutation null draws with xorshift instead of a Mersenne re-seed per permutation ("the permutations are different
+    # valid draws, so edges on significant columns move slightly"); the families added since (opat, sir, cond_resid, gate_mask) change the output further. Outside pytest the same fit gives a 69-column
+    # output whose held-out quality (fit on half the rows, 4 classes) is gbm logloss 0.302 / logistic regression 0.284, against 0.293 / 0.522 for its selected raw columns and 0.337 / 0.539 for all 30 raw ones.
+    "names": [
+        "f_23",
+        "f_26",
+        "f_29",
+        "f_14",
+        "f_13",
+        "f_15",
+        "f_7",
+        "opat__f_26_f_13_f_7",
+        "opat__f_14_f_15_f_13",
+        "opat__f_14_f_26_f_15",
+        "sir__f_14_f_26_f_15_f_13_f_7_f_23_f_19_f_29__dir0",
+        "opat__f_26_f_15_f_7",
+        "opat__f_26_f_15_f_13",
+        "rff__f_14_f_26_f_15_f_13_f_7_f_23_f_19_f_29__4",
+        "rff__f_14_f_26_f_15_f_13_f_7_f_23_f_19_f_29__44",
+        "opat__f_14_f_26_f_13",
+        "opat__f_14_f_26_f_7",
+        "opat__f_15_f_13_f_7",
+        "rff__f_14_f_26_f_15_f_13_f_7_f_23_f_19_f_29__33",
+        "opat__f_14_f_15_f_7",
+        "rff__f_14_f_26_f_15_f_13_f_7_f_23_f_19_f_29__16",
+        "opat__f_14_f_13_f_7",
+        "rff__f_14_f_26_f_15_f_13_f_7_f_23_f_19_f_29__0",
+        "rff__f_14_f_26_f_15_f_13_f_7_f_23_f_19_f_29__60",
+        "gate_mask__f_13__f_23__t-0.191937",
+        "f_23__cond_resid_by__f_14",
+        "sir__f_14_f_26_f_15_f_13_f_7_f_23_f_19_f_29__dir1",
+        "rff__f_14_f_26_f_15_f_13_f_7_f_23_f_19_f_29__24",
+        "rff__f_14_f_26_f_15_f_13_f_7_f_23_f_19_f_29__50",
+        "rff__f_14_f_26_f_15_f_13_f_7_f_23_f_19_f_29__57",
+        "f_7__cond_resid_by__f_23",
+        "rff__f_14_f_26_f_15_f_13_f_7_f_23_f_19_f_29__51",
+        "rff__f_14_f_26_f_15_f_13_f_7_f_23_f_19_f_29__32",
+        "gate_mask__f_13__f_26__t-0.257473",
+        "(f_14__add__f_7)",
+        "rff__f_14_f_26_f_15_f_13_f_7_f_23_f_19_f_29__29",
+        "f_23__cond_resid_by__f_15",
+        "gate_mask__f_14__f_15__t-0.924825",
+        "sub(log(f_13),log(f_15))",
+        "div(cbrt(f_15),exp(f_7))",
+    ],
 }
 
 # Re-captured for 9a154522b ("fe_max_steps=0 now disables EVERY FE family, unconditionally"): the discrete-structural
