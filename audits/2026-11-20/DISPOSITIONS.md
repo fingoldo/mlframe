@@ -1120,3 +1120,4 @@
 | 26-F29 | FIXED | A failing cupy or cuda DTW path falls back to the CPU result with a WARNING saying it is slower, not a debug line. Test test_cluster26_dtw_gpu_fallback_warns.py. |
 | 25-F63 | FIXED | rf_proximity_matrix checks the row count of X before applying the forest, so an oversized request is refused without the apply cost. Test test_cluster25_proximity_guard_before_apply.py; existing proximity tests (8) pass. |
 | 25-F67 | FIXED | Miller-Madow occupancy counts histogram bins only; the non-finite slot is excluded. Test test_cluster25_kl_mm_excludes_nonfinite_slot.py; existing drift tests (43) pass. |
+| 25-F70 | FIXED | pinball_loss_per_alpha refuses duplicate alphas (the alpha-keyed result would drop a column's loss). Test test_cluster25_pinball_duplicate_alphas.py; 56 existing pinball/quantile tests pass. |
