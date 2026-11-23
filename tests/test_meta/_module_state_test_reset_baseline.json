@@ -26,10 +26,6 @@
    "count": 1,
    "note": "bounded memo of a pure computation keyed by the column identity and settings; a hit returns the value computed for that key"
   },
-  "module-state-no-test-reset::feature_selection/filters/_adaptive_nbins_columns.py::module-level `_UNIQUE_FACTS` is mutated by a function and no test mentions it, so nothing resets it between tests": {
-   "count": 1,
-   "note": "bounded memo of a pure computation keyed by the column signature; a hit returns the value computed for that key"
-  },
   "module-state-no-test-reset::feature_selection/filters/_binned_numeric_agg_resident.py::module-level `_OOF_GATHER_MULTI_KERNELS` is mutated by a function and no test mentions it, so nothing resets it between tests": {
    "count": 1,
    "note": "compiled-kernel registry keyed by kernel source and dtype; a kernel is a pure function of its key"
