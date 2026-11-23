@@ -559,6 +559,22 @@ def _fit_mlp_ranker(
 # ----------------------------------------------------------------------------------
 
 
+def _map_missing_cb_categoricals(X: pd.DataFrame, cat_cols, na_sentinel) -> pd.DataFrame:
+    """Map NaN in CatBoost categorical columns to the fit-time sentinel (same rule as the fit side; audit 41-F1)."""
+    _upd = {}
+    for _c in cat_cols:
+        if _c not in X.columns or not X[_c].isna().any():
+            continue
+        _col = X[_c]
+        if _col.dtype == object:
+            _upd[_c] = _col.where(_col.notna(), na_sentinel)
+        elif isinstance(_col.dtype, pd.CategoricalDtype):
+            if na_sentinel not in _col.cat.categories:
+                _col = _col.cat.add_categories(na_sentinel)
+            _upd[_c] = _col.fillna(na_sentinel)
+    return X.assign(**_upd) if _upd else X
+
+
 def predict_ranker_scores(fitted: dict, X: Any, group_ids: np.ndarray | None = None) -> np.ndarray:
     """Return per-row scores in the SAME order as input rows.
 
@@ -575,12 +591,7 @@ def predict_ranker_scores(fitted: dict, X: Any, group_ids: np.ndarray | None = N
         _cb_cats = fitted.get("cb_cat_features") or []
         _cb_na = fitted.get("cb_na_sentinel")
         if _cb_cats and _cb_na is not None and isinstance(X, pd.DataFrame):
-            _upd = {}
-            for _c in _cb_cats:
-                if _c in X.columns and X[_c].dtype == object and X[_c].isna().any():
-                    _upd[_c] = X[_c].where(X[_c].notna(), _cb_na)
-            if _upd:
-                X = X.assign(**_upd)
+            X = _map_missing_cb_categoricals(X, _cb_cats, _cb_na)
         scores = model.predict(X)
     elif flavor == "xgboost":
         _cat_dtypes = fitted.get("xgb_cat_dtypes") or {}

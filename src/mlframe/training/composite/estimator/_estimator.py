@@ -620,7 +620,8 @@ class CompositeTargetEstimator(RegressorMixin, BaseEstimator):
         self.estimator_ = estimator
         from ._smearing import SMEARED_TRANSFORMS, residual_quantiles
 
-        _smear_q = residual_quantiles(estimator, X_valid, t_train, sample_weight=sample_weight) if self.transform_name in SMEARED_TRANSFORMS and getattr(self, "smearing", True) else None
+        # Smearing applies to every smeared transform. The old ``getattr(self, "smearing", True)`` read an attribute no constructor sets, so it was always True (audit 35-F53).
+        _smear_q = residual_quantiles(estimator, X_valid, t_train, sample_weight=sample_weight) if self.transform_name in SMEARED_TRANSFORMS else None
         self.fitted_params_ = {
             **transform_params,
             "y_clip_low": y_clip_low,

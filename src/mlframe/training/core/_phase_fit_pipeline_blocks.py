@@ -128,7 +128,10 @@ def _phase_fit_pipeline_string_object_category_columns(_feature_types_first, was
                     except Exception as e:
                         log_throttle(logger, "_phase_fit_pipeline_blocks:128", logging.WARNING, "peeking column %r's first non-null value failed: %s", _c, e)
                         _first = None
-                    if _first is not None and (hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)))):
+                    # A NumPy scalar has shape () and is not an embedding: require a non-scalar shape (audit 38-F12).
+                    _first_shape = getattr(_first, "shape", None)
+                    _is_vector = _first_shape is not None and len(_first_shape) > 0
+                    if _first is not None and (_is_vector or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes)) and _first_shape is None)):
                         _embedding_object_cols.append(_c)
             # A pandas 'category' dtype's categories can hold ANY value type (bool/int/float), unlike polars
             # Categorical/Enum which are always string-backed. Flag columns whose categories aren't strings so

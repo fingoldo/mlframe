@@ -373,6 +373,8 @@ def _stratify_labels_for_split(timestamps, target_by_type, _MAX_COMPOSITE_CARDIN
                         _regression_targets.extend(_tv for _tv in _named.values() if _tv is not None)
             if _regression_targets:
                 try:
+                    # Only the first regression target drives the bucket stratification; the others are not
+                    # stratified. Documented choice (audit 38-F23).
                     _y_reg = np.asarray(_regression_targets[0]).astype(np.float64)
                     if _y_reg.ndim == 1 and len(_y_reg) > 0:
                         _finite = np.isfinite(_y_reg)
@@ -779,7 +781,7 @@ def _drop_auto_high_card_columns(auto_high_card_drop, _per_split_views, dropped_
             try:
                 _col_frames[_label] = np.asarray(_view[_col])
             except Exception as e:
-                logger.debug("swallowed exception in _phase_helpers_fit_split.py: %s", e)
+                logger.warning("High-cardinality column %r could not be read from the %s split (%s); its per-group baseline uses the other splits", _col, _label, e)  # audit 38-F13
                 continue
         if _col_frames:
             dropped_high_card_data[_col] = _col_frames

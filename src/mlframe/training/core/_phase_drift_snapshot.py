@@ -22,6 +22,23 @@ _DRIFT_MIN_ABS = 5
 _DRIFT_MIN_FRAC = 0.05
 
 
+def _compute_drift_rows_pandas(
+    train_df: Any,
+    val_df: Any,
+    test_df: Any,
+    pairs: list[tuple[str, int]],
+) -> list[tuple[str, int, int, int]]:
+    """Pandas twin of :func:`_compute_drift_rows`: rows of (col, train_card, val_only, test_only) (audit 37-F19)."""
+    drift_cols = [c for c, card in pairs if card <= _DRIFT_SKIP_CARD and c in val_df.columns and c in test_df.columns]
+    rows: list[tuple[str, int, int, int]] = []
+    for c in drift_cols:
+        train_vals = set(train_df[c].dropna().unique().tolist())
+        val_vals = set(val_df[c].dropna().unique().tolist())
+        test_vals = set(test_df[c].dropna().unique().tolist())
+        rows.append((c, len(train_vals), len(val_vals - train_vals), len(test_vals - train_vals)))
+    return rows
+
+
 def _compute_drift_rows(
     train_df: Any,
     val_df: Any,
@@ -244,8 +261,13 @@ def _log_cardinality_and_drift_snapshot(
         logger.info("  Categorical cardinalities (train, n_unique, desc): %s", summary)
 
         # Drift log: val/test categories not seen in train.
+        # The unseen-category check covers pandas too (audit 37-F19): the XGB/CB crash it guards against is not polars-only.
         if is_polars and val_df is not None and test_df is not None and val_df.height > 0:
             drift_rows = _compute_drift_rows(train_df, val_df, test_df, pairs, ctx)
+            if drift_rows:
+                _log_drift_rows(drift_rows, text_features, align_categorical_dicts)
+        elif not is_polars and val_df is not None and test_df is not None and len(val_df) > 0:
+            drift_rows = _compute_drift_rows_pandas(train_df, val_df, test_df, pairs)
             if drift_rows:
                 _log_drift_rows(drift_rows, text_features, align_categorical_dicts)
     except Exception as _e:

@@ -87,7 +87,7 @@ class ShapProxiedFS(ShapProxiedStateCompatMixin, ShapProxiedFitMixin, ShapProxie
         su_seeded_top_k: int = 8,
         su_seeded_n_bins: int = 8,
         su_seeded_max_screen_cols: int = 120,
-        su_seeded_snr_z: float = 3.0,
+        su_seeded_snr_z: float | None = None,  # None = unset: resolved at fit (audit 14-F1)
         su_seeded_snr_null_quantile: float = 0.99,
         su_seeded_snr_abs_floor: float = 1e-3,
         su_seeded_n_permutations: int = 3,

@@ -53,3 +53,22 @@ def append_column(frame: Any, name: str, values: np.ndarray) -> Any:
     if pl is not None and isinstance(frame, pl.DataFrame):
         return frame.with_columns(pl.Series(name, values))
     return np.concatenate([np.asarray(frame, dtype=np.float64), values.reshape(-1, 1).astype(np.float64)], axis=1)
+
+
+def subset_rows(X: Any, mask: np.ndarray) -> Any:
+    """Row-subset ``X`` by a boolean ``mask``, keeping the frame flavour: polars by position, pandas by position (``iloc``), numpy by mask.
+
+    One definition for the gated models, which each had their own copy with different polars detection (audit 35-F55). Positional selection
+    gives the same rows for a pandas frame whatever its index.
+    """
+    try:
+        import polars as pl
+
+        if isinstance(X, pl.DataFrame):
+            return X[np.flatnonzero(mask).tolist()]
+    except ImportError:
+        pass
+    iloc = getattr(X, "iloc", None)
+    if iloc is not None:
+        return iloc[np.flatnonzero(mask)]
+    return np.asarray(X)[mask]

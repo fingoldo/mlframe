@@ -26,7 +26,9 @@ def test_missing_y_stays_missing_while_a_domain_violation_is_filled():
     base[30] = -1.0  # y exists, but log(y / base) is outside the domain
     transform = get_transform("logratio")
     spec = SimpleNamespace(fitted_params=transform.fit(y[np.isfinite(y)], base[np.isfinite(y)]))
-    t_full, t_raw = composite_t_full(transform, spec, y, base, np.arange(n))
+    # Row 30 is outside the train split: only a non-train domain violation is filled (audit 37-F1); training rows are never filled.
+    train_idx = np.array([i for i in range(n) if i != 30])
+    t_full, t_raw = composite_t_full(transform, spec, y, base, train_idx)
     assert np.isnan(t_full[10:20]).all(), "a missing raw label must not get a made-up composite label"
     assert np.isfinite(t_full[30]) and np.isnan(t_raw[30]), "a domain violation with a real label is still filled"
     assert np.isfinite(np.delete(t_full, np.arange(10, 20))).all()

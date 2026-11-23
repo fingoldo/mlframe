@@ -489,7 +489,7 @@ def export_votenrank_leaderboards(
                             from ..utils import get_pandas_view_of_polars_df as _get_pandas_view
                             _frame = _get_pandas_view(_lb)
                         elif isinstance(_lb, pd.DataFrame):
-                            _frame = _lb
+                            _frame = _lb.copy()  # insert below must not mutate the frame held in ctx.metadata (audit 37-F10)
                         else:
                             _frame = pd.DataFrame(_lb)
                         _frame.insert(0, "target_type", _tt_s)

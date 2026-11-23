@@ -648,7 +648,13 @@ class RecurrentTorchModel(L.LightningModule):
         else:
             if sample_weights is not None:
                 losses = self._loss_fn_unreduced(logits, labels)
-                return _weighted_mean(losses, sample_weights)
+                if self.class_weight is None:
+                    return _weighted_mean(losses, sample_weights)
+                # CrossEntropy(weight) "mean" divides by the summed class weights of the batch. The weighted path must divide by the
+                # summed class-times-sample weights too, or the loss scale changes once sample weights are supplied (audit 40-F30).
+                w = sample_weights.float()
+                cw = self.class_weight[labels.long()].float()
+                return (losses.float() * w).sum() / (w * cw).sum().clamp(min=1e-12)
             return cast(torch.Tensor, self._loss_fn_mean(logits, labels))
 
     def configure_optimizers(self):

@@ -336,16 +336,16 @@ def _hash_polars_frame_rows(arr) -> str:
         return ""
     try:
         row_hashes = arr.hash_rows()
-        # Cast to UInt64 then sum mod 2^64 -- polars sum on UInt64
-        # wraps natively, giving a deterministic 64-bit summary.
-        row_sum = int(row_hashes.sum())
+        # The per-row hashes in ROW ORDER, not their sum: a sum is order-invariant, so two frames with the same rows in a
+        # different order used to share one cache key (audit 40-F20).
+        row_bytes = row_hashes.to_numpy().tobytes()
     except _HASH_FASTPATH_EXC as _exc:
         # Tuple includes pyo3 PanicException (zero-column hash_rows).
         log_throttle(logger, "_pipeline_cache._full_x_content_hash", logging.WARNING, "_full_x_content_hash fell back to its default after %s", type(_exc).__name__)
         return ""
     col_names = ",".join(str(c) for c in arr.columns)
     h = hashlib.blake2b(digest_size=16)
-    h.update(str(row_sum).encode())
+    h.update(row_bytes)
     h.update(str(arr.shape).encode())
     h.update(str(arr.schema).encode())
     if col_names:
@@ -365,7 +365,7 @@ def _hash_pandas_frame_via_polars(arr) -> Optional[str]:
     # c0051 16 hashes saves ~1.9 s). hash_rows() is Rust-side
     # deterministic, identical guarantees to blake2b(tobytes) for
     # cache-key collision resistance.
-    pd_row_sum: int | None
+    pd_row_bytes: bytes | None
     if pl is not None and arr.shape[1] > 0:
         # Guard against zero-column frames: polars' ``hash_rows`` panics
         # at the Rust layer (``pyo3_runtime.PanicException: at least one
@@ -379,20 +379,20 @@ def _hash_pandas_frame_via_polars(arr) -> Optional[str]:
         try:
             pl_df = pl.from_pandas(arr)
             row_hashes = pl_df.hash_rows()
-            pd_row_sum = int(row_hashes.sum())
+            pd_row_bytes = row_hashes.to_numpy().tobytes()  # row order kept (audit 40-F20)
         except _HASH_FASTPATH_EXC:
             # Tuple includes pyo3 PanicException (zero-column
             # hash_rows). Fallback uses ``arr.to_numpy().tobytes()``.
             pl_df = None
-            pd_row_sum = None
+            pd_row_bytes = None
     else:
         pl_df = None
-        pd_row_sum = None
-    if pd_row_sum is None:
+        pd_row_bytes = None
+    if pd_row_bytes is None:
         return None
     col_names = ",".join(str(c) for c in arr.columns)
     h = hashlib.blake2b(digest_size=16)
-    h.update(str(pd_row_sum).encode())
+    h.update(pd_row_bytes)
     h.update(str(arr.shape).encode())
     h.update(str(arr.dtypes.to_list()).encode())
     if col_names:

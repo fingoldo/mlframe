@@ -152,7 +152,7 @@ def _column_mean_abs(X: np.ndarray) -> np.ndarray:
     total = np.zeros(p)
     for r0, r1 in _row_tiles(n, p):
         total += np.abs(X[r0:r1]).sum(axis=0)
-    return total / n
+    return np.asarray(total / n)
 
 
 def ksg_mi_discrete_target(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, random_state: int) -> np.ndarray:

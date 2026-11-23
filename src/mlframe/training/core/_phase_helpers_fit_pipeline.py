@@ -332,12 +332,12 @@ def _align_pysr_target_to_train(_y_train_for_ext, train_idx, train_df, verbose):
         except (TypeError, ValueError, IndexError):
             pass
     if hasattr(train_df, "shape") and _y_train_for_ext is not None and len(_y_train_for_ext) != train_df.shape[0]:
-        if verbose:
-            logger.warning(
-                "PySR y_train length mismatch (target=%d, train rows=%d); skipping symbolic FE.",
-                len(_y_train_for_ext),
-                train_df.shape[0],
-            )
+        # Logged regardless of verbose: a silent skip of symbolic FE is invisible at the default log level (audit 38-F7).
+        logger.warning(
+            "PySR y_train length mismatch (target=%d, train rows=%d); skipping symbolic FE.",
+            len(_y_train_for_ext),
+            train_df.shape[0],
+        )
         _y_train_for_ext = None
     return _y_train_for_ext
 
@@ -400,7 +400,7 @@ def _phase_fit_pipeline_back_none_function_logs(preprocessing_extensions, target
                     _diag,
                 )
             else:
-                logger.debug("Could not extract y_train for PySR FE: %s: %s", type(_exc).__name__, _exc)
+                logger.warning("Could not extract y_train for PySR FE; symbolic FE skipped: %s: %s", type(_exc).__name__, _exc)  # audit 38-F7
             _y_train_for_ext = None
     return _y_train_for_ext
 
@@ -422,7 +422,8 @@ def _phase_fit_pipeline_polars_native_fastpath_mrmr(
     # from the polars-native fastpath (e.g. MRMR fit on polars-sourced input).
     try:
         if isinstance(train_df, pd.DataFrame) and _pre_polars_columns_snapshot is not None and was_polars_input:
-            _new_cols = [c for c in train_df.columns if c not in set(_pre_polars_columns_snapshot)]
+            _pre_snap = set(_pre_polars_columns_snapshot)  # hoisted out of the comprehension (audit 38-F17)
+            _new_cols = [c for c in train_df.columns if c not in _pre_snap]
             if _new_cols:
                 # Explicit (label, pandas-frame, polars-pre-frame) triples so the
                 # back-merge no longer fishes the polars-side frame out of locals()
@@ -688,7 +689,8 @@ def _stamp_post_pipeline_metadata(metadata: dict, pipeline: Any, extensions_pipe
     _post_cols = train_df.columns.tolist() if isinstance(train_df, pd.DataFrame) else list(train_df.columns)
     # On a polars run the pandas-tier frame here does not carry the categorical columns (polars-native models read them from
     # the polars frames), so they were missing from the recorded schema although the model is fitted on them; list them.
-    _post_cols = _post_cols + [c for c in (cat_features or []) if c not in set(_post_cols)]
+    _post_cols_set = set(_post_cols)  # hoisted out of the comprehension (audit 38-F17)
+    _post_cols = _post_cols + [c for c in (cat_features or []) if c not in _post_cols_set]
     # SKEW-COL-ORDER: write the explicit "post_pipeline_columns" name AND the legacy "columns" alias. ``_post_cols`` is already a freshly built list; reuse
     # the same reference under both keys so an in-place mutation by one downstream consumer is visible under the other (the historical aliasing contract).
     metadata["post_pipeline_columns"] = _post_cols

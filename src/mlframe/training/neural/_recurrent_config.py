@@ -186,3 +186,12 @@ class RecurrentConfig:
             raise ValueError(f"hidden_size must be positive, got {self.hidden_size}")
         if self.num_layers <= 0:
             raise ValueError(f"num_layers must be positive, got {self.num_layers}")
+        # Fields that used to pass construction and fail later (audit 40-F29).
+        if self.batch_size <= 0:
+            raise ValueError(f"batch_size must be positive, got {self.batch_size}")
+        if self.sequence_preprocessing not in ("none", "per_sequence_zscore", "astronomy_mjd_delta"):
+            raise ValueError(f"sequence_preprocessing must be one of 'none', 'per_sequence_zscore', 'astronomy_mjd_delta'; got {self.sequence_preprocessing!r}")
+        if not (0.0 < self.ema_decay <= 1.0):
+            raise ValueError(f"ema_decay must be in (0, 1], got {self.ema_decay}")
+        if self.num_classes < 1:
+            raise ValueError(f"num_classes must be at least 1, got {self.num_classes}")

@@ -288,6 +288,9 @@ def _stamp_ensemble_composition(ctx: "TrainingContext") -> None:
                 "strategy": _strategy,
                 "members": _members,
                 "fallback_reason": _fallback_reason,
+                # Only entry 0 is described; the bundle persists every entry, so say how many exist (audit 38-F14).
+                "described_entry": 0,
+                "entry_count": len(_entries),
             }
 
     if _composition["simple"] or _composition["cross_target"]:

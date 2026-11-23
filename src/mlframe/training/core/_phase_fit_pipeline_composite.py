@@ -19,6 +19,8 @@ def _composite_fe_supervised_target(target_by_type, metadata) -> Any:
     """
     names = [(str(t), str(n)) for t, d in target_by_type.items() for n in (d.keys() if hasattr(d, "keys") else [t])]
     for _t, _v in target_by_type.items():
+        if hasattr(_v, "items") and not _v:
+            continue  # an empty per-type dict must not stop the scan of later target types (audit 38-F6)
         _name, _cand = next(iter(_v.items())) if hasattr(_v, "items") else (_t, _v)
         if _cand is not None:
             if isinstance(metadata, dict):

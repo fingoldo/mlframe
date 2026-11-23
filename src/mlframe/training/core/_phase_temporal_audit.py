@@ -91,11 +91,12 @@ def run_temporal_audit_batch(
                 _arr = np.asarray(_tvals)
                 if _arr.ndim != 1:
                     continue  # multilabel unsupported; needs per-label decomposition
+                # Only regression and binary targets are audited with their real type; other types were
+                # previously handed over as binary, which is a wrong specification (audit 38-F16).
+                if str(_tt_outer) not in ("regression", "binary_classification"):
+                    continue
                 _audit_input_cols[_audit_col] = _arr
-                _audit_targets_spec[_audit_key] = (
-                    _audit_col,
-                    "regression" if str(_tt_outer) == "regression" else "binary_classification",
-                )
+                _audit_targets_spec[_audit_key] = (_audit_col, str(_tt_outer))
                 _audit_keys_by_pair[(_tt_outer, _tname)] = _audit_key
 
         if _audit_targets_spec:

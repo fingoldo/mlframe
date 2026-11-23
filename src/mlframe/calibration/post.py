@@ -342,21 +342,44 @@ def get_postcalibrators(calib_target: np.ndarray, num_bins: int) -> list[NamedCa
     and the calibration-set length. Optional libraries that are absent or renamed upstream are skipped.
     Returns the list used by ``compare_postcalibrators``.
     """
-    import netcal, pycalib
-    import ml_insights as mli
-    from betacal import BetaCalibration
-    import calibration as verified_calibration
-    from venn_abers import VennAbersCalibrator
+    # Every optional library is imported on its own so one missing package skips only its own candidates (audit 22-F3).
+    # The docstring promises exactly that; a single unguarded import used to abort the whole zoo.
+    # Static imports in try blocks (not importlib strings): static imports keep the dependency visible to deptry.
+    try:
+        import netcal.binning as _netcal_binning
+        import netcal.scaling as _netcal_scaling
+    except ImportError:
+        _netcal_binning = _netcal_scaling = None
+    try:
+        import pycalib.models as _pycalib_models
+    except ImportError:
+        _pycalib_models = None
+    try:
+        import ml_insights as mli
+    except ImportError:
+        mli = None
+    try:
+        from betacal import BetaCalibration
+    except ImportError:
+        BetaCalibration = None
+    try:
+        import calibration as verified_calibration
+    except ImportError:
+        verified_calibration = None
+    try:
+        from venn_abers import VennAbersCalibrator
+    except ImportError:
+        VennAbersCalibrator = None
 
     calibrators = [
         named_calibrator(CalibratedClassifierCV(method="sigmoid", ensemble=False), name="CalibratedClassifierCV", param_str="method=sigmoid", lib="sklearn"),
         named_calibrator(CalibratedClassifierCV(method="isotonic", ensemble=False), name="CalibratedClassifierCV", param_str="method=isotonic", lib="sklearn"),
-        named_calibrator(mli.SplineCalib(), lib="mli"),
-        # ``verified_calibration`` upstream renamed / restructured public symbols
-        # across releases (``HistogramCalibrator`` / ``PlattBinnerCalibrator`` /
-        # ``PlattCalibrator`` are not all guaranteed to be present). Skip the
-        # absent ones quietly so the rest of the calibrator zoo still loads.
-        *[
+    ]
+    if mli is not None:
+        calibrators.append(named_calibrator(mli.SplineCalib(), lib="mli"))
+    # ``verified_calibration`` upstream renamed / restructured public symbols across releases; absent ones are skipped.
+    if verified_calibration is not None:
+        calibrators.extend(
             named_calibrator(
                 _cls(len(calib_target), num_bins=num_bins),
                 param_str=f"bins={num_bins}",
@@ -366,40 +389,44 @@ def get_postcalibrators(calib_target: np.ndarray, num_bins: int) -> list[NamedCa
             )
             for _cls in (getattr(verified_calibration, _name, None) for _name in ("HistogramCalibrator", "PlattBinnerCalibrator", "PlattCalibrator"))
             if _cls is not None
-        ],
-        *[named_calibrator(BetaCalibration(variant), lib="betacal", param_str=f"variant={variant}") for variant in ["abm", "ab", "am"]],
-        named_calibrator(VennAbersCalibrator(), lib="vaa"),
-        *[
+        )
+    if BetaCalibration is not None:
+        calibrators.extend(named_calibrator(BetaCalibration(variant), lib="betacal", param_str=f"variant={variant}") for variant in ["abm", "ab", "am"])
+    if VennAbersCalibrator is not None:
+        calibrators.append(named_calibrator(VennAbersCalibrator(), lib="vaa"))
+    if _netcal_binning is not None:
+        calibrators.extend(
             named_calibrator(cls(), lib="netcal")
             for cls in [
-                netcal.binning.BBQ,
-                netcal.binning.HistogramBinning,
-                netcal.binning.IsotonicRegression,
-                netcal.binning.ENIR,
-                netcal.binning.NearIsotonicRegression,
+                _netcal_binning.BBQ,
+                _netcal_binning.HistogramBinning,
+                _netcal_binning.IsotonicRegression,
+                _netcal_binning.ENIR,
+                _netcal_binning.NearIsotonicRegression,
             ]
-        ],
-        *[
+        )
+    if _netcal_scaling is not None:
+        calibrators.extend(
             named_calibrator(cls(), lib="netcal")
             for cls in [
-                netcal.scaling.TemperatureScaling,
-                netcal.scaling.BetaCalibration,
-                netcal.scaling.BetaCalibrationDependent,
-                netcal.scaling.LogisticCalibration,
-                netcal.scaling.LogisticCalibrationDependent,
+                _netcal_scaling.TemperatureScaling,
+                _netcal_scaling.BetaCalibration,
+                _netcal_scaling.BetaCalibrationDependent,
+                _netcal_scaling.LogisticCalibration,
+                _netcal_scaling.LogisticCalibrationDependent,
             ]
-        ],
-        *[
+        )
+    if _pycalib_models is not None:
+        calibrators.extend(
             named_calibrator(cls(), lib="pycalib", transform_method_name="predict_proba")
             for cls in [
-                pycalib.models.IsotonicCalibration,
-                pycalib.models.SigmoidCalibration,
-                pycalib.models.BinningCalibration,
-                pycalib.models.LogisticCalibration,
-                pycalib.models.BetaCalibration,
+                _pycalib_models.IsotonicCalibration,
+                _pycalib_models.SigmoidCalibration,
+                _pycalib_models.BinningCalibration,
+                _pycalib_models.LogisticCalibration,
+                _pycalib_models.BetaCalibration,
             ]
-        ],
-    ]
+        )
 
     if FullDirichletCalibrator:
         calibrators.append(named_calibrator(FullDirichletCalibrator(), transform_method_name="predict_proba"))

@@ -227,7 +227,6 @@ def predict_mlframe_models_suite(
 
     pipeline = metadata.get("pipeline")
     extensions_pipeline = metadata.get("extensions_pipeline")
-    metadata.get("columns", [])
 
     if verbose:
         logger.info("Preprocessing input data...")

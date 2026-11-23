@@ -72,13 +72,14 @@ def _oof_call(X, y, groups, kfold):
     names = [f"c{i}" for i in range(len(models))]
     specs = [None] * len(models)
     t0 = time.perf_counter()
-    oof, _holdout, _surv = compute_oof_holdout_predictions(
+    oof, y_holdout, _surv = compute_oof_holdout_predictions(
         component_models=models, component_names=names, component_specs=specs,
         train_X=X, y_train_full=y, base_train_full_per_spec={},
         holdout_frac=0.2, random_state=42, kfold=kfold, group_ids=groups,
     )
     wall = time.perf_counter() - t0
-    return oof, wall
+    # The OOF rows are the HOLDOUT rows, so their target is the returned y_holdout, not the natural-order y (audit 35-F52).
+    return oof, y_holdout, wall
 
 
 def run(ns=(50_000, 100_000, 200_000), cap=30_000, n_groups=40, kfold=5) -> list[dict]:
@@ -87,19 +88,19 @@ def run(ns=(50_000, 100_000, 200_000), cap=30_000, n_groups=40, kfold=5) -> list
         X, y, groups = _grouped_dataset(n, n_groups)
         idx = np.arange(n)
 
-        oof_full, wall_full = _oof_call(X, y, groups, kfold)
-        w_full = _nnls_weights(oof_full, y)
+        oof_full, yh_full, wall_full = _oof_call(X, y, groups, kfold)
+        w_full = _nnls_weights(oof_full, yh_full)
 
         sub = _group_aware_subsample(idx, groups, cap, seed=1)
         Xs = X.iloc[sub].reset_index(drop=True)
-        oof_sub, wall_sub = _oof_call(Xs, y[sub], groups[sub], kfold)
-        w_sub = _nnls_weights(oof_sub, y[sub])
+        oof_sub, yh_sub, wall_sub = _oof_call(Xs, y[sub], groups[sub], kfold)
+        w_sub = _nnls_weights(oof_sub, yh_sub)
 
         cos = float(safe_div(np.dot(w_full, w_sub), np.asarray(np.linalg.norm(w_full) * np.linalg.norm(w_sub))))
         # Ensemble RMSE on the FULL OOF surface using each weight vector (apples-to-apples target).
-        finite = np.isfinite(oof_full).all(axis=1) & np.isfinite(y)
-        rmse_full = float(np.sqrt(np.mean((oof_full[finite] @ w_full - y[finite]) ** 2)))
-        rmse_sub = float(np.sqrt(np.mean((oof_full[finite] @ w_sub - y[finite]) ** 2)))
+        finite = np.isfinite(oof_full).all(axis=1) & np.isfinite(yh_full)
+        rmse_full = float(np.sqrt(np.mean((oof_full[finite] @ w_full - yh_full[finite]) ** 2)))
+        rmse_sub = float(np.sqrt(np.mean((oof_full[finite] @ w_sub - yh_full[finite]) ** 2)))
         rows.append({
             "n": n, "cap": cap, "n_sub": int(sub.size), "kfold": kfold,
             "wall_full_s": round(wall_full, 3), "wall_sub_s": round(wall_sub, 3),

@@ -183,6 +183,23 @@ def _annotate_residual_specs(self: Any, pass1_specs: list) -> list:
     return _new_residual_specs
 
 
+def _rank_pass1_specs(self, pass1_specs):
+    """Pass-1 specs ranked by their tiny-rerank score (the order both stacking passes cap from)."""
+    rank_by_tiny = getattr(self, "tiny_rerank_scores_", None) or {}
+    return rank_specs(pass1_specs, lambda s: Score(rank_by_tiny.get(s.name, float("inf")), "y_rmse", "tiny_rerank", "tiny_consensus"), tiebreak=None)
+
+
+def _train_group_ids(self, train_idx_arr):
+    """Group ids of the train rows, or None when the discovery has no group ids covering them.
+
+    Both stacking passes keep a group's rows together in their OOF folds; this is the one derivation they share (audit 35-F39).
+    """
+    _g_full = getattr(self, "_group_ids_for_rerank", None)
+    if _g_full is None or np.shape(_g_full)[0] <= int(np.max(train_idx_arr, initial=-1)):
+        return None
+    return np.asarray(_g_full)[train_idx_arr]
+
+
 def fit_stacked(
     self,
     df: Any,
@@ -228,8 +245,7 @@ def fit_stacked(
         logger.info("[CompositeTargetDiscovery.stacked] pass1 yielded 0 specs; skipping pass 2.")
         return self
 
-    rank_by_tiny = getattr(self, "tiny_rerank_scores_", None) or {}
-    ranked = rank_specs(pass1_specs, lambda s: Score(rank_by_tiny.get(s.name, float("inf")), "y_rmse", "tiny_rerank", "tiny_consensus"), tiebreak=None)
+    ranked = _rank_pass1_specs(self, pass1_specs)
     top_specs = ranked[: int(max_pass1_specs_to_stack)]
 
     from ..ensemble.feature_stacking import composite_oof_predictions
@@ -251,7 +267,7 @@ def fit_stacked(
     oof_cols: dict[str, np.ndarray] = {}
     # The OOF folds must keep a group's rows together, like every other CV in discovery (the reranker honours the same ids).
     _g_full = getattr(self, "_group_ids_for_rerank", None)
-    _groups_train = np.asarray(_g_full)[_train_idx_arr] if _g_full is not None and np.shape(_g_full)[0] > int(np.max(_train_idx_arr, initial=-1)) else None
+    _groups_train = _train_group_ids(self, _train_idx_arr)
     for spec in top_specs:
         _factory = partial(_ridge_composite_factory, spec)
         try:
@@ -359,8 +375,7 @@ def fit_stacked_on_residual(
         logger.info("[CompositeTargetDiscovery.stacked_on_residual] pass1 yielded 0 specs; " "skipping residual-target pass 2.")
         return self
 
-    rank_by_tiny = getattr(self, "tiny_rerank_scores_", None) or {}
-    ranked = rank_specs(pass1_specs, lambda s: Score(rank_by_tiny.get(s.name, float("inf")), "y_rmse", "tiny_rerank", "tiny_consensus"), tiebreak=None)
+    ranked = _rank_pass1_specs(self, pass1_specs)
 
     from ..ensemble.feature_stacking import composite_oof_predictions
 
@@ -390,7 +405,7 @@ def fit_stacked_on_residual(
     oof_preds_per_spec: list[np.ndarray] = []
     # Same group-integrity rule as fit_stacked: the OOF folds must not split a group, or the residual is partly leaked away.
     _g_full = getattr(self, "_group_ids_for_rerank", None)
-    _groups_train = np.asarray(_g_full)[_train_idx_arr] if _g_full is not None and np.shape(_g_full)[0] > int(np.max(_train_idx_arr, initial=-1)) else None
+    _groups_train = _train_group_ids(self, _train_idx_arr)
     for spec in _ranked_capped:
         _factory = partial(_ridge_composite_factory, spec)
         try:

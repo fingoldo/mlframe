@@ -38,7 +38,7 @@ def _member_oof_array(member: Any, is_classification: bool) -> Optional[np.ndarr
     return np.asarray(_arr, dtype=np.float64).ravel()
 
 
-def _member_individual_score(member: Any, is_classification: bool, *, oof_fallback: Optional[tuple] = None) -> Optional[float]:
+def _member_individual_score(member: Any, is_classification: bool, *, oof_fallback: Optional[tuple] = None, use_val: bool = True) -> Optional[float]:
     """Pull a comparable single-model score from ``member.metrics['val']`` (case-insensitive key match).
 
     ``oof_fallback``, when given as ``(y_true, oof_pred)``, is used to derive a score from the member's
@@ -50,7 +50,7 @@ def _member_individual_score(member: Any, is_classification: bool, *, oof_fallba
     """
     from ._ensemble_chooser import _lookup_metric_ci
 
-    _metrics = getattr(member, "metrics", None)
+    _metrics = getattr(member, "metrics", None) if use_val else None
     if isinstance(_metrics, dict):
         _val = _metrics.get("val")
         if isinstance(_val, dict):
@@ -120,6 +120,9 @@ def compute_diversity_recommendations(
     _oof_target = None
     _oof_preds: dict = {}
     _individual_scores: dict = {}
+    # Validation-metric scores and OOF-loss scores live on different scales, so one call uses ONE source for every member: the validation
+    # score only when every member has it, otherwise the OOF surface for all (audit 37-F4).
+    _use_val = all(_member_individual_score(_m, _is_classification) is not None for _m in ens_models)
     for _m in ens_models:
         _y = getattr(_m, "oof_target", None)
         _arr = _member_oof_array(_m, _is_classification)
@@ -129,7 +132,7 @@ def compute_diversity_recommendations(
             _oof_target = np.asarray(_y).ravel()
         elif len(_oof_target) != len(_arr):
             return None
-        _score = _member_individual_score(_m, _is_classification, oof_fallback=(np.asarray(_y).ravel(), _arr))
+        _score = _member_individual_score(_m, _is_classification, oof_fallback=(np.asarray(_y).ravel(), _arr), use_val=_use_val)
         if _score is None:
             return None
         _tag = short_model_tag(getattr(_m, "model", _m))

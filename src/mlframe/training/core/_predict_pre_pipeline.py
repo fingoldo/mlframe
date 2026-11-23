@@ -263,7 +263,7 @@ def _replay_row_extreme_columns(df, config, _cols):
         _out = row_wise_top_k_extreme_columns(df, columns=_cols, k=_k, reference=_reference)
         # return_column_summary not passed -> always the plain-DataFrame overload
         if not (isinstance(_out, pd.DataFrame)):
-            raise AssertionError
+            raise AssertionError("row_wise_top_k_extreme_columns returned a non-DataFrame without return_column_summary (audit 38-F26)")
         _score_cols = [c for c in _out.columns if c.endswith("_score")]
         _result = _out[_score_cols].add_prefix("row_extreme_")
         for _i in range(1, _k + 1):
@@ -314,8 +314,11 @@ def _apply_row_wise_extensions(
     # fitted model expects. Mirror the same numeric-only restriction (incl. the bool->numeric promotion
     # ``select_dtypes(include="number")`` alone excludes) here.
     _bool_cols = df.select_dtypes(include="bool").columns.tolist()
-    for _bc in _bool_cols:
-        df[_bc] = df[_bc].astype(np.int8)
+    if _bool_cols:
+        # Cast on a shallow copy: assigning a column on the caller's frame would mutate it (audit 38-F5).
+        df = df.copy(deep=False)
+        for _bc in _bool_cols:
+            df[_bc] = df[_bc].astype(np.int8)
     _cols = df.select_dtypes(include="number").columns.tolist()
     # Prefer the list pinned at fit time. Re-deriving it here admits a column that was all-null on train (dropped
     # from the pinned list before any row-wise statistic was computed) but carries values at serve time: same feature
@@ -697,8 +700,8 @@ def _transform_with_model_pre_pipeline(model_obj, input_for_model, _stashed_pass
                 )
         logger.warning(
             "predict_from_models: %s pre_pipeline.transform "
-            "raised %s: %s. Skipping pre_pipeline (pure column "
-            "selector; main pipeline already encoded cat_features); "
+            "raised %s: %s. Skipping pre_pipeline (it was not fitted, or it is a "
+            "pure column selector; main pipeline already encoded cat_features); "
             "subsetted input to inner model's feature_names_in_ when "
             "available, then passing to model.predict.",
             model_name, type(_pp_exc).__name__,

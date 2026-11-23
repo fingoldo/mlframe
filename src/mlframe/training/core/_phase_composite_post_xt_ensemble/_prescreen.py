@@ -70,7 +70,8 @@ def leaky_rmse_keep_mask(components: Sequence[Any], component_names: Sequence[st
             else:
                 keep_mask.append(True)
         except Exception as e:
-            logger.debug("suppressed: leaky-RMSE pre-check failed for this candidate, keeping it: %s", e)
+            # WARNING once per failing component (audit 37-F16): a broken component is kept, so it must be visible.
+            logger.warning("leaky-RMSE pre-check failed for '%s' (%s: %s); keeping it unscreened", name, type(e).__name__, e)
             keep_mask.append(True)
     return keep_mask, dropped
 

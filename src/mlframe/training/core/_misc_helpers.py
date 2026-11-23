@@ -408,6 +408,8 @@ def _validate_input_columns_against_metadata(
     # silently reorder), and positional consumers (raw boosters, numpy ``.values`` paths) would mis-map a
     # reordered frame. ``df[filter_existing(...)]`` is a name-based view-select on both flavours (no whole-
     # frame copy), so reordering a benignly-permuted serving frame is cheap and prevents an all-models-fail.
+    # Correction (audit 37-F12): on pandas ``df[list]`` DOES copy the frame, so this reorder costs one full copy
+    # per predict call, and only when the columns are extra or out of order (the branch below).
     kept_in_schema_order = filter_existing(df, columns)
     if extra_cols and verbose:
         logger.info("Dropping extra columns: %s", sorted(extra_cols))
@@ -547,7 +549,6 @@ def _build_tier_dfs(
             kind = "pl" if isinstance(v, pl.DataFrame) else "pd"
             break
     tier_key = (strategy.feature_tier(), kind)
-    tier = tier_key
     if tier_key in tier_cache:
         return tier_cache[tier_key]
 
@@ -561,7 +562,7 @@ def _build_tier_dfs(
         tier_dfs = base_dfs
     else:
         if verbose:
-            logger.info("  Tier %s: dropping %d text/embedding columns: %s", tier, len(cols_to_exclude), sorted(cols_to_exclude))
+            logger.info("  Tier %s: dropping %d text/embedding columns: %s", tier_key, len(cols_to_exclude), sorted(cols_to_exclude))
         tier_dfs = {}
         for key in ("train_df", "val_df", "test_df"):
             df_ = base_dfs.get(key)

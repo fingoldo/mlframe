@@ -340,11 +340,21 @@ def run_stacking_aware_gate(
             _ordered_tags.append(_tag)
             _saw_preds[_tag] = _p_arr.astype(np.float64)
         if not _saw_preds:
-            logger.warning(
-                "[ensemble] blend-weight fit skipped: none of the %s member prediction arrays matched the gate target "
-                "(%s rows). The blend falls back to an unweighted mean.",
-                len(_gate_preds_for_check), _saw_y.shape[0],
-            )
+            _multiclass_members = any(np.asarray(p).ndim == 2 and np.asarray(p).shape[1] > 2 for p in _gate_preds_for_check)
+            if _multiclass_members:
+                # (N, K>2) member probabilities are not weighted here: the gate fit is 1-D on the positive class. Say so
+                # explicitly instead of blaming the row count (audit 18-F2).
+                logger.warning(
+                    "[ensemble] blend-weight fit skipped: multiclass (N, K>2) member probabilities are not supported by the "
+                    "NNLS/Caruana weight fit (%s rows). The blend falls back to an unweighted mean.",
+                    _saw_y.shape[0],
+                )
+            else:
+                logger.warning(
+                    "[ensemble] blend-weight fit skipped: none of the %s member prediction arrays matched the gate target "
+                    "(%s rows). The blend falls back to an unweighted mean.",
+                    len(_gate_preds_for_check), _saw_y.shape[0],
+                )
         if _saw_preds:
             if use_caruana_weights:
                 # Caruana greedy: metric-direct (AUC) convex weights over the OOF member preds -- an alternative to the

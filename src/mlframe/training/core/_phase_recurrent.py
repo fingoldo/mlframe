@@ -138,7 +138,8 @@ def _safe_predict_recurrent(
 
     POLARS-PANDAS-CHURN: when ``ctx`` is supplied, cache the coerced float32 array on
     ``ctx._recurrent_numpy_cache`` keyed by ``(split, id(features))``. The cache is invalidated by
-    ``_release_ctx_polars_frames`` (id-recycle safe via the strong-ref window).
+    ``_release_ctx_polars_frames``. Correction (audit 38-F20): the cache holds the ndarray, not the frame, so nothing
+    keeps the frame alive; a freed pandas frame's id can be reused while its entry is still cached.
     """
     if sequences is None and features is None:
         return None
@@ -370,7 +371,7 @@ def _apply_recurrent_to_ensemble(
         return ensemble_dict
     if not rebuilt:
         logger.warning(
-            "apply_recurrent_to_ensemble: rebuilt ensemble is empty for target %s " "(all members gated out); returning empty dict, not prior ensemble.",
+            "apply_recurrent_to_ensemble: rebuilt ensemble is empty for target %s " "(all members gated out); returning empty dict. The caller keeps the prior ensemble (audit 38-F4).",
             target_name,
         )
     return dict(rebuilt)
@@ -677,7 +678,8 @@ def train_recurrent_models(
                         logger, "recurrent_all_splits_failed_prediction", logging.WARNING,
                         "Recurrent %s for %s: all splits failed prediction; skipping ensemble integration.", recurrent_model_name, cur_target_name,
                     )
-                    models[target_type][cur_target_name].append(model_clone)
+                    # No bare model_clone is appended: predict skips members without a .model wrapper, so it would
+                    # silently vanish from the blend anyway. The skip above is the single, visible outcome (audit 38-F15).
                     continue
 
                 entry = _build_recurrent_member_entry(

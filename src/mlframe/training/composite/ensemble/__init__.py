@@ -12,8 +12,6 @@ from typing import (
 import numpy as np
 import pandas as pd
 from sklearn.base import clone
-# Hoist sklearn.linear_model out of the predict() hot path so an inference round-trip does not pay the cold-import cost on the first call.
-from sklearn.linear_model import Ridge, RidgeCV
 
 try:
     import polars as pl
@@ -124,7 +122,9 @@ def _transform_pair_cached(memo: dict | None, pp: Any, X_train: Any, X_holdout: 
     the pair is computed once. An unfitted pipeline is fit as a fold clone per component and is never shared.
     """
     if memo is None or pp is None or not _pp_is_fitted(pp):
-        return _transform_pair_via(pp, X_train, X_holdout, y_train=y_train)
+        # refit_supervised is forwarded here too: the memoised branch below forwards it, and dropping it on the uncached path gave
+        # a supervised selector no refit on the fold (audit 35-F49).
+        return _transform_pair_via(pp, X_train, X_holdout, y_train=y_train, refit_supervised=refit_supervised)
     # A fold refit of a shared fitted pipeline is deterministic in the fold's slices too, so it is memoised the same way:
     # components built from one strategy share the pipeline, and each would otherwise refit the selector again.
     key = (id(pp), id(X_train), id(X_holdout), bool(refit_supervised))
@@ -888,36 +888,19 @@ from ._stackers import (
 )
 
 __all__ = [
-    "Any",
+    # The public surface: the ensemble and wrapper classes and the public functions. Typing names, re-exported helpers and private
+    # names are not part of it (audit 35-F48).
     "CompositeCrossTargetEnsemble",
     "CompositeTargetEstimator",
-    "Dict",
-    "List",
-    "Optional",
-    "OrderedDict",
     "OutputCalibrator",
     "PrePipelinePredictShim",
-    "Ridge",
-    "RidgeCV",
-    "Sequence",
-    "Tuple",
-    "Union",
-    "UnknownTransformError",
-    "_align_fit_sw",
-    "_carve_inner_eval_split",
-    "_compute_oof_with_external_holdout",
-    "_disable_early_stopping",
-    "_is_polars_df",
-    "_slice_rows",
-    "annotations",
     "build_meta_stack_ensemble",
-    "call_transform",
-    "cast",
-    "clone",
+    "compute_oof_holdout_predictions",
+    "derive_seeds",
+    "detect_gpu_in_use",
+    "env_signature",
     "fit_lasso_meta_stacker",
     "fit_output_calibrator",
-    "get_transform",
-    "log_throttle",
     "subset_to_fit_columns",
 ]
 
