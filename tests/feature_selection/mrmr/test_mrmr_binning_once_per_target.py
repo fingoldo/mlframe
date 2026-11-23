@@ -128,3 +128,18 @@ def _fit_with_mix(X, y, mix: bool, strategy: str = "quantile_spacing"):
 def test_default_nbins_strategy_is_quantile_spacing():
     """The default strategy depends on the column only (so a suite of targets bins once); the choice was measured in ``_benchmarks/nbins_strategy`` and decided by the owner on 2026-11-23."""
     assert MRMR().nbins_strategy == "quantile_spacing"
+
+
+@pytest.mark.parametrize("steps", [2, 3])
+def test_no_column_content_is_binned_twice_within_one_fit_at_several_fe_steps(monkeypatch, steps):
+    """With ``fe_max_steps > 1`` a column the first step already binned must not be binned again by a later step (the edge memo keys on content): every computed column is distinct in content."""
+    X, _y_bin, y_reg = _frame(n=1500)
+    cols.clear_edge_memo()
+    calls = _count_uncached(monkeypatch)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        MRMR(verbose=0, random_seed=0, fe_max_steps=steps, fe_target_mix_enable=False).fit(X, y_reg)
+    assert len(calls) > 0
+    keys = [hash(np.ascontiguousarray(c).tobytes()) for c in calls]
+    repeated = len(keys) - len(set(keys))
+    assert repeated == 0, f"fe_max_steps={steps}: {repeated} of {len(keys)} column binnings repeated the content of an earlier one"
