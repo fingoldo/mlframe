@@ -69,6 +69,7 @@ from ._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
 import pandas as pd
 
+from ._orthogonal_shared import coerce_y_classif
 from ._orthogonal_univariate_fe import generate_univariate_basis_features
 from ._orth_auto_scorer_fe import (
     SCORER_NAMES,
@@ -139,17 +140,11 @@ MUTUAL_RANK_AGGREGATORS = ("mutual_top_k",)
 #   stabilises faster than the per-column-winner identity.
 
 def _plugin_target(y_arr: np.ndarray) -> np.ndarray:
-    """The target the plug-in MI batch reads: a non-integer target of at most 32 distinct values becomes dense class codes."""
-    y_mi = y_arr
-    if not np.issubdtype(y_mi.dtype, np.integer):
-        uniq = np.unique(y_mi[np.isfinite(y_mi)] if y_mi.dtype.kind in "fc" else y_mi)
-        if uniq.size <= 32:
-            # densify via np.unique(return_inverse=...) rather
-            # than truncating .astype(int64) - non-integer labels (e.g. 0.1/0.2/...) would
-            # otherwise all collapse to class 0.
-            _, y_mi = np.unique(y_mi, return_inverse=True)
-            y_mi = y_mi.astype(np.int64, copy=False)
-    return y_mi
+    """The target the plug-in MI batch reads: a non-integer target of at most 32 distinct values becomes dense class codes and a continuous one is quantile-binned (``coerce_y_classif``): the MI kernel
+    truncates a float y to int64, which collapses every value in [0, 1) to class 0 (the f800c6b05 refactor had put the old inline densify back and lost this)."""
+    if np.issubdtype(y_arr.dtype, np.integer):
+        return y_arr
+    return coerce_y_classif(y_arr)
 
 
 def _complete_in_one_batch(s, Xmat, y_arr, complete, batch, call):
