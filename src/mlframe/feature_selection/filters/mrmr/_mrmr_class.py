@@ -200,6 +200,30 @@ from ._mrmr_fit_log import log_mrmr_fit_summary
 _MRMR_SCHEMA_VERSION = 1
 
 
+def _warn_seed_arguments(random_state: int | None, random_seed: int | None) -> None:
+    """Warn when ``random_seed`` (deprecated alias) conflicts with ``random_state`` or is used alone."""
+    if random_state is not None and random_seed is not None and random_seed != random_state:
+        # This is a conflicting-VALUES notice (which of two
+        # explicitly-passed args wins), not a pure API-deprecation notice - DeprecationWarning is
+        # filtered by default in many contexts (plain ``python script.py``, non-``__main__`` code),
+        # so a genuinely actionable "you set two conflicting values" warning could go unseen. UserWarning
+        # is not filtered by default. The pure "random_seed is deprecated" notice below (neither
+        # conflicts, just an alias in use) stays DeprecationWarning.
+        warnings.warn(
+            "MRMR: both random_seed (deprecated) and random_state were set to different "
+            f"values; using random_state={random_state} and ignoring random_seed={random_seed}. "
+            "Prefer random_state.",
+            UserWarning,
+            stacklevel=2,
+        )
+    elif random_seed is not None and random_state is None:
+        warnings.warn(
+            "MRMR: random_seed is deprecated, use random_state instead (sklearn's naming).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+
 class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, _MRMRConfigMixin, _MRMRFitHelpersMixin, _MRMRFitBodyBlocksMixin, _MRMRFitStagesMixin):
     """Finds subset of features having highest impact on target and least redundancy.
 
@@ -3193,26 +3217,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # mirroring ``_effective_random_seed()``.
         # ``random_state`` (sklearn's name) is canonical; ``random_seed`` is a deprecated alias kept
         # for backward compatibility - see ``_effective_random_seed``.
-        if random_state is not None and random_seed is not None and random_seed != random_state:
-            # This is a conflicting-VALUES notice (which of two
-            # explicitly-passed args wins), not a pure API-deprecation notice - DeprecationWarning is
-            # filtered by default in many contexts (plain ``python script.py``, non-``__main__`` code),
-            # so a genuinely actionable "you set two conflicting values" warning could go unseen. UserWarning
-            # is not filtered by default. The pure "random_seed is deprecated" notice below (neither
-            # conflicts, just an alias in use) stays DeprecationWarning.
-            warnings.warn(
-                "MRMR: both random_seed (deprecated) and random_state were set to different "
-                f"values; using random_state={random_state} and ignoring random_seed={random_seed}. "
-                "Prefer random_state.",
-                UserWarning,
-                stacklevel=2,
-            )
-        elif random_seed is not None and random_state is None:
-            warnings.warn(
-                "MRMR: random_seed is deprecated, use random_state instead (sklearn's naming).",
-                DeprecationWarning,
-                stacklevel=2,
-            )
+        _warn_seed_arguments(random_state, random_seed)
 
         # save params
         # postfix="" is required here: every attribute read in this class (hundreds of getattr(self, "x", default)
