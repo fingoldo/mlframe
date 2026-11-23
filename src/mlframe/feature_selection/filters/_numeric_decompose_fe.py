@@ -443,6 +443,9 @@ def hybrid_numeric_decompose_fe(
     return pd.concat([X, eng[keep]], axis=1), scores
 
 
+_DECOMPOSE_BLOCK_BYTES = 512 * 1024 * 1024  # candidate bytes (float32 x the three copies of the per-column estimate) one block of source columns may hold
+
+
 def _decompose_block_columns(X: pd.DataFrame, cols, per_source: int) -> "int | None":
     """Source columns per block when the full candidate frame would take more than a quarter of the available host memory (``MLFRAME_NUMERIC_DECOMPOSE_BLOCK_COLS``
     forces a block size), else ``None`` (one frame, as before)."""
@@ -454,7 +457,9 @@ def _decompose_block_columns(X: pd.DataFrame, cols, per_source: int) -> "int | N
     n_src = len(_numeric_cols(X, cols))
     per_col = len(X) * max(1, per_source) * 4 * 3  # float32 candidates, held as the frame, its array copy and the concat
     try:
-        budget = host_memory()[0] // 4
+        # a quarter of the available RAM, but never more than ``_DECOMPOSE_BLOCK_BYTES``: with a quarter of 9.6 GB the 100000 x 400 fit took two blocks of 285 columns and held 2.8 GB; blocks of 60 columns (512 MB)
+        # hold 0.76 GB and ran 19 percent faster (13.5 s against 11.0 s steady, same 5 result columns): the candidates are independent, so the block size changes the memory and the cache behaviour, not the result
+        budget = min(host_memory()[0] // 4, _DECOMPOSE_BLOCK_BYTES)
     except Exception as exc:
         log_throttle(logger, "_numeric_decompose_fe.except_428", logging.INFO, "numeric decompose blocks: available RAM unreadable (%r); one block", exc)
         return None
