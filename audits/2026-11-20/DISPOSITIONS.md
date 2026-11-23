@@ -1111,3 +1111,4 @@
 | 22-F35 | FIXED | Docstring corrected: the exact-own-value claim holds only for k=1; for k>1 a subsample row is the mean of its k nearest subsample rows. Docstring-only; no behaviour change, no test. |
 | 22-F36 | FIXED | NaN check in PdOrdinalEncoder.transform reads the native dtype (pd.isna) instead of copying the output to float64. Test test_cluster22_ordinal_nan_check.py. |
 | 25-F57 | FIXED | Prefilter scans candidate sizes ascending so the smallest qualifying size wins for unsorted input. Test test_cluster25_prefilter_unsorted_sizes.py. |
+| 25-F56 | FIXED | Dead marginals array removed from the MI kernel; output unchanged. Regression: existing MI parity and range tests (test_mi_cross_parity.py, test_mi_kernels_reject_out_of_range_codes.py), 28 passing. |
