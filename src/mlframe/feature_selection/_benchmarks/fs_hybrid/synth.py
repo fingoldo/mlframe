@@ -68,7 +68,7 @@ def make_dataset(n_samples: int = 5000, seed: int = 0):
         "relevant": base_names + redundant_names,  # causal + redundant copies
         "noise": noise_names,
         "interaction_operands": ["inf_4", "inf_5"],
-        "quadratic_operand": ["inf_6"],
+        "quadratic_operands": ["inf_6"],
     }
     return X, pd.Series(y, name="target"), truth
 

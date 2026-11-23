@@ -135,7 +135,7 @@ def main():
     Xh, yh, truth = make_hard_dataset(n_samples=5000, seed=0)
     groups_h = {
         "interaction_operands ia,ib (pure-interaction, ~0 marginal)": truth["interaction_operands"],
-        "quadratic_operand sq (~0 marginal)": truth["quadratic_operand"],
+        "quadratic_operand sq (~0 marginal)": truth["quadratic_operands"],
         "strong str_* (large marginal)": truth["strong"],
         "weak_sparse weak_* (small marginal)": truth["weak_sparse"],
         "redundant copies of str_0": [c for c in Xh.columns if c.startswith("red_0_")],
