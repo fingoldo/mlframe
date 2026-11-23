@@ -87,7 +87,9 @@ def make_gaussian_knockoffs(X: pd.DataFrame | np.ndarray, random_state: int | No
     # Standardise X (zero mean, unit variance per column) so Sigma is correlation
     means = np.nanmean(X_arr, axis=0)
     stds = np.nanstd(X_arr, axis=0)
-    stds = np.where(stds > 1e-12, stds, 1.0)
+    # An all-NaN column gives NaN mean and std; fall back to 0 / 1 so its knockoff is finite (15-F17), not NaN.
+    means = np.where(np.isfinite(means), means, 0.0)
+    stds = np.where(np.isfinite(stds) & (stds > 1e-12), stds, 1.0)
     X_std = (X_arr - means) / stds
     # Replace any NaNs (from constant columns) with 0
     X_std = np.where(np.isnan(X_std), 0.0, X_std)
