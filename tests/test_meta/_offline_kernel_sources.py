@@ -124,7 +124,8 @@ _RECIPES: dict = {
     "_bin_fingerprint_gpu.py::_SRC": lambda s: [(c, s.replace("CT_", c), ()) for c in ("signed char", "short", "int", "long long")],
     "_gpu_resident_rank_bin.py::_RANK_CODES_SRC": lambda s: [(r, s.replace("VT_", r), ()) for r in _REAL_TYPES],
     "_usability_greedy_clf_batched.py::_FUSED_SRC": lambda s: [(r, s.replace("VT_", r), ()) for r in _REAL_TYPES],
-    "_binned_numeric_agg_resident.py::_OOF_GATHER_MULTI_SRC": lambda s: [(r, s.replace("OUT_T", r), ()) for r in _REAL_TYPES],
+    # production fills OUT_T from the value dtype and the {REAL} that its own gather reads with "double" (see the RawKernel call site)
+    "_binned_numeric_agg_resident.py::_OOF_GATHER_MULTI_SRC": lambda s: [(r, _fill(s.replace("OUT_T", r), **{"{REAL}": "double"}), ()) for r in _REAL_TYPES],
     "_ksg_cd_gpu.py::_SRC": lambda s: [(f"{r} {ct}", _fill(s, **{"{REAL}": r, "{ACC}": "double", "{CT}": ct}), ()) for r in _REAL_TYPES for ct in ("int", "signed char")],
     "_meta_fingerprint_gpu.py::_SRC": lambda s: [(r, _fill(s, **{"{REAL}": r, "{ACC}": "double"}), ()) for r in _REAL_TYPES],
     "_cmim_min_gpu.py::_SRC": lambda s: [(ct, _fill(s, **{"{XT}": ct, "{ACC}": "double"}), ()) for ct in ("short", "unsigned char")],
