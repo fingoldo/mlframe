@@ -500,5 +500,6 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 41-F20 | 41_training-10.md | FIXED | Predicates is_catboost_model / is_neural_model answer quietly for estimator instances; no dispatch WARNING for unknown estimators. Test test_cluster41_predicates_do_not_warn.py. |
 | 41-F23 | 41_training-10.md | FIXED | Pareto artifact returns None when there is no shard history, before any indexing. Test test_cluster41_pareto_empty_history.py. |
 | 41-F15 | 41_training-10.md | FIXED | Two-label multilabel runs get per-label chart names; binary naming unchanged. Test test_cluster41_multilabel_two_labels_distinct_plots.py. |
+| 41-F16 | 41_training-10.md | FIXED | Non-numeric feature values coerce to NaN in the calibration-by-feature and heatmap renderers. Test test_cluster41_feature_values_coerce_nonnumeric.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
 | 42-F2 | 42_votenrank.md | FIXED | sub-leaderboards inherit allow_partial and partial_fill; no separate test |
