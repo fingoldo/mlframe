@@ -1268,3 +1268,4 @@
 | 17-F30 | FIXED | KS bench restores the production gate in a finally clause, so an exception inside a timed run cannot leave it disabled. Test tests/metrics/test_cluster17_ks_bench_restores_gate.py (source pin). |
 | 17-F29 | FIXED | CRPS bench verifies the shipped function with one computation and one comparison. Test tests/metrics/test_cluster17_crps_bench_single_check.py (source pin). |
 | 17-F28 | FIXED | Adjusted-R2 bench helpers delegate to fast_r2_score and fast_adjusted_r2_score; they agree on a sample. Test tests/metrics/test_cluster17_adjr2_bench_uses_shipped.py. |
+| 17-F27 | DEFERRED | Bench kernel copies with fastmath=True are the A/B variants under test; replacing them with production kernels removes the comparison. Which arm the bit-identical claim describes, and whether the R2=-inf discrepancy is a bench or production bug, needs an owner decision. Not changed. |
