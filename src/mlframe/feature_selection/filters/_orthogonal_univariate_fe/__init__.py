@@ -348,6 +348,16 @@ from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 
 
 @fe_timed("univariate_basis")
+def _copy_on_write_active() -> bool:
+    """Whether pandas copy-on-write is in force (always from pandas 3, an option before)."""
+    try:
+        if int(str(pd.__version__).split(".")[0]) >= 3:
+            return True
+        return bool(pd.options.mode.copy_on_write is True)
+    except Exception:  # an unreadable version or option: the safe answer is a deep copy
+        return False
+
+
 def generate_univariate_basis_features(
     X: pd.DataFrame,
     *,
@@ -366,7 +376,9 @@ def generate_univariate_basis_features(
     if key is not None:
         with _BASIS_MEMO_LOCK:
             hit = _BASIS_MEMO.get(key)
-            out = hit.copy(deep=True) if hit is not None else None
+            # Under copy-on-write (pandas 3, or the option on) a shallow copy shares the blocks until a caller writes to one, which then copies that block alone: the hit costs no memory and cannot corrupt
+            # the stored columns. Without it a shallow copy would share writable blocks, so the deep copy stays (PLAN-10: 687 MB of deep copies at 100000 x 1000).
+            out = hit.copy(deep=not _copy_on_write_active()) if hit is not None else None
         if out is not None:
             out.index = X.index
             return out
