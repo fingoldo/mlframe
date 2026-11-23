@@ -224,6 +224,7 @@ def reset_fe_family_wall() -> None:
     global _MAX_INFLIGHT
     with _LOCK:
         _FE_FAMILY_WALL.clear()
+        _FE_FAMILY_RSS.clear()
         _MAX_INFLIGHT = _INFLIGHT
 
 
@@ -264,9 +265,7 @@ def log_fe_family_summary(*, reset: bool = True) -> None:
     caveat = f"  [CONCURRENT: peak {peak} families in flight; walls overlap, shares are CPU-time not wall]" if overlapped else ""
     logger.info("MRMR FE per-family wall: %s  [total %.1fs]%s", "  ".join(parts), total, caveat)
     with _LOCK:
-        mem_rows = sorted(_FE_FAMILY_RSS.items(), key=lambda kv: kv[1][0], reverse=True)
-        if reset:
-            _FE_FAMILY_RSS.clear()
+        mem_rows = sorted(_FE_FAMILY_RSS.items(), key=lambda kv: kv[1][0], reverse=True)  # kept after the summary (the fit's own end-of-fit summary resets the walls): ``reset_fe_family_wall`` clears it
     if mem_rows:
         logger.info(
             "MRMR FE per-family RSS (MB, max over calls: peak above the entry / still held at exit): %s",
