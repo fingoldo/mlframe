@@ -1055,3 +1055,4 @@
 | 39-F42 | FIXED | Tokenizer role names (pad/eos/bos/unk/sep/cls/mask), cache_key and token_type are not masked as secrets. Test test_cluster39_secret_name_masking.py. |
 | 39-F57 | FIXED | Negative and NaN categorical codes map to the reserved row instead of category 0. Tests updated in test_categorical_embeddings.py. |
 | 39-F21 | FIXED | Object-column fingerprints hash by value (hash_pandas_object), not PyObject pointers. Test test_cluster39_object_column_hash_by_value.py. |
+| 39-F22 | FIXED | fit() retries without y only for a y-signature mismatch, the same narrowing fit_transform uses; genuine TypeErrors surface. Test test_cluster39_custom_fit_narrow_retry.py. |
