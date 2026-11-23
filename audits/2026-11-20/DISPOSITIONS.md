@@ -1057,3 +1057,4 @@
 | 39-F21 | FIXED | Object-column fingerprints hash by value (hash_pandas_object), not PyObject pointers. Test test_cluster39_object_column_hash_by_value.py. |
 | 39-F22 | FIXED | fit() retries without y only for a y-signature mismatch, the same narrowing fit_transform uses; genuine TypeErrors surface. Test test_cluster39_custom_fit_narrow_retry.py. |
 | 39-F41 | DEFERRED | Stale-lock reclaim was removed deliberately (class docstring says so); restoring it changes lock behaviour, so the owner must pick reclaim vs documented no-reclaim. Module docstring is the only stale claim. |
+| 39-F68 | DEFERRED | The per-step sync detects an all-zero batch at runtime; moving the check to prep time means validating sample_weight before the epoch, a design change to the weight pipeline. Owner to confirm the approach. |
