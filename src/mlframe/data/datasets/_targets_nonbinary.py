@@ -123,7 +123,9 @@ def sample_categorical(probabilities: np.ndarray, rng: np.random.Generator) -> n
     """Draw one class per row from its own categorical distribution."""
     cumulative = np.cumsum(np.asarray(probabilities, dtype=np.float64), axis=1)
     draws = np.asarray(rng.random(cumulative.shape[0]), dtype=np.float64).reshape(-1, 1)
-    return np.asarray((draws > cumulative).sum(axis=1), dtype=np.int64)
+    # Rounding can leave the last cumulative sum a hair under 1, so a draw above it would index past the last class; clamp (04-F34).
+    index = (draws > cumulative).sum(axis=1)
+    return np.asarray(np.minimum(index, cumulative.shape[1] - 1), dtype=np.int64)
 
 
 def sample_count(means: np.ndarray, rng: np.random.Generator) -> np.ndarray:

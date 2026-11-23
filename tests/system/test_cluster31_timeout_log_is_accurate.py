@@ -22,3 +22,15 @@ def test_timeout_is_reported_as_timeout_not_fallback(monkeypatch, caplog):
     messages = [r.getMessage() for r in caplog.records]
     assert any("timed out" in m for m in messages)
     assert not any("fell back" in m for m in messages)
+
+
+def test_missing_package_file_raises_runtime_error(monkeypatch):
+    """A namespace-like mlframe without __file__ is refused with a RuntimeError, even under python -O (31-F11)."""
+    import sys
+
+    import pytest
+
+    monkeypatch.setattr(sys.modules["mlframe"], "__file__", None)
+    spec = SimpleNamespace(kernel_name="dummy_kernel")
+    with pytest.raises(RuntimeError, match="__file__"):
+        _ensure._run_sweep(spec, timeout_s=1)

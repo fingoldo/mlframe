@@ -15,9 +15,6 @@ this file stays committed so the measured win is reproducible (REJECTED!=DELETED
 """
 from __future__ import annotations
 
-import logging
-
-logger = logging.getLogger(__name__)
 
 import time
 

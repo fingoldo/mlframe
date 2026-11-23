@@ -249,7 +249,8 @@ def _run_sweep(spec: Any, timeout_s: float) -> tuple:
     # of another checkout would tune a kernel that the code being pushed does not have.
     env = dict(os.environ)
     mlframe_file = sys.modules["mlframe"].__file__
-    assert mlframe_file is not None  # a package imported from its source tree always has a file
+    if mlframe_file is None:  # an explicit check: an assert is stripped under python -O (31-F11)
+        raise RuntimeError("mlframe imported without a __file__ (namespace package?); cannot locate its source root for the sweep child")
     src_root = os.path.dirname(os.path.dirname(os.path.abspath(mlframe_file)))
     env["PYTHONPATH"] = os.pathsep.join(p for p in (src_root, env.get("PYTHONPATH", "")) if p)
     try:

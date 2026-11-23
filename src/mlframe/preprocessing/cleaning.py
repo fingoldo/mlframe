@@ -535,11 +535,6 @@ def _continuity_ratio(
     """Observed distinct count relative to the count random draws over the span would give; returns (ratio, scaled max_scarceness)."""
     if nexpected_unique_values <= 0:
         return 0.0, max_scarceness
-    """
-    for max_nunique in double_scarcenes_after:
-        if real_unique_values > max_nunique:
-            max_scarceness *= 2
-    """
     max_scarceness = np.round(max_scarceness * (1.0 + np.max([0.0, np.log(sample_size / log_scarceness_divisor)])), 2)
     if real_unique_values <= 1:
         return 0.0, max_scarceness

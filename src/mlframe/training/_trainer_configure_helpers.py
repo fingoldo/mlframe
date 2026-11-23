@@ -14,11 +14,6 @@ from pyutilz.system import compute_total_gpus_ram
 
 from ._gpu_contention import gpu_fits_now
 
-# Heavy optional deps: defer failures to first actual use so `import mlframe.training` stays cheap and does not crash when a given backend is not installed.
-try:
-    import matplotlib.pyplot as plt
-except ImportError:  # pragma: no cover
-    plt = None  # type: ignore[assignment]
 
 from sklearn.metrics import (
     make_scorer,

@@ -59,17 +59,6 @@ DATEFRACTS_MULTIPLIERS = [24, 60, 60, 1000, 1000, 1000]
 # -----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-logger = logging.getLogger(__name__)
-
-
-NDIGITS = 10
-
-
-DATEFRACTS_CODES = "h m s ms us ns".split(" ")  # list('HTSLUN') for Pandas
-
-
-DATEFRACTS_MULTIPLIERS = [24, 60, 60, 1000, 1000, 1000]
-
 
 def _count_unique_fractional_parts(n_unique_fracts, fract_part, max_fract_digits, last_n_unique_fracts, min_fract_level_increase_perecent, n_unique_ints, nz_fract_digits):
     """Count the unique fractional parts at the current digit depth."""
@@ -491,17 +480,6 @@ def _analyse_and_clean__vars_having_only_one(col, constant_features, manyvalued_
         if (col not in manyvalued_features) or (not col_is_numeric):
             features_unique_values[col] = set(col_unique_values.index.to_numpy())
         else:
-            """
-            features_ranges[col]=df[col].describe().astype(np.float32).to_dict()
-            {'count': 11706156.0,
-             'mean': 840.458984375,
-             'std': 592.664794921875,
-             'min': 0.0,
-             '25%': 339.0,
-             '50%': 741.0,
-             '75%': 1260.0,
-             'max': 2594.0}
-            """
             # `col_unique_values` is a `value_counts` Series: its INDEX holds the distinct values and its
             # VALUES hold the counts. min/max off the index are correct (the extremes are the same either
             # way), but the median was taken over the distinct-value SET with the counts ignored entirely --

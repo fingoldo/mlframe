@@ -22,8 +22,10 @@ def _make_series(n: int, n_regimes: int, seed: int) -> np.ndarray:
     return np.concatenate(segments)
 
 
-def _run(n: int, n_regimes: int, backend: str, return_segment_stats: bool = False) -> None:
-    y = _make_series(n, n_regimes, seed=0)
+def _run(n: int, n_regimes: int, backend: str, return_segment_stats: bool = False, y=None) -> None:
+    # The series is built by the caller, outside any timer; it is generated here only when none is passed (30-F5).
+    if y is None:
+        y = _make_series(n, n_regimes, seed=0)
     detect_regime_changepoints(
         y,
         min_segment_length=max(10, n // (n_regimes * 4)),
@@ -37,24 +39,27 @@ if __name__ == "__main__":
     _run(1_000, 3, "njit")  # warm the njit kernel before timing
 
     # ruptures' own l2 cost function calls np.var() per candidate window (no cumsum optimization); the njit
-    # backend below is ~100x faster and is the library default. See the module docstring's performance note.
+    # The njit backend is the library default; the speed ratio is whatever the timings printed below show (30-F6: the earlier '~100x' claim was not measured here).
     for n, n_regimes in [(2_000, 5), (5_000, 10), (50_000, 10)]:
+        y = _make_series(n, n_regimes, seed=0)
         t0 = time.perf_counter()
-        _run(n, n_regimes, "njit")
+        _run(n, n_regimes, "njit", y=y)
         wall = time.perf_counter() - t0
         print(f"njit     n={n:>7,} n_regimes={n_regimes:>3} -> {wall * 1000:9.2f} ms")
 
-    for n, n_regimes in [(2_000, 5), (5_000, 10)]:  # ruptures backend capped smaller -- multi-second at 5,000
+    for n, n_regimes in [(2_000, 5), (5_000, 10)]:  # ruptures backend is capped smaller so the run stays short (30-F6: no timing claim here)
+        y = _make_series(n, n_regimes, seed=0)
         t0 = time.perf_counter()
-        _run(n, n_regimes, "ruptures")
+        _run(n, n_regimes, "ruptures", y=y)
         wall = time.perf_counter() - t0
         print(f"ruptures n={n:>7,} n_regimes={n_regimes:>3} -> {wall * 1000:9.2f} ms")
 
     # return_segment_stats is O(n_regimes) post-processing on top of the njit PELT loop -- should add
     # negligible wall time even at large n / many regimes.
     for n, n_regimes in [(5_000, 10), (50_000, 10)]:
+        y = _make_series(n, n_regimes, seed=0)
         t0 = time.perf_counter()
-        _run(n, n_regimes, "njit", return_segment_stats=True)
+        _run(n, n_regimes, "njit", return_segment_stats=True, y=y)
         wall = time.perf_counter() - t0
         print(f"njit+segment_stats n={n:>7,} n_regimes={n_regimes:>3} -> {wall * 1000:9.2f} ms")
 

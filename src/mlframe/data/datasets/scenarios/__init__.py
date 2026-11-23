@@ -473,7 +473,17 @@ SCENARIOS: Tuple[Scenario, ...] = (
     ),
 )
 
-_BY_NAME: Dict[str, Scenario] = {scenario.name: scenario for scenario in SCENARIOS}
+def _index_by_name(scenarios: Tuple[Scenario, ...]) -> Dict[str, Scenario]:
+    """Index scenarios by name, refusing duplicates so a later entry cannot silently replace an earlier one (04-F32)."""
+    index: Dict[str, Scenario] = {}
+    for scenario in scenarios:
+        if scenario.name in index:
+            raise ValueError(f"duplicate scenario name {scenario.name!r}")
+        index[scenario.name] = scenario
+    return index
+
+
+_BY_NAME: Dict[str, Scenario] = _index_by_name(SCENARIOS)
 
 
 def names() -> Tuple[str, ...]:

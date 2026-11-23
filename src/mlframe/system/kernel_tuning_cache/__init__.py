@@ -86,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.command == "show":
         return cmd_show(specs, args.kernel)
     elif args.command == "explain":
-        return cmd_explain(specs, args.kernel, args.dims if hasattr(args, "dims") else None)
+        return cmd_explain(specs, args.kernel, args.dims)
     elif args.command == "refresh":
         return cmd_refresh(specs, args.kernel)
     elif args.command == "refresh-all":

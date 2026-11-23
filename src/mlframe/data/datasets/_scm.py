@@ -473,7 +473,8 @@ def _collapse_redundant(
         group_members = [name]
         for group in redundancy_groups:
             if group.exact and name in group.members:
-                group_members = [member for member in remaining if member in set(group.members)]
+                members = set(group.members)  # built once per group, not once per remaining member (04-F28)
+                group_members = [member for member in remaining if member in members]
                 break
         consumed.update(group_members)
         classes.append(tuple(group_members))

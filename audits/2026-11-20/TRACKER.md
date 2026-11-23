@@ -621,6 +621,37 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 29-F37 | 29_root_modules-8.md | FIXED | Refit without capture clears stale iteration_metrics_. Test test_cluster29_xgb_refit_clears_iteration_metrics.py. |
 | 29-F34 | 29_root_modules-8.md | FIXED | Names mismatch raises ValueError listing both lists. Test test_cluster29_diversity_names_mismatch_message.py. |
 | 31-F10 | 31_system.md | FIXED | Timeout log states the timeout, not a fallback. Test test_cluster31_timeout_log_is_accurate.py. |
+| 31-F11 | 31_system.md | FIXED | Source-root assert replaced by explicit RuntimeError. Test test_cluster31_timeout_log_is_accurate.py. |
+| 31-F12 | 31_system.md | FIXED | Dead hasattr on args.dims removed. Regression: test_kernel_tuning_cache_cli.py (24). |
+| 31-F13 | 31_system.md | DEFERRED | Over-matching attribute calls; restricting risks skipping real registrations; needs module-alias resolution. |
+| 30-F5 | 30_signal.md | FIXED | Series generated outside the timed region; _run takes a prebuilt y. Test test_cluster30_changepoint_bench_prebuilt_series.py. |
+| 30-F6 | 30_signal.md | FIXED | Unverified speed claims in benchmark comments made neutral. Comment-only, no test. |
+| 30-F3 | 30_signal.md | FIXED | Unused logger removed from the DTW GPU benchmark. Import check only, no test. |
+| 28-F50 | 28_root_modules-7.md | FIXED | Duplicate SimpleNamespace import removed; reset-then-read pair replaced by passing None (attribute is None on entry). Import check and a related trainer test pass. |
+| 28-F55 | 28_root_modules-7.md | FIXED | No-op del of a parameter removed; _maybe_clean_ram unchanged. Import check only, no test (no observable effect). |
+| 26-F17 | 26_root_modules-5.md | FIXED | Duplicate module-level definitions removed; values unchanged. Regression: 17 existing cleaning tests. |
+| 26-F33 | 26_root_modules-5.md | FIXED | Tuples tagged in canonical JSON; tuple vs list no longer collide. Existing tuple-keyed cache entries miss once. Test test_cluster26_canonical_tuple_vs_list.py. |
+| 26-F18 | 26_root_modules-5.md | PARTIAL | Dead commented-out string block in cleaning.py removed; explanatory bare string in _cleaning_helpers.py kept. Regression: 16 cleaning tests. |
+| 26-F25 | 26_root_modules-5.md | FIXED | Docstring corrected: worst-K on the bounded subsample above DIAG_ROW_CAP. Docstring-only, no test. |
+| 26-F16 | 26_root_modules-5.md | FIXED | LOF novelty crash fixed; contamination cutoff uses a stable sort so ties are deterministic and the docstring is accurate. Test test_cluster26_lof_novelty_scores.py. |
+| 26-F26 | 26_root_modules-5.md | DEFERRED | Saved-at-submit recording is deliberate for sync/async parity; a failed async save needs a worker-to-dict update path (design). |
+| 26-F27 | 26_root_modules-5.md | PARTIAL | ScatterPanelSpec length checks added (test_cluster26_scatter_spec_lengths.py). Histogram bar_colors check deferred: bar count depends on pre-binned vs raw mode, which the spec does not carry. |
+| 26-F34 | 26_root_modules-5.md | DEFERRED | Import-time env write and CatBoost Pool patch may be relied on by importers outside the suite entry; moving them is an owner decision. |
+| 26-F19 | 26_root_modules-5.md | FIXED | Mutation of the caller's XGBoost model documented in the docstring (needed: early stopping is a constructor parameter). Docstring-only, no test. |
+| 28-F61 | 28_root_modules-7.md | FIXED | Unused matplotlib import removed from trainer-configure helpers. Regression: 37 importing tests pass. |
+| 08-F18 | 08_feature_engineering-1.md | FIXED | Empty minority set raises a clear error naming the caller. Test test_cluster08_bgmm_empty_minority.py. |
+| 08-F19 | 08_feature_engineering-1.md | FIXED | k below 1 refused in kth_nearest_dists; clipping kept. Test test_cluster08_kth_nearest_k_positive.py. |
+| 18-F17 | 18_models.md | FIXED | Unreachable except NameError removed; _gate_stats is a parameter. Regression: 71 existing ensembling tests. |
+| 18-F18 | 18_models.md | FIXED | Docstring corrected: per-class correlations averaged, not last column. Docstring-only, no test. |
+| 18-F16 | 18_models.md | FIXED | Never-read streaming threshold constant removed; the real switch is quantile_budget_bytes. Regression: 7 ensembling tests. |
+| 14-F9 | 14_feature_selection-5.md | WON'T FIX | Double asarray wrapper performs one copy; rewriting saves nothing. |
+| 14-F10 | 14_feature_selection-5.md | FIXED | Orphan comment about an undefined TreeSHAP threshold removed. Comment-only, no test. |
+| 14-F8 | 14_feature_selection-5.md | FIXED | One-copy permutation buffer (same result). Regression: test_biz_val_shap_proxy_cluster.py (5 passed). |
+| 14-F11 | 14_feature_selection-5.md | FIXED | Stale docstrings about a nonexistent kernel_tuning_cache.get API corrected; the live wrappers are kept. Docstring-only. |
+| 08-F20 | 08_feature_engineering-1.md | FIXED | Default sentinel is None, so an explicit 50_000 is honoured. Test test_cluster08_knn_explicit_hnsw_threshold.py. |
+| 18-F19 | 18_models.md | PARTIAL | Stacking failure log names the skipped stamp and includes the traceback. No direct test (branch hard to reach). |
+| 08-F21 | 08_feature_engineering-1.md | FIXED | Duplicated baseline kept by design; drift-guard test pins it to the shared OOF helper. Test test_cluster08_baseline_oof_paths_agree.py. |
+| 18-F20 | 18_models.md | DEFERRED | Benchmark mirrors the chooser ranking; shipped chooser has no probe-order parameter, so calling it needs an API change. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |

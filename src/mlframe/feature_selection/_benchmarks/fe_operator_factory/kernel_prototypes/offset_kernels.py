@@ -106,7 +106,6 @@ def _edges_partition(u, v, t, buf, nbins, edges, los, his, fracs):
     n = u.shape[0]
     for i in range(n):
         buf[i] = _cand(u[i], v[i], t)
-    nbins + 1
     kths = np.empty(2 * (nbins - 1), dtype=np.int64)
     m = 0
     for k in range(1, nbins):

@@ -91,10 +91,8 @@ def apply_diversity_drop(
     if _drop_floor is not None and _high_corr_pairs:
         _to_drop_tags: set[str] = set()
         _gate_per_mae = None
-        try:
-            _gate_per_mae = _gate_stats.get("per_member_mae") if isinstance(_gate_stats, dict) else None
-        except NameError:
-            _gate_per_mae = None
+        # ``_gate_stats`` is a parameter, always bound, so the lookup needs no NameError guard (18-F17).
+        _gate_per_mae = _gate_stats.get("per_member_mae") if isinstance(_gate_stats, dict) else None
         # Map tag -> MAE on the pre-gate-drop member list. ``_ensemble_member_tags`` is the
         # POST-gate tag list (sliced if the gate dropped members), so realign by looking up the
         # member's current position in the sliced list and using that index into per_member_mae

@@ -286,6 +286,8 @@ def kth_nearest_dists(X_subset: np.ndarray, X_query: np.ndarray, k_max: int, k_s
     to the k-th-neighbor logic can't silently drift out of sync across copies.
     """
     from sklearn.neighbors import NearestNeighbors
+    if any(int(k) < 1 for k in k_scales):  # k=0 maps to column -1, the farthest neighbour, silently (08-F19)
+        raise ValueError(f"kth_nearest_dists: every k in k_scales must be >= 1; got {tuple(k_scales)}.")
     n_sub = X_subset.shape[0]
     if n_sub == 0:
         return np.full((X_query.shape[0], len(k_scales)), 1e6, dtype=np.float32)
