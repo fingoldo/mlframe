@@ -54,7 +54,10 @@ def _density_weighted_smote_synthesize(X_minority: np.ndarray, n_synthetic: int,
     nn = NearestNeighbors(n_neighbors=k_used).fit(X_minority)
     dists, ids = nn.kneighbors(X_minority)
     # Per-positive density: 1 / mean(top-k NN distances). Sparse positives have small density.
-    mean_knn_dist = dists[:, 1:].mean(axis=1) + 1e-9  # exclude self at column 0
+    # Exclude self by index, not by column: with duplicate points another copy can sort first, and column 0 is then not self (09-F40).
+    rows_self = np.arange(n_min)[:, None]
+    keep_order = np.argsort(ids == rows_self, axis=1, kind="stable")[:, : k_used - 1]
+    mean_knn_dist = np.take_along_axis(dists, keep_order, axis=1).mean(axis=1) + 1e-9
     # Inverse-density weight for sampling: low density → high weight.
     weights = mean_knn_dist  # already proportional to 1/density (since density = 1/mean_dist)
     weights = weights / weights.sum()  # normalize to probability distribution
@@ -66,7 +69,8 @@ def _density_weighted_smote_synthesize(X_minority: np.ndarray, n_synthetic: int,
     nbr = np.empty(n_synthetic, dtype=np.int64)
     alpha = np.empty(n_synthetic, dtype=np.float32)
     for i in range(n_synthetic):
-        candidates = ids[src[i], 1:k_used]
+        row_ids = ids[src[i]]
+        candidates = row_ids[row_ids != src[i]][: k_used - 1]  # self removed by index (09-F40)
         if candidates.size == 0:
             nbr[i] = src[i]
             alpha[i] = np.float32(0.0)
