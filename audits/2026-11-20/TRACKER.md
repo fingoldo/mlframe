@@ -627,7 +627,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 30-F5 | 30_signal.md | FIXED | Series generated outside the timed region; _run takes a prebuilt y. Test test_cluster30_changepoint_bench_prebuilt_series.py. |
 | 30-F6 | 30_signal.md | FIXED | Unverified speed claims in benchmark comments made neutral. Comment-only, no test. |
 | 30-F3 | 30_signal.md | FIXED | Unused logger removed from the DTW GPU benchmark. Import check only, no test. |
-| 28-F50 | 28_root_modules-7.md | PARTIAL | Duplicate SimpleNamespace import removed; repeated _pre_pipeline_groups reset kept (redundancy not established). Import check and a related trainer test pass; no new test. |
+| 28-F50 | 28_root_modules-7.md | FIXED | Duplicate SimpleNamespace import removed; reset-then-read pair replaced by passing None (attribute is None on entry). Import check and a related trainer test pass. |
 | 28-F55 | 28_root_modules-7.md | FIXED | No-op del of a parameter removed; _maybe_clean_ram unchanged. Import check only, no test (no observable effect). |
 | 26-F17 | 26_root_modules-5.md | FIXED | Duplicate module-level definitions removed; values unchanged. Regression: 17 existing cleaning tests. |
 | 26-F33 | 26_root_modules-5.md | FIXED | Tuples tagged in canonical JSON; tuple vs list no longer collide. Existing tuple-keyed cache entries miss once. Test test_cluster26_canonical_tuple_vs_list.py. |

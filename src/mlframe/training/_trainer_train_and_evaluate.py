@@ -323,8 +323,8 @@ def _tae_run_pre_pipeline(st: SimpleNamespace, model: object, train_df: Any, cur
     # and grouped MRMR receive the same sample-grouping signal the suite-level
     # callers already pass into trainer.fit. Only forwarded on train+val sample
     # range (no test). fix audit row FS-P1-1.
-    st._pre_pipeline_groups = None
-    st._pre_pipeline_groups = _train_and_evaluate_range_no_test_fix(st.group_ids, st.train_idx, train_df, st._pre_pipeline_groups)
+    # The prior value is None at this point; passing None directly replaces the reset-then-read pair (28-F50).
+    st._pre_pipeline_groups = _train_and_evaluate_range_no_test_fix(st.group_ids, st.train_idx, train_df, None)
 
     # Extract train-subset sample_weight BEFORE FS runs so weight-aware MRMR / RFECV (when stamped with the
     # _mlframe_use_sample_weights_in_fs_ marker by _build_pre_pipelines) can receive it via fit_params.
