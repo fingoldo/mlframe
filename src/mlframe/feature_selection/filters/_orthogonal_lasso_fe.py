@@ -175,7 +175,7 @@ def _fit_lasso_abs_coefs(
         return best
     return _fit_lasso_abs_coefs_scaled(X_scaled, y_arr, alpha=alpha, random_state=random_state)
 
-def _fit_lasso_abs_coefs_scaled(
+def _fit_lasso_abs_coefs_scaled(  # unused-ok: the coordinate-descent solver is deterministic, so the argument has no effect; kept so keyword callers do not break
     X_scaled: np.ndarray,
     y_arr: np.ndarray,
     *,
