@@ -1039,3 +1039,9 @@
 | 41-F17 | FIXED | Confusion-derived metrics (accuracy, MCC, F-beta, specificity, FPR/FNR, G-mean) use the tuned threshold when one exists, the same as precision/recall/F1. Test test_cluster41_confusion_block_uses_tuned_threshold.py. |
 | 41-F14 | DEFERRED | Needs a design decision: when predict_proba is missing, probability metrics (ROC/PR AUC, Brier, calibration) are computed from one-hot predict() output across several reporting paths. Suppressing them touches the calibration, ICE and chart paths together; deferred until the owner picks between suppressing those metrics and labelling them as label-derived. |
 | 41-F26 | DEFERRED | Dead code per the uncalled-function rule: rrf_fuse/borda_fuse duplicate ranker_suite ensemble_ranker_scores, _binned_mi and _group_features_mi_njit have no src caller. Wiring them in or deleting them is an owner call (wire vs remove the duplicate); deferred to avoid deleting code the tests exercise. |
+| 39-F7 | FIXED | Categorical cast failures in predict_from_models log at WARNING with the column name. |
+| 39-F8 | FIXED | Volatility-router val-predict failure logs at WARNING with traceback. Test test_cluster39_logging_levels_visible.py. |
+| 39-F10 | FIXED | allowed_targets typo warning is emitted at any verbosity. Test test_cluster39_logging_levels_visible.py. |
+| 39-F56 | FIXED | Lookahead slow-weight commit failure logs at WARNING, stating predictions use fast weights. |
+| 39-F69 | FIXED | Lookahead commit failure logs at WARNING with exc_info (same site as 39-F56). |
+| 39-F70 | FIXED | Optimizer and scheduler names read with getattr fallback, so partial/non-class objects no longer raise AttributeError. |

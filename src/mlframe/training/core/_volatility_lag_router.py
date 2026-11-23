@@ -140,7 +140,7 @@ def build_volatility_lag_router(
         raw_val = np.asarray(trained.predict(filtered_val_df), dtype=np.float64)
         lag_val = np.asarray(lag_component.predict(filtered_val_df), dtype=np.float64)
     except Exception as exc:
-        logger.info("[VolatilityLagRouter] val predict failed (%s); routing skipped.", exc)
+        logger.warning("[VolatilityLagRouter] val predict failed (%s); routing skipped.", exc, exc_info=True)
         return trained
     if raw_val.shape != yv.shape or lag_val.shape != yv.shape:
         return trained

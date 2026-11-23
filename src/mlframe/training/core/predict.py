@@ -394,7 +394,7 @@ def _cast_pandas_cat_cols(input_for_model, cat_features, *, _is_lgb: bool, _is_x
             if input_for_model[_cf].dtype.name != "category":
                 _to_cast[_cf] = input_for_model[_cf].astype("category")
         except Exception as _exc:
-            logger.debug(
+            logger.warning(
                 "predict_from_models: %s cat-cast for %r failed (%s); leaving as-is",
                 "LGB" if _is_lgb else ("XGB" if _is_xgb else "HGB"), _cf, type(_exc).__name__,
             )
@@ -433,7 +433,7 @@ def _cast_polars_xgb_cat_cols(input_for_model, cat_features, enum_domains):
         try:
             input_for_model = input_for_model.with_columns(_pl_cast_exprs)
         except Exception as _exc:
-            logger.debug(
+            logger.warning(
                 "predict_from_models: XGB polars cat-cast failed (%s); leaving as-is",
                 type(_exc).__name__,
             )

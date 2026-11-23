@@ -511,6 +511,12 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 41-F17 | 41_training-10.md | FIXED | Confusion-derived metrics use the tuned threshold, same as precision/recall/F1. Test test_cluster41_confusion_block_uses_tuned_threshold.py. |
 | 41-F14 | 41_training-10.md | DEFERRED | Probability metrics from one-hot predict() when predict_proba is missing: suppressing them spans several paths, owner decision pending. |
 | 41-F26 | 41_training-10.md | DEFERRED | Dead ranking helpers (rrf_fuse, borda_fuse, _binned_mi, _group_features_mi_njit): wire in or remove is an owner call; tests exercise them. |
+| 39-F7 | 39_training-8.md | FIXED | Cast failure logs at WARNING. No direct test. |
+| 39-F8 | 39_training-8.md | FIXED | Router val-predict failure at WARNING. Test test_cluster39_logging_levels_visible.py. |
+| 39-F10 | 39_training-8.md | FIXED | allowed_targets typo warns at any verbosity. Test test_cluster39_logging_levels_visible.py. |
+| 39-F56 | 39_training-8.md | FIXED | Slow-weight commit failure at WARNING. Same site as 39-F69; no direct test. |
+| 39-F69 | 39_training-8.md | FIXED | Commit failure at WARNING with traceback. No direct test. |
+| 39-F70 | 39_training-8.md | FIXED | Optimizer/scheduler name via getattr. No direct test. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
