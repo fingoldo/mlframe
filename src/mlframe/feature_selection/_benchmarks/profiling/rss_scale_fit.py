@@ -256,6 +256,17 @@ if os.environ.get("RSS_CAPTURE_FE_STEP", "").strip():  # the column pool and the
 
     _MRMR_CLS._run_fe_step = _capturing_fe_step
 
+def _sync_gpu() -> None:
+    """Block until queued device work finishes, so a wall stopped after a call includes its GPU compute (a launch-only timer under-counts by orders of magnitude)."""
+    try:
+        import cupy as _cupy
+    except ImportError:
+        return
+    try:
+        _cupy.cuda.Device().synchronize()
+    except Exception:  # cupy without a usable device: nothing to wait for
+        return
+
 _CALL_STATS: dict = {}
 _CALL_NONE: dict = {}
 for _spec in [x for x in os.environ.get("RSS_TRACE_CALLS", "").split(",") if x.strip()]:  # "package.module:function,...": count and sum the wall of those calls (wrapped on the module attribute)
@@ -277,6 +288,7 @@ for _spec in [x for x in os.environ.get("RSS_TRACE_CALLS", "").split(",") if x.s
                     _CALL_NONE[key] = _CALL_NONE.get(key, 0) + 1
                 return result
             finally:
+                _sync_gpu()
                 row = _CALL_STATS.setdefault(key, [0, 0.0, []])
                 row[0] += 1
                 row[1] += time.perf_counter() - t0
