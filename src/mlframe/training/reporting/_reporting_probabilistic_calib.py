@@ -135,7 +135,7 @@ def _top_importance_features(model: Any, columns: Sequence[str], top_k: int) -> 
 
 def _numeric_feature_values(values) -> np.ndarray:
     """Feature values as float64; non-numeric entries (a categorical column) become NaN instead of raising (audit 41-F16)."""
-    return pd.to_numeric(pd.Series(np.asarray(values).ravel()), errors="coerce").to_numpy(dtype=np.float64)
+    return np.asarray(pd.to_numeric(pd.Series(np.asarray(values).ravel()), errors="coerce").to_numpy(dtype=np.float64))
 
 
 def _render_calibration_by_feature(
