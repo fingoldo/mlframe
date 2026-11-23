@@ -551,6 +551,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 32-F8 | 32_training-1.md | FIXED | Polars group-mean join matches null keys like the pandas path. Test test_cluster32_polars_null_group_matches_pandas.py. |
 | 32-F17 | 32_training-1.md | FIXED | Benchmark seed uses zlib.crc32 (already present); pinned. Test test_cluster32_bench_seed_is_stable.py. |
 | 32-F9 | 32_training-1.md | DEFERRED | CatBoost callback has no after-training hook; final-round capture needs caller-side design. |
+| 32-F14 | 32_training-1.md | DEFERRED | Per-drop frame copy per worker: removing it needs a column-mask API on _fit_quick_and_score. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
