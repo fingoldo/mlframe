@@ -97,11 +97,13 @@ def derived_order(graph: CausalGraph, observed: Sequence[str], target: str, late
     ordered: List[str] = []
     remaining = list(derived)
     while remaining:
-        ready = [name for name in remaining if all(parent not in remaining for parent in _feature_parents(graph, name, observed_set, target, latent_set))]
+        remaining_set = set(remaining)  # membership against a set, not the shrinking list (04-F27)
+        ready = [name for name in remaining if all(parent not in remaining_set for parent in _feature_parents(graph, name, observed_set, target, latent_set))]
         if not ready:
             raise ValueError(f"cannot order derived columns {sorted(remaining)}: their parent relation has a cycle")
         ordered.extend(ready)
-        remaining = [name for name in remaining if name not in set(ready)]
+        ready_set = set(ready)
+        remaining = [name for name in remaining if name not in ready_set]
 
     return tuple(name for name in ordered if name not in after), tuple(name for name in ordered if name in after)
 
@@ -144,6 +146,10 @@ def realize_derived(
     """
     observed = set(columns)
     factors: Mapping[str, np.ndarray] = latent_values or {}
+    # First edge wins for a repeated (source, target) pair, as the linear scan did; built once instead of per parent (04-F27).
+    edge_weight: Dict[Tuple[str, str], float] = {}
+    for edge in graph.edges:
+        edge_weight.setdefault((edge.source, edge.target), edge.weight)
     for name in names:
         parents = _feature_parents(graph, name, observed, target, set(factors))
         if not parents:
@@ -161,7 +167,7 @@ def realize_derived(
                 source = columns.get(parent, factors.get(parent))
                 if source is None:
                     raise KeyError(f"column {name!r} has parent {parent!r}, which has not been realised")
-                weight = next((edge.weight for edge in graph.edges if edge.source == parent and edge.target == name), 1.0)
+                weight = edge_weight.get((parent, name), 1.0)
                 contribution = contribution + float(weight) * np.asarray(source, dtype=np.float64)
         residual = stream_for(root_seed, spec_name, "derived", name).normal(0.0, 1.0, contribution.shape[0])
         realised, scale = standardize(contribution + float(residual_sd) * residual)

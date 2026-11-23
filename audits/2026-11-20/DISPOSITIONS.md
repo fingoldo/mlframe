@@ -1195,3 +1195,4 @@
 | 04-F31 | FIXED | rare_class_spec keeps the RARE_MIN_ROWS floor but logs a WARNING when it raises the caller's n_samples, and records requested_n_samples in provenance. Tests tests/data/test_cluster04_rare_class_floor_is_visible.py. |
 | 04-F29 | FIXED | tail_gate_term builds only the quantile masks its direction uses; direction is validated first. Tests tests/data/test_cluster04_tail_gate_builds_needed_masks.py. |
 | 04-F33 | FIXED | MCAR draws an exact count (matching the documented contract); the caveat reports the column's total hidden share. Note: MCAR output for seeded beds changes once. Test tests/data/test_cluster04_mcar_exact_share.py. |
+| 04-F27 | FIXED | Derived ordering tests membership against a per-round set and drops ready names via a set; realize_derived builds the edge-weight map once (first edge wins, as before). Test tests/data/test_cluster04_derived_order_uses_sets.py. |
