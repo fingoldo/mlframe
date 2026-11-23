@@ -16,6 +16,34 @@ import numpy as np
 import pandas as pd
 
 
+def _carry_true_last_non_feature(
+    synth: pd.DataFrame,
+    ordered: pd.DataFrame,
+    rank_within_entity: pd.Series,
+    count_within_entity: pd.Series,
+    feature_cols: list,
+    entity_col: str,
+    time_col: str,
+) -> None:
+    """Overwrite the non-feature columns of ``synth`` with the entity's TRUE last period (in place)."""
+    _last_rank_mask = rank_within_entity == (count_within_entity - 1)
+    _true_last = ordered.loc[_last_rank_mask]
+    if entity_col is not None and not _true_last.empty:
+        # `time_col` is excluded alongside `entity_col`: it identifies WHICH vintage this synthetic row
+        # is, so carrying the true last period's timestamp back onto a deliberately truncated row makes
+        # the row claim to be from a period whose data it does not contain -- and any caller that slices
+        # history by time then reconstructs the untruncated window, defeating the augmentation entirely.
+        _non_feature = [c for c in ordered.columns if c not in feature_cols and c not in (entity_col, time_col)]
+        if _non_feature:
+            _by_entity = _true_last.set_index(entity_col)[_non_feature]
+            _synth_entities = synth[entity_col]
+            for _c in _non_feature:
+                _mapped = _synth_entities.map(_by_entity[_c])
+                # An entity present in the true-last rows takes ITS value even when that value is NaN: falling back to the earlier vintage's value would hand the
+                # synthetic row the label the truncation is meant to hide.
+                synth[_c] = _mapped.where(_synth_entities.isin(_by_entity.index), synth[_c])
+
+
 def augment_temporal_drift(
     df: pd.DataFrame,
     entity_col: str,
@@ -138,22 +166,7 @@ def augment_temporal_drift(
         # row was trained against the earlier period's answer.
         synth = ordered.loc[eligible].copy()
         synth["_temporal_drift_augmented"] = True
-        _last_rank_mask = rank_within_entity == (count_within_entity - 1)
-        _true_last = ordered.loc[_last_rank_mask]
-        if entity_col is not None and not _true_last.empty:
-            # `time_col` is excluded alongside `entity_col`: it identifies WHICH vintage this synthetic row
-            # is, so carrying the true last period's timestamp back onto a deliberately truncated row makes
-            # the row claim to be from a period whose data it does not contain -- and any caller that slices
-            # history by time then reconstructs the untruncated window, defeating the augmentation entirely.
-            _non_feature = [c for c in ordered.columns if c not in feature_cols and c not in (entity_col, time_col)]
-            if _non_feature:
-                _by_entity = _true_last.set_index(entity_col)[_non_feature]
-                _synth_entities = synth[entity_col]
-                for _c in _non_feature:
-                    _mapped = _synth_entities.map(_by_entity[_c])
-                    # An entity present in the true-last rows takes ITS value even when that value is NaN: falling back to the earlier vintage's value would hand the
-                    # synthetic row the label the truncation is meant to hide.
-                    synth[_c] = _mapped.where(_synth_entities.isin(_by_entity.index), synth[_c])
+        _carry_true_last_non_feature(synth, ordered, rank_within_entity, count_within_entity, feature_cols, entity_col, time_col)
         std = expanding_std.loc[eligible]
         mean = expanding_mean.loc[eligible]
         raw = ordered.loc[eligible, feature_cols]
