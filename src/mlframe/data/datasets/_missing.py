@@ -59,7 +59,10 @@ def missing_mask(spec: MissingnessSpec, columns: Dict[str, np.ndarray], rate: fl
         return np.zeros(n, dtype=bool)
 
     if spec.mechanism == "mcar":
-        return np.asarray(rng.random(n) < share, dtype=bool)
+        # Exact count, as the other mechanisms draw it: a Bernoulli mask hid anywhere from 25 to 35 of 100 rows at rate 0.3 (04-F33).
+        mask = np.zeros(n, dtype=bool)
+        mask[rng.permutation(n)[: round(share * n)]] = True
+        return mask
 
     if spec.mechanism == "mar":
         driver = spec.driver or ""
@@ -120,7 +123,8 @@ def apply_missingness(
         values = np.asarray(out[declaration.column], dtype=np.float64).copy()
         values[mask] = np.nan
         out[declaration.column] = values
-        realised = float(np.mean(mask))
+        # The column's total hidden share, so two declarations on one column are reported together (04-F33).
+        realised = float(np.mean(np.isnan(values)))
         caveats.append(
             f"{declaration.column!r} is {realised:.1%} missing under {declaration.mechanism.upper()}"
             + (f" driven by {declaration.driver!r}" if declaration.mechanism == "mar" else "")
