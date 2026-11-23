@@ -343,7 +343,16 @@ def _delta_table_panel(
 def _canonical_split_names(per_split: Mapping[str, Any]) -> Dict[str, Any]:
     """``per_split`` keyed by lower-case stripped names. The ordering, the train/test pair of the overfit verdict and the delta transitions all look splits up
     as "train" / "val" / "test", so "Train" / "Test" silently fell back to insertion order and could flip the sign of the AUC gap."""
-    return {str(k).strip().lower(): v for k, v in per_split.items()}
+    out: Dict[str, Any] = {}
+    origin: Dict[str, Any] = {}
+    for k, v in per_split.items():
+        key = str(k).strip().lower()
+        # Two spellings of one split ("Train" and "train") would silently overwrite each other (21-F27).
+        if key in out:
+            raise ValueError(f"per_split keys {origin[key]!r} and {k!r} name the same split after normalisation")
+        out[key] = v
+        origin[key] = k
+    return out
 
 
 def overfit_verdict(
