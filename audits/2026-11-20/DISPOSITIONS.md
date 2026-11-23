@@ -1061,3 +1061,4 @@
 | 39-F39 | FIXED | CUDA runtime failure in keep-n auto sizing falls back to 2 with a WARNING instead of breaking every acquire. Test test_cluster39_keep_n_cuda_failure.py. |
 | 39-F45 | FIXED | Character entropy counts with a single Counter over chained characters. Test test_cluster39_char_entropy_counter.py. |
 | 39-F55 | FIXED | set_params raises ValueError for unknown keys and method names instead of warning or overwriting. Test test_cluster39_set_params_unknown_raises.py. |
+| 39-F25 | FIXED | James-Stein pooled-variance residuals use one pandas map per fit instead of a dict lookup per row. Test test_cluster39_js_variance_vectorised.py. |
