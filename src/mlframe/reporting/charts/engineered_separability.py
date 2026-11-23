@@ -271,6 +271,9 @@ def separability_panel(X: Any, y: np.ndarray, features: Sequence[Any], *, sample
     Both features are pulled as narrow float64 views and seeded-subsampled to ``sample`` rows; the score is computed on
     the same subsample so the annotated number matches the points drawn.
     """
+    if len(features) < 2:
+        # The panel plots exactly two features; a single one used to die with a raw IndexError here (20-F36).
+        raise ValueError(f"separability_panel needs at least 2 features; got {len(features)}")
     f0, f1 = features[0], features[1]
     z0 = _pull_feature(X, f0)
     z1 = _pull_feature(X, f1)
