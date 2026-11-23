@@ -26,7 +26,6 @@ import warnings
 import numpy as np
 import pandas as pd
 
-warnings.filterwarnings("ignore")
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
@@ -182,4 +181,5 @@ def main():
 
 
 if __name__ == "__main__":
+    warnings.filterwarnings("ignore")  # silenced for the bench run only, not at import
     main()
