@@ -555,6 +555,8 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 32-F13 | 32_training-1.md | FIXED | Baseline numba kernels use the NaN-safe fastmath flag set. Test test_cluster32_kernels_nan_propagates.py. |
 | 32-F27 | 32_training-1.md | DEFERRED | Perf-only benchmark setup: first full-size frame built before extras are known; reorder needs use-site audit. |
 | 32-F18 | 32_training-1.md | FIXED | Cached bench arm uses one shared key so cache hits are exercised. Test test_cluster32_cache_arm_shares_key.py. |
+| 32-F19 | 32_training-1.md | FIXED | TF-IDF arm fills NA before cast; arms match. Test test_cluster32_tfidf_arms_equivalent.py. |
+| 32-F20 | 32_training-1.md | FIXED | Input generation moved out of the timed region. Test test_cluster32_ordered_bench_prebuilt_inputs.py. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
 | 41-F18 | 41_training-10.md | FIXED | Numeric transform that changes width with no feature names raises instead of guessing positionally. Test test_cluster41_numeric_transform_no_positional_guess.py. |
 | 42-F1 | 42_votenrank.md | FIXED | tie-number keys use the tolerant PRETTY_NAMES lookup like the result rename; no separate test |
