@@ -240,7 +240,9 @@ def run_cell(
         # Tie-breaking is seeded per cell rather than left to column order: an arm that ties every
         # survivor would otherwise inherit the spec's column order, which on a generated bed is the
         # answer key itself.
-        ranking = ranking_from_arm_result(arm, feature_names, tie_break_seed=spec.dataset_seed * 1000 + spec.cv_seed)
+        # Derived from both seeds jointly: ``dataset * 1000 + cv`` collided once cv_seed reached 1000 (12-F100).
+        tie_seed = int(np.random.SeedSequence([int(spec.dataset_seed), int(spec.cv_seed)]).generate_state(1)[0])
+        ranking = ranking_from_arm_result(arm, feature_names, tie_break_seed=tie_seed)
         record["score_kind"] = ranking.score_kind
         record["ranking_coverage"] = round(ranking.coverage, 4)
         record["largest_tie_group"] = int(ranking.largest_tie_group)
