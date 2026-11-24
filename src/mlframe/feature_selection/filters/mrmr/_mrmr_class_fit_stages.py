@@ -346,7 +346,9 @@ class _MRMRFitStagesMixin:
         _restore_toggles_snapshot_and_raise = partial(_restore_toggles_snapshot_and_raise_impl, st._toggles_snapshot)
 
         _mi_norm = getattr(self, "mi_normalization", "none")
-        if _mi_norm not in ("none", "su"):
+        from ._mrmr_param_constants import _VALID_MI_NORMALIZATIONS
+
+        if _mi_norm not in _VALID_MI_NORMALIZATIONS:
             raise ValueError(f"MRMR.mi_normalization must be 'none' or 'su'; got {_mi_norm!r}.")
         st._prev_su = _mi_norm == "su"
         set_su_normalization(st._prev_su)
