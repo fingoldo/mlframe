@@ -87,7 +87,8 @@ offset and candidate rows start on the host, the null gains are consumed there),
 | 10000 | 13 | 202.0 | 2.34 | 1.95 |
 | 10000 | 25 | 319.9 | 4.23 | 3.89 |
 
-The device wins every cell of the grid by 28 to 86 times (the njit twin runs on all 8 logical cores), so the sweep chooses `cuda` everywhere; the fallback (`2e6` pair-rows) applies until a host has its sweep. The
+The device wins every cell of the grid by 28 to 86 times (the njit twin runs on all 8 logical cores), so the sweep chooses `cuda` everywhere; the fallback (`1e5` pair-rows, set from this table) applies until a host has its sweep.
+The stored entry is checked against the code version of the njit twin: after any edit of `_loglik_njit` the regions are stale and `choose` answers from the fallback (and sweeps in the background) until `python -m mlframe.system.kernel_tuning_cache refresh unary_credit_logit_null` (or `ensure`) is run again; the first benchmark run after the final edit logged `no matching region` for this reason. The
 transfer share of the device time is 5 to 45% (the resident kernel alone against the host-in time): residency upstream would not pay for a refactor. `MLFRAME_FE_CREDIT_GPU=0` keeps the null on the host.
 
 ## Memory bound and fallback

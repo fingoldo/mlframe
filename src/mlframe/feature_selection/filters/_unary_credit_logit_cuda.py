@@ -221,7 +221,7 @@ _SWEEP_N_SAMPLES = [2000, 10000]
 _SWEEP_N_CANDIDATES = [5, 13, 25]
 _SWEEP_DRAWS = 50  # the credit's draw batch (``_unary_credit_stats.BATCH``)
 _SWEEP_STEPS = 5
-_FALLBACK_MIN_CELLS = 2_000_000  # rows x candidates x draws from which the device kernel is the fallback choice until the host's sweep is stored
+_FALLBACK_MIN_CELLS = 100_000  # rows x candidates x draws from which the device kernel is the fallback choice until the host's sweep is stored (the smallest swept cell, 500000, is already 28 times faster on the device here)
 _SALT = 1
 
 
