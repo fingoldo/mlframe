@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from tests.feature_selection.binning_cases import binning_kwargs
+from tests.feature_selection.conftest import LEGACY_FE_OFF
 
 # =============================================================================
 # Signal detection — synergy / collinearity / imbalance
@@ -235,7 +236,7 @@ class TestClusterDiscovery:
         y = pd.Series((sig > 0).astype(np.int64))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            sel = MRMR(verbose=0, dcd_enable=True, dcd_tau_cluster=0.5, dcd_cluster_size_threshold=2).fit(X, y)
+            sel = MRMR(verbose=0, dcd_enable=True, dcd_tau_cluster=0.5, dcd_cluster_size_threshold=2, **LEGACY_FE_OFF).fit(X, y)
         names = list(sel.get_feature_names_out())
         # Should select pos_sig OR neg_sig (both perfectly carry signal),
         # not both, not the noise.
@@ -428,4 +429,5 @@ class TestNaNAsSignal:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "nan_signal" in names, f"NaN-as-signal missed; support={names}"
+        # the pattern is carried by the column or by its missingness indicator (``is_missing__nan_signal``, on by default since 2026-11-09), which is the better representation of it
+        assert any("nan_signal" in n for n in names), f"NaN-as-signal missed; support={names}"

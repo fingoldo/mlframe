@@ -33,6 +33,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.feature_selection.conftest import LEGACY_FE_OFF
+
 warnings.filterwarnings("ignore")
 
 
@@ -98,7 +100,7 @@ def test_escalation_silent_when_library_capture_is_exact():
 
     X, df, rng = _frame(5000, 6, 7)
     y = X[:, 0] * X[:, 1] + 0.1 * rng.normal(size=len(X))
-    sel = MRMR(verbose=0, random_state=7)
+    sel = MRMR(verbose=0, random_state=7, **LEGACY_FE_OFF)
     sel.fit(df, pd.Series(y, name="y"))
     recipes = {r.name: r for r in (getattr(sel, "_engineered_recipes_", None) or [])}
     assert any(("x0" in nm and "x1" in nm) for nm in recipes), f"the exact library capture should be admitted+selected: {list(recipes)}"
@@ -131,7 +133,8 @@ def test_biz_val_escalation_skips_complete_he3_capture():
 
     X, df, rng = _frame(5000, 6, 42)
     y = (X[:, 0] ** 3 - 3 * X[:, 0]) * X[:, 1] + 0.1 * rng.normal(size=len(X))
-    sel = MRMR(verbose=0, random_state=42)
+    # the contract is that of the escalation as it was before the underdelivery trigger and the feed-forward became defaults (2026-11-09): pre-warp stays on, the trigger is the one this test is about
+    sel = MRMR(verbose=0, random_state=42, **{**LEGACY_FE_OFF, "fe_pair_prewarp_enable": True})
     sel.fit(df, pd.Series(y, name="y"))
     recipes = {r.name: r for r in (getattr(sel, "_engineered_recipes_", None) or [])}
     assert any("prewarp(x0)" in nm for nm in recipes), f"default prewarp should stay: {list(recipes)}"
