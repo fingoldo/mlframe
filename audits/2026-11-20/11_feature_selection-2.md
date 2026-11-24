@@ -42,7 +42,6 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 
 - 11-F2: RESOLVED. RFECV empty selection scores chance (0.5) in the importance-aggregation bench instead of refitting on every column. Test tests/feature_selection/test_bench_rfecv_empty_selection_is_chance.py. Commit below.
 - 11-F1: RESOLVED. _integer_bins ranks finite values only; missing rows take bin 0 instead of the top bin. Test tests/feature_selection/test_bench_integer_bins_missing_not_top.py. Commit below.
-- 11-F10: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 11-F14: FIXED. Deleted the no-op bare expression nbins + 1 in variant a. No behaviour change; covered by the 9 existing tests in tests/feature_selection/fe/factory/test_offset_kernels.py (pass).
 - 11-F18: FIXED. rel_improvement keeps NaN for a non-positive baseline but logs a WARNING naming the cause. Test tests/feature_selection/fe/factory/test_cluster11_rel_improvement_logs_nan.py.
 - 11-F16: FIXED. Rank-aggregation arm refuses a feature missing from the aggregate with KeyError instead of padding it with the minimum score. Test tests/feature_selection/test_cluster11_rank_aggregate_missing_refused.py.
@@ -70,3 +69,5 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 - 11-F4: FIXED. qbin ranks only the finite values; NaN rows get the dedicated code k instead of the top bins. Behaviour change: NaN rows return code k (fixed-bin callers must allow k). Finite-only input is unchanged. Test tests/feature_selection/test_cluster11_qbin_nan_own_code.py.
 
 - 11-F6: PARTIAL. stat_study core no longer installs a process-wide warning filter at import. Not done: cost_bench.py, t_curve.py, case2_mi.py and exp2_general.py still do the same at import. Test tests/feature_selection/test_cluster11_stat_core_no_global_filter.py.
+
+- 11-F10: DEFERRED. InformationGreedyArm calls the njit kernel once per (candidate, chosen) pair from Python. Vectorising needs an equivalence check of the selected sets across JMIM, RELAX and CMIM, and the finding is performance-only with unchanged output. Deferred to a benchmark-validated pass. No code change.
