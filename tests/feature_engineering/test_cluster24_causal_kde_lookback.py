@@ -63,7 +63,7 @@ def test_auto_selects_a_candidate_on_a_long_series():
     v, g = _series(n=600, seed=1)
     v_sorted, _sort_idx, starts, ends, _n = _sort_into_groups(v, g, None)
     choice = _select_lookback(v_sorted, starts, ends, 0, 0.9, -1.0, 64, 1e-2)
-    assert choice is None or choice in LOOKBACK_CANDIDATES
+    assert choice in LOOKBACK_CANDIDATES
 
 
 def test_lookback_refused_off_the_causal_broadcast_path():
