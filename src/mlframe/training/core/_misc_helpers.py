@@ -71,7 +71,10 @@ def _entry_metric(entry, split: str, name: str) -> float:
         # Class-indexed: {1: {...}} for binary, {0: {...}, 1: {...}, ...} for multiclass. The positive class is
         # the reported one for binary; for multiclass take the first class that carries the metric, which
         # matches what the per-class report prints.
-        for _cls_key in sorted(k for k in inner if isinstance(k, int)):
+        _int_keys = sorted(k for k in inner if isinstance(k, int))
+        if set(_int_keys) == {0, 1}:
+            _int_keys = [1, 0]  # binary: the positive class (1) first, as the comment says (37-F49)
+        for _cls_key in _int_keys:
             _cls = inner.get(_cls_key)
             if isinstance(_cls, dict):
                 _cv = _cls.get(name)

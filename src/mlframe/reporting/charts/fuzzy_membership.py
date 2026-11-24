@@ -7,7 +7,7 @@ set's membership function over the feature range, making the overlap of neighbou
 one-hot binning) directly visible.
 
 The curve evaluation is ``grid * n_partitions`` (tiny); the length-``n`` work is the quantile fit, which is capped by
-subsampling the feature to <=200k finite values (RAM-safe: quantile centres are stable under a random subsample, and no
+drawing <=200k finite values with replacement (RAM-safe: quantile centres are stable under such a draw, and no
 copy of the caller's frame is made -- only a bounded 1-D array of at most 200k values is materialised).
 """
 
@@ -24,7 +24,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Cap the length-n fit backing so the quantile sort stays bounded on 100+ GB frames; a random subsample leaves the centre
+# Cap the length-n fit backing so the quantile sort stays bounded on 100+ GB frames; a bounded draw with replacement leaves the centre
 # quantiles statistically unchanged and never copies the caller's frame (only <=200k floats are pulled).
 _FIT_SUBSAMPLE_CAP: int = 200_000
 

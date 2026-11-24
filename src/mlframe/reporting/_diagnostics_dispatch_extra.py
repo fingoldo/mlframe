@@ -1,20 +1,9 @@
-"""Suite wiring for the error-analysis + drift diagnostic charts.
+"""Extra suite diagnostic renderers, complementing ``diagnostics_dispatch``.
 
-The chart builders in ``charts.error_analysis`` / ``charts.drift`` are task-agnostic and take explicit data; this module is
-the glue that the training suite calls from its per-split / per-target hot path. It selects the right builders for the
-data on hand, renders them through the active backend(s), and records every rendered grid in a ``charts`` accounting
-dict (``{"saved": [...], "failed": [...]}``) so a run can assert chart presence while keeping the no-crash contract.
-
-RAM safety is the governing constraint: the suite runs on 100GB+ frames. Every entry point pulls column views (never a
-whole-frame copy), and the feature-frame-consuming builders (weak-segment tree, error-bias tagging, worst-K) are fed a
-bounded row subsample that preserves the largest-error rows so the weak region is never sampled away. The drift /
-adversarial builders already cap their own work (per-feature O(n) histograms, 200k/side adversarial fit).
-
-cProfile (n=1.5M, matplotlib backend): split-error path ~2.9s render + ~2.7s weak-segment (tree fit already capped at
-50k by the builder); drift path's compute floors live in the builders (adversarial 200k/side LightGBM fit is the lever,
-PSI/residual are O(n) bincount/histogram). The bulk of a cold-process drift profile is the one-time import of
-``training.evaluation`` (pulled by ``metric_over_time`` -> ``compute_ml_perf_by_time``), which is already loaded inside a
-real suite run -- no actionable speedup in this wiring layer; the orchestration itself is O(builders).
+Each ``render_*`` entry point draws one diagnostic (model comparison, decile table, model card, prediction stability, split
+comparison, target-distribution overlay) through the active backend(s), and ``build_combined_html_report`` assembles the
+rendered charts into one page. Every render records its outputs in a ``charts`` accounting dict
+(``{"saved": [...], "failed": [...]}``) so a run can assert chart presence without failing the suite.
 """
 
 from __future__ import annotations

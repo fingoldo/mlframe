@@ -108,12 +108,6 @@ else:
     _quantile_assign_bins_kernel = None
 
 
-logger = logging.getLogger("mlframe.training.composite_transforms")
-
-if TYPE_CHECKING:
-    from . import Transform
-
-
 def _james_stein_shrinkage_factor(
     per_group_alphas: np.ndarray,
     global_alpha: float,

@@ -33,9 +33,6 @@ def _as_float_1d(a: np.ndarray) -> np.ndarray:
     return np.asarray(_pool_row_vectors(a), dtype=np.float64).ravel()
 
 
-__all__ = ["DEFAULT_OVERLAY_BINS", "_DRIFT_Z", "_as_float_1d", "_pool_row_vectors"]
-
-
 def _row_count(X: Any) -> int:
     """Row count of ``X`` (frame ``len`` / ndarray first axis) without materialising it."""
     if _is_frame(X):
@@ -102,3 +99,6 @@ def _pull_columns_at_rows(X: Any, col_indices: Sequence[int], row_idx: np.ndarra
 
 # Over/under tail fraction for error-bias tagging (Evidently's signature 5% tails).
 DEFAULT_TAIL_FRACTION: float = 0.05
+
+
+__all__ = ["DEFAULT_OVERLAY_BINS", "_DRIFT_Z", "_as_float_1d", "_pool_row_vectors"]
