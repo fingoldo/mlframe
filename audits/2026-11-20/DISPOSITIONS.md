@@ -1345,3 +1345,4 @@
 | 39-F46 | FIXED | Preset factories merge caller kwargs over their defaults via _build_config, so tfidf_only(default_cat=...) no longer raises a duplicate-keyword TypeError. Test tests/training/test_cluster39_presets_keyword_override.py; 37 preset tests pass. |
 | 39-F52 | FIXED | MLFRAME_MEMORY_BUDGET_GB must be a positive finite number; 0, negative, non-finite or unparsable values log a WARNING and fall back to psutil/cgroup. Test tests/training/test_cluster39_memory_budget_env_positive.py. |
 | 39-F63 | FIXED | to_tensor_any converts a bare pl.Series via to_numpy instead of raising AttributeError. Test tests/training/test_cluster39_to_tensor_any_polars_series.py. |
+| 39-F64 | FIXED | to_numpy_safe defaults to cpu=True so a CUDA tensor converts, matching the docstring's 'moves to CPU if needed'. Test tests/training/test_cluster39_to_numpy_safe_default_cpu.py. |
