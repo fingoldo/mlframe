@@ -428,7 +428,7 @@ def _fit_calibrated_wrapper(entry, base, _cp, _cy, target_type, _is_multi):
             try:
                 _resolved_ttype = TargetTypes(_ttype)
             except ValueError:
-                _resolved_ttype = getattr(TargetTypes, _ttype, None)
+                _resolved_ttype = getattr(TargetTypes, _ttype, None)  # type: ignore[assignment]  # getattr on an enum class is Any
             _ttype = _resolved_ttype if _resolved_ttype is not None else (TargetTypes.MULTILABEL_CLASSIFICATION if _cy.ndim == 2 else TargetTypes.MULTICLASS_CLASSIFICATION)
         if _ttype is None:
             _ttype = TargetTypes.MULTILABEL_CLASSIFICATION if _cy.ndim == 2 else TargetTypes.MULTICLASS_CLASSIFICATION
