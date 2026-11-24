@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.feature_selection.conftest import LEGACY_FE_OFF
+
 warnings.filterwarnings("ignore")
 
 
@@ -19,8 +21,15 @@ warnings.filterwarnings("ignore")
 # ---------------------------------------------------------------------------
 
 
-def _three_dups_plus_strong_frame(n: int = 1500, seed: int = 0):
-    """anchor + 2 perfect duplicates + one unrelated strong col + noise.
+#: Noise of each reflection of the shared latent. Near-perfect duplicates (noise 0.01) are what the redundancy screen removes before the DCD sees them, and a swap judged at the anchor's own resolution never prefers
+#: an aggregate of identical copies (2026-11-23, default binning ``quantile_spacing``: the swap before it fired because the aggregate was binned finer than the anchor, which the test then took for the
+#: denoising it is built for); the cluster DCD denoises is a set of NOISY reflections (corr about 0.9), and its SU at the adaptive default binning sits near 0.3, hence ``DCD_TAU``.
+DUP_NOISE = 0.3
+DCD_TAU = 0.3
+
+
+def _three_dups_plus_strong_frame(n: int = 1500, seed: int = 0, noise: float = DUP_NOISE):
+    """anchor + 2 noisy reflections of the same latent (``DUP_NOISE``) + one unrelated strong col + noise.
 
     A homogeneous-loading cluster: every reflection has the same |loading|
     on the shared latent, so ``mean_z`` and ``pca_pc1`` produce nearly
@@ -33,9 +42,9 @@ def _three_dups_plus_strong_frame(n: int = 1500, seed: int = 0):
     X = pd.DataFrame(
         {
             "strong": other,
-            "dup_a": latent + 0.01 * rng.standard_normal(n),
-            "dup_b": latent + 0.01 * rng.standard_normal(n),
-            "dup_c": latent + 0.01 * rng.standard_normal(n),
+            "dup_a": latent + noise * rng.standard_normal(n),
+            "dup_b": latent + noise * rng.standard_normal(n),
+            "dup_c": latent + noise * rng.standard_normal(n),
             "noise_0": rng.standard_normal(n),
         }
     )
@@ -79,6 +88,7 @@ def _heterogeneous_loadings_frame(n: int = 1500, seed: int = 0):
 
 class TestPartA_RecipeWiring:
     """Groups tests covering TestPartA_RecipeWiring."""
+
     def test_swap_aggregate_recorded_with_pc1_marker(self):
         """When an aggregate-branch swap fires, the PC1 aggregate name
         (carrying the fixed ``_dcd_pc1_`` marker built in ``commit_swap``)
@@ -99,8 +109,9 @@ class TestPartA_RecipeWiring:
 
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=DCD_TAU,
             dcd_cluster_size_threshold=2,
             dcd_swap_method="pca_pc1",  # pin so the aggregate uses PC1
             full_npermutations=50,
@@ -135,8 +146,9 @@ class TestPartA_RecipeWiring:
 
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=DCD_TAU,
             dcd_cluster_size_threshold=2,
             dcd_swap_method="pca_pc1",
             full_npermutations=50,
@@ -172,8 +184,9 @@ class TestPartA_RecipeWiring:
 
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=DCD_TAU,
             dcd_cluster_size_threshold=2,
             dcd_swap_method="pca_pc1",
             full_npermutations=50,
@@ -212,6 +225,7 @@ class TestPartA_RecipeWiring:
 
 class TestPartB_AutoMethod:
     """Groups tests covering TestPartB_AutoMethod."""
+
     def test_default_swap_method_is_auto(self):
         """Default swap method is auto."""
         from mlframe.feature_selection.filters.mrmr import MRMR
@@ -229,8 +243,9 @@ class TestPartB_AutoMethod:
 
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=DCD_TAU,
             dcd_cluster_size_threshold=2,
             # default dcd_swap_method='auto'
             full_npermutations=50,
@@ -270,6 +285,7 @@ class TestPartB_AutoMethod:
 
         X, y = _heterogeneous_loadings_frame()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster=0.5,
             dcd_cluster_size_threshold=2,
@@ -282,10 +298,12 @@ class TestPartB_AutoMethod:
         entry = log[0]
         scores = entry.get("kfold_scores", {})
         assert scores, f"auto mode must record kfold_scores; got {entry}"
-        # mean_inv_var or pca_pc1 must >= mean_z under heterogeneous loadings.
-        assert scores.get("mean_inv_var", 0.0) >= scores.get("mean_z", 0.0) or scores.get("pca_pc1", 0.0) >= scores.get(
-            "mean_z", 0.0
-        ), f"under heterogeneous loadings a reliability-weighted combiner should score >= mean_z; got {scores}"
+        # mean_inv_var or pca_pc1 must score at least as well as mean_z under heterogeneous loadings, up to the fold-to-fold noise of the score: the members of this fixture are 0.98 to 1.0 correlated with the
+        # latent, the seven combiners score within 0.006 of each other (0.5721 to 0.5778 without the weak outliers), and a strict comparison of two scores 0.0007 apart is a comparison of noise.
+        tolerance = 0.005
+        assert (
+            scores.get("mean_inv_var", 0.0) >= scores.get("mean_z", 0.0) - tolerance or scores.get("pca_pc1", 0.0) >= scores.get("mean_z", 0.0) - tolerance
+        ), f"under heterogeneous loadings a reliability-weighted combiner should score >= mean_z (within {tolerance}); got {scores}"
         # And the chosen winner is not the uniform mean. Layer 44: the bake-off
         # pool now includes pca_pc2 / median_z / signed_max_abs / signed_l2_sum
         # — any of those can also legitimately surface as the winner since they
@@ -306,16 +324,18 @@ class TestPartB_AutoMethod:
 
         X, y = _three_dups_plus_strong_frame()
         m1 = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=DCD_TAU,
             dcd_cluster_size_threshold=2,
             full_npermutations=20,
             verbose=0,
             random_seed=0,
         ).fit(X, y)
         m2 = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=DCD_TAU,
             dcd_cluster_size_threshold=2,
             full_npermutations=20,
             verbose=0,
@@ -354,8 +374,9 @@ class TestPartB_AutoMethod:
 
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=DCD_TAU,
             dcd_cluster_size_threshold=2,
             full_npermutations=50,
             verbose=0,
@@ -380,8 +401,9 @@ class TestPartB_AutoMethod:
 
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=DCD_TAU,
             dcd_cluster_size_threshold=2,
             dcd_swap_method="pca_pc1",
             full_npermutations=50,
@@ -402,6 +424,7 @@ class TestPartB_AutoMethod:
 
 class TestNoRegressionPriorLayers:
     """Groups tests covering TestNoRegressionPriorLayers."""
+
     def test_layer42_default_threshold_pinned_at_4(self):
         """Layer 42 contract: ``dcd_cluster_size_threshold`` default
         unchanged at 4 (Layer 43 does NOT lower the threshold). The
@@ -418,8 +441,9 @@ class TestNoRegressionPriorLayers:
 
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=DCD_TAU,
             dcd_cluster_size_threshold=2,
             full_npermutations=50,
             verbose=0,
@@ -435,8 +459,9 @@ class TestNoRegressionPriorLayers:
 
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=DCD_TAU,
             verbose=0,
             random_seed=0,
         ).fit(X, y)
@@ -477,6 +502,7 @@ class TestNoRegressionPriorLayers:
         X, y = _three_dups_plus_strong_frame(n=300)
         # Construct + fit with explicit auto must not raise.
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_swap_method="auto",
             dcd_cluster_size_threshold=2,
@@ -494,8 +520,9 @@ class TestNoRegressionPriorLayers:
 
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=DCD_TAU,
             dcd_cluster_size_threshold=2,
             dcd_swap_method="pca_pc1",
             full_npermutations=50,
@@ -636,6 +663,7 @@ def _loudest_member_frame(n: int = 2000, seed: int = 0):
 
 class TestLayer44_MethodEnrolment:
     """Groups tests covering TestLayer44_MethodEnrolment."""
+
     @pytest.mark.parametrize(
         "method",
         [
@@ -699,6 +727,7 @@ class TestLayer44_MethodEnrolment:
 
 class TestLayer44_PinnedFitSmoke:
     """Groups tests covering TestLayer44_PinnedFitSmoke."""
+
     @pytest.mark.parametrize(
         "method",
         [
@@ -718,8 +747,9 @@ class TestLayer44_PinnedFitSmoke:
         # method swaps at all, so every per-entry check below was a silent pass.
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=DCD_TAU,
             dcd_cluster_size_threshold=2,
             dcd_swap_method=method,
             full_npermutations=50,
@@ -731,11 +761,14 @@ class TestLayer44_PinnedFitSmoke:
         log = m.dcd_["swap_log"] if m.dcd_ else []
         if method == "pca_pc2":
             # PC2 of three near-duplicate members is noise, so the uplift gate rejects the
-            # aggregate and no swap fires (measured) -- the emptiness is the honest outcome.
-            assert log == [], f"pca_pc2 must not swap on near-duplicate members; got {log}"
+            # aggregate (measured); a cluster member that out-CMIs the anchor may still replace it.
+            aggregates = [e for e in log if e.get("branch") != "member"]
+            assert aggregates == [], f"pca_pc2 must not build an aggregate on near-duplicate members (a member swap is allowed); got {log}"
         else:
             assert len(log) == 1, f"pinned method {method!r} must fire exactly one swap on the 3-dups fixture; got {log}"
         for entry in log:
+            if entry.get("branch") == "member":
+                continue  # a member swap builds no aggregate, so no combiner is recorded
             assert entry.get("method") == method, f"pinned method {method!r} not recorded in swap_log entry: {entry}"
             # Pinned method must NOT carry bake-off keys.
             assert "kfold_scores" not in entry, f"pinned method must skip bake-off: {entry}"
@@ -793,6 +826,7 @@ def _run_bakeoff_direct(X: pd.DataFrame, y: pd.Series, member_names: list):
 
 class TestLayer44_BakeoffWins:
     """Groups tests covering TestLayer44_BakeoffWins."""
+
     def test_pca_pc2_wins_on_two_correlated_latents(self):
         """Cluster has two correlated latents; y depends on L2 (the PC2
         direction). PC2 should out-score PC1 in the K-fold OOF bake-off.
@@ -845,6 +879,7 @@ class TestLayer44_BakeoffWins:
 
 class TestLayer44_RecipeReplayBitIdentity:
     """Groups tests covering TestLayer44_RecipeReplayBitIdentity."""
+
     @pytest.mark.parametrize(
         "method",
         [
@@ -922,6 +957,7 @@ class TestLayer44_RecipeReplayBitIdentity:
 
         X, y = _two_latent_correlated_frame(n=1500, seed=3)
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster=0.5,
             dcd_cluster_size_threshold=2,
@@ -943,6 +979,7 @@ class TestLayer44_RecipeReplayBitIdentity:
 
 class TestLayer44_LegacyPinByteIdentity:
     """Groups tests covering TestLayer44_LegacyPinByteIdentity."""
+
     @pytest.mark.parametrize(
         "method",
         [
@@ -960,12 +997,12 @@ class TestLayer44_LegacyPinByteIdentity:
 
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=DCD_TAU,
             dcd_cluster_size_threshold=2,
             dcd_swap_method=method,
             full_npermutations=20,
-            binning_scheme="mdlp",  # the pooled component beats the anchor only on the supervised bins this test was written for; the default is sturges since 2026-11-23
             fe_max_steps=0,  # isolates the DCD swap: with feature engineering on, the SIR direction over the duplicate group and the hinge legs take the cluster first and the swap never happens
             verbose=0,
             random_seed=0,
