@@ -1350,3 +1350,4 @@
 | 39-F66 | FIXED | mi_normalization and group_mi_aggregate tuples now live in MRMR param_constants; the fit validator and the fs_params spec both read them. Test tests/training/test_cluster39_fs_params_enums_from_constants.py; test_fs_params_in_sync.py passes. |
 | 39-F71 | FIXED | Mixup categorical-prefix lookup moved to MLPTorchModel._mixup_cat_prefix, memoised per network object, so the module walk no longer runs every training step. Test tests/training/test_cluster39_mixup_cat_prefix_cache.py. |
 | 39-F49 | FIXED | Column-iterator docstring now names the TF-IDF path's list() materialisation instead of claiming full avoidance. Test tests/training/test_cluster39_text_encoder_docstring_accuracy.py. |
+| 39-F51 | FIXED | Smoothing bench verdict relabelled historical: the live TargetEncodeParams default is 3.0, the bench compares against the former 10.0 incumbent. Test tests/training/test_cluster39_smoothing_bench_verdict_current.py. |
