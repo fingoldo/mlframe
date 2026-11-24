@@ -1343,3 +1343,4 @@
 | 39-F15 | FIXED | Facade drops unused typing/numpy/pandas/polars/pyutilz imports and the unused private helpers, and no longer exports np/pd/pl in __all__. Test tests/training/test_cluster39_extractors_facade_exports.py. |
 | 39-F16 | FIXED | matplotlib.pyplot is imported inside _showcase_target_distributions, not at module load. Test tests/training/test_cluster39_showcase_lazy_matplotlib.py. |
 | 39-F46 | FIXED | Preset factories merge caller kwargs over their defaults via _build_config, so tfidf_only(default_cat=...) no longer raises a duplicate-keyword TypeError. Test tests/training/test_cluster39_presets_keyword_override.py; 37 preset tests pass. |
+| 39-F52 | FIXED | MLFRAME_MEMORY_BUDGET_GB must be a positive finite number; 0, negative, non-finite or unparsable values log a WARNING and fall back to psutil/cgroup. Test tests/training/test_cluster39_memory_budget_env_positive.py. |
