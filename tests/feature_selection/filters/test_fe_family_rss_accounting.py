@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import time
 
 import numpy as np
 import pytest
@@ -26,10 +25,10 @@ def test_the_peak_over_entry_sees_a_transient_allocation(monkeypatch, caplog):
     T._FE_FAMILY_RSS.clear()
     with T.fe_family_timer("alloc"):
         block = np.ones(25_000_000, dtype=np.float64)  # 200 MB, touched
-        time.sleep(0.3)
+        T._sample_active_rss()  # the poller's own poll, taken while the block is live
         del block
     with T.fe_family_timer("idle"):
-        time.sleep(0.1)
+        T._sample_active_rss()
     peak_alloc, kept_alloc = T._FE_FAMILY_RSS["alloc"]
     peak_idle, _ = T._FE_FAMILY_RSS["idle"]
     assert peak_alloc > 150 * 2**20
@@ -56,7 +55,7 @@ def test_gate_laps_are_accounted_too(monkeypatch):
     timer = T.FamilyLapTimer()
     assert timer.gate("fe_demo_enable", True)
     block = np.ones(25_000_000, dtype=np.float64)
-    time.sleep(0.3)
+    T._sample_active_rss()  # the poller's own poll, taken while the block is live
     del block
     timer.close()
     assert T._FE_FAMILY_RSS["gate:fe_demo_enable"][0] > 150 * 2**20
