@@ -522,6 +522,7 @@ def compute_pair_maxt_floor(
                     random_seed=getattr(self, "random_seed", None),
                     mm_debias=_mm_debias,
                     device_only=True,
+                    mm_bias=_bias_vec,
                 )
             except DeviceKernelDeclinedError:
                 _pair_maxt_floor = None
@@ -538,6 +539,7 @@ def compute_pair_maxt_floor(
                     quantile=float(getattr(self, "fe_pair_maxt_null_quantile", 0.95)),
                     random_seed=getattr(self, "random_seed", None),
                     mm_debias=_mm_debias,
+                    mm_bias=_bias_vec,
                 )
             if _mm_debias and _bias_vec is not None:
                 fill_pair_bias(_pair_mm_bias, _maxt_pa, _maxt_pb, np.asarray(_bias_vec))

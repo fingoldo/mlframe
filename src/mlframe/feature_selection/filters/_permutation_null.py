@@ -481,6 +481,34 @@ def _pairwise_occupied_joint_k_njit(factors_data, pair_a, pair_b, nbins):
     return out
 
 
+@numba.njit(cache=True, nogil=True, parallel=True)
+def _occupied_joint_k_cm_njit(columns_cm, slot_a, slot_b, nb_a, nb_b):
+    """Occupied joint-bin count of every pair, ``prange``-parallel over pairs, from the pair columns stored column-major (``columns_cm[slot]`` is one contiguous column).
+
+    The same distinct-code count as :func:`_pairwise_occupied_joint_k_njit` (bit-identical: integer counts), made fast by two exact changes: the two columns of a pair are read as
+    contiguous rows instead of a stride-``n_columns`` walk through the row-major matrix, and the scan of a pair stops the moment every cell of its ``nb_a * nb_b`` table is occupied
+    (a pair of dense columns fills its table within a few thousand rows of the 100000)."""
+    n = columns_cm.shape[1]
+    n_pairs = slot_a.shape[0]
+    out = np.empty(n_pairs, dtype=np.int64)
+    for p in prange(n_pairs):
+        col_a = columns_cm[slot_a[p]]
+        col_b = columns_cm[slot_b[p]]
+        width = nb_b[p]
+        cells = nb_a[p] * width
+        seen = np.zeros(cells, dtype=np.uint8)
+        cnt = 0
+        for i in range(n):
+            code = np.int64(col_a[i]) * width + np.int64(col_b[i])
+            if seen[code] == 0:
+                seen[code] = 1
+                cnt += 1
+                if cnt == cells:
+                    break
+        out[p] = cnt
+    return out
+
+
 def _pairwise_occupied_joint_k(
     factors_data: np.ndarray,
     pair_a: np.ndarray,
@@ -503,7 +531,13 @@ def _pairwise_occupied_joint_k(
     pa = np.ascontiguousarray(pair_a, dtype=np.int64)
     pb = np.ascontiguousarray(pair_b, dtype=np.int64)
     nb = np.ascontiguousarray(nbins, dtype=np.int64)
-    return np.asarray(_pairwise_occupied_joint_k_njit(factors_data, pa, pb, nb))
+    if pa.size == 0:
+        return np.empty(0, dtype=np.int64)
+    used, inverse = np.unique(np.concatenate([pa, pb]), return_inverse=True)
+    columns_cm = np.ascontiguousarray(np.asarray(factors_data)[:, used].T)  # only the columns the pairs touch, one contiguous row each
+    n_pairs = int(pa.shape[0])
+    with parallel_kernel_entry():
+        return np.asarray(_occupied_joint_k_cm_njit(columns_cm, inverse[:n_pairs].astype(np.int64), inverse[n_pairs:].astype(np.int64), nb[pa], nb[pb]))
 
 
 def _validate_code_ranges(data: np.ndarray, nbins: np.ndarray, columns: np.ndarray) -> None:
@@ -598,6 +632,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
     random_seed: int | None = None,
     mm_debias: bool = False,
     device_only: bool = False,
+    mm_bias: "np.ndarray | None" = None,
 ) -> float:
     """Return the ORDER-2 maxT permutation-null floor for a prospective-pair pool.
 
@@ -691,9 +726,15 @@ def pooled_pair_permutation_null_joint_mi_floor(
     # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
 
-    # Per-pair Miller-Madow bias vector (occupied joint-K), permutation-invariant.
-    mm_bias = None
-    if mm_debias:
+    # Per-pair Miller-Madow bias vector (occupied joint-K), permutation-invariant. ``mm_bias`` is the vector a caller already computed on these rows (``pairwise_mm_joint_bias``; the row cap is off
+    # in this mode, so its rows are the ones scored here): used as given instead of counting the occupied joint cells of every pair a second time.
+    if not mm_debias:
+        mm_bias = None
+    elif mm_bias is not None and int(np.asarray(mm_bias).shape[0]) == n_pairs:
+        mm_bias = np.asarray(mm_bias, dtype=np.float64)  # Intentional float64: statistic vector
+    else:
+        mm_bias = None
+    if mm_debias and mm_bias is None:
         k_joint = _pairwise_occupied_joint_k(factors_data, pa, pb, nb)
         # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         mm_bias = (k_joint - 1).astype(np.float64) * float(k_y - 1) / (2.0 * n)
