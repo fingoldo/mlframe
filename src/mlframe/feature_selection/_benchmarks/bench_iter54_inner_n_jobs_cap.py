@@ -72,6 +72,7 @@ def run_one(name: str, cfg: dict, inner_n_jobs_cap: bool, X, y, roles):
     )
 
 
+# Intentional divergence from _bench_shared.print_stage_table (audit 10-F4): takes name and label for the per-run header.
 def print_stage_table(name: str, label: str, timings: dict, total: float):
     print(f"  [{name} / {label}] total={total:.2f}s  stages:")
     for k in _STAGE_ORDER:

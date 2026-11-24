@@ -316,7 +316,6 @@
 | 09-F29 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F30 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F31 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
-| 10-F4 | DEFERRED | not changed in this pass; benchmark-script cleanup or a policy decision (MAX_VERSION_AGE_DAYS enforcement) |
 | 12-F2 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F3 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F4 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
@@ -1469,3 +1468,5 @@
 | 10-F8 | FIXED | Redundant columns without informative ones raise a clear ValueError. Test tests/feature_selection/test_cluster10_bench_utility_edges.py. |
 
 | 10-F9 | FIXED | A failed log-file write is reported once on stderr (was on every failure); the console keeps printing. Test tests/feature_selection/test_cluster10_bench_utility_edges.py. |
+
+| 10-F4 | RESOLVED | Each local copy of a shared bench helper now carries a marker naming its intentional divergence (iter31 extra stage, iter33 own stage order, iter54 name/label header, stability orchestration build_selector). The 25 inline ShapProxiedFS constructions are per-experiment configs and are kept inline. Test tests/feature_selection/test_cluster10_documented_divergence.py. |

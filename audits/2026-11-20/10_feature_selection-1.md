@@ -33,7 +33,6 @@ Scope: 143 files listed in `audits/2026-11-20/manifests/10_feature_selection-1.t
 - 10-F3: RESOLVED. logreg_holdout_auc returns chance (0.5) for an empty selection instead of scoring all columns. Test tests/feature_selection/test_bench_logreg_empty_selection_is_chance.py. Commit below.
 - 10-F1: RESOLVED. Adaptive-guards bench scores the refit on the untouched holdout split; the concatenated re-split is gone. Test tests/feature_selection/test_bench_holdout_auc_is_unseen.py. Commit below.
 - 10-F2: RESOLVED. honest_auc fits on the search rows and scores the untouched holdout, at all three call sites. Test tests/feature_selection/test_bench_interaction_holdout_is_unseen.py. Commit below.
-- 10-F4: DEFERRED. not changed in this pass; benchmark-script cleanup or a policy decision (MAX_VERSION_AGE_DAYS enforcement)
 
 - 10-F6: FIXED. Benchmark harness failures (MRMR fit/transform, AUC scoring, per-config failures) are logged at WARNING instead of DEBUG, so NaN rows have a visible reason at the default level. Test tests/feature_selection/test_cluster10_bench_failures_warn.py.
 
@@ -44,3 +43,5 @@ Scope: 143 files listed in `audits/2026-11-20/manifests/10_feature_selection-1.t
 - 10-F8: FIXED. Redundant columns without informative ones raise a clear ValueError. Test tests/feature_selection/test_cluster10_bench_utility_edges.py.
 
 - 10-F9: FIXED. A failed log-file write is reported once on stderr (was on every failure); the console keeps printing. Test tests/feature_selection/test_cluster10_bench_utility_edges.py.
+
+- 10-F4: RESOLVED. Each local copy of a shared bench helper now carries a marker naming its intentional divergence (iter31 extra stage, iter33 own stage order, iter54 name/label header, stability orchestration build_selector). The 25 inline ShapProxiedFS constructions are per-experiment configs and are kept inline. Test tests/feature_selection/test_cluster10_documented_divergence.py.
