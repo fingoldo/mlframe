@@ -1342,3 +1342,4 @@
 | 39-F12 | FIXED | Tuned-threshold report logger uses __name__ instead of another module's name. Test tests/training/test_cluster39_logger_name_and_dead_pass.py. |
 | 39-F15 | FIXED | Facade drops unused typing/numpy/pandas/polars/pyutilz imports and the unused private helpers, and no longer exports np/pd/pl in __all__. Test tests/training/test_cluster39_extractors_facade_exports.py. |
 | 39-F16 | FIXED | matplotlib.pyplot is imported inside _showcase_target_distributions, not at module load. Test tests/training/test_cluster39_showcase_lazy_matplotlib.py. |
+| 39-F46 | FIXED | Preset factories merge caller kwargs over their defaults via _build_config, so tfidf_only(default_cat=...) no longer raises a duplicate-keyword TypeError. Test tests/training/test_cluster39_presets_keyword_override.py; 37 preset tests pass. |
