@@ -311,7 +311,6 @@
 | 09-F15 | DEFERRED | tried an early return in the underdetermined branch; it broke the contract that the linear column stays finite. The real defect is the per-row exception path zeroing whole rows; needs a column-aware fix |
 | 09-F24 | FIXED | binary local-lift labels are normalised to {0,1} for both the global mean and the neighbour sums; tests/feature_engineering/transformer/test_cluster09_edges.py covers the KMeans path only, lift path covered by existing lift tests |
 | 09-F26 | FIXED | anchor count is capped by the row count, so a one-row fold yields one anchor; tests/feature_engineering/transformer/test_cluster09_edges.py |
-| 09-F20 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F21 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F27 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F28 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
@@ -1452,3 +1451,5 @@
 | 09-F25 | DEFERRED | The MDL binning is a single top-level split by design: its docstring pins it bit-identical to a reference in tests/feature_engineering/transformer/test_mdl_binning_split_kernel.py. Recursive Fayyad-Irani splitting changes the bins of every feature and breaks that pin, so it needs an owner decision on the reference before code changes. No code change. |
 
 | 09-F19 | FIXED | For binary targets the sign-residual baseline emits NaN bias columns: with y in {0,1} the sign target y > mu_hat is the label itself, so the second model only re-learned y. The OOF baseline column is kept. Behaviour change: binary output changes. Test tests/feature_engineering/test_cluster09_sign_residual_binary_nan.py. |
+
+| 09-F20 | FIXED | The ordinal monotonicity count (n_violations) is NaN for binary targets: their sub-population thresholds are not nested, so counting adjacent increases has no ordinal meaning. Behaviour change: binary n_violations is NaN. Regression and other targets are unchanged. Test tests/feature_engineering/test_cluster09_ordinal_violations_binary_nan.py. |

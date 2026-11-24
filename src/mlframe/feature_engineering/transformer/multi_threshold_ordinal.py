@@ -92,7 +92,12 @@ def compute_multi_threshold_ordinal_features(
         entropy = (-p_clip * np.log(p_clip) - (1 - p_clip) * np.log(1 - p_clip)).mean(axis=1).astype(np.float32)
         # Monotonicity violations: count adjacent pairs where p[k] < p[k+1] (should be non-increasing for ordinal targets)
         diffs = np.diff(preds, axis=1)
-        n_violations = (diffs > 0).sum(axis=1).astype(np.float32)
+        if task != "binary":
+            n_violations = (diffs > 0).sum(axis=1).astype(np.float32)
+        else:
+            # Binary thresholds are sub-population indicators (y=1 & x_j > median), which are not nested, so counting adjacent increases has no
+            # ordinal meaning. NaN instead of a misleading count (09-F20).
+            n_violations = np.full(preds.shape[0], np.nan, dtype=np.float32)
         # Quantile-y-prediction: interpolated rank where p crosses 0.5. Vectorised: np.argmax on a
         # boolean array returns the FIRST True index (matching the per-row np.where(...)[0][0] this
         # replaced), but also returns 0 on an all-False row (no crossing) -- the has_cross mask
