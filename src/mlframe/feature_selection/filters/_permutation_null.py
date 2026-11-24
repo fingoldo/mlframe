@@ -672,6 +672,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
     mm_debias: bool = False,
     device_only: bool = False,
     mm_bias: "np.ndarray | None" = None,
+    scaled: "bool | None" = None,
 ) -> float:
     """Return the ORDER-2 maxT permutation-null floor for a prospective-pair pool.
 
@@ -720,6 +721,9 @@ def pooled_pair_permutation_null_joint_mi_floor(
     and applied to every shuffle, and the caller subtracts the IDENTICAL per-pair
     term from the observed ``pair_mi`` before the ``>= floor`` comparison (consistent
     debias on both sides). ``->`` the raw floor as ``n -> inf``.
+
+    ``scaled``: with ``mm_debias`` and a pool large enough to matter (``_pair_floor_scaled``) the floor comes from a row subsample times ``n_sub / n`` after the scaling error was measured on a block of the pairs
+    (``None``, the default, tries it; ``False`` computes the exact floor, as ``MLFRAME_FE_PAIR_FLOOR_SCALED=0`` does for every call).
     """
     n = int(factors_data.shape[0])
     _validate_pair_floor_inputs(factors_data, nbins, pair_a, pair_b, classes_y, freqs_y)
@@ -729,6 +733,18 @@ def pooled_pair_permutation_null_joint_mi_floor(
     k_y = int(shape_of(freqs_y)[0])
     if k_y < 2:
         return 0.0
+    if mm_debias and scaled is not False:
+        from ._pair_floor_scaled import scaled_pair_floor
+
+        floor_scaled, scaling = scaled_pair_floor(
+            pooled_pair_permutation_null_joint_mi_floor, factors_data, nbins, pair_a, pair_b, classes_y, freqs_y,
+            n_permutations=n_permutations, quantile=quantile, random_seed=random_seed, device_only=device_only, k_joint_of_pairs=_pairwise_occupied_joint_k,
+        )
+        if floor_scaled is not None:
+            logger.info("order-2 maxT floor %.3e from %d of %d rows (calibration rho %.3f, factor %.3f)", floor_scaled, scaling["n_sub"], n, scaling["rho"], scaling["factor"])
+            return floor_scaled
+        if "rho" in scaling or "n_sub" in scaling:
+            logger.info("order-2 maxT floor computed on every row: %s", scaling.get("why"))
 
     # ROW-SUBSAMPLE the floor compute (noise-floor-cap regime). The floor is a q=0.95
     # QUANTILE of the per-shuffle MAX joint-MI over the O(p^2) pool - a COARSE noise threshold, not a
