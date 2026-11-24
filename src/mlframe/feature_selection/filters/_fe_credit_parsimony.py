@@ -6,7 +6,7 @@ columns, and the raw source the form replaces. This pass removes them by backwar
 legs agree that it is not needed (its removal costs less than ``R2_DROP`` of the variance of ``y``, an effect size, not a significance: with enough rows every column has a significant sliver):
 
 * LINEAR leg: a ridge head on the columns themselves (what a linear model sees);
-* SMOOTH leg: a ridge head on a hat-function smooth of the rank of every column (what an additive or tree model sees: any monotone or non-monotone shape per column, but no interaction between columns).
+* SMOOTH leg: a ridge head on the column itself plus a hat-function smooth of its rank, per column (what an additive or tree model sees: any monotone or non-monotone shape per column, but no interaction between columns).
 
 An earlier version asked the debiased conditional-MI test of the retention guard for the second leg; at 3600 rows it called ``rff`` and ``mahal`` "not subsumed" on a fixture where at 6000 rows it called them subsumed
 (binned CMI given three conditioning columns is a sparse table). The out-of-fold smooth is stable across both sizes.
@@ -83,7 +83,8 @@ def eliminate(columns: np.ndarray, y: np.ndarray, removable: "list[int]", *, see
     n = columns.shape[0]
     folds = np.random.default_rng(seed).permutation(n) % FOLDS
     design = _standardise(columns)
-    smooth = [rank_hats(columns[:, j]) for j in range(columns.shape[1])]
+    # the linear term of the column rides in its block, so the coarse hats are not asked to rebuild a straight line (without it a second column that merely re-orders the same variable looked useful by refining the hats)
+    smooth = [np.hstack([design[:, [j]], rank_hats(columns[:, j])]) for j in range(columns.shape[1])]
     variance = max(float(np.var(y)), 1e-300)
     alive = list(range(columns.shape[1]))
     dropped: "list[int]" = []

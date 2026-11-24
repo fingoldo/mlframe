@@ -64,6 +64,18 @@ def test_a_tiny_but_significant_sliver_does_not_keep_a_column():
     assert 0.03**2 / float(np.var(y)) < R2_DROP
 
 
+def test_a_reordering_of_a_variable_already_present_does_not_look_useful():
+    """A heavy-tailed reciprocal of x2 re-orders the same variable: the coarse hats of its rank can refine the hats of x2 (measured: a loss of 0.0047 on the smooth leg when the straight line was not part of the block),
+    while the linear term of x2 is already there. It must go, with the raw x1 that sin(x1) replaces, and x2 itself must stay."""
+    rng = np.random.default_rng(0)
+    n = 6000
+    x1 = rng.uniform(-1, 1, n)
+    x2 = rng.standard_normal(n)
+    y = np.sin(x1) + x2 + 0.3 * rng.standard_normal(n)
+    columns = np.column_stack([x2, x1, 1.0 / (x2 + 1e-3 * np.where(x2 >= 0, 1.0, -1.0)), np.sin(x1)])
+    assert sorted(eliminate(columns, y, removable=[0, 1, 2], seed=0)) == [1, 2]
+
+
 def test_rank_hats_are_invariant_to_a_monotone_rescaling():
     """The smooth leg sees ranks: exp of a column gives the same basis."""
     x = np.random.default_rng(4).standard_normal(500)

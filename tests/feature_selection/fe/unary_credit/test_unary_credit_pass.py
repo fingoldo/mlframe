@@ -116,3 +116,52 @@ def test_mrmr_adds_no_unary_credit_on_a_linear_target():
         warnings.simplefilter("ignore")
         m = MRMR(verbose=0, random_state=0, n_jobs=1, fe_max_steps=1).fit(X, y)
     assert not [r for r in (m._engineered_recipes_ or []) if r.kind == "unary_credit"]
+
+
+def _multi_frame(with_copies: bool, n: int = 8000, seed: int = 0):
+    """Four signal features (sin, log, square and a linear one) among four noise columns, optionally with four correlated (0.7 to 0.9, not identical) copies of the signal columns."""
+    rng = np.random.default_rng(seed)
+    x1 = rng.uniform(-6, 6, n)
+    x2 = rng.lognormal(0, 1, n)
+    x3 = rng.standard_normal(n)
+    x4 = rng.standard_normal(n)
+    y = np.sin(x1) + np.log(x2) + x3**2 + 0.5 * x4 + 0.3 * rng.standard_normal(n)
+    cols = {"x1": x1, "x2": x2, "x3": x3, "x4": x4, **{f"n{k}": rng.standard_normal(n) for k in range(4)}}
+    if with_copies:
+
+        def z(v):
+            """Standardised copy."""
+            return (v - v.mean()) / v.std()
+
+        cols["c1"] = 0.8 * z(x1) + 0.6 * rng.standard_normal(n)
+        cols["c2"] = 0.8 * z(np.log(x2)) + 0.6 * rng.standard_normal(n)
+        cols["c3"] = 0.7 * z(x3) + 0.7 * rng.standard_normal(n)
+        cols["c4"] = 0.9 * z(x4) + 0.44 * rng.standard_normal(n)
+    return pd.DataFrame(cols), pd.Series(y, name="y")
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("with_copies", [False, True])
+def test_several_signal_features_and_correlated_copies(with_copies):
+    """Several signal features, each with its own link: every link is named, the output is at the noise floor in MAE (0.24; the raw signal columns give 1.2) and none of the correlated copies (0.7 to 0.9 with a signal
+    column, not identical) is in it."""
+    from sklearn.linear_model import RidgeCV
+    from sklearn.model_selection import train_test_split
+
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    X, y = _multi_frame(with_copies)
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        m = MRMR(verbose=0, random_state=0, n_jobs=1, fe_max_steps=1).fit(Xtr, ytr)
+    names = list(m.get_feature_names_out())
+    assert any("sin(x1)" in n for n in names), names
+    assert any("log(x2)" in n for n in names), names
+    assert "sq0(x3)" in names, names
+    assert not [n for n in names if "c1" in n or "c2" in n or "c3" in n or "c4" in n], f"a correlated copy reached the output: {names}"
+    assert len(names) <= 6, names
+    train = pd.DataFrame(m.transform(Xtr)).reset_index(drop=True).fillna(0)
+    test = pd.DataFrame(m.transform(Xte)).reset_index(drop=True).fillna(0)
+    mae = float(np.abs(yte.to_numpy() - RidgeCV(alphas=np.logspace(-3, 3, 13)).fit(train, ytr.to_numpy()).predict(test)).mean())
+    assert mae < 0.29, f"ridge MAE {mae:.3f} on the output {names} is above the noise floor 0.24"
