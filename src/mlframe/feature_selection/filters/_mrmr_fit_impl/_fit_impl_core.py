@@ -74,6 +74,7 @@ def _fit_impl_scoped(self, X: pd.DataFrame | np.ndarray, y: pd.DataFrame | pd.Se
 
     self._fe_probe_failures_at_start = probe_failure_count()  # ``fit_meta_['fe_probe_failures']`` is the difference at the end of this fit
     self.unary_forms_, self.unary_forms_tied_, self._unary_credit_soft_ = {}, {}, set()  # the unary forms the credit detects in this fit (``_fe_unary_credit``); the credit passes add to them
+    self._unary_credit_done_key_ = None  # the (columns, target) of the last credit pass of this fit: an identical second pass is skipped
     self._target_transform_cache_ = None  # the target-transform search runs once per fit (``_target_transform_record``)
     start_background_prewarm()  # one-time numba warmups overlap the first stages instead of stalling the middle of the first fit
     _ret_fit_impl_part7 = _fit_impl_part7(

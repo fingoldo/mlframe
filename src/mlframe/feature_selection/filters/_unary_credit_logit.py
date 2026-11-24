@@ -12,17 +12,40 @@ The null is a parametric bootstrap: classes are redrawn from the identity logit 
 
 from __future__ import annotations
 
+import logging
+import os
+from typing import Any, Optional
+
 import numpy as np
 
-from ._unary_credit_stats import ALPHA, CANDIDATES, MAX_ROWS, ColumnVerdict, UnaryForm, _split, adaptive_max_pvalue, apply_form, candidate_forms, simplest_tied
+from mlframe.utils.log_throttle import log_throttle
+
+from ._unary_credit_stats import ALPHA, BATCH, CANDIDATES, MAX_ROWS, ColumnVerdict, UnaryForm, _split, adaptive_max_pvalue, apply_form, candidate_forms, gate_mask, simplest_tied
 
 #: Newton iterations of the one-feature logits (the problem is two-dimensional and well conditioned after standardising the candidate).
 NEWTON_STEPS = 8
+#: The bootstrap draws need less: a draw's maximum is compared with the observed one at the level of a permutation p-value, and five steps leave the deviance within 1e-3 of the converged one.
+NULL_NEWTON_STEPS = 5
+#: The bootstrap null runs on the GPU when ``rows x candidates x draws`` reaches this many cells (below it the launches cost more than the numpy passes); ``MLFRAME_FE_CREDIT_GPU=0`` keeps it on the host.
+GPU_MIN_CELLS = 1_000_000
+logger = logging.getLogger(__name__)
 
 
-def _sigmoid(eta: np.ndarray) -> np.ndarray:
-    """Overflow-safe logistic function."""
-    return 0.5 * (1.0 + np.tanh(0.5 * eta))
+def _device_module() -> Optional[Any]:
+    """The cupy module when a CUDA device is usable and the device null is not switched off (``MLFRAME_FE_CREDIT_GPU=0``), else ``None``."""
+    if os.environ.get("MLFRAME_FE_CREDIT_GPU", "1").strip().lower() in {"0", "false", "no", "off"}:
+        return None
+    try:
+        from ._batch_mi_noise_gate_kernels import cuda_available, cupy
+
+        return cupy() if cuda_available() else None
+    except Exception:
+        return None
+
+
+def _sigmoid(eta: Any, xp: Any = np) -> Any:
+    """Overflow-safe logistic function (``xp`` is numpy or cupy)."""
+    return 0.5 * (1.0 + xp.tanh(0.5 * eta))
 
 
 def _fit_offset_logit(columns: "list[np.ndarray]", y: np.ndarray) -> np.ndarray:
@@ -48,19 +71,21 @@ def _fit_offset_logit(columns: "list[np.ndarray]", y: np.ndarray) -> np.ndarray:
     return design @ beta
 
 
-def _deviance(offset: np.ndarray, z: np.ndarray, y_draws: np.ndarray) -> np.ndarray:
+def _deviance(offset: Any, z: Any, y_draws: Any, steps: int = NEWTON_STEPS, dtype: type = np.float64, xp: Any = np) -> Any:
     """``LRT`` of every candidate (columns of ``z``, standardised) for every class vector (columns of ``y_draws``): shape (candidates, draws).
 
-    Per candidate and draw the logit ``offset + a + b z`` is fitted by Newton (all pairs at once) and compared with the offset-plus-intercept model."""
+    Per candidate and draw the logit ``offset + a + b z`` is fitted by Newton (all pairs at once) and compared with the offset-plus-intercept model. ``dtype`` is the precision of the (rows, candidates, draws) arrays: the
+    bootstrap null runs in float32 (half the memory traffic of the elementwise passes that dominate the cost). ``xp`` is numpy or cupy: with cupy the arrays are device arrays and so is the result."""
+    offset, z, y_draws = offset.astype(dtype, copy=False), z.astype(dtype, copy=False), y_draws.astype(dtype, copy=False)
     _n, k = z.shape
     d = y_draws.shape[1]
-    a = np.zeros((k, d))
-    b = np.zeros((k, d))
+    a = xp.zeros((k, d), dtype=dtype)
+    b = xp.zeros((k, d), dtype=dtype)
     yz = y_draws[:, None, :]
     zz = z[:, :, None]
-    for _ in range(NEWTON_STEPS):
+    for _ in range(steps):
         eta = offset[:, None, None] + a[None] + b[None] * zz
-        p = _sigmoid(eta)
+        p = _sigmoid(eta, xp)
         resid = yz - p
         w = p * (1.0 - p)
         g_a = resid.sum(axis=0)
@@ -69,18 +94,18 @@ def _deviance(offset: np.ndarray, z: np.ndarray, y_draws: np.ndarray) -> np.ndar
         h_ab = (w * zz).sum(axis=0)
         h_bb = (w * zz * zz).sum(axis=0) + 1e-9
         det = h_aa * h_bb - h_ab * h_ab
-        det = np.where(np.abs(det) < 1e-12, 1e-12, det)
+        det = xp.where(xp.abs(det) < 1e-12, 1e-12, det)
         a = a + (h_bb * g_a - h_ab * g_b) / det
         b = b + (h_aa * g_b - h_ab * g_a) / det
     eta1 = offset[:, None, None] + a[None] + b[None] * zz
-    ll1 = (yz * eta1 - np.logaddexp(0.0, eta1)).sum(axis=0)
-    a0 = np.zeros(d)
-    for _ in range(NEWTON_STEPS):
-        p0 = _sigmoid(offset[:, None] + a0[None])
+    ll1 = (yz * eta1 - xp.logaddexp(0.0, eta1)).sum(axis=0)
+    a0 = xp.zeros(d, dtype=dtype)
+    for _ in range(steps):
+        p0 = _sigmoid(offset[:, None] + a0[None], xp)
         a0 = a0 + (y_draws - p0).sum(axis=0) / ((p0 * (1.0 - p0)).sum(axis=0) + 1e-9)
     eta0 = offset[:, None] + a0[None]
-    ll0 = (y_draws * eta0 - np.logaddexp(0.0, eta0)).sum(axis=0)
-    return 2.0 * (ll1 - ll0[None])
+    ll0 = (y_draws * eta0 - xp.logaddexp(0.0, eta0)).sum(axis=0)
+    return (2.0 * (ll1 - ll0[None])).astype(np.float64)
 
 
 def _standardise(values: np.ndarray) -> np.ndarray:
@@ -104,18 +129,40 @@ def _test_column(
     p_id = _sigmoid(_fit_offset_logit([*others, np.asarray(x, dtype=np.float64)], y))
 
     first_batch: "list[np.ndarray]" = []
+    gate = gate_mask(forms)
+    z_gate = z[:, np.concatenate([[True], gate])]  # the identity and the base forms: a scaled variant competes for the name, not for the significance, so its column is not in the null
+
+    cp = _device_module() if n * z_gate.shape[1] * BATCH >= GPU_MIN_CELLS else None
+    device: "dict[str, Any]" = {}
+    if cp is not None:
+        try:
+            device = {"offset": cp.asarray(offset, dtype=cp.float32), "z": cp.asarray(z_gate, dtype=cp.float32), "p": cp.asarray(p_id, dtype=cp.float32), "rng": cp.random.default_rng(int(rng.integers(0, 2**31 - 1)))}
+        except Exception as exc:  # no device memory for the columns: the host null
+            log_throttle(logger, "unary_credit_logit.device_upload", logging.WARNING, "logit credit: the device null is unavailable (%r); the host null runs", exc)
+            device = {}
 
     def draw_maxima(k: int) -> np.ndarray:
         """``k`` null values of ``max_f (LRT_f - LRT_id)`` over bootstrap class vectors."""
-        draws = (rng.random((n, k)) < p_id[:, None]).astype(np.float64)
-        null = _deviance(offset, z, draws)
+        if device:
+            try:
+                draws = (device["rng"].random((n, k), dtype=cp.float32) < device["p"][:, None]).astype(cp.float32)
+                null = _deviance(device["offset"], device["z"], draws, NULL_NEWTON_STEPS, np.float32, cp)
+                null_gains = cp.asnumpy(null[1:] - null[0][None, :])
+                if not first_batch:
+                    first_batch.append(null_gains)
+                return null_gains.max(axis=0)
+            except Exception as exc:  # out of device memory or a driver error: this and every later batch of the column run on the host
+                device.clear()
+                log_throttle(logger, "unary_credit_logit.device_null", logging.WARNING, "logit credit: the device null failed (%r); the host null runs", exc)
+        draws = (rng.random((n, k)) < p_id[:, None]).astype(np.float32)
+        null = _deviance(offset, z_gate, draws, NULL_NEWTON_STEPS, np.float32)
         null_gains = null[1:] - null[0][None, :]
         if not first_batch:
             first_batch.append(null_gains)
         return null_gains.max(axis=0)
 
-    p = adaptive_max_pvalue(float(gains.max()), draw_maxima, level)
-    slack = float(first_batch[0][int(np.argmax(gains))].std()) if first_batch else 0.0
+    p = adaptive_max_pvalue(float(gains[gate].max()), draw_maxima, level)
+    slack = float(first_batch[0].std(axis=1).max()) if first_batch else 0.0
     best = simplest_tied(gains, [f.name for f in forms], slack) if float(gains.max()) > 0.0 else int(np.argmax(gains))
     return best, float(gains[best]), p, float(observed[0]), float(observed[1 + best])
 
@@ -144,7 +191,9 @@ def credit_columns_binary(
     disc, held = _split(n, rng)
     verdicts = [none] * m
     current = [X[:, j].copy() for j in range(m)]
-    for _ in range(max(1, passes)):
+    for _pass in range(max(1, passes)):
+        if _pass > 0 and not any(v.form is not None for v in verdicts):
+            break  # nothing was credited, so the design of every column is the one the first pass tested
         for j in range(m):
             raw = X[:, j]
             if not np.isfinite(raw).all():

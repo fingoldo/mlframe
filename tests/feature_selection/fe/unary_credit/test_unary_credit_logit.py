@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 
+from mlframe.feature_selection.filters import _unary_credit_logit
 from mlframe.feature_selection.filters._unary_credit_logit import credit_columns_binary
 
 N = 6000
@@ -64,3 +66,68 @@ def test_unusable_targets_credit_nothing():
     rare[:50] = 1.0
     assert all(v.form is None for v in credit_columns_binary(X, rare))
     assert all(v.form is None for v in credit_columns_binary(X[:300], y[:300]))
+
+
+@pytest.mark.parametrize("case,expected", [("log", "log"), ("sin", "sin")])
+def test_the_host_and_the_device_null_name_the_same_form(case, expected, monkeypatch):
+    """The bootstrap null runs on the GPU for large problems and on the host otherwise (``MLFRAME_FE_CREDIT_GPU=0`` forces the host): both name the generating form and credit nothing on the noise column."""
+    X, y = _binary(case)
+    monkeypatch.setenv("MLFRAME_FE_CREDIT_GPU", "0")
+    assert _unary_credit_logit._device_module() is None
+    host = credit_columns_binary(X, y, seed=0)
+    monkeypatch.delenv("MLFRAME_FE_CREDIT_GPU")
+    device_available = _unary_credit_logit._device_module() is not None
+    monkeypatch.setattr(_unary_credit_logit, "GPU_MIN_CELLS", 1)  # every problem is large enough for the device
+    device = credit_columns_binary(X, y, seed=0)
+    for verdicts in (host, device):
+        assert verdicts[0].form is not None and verdicts[0].form.name == expected, verdicts[0]
+        assert verdicts[1].form is None
+    if not device_available:
+        pytest.skip("no CUDA device: the host null ran in both calls")
+
+
+def test_a_second_pass_runs_only_when_the_first_one_credited_something(monkeypatch):
+    """With nothing credited the design of every column of the second pass equals the first one's, so the pass is not run: one discovery test per column on a control, and more when a form is credited."""
+    calls = []
+    original = _unary_credit_logit._test_column
+
+    def counting(*args, **kwargs):
+        """The wrapped function, counted."""
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(_unary_credit_logit, "_test_column", counting)
+    X, y = _binary("linear")
+    assert [v.form for v in credit_columns_binary(X, y, seed=1)] == [None, None]
+    assert len(calls) == 2
+    calls.clear()
+    X, y = _binary("log")
+    assert credit_columns_binary(X, y, seed=0)[0].form is not None
+    assert len(calls) > 2
+
+
+def test_an_unchanged_second_credit_call_of_a_fit_is_not_tested_again(monkeypatch):
+    """The credit runs twice per fit (early and after the late restores); when the columns, the engineered recipes and the target are the same the second call repeats the first one's verdicts and returns without testing."""
+    from types import SimpleNamespace
+
+    from mlframe.feature_selection.filters._fe_unary_credit import credit_unary_forms
+
+    X, y = _binary("log")
+    frame = pd.DataFrame(X, columns=["x1", "x2"])
+    mrmr = SimpleNamespace(_engineered_features_=[], _engineered_recipes_=[], feature_names_in_=["x1", "x2"], unary_forms_={}, unary_forms_tied_={}, _unary_credit_soft_=set())
+    calls = []
+    original = _unary_credit_logit.credit_columns_binary
+
+    def counting(*args, **kwargs):
+        """The wrapped function, counted."""
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(_unary_credit_logit, "credit_columns_binary", counting)
+    first = credit_unary_forms(mrmr, frame, y, ["x1", "x2"], seed=0)
+    assert [name for _recipe, name in first] == ["log(x1)"] and len(calls) == 1
+    assert credit_unary_forms(mrmr, frame, y, ["x1", "x2"], seed=0) == [] and len(calls) == 1
+    mrmr._engineered_recipes_ = [first[0][0]]  # a recipe added in between changes the sources of the interaction stage: the credit is judged again
+    mrmr._engineered_features_ = ["log(x1)"]
+    credit_unary_forms(mrmr, frame, y, ["x1", "x2"], seed=0)
+    assert len(calls) == 2

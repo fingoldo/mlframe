@@ -66,6 +66,13 @@ def credit_unary_forms(
     if not binary and np.unique(y[:5000]).size < 20:
         return []
     names = [nm for nm in dict.fromkeys(selected_names) if nm in X.columns and pd.api.types.is_numeric_dtype(X[nm].dtype)][:MAX_COLUMNS]
+    # the second call of a fit (after the late restores) sees the same columns, the same target and the same engineered recipes (the sources of the interaction stage) as the first one when nothing was restored: its
+    # verdicts would repeat the first call's, which already emitted its recipes, so the tests (the cost of the stage: one bootstrap null per column) are not run again
+    recipe_names = tuple(str(getattr(r, "name", "")) for r in (getattr(mrmr, "_engineered_recipes_", None) or []))
+    fingerprint = (tuple(names), recipe_names, int(y.shape[0]), float(np.nansum(y)), float(np.nansum(y[:: max(1, y.shape[0] // 997)])))
+    if getattr(mrmr, "_unary_credit_done_key_", None) == fingerprint:
+        return []
+    mrmr._unary_credit_done_key_ = fingerprint
     taken = {str(n) for n in (getattr(mrmr, "_engineered_features_", None) or [])}
     forms_seen = getattr(mrmr, "unary_forms_", None)
     forms_seen = dict(forms_seen) if isinstance(forms_seen, dict) else {}
