@@ -90,7 +90,6 @@ Scope: the 72 files in `audits/2026-11-20/manifests/09_feature_engineering-2.txt
 - 09-F15: DEFERRED. tried an early return in the underdetermined branch; it broke the contract that the linear column stays finite. The real defect is the per-row exception path zeroing whole rows; needs a column-aware fix
 - 09-F24: FIXED. binary local-lift labels are normalised to {0,1} for both the global mean and the neighbour sums; tests/feature_engineering/transformer/test_cluster09_edges.py covers the KMeans path only, lift path covered by existing lift tests
 - 09-F26: FIXED. anchor count is capped by the row count, so a one-row fold yields one anchor; tests/feature_engineering/transformer/test_cluster09_edges.py
-- 09-F14: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F19: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F20: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F21: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
@@ -125,3 +124,5 @@ Scope: the 72 files in `audits/2026-11-20/manifests/09_feature_engineering-2.txt
 - 09-F18: FIXED. NCA fit records warnings and logs a ConvergenceWarning at WARNING naming max_iter; other warnings stay suppressed as before. Test tests/feature_engineering/test_cluster09_nca_convergence_surfaced.py.
 
 - 09-F17: FIXED. Tree path extraction failure now yields NaN for the path and match-count columns and logs a WARNING; it used to emit constant-1.0 columns, which made every path look matched. Behaviour change: failed folds produce NaN. Test tests/feature_engineering/test_cluster09_tree_path_failure_nan.py.
+
+- 09-F14: FIXED. H0 mean_birth was constant zero; replaced by std_lifespan (std of bar lifespans), which varies. Schema change: the column is renamed pd_mean_birth -> pd_std_lifespan. Test tests/feature_engineering/test_cluster09_persistence_no_constant_birth.py.

@@ -38,7 +38,8 @@ def compute_persistence_diagram_features(
 ) -> pl.DataFrame:
     """Persistence diagram features via Vietoris-Rips H0 from gudhi.
 
-    Output: 5 features — max_persistence, n_bars_above_thresh, total_persistence, mean_birth, mean_death.
+    Output: 5 features — max_persistence, n_bars_above_thresh, total_persistence, std_lifespan, mean_death.
+    ``std_lifespan`` replaces ``mean_birth``: H0 births are all 0, so the mean was a constant column (09-F14).
     """
     try:
         import gudhi
@@ -90,12 +91,12 @@ def compute_persistence_diagram_features(
                 total_pers = float(lifespans.sum())
                 threshold = 0.1 * max_pers if max_pers > 0 else 0.0
                 n_significant = int((lifespans > threshold).sum())
-                mean_birth = float(finite_pairs[:, 0].mean())
+                std_lifespan = float(lifespans.std())
                 mean_death = float(finite_pairs[:, 1].mean())
                 out[q, 0] = max_pers
                 out[q, 1] = float(n_significant)
                 out[q, 2] = total_pers
-                out[q, 3] = mean_birth
+                out[q, 3] = std_lifespan
                 out[q, 4] = mean_death
             except Exception as exc:
                 logger.info("persistence_diagram: gudhi computation failed on row %d (%s); leaving zeros.", int(q), exc)
@@ -107,7 +108,7 @@ def compute_persistence_diagram_features(
         cols[f"{column_prefix}_max_persistence"] = feats[:, 0].astype(dtype, copy=False)
         cols[f"{column_prefix}_n_significant"] = feats[:, 1].astype(dtype, copy=False)
         cols[f"{column_prefix}_total_persistence"] = feats[:, 2].astype(dtype, copy=False)
-        cols[f"{column_prefix}_mean_birth"] = feats[:, 3].astype(dtype, copy=False)
+        cols[f"{column_prefix}_std_lifespan"] = feats[:, 3].astype(dtype, copy=False)
         cols[f"{column_prefix}_mean_death"] = feats[:, 4].astype(dtype, copy=False)
         return cols
 
