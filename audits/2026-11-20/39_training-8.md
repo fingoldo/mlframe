@@ -179,3 +179,4 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F71: FIXED. Mixup categorical-prefix lookup moved to MLPTorchModel._mixup_cat_prefix, memoised per network object, so the module walk no longer runs every training step. Test tests/training/test_cluster39_mixup_cat_prefix_cache.py.
 - 39-F49: FIXED. Column-iterator docstring now names the TF-IDF path's list() materialisation instead of claiming full avoidance. Test tests/training/test_cluster39_text_encoder_docstring_accuracy.py.
 - 39-F51: FIXED. Smoothing bench verdict relabelled historical: the live TargetEncodeParams default is 3.0, the bench compares against the former 10.0 incumbent. Test tests/training/test_cluster39_smoothing_bench_verdict_current.py.
+- 39-F50: FIXED. iter113 benchmark NEW arm calls the production _float_canonical_tokens instead of an inline copy; the OLD np.unique arm stays inline as baseline. Test tests/training/test_cluster39_bench_uses_production_tokens.py.

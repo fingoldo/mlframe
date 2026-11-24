@@ -7,7 +7,8 @@ unique ORDER is irrelevant and the output is bit-identical.
 Measured (py3.14): K=500 8.61x (2.032->0.236s); K=50000 4.35x (3.259->0.749s), identical=True.
 Separate-process e2e (fit+transform woe, cv=3, @10M): 5.602s -> 3.427s = 1.63x, checksum byte-identical (0.711767).
 """
-import numpy as np, pandas as pd, time
+import numpy as np, time
+from mlframe.training.feature_handling._target_encoders_canon import _float_canonical_tokens  # production NEW path (39-F50)
 if __name__ == "__main__":
     rng = np.random.default_rng(0)
     N = 10_000_000
@@ -21,12 +22,10 @@ if __name__ == "__main__":
             toks = np.array([str(int(u)) if (np.isfinite(u) and u == int(u)) else repr(float(u)) for u in uniq], dtype=object)
             out_old = toks[np.asarray(inv).reshape(-1)]
             best_old = min(best_old, time.perf_counter() - t)
-        # NEW: pd.factorize sort=False
+        # NEW: the production function (pd.factorize sort=False), not a copy of its token logic (39-F50)
         best_new = 1e9
         for _ in range(3):
             t = time.perf_counter()
-            codes, uniqf = pd.factorize(arr, sort=False)
-            toks2 = np.array([str(int(u)) if (np.isfinite(u) and u == int(u)) else repr(float(u)) for u in uniqf], dtype=object)
-            out_new = toks2[codes]
+            out_new = _float_canonical_tokens(arr)
             best_new = min(best_new, time.perf_counter() - t)
         print(f"K={K}: old(np.unique)={best_old:.3f}s new(factorize)={best_new:.3f}s speedup={best_old/best_new:.2f}x identical={np.array_equal(out_old,out_new)}")
