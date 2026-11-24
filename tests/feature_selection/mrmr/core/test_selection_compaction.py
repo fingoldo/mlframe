@@ -87,3 +87,37 @@ def test_a_fragment_that_adds_no_information_beyond_the_rest_is_pruned():
     cols["proxy_frag"] = cols["A"] ^ (np.random.default_rng(5).random(len(y)) < 0.0).astype(int)
     assert prune_redundant(cols, ["A", "ABC", "proxy_frag"], ["proxy_frag"], y) == ["proxy_frag"]
     assert prune_redundant(cols, ["A", "ABC"], ["ABC"], y) == []
+
+
+def test_joint_cache_equals_the_plain_score_of_every_ordered_tuple_even_when_it_evicts():
+    """``JointCache.corrected`` is ``corrected_joint_mi`` of the same columns in the same order, from a cached prefix or not, with a cache so small that it evicts all the time."""
+    import itertools
+
+    from mlframe.feature_selection.filters._mrmr_fit_impl._selection_compaction import JointCache
+
+    rng = np.random.default_rng(0)
+    n = 5000
+    cols = {f"c{i}": rng.integers(0, 5, n).astype(np.int8) for i in range(7)}
+    y = rng.integers(0, 3, n)
+    cache = JointCache(cols, y, max_entries=4)
+    for k in range(0, 5):
+        for names in itertools.islice(itertools.permutations(cols, k), 0, 80, 3):
+            assert cache.corrected(names) == corrected_joint_mi([cols[nm] for nm in names], y), names
+
+
+def test_candidates_sharing_a_kept_prefix_extend_one_cached_joint_instead_of_rebuilding_it(monkeypatch):
+    """Scoring ``[*kept, cand]`` for eight candidates builds the joint of ``kept`` once (four columns) and then one column per candidate: 4 + 8 builds, not 8 x 5."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl import _selection_compaction as sc
+
+    rng = np.random.default_rng(1)
+    n = 3000
+    cols = {f"c{i}": rng.integers(0, 4, n) for i in range(12)}
+    y = rng.integers(0, 2, n)
+    builds = []
+    real = sc._extend_joint
+    monkeypatch.setattr(sc, "_extend_joint", lambda joint, col: builds.append(1) or real(joint, col))
+    cache = sc.JointCache(cols, y)
+    kept = [f"c{i}" for i in range(4)]
+    for cand in [f"c{i}" for i in range(4, 12)]:
+        cache.corrected([*kept, cand])
+    assert len(builds) == 4 + 8
