@@ -32,6 +32,26 @@ from ._utils import require_seed, validate_numeric_input
 logger = logging.getLogger(__name__)
 
 
+def _regression_sign_columns(Xt_s, y_t, mu_train, Xq_s, mu_query, fold_seed):
+    """Sign-model bias columns for a regression target (split out of the feature builder to keep its complexity under the limit)."""
+    import lightgbm as lgb
+
+    # Sign target: 1 if y > mu_hat (under-prediction), else 0.
+    sign_target = (y_t > mu_train).astype(np.int32)
+    # If degenerate (all same sign), pad fallback
+    if sign_target.sum() == 0 or sign_target.sum() == sign_target.shape[0]:
+        p_pos = np.full(Xq_s.shape[0], float(sign_target.mean()), dtype=np.float32)
+    else:
+        m_sign = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
+                                    random_state=int(fold_seed) + 1, verbose=-1, n_jobs=-1).fit(Xt_s, sign_target)
+        p_pos = np.asarray(m_sign.predict_proba(Xq_s))[:, 1].astype(np.float32)
+    bias_signal = (p_pos - 0.5).astype(np.float32)
+    abs_bias = np.abs(bias_signal).astype(np.float32)
+    residual_scale = np.float32(np.std(y_t - mu_train))
+    baseline_score = (mu_query + bias_signal * residual_scale).astype(np.float32)
+    return np.column_stack([mu_query, p_pos, bias_signal, abs_bias, baseline_score])
+
+
 def compute_sign_residual_baseline_features(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -106,20 +126,7 @@ def compute_sign_residual_baseline_features(
             # information and the second model would just re-learn y. Emit NaN bias columns instead (09-F19); mu_query is kept.
             nan_q = np.full(Xq_s.shape[0], np.nan, dtype=np.float32)
             return np.column_stack([mu_query, nan_q, nan_q, nan_q, nan_q])
-        # Sign target: 1 if y > mu_hat (under-prediction), else 0.
-        sign_target = (y_t > mu_train).astype(np.int32)
-        # If degenerate (all same sign), pad fallback
-        if sign_target.sum() == 0 or sign_target.sum() == sign_target.shape[0]:
-            p_pos = np.full(Xq_s.shape[0], float(sign_target.mean()), dtype=np.float32)
-        else:
-            m_sign = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1,
-                                        random_state=int(fold_seed) + 1, verbose=-1, n_jobs=-1).fit(Xt_s, sign_target)
-            p_pos = np.asarray(m_sign.predict_proba(Xq_s))[:, 1].astype(np.float32)
-        bias_signal = (p_pos - 0.5).astype(np.float32)
-        abs_bias = np.abs(bias_signal).astype(np.float32)
-        residual_scale = np.float32(np.std(y_t - mu_train))
-        baseline_score = (mu_query + bias_signal * residual_scale).astype(np.float32)
-        return np.column_stack([mu_query, p_pos, bias_signal, abs_bias, baseline_score])
+        return _regression_sign_columns(Xt_s, y_t, mu_train, Xq_s, mu_query, fold_seed)
 
     def _make_df(feats):
         """Slice the ``_process`` output columns into a name-tagged dict (mu/p_pos_residual/bias_signal/abs_bias/baseline_score), cast to the requested output dtype."""
