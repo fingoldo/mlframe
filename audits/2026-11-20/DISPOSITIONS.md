@@ -307,7 +307,6 @@
 | 08-F5 | FIXED | both SMOTE siblings return (0, d) on an empty minority; tests/feature_engineering/transformer/test_cluster08_edges.py |
 | 08-F10 | FIXED | magnitude check uses max(/min/,/max/) with Python ints, so the most negative int64 is flagged; tests/feature_engineering/transformer/test_cluster08_edges.py |
 | 08-F11 | FIXED | the silent temperature override now warns (RuntimeWarning); no separate test |
-| 08-F6 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F7 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F8 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F12 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
@@ -1437,3 +1436,5 @@
 | 08-F4 | PARTIAL | BGM fallback to bootstrap now logs at WARNING (was INFO), so a degraded sample is visible in normal runs. Not done: the return value still does not tell callers a bootstrap was used; that needs an API change. Test tests/feature_engineering/test_cluster08_bgmm_fallback_warns.py. |
 
 | 08-F9 | FIXED | The per-fold float32 cast of the training target is computed once before the head loop, not once per head. Values unchanged. Test tests/feature_engineering/test_cluster08_oof_cast_hoisted.py; 9 OOF tests pass. |
+
+| 08-F6 | FIXED | Adversarial flip docstring states the implemented regression rule: a move of the prediction by more than the 10th percentile of train absolute residuals. Docstring-only fix. Test tests/feature_engineering/test_cluster08_flip_docstring_matches_rule.py. |
