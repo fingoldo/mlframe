@@ -323,7 +323,6 @@
 | 10-F7 | DEFERRED | not changed in this pass; benchmark-script cleanup or a policy decision (MAX_VERSION_AGE_DAYS enforcement) |
 | 11-F4 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F6 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
-| 11-F9 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F10 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F11 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F13 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
@@ -1459,3 +1458,5 @@
 | 11-F7 | FIXED | A counted estimator module that fails to import with a non-ImportError is reported as missing and logged at WARNING; it used to abort every arm's FitCounter. Test tests/feature_selection/test_cluster11_counted_import_failure_listed.py. |
 
 | 11-F12 | FIXED | A subnormal-width candidate range (NB / width overflows to inf) takes the flat-range branch instead of binning with a non-finite scale, so no NaN bins are produced. Test tests/feature_selection/test_cluster11_subnormal_range_no_nan_edges.py. |
+
+| 11-F9 | FIXED | RFECV ranking_ numeric ranks of a different length than the names fall back to kept-vs-dropped with a WARNING, instead of being stringified and matched against names. Test tests/feature_selection/test_cluster11_rfecv_numeric_rank_mismatch.py. |

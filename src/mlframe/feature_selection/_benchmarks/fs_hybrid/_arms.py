@@ -753,12 +753,16 @@ def _rfecv_rank_vector(model: Any, names: Sequence[str], selected: Sequence[str]
     raw = getattr(model, "ranking_", None)
     if raw is not None and len(np.asarray(raw, dtype=object).ravel()) > 0:
         arr = np.asarray(raw, dtype=object).ravel()
-        if np.issubdtype(np.asarray(raw).dtype, np.number) and arr.shape[0] == len(names):
-            return np.asarray(raw, dtype=np.float64)
-        order = {str(nm): pos for pos, nm in enumerate(arr)}
-        if set(order) & set(names):
-            # An ordered NAME list: position in it IS the rank, and anything it omits ranks after all of it.
-            return np.asarray([float(order.get(str(nm), len(order))) for nm in names], dtype=np.float64)
+        if np.issubdtype(np.asarray(raw).dtype, np.number):
+            if arr.shape[0] == len(names):
+                return np.asarray(raw, dtype=np.float64)
+            # Numeric ranks over a different feature set cannot be aligned by name; the name-order branch would stringify them and match nothing (11-F9).
+            logger.warning("RFECV ranking_ has %d numeric ranks for %d names; falling back to kept-vs-dropped ordering.", arr.shape[0], len(names))
+        else:
+            order = {str(nm): pos for pos, nm in enumerate(arr)}
+            if set(order) & set(names):
+                # An ordered NAME list: position in it IS the rank, and anything it omits ranks after all of it.
+                return np.asarray([float(order.get(str(nm), len(order))) for nm in names], dtype=np.float64)
     # Attribute absent or unusable: fall back to the only ordering still available, kept-vs-dropped.
     keep = set(str(c) for c in selected)
     return np.asarray([0.0 if str(nm) in keep else 1.0 for nm in names], dtype=np.float64)
