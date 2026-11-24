@@ -1379,7 +1379,6 @@
 
 | 24-F16 | PARTIAL | Exp-scheme causal aggregation is one recurrence pass per group (A_L = p*(A+v), B_L = p*(B+1)), equal to the prefix re-walk within 1e-9. The poly scheme's weights depend on window length, so its prefix sums cannot be updated exactly; it keeps the O(m^2) path (documented). Test tests/feature_engineering/test_cluster24_exp_causal_recurrence.py; 5 existing recency tests pass. |
 
-| 24-F17 | DEFERRED | No exact speedup exists: the KDE bandwidth (_kde_bandwidth) and the grid (vmin..vmax) are functions of each prefix's own mean and span, so an incremental density cannot reuse earlier prefixes. The only speedup is a bounded lookback, which changes every estimate; the lookback length needs an owner decision. No code change. |
 
 | 09-F7 | PARTIAL | stacked_qnn Mode A is nested: each outer fold rebuilds layer 1 on its training part only, so a row's label never shapes its own layer-2 feature. Behaviour change: Mode A values change. Not done: stacked_attention.py (same leak, and its docstring still claims leak-free) is unchanged. Test tests/feature_engineering/test_cluster09_stacked_mode_a_nested_no_self_label.py; 100 shortlist tests pass. |
 
@@ -1482,3 +1481,5 @@
 | 34-F14 | DEFERRED | RAM is already bounded: the Gram is accumulated over 8192-row blocks, so one block of 500 float64 columns is about 32 MB. The audit's full-buffer fix (about 6.4 GB) would raise RAM, and column chunking re-reads columns per block pair, so it trades RAM for more reads. Reducing the 195k column reads is a speed change that needs a benchmark on real data. No code change. |
 
 | 38-F10 | RESOLVED | Deleted the dead weight-iteration module (_phase_train_one_target_weight_iteration.py) and its test; the live inline loop in _phase_train_one_target_steps.py is the only copy. Its allowlist entry in test_shared_uncalled_functions.py is removed. Note: the removed test pinned the identity-equivalent dedup ordering on the dead copy; the live path has no unit test for that ordering yet. |
+
+| 24-F17 | FIXED | Causal KDE mode gained an opt-in lookback: an int clips each prefix to its last L rows, and 'auto' picks the smallest candidate (64..2048) whose modes match the exact ones within lookback_tol (default 1e-3 of the value range) on 16 probe rows, falling back to exact. Default None is unchanged. Refused off the causal broadcast path. Tests tests/feature_engineering/test_cluster24_causal_kde_lookback.py (6 passed). The speed measurement is still to run. |
