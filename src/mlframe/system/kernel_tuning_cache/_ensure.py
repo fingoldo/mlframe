@@ -16,7 +16,8 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from collections.abc import Iterator
+from typing import Any, Optional
 
 from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
@@ -123,7 +124,8 @@ def _pid_start_token(pid: int) -> str:
     try:
         return f"{psutil.Process(pid).create_time():.3f}"
     except psutil.NoSuchProcess:
-        return ""  # the process is gone: no token, so the pid alone decides (the old behaviour)
+        logger.info("kernel tuning cache: pid %s has exited; its start token is empty and the pid alone decides", pid)
+        return ""
     except Exception as exc:
         logger.warning("kernel tuning cache: no process start token for pid %s (%s: %s)", pid, type(exc).__name__, exc)
         return ""

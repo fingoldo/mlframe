@@ -498,7 +498,7 @@ class CompositeCrossTargetEnsemble:
             # The fit path rejects non-finite component predictions, but predict did not check them: a NaN or inf row used to reach
             # the blend silently (audit 35-F17). The blend still returns NaN for those rows; now it says so.
             if pred is not None and not np.isfinite(pred).all():
-                logger.warning(
+                log_throttle(logger, "cross_target.nonfinite_blend", logging.WARNING,
                     "[CompositeCrossTargetEnsemble] component '%s' returned %d non-finite prediction(s); the blend is non-finite for those rows.",
                     name, int((~np.isfinite(pred)).sum()),
                 )
