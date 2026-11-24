@@ -336,12 +336,19 @@ def _pick_representative_target(target_by_type: Any) -> tuple[Any, Any, Any]:
             _picked_type_name = "regression" if _tt_key == TargetTypes.REGRESSION else "classification"
             break
     if _picked_target is None:
-        # Fallback: walk all keys, take the first non-empty target.
+        # Fallback: take the first non-empty target of a supervised type this pass understands. Any other key (e.g. LEARNING_TO_RANK)
+        # used to be labelled "classification" by default; it is now skipped rather than misclassified (37-F46).
         for _tt_key, _bag in target_by_type.items():
-            if isinstance(_bag, dict) and _bag:
-                _picked_target_name, _picked_target = next(iter(_bag.items()))
-                _picked_type_name = "regression" if str(_tt_key).endswith("REGRESSION") else "classification"
-                break
+            if not (isinstance(_bag, dict) and _bag):
+                continue
+            if _tt_key == TargetTypes.REGRESSION:
+                _picked_type_name = "regression"
+            elif _tt_key in (TargetTypes.BINARY_CLASSIFICATION, TargetTypes.MULTICLASS_CLASSIFICATION):
+                _picked_type_name = "classification"
+            else:
+                continue
+            _picked_target_name, _picked_target = next(iter(_bag.items()))
+            break
     return _picked_target, _picked_type_name, _picked_target_name
 
 

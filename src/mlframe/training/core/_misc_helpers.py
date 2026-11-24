@@ -207,10 +207,11 @@ def _build_full_column_from_splits(
         try:
             if col_vals is None:
                 col_vals = _split_df[col_name].to_numpy() if hasattr(_split_df[col_name], "to_numpy") else _np.asarray(_split_df[col_name])
+            # The float64 cast sits inside the guard: a non-numeric column raises here and is skipped, not propagated (37-F47).
+            col_vals = _np.asarray(col_vals).reshape(-1).astype(_np.float64, copy=False)
         except Exception:
             logger.debug("failed materialising column %r from split frame; skipping", col_name, exc_info=True)
             continue
-        col_vals = _np.asarray(col_vals).reshape(-1).astype(_np.float64, copy=False)
         idx_arr = _np.asarray(_split_idx).reshape(-1)
         if len(col_vals) != len(idx_arr):
             # Frame and index disagree (e.g. OD-filtered train_df paired with raw train_idx); skip rather than mis-align silently.
