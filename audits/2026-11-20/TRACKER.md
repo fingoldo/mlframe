@@ -395,7 +395,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 24-F14 | 24_root_modules-3.md | FIXED | create_ts_features_parallel returns (None, None) for an empty span before dividing; same test file |
 | 24-F15 | 24_root_modules-3.md | FIXED | mps shift fills the vacated tail from the last shifted position; same test file |
 | 24-F16 | 24_root_modules-3.md | PARTIAL | Exp-scheme causal aggregation is one recurrence pass per group (A_L = p*(A+v), B_L = p*(B+1)), equal to the prefix re-walk within 1e-9. The poly scheme's weights depend on window length, so its prefix sums cannot be updated exactly; it keeps the O(m^2) path (documented). Test tests/feature_engineering/test_cluster24_exp_causal_recurrence.py; 5 existing recency tests pass. |
-| 24-F17 | 24_root_modules-3.md | DEFERRED | Causal KDE recomputed per prefix; bounded lookback changes the estimate. Owner decision. |
+| 24-F17 | 24_root_modules-3.md | DEFERRED | No exact speedup exists: the KDE bandwidth (_kde_bandwidth) and the grid (vmin..vmax) are functions of each prefix's own mean and span, so an incremental density cannot reuse earlier prefixes. The only speedup is a bounded lookback, which changes every estimate; the lookback length needs an owner decision. No code change. |
 | 24-F18 | 24_root_modules-3.md | FIXED | NaN entity kept as its own group (dropna=False); test_tfidf_entity_nan_and_case.py |
 | 24-F19 | 24_root_modules-3.md | FIXED | OOV check compares lowercased tokens when the vectorizer lowercases; same test file |
 | 24-F20 | 24_root_modules-3.md | FIXED | with fit_on_train_only the member stage receives the train partition, matching MRMR |
