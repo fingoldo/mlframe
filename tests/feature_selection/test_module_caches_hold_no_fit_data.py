@@ -73,7 +73,7 @@ def test_cache_can_be_reset_by_rebinding(monkeypatch, module_name: str, name: st
     """``monkeypatch.setattr(module, NAME, empty)`` gives a test a cold cache and puts the original back afterwards."""
     module = importlib.import_module(module_name)
     original = getattr(module, name)
-    try:
+    try:  # audit-exempt: except_skip_masks_call_under_test -- optional CUDA device guard: the probe decides whether the module can run, it is not the code under test
         empty = type(original)()
     except TypeError:
         pytest.skip(f"{name} is not an empty-constructible container")

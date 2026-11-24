@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 cp = pytest.importorskip("cupy")
-try:
+try:  # audit-exempt: except_skip_masks_call_under_test -- optional CUDA device guard: the probe decides whether the module can run, it is not the code under test
     cp.cuda.runtime.getDeviceCount()
 except Exception:  # no device: nothing to compare on
     pytest.skip("no CUDA device", allow_module_level=True)
