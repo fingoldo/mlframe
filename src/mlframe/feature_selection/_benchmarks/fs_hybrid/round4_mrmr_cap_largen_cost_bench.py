@@ -10,7 +10,7 @@ pair (x0*x1) so the bootstrap has something real to find at cap=250.
 from __future__ import annotations
 import os, time, warnings, gc
 import numpy as np, pandas as pd
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 from mlframe.feature_selection.filters.mrmr import MRMR
 
 N_JOBS = 2

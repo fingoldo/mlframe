@@ -8,7 +8,7 @@ to be a small fraction of the member fits (MRMR/shap/boruta dominate).
 from __future__ import annotations
 import os, sys, cProfile, pstats, io
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings; warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 import numpy as np, pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from hybrid_selector import HybridSelector

@@ -74,7 +74,7 @@ def run(scenario, seed=0, n_anchors=45):
 
 
 if __name__ == "__main__":
-    warnings.filterwarnings("ignore")  # silenced for the bench run only, not at import
+    warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)  # silenced for the bench run only, not at import
     for sc in ["xor2", "base"]:
         pr, sr = run(sc)
         print(f"{sc:6s} corr(interaction_mass, honest-proxy): pearson={pr:.3f} spearman={sr:.3f} "

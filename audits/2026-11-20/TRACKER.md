@@ -208,7 +208,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 35-F7 | 35_training-4.md | FIXED | time_aware with groups raises. Test test_cluster35_stacking_time_and_groups_refused.py. |
 | 35-F9 | 35_training-4.md | FIXED | External holdout digest covers frame content. Test test_cluster35_holdout_digest_distinguishes_content.py. |
 | 12-F38 | 12_feature_selection-3.md | FIXED | downstream returns NaN for an empty selection. Test test_fs_hybrid_empty_selection_downstream.py. |
-| 12-F31 | 12_feature_selection-3.md | PARTIAL | The two named benches (round3_hard_bed_bench, round3_hybrid_refine_bench) now silence only FutureWarning/DeprecationWarning. 61 other fs_hybrid bench files still install a catch-all ignore; not changed in this pass. ... |
+| 12-F31 | 12_feature_selection-3.md | RESOLVED | All 60 fs_hybrid bench files that installed a bare catch-all ignore now silence only FutureWarning and DeprecationWarning; other warnings surface. Each file compiles. Test tests/feature_selection/test_cluster12_no_catch_all_warning_filter.py. |
 | 12-F20 | 12_feature_selection-3.md | FIXED | An RFECV that selects nothing is replaced by the first column and recorded as its selection (importance_shootout.py cell loop). The fix (empty selection scores chance) is a one-branch change, but the cell loop runs a ... |
 | 35-F5 | 35_training-4.md | FIXED | Every fold keeps a slot (NaN when unusable). Test test_cluster35_stepwise_fold_slots.py. |
 | 12-F26 | 12_feature_selection-3.md | FIXED | Flip needs a sign majority and a positive mean delta (decide_flip). Test test_fs_hybrid_flip_needs_positive_mean.py. |

@@ -33,7 +33,7 @@ from __future__ import annotations
 from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import os, sys, time, pickle  # nosec B403 - pickle used only for trusted same-process/dev-local round-trips, see call sites in this file
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings; warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 import numpy as np, pandas as pd
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
