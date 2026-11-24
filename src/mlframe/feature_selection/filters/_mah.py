@@ -54,6 +54,8 @@ import numpy as np
 from numba import njit
 import logging
 
+from mlframe._array_buffer import array_buffer
+
 logger = logging.getLogger(__name__)
 
 # Y-BINNING CACHE: ``per_feature_edges``/``mah_mi`` dispatchers call ``mah_bin_edges``/``mah_mi`` ONCE PER
@@ -164,7 +166,7 @@ def _x_plan(x: np.ndarray, K: int) -> "tuple[np.ndarray, np.ndarray, int] | None
     if ident is not None:
         key = (id(ident[0]), ident[1], int(K))  # a read-only owner: the view names the values, no hash of the column needed
     else:
-        key = (hashlib.blake2b(np.ascontiguousarray(x).data, digest_size=16).digest(), int(x.size), int(K))
+        key = (hashlib.blake2b(array_buffer(x), digest_size=16).digest(), int(x.size), int(K))
     with _X_PLAN_LOCK:
         hit = _X_PLAN_CACHE.get(key)
         if hit is not None and (ident is None or hit[3]() is ident[0]):
