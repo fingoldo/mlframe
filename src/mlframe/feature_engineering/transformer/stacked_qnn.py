@@ -31,6 +31,60 @@ from .quantile_neighbours import compute_quantile_neighbours
 logger = logging.getLogger(__name__)
 
 
+def _mode_a_nested(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    splitter: Any,
+    *,
+    seed: int,
+    k: int,
+    quantile_grid: Tuple[float, ...],
+    softmax_temp: float,
+    standardize: bool,
+    column_prefix: str,
+    dtype: type,
+) -> pl.DataFrame:
+    """Out-of-fold stacked features with nested layer-1 construction (09-F7).
+
+    For each outer fold ``(tr, va)``: layer-1 OOF features for ``tr`` come from an inner split of ``tr`` only; layer-1 features for ``va`` are a
+    query against ``tr``; the layer-2 bank is ``[X[tr] || Q1[tr]]`` and ``va`` is queried against it. Every row's layer-2 output therefore uses a
+    bank that never contains that row's label, nor the label of any row whose layer-1 features it could have shaped.
+    """
+    X = np.asarray(X_train, dtype=np.float32)
+    y = np.asarray(y_train)
+    n = X.shape[0]
+    parts: list = []
+    col_names: list = []
+    for tr, va in splitter.split(X):
+        tr = np.asarray(tr)
+        va = np.asarray(va)
+        Q1_tr = compute_quantile_neighbours(
+            X_train=X[tr], y_train=y[tr], X_query=None, splitter=splitter,
+            seed=seed, k=k, quantile_grid=quantile_grid, softmax_temp=softmax_temp,
+            standardize=standardize, column_prefix=f"{column_prefix}_l1", dtype=np.float32,
+        ).to_numpy().astype(np.float32)
+        Q1_va = compute_quantile_neighbours(
+            X_train=X[tr], y_train=y[tr], X_query=X[va], splitter=None,
+            seed=seed, k=k, quantile_grid=quantile_grid, softmax_temp=softmax_temp,
+            standardize=standardize, column_prefix=f"{column_prefix}_l1", dtype=np.float32,
+        ).to_numpy().astype(np.float32)
+        bank = np.concatenate([X[tr], Q1_tr], axis=1)
+        query = np.concatenate([X[va], Q1_va], axis=1)
+        Q2_va = compute_quantile_neighbours(
+            X_train=bank, y_train=y[tr], X_query=query, splitter=None,
+            seed=seed + 1, k=k, quantile_grid=quantile_grid, softmax_temp=softmax_temp,
+            standardize=standardize, column_prefix=column_prefix, dtype=dtype,
+        )
+        if not col_names:
+            col_names = list(Q2_va.columns)
+        parts.append((va, Q2_va.to_numpy()))
+    width = len(col_names)
+    out = np.empty((n, width), dtype=np.dtype(dtype))
+    for va, block in parts:
+        out[va] = block
+    return pl.DataFrame({name: out[:, j] for j, name in enumerate(col_names)})
+
+
 def compute_stacked_quantile_neighbours(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -53,6 +107,18 @@ def compute_stacked_quantile_neighbours(
     validate_numeric_input(X_train, name="X_train", allow_fp16=False)
     if X_query is not None:
         validate_numeric_input(X_query, name="X_query", allow_fp16=False)
+
+    if X_query is None:
+        # Mode A: nested out-of-fold layer 2 (09-F7). Layer-1 features feeding a held-out row's layer-2 bank must not see that row's label,
+        # so each outer fold rebuilds layer 1 on its own training part only.
+        if splitter is None:
+            raise ValueError("Mode A (X_query=None) requires a splitter.")
+        Q2_df = _mode_a_nested(
+            X_train, y_train, splitter, seed=seed, k=k, quantile_grid=quantile_grid,
+            softmax_temp=softmax_temp, standardize=standardize, column_prefix=column_prefix, dtype=dtype,
+        )
+        logger.info("stacked_qnn: nested Mode A layer 2 output shape %s", Q2_df.shape)
+        return Q2_df
 
     # Layer 1: compute qnn features on standard X. Q1 stays float32 by design (intermediate feature space for stacking; the caller dtype only governs the
     # final Q2 output). The trailing astype(np.float32) is a no-op identity because compute_quantile_neighbours emits float32 above; bench-attempt-rejected
@@ -82,15 +148,3 @@ def compute_stacked_quantile_neighbours(
             dtype=dtype,
         )
         return Q2_df
-
-    if splitter is None:
-        raise ValueError("Mode A (X_query=None) requires a splitter.")
-    X_stacked_train = np.concatenate([np.asarray(X_train, dtype=np.float32), Q1_train], axis=1)
-    Q2_df = compute_quantile_neighbours(
-        X_train=X_stacked_train, y_train=y_train, X_query=None, splitter=splitter,
-        seed=seed + 1, k=k, quantile_grid=quantile_grid, softmax_temp=softmax_temp,
-        standardize=standardize, column_prefix=column_prefix,
-        dtype=dtype,
-    )
-    logger.info("stacked_qnn: layer 1 output shape %s, layer 2 output shape %s", Q1_train.shape, Q2_df.shape)
-    return Q2_df
