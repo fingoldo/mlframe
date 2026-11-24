@@ -49,8 +49,8 @@ def test_unreadable_start_time_warns(monkeypatch, caplog):
     assert _warnings_mentioning(caplog, "no process start token"), [r.getMessage() for r in caplog.records]
 
 
-def test_vanished_process_is_quiet(monkeypatch, caplog):
-    """A process that no longer exists is the expected case: no token, and no warning."""
+def test_vanished_process_warns_that_the_pid_alone_decides(monkeypatch, caplog):
+    """A process that no longer exists substitutes an empty token, and that substitution is visible at WARNING."""
 
     def _gone(*_a, **_k):
         """A lookup for a process that has exited."""
@@ -59,4 +59,4 @@ def test_vanished_process_is_quiet(monkeypatch, caplog):
     monkeypatch.setattr(psutil, "Process", _gone)
     with caplog.at_level(logging.WARNING):
         assert _ensure._pid_start_token(12345) == ""
-    assert not _warnings_mentioning(caplog, "no process start token")
+    assert _warnings_mentioning(caplog, "has exited"), [r.getMessage() for r in caplog.records]

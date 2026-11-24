@@ -21,6 +21,7 @@ from typing import Any, Optional
 
 from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
+from mlframe.utils.log_throttle import log_throttle
 
 __all__ = ["cmd_ensure", "spec_code_version", "spec_status", "survey"]
 
@@ -124,7 +125,7 @@ def _pid_start_token(pid: int) -> str:
     try:
         return f"{psutil.Process(pid).create_time():.3f}"
     except psutil.NoSuchProcess:
-        logger.info("kernel tuning cache: pid %s has exited; its start token is empty and the pid alone decides", pid)
+        log_throttle(logger, "kernel_tuning_cache.pid_exited", logging.WARNING, "kernel tuning cache: pid %s has exited; its start token is empty and the pid alone decides", pid)
         return ""
     except Exception as exc:
         logger.warning("kernel tuning cache: no process start token for pid %s (%s: %s)", pid, type(exc).__name__, exc)
