@@ -432,10 +432,14 @@ def run_residual_rescue(self, X: Any, selected_vars: Any, cols: Any, engineered_
         if n > DEFAULT_SCAN_ROWS:  # the scan rows are taken before any column is converted: no full-length dtype copy of the frame
             rows = np.linspace(0, n - 1, DEFAULT_SCAN_ROWS).astype(np.int64)
             X, y = X.iloc[rows], y[rows]
-        sel_names = {str(cols[i]) for i in selected_vars}
+        # The design is built in the reverse of the selection order, never by iterating a set of names: the backward elimination is sequential and every raw column ties in ``_weakest_first``, so the insertion order decides which of
+        # several redundant copies survives, and a set of strings iterates in an order that changes with PYTHONHASHSEED (the same fit kept 20 or 24 of 100 copies of one latent in different processes). Reversed, a tie
+        # prunes the column the screen picked last, the weakest, first.
+        sel_order = list(dict.fromkeys(str(cols[i]) for i in reversed(list(selected_vars))))
+        sel_names = set(sel_order)
         eng_names = [str(n) for n in (self._engineered_features_ or [])]
         design = {}
-        for name in sel_names:
+        for name in sel_order:
             if name in X.columns and name not in engineered_recipes and np.issubdtype(X[name].dtype, np.number):
                 design[name] = np.asarray(X[name].to_numpy(), dtype=_crit_np_dtype())
         for name, rec in zip(eng_names, self._engineered_recipes_ or []):
