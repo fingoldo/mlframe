@@ -522,6 +522,12 @@ def _resolve_reports_dir(ctx: Any) -> Optional[str]:
         return None
 
 
+def _entry_key(tt_str: str, tname: str, entry: Any) -> str:
+    """The ``target_type/target_name/model`` key one top model is reported under (shared by every diagnostic block, 28-F72)."""
+    model_name = getattr(entry, "model_name", type(unwrap_target_wrapper(getattr(entry, "model", entry))).__name__)
+    return f"{tt_str}/{tname}/{model_name}"
+
+
 def _walk_top_models(models: Any) -> list[tuple[str, str, Any]]:
     """Yield ``(target_type_str, target_name, entry)`` tuples for every model entry."""
     out: list[tuple[str, str, Any]] = []
@@ -587,7 +593,7 @@ def run_honest_diagnostics(
 
     # Block 1: bootstrap CI for every top-line metric, per (target_type, target_name, model).
     for tt_str, tname, entry in _walk_top_models(models):
-        key = f"{tt_str}/{tname}/{getattr(entry, 'model_name', type(unwrap_target_wrapper(getattr(entry, 'model', entry))).__name__)}"
+        key = _entry_key(tt_str, tname, entry)
         y_test = _safe_arr(getattr(entry, "test_target", None))
         p_test = _safe_arr(getattr(entry, "test_probs", None))
         if y_test is None or p_test is None:
@@ -608,7 +614,7 @@ def run_honest_diagnostics(
 
     # Block 3: calibration reliability + auto-pick verdict, per (target_type, target_name, model).
     for tt_str, tname, entry in _walk_top_models(models):
-        key = f"{tt_str}/{tname}/{getattr(entry, 'model_name', type(unwrap_target_wrapper(getattr(entry, 'model', entry))).__name__)}"
+        key = _entry_key(tt_str, tname, entry)
         payload["calibration"][key] = _calibration_block(
             entry, target_name=tname, out_dir=reports_dir, rng_seed=_derive_seed(master_seed, key + "/calib"),
         )
@@ -617,7 +623,7 @@ def run_honest_diagnostics(
     _rep_cfg = getattr(ctx, "reporting_config", None)
     _costs = getattr(_rep_cfg, "decision_costs", None) if _rep_cfg is not None else None
     for tt_str, tname, entry in _walk_top_models(models):
-        key = f"{tt_str}/{tname}/{getattr(entry, 'model_name', type(unwrap_target_wrapper(getattr(entry, 'model', entry))).__name__)}"
+        key = _entry_key(tt_str, tname, entry)
         try:
             _block = decision_threshold_block(
                 entry,
