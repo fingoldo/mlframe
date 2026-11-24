@@ -40,3 +40,35 @@ def fit_ridge_closed_form(X: np.ndarray, y: np.ndarray, alpha: float) -> "tuple[
     if not np.isfinite(w).all():
         return None
     return w, y_mean - float(x_mean @ w)
+
+
+def fit_ridge_closed_form_multi(X: np.ndarray, Y: np.ndarray, alpha: float) -> "tuple[np.ndarray, np.ndarray] | None":
+    """``(weights (columns, targets), intercepts (targets,))`` of the ridge fits of every column of ``Y`` on ``X``: the normal equations are formed and factorised once and solved for all targets together.
+
+    Each column equals ``fit_ridge_closed_form(X, Y[:, j], alpha)`` (the same centred system); ``None`` when the system is singular or the result is not finite.
+    """
+    # Intentional float64: the normal equations square the conditioning of the columns, so they are formed and solved in double precision
+    A = np.asarray(X, dtype=np.float64)
+    T = np.asarray(Y, dtype=np.float64)
+    if T.ndim == 1:
+        T = T[:, None]
+    x_mean = A.mean(axis=0)
+    y_mean = T.mean(axis=0)
+    Ac = A - x_mean
+    gram = Ac.T @ Ac
+    gram[np.diag_indices_from(gram)] += float(alpha)
+    rhs = Ac.T @ (T - y_mean)
+    w = None
+    if gram.shape[0] >= CHOLESKY_MIN_COLUMNS:
+        try:
+            w = _sla.cho_solve(_sla.cho_factor(gram, lower=True, check_finite=False), rhs, check_finite=False)
+        except (np.linalg.LinAlgError, _sla.LinAlgError):
+            w = None
+    if w is None:
+        try:
+            w = np.linalg.solve(gram, rhs)
+        except np.linalg.LinAlgError:
+            return None
+    if not np.isfinite(w).all():
+        return None
+    return w, y_mean - x_mean @ w

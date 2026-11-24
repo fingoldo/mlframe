@@ -324,6 +324,40 @@ def _finite_diff_mixed_partial_energy(predict_fn, Xs: np.ndarray, pairs, h: floa
 # Core: rank pairs by self-gated mixed-partial energy
 # ---------------------------------------------------------------------------------------------
 
+def _shared_design_null_maxima(rbf, Xs: np.ndarray, target: np.ndarray, pairs, k_perm: int, alpha: float, seed: int, chunk: int = 1024) -> "np.ndarray | None":
+    """Largest mixed-partial energy of the ridge surrogates fitted to ``k_perm`` permutations of ``target`` on the ONE random-feature design ``rbf``, or ``None`` when a system is singular.
+
+    The permutations are the ones the per-surrogate null draws (``default_rng(seed + 1000 + s).permutation(target)``); only the design differs: the observed surrogate's, shared by all of them. The null is then the
+    permutation distribution of the statistic for FIXED features, the textbook form, and the cosine features, the Gram and the ridge factorisation are formed once for all ``k_perm`` surrogates.
+    """
+    from ._fe_probe_ridge import fit_ridge_closed_form_multi
+    from ._rff_gram_energy_gpu import rff_gram_shared_design_maxima_device
+
+    perms = np.stack([np.random.default_rng(seed + 1000 + s).permutation(target) for s in range(k_perm)], axis=1)
+    solved = fit_ridge_closed_form_multi(rbf.transform(Xs), perms, alpha)
+    if solved is None:
+        return None
+    coefs = solved[0]  # (D, k_perm)
+    on_device = rff_gram_shared_design_maxima_device(rbf, coefs, Xs, pairs, chunk)
+    if on_device is not None:
+        return on_device
+    W = rbf.random_weights_
+    D = W.shape[1]
+    mcos = np.cos(Xs @ W + rbf.random_offset_)
+    gram = (mcos.T @ mcos) / mcos.shape[0]  # (D, D)
+    cc = coefs * np.sqrt(2.0 / D)  # (D, k_perm)
+    pairs = list(pairs)
+    a_idx = np.fromiter((q[0] for q in pairs), dtype=np.int64, count=len(pairs))
+    b_idx = np.fromiter((q[1] for q in pairs), dtype=np.int64, count=len(pairs))
+    best = np.zeros(k_perm)
+    for start in range(0, len(pairs), chunk):
+        prod = W[a_idx[start : start + chunk]].T * W[b_idx[start : start + chunk]].T  # (D, kb)
+        for s in range(k_perm):
+            coef = cc[:, s : s + 1] * prod
+            best[s] = max(best[s], float(np.einsum("dk,dk->k", coef, gram @ coef).max()))
+    return best
+
+
 def rank_gradient_interaction_pairs(
     X: np.ndarray,
     y: np.ndarray,
@@ -340,6 +374,7 @@ def rank_gradient_interaction_pairs(
     kernel: str = "analytic",
     use_additive_residual: bool = True,
     seed: int = 0,
+    shared_null_design: bool = True,
 ) -> tuple[list, dict, dict]:
     """Rank candidate pairs by self-gated mixed-partial energy.
 
@@ -396,7 +431,10 @@ def rank_gradient_interaction_pairs(
     null_max = []
     _batched_null = None
     _fits = None
-    if kernel != "finite_diff" and k_perm > 0:
+    if kernel != "finite_diff" and k_perm > 0 and shared_null_design:
+        _batched_null = _shared_design_null_maxima(rbf, Xsub, target, sub_pairs, k_perm, alpha, seed)
+        diag["null_design"] = "shared" if _batched_null is not None else "per_surrogate"
+    if _batched_null is None and kernel != "finite_diff" and k_perm > 0:
         # the permutation surrogates are independent fits; their Gram energies run together on the device (one batched pass for the whole null, only the maxima come back)
         from ._rff_gram_energy_gpu import rff_gram_null_maxima_device
 
