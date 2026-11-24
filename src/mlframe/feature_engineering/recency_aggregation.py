@@ -70,6 +70,33 @@ def _group_recency_weighted_mean_sorted(v_sorted: np.ndarray, starts: np.ndarray
     return out
 
 
+@njit(fastmath=False, cache=True)
+def _causal_exp_prefix_mean(v_sorted: np.ndarray, starts: np.ndarray, ends: np.ndarray, param: float) -> np.ndarray:
+    """Causal exp-scheme prefix means in one pass per group (24-F16).
+
+    For a prefix of length ``L`` the exp weight of position ``pos`` is ``param**(L - pos)``, so the numerator ``A_L`` and denominator ``B_L``
+    obey ``A_L = param * (A_{L-1} + v_{L-1})`` and ``B_L = param * (B_{L-1} + 1)``. NaN values contribute to neither, matching the kernel that
+    skips them, but still advance the window. Replaces the per-row O(m) re-walk (O(m^2) per group) for the exp scheme.
+    """
+    n = v_sorted.shape[0]
+    out = np.empty(n, dtype=np.float64)
+    for g in range(starts.shape[0]):
+        s = starts[g]
+        e = ends[g]
+        a = 0.0
+        b = 0.0
+        for k in range(e - s):
+            v = v_sorted[s + k]
+            if np.isnan(v):
+                a = param * a
+                b = param * b
+            else:
+                a = param * (a + v)
+                b = param * (b + 1.0)
+            out[s + k] = a / b if b > 0.0 else np.nan
+    return out
+
+
 def _prefix_bounds(starts: np.ndarray, ends: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Per-row prefix windows: row ``k`` of group ``[s, e)`` aggregates ``[s, s + k + 1)``, so no row sees later observations."""
     lengths = ends - starts
@@ -150,8 +177,12 @@ def per_group_recency_weighted_mean(
 
     scheme_code = SCHEMES.index(scheme)
     if causal and broadcast:
-        p_starts, p_ends = _prefix_bounds(starts, ends)
         out = np.empty(n, dtype=np.float64)
+        if scheme == "exp":
+            # One recurrence pass per group instead of a prefix re-walk (24-F16); identical values for this scheme.
+            out[sort_idx] = _causal_exp_prefix_mean(v_sorted, starts, ends, param)
+            return out
+        p_starts, p_ends = _prefix_bounds(starts, ends)
         out[sort_idx] = _group_recency_weighted_mean_sorted(v_sorted, p_starts, p_ends, scheme_code, param)
         return out
     per_group = _group_recency_weighted_mean_sorted(v_sorted, starts, ends, scheme_code, param)

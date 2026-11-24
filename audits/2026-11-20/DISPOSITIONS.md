@@ -96,7 +96,6 @@
 | 24-F13 | FIXED | nearest_past_join indexes unresolved rows through the positional copy; same test file |
 | 24-F14 | FIXED | create_ts_features_parallel returns (None, None) for an empty span before dividing; same test file |
 | 24-F15 | FIXED | mps shift fills the vacated tail from the last shifted position; same test file |
-| 24-F16 | DEFERRED | causal per-row prefix weights for scheme 0 depend on the prefix length m, so a cumsum rewrite needs a per-scheme derivation; output is correct, only O(m^2) cost. Needs a design decision |
 | 24-F17 | DEFERRED | causal KDE re-runs the grid per prefix; the fix needs incremental KDE, a design change beyond a local patch. Output is correct, only cost |
 | 24-F18 | FIXED | NaN entity kept as its own group (dropna=False); test_tfidf_entity_nan_and_case.py |
 | 24-F19 | FIXED | OOV check compares lowercased tokens when the vectorizer lowercases; same test file |
@@ -1000,7 +999,6 @@
 | 22-F3 | FIXED | Each optional calibration library is imported separately; an absent one skips only its candidates (calibration/post.py get_postcalibrators); tests/calibration/test_cluster22_missing_calibrator_library_skipped.py |
 | 22-F3 | FIXED | Each optional calibration library is imported on its own; an absent one skips only its candidates (calibration/post.py get_postcalibrators); tests/calibration/test_cluster22_missing_calibrator_library_skipped.py |
 | 18-F2 | PARTIAL | Multiclass (N,K>2) member probabilities now produce an explicit warning that the NNLS/Caruana weight fit does not support them (score_flavours.py run_stacking_aware_gate), instead of blaming the row count. Per-class weighting is not built; tests/models/test_cluster18_multiclass_gate_skip_is_explicit.py |
-| 24-F16 | DEFERRED | Poly recency weights depend on the window length m, so the prefix sums cannot be updated in O(1); exp weights could use a recurrence, but a window cap changes results. Needs an owner decision on the cap or exact-cost trade-off. |
 | 24-F17 | DEFERRED | Causal KDE re-runs the grid over every prefix; a bounded lookback changes the estimate. Needs an owner decision on the lookback before a change. |
 | 40-F27 | FIXED | Per-column float32 fallback rebuilds the frame from its column labels instead of assign(**kwargs), which needed string keys (training/neural/data.py); tests/training/neural/test_cluster40_int_column_labels_convert.py |
 | 40-F22 | PARTIAL | MLPRanker.fit refuses NaN/inf relevance labels before touching the global RNG; predict checks the feature count before transforms. Column names and order are not checked yet (neural/ranker.py); tests/training/neural/test_cluster40_ranker_refuses_nan_labels_and_bad_width.py |
@@ -1431,3 +1429,5 @@
 | 39-F38 | FIXED | HGB TF-IDF cap is now applied on the feature-handling path: TF-IDF max_features is capped for hgb via _tfidf_params_for_model (was exported but never called). Test tests/training/test_cluster39_hgb_tfidf_cap_wired.py; 38 feature-handling tests pass. |
 
 | 17-F9 | FIXED | Degenerate calibration report and fast_ice_only on empty input use ICE_UNCOMPUTABLE (1e6, finite) instead of 1.0, so a real model with ICE above 1.0 can no longer tie it. Behaviour change: degenerate ICE value changes. Test tests/metrics/test_cluster17_degenerate_ice_sentinel.py; existing degenerate-report test updated to the sentinel. |
+
+| 24-F16 | PARTIAL | Exp-scheme causal aggregation is one recurrence pass per group (A_L = p*(A+v), B_L = p*(B+1)), equal to the prefix re-walk within 1e-9. The poly scheme's weights depend on window length, so its prefix sums cannot be updated exactly; it keeps the O(m^2) path (documented). Test tests/feature_engineering/test_cluster24_exp_causal_recurrence.py; 5 existing recency tests pass. |
