@@ -1077,7 +1077,6 @@
 | 28-F67 | FIXED | parse_catboost_devices returns GPUs in the requested order, each once. Test test_cluster28_catboost_devices_requested_order.py; 37 existing device-parsing tests pass. |
 | 28-F60 | FIXED | Removed the unreachable '(none)' description branch: _bad_desc is only built inside if _bad. Regression: 14 existing CatBoost text-feature probe tests pass. |
 | 28-F64 | DEFERRED | process_model writes trainset_features_stats into the shared common_params. It may be relied on by later models in the same loop; removing the write needs an audit of every reader of common_params first. Deferred. |
-| 28-F70 | DEFERRED | A failed grid variant is stored as a plain error dict in a results dict of result objects. Changing it to a typed error object is a public results-contract change; no in-repo consumer reads these entries. Owner to choose the contract. |
 | 28-F69 | DEFERRED | DummyBaselinesConfig.apply_to_target_types is a frozenset (its own comment uses set difference) while the same-named baseline-diagnostics field is a tuple. Unifying the type changes set operations on the config; consumers need an audit first. Deferred. |
 | 28-F71 | FIXED | The categorical column set is built once per call rather than once per feature. Output unchanged. Regression: 53 existing drift-report tests pass. |
 | 27-F22 | FIXED | Title positive rate counts the larger label as positive, matching the decision-threshold block (labels {1, 2} no longer read as 0%). Test test_cluster27_title_rate_positive_larger_label.py. |
@@ -1478,3 +1477,5 @@
 | 36-F8 | DOCUMENTED | Known train/serve skew is documented at _build_meta_features_at_predict: stage 2 trains on OOF meta-features, predict uses the full-refit stage-1 model. Fold-model averaging would change serve output for all callers, so it is not done. No behaviour change. |
 
 | 34-F16 | WON'T FIX | calibration_adjusted_score has no caller inside the package but is a public lazy export (mlframe.training.__init__). Wiring it in would change the calibration path; removing the export breaks the public API. Classified as an intentional public helper, per the uncalled-functions rule. No code change. |
+
+| 28-F70 | FIXED | A failed grid variant with stop_on_error=False is a typed GridVariantError (label, exc_type, message) instead of a plain error dict. No in-repo consumer read the old dict. Test tests/training/test_cluster28_grid_typed_error.py (2 passed). |

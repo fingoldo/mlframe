@@ -588,7 +588,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 28-F67 | 28_root_modules-2.md | FIXED | Devices returned in requested order, each once. Test test_cluster28_catboost_devices_requested_order.py. |
 | 28-F60 | 28_root_modules-2.md | FIXED | Unreachable (none) branch removed. Regression: test_catboost_text_feature_probe.py (14). |
 | 28-F64 | 28_root_modules-2.md | DEFERRED | Shared common_params mutated with trainset stats; later readers must be audited before the write is removed. |
-| 28-F70 | 28_root_modules-2.md | DEFERRED | Failed grid variant stored as an error dict; typed error object changes the public results contract. Owner decides. |
+| 28-F70 | 28_root_modules-2.md | FIXED | A failed grid variant with stop_on_error=False is a typed GridVariantError (label, exc_type, message) instead of a plain error dict. No in-repo consumer read the old dict. Test tests/training/test_cluster28_grid_typed_error.py (2 passed). |
 | 28-F69 | 28_root_modules-2.md | DEFERRED | Frozenset vs tuple for same-named config field; unifying changes set operations. Needs consumer audit. |
 | 28-F71 | 28_root_modules-2.md | FIXED | Categorical set built once per call; output unchanged. Regression: existing drift-report tests (53). |
 | 27-F22 | 27_root_modules-6.md | FIXED | Title rate uses the larger label as positive, as the decision-threshold block does. Test test_cluster27_title_rate_positive_larger_label.py. |
