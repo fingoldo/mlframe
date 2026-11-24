@@ -61,6 +61,7 @@ from mlframe.training.feature_handling.handlers import (
     CustomParams,
     TfidfParams,
 )
+from mlframe.training.feature_handling.routing import hgb_max_features_cap
 from mlframe.training.feature_handling.target_encoders import LeakageSafeEncoder
 from mlframe.training.feature_handling.text_column_encoder_alias import (  # see below
     build_text_encoder,
@@ -162,6 +163,20 @@ def _collect_custom_blocks(
         ))
 
 
+def _tfidf_params_for_model(method: str, params: Any, model_kind: str) -> Any:
+    """TF-IDF params with ``max_features`` capped for dense-only models (HGB), via ``hgb_max_features_cap`` (39-F38).
+
+    The cap was exported but never called, so an HGB run with ``TfidfParams(max_features=5000)`` densified to 5000 columns with no cap or
+    warning. Non-TF-IDF params and other model kinds are returned unchanged.
+    """
+    if method != "tfidf" or not isinstance(params, TfidfParams):
+        return params
+    capped = hgb_max_features_cap(model_kind, params.max_features)
+    if capped == params.max_features:
+        return params
+    return params.model_copy(update={"max_features": capped})
+
+
 def _collect_text_blocks(
     text_specs: Any,
     text_cols: List[str],
@@ -175,6 +190,7 @@ def _collect_text_blocks(
     train_blocks: List[HandlerOutput],
     val_blocks: List[HandlerOutput],
     test_blocks: List[HandlerOutput],
+    model_kind: str = "",
 ) -> None:
     """Text axis of ``feature_handling_apply``: run every text spec over its columns, appending blocks in place."""
     for spec in text_specs:
@@ -192,6 +208,7 @@ def _collect_text_blocks(
             # TF-IDF / Hashing path (phase C TextColumnEncoder)
             if spec.method in ("tfidf", "hashing"):
                 params = spec.params if not isinstance(spec.params, type(None)) else None
+                params = _tfidf_params_for_model(spec.method, params, model_kind)
                 tr_block, val_block, te_block = _apply_text_encoder(
                     train_df=train_df, val_df=val_df, test_df=test_df,
                     column=col, params=params,
@@ -416,7 +433,7 @@ def feature_handling_apply(
     # Text axis
     _collect_text_blocks(
         text_specs, text_cols, train_df, val_df, test_df, train_target, cache, sess.session_id, train_id,
-        train_blocks, val_blocks, test_blocks,
+        train_blocks, val_blocks, test_blocks, model_kind=model_kind,
     )
     # Cat axis (target encoders only -- ordinal/onehot/native handled
     # elsewhere in the existing pipeline path)

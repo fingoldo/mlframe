@@ -24,6 +24,7 @@ import pandas as pd
 import numba
 
 from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
+from mlframe.metrics.calibration._calibration_metrics import ICE_UNCOMPUTABLE
 from mlframe.metrics.calibration.shared import DEFAULT_TITLE_METRICS_TOKENS, calibration_binning, render_title_metric_token, show_calibration_plot
 from .._auc_per_group import (
     fast_aucs_per_group_optimized,
@@ -268,7 +269,7 @@ def _degenerate_calibration_report() -> "CalibrationReport":
     return CalibrationReport(
         1.0, 1.0, 1.0, 0.0,            # brier, cal_mae, cal_std, cal_cov
         1.0, 1.0, 0.0, 0.0,            # ece, rel, res, unc
-        0.5, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0,  # roc, pr, ice, ll, precision, recall, f1
+        0.5, 0.0, ICE_UNCOMPUTABLE, 1.0, 0.0, 0.0, 0.0,  # roc, pr, ice (17-F9), ll, precision, recall, f1
         "", None,                      # metrics_string, fig
     )
 
@@ -587,7 +588,7 @@ def fast_ice_only(
     """
     from ..core import fast_brier_score_loss  # lazy: import-cycle, see module top
     if len(y_true) == 0:
-        return 1.0
+        return ICE_UNCOMPUTABLE  # worst-case sentinel, not 1.0: a real model's ICE can exceed 1.0 (17-F9)
     brier_loss = fast_brier_score_loss(y_true=y_true, y_prob=y_pred)
     freqs_predicted, freqs_true, hits = calibration_binning(y_true=y_true, y_pred=y_pred, nbins=nbins, strategy=binning_strategy)
     cal_mae, cal_std, cal_cov = calibration_metrics_from_freqs(

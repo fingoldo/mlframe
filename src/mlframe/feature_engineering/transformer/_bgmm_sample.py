@@ -44,7 +44,8 @@ def fit_bgmm_and_sample(X_minority: np.ndarray, n_synthetic: int, n_components: 
             bgm.fit(X_minority)
             samples, _ = bgm.sample(n_synthetic)
         except Exception as exc:
-            logger.info("%s: BGM fit failed at K=%d (%s); falling back to bootstrap.", caller, n_components, exc)
+            # WARNING, not INFO: a bootstrap fallback is not a BGM sample and must be visible in normal runs (08-F4).
+            logger.warning("%s: BGM fit failed at K=%d (%s); falling back to bootstrap.", caller, n_components, exc)
             rng = np.random.default_rng(seed)
             samples = X_minority[rng.integers(0, n_min, size=n_synthetic)]
     return np.asarray(samples.astype(np.float32))

@@ -180,7 +180,9 @@ def test_all_nan_probs_returns_degenerate_report(caplog):
     with caplog.at_level(logging.WARNING):
         out = fast_calibration_report(y, p, nbins=10, show_plots=False, plot_file="")
     assert out.brier_loss == 1.0
-    assert out.ice == 1.0
+    # Degenerate report ICE is the uncomputable sentinel, not 1.0 (17-F9).
+    from mlframe.metrics.calibration._calibration_metrics import ICE_UNCOMPUTABLE
+    assert out.ice == ICE_UNCOMPUTABLE
     assert out.ece == 1.0
     assert out.metrics_string == ""
     assert any("all probabilities were non-finite" in r.message for r in caplog.records)

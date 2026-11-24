@@ -177,6 +177,7 @@ def kfold_attention_loop(
         k_proj_tr = apply_projection(X_tr_s, projections, l2_normalize=True)  # (n_heads, |train_idx|, head_dim)
         q_proj_va = apply_projection(X_va_s, projections, l2_normalize=True)  # (n_heads, |val_idx|,   head_dim)
 
+        y_tr_f32 = y_tr.astype(np.float32, copy=False)  # hoisted: the same cast was repeated for every head (08-F9)
         for h in range(n_heads):
             # Build per-head ANN index on this fold's train subset.
             index = build_hnsw_index(
@@ -190,7 +191,7 @@ def kfold_attention_loop(
             y_std_v = np.empty(val_idx.shape[0], dtype=np.float32)
             x_mean_v = np.empty((val_idx.shape[0], head_dim), dtype=np.float32)
             stage4_callable(
-                q_proj_va[h], k_proj_tr[h], y_tr.astype(np.float32, copy=False),
+                q_proj_va[h], k_proj_tr[h], y_tr_f32,
                 topk_ids, softmax_temp,
                 y_mean_v, y_std_v, x_mean_v,
             )
@@ -207,7 +208,7 @@ def kfold_attention_loop(
             extra_aggs = tuple(a for a in aggregate if a in _EXTRA_AGGS)
             if extra_aggs:
                 extras = compute_extra_aggregates(
-                    q_proj=q_proj_va[h], k_proj=k_proj_tr[h], y_train=y_tr.astype(np.float32, copy=False),
+                    q_proj=q_proj_va[h], k_proj=k_proj_tr[h], y_train=y_tr_f32,
                     topk_ids=topk_ids, softmax_temp=softmax_temp, aggregates=extra_aggs,
                 )
                 for agg_name, arr in extras.items():

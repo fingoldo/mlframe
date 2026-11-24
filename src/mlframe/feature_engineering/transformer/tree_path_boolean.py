@@ -112,8 +112,10 @@ def compute_tree_path_boolean_features(
         try:
             paths = _extract_top_paths(m.booster_, Xt_s, top_k=n_paths)
         except Exception as exc:
-            logger.info("tree_path_boolean: path extraction failed (%s); falling back to constant-1.0 columns.", exc)
-            paths = []
+            # No paths means no evidence, not "every path matched": emit NaN, not the constant-1.0 columns an empty path list produces (09-F17).
+            logger.warning("tree_path_boolean: path extraction failed (%s); path and match-count columns are NaN for this fold.", exc)
+            nan_block = np.full((np.asarray(Xq_s).shape[0], n_paths + 1), np.nan, dtype=np.float32)
+            return np.column_stack([nan_block, pred_q])
         # Pad to n_paths if fewer extracted
         while len(paths) < n_paths:
             paths.append([])

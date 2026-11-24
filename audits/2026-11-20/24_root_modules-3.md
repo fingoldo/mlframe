@@ -110,8 +110,6 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F13: FIXED. nearest_past_join indexes unresolved rows through the positional copy; same test file
 - 24-F14: FIXED. create_ts_features_parallel returns (None, None) for an empty span before dividing; same test file
 - 24-F15: FIXED. mps shift fills the vacated tail from the last shifted position; same test file
-- 24-F16: DEFERRED. causal per-row prefix weights for scheme 0 depend on the prefix length m, so a cumsum rewrite needs a per-scheme derivation; output is correct, only O(m^2) cost. Needs a design decision
-- 24-F17: DEFERRED. causal KDE re-runs the grid per prefix; the fix needs incremental KDE, a design change beyond a local patch. Output is correct, only cost
 - 24-F18: FIXED. NaN entity kept as its own group (dropna=False); test_tfidf_entity_nan_and_case.py
 - 24-F19: FIXED. OOV check compares lowercased tokens when the vectorizer lowercases; same test file
 - 24-F20: FIXED. with fit_on_train_only the member stage receives the train partition, matching MRMR
@@ -183,5 +181,7 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F28: DEFERRED. read this pass; judgement or performance item deferred (see cluster report)
 - 24-F29: DEFERRED. read this pass; judgement or performance item deferred (see cluster report)
 - 24-F30: DOCUMENTED. The complement fallback is pinned by tests/feature_engineering/test_aggregated_view_based.py; the subset_direct feature flags it in the feature names. No behaviour change.
-- 24-F16: DEFERRED. Poly recency weights depend on the window length m, so the prefix sums cannot be updated in O(1); exp weights could use a recurrence, but a window cap changes results. Needs an owner decision on the cap or exact-cost trade-off.
-- 24-F17: DEFERRED. Causal KDE re-runs the grid over every prefix; a bounded lookback changes the estimate. Needs an owner decision on the lookback before a change.
+
+- 24-F16: PARTIAL. Exp-scheme causal aggregation is one recurrence pass per group (A_L = p*(A+v), B_L = p*(B+1)), equal to the prefix re-walk within 1e-9. The poly scheme's weights depend on window length, so its prefix sums cannot be updated exactly; it keeps the O(m^2) path (documented). Test tests/feature_engineering/test_cluster24_exp_causal_recurrence.py; 5 existing recency tests pass.
+
+- 24-F17: DEFERRED. No exact speedup exists: the KDE bandwidth (_kde_bandwidth) and the grid (vmin..vmax) are functions of each prefix's own mean and span, so an incremental density cannot reuse earlier prefixes. The only speedup is a bounded lookback, which changes every estimate; the lookback length needs an owner decision. No code change.
