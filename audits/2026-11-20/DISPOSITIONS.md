@@ -320,7 +320,6 @@
 | 10-F8 | FIXED | redundant columns without informative ones raise a clear ValueError; benchmark utility, no test |
 | 10-F9 | FIXED | a failed log-file write is reported once on stderr; benchmark utility, no test |
 | 10-F4 | DEFERRED | not changed in this pass; benchmark-script cleanup or a policy decision (MAX_VERSION_AGE_DAYS enforcement) |
-| 10-F6 | DEFERRED | not changed in this pass; benchmark-script cleanup or a policy decision (MAX_VERSION_AGE_DAYS enforcement) |
 | 10-F7 | DEFERRED | not changed in this pass; benchmark-script cleanup or a policy decision (MAX_VERSION_AGE_DAYS enforcement) |
 | 11-F4 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F5 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
@@ -1454,3 +1453,5 @@
 | 09-F20 | FIXED | The ordinal monotonicity count (n_violations) is NaN for binary targets: their sub-population thresholds are not nested, so counting adjacent increases has no ordinal meaning. Behaviour change: binary n_violations is NaN. Regression and other targets are unchanged. Test tests/feature_engineering/test_cluster09_ordinal_violations_binary_nan.py. |
 
 | 09-F21 | FIXED | Distributional moments are NaN for binary targets: the reweighted classifiers' outputs are not quantiles of one distribution, so sorting them as quantiles had no meaning. The binary quantile block is NaN and the moment features propagate it; those classifiers are no longer trained. Behaviour change: binary output is NaN. Test tests/feature_engineering/test_cluster09_distributional_binary_nan.py. |
+
+| 10-F6 | FIXED | Benchmark harness failures (MRMR fit/transform, AUC scoring, per-config failures) are logged at WARNING instead of DEBUG, so NaN rows have a visible reason at the default level. Test tests/feature_selection/test_cluster10_bench_failures_warn.py. |
