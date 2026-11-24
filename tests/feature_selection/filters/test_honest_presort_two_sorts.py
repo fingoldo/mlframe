@@ -28,8 +28,8 @@ def test_two_sort_presort_equals_the_host_stable_sort(dtype):
     order, tie = got
     ref_order = np.asarray(_presort_columns(raw))
     ref_tie = np.asarray(_tie_flags(raw, ref_order))
-    np.testing.assert_array_equal(order, ref_order)
-    np.testing.assert_array_equal(tie, ref_tie)
+    assert np.array_equal(order, ref_order)
+    assert np.array_equal(tie, ref_tie)
 
 
 def test_float64_columns_take_the_two_sort_route_not_a_sort_per_column(monkeypatch):
