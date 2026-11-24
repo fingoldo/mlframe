@@ -321,7 +321,6 @@
 | 10-F9 | FIXED | a failed log-file write is reported once on stderr; benchmark utility, no test |
 | 10-F4 | DEFERRED | not changed in this pass; benchmark-script cleanup or a policy decision (MAX_VERSION_AGE_DAYS enforcement) |
 | 10-F7 | DEFERRED | not changed in this pass; benchmark-script cleanup or a policy decision (MAX_VERSION_AGE_DAYS enforcement) |
-| 11-F6 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F10 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 12-F2 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F3 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
@@ -1463,3 +1462,5 @@
 | 11-F13 | FIXED | The wiring CLI takes repeatable --param NAME:TYPE and forwards them to plan and apply, so a generated operator keeps its constructor parameters. Test tests/feature_selection/test_cluster11_wiring_params_passed.py. |
 
 | 11-F4 | FIXED | qbin ranks only the finite values; NaN rows get the dedicated code k instead of the top bins. Behaviour change: NaN rows return code k (fixed-bin callers must allow k). Finite-only input is unchanged. Test tests/feature_selection/test_cluster11_qbin_nan_own_code.py. |
+
+| 11-F6 | PARTIAL | stat_study core no longer installs a process-wide warning filter at import. Not done: cost_bench.py, t_curve.py, case2_mi.py and exp2_general.py still do the same at import. Test tests/feature_selection/test_cluster11_stat_core_no_global_filter.py. |

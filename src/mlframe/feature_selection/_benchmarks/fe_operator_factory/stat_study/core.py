@@ -2,7 +2,6 @@
 
 from typing import Any
 import functools
-import warnings
 
 import numpy as np
 from mlframe.feature_engineering._safe_ratio import safe_div
@@ -12,7 +11,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-warnings.simplefilter("ignore")
+# No process-wide warning filter at import: importing this module used to silence warnings for every caller (11-F6).
 
 
 @njit(cache=True)
