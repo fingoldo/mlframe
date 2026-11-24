@@ -142,6 +142,34 @@ def test_prune_drops_the_noise_columns_and_keeps_the_real_ones_only_under_the_dr
     assert _unsupported_columns(_Stub(policy="emit_both"), design, y, raw, residual_rescue) == []
 
 
+def test_prune_drops_chance_positive_slivers_of_redundant_copies_but_keeps_a_weak_real_term():
+    """Fifteen noisy copies of the one real column each lower the held-out residual by a sliver that is positive about half the time; without a practical-effect floor a third of them survived the
+    sequential elimination (4 to 6 of 16 on four seeds), with the floor admission uses (``fe_residual_rescue_min_relative_gain``, 0.1 percent of the target variance) 1 or 2 do. A real term worth
+    1 percent of the variance is far above the floor and stays."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl._residual_rescue_stage import _unsupported_columns
+
+    for seed in range(4):
+        rng = np.random.default_rng(seed)
+        n = 6000
+        a = rng.standard_normal(n)
+        y = 2.0 * a + 0.3 * rng.standard_normal(n)
+        design = {"a": a, **{f"a_copy{i}": a + 0.05 * rng.standard_normal(n) for i in range(15)}}
+        raw = frozenset(design)
+        floored, unfloored = _Stub(), _Stub()
+        floored.fe_residual_rescue_min_relative_gain = 0.001
+        unfloored.fe_residual_rescue_min_relative_gain = 0.0
+        kept = len(design) - len(_unsupported_columns(floored, design, y, raw, residual_rescue))
+        kept_without_floor = len(design) - len(_unsupported_columns(unfloored, design, y, raw, residual_rescue))
+        assert kept <= 3, f"seed {seed}: {kept} of 16 copies survive the prune with the practical-effect floor"
+        assert kept_without_floor >= kept + 2, f"seed {seed}: the floor must be what prunes the slivers ({kept_without_floor} kept without it, {kept} with it)"
+
+    rng = np.random.default_rng(9)
+    a, b = rng.standard_normal(6000), rng.standard_normal(6000)
+    y = 3.0 * a + 0.3 * b + 0.2 * rng.standard_normal(6000)  # b carries about 0.5 percent of the target variance
+    both = {"a": a, "b": b}
+    assert _unsupported_columns(_Stub(), both, y, frozenset(both), residual_rescue) == []
+
+
 def test_cell_tables_of_the_residual_find_a_pair_interaction_the_vocabulary_may_miss():
     """A weak interaction of two columns under a dominant term is tabulated on the residual of the design; an additive target yields no table."""
     from mlframe.feature_selection.filters._mrmr_fit_impl._residual_rescue_stage import _cell_table_candidates

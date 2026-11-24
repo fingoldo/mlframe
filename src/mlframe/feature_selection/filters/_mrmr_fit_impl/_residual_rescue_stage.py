@@ -231,7 +231,7 @@ def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "l
 
     Backward elimination on held-out predictive error, one criterion per kind of column. An engineered column, or a raw no engineered column is built from, is pruned when, given every other column
     of the design, it does not lower the held-out squared residual at all (free-form effects, t <= 0): an engineered column fitted to noise (``sub(sqrt(c),sqrt(d))`` on two unrelated columns)
-    does not. The bar is deliberately not significance: on a small sample or a weak signal no single column is significant, and removing the weak useful ones would lower the out-of-sample fit. A raw OPERAND of a selected engineered column is pruned (``fe_drop_redundant_raw_operands``) unless it improves the held-out fit of a LINEAR model on the other columns significantly and by
+    does not, nor does a column whose held-out gain is a chance-positive sliver (below ``fe_residual_rescue_min_relative_gain`` of the target variance, the floor admission uses: one of 50 near-copies of a latent is positive half the time). The bar is deliberately not significance: on a small sample or a weak signal no single column is significant, and removing the weak useful ones would lower the out-of-sample fit. A raw OPERAND of a selected engineered column is pruned (``fe_drop_redundant_raw_operands``) unless it improves the held-out fit of a LINEAR model on the other columns significantly and by
     at least ``fe_residual_rescue_operand_min_linear_gain`` of the target variance: the engineered column already carries the operand's nonlinear effect, so what the operand can still add is a
     private linear term (``10*a`` beside ``add(exp(a), ...)``), which only the linear fit sees. Pruned columns leave the design before the next one is judged. An engineered column that is an exact copy of a raw design column is pruned first, so the raw column is never judged against its own copy."""
     from .._residual_rescue_fe import MIN_ROWS
@@ -254,6 +254,7 @@ def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "l
 
     z = float(norm.isf(FAMILY_ALPHA))
     floor = float(self.fe_residual_rescue_operand_min_linear_gain)
+    min_gain = float(getattr(self, "fe_residual_rescue_min_relative_gain", 0.001))  # the practical-effect floor of admission: a column that does not lower the held-out residual by that share of the target variance is not kept
     prune_operands = bool(getattr(self, "fe_drop_redundant_raw_operands", True))
     pruned: "list[str]" = _exact_copies_of_raws(design, raw_cols)
     # Every leave-one-out subset below is a subset of ``design``, so its per-column coding and standardisation are computed once here.
@@ -267,7 +268,7 @@ def _unsupported_columns(self, design: dict, y, raw_cols, residual_rescue) -> "l
         if name in raw_cols and name in operands:
             if prune_operands and _linearly_useless(rest, design[name], y, pre, z, floor):
                 pruned.append(name)
-        elif not residual_rescue(rest, {name: design[name]}, y, alpha=0.5, min_relative_gain=0.0, max_admit=1, precomputed=pre):
+        elif not residual_rescue(rest, {name: design[name]}, y, alpha=0.5, min_relative_gain=min_gain, max_admit=1, precomputed=pre):
             # alpha = 0.5 makes the free-form bar t > 0: the column is removed only when it has neither a free-form nor a linear held-out gain
             if _linearly_useless(rest, design[name], y, pre, z, floor):
                 pruned.append(name)
