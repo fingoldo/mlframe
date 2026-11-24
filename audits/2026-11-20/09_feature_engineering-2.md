@@ -91,7 +91,6 @@ Scope: the 72 files in `audits/2026-11-20/manifests/09_feature_engineering-2.txt
 - 09-F24: FIXED. binary local-lift labels are normalised to {0,1} for both the global mean and the neighbour sums; tests/feature_engineering/transformer/test_cluster09_edges.py covers the KMeans path only, lift path covered by existing lift tests
 - 09-F26: FIXED. anchor count is capped by the row count, so a one-row fold yields one anchor; tests/feature_engineering/transformer/test_cluster09_edges.py
 - 09-F14: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
-- 09-F16: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F17: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F18: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F19: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
@@ -122,3 +121,5 @@ Scope: the 72 files in `audits/2026-11-20/manifests/09_feature_engineering-2.txt
 - 09-F43: DEFERRED. Pseudo-SMOTE regression confidence threshold is an in-sample quantile. Using out-of-fold predictions changes the aux model cost and the threshold semantics, which needs an ML design decision. No code change.
 
 - 09-F7: PARTIAL. stacked_qnn Mode A is nested: each outer fold rebuilds layer 1 on its training part only, so a row's label never shapes its own layer-2 feature. Behaviour change: Mode A values change. Not done: stacked_attention.py (same leak, and its docstring still claims leak-free) is unchanged. Test tests/feature_engineering/test_cluster09_stacked_mode_a_nested_no_self_label.py; 100 shortlist tests pass.
+
+- 09-F16: FIXED. FCA lattice-construction failure logs at WARNING (was INFO): the zero features are no longer indistinguishable from a real no-match. Test tests/feature_engineering/test_cluster09_fca_fallback_warns.py.

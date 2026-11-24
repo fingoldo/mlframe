@@ -709,7 +709,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 08-F17 | 08_feature_engineering-1.md | FIXED | Removed the unused chunk parameter from _median_pairwise_chunked and its caller argument; the median is unchanged. Test tests/feature_engineering/test_cluster08_median_pairwise_no_chunk.py. |
 | 09-F14 | 09_feature_engineering-2.md | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F15 | 09_feature_engineering-2.md | DEFERRED | tried an early return in the underdetermined branch; it broke the contract that the linear column stays finite. The real defect is the per-row exception path zeroing whole rows; needs a column-aware fix |
-| 09-F16 | 09_feature_engineering-2.md | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
+| 09-F16 | 09_feature_engineering-2.md | FIXED | FCA lattice-construction failure logs at WARNING (was INFO): the zero features are no longer indistinguishable from a real no-match. Test tests/feature_engineering/test_cluster09_fca_fallback_warns.py. |
 | 09-F17 | 09_feature_engineering-2.md | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F18 | 09_feature_engineering-2.md | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F19 | 09_feature_engineering-2.md | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |

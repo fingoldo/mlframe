@@ -72,7 +72,8 @@ def compute_fca_closed_concepts_features(
             all_concepts.sort(key=lambda x: (-len(x[0]), tuple(sorted(x[1]))))
             top_concepts = all_concepts[:top_k]
         except Exception as exc:
-            logger.info("fca_closed_concepts: lattice construction failed (%s); falling back to no concepts.", exc)
+            # WARNING, not INFO: the features become all zeros, which downstream reads as "no concept matched" (09-F16).
+            logger.warning("fca_closed_concepts: lattice construction failed (%s); falling back to no concepts.", exc)
             top_concepts = []
         # Evaluate concept-membership on query rows (does query row satisfy concept's intent?)
         top_indicators_q = np.zeros((Xq.shape[0], top_k), dtype=np.float32)
