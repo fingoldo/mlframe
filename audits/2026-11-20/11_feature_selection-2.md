@@ -47,7 +47,6 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 - 11-F9: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 11-F10: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 11-F11: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
-- 11-F12: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 11-F13: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 11-F14: FIXED. Deleted the no-op bare expression nbins + 1 in variant a. No behaviour change; covered by the 9 existing tests in tests/feature_selection/fe/factory/test_offset_kernels.py (pass).
 - 11-F18: FIXED. rel_improvement keeps NaN for a non-positive baseline but logs a WARNING naming the cause. Test tests/feature_selection/fe/factory/test_cluster11_rel_improvement_logs_nan.py.
@@ -64,3 +63,5 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 - 11-F5: PARTIAL. stat_study core: a failing operator is reported once per operator at WARNING via log_throttle (was DEBUG, silent). Not done: the same swallow in exp2_general.py and case2_missing.py is unchanged. Test tests/feature_selection/test_cluster11_stat_study_failure_warns.py.
 
 - 11-F7: FIXED. A counted estimator module that fails to import with a non-ImportError is reported as missing and logged at WARNING; it used to abort every arm's FitCounter. Test tests/feature_selection/test_cluster11_counted_import_failure_listed.py.
+
+- 11-F12: FIXED. A subnormal-width candidate range (NB / width overflows to inf) takes the flat-range branch instead of binning with a non-finite scale, so no NaN bins are produced. Test tests/feature_selection/test_cluster11_subnormal_range_no_nan_edges.py.

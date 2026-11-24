@@ -753,7 +753,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 11-F9 | 11_feature_selection-2.md | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F10 | 11_feature_selection-2.md | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F11 | 11_feature_selection-2.md | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
-| 11-F12 | 11_feature_selection-2.md | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 11-F12 | 11_feature_selection-2.md | FIXED | A subnormal-width candidate range (NB / width overflows to inf) takes the flat-range branch instead of binning with a non-finite scale, so no NaN bins are produced. Test tests/feature_selection/test_cluster11_subnormal_range_no_nan_edges.py. |
 | 11-F13 | 11_feature_selection-2.md | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F14 | 11_feature_selection-2.md | FIXED | Deleted the no-op bare expression nbins + 1 in variant a. No behaviour change; covered by the 9 existing tests in tests/feature_selection/fe/factory/test_offset_kernels.py (pass). |
 | 11-F15 | 11_feature_selection-2.md | PARTIAL | Hoisted set(names) out of the comprehensions in _arms.py (4 sites), _arms_wrappers.py (3) and _arms_baselines.py (1); the membership test no longer rebuilds the set per item. Not touched: single-statement set(order)/set(names) uses, which are not in a loop. Test tests/feature_selection/test_cluster11_oracle_arm_present_names.py. |
