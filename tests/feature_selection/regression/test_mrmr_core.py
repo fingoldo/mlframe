@@ -132,7 +132,7 @@ def test_regression_core_class_4_dormant_toggle_restore_mechanism():
 
 # ---------------------------------------------------------------------------
 # FIT_IMPL_A-1 (P1): the large-n regression adaptive-quantization gate
-# (adaptive_nbins_large_n_reg) permanently overwrote self.nbins_strategy /
+# (adaptive_nbins_large_n_reg) permanently overwrote self.binning_scheme /
 # self.quantization_nbins in place with no restore, breaking clone()/
 # get_params() and permanently freezing a config on any subsequent .fit()
 # on the same instance. Uses adaptive_nbins_large_n_reg_threshold to trigger
@@ -458,8 +458,11 @@ def test_regression_meta_scorer_inner_corr_excepts_use_numeric_errors(monkeypatc
     while a non-numeric fault (not in _NUMERIC_ERRORS) still propagates instead of being swallowed."""
     import logging
 
+    from mlframe.feature_selection.filters import _orthogonal_meta_scorer_fe as meta_mod
     from mlframe.feature_selection.filters._orthogonal_meta_scorer_fe import fingerprint_signal
 
+    # The vectorised moment kernel handles all-finite columns without ``Series.corr``; the per-column probes under test are the loop path, so the kernel is switched off here.
+    monkeypatch.setattr(meta_mod, "_VECTORISED", False)
     rng = np.random.default_rng(0)
     n = 60
     X = pd.DataFrame(rng.standard_normal((n, 3)), columns=["a", "b", "c"])

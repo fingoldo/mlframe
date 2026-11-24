@@ -3,6 +3,7 @@
 import numpy as np
 
 from mlframe.feature_selection.filters.discretization._code_storage_plan import plan_code_storage
+from mlframe.feature_selection.filters._binning_spec import make_binning_spec
 
 
 def test_quantile_ten_bins_is_int8():
@@ -20,14 +21,14 @@ def test_wide_request_is_narrowed_by_a_small_cap():
 
 def test_narrow_request_is_widened_instead_of_failing():
     """int8 requested but the supervised strategy can reach 256 intervals: the allocation dtype is widened to int16 and the finished matrix is a byte (unsigned)."""
-    plan = plan_code_storage(n_bins=10, nbins_strategy="mdlp", user_dtype=np.int8)
+    plan = plan_code_storage(n_bins=10, binning=make_binning_spec("mdlp", warn=False), user_dtype=np.int8)
     assert plan.bound == 256 and plan.alloc_dtype is np.int16 and plan.storage_dtype is np.int16
     assert any("widened" in r for r in plan.reasons)
 
 
 def test_mdlp_depth_seven_fits_a_byte():
     """MDLP at depth 7 (cap 127 rule) stops at 128 intervals: codes up to 128 -> unsigned byte storage."""
-    plan = plan_code_storage(n_bins=10, nbins_strategy="mdlp", nbins_strategy_kwargs={"max_depth": 7})
+    plan = plan_code_storage(n_bins=10, binning=make_binning_spec("mdlp", warn=False), binning_kwargs={"max_depth": 7})
     assert plan.bound == 128 and plan.storage_dtype is np.uint8 and plan.alloc_dtype is np.int16
 
 
@@ -53,14 +54,14 @@ def test_compact_storage_off_keeps_the_requested_dtype_unless_too_narrow(monkeyp
     """With MLFRAME_MRMR_COMPACT_CODES=0 the requested dtype stays, widened only when it cannot hold the codes."""
     monkeypatch.setenv("MLFRAME_MRMR_COMPACT_CODES", "0")
     assert plan_code_storage(n_bins=10, user_dtype=np.int32).alloc_dtype is np.int32
-    assert plan_code_storage(n_bins=10, nbins_strategy="mdlp", user_dtype=np.int8).alloc_dtype is np.int16
+    assert plan_code_storage(n_bins=10, binning=make_binning_spec("mdlp", warn=False), user_dtype=np.int8).alloc_dtype is np.int16
 
 
 def test_as_dict_is_json_friendly():
     """The report view has names and plain ints only."""
     import json
 
-    d = plan_code_storage(n_bins=10, nbins_strategy="mdlp").as_dict()
+    d = plan_code_storage(n_bins=10, binning=make_binning_spec("mdlp", warn=False)).as_dict()
     assert json.loads(json.dumps(d))["max_code"] == 256
 
 
@@ -97,7 +98,7 @@ def test_explicit_narrow_dtype_with_a_wide_strategy_is_widened_not_rejected():
     X, y = _small_frame(seed=1)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        m = MRMR(max_runtime_mins=1, verbose=0, fe_max_steps=0, quantization_dtype=np.int8, nbins_strategy="mdlp", max_categorical_cardinality=255).fit(X, y)  # the 127 caps lifted: up to 256 intervals
+        m = MRMR(max_runtime_mins=1, verbose=0, fe_max_steps=0, quantization_dtype=np.int8, binning_scheme="mdlp", max_categorical_cardinality=255).fit(X, y)  # the 127 caps lifted: up to 256 intervals
     assert m.code_storage_plan_["alloc_dtype"] == "int16"
     assert any("widened" in r for r in m.code_storage_plan_["reasons"])
     assert len(list(m.get_feature_names_out())) >= 1
@@ -112,7 +113,7 @@ def test_the_default_settings_allocate_int8_codes_with_mdlp():
     X, y = _small_frame(seed=1)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        m = MRMR(max_runtime_mins=1, verbose=0, fe_max_steps=0, nbins_strategy="mdlp").fit(X, y)
+        m = MRMR(max_runtime_mins=1, verbose=0, fe_max_steps=0, binning_scheme="mdlp").fit(X, y)
     assert m.code_storage_plan_["alloc_dtype"] == "int8" and m.code_storage_plan_["max_code"] <= 127
     assert not any("widened" in r for r in m.code_storage_plan_["reasons"])
 

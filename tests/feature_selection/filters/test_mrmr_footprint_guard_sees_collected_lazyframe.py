@@ -15,7 +15,7 @@ from mlframe.feature_selection.filters import _mrmr_validate_transform as vt
 def _stub():
     """The minimal MRMR-like object ``_validate_inputs`` reads."""
     return types.SimpleNamespace(
-        _validate_string_params=lambda: None, quantization_nbins=10, quantization_method="quantile", nbins_strategy=None, interactions_max_order=2, fe_max_steps=0
+        _validate_string_params=lambda: None, quantization_nbins=10, quantization_method="quantile", binning_scheme="quantile", nbins_rule="fixed", interactions_max_order=2, fe_max_steps=0
     )
 
 

@@ -48,12 +48,13 @@ def test_table_holds_the_reserved_missing_code():
 _CHILD = """
 import inspect, sys, warnings
 warnings.simplefilter("ignore")
+sys.path.insert(0, sys.argv[1] + "/src")  # the code under test, not an editable install of another checkout
 sys.path.insert(0, sys.argv[1])
 from tests.feature_selection.fe.test_uniform_quantization_code_table import _mixed_frame
 from mlframe.feature_selection.filters.mrmr import MRMR
 df, y = _mixed_frame(4000, 8)
 off = {f: False for f in inspect.signature(MRMR.__init__).parameters if f.startswith("fe_") and f.endswith("_enable")}
-m = MRMR(verbose=0, random_seed=0, n_jobs=1, nbins_strategy=None, quantization_method="uniform", **off).fit(df, y)
+m = MRMR(verbose=0, random_seed=0, n_jobs=1, binning_scheme="uniform", nbins_rule="fixed", quantization_method="uniform", **off).fit(df, y)
 print("FIT_DONE", len(m.get_feature_names_out()))
 """
 

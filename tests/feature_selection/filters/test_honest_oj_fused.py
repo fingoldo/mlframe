@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection._benchmarks.profiling import family_scale as Fm
+from tests.feature_selection.binning_cases import binning_kwargs
 
 
 @pytest.mark.parametrize("strategy", ["optimal_joint"])
@@ -38,7 +39,7 @@ def test_fused_floor_equals_per_permutation(monkeypatch, strategy):
             monkeypatch.setattr(m, "honest_fdr_floor", wrapped)
     monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "-1")
     kw = {f: False for f in Fm.all_families_kwargs()}
-    kw["nbins_strategy"] = strategy
+    kw.update(binning_kwargs(strategy))
     MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*Fm._make(2500, 8, 0))
     assert seen, "the honest floor was not reached"
     for want, direct in seen:

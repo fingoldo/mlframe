@@ -22,7 +22,7 @@ def _fit(caplog, **kw):
     with caplog.at_level(logging.INFO):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            MRMR(verbose=0, random_seed=0, fe_max_steps=0, nbins_strategy="mdlp", **kw).fit(X, y)
+            MRMR(verbose=0, random_seed=0, fe_max_steps=0, binning_scheme="mdlp", **kw).fit(X, y)
     return [r.getMessage() for r in caplog.records if "max_depth" in r.getMessage() and "caps the MDLP" in r.getMessage()]
 
 
@@ -34,4 +34,4 @@ def test_the_default_cardinality_cap_is_logged_for_mdlp(caplog):
 
 def test_an_explicit_max_depth_is_silent(caplog):
     """Contrast: a user-pinned depth is the user's choice, nothing to announce."""
-    assert not _fit(caplog, nbins_strategy_kwargs={"max_depth": 5})
+    assert not _fit(caplog, binning_kwargs={"max_depth": 5})

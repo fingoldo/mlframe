@@ -47,7 +47,7 @@ import numba
 from numba import njit, prange
 
 from mlframe.utils.log_throttle import log_throttle
-from ._nbins_strategy_names import NBINS_STRATEGIES, SUPERVISED_NBINS_STRATEGIES, unknown_nbins_strategy_message
+from ._binning_spec import BINNING_SCHEMES, DEFAULT_NBINS_CAP, MIN_NBINS, PARTITION_SCHEMES, SUPERVISED_SCHEMES
 from mlframe.feature_selection.filters.discretization.shared import sorted_quantiles
 from mlframe.feature_selection.filters.discretization.shared import (
     knuth_bin_edges as _knuth_bin_edges, bayesian_blocks_bin_edges as _bayesian_blocks_bin_edges,
@@ -66,8 +66,11 @@ from ._mdlp_validated_split import edges_fayyad_irani_validated  # noqa: F401  #
 # multi-thousand-second CPU njit fallback per column pair (found live, 50k-row wellbore GT sweep).
 MAX_ADAPTIVE_NBINS = 256
 
+#: The edge methods ``per_feature_edges`` knows: ``partition`` (the quantile / uniform schemes with a count rule from kwargs) and the schemes that pick their own count.
+EDGE_METHODS = ("partition", *tuple(sc for sc in BINNING_SCHEMES if sc not in PARTITION_SCHEMES))
+
 # Default cap for the Bayesian-Blocks DP at the ``per_feature_edges`` dispatch layer. BB is O(N^2)-per-column;
-# without a subsample cap ``nbins_strategy='bayesian_blocks'`` pays unbounded quadratic cost on ordinary column sizes.
+# without a subsample cap ``binning_scheme='bayesian_blocks'`` pays unbounded quadratic cost on ordinary column sizes.
 # When N exceeds this, the BB DP fits on a uniform sub-sample of this many rows (the block EDGES it returns
 # still apply to the full column). Direct low-level ``edges_bayesian_blocks`` callers keep the 0-means-exact
 # contract; only this auto dispatch layer defaults a safe bound (per CLAUDE.md "enable corrective mechanisms
@@ -92,9 +95,9 @@ _PARALLEL_EDGES_MIN_COLS = 2
 
 
 __all__ = [
-    "sturges_nbins", "freedman_diaconis_nbins", "qs_nbins",
+    "sturges_nbins", "freedman_diaconis_nbins", "rice_capped_nbins",
     "edges_quantile", "edges_uniform",
-    "edges_sturges", "edges_freedman_diaconis", "edges_qs",
+    "edges_freedman_diaconis", "edges_partition",
     "edges_knuth", "edges_bayesian_blocks",
     "edges_fayyad_irani", "edges_mah",
     "edges_optimal_joint",
@@ -157,10 +160,9 @@ def _edges_from_quantiles(x: np.ndarray, n_bins: int) -> np.ndarray:
     inflate downstream ``K_x = len(edges) + 1`` for ``searchsorted``,
     silently over-correcting Miller-Madow MI bias by
     ``(K_x_phantom - 1) * (K_y - 1) / (2N)`` and inflating ``log(K_x)``
-    in the SU normaliser denominator. ``edges_qs`` already does this -
-    bring ``_edges_from_quantiles`` in line so every caller funneling
+    in the SU normaliser denominator. ``edges_partition`` relies on this: every caller funneling
     through ``edges_quantile`` / ``edges_freedman_diaconis`` /
-    ``edges_sturges`` / ``edges_optimal_joint`` inherits the fix.
+    ``edges_partition`` / ``edges_optimal_joint`` inherits the fix.
     """
     if n_bins < 2:
         return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
@@ -196,69 +198,43 @@ def _edges_from_uniform(x: np.ndarray, n_bins: int) -> np.ndarray:
     return np.asarray(full_edges[1:-1], dtype=np.float64)  # Intentional float64: bin-edge output contract
 
 
-def qs_nbins(n: int, alpha: float = 0.30) -> int:
-    """Quantile Spacing nbins: ``n_q = min(round(alpha * N), round(2 * N ** (1/3)))``, clamped to [3, 48] (``_QS_DEFAULT_MAX_BINS``).
+def rice_capped_nbins(n: int, alpha: float = 0.30, cap: int = DEFAULT_NBINS_CAP) -> int:
+    """The ``rice_capped`` count rule: ``n_q = min(round(alpha * N), round(2 * N ** (1/3)), cap)``, at least 3 (and 1 for fewer than two values).
 
     Gupta et al. *Entropy* 23(6):740, 2021 (https://arxiv.org/abs/2102.12675) show that alpha in [0.25, 0.35] is insensitive to sample size and distribution; the default alpha=0.30 is the middle of that
-    band. Alone, ``alpha * N`` reaches the clamp of 64 at N = 214 and stays there: 64 bins at every realistic N, which is not an adaptive rule. At 6000 rows with 120 noise columns the 64 x 64 pair tables
-    raised the maxT floor above a real categorical interaction (lost in 3 of 3 seeds); the bin count of the Rice rule ``2 * N ** (1/3)`` (36 at N = 6000, 54 at 20000, the cap from about 33000 rows)
-    keeps it (3 of 3, as does 14 bins), so the count is the smaller of the two: Gupta's own rule for small N, a count that grows with N for larger N. The clamp prevents bin-per-sample at large N (which
-    would inflate plug-in MI bias) and 1-bin degeneracy at tiny N.
+    band. Alone, ``alpha * N`` reaches a cap of 64 at N = 214 and stays there: 64 bins at every realistic N, which is not an adaptive rule. At 6000 rows with 120 noise columns the 64 x 64 pair tables
+    raised the maxT floor above a real categorical interaction (lost in 3 of 3 seeds); the Rice rule ``2 * N ** (1/3)`` (36 at N = 6000, 54 at 20000) keeps it (3 of 3), so the count is the smaller of the
+    two: Gupta's own rule for small N, a count that grows with N for larger N, and ``cap`` (``nbins_cap``) above that, which prevents bin-per-sample at large N (inflated plug-in MI bias) and bounds the cost
+    of every joint table. 1-bin degeneracy at tiny N is clamped at 3.
     """
     if n < 2:
         return 1
     raw = round(alpha * n)
     rice = round(2.0 * float(n) ** (1.0 / 3.0))
-    return int(max(3, min(_qs_max_bins(), raw, rice)))
+    return int(max(MIN_NBINS, min(int(cap), raw, rice)))
 
 
-_QS_DEFAULT_MAX_BINS = 48  # measured 2026-11-23: 100000 x 100 ALL wall 50.3 / 37.1 / 40.3 s at caps 64 / 48 / 32; out-of-fold 80000 x 50 binary AUC 0.9491 / 0.9507 / 0.9305 (cap 32 lost a whole fold, as cap 16 did at 20000 rows), columns selected 19.7 / 4.3 / 4.7
+def edges_partition(x: np.ndarray, partition: str, rule: str, cap: int = DEFAULT_NBINS_CAP, fixed_nbins: int = 10, alpha: float = 0.30) -> np.ndarray:
+    """Inner bin edges of one column: the ``partition`` (``quantile`` equal-frequency or ``uniform`` equal-width) with the bin count of ``rule`` (``rice_capped`` | ``sturges`` | ``freedman_diaconis`` |
+    ``knuth`` | ``fixed``), the count capped at ``cap`` (``fixed`` is not capped).
 
-
-def _qs_max_bins() -> int:
-    """Upper clamp of :func:`qs_nbins` (default ``_QS_DEFAULT_MAX_BINS`` = 48; ``MLFRAME_QS_MAX_BINS`` overrides, never below 3)."""
-    import os
-
-    raw = os.environ.get("MLFRAME_QS_MAX_BINS", "").strip()
-    return max(3, int(raw)) if raw.isdigit() else _QS_DEFAULT_MAX_BINS
-
-
-def edges_qs(x: np.ndarray, alpha: float = 0.30) -> np.ndarray:
-    """Quantile Spacing (QS) bin edges from Gupta et al. *Entropy* 2021.
-
-    Picks ``n_q = qs_nbins(N, alpha)`` equiprobable bins; returns the (n_q - 1)
-    INNER quantile edges. The key property: under independence the joint
-    histogram is uniform by construction (each marginal is forced flat), so
-    plug-in MI collapses to ~0 with O(1/sqrt(N)) noise instead of the
-    bias-inflated O(M/N) of equal-width estimators. The trade-off: marginally
-    underestimates true MI on signal-bearing data (Gupta 2021 Section 3).
-
-    Args:
-        x: 1-D continuous data.
-        alpha: Sample-fraction parameter in ``[0.25, 0.35]``; data-independent
-            per Gupta 2021 empirics.
-
-    Returns:
-        1-D double array of the inner quantile edges; empty when fewer than two distinct bins result.
-    """
-    x = np.asarray(x).ravel()
-    if x.dtype != np.float32:
-        x = np.asarray(x, dtype=np.float64)  # Intentional float64: bin-edge computation input; edges compared at full precision
-    x = x[np.isfinite(x)]
-    n = x.size
-    n_q = qs_nbins(n, alpha)
-    if n_q < 2:
-        return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
-    q_pos = np.linspace(0.0, 100.0, n_q + 1)
-    # A large float32 column takes the radix sort of a copy and numpy's own interpolation in float64 (the same edges bit for bit, 1 ms against 5 ms of the partition-based nanpercentile of the widened array)
-    full_edges = sorted_quantiles(x, q_pos / 100.0)
-    if full_edges is None:
-        full_edges = np.nanpercentile(x.astype(np.float64, copy=False), q_pos)  # Intentional float64: bin-edge computation input; edges compared at full precision
-    # De-duplicate (ties / near-constant columns collapse).
-    full_edges = np.unique(full_edges)
-    if full_edges.size <= 2:
-        return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
-    return np.asarray(full_edges[1:-1], dtype=np.float64)  # Intentional float64: bin-edge output contract
+    Returns a 1-D double array of ``n_bins - 1`` inner edges, empty when fewer than two distinct bins result."""
+    if partition not in PARTITION_SCHEMES:
+        raise ValueError(f"edges_partition: partition must be one of {list(PARTITION_SCHEMES)}, got {partition!r}")
+    if rule == "knuth":
+        return edges_knuth(x, edge_type=partition, m_max_cap=int(cap))
+    n_finite = int(np.isfinite(np.asarray(x, dtype=np.float64).ravel()).sum())  # Intentional float64: finite-count statistic
+    if rule == "rice_capped":
+        n_bins = rice_capped_nbins(n_finite, alpha, cap)
+    elif rule == "sturges":
+        n_bins = min(sturges_nbins(n_finite), int(cap))
+    elif rule == "freedman_diaconis":
+        n_bins = freedman_diaconis_nbins(x, max_bins=int(cap))
+    elif rule == "fixed":
+        n_bins = int(fixed_nbins)
+    else:
+        raise ValueError(f"edges_partition: unknown rule {rule!r}")
+    return _edges_from_quantiles(x, n_bins) if partition == "quantile" else _edges_from_uniform(x, n_bins)
 
 
 def edges_quantile(x: np.ndarray, n_bins: int) -> np.ndarray:
@@ -269,13 +245,6 @@ def edges_quantile(x: np.ndarray, n_bins: int) -> np.ndarray:
 def edges_uniform(x: np.ndarray, n_bins: int) -> np.ndarray:
     """Fixed-nbins uniform-width edges."""
     return _edges_from_uniform(x, n_bins)
-
-
-def edges_sturges(x: np.ndarray, base: str = "quantile") -> np.ndarray:
-    """Sturges nbins + quantile/uniform edges."""
-    n = np.isfinite(np.asarray(x, dtype=np.float64).ravel()).sum()  # Intentional float64: finite-count statistic
-    n_bins = sturges_nbins(int(n))
-    return _edges_from_quantiles(x, n_bins) if base == "quantile" else _edges_from_uniform(x, n_bins)
 
 
 def edges_freedman_diaconis(x: np.ndarray, base: str = "quantile", max_bins: int = MAX_ADAPTIVE_NBINS) -> np.ndarray:
@@ -528,10 +497,9 @@ def per_feature_edges(
     Args:
         X: 2-D ndarray of shape (n_samples, n_features). May contain NaN.
         y: Target array, required for supervised methods ('mdlp', 'mdlp_validated', 'optimal_joint', 'mah').
-        method: One of ``NBINS_STRATEGIES``: 'sturges', 'freedman_diaconis', 'quantile_spacing', 'uniform',
-            'knuth', 'bayesian_blocks', 'mdlp', 'mdlp_validated', 'optimal_joint', 'mah' (one name each, no aliases).
-        base: For 'sturges' / 'freedman_diaconis' / 'optimal_joint' — 'quantile' (default)
-            or 'uniform'.
+        method: One of ``EDGE_METHODS``: ``partition`` (the ``quantile`` / ``uniform`` schemes; the keyword arguments ``partition``, ``count_rule``, ``nbins_cap``, ``fixed_nbins`` say which and how many bins),
+            or a scheme that picks its own count: ``mdlp``, ``mdlp_validated``, ``optimal_joint``, ``mah``, ``bayesian_blocks`` (see ``_binning_spec``).
+        base: For ``optimal_joint`` only - 'quantile' (default) or 'uniform'.
         cache_dir: Optional directory for a per-column content-addressable disk cache. ``None``
             (default) disables. Each column's edge array is keyed by ``(col-summary-hash,
             method, base, kwargs, y-summary-if-supervised)``; cross-call hits skip the per-column
@@ -608,10 +576,10 @@ def _per_feature_edges_np_asarray(X, method, y):
     if X.ndim != 2:
         raise ValueError(f"per_feature_edges: X must be 2-D; got shape {X.shape}")
     n_features = X.shape[1]
-    if not isinstance(method, str) or method not in NBINS_STRATEGIES:
-        raise ValueError(f"per_feature_edges: {unknown_nbins_strategy_message(method)}")
+    if not isinstance(method, str) or method not in EDGE_METHODS:
+        raise ValueError(f"per_feature_edges: unknown edge method {method!r}; expected one of {list(EDGE_METHODS)}")
     method_resolved = method
-    needs_y = method_resolved in SUPERVISED_NBINS_STRATEGIES
+    needs_y = method_resolved in SUPERVISED_SCHEMES
     if needs_y and y is None:
         raise ValueError(f"per_feature_edges: method={method_resolved!r} is supervised and requires y.")
     if y is not None:

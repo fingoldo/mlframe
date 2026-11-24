@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from mlframe.feature_selection.filters._supervised_collapse_refine import refine_near_collapsed_supervised_edges
+from mlframe.feature_selection.filters._binning_spec import make_binning_spec
 
 
 def test_sliver_split_gets_fallback_edges_and_keeps_the_supervised_cut():
@@ -42,7 +43,7 @@ def test_mdlp_categorize_keeps_synergy_operand_resolution():
     X, y = _wide_synergy_frame(n=2000, n_noise=4)
     df = X[["x3", "x4"]].copy()
     df["y"] = y.to_numpy()
-    data, cols, nbins = categorize_dataset(df=df, method="quantile", n_bins=10, dtype=np.int16, nbins_strategy="mdlp", y_for_strategy=y.to_numpy())
+    data, cols, nbins = categorize_dataset(df=df, method="quantile", n_bins=10, dtype=np.int16, binning=make_binning_spec("mdlp", warn=False), y_for_strategy=y.to_numpy())
     i3, i4 = cols.index("x3"), cols.index("x4")
     assert int(nbins[i3]) >= 3, f"x3 still near-collapsed: nbins={int(nbins[i3])}"
     joint = pd.Series(data[:, i3].astype(np.int64) * 1000 + data[:, i4].astype(np.int64))

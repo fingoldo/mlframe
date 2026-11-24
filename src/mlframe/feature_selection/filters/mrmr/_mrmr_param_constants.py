@@ -18,33 +18,14 @@ _VALID_NAN_STRATEGIES = ("separate_bin", "fillna_zero", "ffill_bfill", "propagat
 _VALID_CATEGORICAL_FOLD_STRATEGIES = ("frequency", "min_support", "target_stat")
 _VALID_MRMR_RELEVANCE_ALGOS = ("fleuret", "pld")
 _VALID_MRMR_REDUNDANCY_ALGOS = ("fleuret", "pld_max", "pld_mean")
-# adaptive per-feature bin-edge chooser.
-# MRMR's MI computation stays exclusively on the integer-bin plug-in path
-# (see bench_adaptive_nbins / bench_adaptive_nbins_mega). Alternative MI
-# estimators (KSG, MINE, InfoNet, MIST, fastMI, aggregators) are
-# intentionally NOT routed into the MRMR hot loop.
-_VALID_NBINS_STRATEGIES = (
-    None,
-    "sturges", "freedman_diaconis", "quantile_spacing", "uniform",
-    "knuth", "bayesian_blocks",  # demoted to research-only with AccuracyWarning
-    "mdlp", "mdlp_validated", "optimal_joint",
-    "mah",  # Marx 2021 multi-dimensional adaptive histogram (SCI-guided merging of the feature's bins)
-)
+# adaptive per-feature binning: the accepted values of ``binning_scheme`` and ``nbins_rule`` live in ``_binning_spec`` (BINNING_SCHEMES, NBINS_RULES).
+# MRMR's MI computation stays exclusively on the integer-bin plug-in path (see bench_adaptive_nbins / bench_adaptive_nbins_mega). Alternative MI
+# estimators (KSG, MINE, InfoNet, MIST, fastMI, aggregators) are intentionally NOT routed into the MRMR hot loop.
 # opt-in validation sets.
 _VALID_MI_CORRECTIONS = ("none", "miller_madow", "chao_shen")
 _VALID_REDUNDANCY_AGGREGATORS = (None, "jmim", "auto")
 _VALID_STABILITY_SELECTION_METHODS = (
     "classic", "cluster", "complementary_pairs",
-)
-# per mega-bench v3 Knuth (MI_mean 0.342, weak on uniform),
-# Bayesian Blocks (MI_mean 0.272, weakest overall)
-# are demoted from the recommended option set. (MAH was demoted with them for the same reason, an MI_mean of 0.168
-# from a merge that collapsed every column to two bins; that was an error in the merge criterion and the regret
-# formula of ``_mah``, fixed on 2026-11-22, and MAH is a recommended option again under its one name ``mah``.) They remain selectable
-# for research / reproduction work but emit an ``AccuracyWarning`` so
-# downstream callers can opt-in explicitly.
-_DEMOTED_NBINS_STRATEGIES = (
-    "knuth", "bayesian_blocks",
 )
 _VALID_FE_UNARY_PRESETS = ("minimal", "medium", "maximal")
 _VALID_FE_BINARY_PRESETS = ("minimal", "medium", "maximal")

@@ -1,6 +1,6 @@
 """One ``train_mlframe_models_suite`` call with MRMR feature selection and targets of two types must not bin a feature again when its binning does not depend on the target (PLAN-09).
 
-MRMR level: ``tests/feature_selection/mrmr/test_mrmr_binning_once_per_target.py`` pins that an unsupervised ``nbins_strategy`` bins each feature column once across two fits in one process (the edge memo
+MRMR level: ``tests/feature_selection/mrmr/test_mrmr_binning_once_per_target.py`` pins that an unsupervised ``binning_scheme`` bins each feature column once across two fits in one process (the edge memo
 keys on content). This test pins the same property at the level of the whole suite, which may fit MRMR per target in other threads or processes, on a copy or a cast of the frame, or after a transform.
 """
 
@@ -17,6 +17,7 @@ from mlframe.training import FeatureSelectionConfig, OutputConfig
 from mlframe.training.configs import ReportingConfig
 from mlframe.training.core import train_mlframe_models_suite
 from tests.training.shared import SimpleFeaturesAndTargetsExtractor
+from tests.feature_selection.binning_cases import binning_kwargs
 
 pytestmark = pytest.mark.timeout(1800)
 
@@ -46,7 +47,7 @@ def _count_uncached(monkeypatch) -> list:
 def _run_suite(df: pd.DataFrame, strategy: str):
     """One suite call: a regression target and a binary target on the same frame, MRMR selection with the given strategy and no feature engineering (only the binning of the raw columns is counted)."""
     fte = SimpleFeaturesAndTargetsExtractor(target_column="target", regression=True, extra_targets="mixed_reg_bin")
-    mrmr = {"verbose": 0, "random_seed": 0, "n_workers": 1, "fe_max_steps": 0, "nbins_strategy": strategy}
+    mrmr = {"verbose": 0, "random_seed": 0, "n_workers": 1, "fe_max_steps": 0, **binning_kwargs(strategy)}
     with tempfile.TemporaryDirectory() as d:
         return train_mlframe_models_suite(
             df=df,
@@ -69,7 +70,7 @@ def test_unsupervised_strategy_bins_each_feature_once_across_the_targets_of_one_
     df = _frame()
     cols.clear_edge_memo()
     calls = _count_uncached(monkeypatch)
-    result, _meta = _run_suite(df, "quantile_spacing")
+    result, _meta = _run_suite(df, "rice_capped")
     assert len(result) >= 2, f"the call must train two target types, got {list(result)}"
     # The suite hands MRMR a train split, not the frame it was given, so the columns are compared with each other: with no feature engineering the computations are the feature columns and each target's own
     # column (distinct per target), so a repeated content is a feature binned again.

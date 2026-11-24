@@ -16,6 +16,7 @@ from .combo import FuzzCombo
 from .field_randomizer import randomize_scalar_fields as _randomize_scalar_fields
 from .field_randomizer import DEFAULT_SKIP_FIELDS as _DEFAULT_SKIP_FIELDS
 from .semantic_fields import randomize_semantic_fields as _randomize_semantic_fields, semantic_owned_fields as _semantic_owned_fields
+from tests.feature_selection.binning_cases import binning_kwargs
 
 #: See field_randomizer.py / _fuzz_suite_helpers.py's identically-named flag: opt-in resampling of every
 #: config field a named axis left at its default. Off by default (existing CI-gating combos unaffected).
@@ -101,7 +102,7 @@ def build_mrmr_kwargs_from_flat(
     cluster_aggregate_enable: bool = True,
     cluster_aggregate_mode: str = "augment",
     # 2026-05-30 audit-pass-6 Wave 7/8/9 MRMR ctor knobs.
-    nbins_strategy: str = "mdlp",
+    binning_case: str = "mdlp",
     mi_correction: str = "none",
     redundancy_aggregator: "str | None" = None,
     bur_lambda: float = 0.0,
@@ -119,8 +120,8 @@ def build_mrmr_kwargs_from_flat(
     # a top-level kwarg into MRMR.__init__.
     baseline_npermutations: int = 2,
     # 2026-05-30 audit-pass-7 #3/#4: per_feature_edges kwargs forwarded
-    # via MRMR.nbins_strategy_kwargs (mrmr.py:225 -> _mrmr_fit_impl:341 ->
-    # categorize_dataset:nbins_strategy_kwargs -> per_feature_edges.kwargs).
+    # via MRMR.binning_kwargs (mrmr.py:225 -> _mrmr_fit_impl:341 ->
+    # categorize_dataset:binning_kwargs -> per_feature_edges.kwargs).
     # Defaults source-verified at _adaptive_nbins.py:511,586.
     low_card_cap: int = 32,
     collapsed_fallback_nbins: int = 5,
@@ -337,7 +338,7 @@ def build_mrmr_kwargs_from_flat(
         "cluster_aggregate_mode": cluster_aggregate_mode,
         # 2026-05-30 audit-pass-6 Wave 7/8/9 ctor knobs. Names match
         # MRMR.__init__ exactly (filters/mrmr.py:224-302, 589).
-        "nbins_strategy": nbins_strategy,
+        **binning_kwargs(binning_case),
         "mi_correction": mi_correction,
         "redundancy_aggregator": redundancy_aggregator,
         "bur_lambda": bur_lambda,
@@ -500,7 +501,7 @@ def build_mrmr_kwargs_from_flat(
         "fe_additive_fusion_enable": fe_additive_fusion_enable,
     }
     # 2026-05-30 audit-pass-7 #3/#4: per_feature_edges.kwargs threaded via
-    # MRMR.nbins_strategy_kwargs. Build the dict only when one of these
+    # MRMR.binning_kwargs. Build the dict only when one of these
     # knobs differs from the source default so we don't shadow any existing
     # caller-supplied dict with empty overrides.
     _nbins_kw: Dict[str, Any] = {}
@@ -509,7 +510,7 @@ def build_mrmr_kwargs_from_flat(
     if collapsed_fallback_nbins != 5:
         _nbins_kw["collapsed_fallback_nbins"] = collapsed_fallback_nbins
     if _nbins_kw:
-        kwargs["nbins_strategy_kwargs"] = _nbins_kw
+        kwargs["binning_kwargs"] = _nbins_kw
     # The MRMR subsample knobs default to UNIFIED_FE_SUBSAMPLE_N upstream; only
     # override when the fuzz axis sets a non-zero budget so existing combos
     # don't accidentally flip the path on.
@@ -567,7 +568,7 @@ def build_mrmr_kwargs(combo: "FuzzCombo") -> Optional[Dict[str, Any]]:
         cluster_aggregate_enable=combo.mrmr_cluster_aggregate_enable_cfg,
         cluster_aggregate_mode=combo.mrmr_cluster_aggregate_mode_cfg,
         # 2026-05-30 audit-pass-6 Wave 7/8/9 ctor knobs.
-        nbins_strategy=combo.mrmr_nbins_strategy_cfg,
+        binning_case=combo.mrmr_binning_cfg,
         mi_correction=combo.mrmr_mi_correction_cfg,
         redundancy_aggregator=combo.mrmr_redundancy_aggregator_cfg,
         bur_lambda=combo.mrmr_bur_lambda_cfg,

@@ -1,4 +1,5 @@
 """Wall of every map_on_edge_pool call in one warm GPU fit, with the caller and the time since the fit started."""
+from mlframe.feature_selection._benchmarks.binning_label import binning_params
 from typing import Any, cast
 import os, time, threading, warnings, functools, inspect
 warnings.simplefilter("ignore")
@@ -9,7 +10,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 from mlframe.feature_selection.filters import _edge_pool
 
 kw = F.all_families_kwargs()
-kw["nbins_strategy"] = os.environ.get("BENCH_NBINS", "mdlp")
+kw.update(binning_params(os.environ.get("BENCH_NBINS", "mdlp")))
 MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20000, 30, 1))
 
 rows: list[Any] = []

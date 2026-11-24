@@ -18,6 +18,7 @@ class MRMRParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, arbitrary_types_allowed=True)
     __signature_overrides__ = (
         "additional_rfecv_selection_rule",
+        "binning_scheme",
         "cluster_aggregate_mode",
         "dcd_distance",
         "dcd_swap_method",
@@ -35,7 +36,7 @@ class MRMRParams(BaseModel):
         "mrmr_redundancy_algo",
         "mrmr_relevance_algo",
         "nan_strategy",
-        "nbins_strategy",
+        "nbins_rule",
         "quantization_method",
         "redundancy_aggregator",
         "stability_selection_method",
@@ -48,11 +49,10 @@ class MRMRParams(BaseModel):
     max_categorical_cardinality: int | None = 127
     categorical_fold_strategy: str = "frequency"
     categorical_fold_min_support: int = 5
-    nbins_strategy: (
-        Literal["sturges", "freedman_diaconis", "quantile_spacing", "uniform", "knuth", "bayesian_blocks", "mdlp", "mdlp_validated", "optimal_joint", "mah"]
-        | None
-    ) = "quantile_spacing"
-    nbins_strategy_kwargs: dict | None = None
+    binning_scheme: Literal["quantile", "uniform", "mdlp", "mdlp_validated", "optimal_joint", "mah", "bayesian_blocks"] = "quantile"
+    nbins_rule: Literal["rice_capped", "sturges", "freedman_diaconis", "knuth", "fixed"] | None = None
+    nbins_cap: int = 48
+    binning_kwargs: dict | None = None
     max_adaptive_nbins: int = 127
     adaptive_nbins_large_n_reg: bool = True
     adaptive_nbins_large_n_reg_threshold: int = 50000

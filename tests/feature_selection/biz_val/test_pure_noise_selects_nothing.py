@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
+from tests.feature_selection.binning_cases import binning_kwargs
 
 N = 2000
 P = 8
@@ -53,13 +54,13 @@ def _frame(kind: str, seed: int) -> pd.DataFrame:
 
 
 # Production binning strategies the guarantee must hold under. Research-only strategies (knuth, blocks, ...) are excluded by design.
-BINNING_STRATEGIES = (None, "quantile", "uniform", "mdlp", "mdlp_validated")
+BINNING_CASES = ("fixed", "rice_capped", "uniform", "mdlp", "mdlp_validated")
 
 
-@pytest.mark.parametrize("nbins_strategy", BINNING_STRATEGIES)
+@pytest.mark.parametrize("binning_case", BINNING_CASES)
 @pytest.mark.parametrize("kind", DISTRIBUTIONS)
 @pytest.mark.parametrize("target", ("binary", "continuous"))
-def test_mrmr_selects_nothing_on_pure_noise(kind, target, nbins_strategy):
+def test_mrmr_selects_nothing_on_pure_noise(kind, target, binning_case):
     """MRMR keeps no feature when the target is independent of every column, under every production binning strategy."""
     seed = 11 + DISTRIBUTIONS.index(kind)
     X = _frame(kind, seed)
@@ -68,7 +69,7 @@ def test_mrmr_selects_nothing_on_pure_noise(kind, target, nbins_strategy):
         y = (rng.random(N) > 0.5).astype(np.int64)
     else:
         y = rng.normal(size=N)
-    sel = MRMR(verbose=0, random_state=0, n_jobs=1, nbins_strategy=nbins_strategy).fit(X, y)
+    sel = MRMR(verbose=0, random_state=0, n_jobs=1, **binning_kwargs(binning_case)).fit(X, y)
     assert (
         getattr(sel, "no_significant_features_", False) is True
-    ), f"no_significant_features_ not set on pure noise (inputs={kind}, target={target}, nbins_strategy={nbins_strategy})"
+    ), f"no_significant_features_ not set on pure noise (inputs={kind}, target={target}, binning={binning_case})"

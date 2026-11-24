@@ -17,13 +17,14 @@ import warnings
 
 from mlframe.feature_selection._benchmarks.profiling import family_scale as F
 from mlframe.feature_selection._benchmarks.profiling._paths import OUT_DIR
+from mlframe.feature_selection._benchmarks.binning_label import binning_params
 
 
 def binning_kwargs(binning: str) -> dict:
-    """MRMR arguments of one binning setup: ``none_<method>`` is no adaptive strategy with that quantization method, anything else is the ``nbins_strategy`` name."""
+    """MRMR arguments of one binning setup: ``none_<method>`` is the fixed-count discretiser with that quantization method, anything else is a label of ``binning_label``."""
     if binning.startswith("none_"):
-        return {"nbins_strategy": None, "quantization_method": binning[5:]}
-    return {"nbins_strategy": binning}
+        return {"binning_scheme": "quantile", "nbins_rule": "fixed", "quantization_method": binning[5:]}
+    return binning_params(binning)
 
 
 def _parse() -> argparse.Namespace:

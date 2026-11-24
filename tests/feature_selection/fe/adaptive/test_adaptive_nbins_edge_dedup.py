@@ -15,7 +15,7 @@ Effect downstream:
 - Joint-histogram allocation over-allocates ``K_x * K_y`` cells
   (in extreme cases forces a wider dtype).
 
-``edges_qs`` already de-duplicates via ``np.unique`` at line 170; the fix
+``edges_rice_capped`` already de-duplicates via ``np.unique`` at line 170; the fix
 brings ``_edges_from_quantiles`` in line so the FD / Sturges /
 OptimalJoint paths inherit it (they all funnel through this helper).
 """
@@ -28,9 +28,10 @@ import numpy as np
 from mlframe.feature_selection.filters._adaptive_nbins import (
     _edges_from_quantiles,
     edges_freedman_diaconis,
-    edges_qs,
     per_feature_edges,
 )
+from tests.feature_selection.binning_cases import edges_rice_capped
+from tests.feature_selection.binning_cases import edges_call
 
 
 def test_edges_from_quantiles_dedups_constant_column():
@@ -72,7 +73,7 @@ def test_freedman_diaconis_constant_returns_one_bin():
 def test_qs_and_freedman_diaconis_agree_on_constant():
     """QS de-duplicates correctly; FD now matches under iter-6 fix."""
     x = np.ones(500)
-    assert edges_qs(x).size == edges_freedman_diaconis(x).size == 0
+    assert edges_rice_capped(x).size == edges_freedman_diaconis(x).size == 0
 
 
 def test_per_feature_edges_freedman_diaconis_constant_yields_kx1():
@@ -82,7 +83,7 @@ def test_per_feature_edges_freedman_diaconis_constant_yields_kx1():
     """
     rng = np.random.default_rng(0)
     X = np.column_stack([np.ones(500), rng.standard_normal(500)])
-    edges = per_feature_edges(X, method="freedman_diaconis")
+    edges = per_feature_edges(X, **edges_call("freedman_diaconis"))
     binned0 = np.searchsorted(edges[0], X[:, 0], side="right")
     Kx0 = int(binned0.max()) + 1
     assert Kx0 == 1, (

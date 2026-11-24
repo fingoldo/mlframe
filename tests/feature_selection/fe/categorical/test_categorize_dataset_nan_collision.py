@@ -1,8 +1,8 @@
 """Wave 9.1 loop-iter-9 regression: ``categorize_dataset`` NaN bin code
-MUST NOT collide with real-data bins under any ``nbins_strategy``.
+MUST NOT collide with real-data bins under any binning.
 
 Pre-fix: the NaN-bin code was hardcoded to the constructor ``n_bins``
-argument (default 4), but the adaptive ``nbins_strategy`` branch
+argument (default 4), but the adaptive per-column binning branch
 produces per-column bin counts that often exceed 4 (e.g. Freedman-
 Diaconis gives ~22 bins for N(0,1) at n=600). So NaN observations got
 written to bin index 4 - the same index a regular real-data row landed
@@ -22,10 +22,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+from tests.feature_selection.binning_cases import binning_spec
 
 # Strategies whose per-column nbins commonly exceeds ctor n_bins=4 and
 # therefore trigger the collision pre-fix.
-COLLIDING_STRATEGIES = ["freedman_diaconis", "sturges", "quantile_spacing"]
+COLLIDING_STRATEGIES = ["freedman_diaconis", "sturges", "rice_capped"]
 
 
 @pytest.mark.parametrize("strategy", COLLIDING_STRATEGIES)
@@ -44,7 +45,7 @@ def test_nan_code_does_not_collide_with_real_data_bins(strategy):
         n_bins=4,
         dtype=np.int16,
         missing_strategy="separate_bin",
-        nbins_strategy=strategy,
+        binning=binning_spec(strategy),
     )
     codes = data[:, cols.index("x")]
     real_codes = {int(c) for c in codes[~np.isnan(x)]}
@@ -76,7 +77,7 @@ def test_nan_code_is_one_past_max_real_code(strategy):
         n_bins=4,
         dtype=np.int16,
         missing_strategy="separate_bin",
-        nbins_strategy=strategy,
+        binning=binning_spec(strategy),
     )
     codes = data[:, cols.index("x")]
     max_real = int(codes[~np.isnan(x)].max())
@@ -85,7 +86,7 @@ def test_nan_code_is_one_past_max_real_code(strategy):
 
 
 def test_non_adaptive_path_unchanged():
-    """Negative control: the non-adaptive path (no ``nbins_strategy``)
+    """Negative control: the non-adaptive path (no per-column ``binning``)
     still uses the ctor ``n_bins`` as NaN code, matching pre-fix behaviour
     on this branch.
     """
@@ -111,7 +112,7 @@ def test_non_adaptive_path_unchanged():
                 n_bins=n_bins,
                 dtype=np.int16,
                 missing_strategy="separate_bin",
-                nbins_strategy=None,  # legacy uniform path
+                # legacy uniform path
             )
             codes = data[:, cols.index("x")]
             real_codes = {int(c) for c in codes[~np.isnan(xx)]}

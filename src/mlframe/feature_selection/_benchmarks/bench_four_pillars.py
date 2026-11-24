@@ -79,7 +79,7 @@ def _noise_case(kind: str, target: str, strategy):
     X = _frame(kind, seed)
     rng = np.random.default_rng(seed + 1000)
     y = (rng.random(N) > 0.5).astype(np.int64) if target == "binary" else rng.normal(size=N)
-    sel, dt = _fit(X, y, random_state=0, n_jobs=1, nbins_strategy=strategy)
+    sel, dt = _fit(X, y, random_state=0, n_jobs=1, **({"binning_scheme": strategy} if strategy else {"binning_scheme": "quantile", "nbins_rule": "fixed"}))
     ok = getattr(sel, "no_significant_features_", False) is True
     return ok, dt, list(sel.get_feature_names_out())
 

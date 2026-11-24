@@ -104,7 +104,7 @@ class ScreenContext:
     partial_gains: dict = field(default_factory=dict)
     added_candidates: set = field(default_factory=set)
     failed_candidates: set = field(default_factory=set)
-    # Supervised binning (``nbins_strategy`` mdlp family): the production categorisation re-run on a row-permuted target, the full
+    # Supervised binning (``binning_scheme`` mdlp family): the production categorisation re-run on a row-permuted target, the full
     # factor matrix the observed codes were fitted on, and the screen's evaluation rows. ``None`` keeps the fixed-codes permutation null.
     honest_null_codes_fn: object = None
     honest_full_factors: object = None

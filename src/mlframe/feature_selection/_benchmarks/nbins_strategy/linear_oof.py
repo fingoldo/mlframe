@@ -29,12 +29,13 @@ import warnings
 
 import numpy as np
 import pandas as pd
+from mlframe.feature_selection._benchmarks.binning_label import binning_params
 
 warnings.simplefilter("ignore")
 for _k, _v in {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_VRAM_F32": "1", "MLFRAME_FE_GPU_DISCRETIZE": "1", "MLFRAME_FE_GPU_BINNING": "1"}.items():
     os.environ.setdefault(_k, _v)
 
-DEFAULT_STRATEGIES = "mdlp,mdlp_validated,optimal_joint,mah,sturges,freedman_diaconis,quantile_spacing,uniform"
+DEFAULT_STRATEGIES = "mdlp,mdlp_validated,optimal_joint,mah,sturges,freedman_diaconis,quantile,uniform"
 TRUE_SOURCES = frozenset(range(5))
 BINARY_METRICS = ("auc", "logloss", "acc", "brier")
 REGRESSION_METRICS = ("r2", "rmse", "mae")
@@ -143,7 +144,7 @@ def strategy_row(strategy: str, X: pd.DataFrame, y: pd.Series, folds: list, targ
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     kwargs = F.all_families_kwargs()
-    kwargs["nbins_strategy"] = strategy
+    kwargs.update(binning_params(strategy))
     kwargs.update(extra or {})
     oof = np.full(len(y), np.nan)
     chosen, walls, recoveries = [], [], []

@@ -965,7 +965,7 @@ class TestLayer44_LegacyPinByteIdentity:
             dcd_cluster_size_threshold=2,
             dcd_swap_method=method,
             full_npermutations=20,
-            nbins_strategy="mdlp",  # the pooled component beats the anchor only on the supervised bins this test was written for; the default is sturges since 2026-11-23
+            binning_scheme="mdlp",  # the pooled component beats the anchor only on the supervised bins this test was written for; the default is sturges since 2026-11-23
             fe_max_steps=0,  # isolates the DCD swap: with feature engineering on, the SIR direction over the duplicate group and the hinge legs take the cluster first and the swap never happens
             verbose=0,
             random_seed=0,

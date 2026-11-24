@@ -29,11 +29,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from mlframe.feature_selection._benchmarks.binning_label import edge_params
 from mlframe.feature_selection.filters._adaptive_nbins import (
     per_feature_edges,
     _plug_in_mi,
     edges_freedman_diaconis,
-    edges_qs,
+    edges_partition,
 )
 from mlframe.feature_selection.filters._ksg import mixed_ksg_mi, ksg_lnc_mi
 from mlframe.feature_selection.filters._mi_aggregator import (
@@ -55,7 +56,7 @@ def _score_binning(x_tr, y_tr, x_va, y_va, method: str, miller_madow: bool, **me
     if method == "quantile10":
         edges = _legacy_quantile_edges(x_tr, n_bins=10)
     else:
-        edges_list = per_feature_edges(X_tr, y_tr, method=method, **method_kwargs)
+        edges_list = per_feature_edges(X_tr, y_tr, **edge_params(method), **method_kwargs)
         edges = edges_list[0]
     val_b = _bin_with_edges(x_va, edges)
     return _plug_in_mi(val_b, y_va.astype(np.int64), miller_madow=miller_madow), int(edges.size + 1)
@@ -105,7 +106,7 @@ def _panel_fd(a, b):
 
 
 def _panel_qs(a, b):
-    e = edges_qs(a)
+    e = edges_partition(a, "quantile", "rice_capped")
     bb = np.searchsorted(e, a.astype(np.float64), side="right")
     return _plug_in_mi(bb, b.astype(np.int64), miller_madow=True)
 
@@ -130,8 +131,8 @@ BINNING_KWARGS = {
     "quantile10": {},
     "sturges": {},
     "freedman_diaconis": {},
-    "quantile_spacing": {},
-    "knuth": {"knuth_edge_type": "quantile", "knuth_m_max_cap": 64},
+    "rice_capped": {},
+    "knuth": {},
     "bayesian_blocks": {"bb_edge_placement": "midpoint", "p0": 0.10, "bb_subsample_threshold": 1000},
     "mdlp": {"mdlp_backend": "njit", "mdlp_scaled_min_split": True},
     "optimal_joint": {},
@@ -148,7 +149,7 @@ def _binning_scorer(method: str, kw: Dict[str, Any], *, miller_madow: bool) -> C
 # same _score_binning; KSG / MINE / fastMI / aggregator each have their own.
 def _make_scorers() -> Dict[str, Callable]:
     scorers: Dict[str, Callable] = {}
-    for method in ["quantile10", "sturges", "freedman_diaconis", "quantile_spacing", "knuth", "bayesian_blocks", "mdlp", "optimal_joint"]:
+    for method in ["quantile10", "sturges", "freedman_diaconis", "rice_capped", "knuth", "bayesian_blocks", "mdlp", "optimal_joint"]:
         kw = BINNING_KWARGS[method]
         scorers[f"{method}_w1fixes"] = _binning_scorer(method, kw, miller_madow=True)
         # Also include the no-MM legacy for reference on the same row.

@@ -17,7 +17,7 @@ from typing import Any, Callable, Optional
 import numpy as np
 
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
-from mlframe.feature_selection.filters._nbins_strategy_names import SUPERVISED_NBINS_STRATEGIES
+from mlframe.feature_selection.filters._binning_spec import SUPERVISED_SCHEMES
 from mlframe.feature_selection.filters.discretization._quantile_radix import quantiles_of_sorted, sorted_unique_with_counts
 from mlframe.feature_selection.filters.discretization.shared import unique_with_counts
 
@@ -25,7 +25,7 @@ logger = logging.getLogger("mlframe.feature_selection.filters._adaptive_nbins")
 
 __all__ = ["compute_col_edges", "clear_edge_memo"]
 
-_SUPERVISED_METHODS = SUPERVISED_NBINS_STRATEGIES
+_SUPERVISED_METHODS = SUPERVISED_SCHEMES
 
 
 def _an() -> Any:
@@ -68,7 +68,7 @@ def _fayyad_irani(col: np.ndarray, y: Optional[np.ndarray], base: str, kwargs: d
         # Validated (significance-gated) splitting is now the DEFAULT
         # (accuracy over speed per project convention - see supervised_binning.py's
         # mdlp_bin_edges docstring for the full A/B). Pass mdlp_fast_mode=True (e.g.
-        # MRMR(nbins_strategy_kwargs={"mdlp_fast_mode": True})) to opt back into the
+        # MRMR(binning_kwargs={"mdlp_fast_mode": True})) to opt back into the
         # cheap depth-capped classic path for a specific run.
         fast_mode=kwargs.get("mdlp_fast_mode", False),
         alpha=kwargs.get("mdlp_alpha", 0.05),
@@ -113,27 +113,10 @@ def _optimal_joint(col: np.ndarray, y: Optional[np.ndarray], base: str, kwargs: 
     )
 
 
-def _sturges(col: np.ndarray, y: Optional[np.ndarray], base: str, kwargs: dict) -> Any:
-    """Sturges-rule edges on the requested ``base`` (quantile or uniform)."""
-    return _an().edges_sturges(col, base=base)
-
-
-def _freedman_diaconis(col: np.ndarray, y: Optional[np.ndarray], base: str, kwargs: dict) -> Any:
-    """Freedman-Diaconis-rule edges on the requested ``base``, capped at ``max_adaptive_nbins`` bins."""
-    return _an().edges_freedman_diaconis(col, base=base, max_bins=kwargs.get("max_adaptive_nbins", _an().MAX_ADAPTIVE_NBINS))
-
-
-def _qs(col: np.ndarray, y: Optional[np.ndarray], base: str, kwargs: dict) -> Any:
-    """Quantile-spacing edges with the ``qs_alpha`` smoothing."""
-    return _an().edges_qs(col, alpha=kwargs.get("qs_alpha", 0.30))
-
-
-def _knuth(col: np.ndarray, y: Optional[np.ndarray], base: str, kwargs: dict) -> Any:
-    """Knuth's optimal-bin-count edges."""
-    return _an().edges_knuth(
-        col,
-        edge_type=kwargs.get("knuth_edge_type", "uniform"),
-        m_max_cap=kwargs.get("knuth_m_max_cap", kwargs.get("max_adaptive_nbins", _an().MAX_ADAPTIVE_NBINS)),
+def _partition(col: np.ndarray, y: Optional[np.ndarray], base: str, kwargs: dict) -> Any:
+    """Edges of the ``quantile`` / ``uniform`` schemes with the bin count of ``count_rule`` capped at ``nbins_cap``."""
+    return _an().edges_partition(
+        col, kwargs["partition"], kwargs["count_rule"], cap=kwargs.get("nbins_cap", _an().DEFAULT_NBINS_CAP), fixed_nbins=kwargs.get("fixed_nbins", 10), alpha=kwargs.get("qs_alpha", 0.30),
     )
 
 
@@ -148,21 +131,11 @@ def _bayesian_blocks(col: np.ndarray, y: Optional[np.ndarray], base: str, kwargs
     )
 
 
-def _uniform(col: np.ndarray, y: Optional[np.ndarray], base: str, kwargs: dict) -> Any:
-    """Uniform-width edges with the Freedman-Diaconis bin count (capped at ``max_adaptive_nbins``)."""
-    mod = _an()
-    return mod.edges_uniform(col, n_bins=mod.freedman_diaconis_nbins(col, max_bins=kwargs.get("max_adaptive_nbins", mod.MAX_ADAPTIVE_NBINS)))
-
-
 _EDGE_BUILDERS: dict[str, Callable[[np.ndarray, Optional[np.ndarray], str, dict], Any]] = {
-    "sturges": _sturges,
-    "freedman_diaconis": _freedman_diaconis,
-    "quantile_spacing": _qs,
-    "knuth": _knuth,
+    "partition": _partition,
     "bayesian_blocks": _bayesian_blocks,
     "mdlp": _fayyad_irani,
     "mdlp_validated": _fayyad_irani_validated,
-    "uniform": _uniform,
     "mah": _mah,
     "optimal_joint": _optimal_joint,
 }
@@ -222,7 +195,7 @@ def _sparse_dominance_edges(edges: Any, finite: np.ndarray, uniq: np.ndarray, un
     fallback ALSO collapses: every quantile lands at the dominant
     value, np.unique dedups to 1-2 edges, and the resulting 1-bin
     column produces MI=0 with y. This silently kills sparse-token
-    signal (Layer 20 finding: nbins_strategy='mdlp' default + 95%-
+    signal (Layer 20 finding: binning_scheme='mdlp' default + 95%-
     zero token columns -> screening returns fallback_used_=True
     with support=['tok_0']). Detect the sparse-dominance pattern
     explicitly and split into a separate-bin for the dominant

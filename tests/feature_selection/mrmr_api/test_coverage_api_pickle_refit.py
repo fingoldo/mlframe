@@ -78,7 +78,7 @@ def test_pickle_state_missing_params_refits_and_keeps_legacy_override():
     m = _fast(random_seed=3).fit(X, y)
 
     state = m.__getstate__()
-    for k in ("fe_wavelet_enable", "dtype", "mrmr_identity_cache_ycorr_threshold", "nbins_strategy", "bur_lambda", "fe_kfold_te_enable"):
+    for k in ("fe_wavelet_enable", "dtype", "mrmr_identity_cache_ycorr_threshold", "binning_scheme", "bur_lambda", "fe_kfold_te_enable"):
         state.pop(k, None)
 
     restored = MRMR.__new__(MRMR)

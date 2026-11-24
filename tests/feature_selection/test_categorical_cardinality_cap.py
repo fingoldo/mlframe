@@ -13,6 +13,7 @@ import pandas as pd
 
 from mlframe.feature_selection.filters.discretization import cap_categorical_cardinality
 from mlframe.feature_selection.filters.mrmr import MRMR
+from mlframe.feature_selection.filters._binning_spec import make_binning_spec
 
 
 def test_cap_is_noop_below_cap_and_bounds_above():
@@ -61,10 +62,10 @@ def test_numeric_mdlp_bins_bounded_by_max_depth():
     X = pd.DataFrame({"smooth": np.linspace(0, 10, n) + rng.normal(0, 0.05, n)})
     y = (X["smooth"] * 2 + 0.3 * rng.normal(size=n)).values
     _, _, nb_deep = categorize_dataset(
-        df=X, method="quantile", n_bins=10, nbins_strategy="mdlp", nbins_strategy_kwargs={"max_depth": 8}, y_for_strategy=y, dtype=np.int32
+        df=X, method="quantile", n_bins=10, binning=make_binning_spec("mdlp", warn=False), binning_kwargs={"max_depth": 8}, y_for_strategy=y, dtype=np.int32
     )
     _, _, nb_shallow = categorize_dataset(
-        df=X, method="quantile", n_bins=10, nbins_strategy="mdlp", nbins_strategy_kwargs={"max_depth": 3}, y_for_strategy=y, dtype=np.int32
+        df=X, method="quantile", n_bins=10, binning=make_binning_spec("mdlp", warn=False), binning_kwargs={"max_depth": 3}, y_for_strategy=y, dtype=np.int32
     )
     assert int(nb_deep[0]) > 16, "informative numeric should get many MDLP bins at depth 8"
     assert int(nb_shallow[0]) <= 8, "max_depth=3 must bound numeric bins to <= 2**3"

@@ -33,6 +33,8 @@ from sklearn.model_selection import BaseCrossValidator
 # Top-level helpers (histogram + fingerprint/hash + replay + chunker) live in
 # ``_mrmr_fingerprints.py``; re-imported below so the parent module and
 # downstream callers continue to resolve historical names.
+from .._binning_spec import BINNING_SCHEMES, NBINS_RULES
+
 # Pure-data constants carved out of this module (no class refs -> safe top-level import):
 # the constructor-param validation allow-lists and the legacy-pickle default-injection roster.
 from ._mrmr_param_constants import (
@@ -41,11 +43,9 @@ from ._mrmr_param_constants import (
     _VALID_CATEGORICAL_FOLD_STRATEGIES,
     _VALID_MRMR_RELEVANCE_ALGOS,
     _VALID_MRMR_REDUNDANCY_ALGOS,
-    _VALID_NBINS_STRATEGIES,
     _VALID_MI_CORRECTIONS,
     _VALID_REDUNDANCY_AGGREGATORS,
     _VALID_STABILITY_SELECTION_METHODS,
-    _DEMOTED_NBINS_STRATEGIES,
     _VALID_FE_UNARY_PRESETS,
     _VALID_FE_BINARY_PRESETS,
     _VALID_CLUSTER_AGGREGATE_MODES,
@@ -378,36 +378,38 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # the permutation null refolds it for every permuted target. The mapping is decided per frame.
         categorical_fold_strategy: str = "frequency",
         categorical_fold_min_support: int = 5,
-        # per-feature adaptive bin chooser. Default ``'quantile_spacing'`` (the owner's choice of 2026-11-23): it depends on the column only, never on the target, so a suite of targets bins each column once
-        # and the composite child fit can reuse the codes. Its bin count follows the row count: ``min(round(0.3 n), round(2 n^(1/3)))`` clamped to [3, 48] (20 at 1000 rows, 36 at 6000, 48 from about 13800; the cap measured 2026-11-23: 100000 x 100 ALL wall 50.3 s at 64 against 37.1 s at 48; out-of-fold 80000 x 50 binary AUC 0.9491 at 64, 0.9507 at 48, 0.9305 at 32 where one fold failed). It was
-        # briefly replaced by ``sturges`` the same day, by the assistant and not on the owner's decision, because the old rule ``round(0.3 n)`` gave 64 bins at EVERY n from 214 up and lost a categorical interaction
-        # in a 6000-row frame with 120 noise columns (3 of 3 seeds); with the rule above it is kept (3 of 3, as ``sturges``, ``uniform``, ``mdlp`` and ``optimal_joint`` do; ``freedman_diaconis`` loses it). Measured on
-        # 20000 x 50 out of fold (``_benchmarks/nbins_strategy``, the old rule): binary AUC 0.951 against 0.950 for ``sturges``, regression R2 0.888 against 0.886, wall 21 s against 23 s per fold; ``mdlp`` has the best
-        # ground-truth F1 (0.73) at about twice the wall. Pass ``nbins_strategy=None`` to restore the earlier fixed ``quantization_nbins`` quantile behaviour. The MRMR hot path stays exclusively on the plug-in MI
-        # njit kernel chain (mi_direct / fleuret / permutation); alternative MI estimator families live in their own modules and are NOT wired into MRMR.fit().
-        nbins_strategy: str = "quantile_spacing",
-        # ``nbins_strategy='mdlp'`` runs significance-gated ("validated")
+        # How a numeric column is binned: the PARTITION (``binning_scheme``), the COUNT RULE (``nbins_rule``) and a cap on the count (``nbins_cap``); see ``_binning_spec`` for every value.
+        # Default: equal-frequency bins (``quantile``) with the ``rice_capped`` count, ``min(round(0.3 n), round(2 n^(1/3)), nbins_cap)`` (20 at 1000 rows, 36 at 6000, 48 from about 13800). A target-independent
+        # scheme bins each column once per frame, so a suite of targets re-uses the codes. ``nbins_rule=None`` takes the scheme's own rule (``rice_capped`` for ``quantile``, ``freedman_diaconis`` for ``uniform``);
+        # the supervised schemes (``mdlp``, ``mdlp_validated``, ``optimal_joint``, ``mah``) and ``bayesian_blocks`` pick their own count and reject a rule. ``nbins_rule='fixed'`` bins every column into exactly
+        # ``quantization_nbins`` bins (the discretiser of the FE operands). Measured 2026-11-23 on the default rule: 100000 x 100 with every family, wall 50.3 s at ``nbins_cap=64`` against 37.1 s at 48; out-of-fold
+        # 80000 x 50 binary AUC 0.9491 at 64, 0.9507 at 48, 0.9305 at 32 (one fold failed); ``mdlp`` has the best ground-truth F1 (0.73) at about twice the wall. The MRMR hot path stays exclusively on the plug-in
+        # MI njit kernel chain (mi_direct / fleuret / permutation); alternative MI estimator families live in their own modules and are NOT wired into MRMR.fit().
+        binning_scheme: str = "quantile",
+        nbins_rule: str | None = None,
+        nbins_cap: int = 48,
+        # ``binning_scheme='mdlp'`` runs significance-gated ("validated")
         # splitting by DEFAULT instead of the classic in-sample MDL threshold + depth cap -
         # measured real accuracy win on held-out RMSE (see supervised_binning.py's
         # ``mdlp_bin_edges`` docstring) at a 20-80x per-column cost. Pass
-        # ``nbins_strategy_kwargs={"mdlp_fast_mode": True}`` to opt back into the cheap
+        # ``binning_kwargs={"mdlp_fast_mode": True}`` to opt back into the cheap
         # classic path for a specific run where wall-time matters more (e.g. a quick
         # exploratory fit); other recognised keys: ``mdlp_alpha``, ``mdlp_n_permutations``,
         # ``mdlp_bonferroni``, ``mdlp_max_y_classes``, ``mdlp_backend``, ``mdlp_scaled_min_split``.
-        nbins_strategy_kwargs: dict | None = None,
-        # Shared per-column bin-count ceiling applied to every adaptive strategy whose own formula
-        # has no natural upper bound (knuth, bayesian_blocks, freedman_diaconis) - see
+        binning_kwargs: dict | None = None,
+        # Shared per-column bin-count ceiling applied to every scheme whose own formula
+        # has no natural upper bound (bayesian_blocks, mah, optimal_joint; the count rules of the quantile / uniform schemes use ``nbins_cap``) - see
         # ``_adaptive_nbins.MAX_ADAPTIVE_NBINS``. 127 is the largest code a signed int8 holds: with the default ``max_categorical_cardinality=127`` (which also bounds MDLP's recursion depth at 6, so at most 64
         # intervals) every column's codes stay in int8, one byte a cell, and every strategy answers "how many bins can one column produce" the same way by default. Lower it (e.g. 64) to bound downstream pairwise-MI cost
         # further on very wide / high-row-count real data; per-method overrides
-        # (``nbins_strategy_kwargs={"knuth_m_max_cap": ..., "bb_m_max_cap": ...}``) still win when set.
+        # (``binning_kwargs={"bb_m_max_cap": ...}``) still win when set.
         max_adaptive_nbins: int = 127,
         # Large-n REGRESSION adaptive quantization gate. On a large-n regression target the supervised MDLP per-feature binning
         # under-resolves a heavy-tailed continuous y: the 180-cell large-n MRMR campaign (reg n=100k, 15 seeds) measured a 15/15
         # paired win for fixed 20-bin quantile over MDLP - holdout R2 0.597 vs 0.481 (+0.116, std 0.0025) and F1 0.909 vs 0.667
         # (+0.242, std 0.0). The same fixed-20 path LOST at reg n=20k (holdout -0.143) and at classification (clf n=20k holdout
         # -0.052; clf n=100k exact tie), so the win is regime-specific, not a blanket flip. This knob gates the campaign-winner
-        # config (nbins_strategy=None, quantization_nbins=20) ON exactly where it wins: detected regression AND n_rows >= the
+        # config (binning_scheme='quantile', nbins_rule='fixed', quantization_nbins=20) ON exactly where it wins: detected regression AND n_rows >= the
         # threshold below, ONLY when the user left both quantization params at their constructor defaults (explicit user values
         # are never overridden). Set to False to keep MDLP everywhere (previous behaviour); set the threshold to retune.
         adaptive_nbins_large_n_reg: bool = True,
@@ -3281,11 +3283,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
     _VALID_CATEGORICAL_FOLD_STRATEGIES = _VALID_CATEGORICAL_FOLD_STRATEGIES
     _VALID_MRMR_RELEVANCE_ALGOS = _VALID_MRMR_RELEVANCE_ALGOS
     _VALID_MRMR_REDUNDANCY_ALGOS = _VALID_MRMR_REDUNDANCY_ALGOS
-    _VALID_NBINS_STRATEGIES = _VALID_NBINS_STRATEGIES
+    _VALID_BINNING_SCHEMES = BINNING_SCHEMES
+    _VALID_NBINS_RULES = (None, *NBINS_RULES)
     _VALID_MI_CORRECTIONS = _VALID_MI_CORRECTIONS
     _VALID_REDUNDANCY_AGGREGATORS = _VALID_REDUNDANCY_AGGREGATORS
     _VALID_STABILITY_SELECTION_METHODS = _VALID_STABILITY_SELECTION_METHODS
-    _DEMOTED_NBINS_STRATEGIES = _DEMOTED_NBINS_STRATEGIES
     _VALID_FE_UNARY_PRESETS = _VALID_FE_UNARY_PRESETS
     _VALID_FE_BINARY_PRESETS = _VALID_FE_BINARY_PRESETS
     _VALID_CLUSTER_AGGREGATE_MODES = _VALID_CLUSTER_AGGREGATE_MODES
@@ -3564,7 +3566,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             # hardcoded literals: an inner fit must leave an outer fit's toggles intact. Mirrors the
             # _prev_* restore in _evaluation_driver.py's worker path.
             self._fit_body_step2_prev_restore_evaluation(
-                st._toggles_snapshot, st, st._orig_cluster_aggregate_enable, st._orig_nbins_strategy, st._orig_quantization_nbins, _fe_auto_restore
+                st._toggles_snapshot, st, st._orig_cluster_aggregate_enable, st._orig_binning, st._orig_quantization_nbins, _fe_auto_restore
             )
 
     def _fit_body_constructor_arg_semantics_stay(self, X, y, _fe_auto_restore):

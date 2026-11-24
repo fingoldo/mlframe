@@ -11,7 +11,7 @@ This raw int64 cast crashed with::
 
 on any classifier user passing string labels (the standard sklearn
 convention) or pandas Categorical (LabelEncoder / .astype('category')
-output). MRMR's default ``nbins_strategy="mdlp"`` makes this the
+output). MRMR's default ``binning_scheme="mdlp"`` makes this the
 production path, so default config crashed on string y.
 
 Error pointed into MDLP internals, not into y dtype, so caller

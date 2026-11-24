@@ -14,6 +14,7 @@ import time
 import numpy as np
 from mlframe.feature_engineering._safe_ratio import safe_div
 import pandas as pd
+from mlframe.feature_selection.filters._binning_spec import make_binning_spec
 
 
 def _bspline_basis_values_ref(z, knots, idx, degree=3):
@@ -158,7 +159,7 @@ def bench_categorize_dataset_adaptive_searchsorted():
 
     cast(Any, _adaptive_nbins_mod).per_feature_edges = _capture
     t0 = time.perf_counter()
-    categorize_dataset(df, nbins_strategy="fd", missing_strategy="separate_bin", dtype=np.int32)
+    categorize_dataset(df, binning=make_binning_spec("quantile", "freedman_diaconis", warn=False), missing_strategy="separate_bin", dtype=np.int32)
     t_new_full = time.perf_counter() - t0
     _adaptive_nbins_mod.per_feature_edges = orig_pfe
 

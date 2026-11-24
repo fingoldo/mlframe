@@ -66,25 +66,11 @@ def _validate_dcd_params(self):
         )
 
 
-def _warn_demoted_nbins_strategy(self):
-    """AccuracyWarning for a demoted nbins_strategy option."""
-    _demoted = getattr(self, "_DEMOTED_NBINS_STRATEGIES", ())
-    _nbins_strat = getattr(self, "nbins_strategy", None)
-    if _nbins_strat in _demoted:
-        import warnings as _w
-        _w.warn(
-            f"MRMR: nbins_strategy={_nbins_strat!r} is DEMOTED to research-only. "
-            f"F1-bench honest ranking by ``|err vs truth| + noise_floor`` "
-            f"places these demoted methods last: Knuth (combined 0.213), "
-            f"Bayesian Blocks (0.233), MAH/SCI (0.373, collapses to ~2 bins). "
-            f"Recommended: 'mdlp' (combined 0.107, only TRUE zero noise floor) "
-            f"for balanced production use; 'quantile_spacing' (signal err 0.093 best, but "
-            f"noise floor 0.123 inflates false positives) when no-signal "
-            f"columns are absent. Opt-out via ``warnings.filterwarnings('ignore', "
-            f"category=UserWarning, module='mlframe.feature_selection.filters')``.",
-            UserWarning,
-            stacklevel=4,
-        )
+def _validate_binning(self):
+    """Validate ``binning_scheme`` x ``nbins_rule`` x ``nbins_cap`` (``ValueError`` on an unknown value, a rule given to a scheme that picks its own count, or a cap below 3); warn for a research-only choice."""
+    from mlframe.feature_selection.filters._binning_spec import make_binning_spec
+
+    make_binning_spec(getattr(self, "binning_scheme", "quantile"), getattr(self, "nbins_rule", None), getattr(self, "nbins_cap", 48), getattr(self, "quantization_nbins", 10), warn=True)
 
 
 def _validate_default_scorer(self):
@@ -153,7 +139,6 @@ def _validate_string_params(self):
         ("fe_unary_preset", self._VALID_FE_UNARY_PRESETS),
         ("fe_binary_preset", self._VALID_FE_BINARY_PRESETS),
         ("cluster_aggregate_mode", self._VALID_CLUSTER_AGGREGATE_MODES),
-        ("nbins_strategy", self._VALID_NBINS_STRATEGIES),
         ("mi_correction", self._VALID_MI_CORRECTIONS),
         ("redundancy_aggregator", self._VALID_REDUNDANCY_AGGREGATORS),
         ("stability_selection_method", self._VALID_STABILITY_SELECTION_METHODS),
@@ -166,7 +151,7 @@ def _validate_string_params(self):
         ("additional_rfecv_selection_rule", self._VALID_RFECV_SELECTION_RULES),
     )
     _validate_dcd_params(self)
-    _warn_demoted_nbins_strategy(self)
+    _validate_binning(self)
     for _name, _valid in _checks:
         _val = getattr(self, _name, None)
         if _val is None:
@@ -176,10 +161,6 @@ def _validate_string_params(self):
         if not isinstance(_val, str):
             raise ValueError(f"MRMR: {_name} must be a string; got {type(_val).__name__}={_val!r}. " f"Valid values: {_valid}.")
         if _val not in _valid:
-            if _name == "nbins_strategy":
-                from mlframe.feature_selection.filters._nbins_strategy_names import unknown_nbins_strategy_message
-
-                raise ValueError(f"MRMR: {unknown_nbins_strategy_message(_val)}.")
             raise ValueError(f"MRMR: {_name}={_val!r} is not a recognised value. " f"Valid values: {_valid}.")
     _validate_categorical_fold(self)
     _validate_default_scorer(self)

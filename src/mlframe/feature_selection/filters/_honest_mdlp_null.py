@@ -418,7 +418,7 @@ def honest_fdr_floor(
 
     if int(n_permutations) >= 4 and os.environ.get("MLFRAME_HONEST_FDR_POOL", "1").strip() != "0":
         # The permutations are independent (each re-bins the pool under its own seeded target; the binner and its plan cache are lock-protected), so they
-        # run on the edge pool and fill the vector by index - the serial values. With nbins_strategy=optimal_joint the serial loop was 53 of the 121 s of a
+        # run on the edge pool and fill the vector by index - the serial values. With binning_scheme=optimal_joint the serial loop was 53 of the 121 s of a
         # 30000-row all-families fit, one core busy.
         nulls[0] = one(0)  # on this thread first: compiles the kernels and fills the binner's plans once
         from ._edge_pool import map_on_edge_pool

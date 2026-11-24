@@ -23,6 +23,7 @@ TARGET KINDS (2026-11-22, `bench_target_strategy_matrix.py 20000 20`, mdlp, one 
     and the default-on target-mix second pass fitted two child MRMRs: now `fe_target_mix_candidates=False`). `support_` lists raw columns only, so a fit that selects engineered columns can show 0 selected.
 Wall times on this machine spread by up to 50 % between runs of one code state; read differences below about 15 % as noise unless several fits per side were taken.
 """
+from mlframe.feature_selection._benchmarks.binning_label import binning_params
 from typing import Any
 import os
 import sys
@@ -47,7 +48,7 @@ if mode == "all":
     from mlframe.feature_selection._benchmarks.profiling import family_scale as F
 
     kwargs = F.all_families_kwargs()
-    kwargs["nbins_strategy"] = os.environ.get("BENCH_NBINS", "mdlp")
+    kwargs.update(binning_params(os.environ.get("BENCH_NBINS", "mdlp")))
     if os.environ.get("BENCH_QDTYPE"):  # e.g. int16 / int8: A/B of the codes-matrix width
         kwargs["quantization_dtype"] = getattr(np, os.environ["BENCH_QDTYPE"])
 else:

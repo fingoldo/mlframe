@@ -227,15 +227,16 @@ def test_validate_string_params_rejects_none_for_params_without_none_sentinel():
 
 
 def test_validate_string_params_still_allows_none_where_it_is_a_real_sentinel():
-    """MRMR-6 regression guard: params whose allow-list legitimately contains None (nbins_strategy,
+    """MRMR-6 regression guard: params whose allow-list legitimately contains None (nbins_rule,
     redundancy_aggregator) must NOT start raising after the fix -- None stays a valid sentinel there."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
-    est = MRMR(nbins_strategy=None, redundancy_aggregator=None, random_state=0, n_workers=1, verbose=0)
+    est = MRMR(binning_scheme="quantile", nbins_rule="fixed", redundancy_aggregator=None, random_state=0, n_workers=1, verbose=0)
     assert est._validate_string_params() is None
-    assert est.nbins_strategy is None and est.redundancy_aggregator is None
-    with pytest.raises(ValueError, match="nbins_strategy='bogus' is not a recognised value"):
-        MRMR(nbins_strategy="bogus")._validate_string_params()
+    assert est.nbins_rule == "fixed" and est.redundancy_aggregator is None
+    assert MRMR(nbins_rule=None, verbose=0)._validate_string_params() is None  # None resolves to the scheme's own rule
+    with pytest.raises(ValueError, match="unknown binning_scheme='bogus'"):
+        MRMR(binning_scheme="bogus")._validate_string_params()
 
 
 def test_adaptive_arity_multileg_recipes_freeze_preprocess_params():

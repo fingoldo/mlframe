@@ -134,7 +134,7 @@ def _build_tfidf_like(seed: int, n: int = 1_500, p: int = 100, sparsity: float =
     every column with < ~80 non-zero rows into a single bin -> H(X)=0
     -> MI=0, even when sklearn's KSG MI clearly identifies the same
     column as the strongest signal in the matrix (MI ~ 0.09 nats on
-    seed=13). The Layer-20 sparse contract uses ``nbins_strategy=None``
+    seed=13). The Layer-20 sparse contract uses ``nbins_rule='fixed'``
     (legacy fixed quantile binning) to bypass this MDLP regression on
     sparse columns. A separate test class
     (``TestMdlpSparseRegression``) pins the bug explicitly so the
@@ -256,8 +256,8 @@ def _sparse_default_fit(seed: int):
     ``test_sparse_does_not_crash``, ``test_sparse_recovers_at_least_one_token``,
     ``test_sparse_support_stays_bounded`` (all default-config), and
     ``test_mdlp_recovers_sparse_signal_under_default`` (explicit
-    ``nbins_strategy="mdlp"``, which IS the MRMR default -- see
-    ``_mrmr_class.py``'s ``nbins_strategy: str = "mdlp"``) all fit the
+    ``binning_scheme="mdlp"``, which IS the MRMR default -- see
+    ``_mrmr_class.py``'s ``binning_scheme: str = "mdlp"``) all fit the
     IDENTICAL config on the identical (seed, p=100) frame. Nothing
     downstream mutates X/y/sel in place.
     """
@@ -315,7 +315,7 @@ class TestEmbeddingLikeP200Scales:
 
 class TestTfIdfSparseHandled:
     """~90% zeros per column; signal lives on 2 specific tokens. Uses
-    PRODUCTION DEFAULT config (``nbins_strategy='mdlp'``) since the
+    PRODUCTION DEFAULT config (``binning_scheme='mdlp'``) since the
     2026-05-31 sparse-aware secondary fallback in _adaptive_nbins.py:
     when MDLP returns 0 splits AND the unsupervised quantile fallback
     ALSO collapses (every quantile lands at the dominant value), a
@@ -323,7 +323,7 @@ class TestTfIdfSparseHandled:
     + quantile bins on the non-zero subset. Mirrors the
     nan_strategy='separate_bin' pattern.
 
-    The previously workaround used (``nbins_strategy=None,
+    The previously workaround used (``nbins_rule='fixed',
     quantization_method='uniform'``) is no longer needed - the default
     config now correctly surfaces tok_3 / tok_17 on every seed.
     """
@@ -389,7 +389,7 @@ class TestMdlpSparseFixed:
 
     @pytest.mark.parametrize("seed", (13, 42))
     def test_mdlp_recovers_sparse_signal_under_default(self, seed):
-        """Under production default (nbins_strategy='mdlp'), at least
+        """Under production default (binning_scheme='mdlp'), at least
         one of tok_3 / tok_17 must be in support_, AND fallback_used_
         must be False (the sparse-aware path is genuine, not a fallback).
         """

@@ -81,7 +81,7 @@ def _compute_y_binning(y: np.ndarray, K: int) -> tuple[np.ndarray, int]:
     1 each step - an O(rows * K_y^3)-ish blowup. Measured: n=3000, K_y~2000 (int64 target) hangs past 40s
     (pre-fix code, verified via ``timeout 40 python ...`` -> exit 124); this fix keeps it fast because the
     quantile branch caps ``K_y <= K`` (16 by default) regardless of dtype. Any real MRMR user picking
-    ``nbins_strategy='mah'`` with an integer-coded continuous-like target hit this DoS silently
+    ``binning_scheme='mah'`` with an integer-coded continuous-like target hit this DoS silently
     (no error, no warning - the fit just never returns from this column's edge computation).
     """
     uniq_y = np.unique(y)
@@ -146,7 +146,7 @@ def _view_identity(a: np.ndarray, *, allow_writable: bool = False) -> "tuple[obj
     return root, (offset, a.shape, a.strides, a.dtype.str)
 
 
-# X-SIDE PLAN CACHE: the quantile cut points of a column and its bin index depend on the column alone, yet the honest null of a supervised ``nbins_strategy`` asks for the edges of the SAME column under
+# X-SIDE PLAN CACHE: the quantile cut points of a column and its bin index depend on the column alone, yet the honest null of a supervised ``binning_scheme`` asks for the edges of the SAME column under
 # every permutation of the target. Keyed by the content digest of the column and ``K``; bounded (a plan is an int16 vector of the column's length plus a short edge vector).
 _X_PLAN_CACHE: "OrderedDict[tuple, tuple]" = OrderedDict()
 _X_PLAN_CACHE_MAX_ENTRIES = 512
@@ -468,7 +468,7 @@ def _apply_merges_to_edges(initial_inner_edges: np.ndarray, row_merges) -> np.nd
 def mah_bin_edges(x: np.ndarray, y: np.ndarray, *, initial_k: int = 16) -> np.ndarray:
     """Multidimensional Adaptive Histogram bin edges for X (Marx 2021).
 
-    Exposed as a Family-1 ``nbins_strategy`` option.
+    Exposed as a Family-1 ``binning_scheme`` option.
     Returns INNER bin edges suitable for ``np.searchsorted(edges, x, side='right')``.
 
     Pipeline:

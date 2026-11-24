@@ -20,7 +20,7 @@ Covers:
   held-out R^2 (and never degrade the default capture's).
 * ``fourier_adaptive`` prewarp spec replay: closed-form, bit-identical fit/transform for
   both the linear and the quadratic-chirp argument.
-* Target-rebin guard: the adaptive ``nbins_strategy`` (default mdlp) must never leave a
+* Target-rebin guard: the adaptive ``binning_scheme`` (default mdlp) must never leave a
   degenerate self-referential encoding on a heavy-tailed CONTINUOUS target.
 """
 
@@ -361,12 +361,12 @@ def test_escalation_poly_proposer_recovers_smooth_product_term():
 
 
 # ---------------------------------------------------------------------------
-# Target-rebin guard: adaptive nbins_strategy must not degrade a continuous target
+# Target-rebin guard: adaptive binning_scheme must not degrade a continuous target
 # ---------------------------------------------------------------------------
 
 
 def test_target_rebin_guard_fires_on_heavy_tailed_continuous_target(caplog):
-    """A heavy-tailed continuous y under the default ``nbins_strategy='mdlp'`` used to
+    """A heavy-tailed continuous y under the default ``binning_scheme='mdlp'`` used to
     get a degenerate self-referential encoding (37 bins, 84% of rows in ONE bin on the
     F2 fixture) that blinded every downstream MI gate. The guard must re-bin the target
     with the legacy equal-frequency quantile codes (and log that it did)."""
@@ -386,7 +386,7 @@ def test_target_rebin_guard_fires_on_heavy_tailed_continuous_target(caplog):
         sel.fit(df, pd.Series(y, name="y"))
     assert any(
         "target-rebin guard" in r.message for r in caplog.records
-    ), "the target-rebin guard must fire on a heavy-tailed continuous target under the adaptive nbins_strategy default"
+    ), "the target-rebin guard must fire on a heavy-tailed continuous target under the adaptive binning_scheme default"
 
 
 # ---------------------------------------------------------------------------

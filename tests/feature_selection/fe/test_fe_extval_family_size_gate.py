@@ -39,7 +39,7 @@ def _fit_calls(monkeypatch, max_cells):
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     X, y = _frame()
-    MRMR(verbose=0, random_state=0, n_jobs=1, fit_cache_max=0, nbins_strategy=None).fit(X, y)  # fixed quantile bins: the gate mechanism is under test, and the finer bins of quantile_spacing at 3000 rows never reach the over-budget path
+    MRMR(verbose=0, random_state=0, n_jobs=1, fit_cache_max=0, binning_scheme="quantile", nbins_rule="fixed").fit(X, y)  # fixed quantile bins: the gate mechanism is under test, and the finer bins of quantile_spacing at 3000 rows never reach the over-budget path
     return calls
 
 

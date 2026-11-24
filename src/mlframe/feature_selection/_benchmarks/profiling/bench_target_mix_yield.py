@@ -47,7 +47,7 @@ def datasets(rows: int, cols: int) -> dict:
 def run(X: pd.DataFrame, y: np.ndarray, mix: bool) -> dict:
     """One fit with the all-families configuration; the wall, the selection and the mix provenance."""
     kw = F.all_families_kwargs()
-    kw["nbins_strategy"] = "mdlp"
+    kw["binning_scheme"] = "mdlp"
     kw["fe_target_mix_enable"] = mix
     m = MRMR(verbose=0, random_seed=0, n_jobs=1, **kw)
     t0 = time.perf_counter()

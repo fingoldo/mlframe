@@ -1,4 +1,4 @@
-"""Fused honest-null floor for ``nbins_strategy="optimal_joint"``: every permutation inside one numba kernel instead of a Python re-binning per permutation.
+"""Fused honest-null floor for ``binning_scheme="optimal_joint"``: every permutation inside one numba kernel instead of a Python re-binning per permutation.
 
 Per permutation the floor (``_honest_mdlp_null.honest_fdr_floor`` -> ``_honest_perm_best``) re-bins the pool on the permuted target through
 ``PermutedTargetBinner.codes``: the winning candidate bin count of every column from its cached plan (``prescore_best_m``: mean fold MI of each candidate

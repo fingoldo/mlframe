@@ -93,7 +93,7 @@ def main() -> None:
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     kw = F.all_families_kwargs()
-    kw["nbins_strategy"] = "mdlp"
+    kw["binning_scheme"] = "mdlp"
     MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20_000, 30, 1))  # warm-up: compilation stays out of the measured fit
     data = F._make(n, p, 0)
     MRMR._FIT_CACHE.clear()

@@ -21,15 +21,16 @@ import pytest
 
 from mlframe.feature_selection.filters._adaptive_nbins import (
     edges_freedman_diaconis,
-    edges_qs,
     _plug_in_mi,
 )
+from tests.feature_selection.binning_cases import edges_rice_capped
 from mlframe.feature_selection.filters._ksg import mixed_ksg_mi, ksg_lnc_mi
 from mlframe.feature_selection.filters._fastmi import fastmi
 from mlframe.feature_selection.filters._mi_aggregator import (
     median_mi_panel,
     genie_mi_panel,
 )
+from mlframe.feature_selection.filters._binning_spec import make_binning_spec
 
 N_DEFAULT = 2000
 RHO_HIGH = 0.7
@@ -54,7 +55,7 @@ def _fd(x, y):
 
 def _qs(x, y):
     """Bin x via quantile-sturges edges and return the Miller-Madow-corrected plug-in MI with y."""
-    e = edges_qs(x)
+    e = edges_rice_capped(x)
     bb = np.searchsorted(e, x.astype(np.float64), side="right")
     return _plug_in_mi(bb, np.asarray(y).astype(np.int64), miller_madow=True)
 
@@ -173,14 +174,14 @@ class TestNbinsStrategyEndToEnd:
         rng = np.random.default_rng(0)
         n = 500
         X = pd.DataFrame({"a": rng.standard_normal(n), "b": rng.lognormal(size=n)})
-        _data, _, nbins = categorize_dataset(X, dtype=np.int32, nbins_strategy="freedman_diaconis")
+        _data, _, nbins = categorize_dataset(X, dtype=np.int32, binning=make_binning_spec("quantile", "freedman_diaconis", warn=False))
         assert nbins.size == 2
         # FD adapts per column; expect strictly different counts for skewed
         # vs gaussian.
         assert nbins[1] >= nbins[0] - 5, "FD adaptive nbins not differentiating"
 
-    def test_mrmr_fit_with_nbins_strategy_completes(self):
-        """Mrmr fit with nbins strategy completes."""
+    def test_mrmr_fit_with_a_count_rule_completes(self):
+        """Mrmr fit with a non-default count rule completes."""
         import pandas as pd
         from mlframe.feature_selection.filters.mrmr import MRMR
 
@@ -191,16 +192,16 @@ class TestNbinsStrategyEndToEnd:
             (X["f0"] + 0.5 * X["f1"] + rng.standard_normal(n) > 0).astype(np.int64),
             name="y",
         )
-        sel = MRMR(nbins_strategy="freedman_diaconis", verbose=0)
+        sel = MRMR(binning_scheme="quantile", nbins_rule="freedman_diaconis", verbose=0)
         sel.fit(X, y)
         out = sel.get_feature_names_out()
         # FD should at least find f0 (the strongest signal).
-        assert "f0" in out, f"MRMR(nbins_strategy=fd) missed f0: {out}"
+        assert "f0" in out, f"MRMR(nbins_rule=freedman_diaconis) missed f0: {out}"
 
 
-class TestMRMRNbinsStrategy:
+class TestMRMRBinning:
     """2026-05-29 Wave 7: Family 2 estimators are intentionally out of MRMR.
-    MRMR ONLY uses bin-based plug-in MI; tests assert nbins_strategy gets
+    MRMR ONLY uses bin-based plug-in MI; tests assert the binning parameters get
     plumbed correctly while alternative MI estimators stay accessible via
     the standalone _ksg / _neural_mi / _fastmi / _mi_aggregator modules.
     """
@@ -219,12 +220,12 @@ class TestMRMRNbinsStrategy:
         sel.fit(X, y)
         assert sel.n_features_ >= 1
 
-    def test_invalid_nbins_strategy_raises(self):
-        """Invalid nbins strategy raises."""
+    def test_invalid_binning_scheme_raises(self):
+        """Invalid binning scheme raises."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         with pytest.raises(ValueError):
-            MRMR(nbins_strategy="nonsense")._validate_string_params()
+            MRMR(binning_scheme="nonsense")._validate_string_params()
 
     def test_alternative_estimators_via_standalone_modules(self):
         # Family 2 estimators are intentionally OUT of MRMR; they remain
@@ -239,7 +240,7 @@ class TestMRMRNbinsStrategy:
 
 
 # =============================================================================
-# Categorical + nbins_strategy mixed-type stress (2026-05-29 Wave 7)
+# Categorical + binning mixed-type stress (2026-05-29 Wave 7)
 # =============================================================================
 
 
@@ -247,7 +248,7 @@ class TestMixedTypeWithNbinsStrategy:
     """Production-realistic: pandas DataFrame containing BOTH continuous
     numeric and pandas categorical / string columns. The MRMR pipeline routes
     categorical columns through ``_multi_col_factorize_native`` and numeric
-    columns through ``discretize_2d_array`` with the chosen ``nbins_strategy``;
+    columns through ``discretize_2d_array`` with the chosen binning;
     both arrive at the integer-encoded matrix the njit relevance loop expects.
 
     Per the architectural decision (2026-05-29 user pivot), the Family-2
@@ -293,7 +294,7 @@ class TestMixedTypeWithNbinsStrategy:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = self._make_mixed_frame()
-        sel = MRMR(nbins_strategy="freedman_diaconis", verbose=0)
+        sel = MRMR(binning_scheme="quantile", nbins_rule="freedman_diaconis", verbose=0)
         sel.fit(X, y)
         selected = set(sel.get_feature_names_out())
         assert "cont_strong" in selected, f"FD-strategy MRMR missed cont_strong on mixed data: {selected}"
@@ -303,7 +304,7 @@ class TestMixedTypeWithNbinsStrategy:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = self._make_mixed_frame()
-        sel = MRMR(nbins_strategy="mdlp", verbose=0)
+        sel = MRMR(binning_scheme="mdlp", verbose=0)
         sel.fit(X, y)
         selected = set(sel.get_feature_names_out())
         # MDLP is supervised; should home in on the strong continuous predictor.
@@ -317,10 +318,10 @@ class TestMixedTypeWithNbinsStrategy:
         X, y = self._make_mixed_frame(n=200)
         with _w.catch_warnings(record=True) as caught:
             _w.simplefilter("always")
-            sel = MRMR(nbins_strategy="knuth", verbose=0)
+            sel = MRMR(binning_scheme="uniform", nbins_rule="knuth", verbose=0)
             sel.fit(X, y)
         msgs = [str(x.message) for x in caught]
-        assert any("DEMOTED" in m and "knuth" in m for m in msgs), f"AccuracyWarning missing for nbins_strategy='knuth': {msgs}"
+        assert any("DEMOTED" in m and "knuth" in m for m in msgs), f"AccuracyWarning missing for nbins_rule='knuth': {msgs}"
 
     def test_demoted_blocks_emits_warning(self):
         """Demoted blocks emits warning."""
@@ -330,7 +331,7 @@ class TestMixedTypeWithNbinsStrategy:
         X, y = self._make_mixed_frame(n=200)
         with _w.catch_warnings(record=True) as caught:
             _w.simplefilter("always")
-            sel = MRMR(nbins_strategy="bayesian_blocks", verbose=0)
+            sel = MRMR(binning_scheme="bayesian_blocks", verbose=0)
             sel.fit(X, y)
         msgs = [str(x.message) for x in caught]
-        assert any("DEMOTED" in m and "blocks" in m.lower() for m in msgs), f"AccuracyWarning missing for nbins_strategy='bayesian_blocks': {msgs}"
+        assert any("DEMOTED" in m and "blocks" in m.lower() for m in msgs), f"AccuracyWarning missing for binning_scheme='bayesian_blocks': {msgs}"
