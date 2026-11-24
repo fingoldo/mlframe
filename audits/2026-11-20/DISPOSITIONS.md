@@ -843,7 +843,6 @@
 | 34-F29 | FIXED | MatrixKeyedCache implements its own clear(); no borrowed ContentMemo method (test_cluster34_matrix_cache_clear; 4 existing matrix-cache tests pass) |
 | 34-F30 | FIXED | Attached target kept float64 on the val side (keep_float64); engineered bases stay float32 by design (test_cluster34_attach_keeps_target_float64) |
 | 34-F15 | FIXED | Tie ranking vectorised for finite input (NaN keeps the walk); PAVA compiled via njit_or_passthrough (test_cluster34_leakage_rank_and_pava; 62 existing leakage tests pass) |
-| 34-F14 | DEFERRED | Gathering every column once for all rows needs n x F floats (about 6.4 GB at 3.2M x 500 float32), which defeats the block design. A column-chunked Gram would need a redesign of the pairwise pass. Owner decision on the memory budget. |
 | 34-F17 | DEFERRED | Batched null kernel shuffles blocks of binned codes; the carry null shuffles raw base values and bins inside _mi_pair_bin. Switching changes the null distribution, so it needs a benchmark and owner sign-off on numerics. |
 | 34-F20 | DEFERRED | A sampled data signature can miss a changed row and reuse stale specs. Owner decision on the accuracy cost of a cheaper signature. |
 | 34-F21 | PARTIAL | Post-impute finite mask computed once and reused (4 full-matrix passes reduced to 2; the first fraction check stays before the impute). No new test; existing 40 auto-base tests pass. |
@@ -1480,3 +1479,5 @@
 | 28-F70 | FIXED | A failed grid variant with stop_on_error=False is a typed GridVariantError (label, exc_type, message) instead of a plain error dict. No in-repo consumer read the old dict. Test tests/training/test_cluster28_grid_typed_error.py (2 passed). |
 
 | 38-F22 | FIXED | A pre-OD category union also takes the validation categories, so the strict val cast cannot fail on a val-only category. Behaviour change: such categories now join the Enum instead of crashing. Test tests/training/core/test_cluster38_precomputed_union_covers_val.py (plus existing test_fe_preod_enum_domain.py, 2 passed). |
+
+| 34-F14 | DEFERRED | RAM is already bounded: the Gram is accumulated over 8192-row blocks, so one block of 500 float64 columns is about 32 MB. The audit's full-buffer fix (about 6.4 GB) would raise RAM, and column chunking re-reads columns per block pair, so it trades RAM for more reads. Reducing the 195k column reads is a speed change that needs a benchmark on real data. No code change. |
