@@ -117,10 +117,15 @@ def _pid_start_token(pid: int) -> str:
     """A token that changes when a pid is reused: the process creation time, or '' when it cannot be read."""
     try:
         import psutil
-
+    except ImportError as exc:
+        logger.warning("kernel tuning cache: psutil unavailable, pid %s gets no start token (%s)", pid, exc)
+        return ""
+    try:
         return f"{psutil.Process(pid).create_time():.3f}"
-    except Exception as exc:  # no psutil or the process is gone: no token, so the pid alone decides (the old behaviour)
-        logger.debug("kernel tuning cache: no process start token for pid %s: %s", pid, exc)
+    except psutil.NoSuchProcess:
+        return ""  # the process is gone: no token, so the pid alone decides (the old behaviour)
+    except Exception as exc:
+        logger.warning("kernel tuning cache: no process start token for pid %s (%s: %s)", pid, type(exc).__name__, exc)
         return ""
 
 
