@@ -78,9 +78,10 @@ Coverage: every listed file was read in full except `_phase_train_one_target_wei
 - 38-F19: FIXED. Duplicate logger assignment removed
 - 38-F20: FIXED. Docstring corrected: cache holds the ndarray, no strong-ref window; no test
 - 38-F21: PARTIAL. Comment corrected (repr is not identity); fallback still keyed on repr, documented rather than re-keyed
-- 38-F22: DEFERRED. Unused precomputed_category_union parameter: owner decision (remove or guard the strict cast)
 - 38-F23: FIXED. Documented: only the first regression target drives bucket stratification
 - 38-F24: DEFERRED. target_type=None default: needs an explicit contract decision
 - 38-F25: FIXED. Narrowing signature suffix widened from 4 to 8 hex characters
 - 38-F26: FIXED. AssertionError carries a message; pure-selector warning text corrected
 - 38-F27: FIXED. Threshold tuning skip on filtered subset logged and stamped default_0.5; no test
+
+- 38-F22: FIXED. A pre-OD category union also takes the validation categories, so the strict val cast cannot fail on a val-only category. Behaviour change: such categories now join the Enum instead of crashing. Test tests/training/core/test_cluster38_precomputed_union_covers_val.py (plus existing test_fe_preod_enum_domain.py, 2 passed).

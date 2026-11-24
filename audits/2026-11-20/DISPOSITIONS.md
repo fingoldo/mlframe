@@ -938,7 +938,6 @@
 | 38-F19 | FIXED | Duplicate logger assignment removed |
 | 38-F20 | FIXED | Docstring corrected: cache holds the ndarray, no strong-ref window; no test |
 | 38-F21 | PARTIAL | Comment corrected (repr is not identity); fallback still keyed on repr, documented rather than re-keyed |
-| 38-F22 | DEFERRED | Unused precomputed_category_union parameter: owner decision (remove or guard the strict cast) |
 | 38-F23 | FIXED | Documented: only the first regression target drives bucket stratification |
 | 38-F24 | DEFERRED | target_type=None default: needs an explicit contract decision |
 | 38-F25 | FIXED | Narrowing signature suffix widened from 4 to 8 hex characters |
@@ -1479,3 +1478,5 @@
 | 34-F16 | WON'T FIX | calibration_adjusted_score has no caller inside the package but is a public lazy export (mlframe.training.__init__). Wiring it in would change the calibration path; removing the export breaks the public API. Classified as an intentional public helper, per the uncalled-functions rule. No code change. |
 
 | 28-F70 | FIXED | A failed grid variant with stop_on_error=False is a typed GridVariantError (label, exc_type, message) instead of a plain error dict. No in-repo consumer read the old dict. Test tests/training/test_cluster28_grid_typed_error.py (2 passed). |
+
+| 38-F22 | FIXED | A pre-OD category union also takes the validation categories, so the strict val cast cannot fail on a val-only category. Behaviour change: such categories now join the Enum instead of crashing. Test tests/training/core/test_cluster38_precomputed_union_covers_val.py (plus existing test_fe_preod_enum_domain.py, 2 passed). |
