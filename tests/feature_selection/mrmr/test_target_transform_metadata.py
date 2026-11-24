@@ -1,6 +1,6 @@
-"""``MRMR.target_transform_`` (PLAN_target_transform_in_mrmr, step 3): metadata only, off by default, never changes the selection or the target.
+"""``MRMR.target_transform_`` (PLAN_target_transform_in_mrmr, step 3): on by default, never changes the target.
 
-The business-value check is on the ORIGINAL scale: with the accepted transform a ridge model has a lower held-out MAE than without it (the quantity the gate protects), and on a linear target the verdict is the
+The search is on by default and the verdict is logged at INFO (it never changes the selection or the target). The business-value check is on the ORIGINAL scale: with the accepted transform a ridge model has a lower held-out MAE than without it (the quantity the gate protects), and on a linear target the verdict is the
 identity (the false positive of the proposer is rejected).
 """
 
@@ -34,11 +34,30 @@ def _fit(X, y, **kw):
         return MRMR(verbose=0, random_seed=0, fe_max_steps=0, **kw).fit(X, y)
 
 
-def test_off_by_default_leaves_the_attribute_none():
-    """The default is off and the attribute exists."""
+def test_on_by_default_and_the_flag_off_leaves_the_attribute_none(caplog):
+    """The search is on by default: a continuous target gets a verdict and an INFO line naming it; ``target_transform_search=False`` leaves the attribute None and logs nothing."""
+    import logging
+
     X, y = _frame("cube")
-    assert MRMR().target_transform_search is False
-    assert _fit(X, y).target_transform_ is None
+    assert MRMR().target_transform_search is True
+    with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters._target_transform_record"):
+        verdict = _fit(X, y).target_transform_
+    assert verdict is not None and verdict["name"] == "cbrt"
+    assert any("MRMR target transform: cbrt" in r.getMessage() and "accepted" in r.getMessage() for r in caplog.records), [r.getMessage() for r in caplog.records]
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters._target_transform_record"):
+        assert _fit(X, y, target_transform_search=False).target_transform_ is None
+    assert not any("MRMR target transform" in r.getMessage() for r in caplog.records)
+
+
+def test_a_linear_target_logs_that_the_identity_is_kept(caplog):
+    """The verdict is logged also when nothing is accepted, with the reason."""
+    import logging
+
+    X, y = _frame("linear")
+    with caplog.at_level(logging.INFO, logger="mlframe.feature_selection.filters._target_transform_record"):
+        _fit(X, y)
+    assert any("MRMR target transform: identity kept" in r.getMessage() for r in caplog.records), [r.getMessage() for r in caplog.records]
 
 
 def test_cubic_target_gets_cbrt_and_the_original_scale_error_falls():
@@ -61,18 +80,18 @@ def test_linear_target_gets_the_identity():
     assert verdict["name"] == "identity" and verdict["accepted"] is False and verdict["reason"]
 
 
-def test_the_selection_and_the_target_are_unchanged_by_the_flag():
-    """Same selected names with the flag on and off; the target array the caller holds is untouched."""
+def test_the_screen_and_the_target_are_unchanged_by_the_flag():
+    """The raw columns the screen selects are the same with the flag on and off and the target array the caller holds is untouched (an accepted link only changes the target the unary credit is run on)."""
     X, y = _frame("cube")
     y_before = y.copy()
     on = _fit(X, y, target_transform_search=True)
-    off = _fit(X, y)
-    assert list(on.get_feature_names_out()) == list(off.get_feature_names_out())
+    off = _fit(X, y, target_transform_search=False)
+    assert list(np.asarray(on.support_)) == list(np.asarray(off.support_))
     assert np.array_equal(y, y_before)
 
 
 def test_a_class_target_is_skipped():
-    """A binary target has no scale to transform: the verdict stays None even with the flag on."""
+    """A binary target has no scale to transform: the verdict stays None with the flag on, and nothing is logged for it."""
     X, y = _frame("linear")
     assert _fit(X, (y > 0).astype(int), target_transform_search=True).target_transform_ is None
 

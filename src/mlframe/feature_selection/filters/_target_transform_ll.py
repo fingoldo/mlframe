@@ -19,7 +19,7 @@ Algorithm (``recommend_target_transform``)
 5. Every candidate whose own gain exceeds tau is significant (the max statistic controls the family-wise error). They are ordered by gain; a candidate within ``tie_se`` paired standard errors of the best is a
    tie and the SIMPLEST family wins (``select="ll"``).
 6. Second gate and selection: the head fitted on f(y_A) is inverted (prediction clipped to the training range of f(y); the median ``inv(zhat)`` for ``metric="mae"``, the default, generalised Duan smearing over 100
-   residual quantiles for ``metric="rmse"``) and its error on B on the ORIGINAL scale must not exceed that of the identity head. The significant candidates are ordered by that error (``select="err"``, the default: the LL can
+   residual quantiles for ``metric="rmse"``) and its error on B on the ORIGINAL scale must be at least ``min_gain`` (2 percent) below that of the identity head. The significant candidates are ordered by that error (``select="err"``, the default: the LL can
    prefer a transform that fits the tails and predicts the mean worse), those within ``tie_se`` paired standard errors of the best are a tie and the simplest family wins; otherwise the function abstains and says why.
 
 Valid for linear and additive heads; a tree head does not gain from a target transform (measured: neutral to slightly harmful), so the verdict is for linear / additive heads. float64 is used on purpose.
@@ -77,6 +77,8 @@ _ATOM_FRACTION = 0.002
 _EXP_MAX = 30.0
 _SINH_ARG_MAX = 30.0
 _UNIT_EDGE = 1e-9
+#: A transform is recommended only when its held-out error on the original scale is at least this share below the identity's (a skewed target always lets some transform win by a fraction of a percent).
+MIN_GAIN = 0.02
 
 
 # ------------------------------------------------------------------------------------------------ transforms: forward, log-Jacobian log|f'|, inverse
@@ -646,7 +648,7 @@ def analyse_target_transforms(
     )
 
 
-def decide(an: TransformAnalysis, *, metric: str = "mae", tie_se: float = 1.0, fallthrough: bool = True, alpha: float = 0.05, select: str = "err") -> TargetTransformChoice:
+def decide(an: TransformAnalysis, *, metric: str = "mae", tie_se: float = 1.0, fallthrough: bool = True, alpha: float = 0.05, select: str = "err", min_gain: float = MIN_GAIN) -> TargetTransformChoice:
     """Apply the tie rule and the second gate of an analysis for ``metric`` ('rmse': smeared mean prediction; 'mae': median prediction).
 
     ``select="ll"`` orders the significant candidates by LL gain; ``select="err"`` (the default: the error of the original-scale prediction is the quantity the user reads, MAE first) orders them by the held-out
@@ -689,11 +691,11 @@ def decide(an: TransformAnalysis, *, metric: str = "mae", tie_se: float = 1.0, f
     tried: List[str] = []
     for m in order:
         e_m = an.err[m][metric]
-        if e_m <= e_id:
+        if e_m <= (1.0 - min_gain) * e_id:
             lam = an.lam_full.get(m)
             tr = build_transform(m, an.y_ref, lam)
             return TargetTransformChoice(m, tr.params, an.gain[m], an.tau, an.p_value, e_id, e_m, metric, False, "", an.best, dict(an.gain), tr, an.seconds)
-        tried.append(f"{m} ({e_m:.4g} > {e_id:.4g})")
+        tried.append(f"{m} ({e_m:.4g} against {e_id:.4g} for the identity, less than {min_gain:.0%} better)")
         if not fallthrough:
             break
     return abstain(f"significant candidates failed the held-out {metric} gate vs identity: " + ", ".join(tried))
@@ -715,6 +717,7 @@ def recommend_target_transform(
     ridge: Optional[float] = None,
     max_rows: int = 20000,
     select: str = "err",
+    min_gain: float = MIN_GAIN,
 ) -> TargetTransformChoice:
     """Recommend a monotone target transform for a linear / additive-spline head, or abstain (identity). See the module docstring for the algorithm.
 
@@ -722,4 +725,4 @@ def recommend_target_transform(
     null and the subsample. ``head``: "linear" (closed-form ridge on [1, X]) or "spline" (additive natural cubic splines). ``metric``: "mae" (median prediction, the default) or "rmse" (smeared mean prediction) for the second gate and the selection; ``select``: "err" (default) or "ll".
     ``folds=2`` cross-fits (A->B and B->A) instead of A->B only."""
     an = analyse_target_transforms(X, y, candidates=candidates, n_null=n_null, alpha=alpha, seed=seed, head=head, folds=folds, ridge=ridge, max_rows=max_rows)
-    return decide(an, metric=metric, tie_se=tie_se, fallthrough=fallthrough, alpha=alpha, select=select)
+    return decide(an, metric=metric, tie_se=tie_se, fallthrough=fallthrough, alpha=alpha, select=select, min_gain=min_gain)
