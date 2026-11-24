@@ -42,6 +42,7 @@ Public surface:
 """
 from __future__ import annotations
 
+import inspect
 import logging
 from dataclasses import dataclass
 from timeit import default_timer as timer
@@ -195,12 +196,22 @@ def _supports_warm_start(est: Any) -> Optional[str]:
 
 
 def _score(scorer: Any, est: Any, X: Any, y: np.ndarray) -> float:
-    """Score via an sklearn-style ``scorer(estimator, X, y)``; fall back to ``estimator.score``."""
+    """Score via an sklearn-style ``scorer(estimator, X, y)``; fall back to ``estimator.score`` only when the scorer cannot take that call.
+
+    The fallback is decided by the scorer's signature, not by catching TypeError from the call: a TypeError raised inside a real scorer is a
+    bug in that scorer and now propagates instead of being replaced by ``estimator.score`` (39-F14).
+    """
     try:
-        return float(scorer(est, X, y))
-    except TypeError as _exc:
-        logger.debug("_score fell back to its default after %s", type(_exc).__name__)
-        return float(est.score(X, y))
+        signature = inspect.signature(scorer)
+    except (TypeError, ValueError):
+        signature = None  # no introspectable signature (e.g. some builtins): call the scorer directly
+    if signature is not None:
+        try:
+            signature.bind(est, X, y)
+        except TypeError:
+            logger.warning("_score: scorer %r does not accept (estimator, X, y); falling back to estimator.score", scorer)
+            return float(est.score(X, y))
+    return float(scorer(est, X, y))
 
 
 def _fit_one_size(
