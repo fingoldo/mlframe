@@ -18,6 +18,7 @@ from typing import Any, cast
 import numpy as np
 
 from ._matrix_keyed_cache import MatrixKeyedCache
+from ._row_digest import rows_digest as _rows_digest
 
 _MAX_ENTRIES = 64
 """Factorisations kept across all threads; the oldest go first. Each is two length-F vectors and one F x F factor."""
@@ -58,13 +59,6 @@ def _impute_in_place(xi: np.ndarray, fill: np.ndarray, bad: np.ndarray | None = 
 def prune_dead() -> None:
     """Drop the entries whose matrix has been freed, so a finished phase leaves nothing of its folds resident."""
     _CACHE.prune_dead()
-
-
-def _rows_digest(rows: np.ndarray) -> bytes:
-    """Collision-safe cache-key digest of a row-index array (a 64-bit ``hash()`` could return another fold's entry; audit 34-F27)."""
-    import hashlib
-
-    return hashlib.blake2b(np.ascontiguousarray(rows).view(np.uint8).data, digest_size=16).digest()
 
 
 def _fold_factor(x: np.ndarray, rows: np.ndarray) -> tuple[np.ndarray, np.ndarray, Any]:

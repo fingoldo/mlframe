@@ -22,6 +22,7 @@ from sklearn.base import BaseEstimator, RegressorMixin
 from torch import nn
 
 from ._mlp_predict_shared import mlp_predict
+from ._finite_input import _refuse_nonfinite
 
 
 def _validate_field_groups_partition(field_groups: Dict[str, Sequence[int]], n_features: int) -> None:
@@ -50,14 +51,6 @@ def _validate_field_groups_partition(field_groups: Dict[str, Sequence[int]], n_f
     missing = sorted(set(range(n_features)) - seen.keys())
     if missing:
         raise ValueError(f"field_groups: column index(es) missing from every field -- {missing[:10]}")
-
-
-def _refuse_nonfinite(X, owner: str) -> np.ndarray:
-    """``X`` as float32, refusing NaN or inf: the network does not mask missing values, so one cell poisons the loss and every prediction (audit 40-F21)."""
-    arr = np.asarray(X, dtype=np.float32)
-    if not np.isfinite(arr).all():
-        raise ValueError(f"{owner}: X contains NaN or inf; impute upstream (the network does not mask missing values).")
-    return arr
 
 
 class _FieldGroupedMLPModule(nn.Module):
