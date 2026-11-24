@@ -108,3 +108,6 @@ Grep-only verification: `pyproject.toml:13` (requires-python), callers of `creat
 - 29-F33: WON'T FIX. n_jobs is a documented no-op (coalition scoring is serial), marked unused-ok, and kept so every estimator in the votenrank API shares one signature. Removing it would break the uniform signature. Not changed.
 - 29-F35: FIXED. Dual blend: zero restarts already raises a clear error (from the solver, naming restarts); the internal bare assert is replaced by an explicit ValueError; zero trials raises a ValueError naming n_optuna_trials instead of a raw best_params error. Test tests/votenrank/test_cluster29_dual_blend_zero_counts.py (2 pass); existing dual-blend tests (4) pass.
 - 29-F36: FIXED. Legend entries are matched by label (optimality_gap / mean) instead of by position; pin test test_cluster29_stability_legend_by_name.py.
+- 29-F39: FIXED. disk_cache docstring now states the summary key reads every element (no SHA pass, not sub-linear).
+- 29-F40: FIXED. Protect set drops the bogus <key>.sha256 name; real <key>.pkl.sha256 sidecar kept. Test test_cluster29_disk_cache_protect_names.py.
+- 29-F41: FIXED. Bagging without randomize_order/randomize_start logs a WARNING that all bags are identical. Test test_cluster29_hill_climb_bagging_warns.py.
