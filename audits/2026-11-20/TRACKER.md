@@ -166,7 +166,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 38-F7 | 38_training-7.md | FIXED | PySR skip logged at WARNING regardless of verbose. |
 | 38-F8 | 38_training-7.md | FIXED | Non-neural time reset once per target. |
 | 38-F9 | 38_training-7.md | DEFERRED | Needs explicit group-column name from extractor (design). |
-| 38-F10 | 38_training-7.md | DEFERRED | Owner decision: delete or finish the weight-iteration refactor. |
+| 38-F10 | 38_training-7.md | RESOLVED | Deleted the dead weight-iteration module (_phase_train_one_target_weight_iteration.py) and its test; the live inline loop in _phase_train_one_target_steps.py is the only copy. Its allowlist entry in test_shared_uncalled_functions.py is removed. Note: the removed test pinned the identity-equivalent dedup ordering on the dead copy; the live path has no unit test for that ordering yet. |
 | 38-F11 | 38_training-7.md | FIXED | Stale other-format metadata file removed on save. |
 | 38-F12 | 38_training-7.md | FIXED | Embedding detection requires non-scalar shape. |
 | 38-F13 | 38_training-7.md | FIXED | Failed split extraction logged at WARNING. |

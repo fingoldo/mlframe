@@ -1176,9 +1176,6 @@ _PLANNED: set[str] = {
     # Structure-aware conformal slice carver. TrainingSplitConfig.conformal_size is refused today because no split path reads it; wiring this
     # means carving a third slice through splitting.py, the suite and finalize, which is feature work awaiting the owner.
     "carve_calib_conformal",
-    # Stale parallel copy of the live loop in _phase_train_one_target_steps.py (state in the st object there, 45 keyword parameters here). Its module
-    # docstring flags it dead; delete-or-rewire is the owner's call, and tests that drive it exercise dead code.
-    "_run_one_weight_iteration",
 }
 
 #: Optional entry points a user calls when they want them; no parity test is required, unlike _SUPERSEDED or _OPT_IN_SLOW.
