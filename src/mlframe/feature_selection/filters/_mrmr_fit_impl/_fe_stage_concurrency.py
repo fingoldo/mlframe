@@ -30,6 +30,7 @@ import numpy as np
 
 from .._fe_deadline import _state as _deadline_state
 from .._fe_family_timing import close_thread_laps
+from .. import _stage_ledger as stage_ledger
 from .._fe_deadline import fe_deadline_scope
 from mlframe.system import host_memory
 from mlframe.utils.log_throttle import log_throttle
@@ -64,15 +65,27 @@ def memory_allows_concurrency(n_rows: int, n_cols: int) -> bool:
         factor = float(os.environ.get("MLFRAME_FE_STAGE_CONCURRENCY_MEM_FACTOR", "").strip() or _CONCURRENT_FRAME_FACTOR)
         available = float(host_memory()[0])
     except Exception as exc:
-        log_throttle(logger, "_fe_stage_concurrency.mem_probe", logging.INFO, "stage concurrency: available RAM unreadable (%r); the cascades keep their concurrent order", exc)
+        log_throttle(
+            logger,
+            "_fe_stage_concurrency.mem_probe",
+            logging.INFO,
+            "stage concurrency: available RAM unreadable (%r); the cascades keep their concurrent order",
+            exc,
+        )
         return True
     need = factor * float(n_rows) * float(n_cols) * 4.0
     allowed = need <= available
     if not allowed:
         log_throttle(
-            logger, "_fe_stage_concurrency.serialised", logging.WARNING,
+            logger,
+            "_fe_stage_concurrency.serialised",
+            logging.WARNING,
             "stage concurrency off for this fit: %d x %d needs about %.1f GB for concurrent cascades (%.1fx the frame) against %.1f GB available; the cascades run one after the other",
-            int(n_rows), int(n_cols), need / 2**30, factor, available / 2**30,
+            int(n_rows),
+            int(n_cols),
+            need / 2**30,
+            factor,
+            available / 2**30,
         )
     return allowed
 
@@ -113,7 +126,9 @@ def _same(a: Any, b: Any) -> bool:
         return type(a) is type(b) and len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
     try:
         return bool(a == b)
-    except Exception as exc:  # best-effort: a comparison that raises is reported as unequal, the conservative answer  # audit-exempt: non_neutral_except_fallback -- unequal is the conservative answer for a comparison that raised, and the cause is on the debug line
+    except (
+        Exception
+    ) as exc:  # best-effort: a comparison that raises is reported as unequal, the conservative answer  # audit-exempt: non_neutral_except_fallback -- unequal is the conservative answer for a comparison that raised, and the cause is on the debug line
         logger.debug("stage-state comparison raised %s: %s; reported as unequal", type(exc).__name__, exc)
         return False
 
@@ -186,17 +201,28 @@ def _stages_fit_device(vram_weights: "Sequence[float]", n_rows: int) -> bool:
         return True  # no cupy: the stages are host stages, there is no device memory to protect
     except Exception as exc:
         # an unreadable device is not a roomy one: the check exists to keep concurrent stages from overrunning the card, and running the cascades one by one is always correct
-        log_throttle(logger, "_fe_stage_concurrency.except_152", logging.WARNING, "stage concurrency: device memory unreadable (%r); the cascades run one by one", exc)
+        log_throttle(
+            logger, "_fe_stage_concurrency.except_152", logging.WARNING, "stage concurrency: device memory unreadable (%r); the cascades run one by one", exc
+        )
         return False
     if need > avail:
-        logger.info("FE stage concurrency: the stages' scaled peak VRAM (%.1f GB at %d rows) exceeds the %.1f GB available; running the cascades one by one", need / 2**30, n_rows, avail / 2**30)
+        logger.info(
+            "FE stage concurrency: the stages' scaled peak VRAM (%.1f GB at %d rows) exceeds the %.1f GB available; running the cascades one by one",
+            need / 2**30,
+            n_rows,
+            avail / 2**30,
+        )
         return False
     return True
 
 
 def run_stages_concurrently(
-    estimator: Any, stages: Sequence[Callable[[Any], Any]], weights: Sequence[float] = STAGE_WEIGHTS, merge_count: "Callable[[list], int] | None" = None,
-    vram_weights: "Sequence[float] | None" = None, n_rows: "int | None" = None,
+    estimator: Any,
+    stages: Sequence[Callable[[Any], Any]],
+    weights: Sequence[float] = STAGE_WEIGHTS,
+    merge_count: "Callable[[list], int] | None" = None,
+    vram_weights: "Sequence[float] | None" = None,
+    n_rows: "int | None" = None,
 ) -> "list[Any] | None":
     """Results of ``stages`` (each called with a private copy of ``estimator``) run together, one per device slot, or ``None`` when no plan exists (the caller then runs them in order).
 
@@ -220,10 +246,12 @@ def run_stages_concurrently(
     deadline = getattr(_deadline_state, "deadline", None)
     context = capture_fit_context()
     walls = [0.0] * len(stages)
+    input_gb = stage_ledger.frame_gb(int(n_rows), int(getattr(estimator, "n_features_in_", 0) or 0)) if n_rows is not None else None
 
     def _run(i: int) -> Any:
         """One stage on its copy, in its device slot, with the fit's deadline and scoring settings published to this worker thread."""
         t0 = time.perf_counter()
+        epoch0 = time.time() if stage_ledger.enabled() else 0.0
         stage_failed = True
         try:
             with fe_deadline_scope(deadline), fit_context_scope(context), stage_device_slot(slots[i], i):
@@ -233,12 +261,21 @@ def run_stages_concurrently(
         finally:
             try:
                 close_thread_laps()  # the stage's last family lap ends with the stage, on this worker thread
+                if epoch0:  # the stage ledger: the cascade, the device slot it ran in and the step-input frame it read
+                    stage_ledger.record(f"fe_stage_{i}", epoch0, time.time(), device=f"gpu:{slots[i].device_id}", in_gb=input_gb)
                 _synchronize_device(slots[i].device_id)  # the wall is the stage's work, not the launch of its last kernel
             except Exception as cleanup_exc:
                 if not stage_failed:
                     raise
                 # the stage's own exception (it names the failing family) must reach the caller, not the sticky device error the cleanup then hits
-                log_throttle(logger, "_fe_stage_concurrency.cleanup_after_failure", logging.WARNING, "stage %d: cleanup after the stage's own failure also failed (%r)", i, cleanup_exc)
+                log_throttle(
+                    logger,
+                    "_fe_stage_concurrency.cleanup_after_failure",
+                    logging.WARNING,
+                    "stage %d: cleanup after the stage's own failure also failed (%r)",
+                    i,
+                    cleanup_exc,
+                )
             finally:
                 walls[i] = time.perf_counter() - t0
                 stage_finished()  # the cascades still running take over this one's share of the edge workers

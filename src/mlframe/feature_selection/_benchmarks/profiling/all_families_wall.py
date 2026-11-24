@@ -46,6 +46,7 @@ Companions (all in this package, same protocol: a warm-up fit first, then the me
 - ``all_families_family_walls``    per-family wall ledger (``fe_family_wall``) of the same fit, longest first, plus the selected features.
 - ``all_families_fit_ledger``      the ledger the fitted estimator carries (``fe_family_wall_``, 30000 x 40), a quick sanity probe.
 - ``all_families_selection_quality``  held-out AUC (LightGBM, logistic regression, all raw columns) of the selected features: judge a GPU / CPU selection difference by this, not by names.
+- ``stage_idle_report``             (with ``BENCH_LEDGER=<prefix>`` on this file) the stage ledger and the hardware timeline of the measured fit, and per stage the load while it ran, the devices that stood idle with enough free memory before it, and the stage it followed.
 - ``numba_signature_counts``       numba dispatchers with more than one compiled signature after two fits (recompiles inside a fit).
 - ``env_sampled_fit``, ``stack_timeline``, ``utilization``, ``tick_utilization``, ``family_profile``, ``family_scale``: older siblings of the same fit (system sampler, 6 s buckets, idle share, one family at a time).
 """
@@ -92,6 +93,25 @@ if os.environ.get("MLFRAME_BENCH_WAIT_COOL_C"):
 print("hardware before: " + hardware_state.line(), flush=True)
 H.t0 = time.time()
 MRMR._FIT_CACHE.clear()
+ledger_prefix = os.environ.get("BENCH_LEDGER")  # BENCH_LEDGER=<prefix>: the stage ledger and the hardware timeline of the measured fit go to <prefix>.ledger.jsonl / <prefix>.timeline.jsonl and the idle-device report is printed
+sampler = None
+if ledger_prefix:
+    from mlframe.feature_selection._benchmarks.profiling.hardware_timeline import TimelineSampler
+    from mlframe.feature_selection.filters import _stage_ledger
+
+    for suffix in (".ledger.jsonl", ".timeline.jsonl"):
+        if os.path.exists(ledger_prefix + suffix):
+            os.remove(ledger_prefix + suffix)
+    os.environ[_stage_ledger.ENV] = ledger_prefix + ".ledger.jsonl"
+    _stage_ledger.reset()
+    sampler = TimelineSampler(ledger_prefix + ".timeline.jsonl", interval=0.5)
+    sampler.__enter__()
+H.t0 = time.time()
 MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*data)
 print("WALL %.1f" % (time.time() - H.t0))
 print("hardware after:  " + hardware_state.line(), flush=True)
+if sampler is not None:
+    sampler.__exit__(None, None, None)
+    from mlframe.feature_selection._benchmarks.profiling import stage_idle_report
+
+    stage_idle_report.main([ledger_prefix + ".ledger.jsonl", ledger_prefix + ".timeline.jsonl"])
