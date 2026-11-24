@@ -14,10 +14,10 @@ def test_per_pair_path_gives_the_family_gate_its_codes(monkeypatch):
     seen = []
     real = score.apply_pair_family_gate_from_state
 
-    def spy(st, classes_y, n_bins, alpha=0.01):
+    def spy(st, classes_y, n_bins, alpha=0.01, window_ratio=None):
         """Record how many configuration codes the gate was handed for this pair."""
         seen.append(len(st.__dict__.get("var_pairs_codes") or {}))
-        return real(st, classes_y, n_bins, alpha)
+        return real(st, classes_y, n_bins, alpha, window_ratio)
 
     monkeypatch.setattr(score, "apply_pair_family_gate_from_state", spy)
     from mlframe.feature_selection.filters.mrmr import MRMR

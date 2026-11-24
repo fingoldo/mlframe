@@ -289,8 +289,8 @@ class _FamilyOnDevice:
         return out
 
 
-def family_pass_batches_device(batches: Sequence[Any], y_codes: np.ndarray, alpha: float, n_perm: int, seed: int) -> "Optional[list]":
-    """Family-wise pass flags of resident device batches (see ``family_pass_batches``), or ``None`` when the device path does not apply."""
+def family_pass_batches_device(batches: Sequence[Any], y_codes: np.ndarray, alpha: float, n_perm: int, seed: int, decide: "Optional[Sequence[bool]]" = None) -> "Optional[list]":
+    """Family-wise pass flags of resident device batches (see ``family_pass_batches``), or ``None`` when the device path does not apply. ``decide`` limits the exact test to the batches whose flag is read."""
     devs = _device_codes(batches)
     if devs is None:
         return None
@@ -320,12 +320,17 @@ def family_pass_batches_device(batches: Sequence[Any], y_codes: np.ndarray, alph
         # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         observed_max = np.array([float(observed[starts[j] : starts[j + 1]].max()) if widths[j] else 0.0 for j in range(n_batches)], dtype=np.float64)
         flags = np.zeros(n_batches, dtype=np.bool_)
+        wanted = np.ones(n_batches, dtype=np.bool_) if decide is None else np.asarray(decide, dtype=np.bool_)
         status = _analytic_triage_core(fam.n, fam.nx_occ, y, n_y, observed, starts, alpha, inverse)
         if status is None:
-            flags[:] = _permutation_pass_flags_with(fam.null_max, observed_max, alpha, n_perm, seed)
+            flags[:] = True
+            if wanted.any():
+                flags[wanted] = _permutation_pass_flags_with(fam.null_max, observed_max[wanted], alpha, n_perm, seed)
             return [bool(f) for f in flags]
         flags[status > 0] = True
         gray = status == 0
+        flags[gray & ~wanted] = True  # not read by the caller: left as it was
+        gray &= wanted
         if gray.any():
             flags[gray] = _permutation_pass_flags_with(fam.null_max, observed_max[gray], alpha, n_perm, seed)
         return [bool(f) for f in flags]

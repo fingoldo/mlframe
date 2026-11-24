@@ -877,8 +877,11 @@ def _passes_for_certain(r_alive: np.ndarray, done: int, total: int, alpha: float
     return bool(np.all(r + (total - done) * q <= limit))
 
 
-def _family_flags(cols, n_x, y, n_y, observed, starts, alpha, n_perm, seed) -> list:
-    """Pass flag per batch of one family: analytic triage first, the exact permutation test for what it leaves undecided."""
+def _family_flags(cols, n_x, y, n_y, observed, starts, alpha, n_perm, seed, decide=None) -> list:
+    """Pass flag per batch of one family: analytic triage first, the exact permutation test for what it leaves undecided.
+
+    ``decide`` (a bool per batch, ``None`` = all) names the batches whose flag the caller reads: only those take part in the permutation test, so the loop ends as soon as THEY are settled (the null still spans every column
+    of the family). A batch outside ``decide`` that the triage leaves undecided gets ``True``: the caller does not read it, and ``True`` leaves it as it was."""
     starts = np.asarray(starts)
     n_batches = len(starts) - 1
     maxima = [float(observed[starts[j] : starts[j + 1]].max()) if starts[j + 1] > starts[j] else 0.0 for j in range(n_batches)]
@@ -891,12 +894,17 @@ def _family_flags(cols, n_x, y, n_y, observed, starts, alpha, n_perm, seed) -> l
     if distinct is not None:
         keep, inverse = distinct
         cols, n_x = cols[keep], n_x[keep]
+    wanted = np.ones(n_batches, dtype=np.bool_) if decide is None else np.asarray(decide, dtype=np.bool_)
     status = _analytic_triage(cols, n_x, y, n_y, observed, starts, alpha, inverse)
     if status is None:
-        flags[:] = _permutation_pass_flags(cols, n_x, y, n_y, observed_max, alpha, n_perm, seed)
+        flags[:] = True
+        if wanted.any():
+            flags[wanted] = _permutation_pass_flags(cols, n_x, y, n_y, observed_max[wanted], alpha, n_perm, seed)
         return [bool(f) for f in flags]
     flags[status > 0] = True
     gray = status == 0
+    flags[gray & ~wanted] = True
+    gray &= wanted
     if gray.any():
         flags[gray] = _permutation_pass_flags(cols, n_x, y, n_y, observed_max[gray], alpha, n_perm, seed)
     return [bool(f) for f in flags]
@@ -912,7 +920,7 @@ from ._family_maxt_stack import (  # noqa: F401  -- carved: the stacking of the 
 
 
 def family_pass_batches(
-    batches: "Sequence[np.ndarray]", y_codes: np.ndarray, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0
+    batches: "Sequence[np.ndarray]", y_codes: np.ndarray, alpha: float = 0.01, n_perm: int = FAMILY_MAXT_PERMUTATIONS, seed: int = 0, decide: "Sequence[bool] | None" = None
 ) -> list:
     """Family-wise pass flags for several batches of candidate codes that form ONE family (e.g. every configuration of one pair).
 
@@ -923,11 +931,13 @@ def family_pass_batches(
 
     Early rejection: when every undecided batch's best observed MI is at or below the median of the first ``FAMILY_PROBE_BLOCK`` null
     maxima, the remaining permutations are skipped and those batches are rejected.
+
+    ``decide`` (a bool per batch) restricts the exact test to the batches whose flag the caller reads (see :func:`_family_flags`); the others come back ``True`` unless the triage certified them failing.
     """
     # Resident device batches are scored on the device without copying them back; the host gate below answers whenever that path does not apply.
     from ._family_maxt_gate_device import family_pass_batches_device
 
-    on_device = family_pass_batches_device(batches, y_codes, alpha, n_perm, seed)
+    on_device = family_pass_batches_device(batches, y_codes, alpha, n_perm, seed, decide)
     if on_device is not None:
         return on_device
     y = np.ascontiguousarray(np.asarray(y_codes, dtype=np.int64).ravel())
@@ -947,7 +957,7 @@ def family_pass_batches(
     n_x = cols.max(axis=1).astype(np.int64) + 1
     with parallel_kernel_entry():
         observed = mi_all_columns_njit(cols, n_x, y, n_y)
-    return _family_flags(cols, n_x, y, n_y, observed, np.cumsum([0, *widths]), alpha, n_perm, seed)
+    return _family_flags(cols, n_x, y, n_y, observed, np.cumsum([0, *widths]), alpha, n_perm, seed, decide)
 
 
 __all__ = [

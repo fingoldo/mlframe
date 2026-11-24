@@ -34,10 +34,10 @@ def test_family_test_never_runs_on_all_zero_codes(monkeypatch, strict):
     seen = []
     real = fg.family_pass_batches
 
-    def spy(batches, y_codes, alpha=0.01, n_perm=fg.FAMILY_MAXT_PERMUTATIONS, seed=0):
+    def spy(batches, y_codes, alpha=0.01, n_perm=fg.FAMILY_MAXT_PERMUTATIONS, seed=0, decide=None):
         """Spy."""
         seen.append([bool(np.asarray(b).any()) for b in batches])
-        return real(batches, y_codes, alpha, n_perm, seed)
+        return real(batches, y_codes, alpha, n_perm, seed, decide)
 
     monkeypatch.setattr(fg, "family_pass_batches", spy)
     from mlframe.feature_selection.filters.mrmr import MRMR
