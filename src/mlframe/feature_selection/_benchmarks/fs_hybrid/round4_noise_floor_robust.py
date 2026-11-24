@@ -6,7 +6,7 @@ from __future__ import annotations
 from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import os, sys
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings; warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 import numpy as np
 from sklearn.model_selection import train_test_split, StratifiedKFold
 import lightgbm as lgb

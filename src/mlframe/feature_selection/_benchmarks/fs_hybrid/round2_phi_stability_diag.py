@@ -9,7 +9,7 @@ mean + std (low std = stable). Compares each informative base's stability to its
 from __future__ import annotations
 import os, sys
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings; warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 import numpy as np, pandas as pd
 from sklearn.model_selection import StratifiedKFold
 from sklearn.ensemble import RandomForestClassifier

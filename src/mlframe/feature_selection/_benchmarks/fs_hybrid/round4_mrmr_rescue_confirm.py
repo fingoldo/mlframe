@@ -6,7 +6,7 @@ Single-seed showed mrmr_fe+rescue +0.10 on madelon (collapse 0.70 -> 0.80), byte
 from __future__ import annotations
 import os, sys, math
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings; warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 import numpy as np, pandas as pd
 from sklearn.model_selection import train_test_split
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

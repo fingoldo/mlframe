@@ -193,7 +193,6 @@ Counts: P0 0, P1 22, P2 57, P3 22 (101 rows). The rows marked [v] are the ones I
 - 12-F84: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F38: FIXED. downstream returns NaN for an empty selection, as downstream_on_cols does, instead of crashing the run. Test tests/feature_selection/test_fs_hybrid_empty_selection_downstream.py.
 - 12-F38: FIXED. see the dispositions log.
-- 12-F31: PARTIAL. The two named benches (round3_hard_bed_bench, round3_hybrid_refine_bench) now silence only FutureWarning/DeprecationWarning. 61 other fs_hybrid bench files still install a catch-all ignore; not changed in this pass. Test tests/feature_selection/test_fs_hybrid_warning_filter_keeps_degraded_warning.py.
 - 12-F20: FIXED. An empty RFECV selection is recorded as empty_selection and not scored; the first-column fallback is removed. No dedicated test yet: the module uses relative imports, so it cannot be loaded by path.
 - 12-F20: FIXED. Scoring moved to score_selection; an empty RFECV selection is recorded as empty_selection and not scored. Tests tests/feature_selection/test_fs_hybrid_empty_rfecv_selection_not_scored.py.
 - 12-F26: FIXED. The default flips only when the new arm wins most cells and its mean delta is positive (decide_flip). Tests tests/feature_selection/test_fs_hybrid_flip_needs_positive_mean.py.
@@ -234,3 +233,5 @@ Counts: P0 0, P1 22, P2 57, P3 22 (101 rows). The rows marked [v] are the ones I
 - 12-F8: DEFERRED. Three near-identical downstream evaluators differ in rounding and empty-input handling. Unifying them changes results at the rounding edge, so it needs a decision on the canonical behaviour. No code change.
 
 - 12-F34: DEFERRED. H35 and H32 pick the config by OOF AUC on rows the members were fit on. A real fix refits the members on a training split and scores the augmented features of held-out rows, and HybridSelector has no transform path that builds those features. Needs that transform first (a feature-engine change). Benchmark-only, not production. No code change.
+
+- 12-F31: RESOLVED. All 60 fs_hybrid bench files that installed a bare catch-all ignore now silence only FutureWarning and DeprecationWarning; other warnings surface. Each file compiles. Test tests/feature_selection/test_cluster12_no_catch_all_warning_filter.py.

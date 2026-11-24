@@ -33,7 +33,7 @@ from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 from typing import Any
 import os, sys, time, gc
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings; warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 import numpy as np, pandas as pd
 from itertools import combinations
 from collections import Counter

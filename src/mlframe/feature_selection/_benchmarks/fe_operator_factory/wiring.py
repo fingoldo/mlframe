@@ -131,13 +131,16 @@ def main(argv: "Optional[list[str]]" = None) -> None:
     ap.add_argument("--module", required=True)
     ap.add_argument("--prev", default="row_stat", choices=sorted(PREVIOUS))
     ap.add_argument("--comment", default="")
+    ap.add_argument("--param", action="append", default=[], metavar="NAME:TYPE", help="constructor parameter of the new operator (repeatable)")
     ap.add_argument("--apply", action="store_true")
     args = ap.parse_args(argv)
     new = Operator(args.kind, args.family, args.flag, args.fn, args.module)
+    # Parameters the CLI declares are passed through, so the generated operator keeps its constructor parameters (11-F13).
+    params = [tuple(item.split(":", 1)) for item in args.param]
     if args.apply:
-        print(f"{apply(new, PREVIOUS[args.prev], comment=args.comment)} edits written")
+        print(f"{apply(new, PREVIOUS[args.prev], params=params, comment=args.comment)} edits written")
     else:
-        problems = plan(new, PREVIOUS[args.prev], comment=args.comment)
+        problems = plan(new, PREVIOUS[args.prev], params=params, comment=args.comment)
         print("dry run: all anchors found" if not problems else "\n".join(problems))
 
 

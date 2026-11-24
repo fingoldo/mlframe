@@ -10,7 +10,7 @@ recommendation to the pipeline owner is concrete.
 from __future__ import annotations
 import warnings
 import numpy as np
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 from mlframe.feature_selection.filters.engineered_recipes import EngineeredRecipe
 

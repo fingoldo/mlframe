@@ -106,5 +106,5 @@ def main():
 
 
 if __name__ == "__main__":
-    warnings.filterwarnings("ignore")  # silenced for the bench run only, not at import
+    warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)  # silenced for the bench run only, not at import
     main()

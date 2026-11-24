@@ -87,6 +87,11 @@ def _resolve_counted_classes() -> Tuple[List[Type[Any]], List[str]]:
         except ImportError:
             missing.extend(f"{module_name}.{name}" for name in class_names)
             continue
+        except Exception as exc:
+            # An import that raises anything else would otherwise abort every arm's FitCounter.__enter__; treat it as missing and say why (11-F7).
+            logger.warning("counted estimator module %s failed to import (%s); its classes are not instrumented.", module_name, exc)
+            missing.extend(f"{module_name}.{name}" for name in class_names)
+            continue
         for name in class_names:
             obj = getattr(module, name, None)
             if isinstance(obj, type) and callable(getattr(obj, "fit", None)):
@@ -748,12 +753,16 @@ def _rfecv_rank_vector(model: Any, names: Sequence[str], selected: Sequence[str]
     raw = getattr(model, "ranking_", None)
     if raw is not None and len(np.asarray(raw, dtype=object).ravel()) > 0:
         arr = np.asarray(raw, dtype=object).ravel()
-        if np.issubdtype(np.asarray(raw).dtype, np.number) and arr.shape[0] == len(names):
-            return np.asarray(raw, dtype=np.float64)
-        order = {str(nm): pos for pos, nm in enumerate(arr)}
-        if set(order) & set(names):
-            # An ordered NAME list: position in it IS the rank, and anything it omits ranks after all of it.
-            return np.asarray([float(order.get(str(nm), len(order))) for nm in names], dtype=np.float64)
+        if np.issubdtype(np.asarray(raw).dtype, np.number):
+            if arr.shape[0] == len(names):
+                return np.asarray(raw, dtype=np.float64)
+            # Numeric ranks over a different feature set cannot be aligned by name; the name-order branch would stringify them and match nothing (11-F9).
+            logger.warning("RFECV ranking_ has %d numeric ranks for %d names; falling back to kept-vs-dropped ordering.", arr.shape[0], len(names))
+        else:
+            order = {str(nm): pos for pos, nm in enumerate(arr)}
+            if set(order) & set(names):
+                # An ordered NAME list: position in it IS the rank, and anything it omits ranks after all of it.
+                return np.asarray([float(order.get(str(nm), len(order))) for nm in names], dtype=np.float64)
     # Attribute absent or unusable: fall back to the only ordering still available, kept-vs-dropped.
     keep = set(str(c) for c in selected)
     return np.asarray([0.0 if str(nm) in keep else 1.0 for nm in names], dtype=np.float64)
@@ -880,7 +889,11 @@ class BorutaShapArm(BaseArm):
             raise ValueError("BorutaShap.history_x_ is missing or does not cover every input feature; a 'continuous' arm may not fall back to a synthesised score.")
         hist = history.iloc[1:] if len(history) > 1 else history
         with np.errstate(invalid="ignore"):
-            means = {str(c): float(np.nan_to_num(np.nanmean(np.asarray(hist[c], dtype=np.float64)), nan=0.0)) for c in names}
+            # A column with no finite trial was never scored: rank it below every scored column (-inf), not tied with a real score of 0.0 (11-F11).
+            means = {}
+            for c in names:
+                m = float(np.nanmean(np.asarray(hist[c], dtype=np.float64)))
+                means[str(c)] = m if np.isfinite(m) else float("-inf")
         score = np.array([means[n] for n in names], dtype=np.float64)
         _names_set = set(names)  # built once per statement, not per comprehension item (11-F15)
         selected = [str(c) for c in getattr(model, "selected_features_", []) if str(c) in _names_set]

@@ -260,7 +260,10 @@ def recovered_count(sel, roles) -> int:
 def make_tee_print(orig: Callable, fp: TextIO) -> Callable:
     """Build a ``print`` replacement that writes to both the original stream and ``fp``, tolerating a closed/broken ``fp``."""
 
+    warned = False
+
     def _tee_print(*a, **kw):
+        nonlocal warned
         kw["flush"] = True
         orig(*a, **kw)
         try:
@@ -270,9 +273,11 @@ def make_tee_print(orig: Callable, fp: TextIO) -> Callable:
             orig(*a, **kw2)
         except (OSError, ValueError) as _log_exc:
             # The console keeps printing while the log stops: say so once on stderr (audit 10-F9).
-            import sys as _sys
+            if not warned:
+                warned = True
+                import sys as _sys
 
-            print(f"log file write failed ({_log_exc}); further output goes to the console only", file=_sys.stderr)
+                print(f"log file write failed ({_log_exc}); further output goes to the console only", file=_sys.stderr)
 
     return _tee_print
 
