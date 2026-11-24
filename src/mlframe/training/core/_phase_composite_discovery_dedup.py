@@ -60,7 +60,8 @@ def prune_equivalent_composite_specs(
     from ._phase_composite_discovery_gates import rank_pending_composites
 
     ranked = [p["name"] for p in rank_pending_composites([p for p in pending if str(p.get("tt")) == str(target_type)])]
-    priority = [n for n in ranked if n in t_train_by_name] + [n for n in t_train_by_name if n not in set(ranked)]
+    ranked_set = set(ranked)  # built once, not per element of the comprehension (37-F32)
+    priority = [n for n in ranked if n in t_train_by_name] + [n for n in t_train_by_name if n not in ranked_set]
     drops = find_equivalent_composite_specs(y_full[tr], t_train_by_name, priority, r2_tol=r2_tol)
     if not drops:
         return drops

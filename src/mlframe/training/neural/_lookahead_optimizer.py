@@ -196,6 +196,8 @@ class Lookahead(Optimizer):
         # Per Zhang 2019 Algorithm 1. Slow weights were eagerly initialised
         # at construction to the initial param values, so we always have
         # the prior anchor here -- no lazy-init branch needed.
+        slow_list: list = []
+        fast_list: list = []
         for group in self.base_optimizer.param_groups:
             for p in group["params"]:
                 if not p.requires_grad:
@@ -212,10 +214,13 @@ class Lookahead(Optimizer):
                     # by one cycle but converge from there.
                     self._slow_weights[pid] = p.data.detach().clone()
                     continue
-                # slow <- slow + alpha * (fast - slow) == lerp(slow, fast, alpha)
-                slow.lerp_(p.data, self.alpha)
-                # fast <- slow
-                p.data.copy_(slow)
+                slow_list.append(slow)
+                fast_list.append(p.data)
+        # slow <- slow + alpha * (fast - slow) == lerp(slow, fast, alpha); then fast <- slow. One batched op each instead of a Python
+        # loop with per-parameter lerp_/copy_ (39-F58). Numerically identical to the per-tensor form.
+        if slow_list:
+            torch._foreach_lerp_(slow_list, fast_list, self.alpha)
+            torch._foreach_copy_(fast_list, slow_list)
         return loss
 
     @torch.no_grad()

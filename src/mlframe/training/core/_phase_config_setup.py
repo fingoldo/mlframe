@@ -447,7 +447,8 @@ def _prewarm_numba_kernels(
             from mlframe.training.baselines.shared import warmup_numba_kernels as _warmup_numba_kernels
             _warmup_numba_kernels(include_feature_selection=_fs_will_run, include_heavy_libs=_heavy_will_run)
         except Exception as e:  # nosec B110 - optional dependency import guard
-            logger.debug("numba kernel warm-up failed, first real call will pay JIT cost: %s", e)
+            # INFO, not DEBUG: the warm-up is optional, but the first fit then pays JIT cost, so operators should see why (37-F41).
+            logger.info("numba kernel warm-up failed, first real call will pay JIT cost: %s", e)
 
 
 def _log_dataset_reuse_capabilities() -> None:
@@ -612,10 +613,8 @@ def _log_chart_locations(verbose, data_dir, save_charts, target_name, model_name
                 "cal-plot short-circuit INACTIVE (charts will render)",
                 save_charts, _plot_dir, _is_interactive_logp,
             )
-        try:
-            _po = getattr(reporting_config, "plot_outputs", "") or ""
-        except NameError:
-            _po = ""
+        # getattr with a default cannot raise NameError, so the former try/except around it was dead (37-F40).
+        _po = getattr(reporting_config, "plot_outputs", "") or ""
         # Warn ONLY when the PLOTLY backend itself emits a kaleido raster (png/svg/pdf) -- NOT when the
         # raster comes from matplotlib. The old ``"plotly" in _po and "png" in _po`` test false-fired on
         # the DEFAULT ``plotly[html] + matplotlib[png]`` (html via plotly, png via matplotlib, ZERO

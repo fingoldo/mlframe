@@ -31,9 +31,9 @@ def apply_prediction_envelope_clip(
     """Clip predictions to a sigma window around the train (or eval-fallback) target range BEFORE metrics + chart.
 
     Applies to ALL regression models. Linear / Ridge / Lasso can extrapolate as catastrophically as unbounded MLPs on
-    group-aware splits with strong-AR / heavy-tail targets. Train-y stats are the conceptually correct bound; when the
-    suite didn't thread them, an eval-derived bound (k_sigma=10, intentionally generous) is a defensive net against
-    truly catastrophic predictions. No-op when no usable envelope can be derived.
+    group-aware splits with strong-AR / heavy-tail targets. The bound is the train-target envelope (3 sigma). When the
+    train statistics are not threaded in, predictions are NOT clipped: an eval-derived envelope would be built from the
+    labels of the split being scored, so the metrics would read the labels they score (41-F28). Logs a WARNING then.
     """
     _env_stats = None
     _envelope_source = "none"

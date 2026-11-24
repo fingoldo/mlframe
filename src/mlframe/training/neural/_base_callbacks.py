@@ -66,7 +66,15 @@ class AggregatingValidationCallback(Callback):
         self.batched_predictions.append(predictions)
 
     def on_validation_epoch_end(self, trainer, pl_module):
-        """Concatenate the buffered batches, compute ``metric_fcn`` once, log it, and reset the buffers."""
+        """Concatenate the buffered batches, compute ``metric_fcn`` once, log it, and reset the buffers.
+
+        With no buffered validation batch (an empty loader) there is nothing to score: log a WARNING and skip the
+        metric instead of letting ``torch.concat`` raise on an empty list (39-F59).
+        """
+        if not self.batched_labels:
+            logger.warning("AggregatingValidationCallback: no validation batches this epoch; skipping val_%s.", self.metric_name)
+            self.init_accumulators()
+            return
         labels = torch.concat(self.batched_labels).detach().cpu().numpy()
         predictions = torch.concat(self.batched_predictions).detach().cpu().float().numpy()
         metric_value = self.metric_fcn(y_true=labels, y_score=predictions)
@@ -254,7 +262,8 @@ class PeriodicLearningRateFinder(LearningRateFinder):
 
     def on_train_epoch_start(self, trainer, pl_module):
         """Re-run the LR-finder sweep and update ``pl_module.learning_rate`` when the current epoch is a multiple of ``period``."""
-        if (trainer.current_epoch % self.period) == 0 or trainer.current_epoch == 0:
+        # ``period`` is validated positive in __init__, so epoch 0 (0 % period == 0) is already covered (39-F60).
+        if (trainer.current_epoch % self.period) == 0:
             logger.info("Finding optimal learning rate. Current rate=%s", pl_module.learning_rate)
             self.lr_find(trainer, pl_module)
             logger.info("Set learning rate to %s", pl_module.learning_rate)

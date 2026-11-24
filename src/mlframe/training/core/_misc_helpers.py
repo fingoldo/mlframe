@@ -71,7 +71,10 @@ def _entry_metric(entry, split: str, name: str) -> float:
         # Class-indexed: {1: {...}} for binary, {0: {...}, 1: {...}, ...} for multiclass. The positive class is
         # the reported one for binary; for multiclass take the first class that carries the metric, which
         # matches what the per-class report prints.
-        for _cls_key in sorted(k for k in inner if isinstance(k, int)):
+        _int_keys = sorted(k for k in inner if isinstance(k, int))
+        if set(_int_keys) == {0, 1}:
+            _int_keys = [1, 0]  # binary: the positive class (1) first, as the comment says (37-F49)
+        for _cls_key in _int_keys:
             _cls = inner.get(_cls_key)
             if isinstance(_cls, dict):
                 _cv = _cls.get(name)
@@ -207,10 +210,11 @@ def _build_full_column_from_splits(
         try:
             if col_vals is None:
                 col_vals = _split_df[col_name].to_numpy() if hasattr(_split_df[col_name], "to_numpy") else _np.asarray(_split_df[col_name])
+            # The float64 cast sits inside the guard: a non-numeric column raises here and is skipped, not propagated (37-F47).
+            col_vals = _np.asarray(col_vals).reshape(-1).astype(_np.float64, copy=False)
         except Exception:
             logger.debug("failed materialising column %r from split frame; skipping", col_name, exc_info=True)
             continue
-        col_vals = _np.asarray(col_vals).reshape(-1).astype(_np.float64, copy=False)
         idx_arr = _np.asarray(_split_idx).reshape(-1)
         if len(col_vals) != len(idx_arr):
             # Frame and index disagree (e.g. OD-filtered train_df paired with raw train_idx); skip rather than mis-align silently.

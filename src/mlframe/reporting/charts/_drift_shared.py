@@ -37,6 +37,8 @@ def _frame_columns(feature_frame: Any, feature_names: Optional[Sequence[str]]) -
         arr = arr.reshape(-1, 1)
     names = list(feature_names) if feature_names is not None else [f"f{i}" for i in range(arr.shape[1])]
     return [arr[:, i] for i in range(arr.shape[1])], names
+
+
 def _frame_rows(frame: Any) -> int:
     """Row count of a 2-D ndarray / pandas / polars frame without materialising it."""
     if hasattr(frame, "shape"):

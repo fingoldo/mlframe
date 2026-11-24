@@ -193,7 +193,8 @@ def bootstrap_reliability_band(
         return None
     rng = np.random.default_rng(random_state)
     if s.size > max_rows:
-        s, t = (lambda i: (s[i], t[i]))(rng.choice(s.size, size=max_rows, replace=False))
+        _idx = rng.choice(s.size, size=max_rows, replace=False)
+        s, t = s[_idx], t[_idx]
     n = s.size
     grid = np.linspace(smin, smax, n_grid)
     curves = np.empty((n_boot, n_grid), dtype=np.float64)

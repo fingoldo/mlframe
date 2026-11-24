@@ -388,12 +388,8 @@ def _per_group_predict(
     cat_val = _col_to_groupkey(val_X_pd, cat_col)
     cat_test = _col_to_groupkey(test_X_pd, cat_col)
 
-    # Group-mean (regression) or group-positive-rate (binary).
-    if target_type == "binary_classification":
-        # For DummyClassifier-style pred, output is class label; for our purposes we predict probability = group positive rate.
-        y_series = pd.Series(train_y).astype(float)
-    else:
-        y_series = pd.Series(train_y).astype(float)
+    # Group-mean (regression) or group-positive-rate (binary): both branches cast the target to float, so one assignment (32-F16).
+    y_series = pd.Series(train_y).astype(float)
     grouped = y_series.groupby(cat_train, dropna=False)
     global_mean = float(y_series.mean())
     group_sizes = grouped.size()

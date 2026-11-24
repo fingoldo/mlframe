@@ -19,25 +19,6 @@ from ._prediction_memo import with_prediction_memo
 
 logger = logging.getLogger(__name__)
 
-# Pack G universal watchdog threshold. ``wrapper.predict(X)``
-# is compared against ``transform.inverse(inner.predict(X), base, params)``;
-# divergence beyond this fraction of ``y_std`` fires a WARNING.
-#
-# Choice of 1%: the wrapper applies a y-train clip on inverse() output, so
-# out-of-envelope rows can show tiny per-row differences (clip pulled the
-# extreme back inside [y_min, y_max] while the reconstructed path didn't).
-# 1% of y_std is well below the float64 round-off floor accumulated across
-# a typical (n=10^5, transform=linear_residual) split, AND well above the
-# clip-induced noise on a normally-distributed y (clip would have to bite
-# ~3 sigma rows AND the inverse path miss them, both rare). Wrapper-math
-# bugs (entry-mutation cache stale, double-inverse, base mismatch) produce
-# divergence in the 5-50% range, comfortably above this threshold.
-#
-# Tune by raising if a healthy wrapper fires this warning in your data
-# (consult the watchdog log line; %_of_y_std is included so the threshold
-# can be set just above the observed noise floor).
-_WATCHDOG_RELATIVE_THRESHOLD = 0.01
-
 
 from ._phase_composite_post_lag_predict import _LagPredictDeployableModel  # noqa: F401
 from ._phase_composite_wrapping import _run_composite_target_wrapping

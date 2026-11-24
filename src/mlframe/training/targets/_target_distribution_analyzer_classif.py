@@ -34,10 +34,12 @@ def _classification_balance_pathologies(counts, diagnostics, pathologies, n, kno
         pathologies.append(f"class_imbalance(max/min={ratio:.1f}x)")
         # Recommend balanced class_weight where the model family supports it.
         knob_overrides.setdefault("lgb_kwargs", {})["class_weight"] = "balanced"
-        knob_overrides.setdefault("xgb_kwargs", {})["scale_pos_weight"] = max(1.0, ratio)
         knob_overrides.setdefault("cb_kwargs", {})["auto_class_weights"] = "Balanced"
         _stamp_prov("lgb_kwargs", "class_weight", "balanced", "class_imbalance")
-        _stamp_prov("xgb_kwargs", "scale_pos_weight", max(1.0, ratio), "class_imbalance")
+        # scale_pos_weight is a binary-only XGBoost knob; multiclass XGBoost ignores it, so set it only for two classes (41-F33).
+        if len(counts) == 2:
+            knob_overrides.setdefault("xgb_kwargs", {})["scale_pos_weight"] = max(1.0, ratio)
+            _stamp_prov("xgb_kwargs", "scale_pos_weight", max(1.0, ratio), "class_imbalance")
         _stamp_prov("cb_kwargs", "auto_class_weights", "Balanced", "class_imbalance")
     # Rare classes. Keep class labels in their native dtype (not force-cast to int):
     # labels can legitimately be strings, and only the count is used below -- forcing

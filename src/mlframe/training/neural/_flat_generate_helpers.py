@@ -347,7 +347,8 @@ def _generate_mlp_every_fit_bench_profiling(model):
                 _worst_layer_name, _worst_std,
             )
     except Exception as _rank_err:
-        logger.debug(
-            "generate_mlp: degenerate-init probe failed (non-fatal): %s",
+        # The probe is non-fatal, but when it fails the degenerate-init check did not run, so say so at WARNING (39-F62).
+        logger.warning(
+            "generate_mlp: degenerate-init probe failed (non-fatal, degenerate-weight check skipped): %s",
             _rank_err,
         )

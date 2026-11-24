@@ -560,7 +560,9 @@ def _suite_stage_defaults_and_conversion(ctx: Any, st: SimpleNamespace) -> None:
     # Propagate split-config random_seed so the default CatBoostEncoder is
     # deterministic across runs. fix audit row FE-P2-5.
     _seed_for_components = getattr(st.split_config, "random_seed", None) if st.split_config is not None else None
-    assert st.preprocessing_config is not None, "_main_train_suite: preprocessing_config must be resolved before pipeline component setup"
+    # An explicit raise, not an assert: asserts are stripped under ``python -O`` and a None config would reach the pipeline (37-F43).
+    if st.preprocessing_config is None:
+        raise RuntimeError("_main_train_suite: preprocessing_config must be resolved before pipeline component setup")
     category_encoder, imputer, scaler = _get_pipeline_components(
         st.preprocessing_config, st.cat_features, random_seed=_seed_for_components,
     )

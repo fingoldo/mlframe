@@ -603,7 +603,9 @@ def _run_wrapper_selectors(X_df, y_arr, groups, fsc, rfecv_models, target_type, 
             ran = True
             cols = list(Xt.columns) if hasattr(Xt, "columns") else None
             if cols:
-                selected.update(c for c in cols if c in set(X_df.columns))
+                # Build the input column set once, not once per output column (41-F39).
+                input_cols = set(X_df.columns)
+                selected.update(c for c in cols if c in input_cols)
         except Exception as exc:
             log_throttle(logger, "ranker_fs_ltr_selector_failed", logging.WARNING, "LTR selector %s failed (%s: %s); skipping it.", type(pp).__name__, type(exc).__name__, exc)
     return ran

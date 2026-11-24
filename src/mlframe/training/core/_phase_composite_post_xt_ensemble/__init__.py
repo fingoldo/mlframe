@@ -419,7 +419,8 @@ def _build_cross_target_e_step1_oof_residuals_redundancy(_ce_strategy, st, compo
                         _gate_preds, _y_for_stack, min_weight=_gate_min,
                     )
                     if 2 <= len(_survivors) < len(st._oof_names):
-                        _keep_mask_arr = np.array([n in set(_survivors) for n in st._oof_names], dtype=bool)
+                        _survivor_set = set(_survivors)  # built once, not per name (37-F38)
+                        _keep_mask_arr = np.array([n in _survivor_set for n in st._oof_names], dtype=bool)
                         _pred_matrix = _pred_matrix[:, _keep_mask_arr]
                         # Keep _oof_pred_matrix aligned with the pruned weights so the OOF gate + AR(1) failsafe below still match column-for-column (mirrors the dedup block).
                         st._oof_pred_matrix = st._oof_pred_matrix[:, _keep_mask_arr]

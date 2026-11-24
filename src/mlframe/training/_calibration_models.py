@@ -424,7 +424,11 @@ def _fit_calibrated_wrapper(entry, base, _cp, _cy, target_type, _is_multi):
         from .configs import TargetTypes
         _ttype = target_type if target_type is not None else getattr(entry, "target_type", None)
         if isinstance(_ttype, str):
-            _resolved_ttype = getattr(TargetTypes, _ttype, None)
+            # Resolve by enum VALUE first (e.g. "multilabel_classification"), then by member NAME. Name-only lookup silently ignored a value (26-F37).
+            try:
+                _resolved_ttype = TargetTypes(_ttype)
+            except ValueError:
+                _resolved_ttype = getattr(TargetTypes, _ttype, None)  # type: ignore[assignment]  # getattr on an enum class is Any
             _ttype = _resolved_ttype if _resolved_ttype is not None else (TargetTypes.MULTILABEL_CLASSIFICATION if _cy.ndim == 2 else TargetTypes.MULTICLASS_CLASSIFICATION)
         if _ttype is None:
             _ttype = TargetTypes.MULTILABEL_CLASSIFICATION if _cy.ndim == 2 else TargetTypes.MULTICLASS_CLASSIFICATION

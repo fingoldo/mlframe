@@ -12,6 +12,7 @@ reused by the measured precheck to surface the autocorr as an observability fiel
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional
 
 import numpy as np
@@ -22,7 +23,8 @@ logger = logging.getLogger(__name__)
 
 # Plain (unregularised) linear models extrapolate unboundedly on unseen groups like neural nets do; Ridge is
 # regularised and was the prod-safe baseline (R^2=1.00 where Identity-MLP collapsed to -326), so it is NOT unbounded.
-_UNBOUNDED_LINEAR_TOKENS = ("linear", "ols", "lstsq")
+_UNBOUNDED_LINEAR_SUBSTRINGS = ("linear",)  # matched as substring: "LinearRegression" lowercases to "linearregression"
+_UNBOUNDED_LINEAR_TOKENS = frozenset({"ols", "lstsq"})  # matched as whole tokens: "colsample" must not read as "ols" (37-F37)
 
 # When the zoo is bounded-only and the user left ``composite_skip_when_raw_dominates_ratio`` at 0 (never skip), default
 # it to this conservative ratio: fires only when the raw-y screen RMSE is < 2% of y_std (raw R^2 > 0.9996), i.e. the
@@ -44,7 +46,8 @@ def _zoo_is_bounded_only(models) -> bool:
     for nm in names:
         if is_neural_model(nm):
             return False
-        if "ridge" not in nm and any(tok in nm for tok in _UNBOUNDED_LINEAR_TOKENS):
+        tokens = set(re.split(r"[^a-z0-9]+", nm))
+        if "ridge" not in nm and (any(s in nm for s in _UNBOUNDED_LINEAR_SUBSTRINGS) or tokens & _UNBOUNDED_LINEAR_TOKENS):
             return False
     return True
 

@@ -83,7 +83,10 @@ def coerce_timestamps_for_audit(
         # coerce to UTC-aware via ``utc=True``, then strip the tz so the
         # resulting numpy view IS datetime64[ns]. WARN-log when tz info gets
         # dropped so the operator knows the audit assumes UTC.
-        _coerced = pd.to_datetime(arr, utc=True, errors="coerce")
+        # Detect tz on a plain parse first: ``utc=True`` makes every result tz-aware, so testing the UTC result always reported tz input (41-F30).
+        _plain = pd.to_datetime(arr, errors="coerce")
+        _had_tz = not pd.api.types.is_datetime64_any_dtype(_plain.dtype) or getattr(_plain.dtype, "tz", None) is not None
+        _coerced = pd.to_datetime(arr, utc=True, errors="coerce") if _had_tz else _plain
         try:
             _n_nat = int(pd.isna(_coerced).sum())
             if _n_nat > 0:
@@ -95,7 +98,6 @@ def coerce_timestamps_for_audit(
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
             pass
-        _had_tz = getattr(_coerced.dtype, "tz", None) is not None
         if _had_tz:
             _coerced = _coerced.tz_convert("UTC").tz_localize(None)
             import logging as _logging
