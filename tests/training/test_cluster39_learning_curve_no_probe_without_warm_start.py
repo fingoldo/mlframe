@@ -39,4 +39,5 @@ def test_warm_start_off_never_reaches_the_probe(monkeypatch):
         warm_start=False,
         n_jobs=1,
     )
-    assert result is not None
+    assert result.warm_start_used is False
+    assert len(result.train_sizes) > 0
