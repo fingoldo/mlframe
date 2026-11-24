@@ -215,6 +215,7 @@ def _binned_numeric_agg(recipe: EngineeredRecipe, X: Any, cc: Any, bc: Any) -> n
 #   oof_warp1d            cross-fitted E[rank(y) | x] of one column: the stored bin table interpolated at x, clipped to the stored range; a pure function of X.
 #   row_stat              min / max / median / range / std / soft max or min of a learned subset of columns, standardised with the stored moments, clipped to the stored range; a pure function of X.
 #   oof_cell2d            cross-fitted E[rank(y) | x_a, x_b] on a quantile grid, shrunk toward the additive fit: the stored table looked up at the two columns; offered to the linear usability pool.
+#   unary_credit           one unary form (log, sqrt, reciprocal, centred square / abs / tanh / asinh, cbrt, sin, cos, rankgauss) of one numeric column that the linear-usability credit found useful: the stored form name and fitted constants rebuild it from the source column alone.
 #   rankgauss              Layer 104: interpolates each test value's rank against the stored sorted fit values and maps to a Gaussian quantile.
 _KIND_HANDLERS: dict[str, _Handler] = {
     "unary_binary": _routed("._recipe_unary_binary", "_apply_unary_binary", col_cache=True),
@@ -233,6 +234,7 @@ _KIND_HANDLERS: dict[str, _Handler] = {
     "hinge_basis": _routed(".._hinge_basis_fe", "_apply_hinge_basis"),
     "orth_wavelet": _routed(".._wavelet_basis_fe_recipes", "_apply_orth_wavelet"),
     "mi_greedy_transform": _routed("._missingness_ratio_recipes", "_apply_mi_greedy_transform"),
+    "unary_credit": _routed("._unary_credit_recipes", "_apply_unary_credit"),
     "kfold_target_encoded": _routed("._encoding_recipes", "_apply_kfold_target_encoded", col_cache=True),
     "count_encoded": _routed("._encoding_recipes", "_apply_count_encoded", col_cache=True),
     "frequency_encoded": _routed("._encoding_recipes", "_apply_frequency_encoded", col_cache=True),

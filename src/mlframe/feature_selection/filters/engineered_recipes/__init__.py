@@ -164,6 +164,8 @@ from ._missingness_ratio_recipes import (
     build_pairwise_ratio_recipe,
 )
 
+from ._unary_credit_recipes import _apply_unary_credit, build_unary_credit_recipe
+
 # Grouped / temporal recipe builders live in the sibling ``_grouped_recipes``
 # (apply helpers dispatched lazily in the dispatcher); re-exported for importers.
 from ._grouped_recipes import (

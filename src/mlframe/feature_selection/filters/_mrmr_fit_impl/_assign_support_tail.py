@@ -73,6 +73,7 @@ def _assign_support_tail(
 
     See the module docstring for the full section this carves out.
     """
+    self._unary_credit_fired_ = False
     # A second pass that only PROPOSES engineered candidates (the feature-base target mix) does not need the linear-usability retention: it re-attaches forms for a downstream linear model, which the
     # pass that owns the selection runs on its own (1.4 s of a 10k-row fit, size independent).
     if not getattr(self, "_lean_second_pass_", False):
@@ -147,6 +148,17 @@ def _assign_support_tail(
     if _restore_changed:
         self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
 
+    # LINEAR-USABILITY CREDIT of the unary forms of the FINAL raw support (``_fe_unary_credit``), second call: the restores above bring back a raw such as ``x3`` of a ``x3 ** 2`` term that the early passes had not
+    # yet re-attached (names already credited by the first call are skipped), and the parsimony below removes what the credited forms make redundant.
+    if fe_max_steps > 0 and not getattr(self, "_lean_second_pass_", False):
+        _assign_support_tai_f_step3_unary_credit(self, X, y, verbose, selected_vars, cols, _retention_added_eng_names)
+
+    # CREDIT PARSIMONY: when a unary credit fired, the basis legs, single-index directions and chance products that only re-express what the credited form already holds are removed, together with the
+    # raw source the form replaces (``_fe_credit_parsimony``); it runs after every pass that can re-attach a column.
+    from mlframe.feature_selection.filters._fe_credit_parsimony import run_credit_parsimony
+
+    _credit_changed, selected_vars = run_credit_parsimony(self, X, selected_vars, cols, classes_y, y, verbose)
+
     # LINEAR-DEPENDENCE GUARD runs last: the passes above can re-attach raw columns that complete an exact linear combination of the kept raws.
     _ld_changed, selected_vars = _assign_support_tai_drop_exact_linear_dependence(self, X, cols, selected_vars, verbose)
     if _ld_changed:
@@ -207,6 +219,28 @@ def _assign_support_tai_fe_max_steps(self, fe_max_steps, X, verbose, _eng_contin
         # under-ranked raws and - crucially - rejects pure-noise raws (they do not lower the average CV-MAE).
         # Re-attaches only raws NOT already in support_; purely additive (no engineered recipe touched).
         _assign_support_tai_f_step2_re_attaches_only(self, X, verbose, _retention_prep_cache, selected_vars, cols, classes_y, _eng_continuous_snapshot, data, _allowed_raw_idx)
+        # The credit runs here, so that the redundancy and rescue passes after this point see the credited forms and prune against them, and once more at the end of the tail for the raw columns the later restores bring in.
+        _assign_support_tai_f_step3_unary_credit(self, X, y, verbose, selected_vars, cols, _retention_added_eng_names)
+
+
+def _assign_support_tai_f_step3_unary_credit(self, X, y, verbose, selected_vars, cols, _retention_added_eng_names):
+    """Append the unary forms the linear-usability credit finds for the final raw support (see ``_fe_unary_credit``); never breaks a fit."""
+    try:
+        from mlframe.feature_selection.filters._fe_unary_credit import credit_unary_forms
+
+        _y_cont = getattr(self, "_fe_prewarp_y_continuous_", None)
+        if _y_cont is None:
+            _yv = y.values if hasattr(y, "values") else np.asarray(y)
+            _y_cont = np.asarray(_yv).reshape(-1) if np.ndim(_yv) <= 1 or np.asarray(_yv).shape[-1] == 1 else None
+        _raw_names = [str(cols[int(v)]) for v in selected_vars if 0 <= int(v) < len(cols)]
+        _extra = credit_unary_forms(self, X, _y_cont, _raw_names, seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose)
+        for _r_recipe, _r_name in _extra:
+            self._engineered_recipes_.append(_r_recipe)
+            self._engineered_features_.append(_r_name)
+            _retention_added_eng_names.add(str(_r_name))
+        self._unary_credit_fired_ = bool(_extra) or bool(getattr(self, "_unary_credit_fired_", False))  # read by the parsimony pass at the end of the tail
+    except Exception as _credit_exc:  # never let the optional credit break a fit
+        log_throttle(logger, "mrmr_unary_credit_failed", logging.WARNING, "MRMR unary credit skipped (%s: %s).", type(_credit_exc).__name__, _credit_exc)
 
 
 def _assign_support_tai_f_step1_identical_seed_iloc(self, X, verbose, _retention_prep_cache, _eng_continuous_snapshot, data, classes_y, y, _retention_added_eng_names):
