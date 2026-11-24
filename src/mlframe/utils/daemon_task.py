@@ -25,7 +25,7 @@ def start_daemon_task(fn: Callable[..., Any], *args: Any) -> Future:
             return
         try:
             fut.set_result(fn(*args))
-        except BaseException as exc:  # handed to the waiting caller, which classifies it
+        except BaseException as exc:  # handed to the waiting caller, which classifies it  # audit-exempt: bare_except -- settles the future with any BaseException and re-raises non-Exception so the thread still dies
             logger.debug("daemon task raised %s: %s", type(exc).__name__, exc)
             fut.set_exception(exc)
             if not isinstance(exc, Exception):
