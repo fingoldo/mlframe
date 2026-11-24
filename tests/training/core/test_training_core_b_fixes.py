@@ -136,11 +136,9 @@ def test_f3_run_batched_logs_and_truncates_loudly_on_concat_failure(caplog):
         return {"ensemble_predictions": np.zeros((n, ncols)), "metadata": {"ok": True}}
 
     df = pd.DataFrame({"x": range(10)})
-    with caplog.at_level(logging.WARNING, logger="mlframe.training.core.predict"):
-        result = _run_batched(fake_entry_fn, df, predict_batch_rows=5)
-
-    assert result["ensemble_predictions"].shape == (5, 3)
-    assert any("TRUNCATED" in r.getMessage() and "ensemble_predictions" in r.getMessage() for r in caplog.records)
+    # Current contract (audit 39-F3): a mismatched ensemble_predictions concat fails loudly with the shapes, never a silent truncation.
+    with pytest.raises(RuntimeError, match="np.concatenate\\('ensemble_predictions'\\) failed across 2 batches"):
+        _run_batched(fake_entry_fn, df, predict_batch_rows=5)
 
 
 def test_f3_run_batched_input_df_concat_failure_also_logs(caplog):
@@ -194,7 +192,7 @@ def test_f5_size_mismatched_train_idx_skips_analyzer_with_warning(caplog):
     target_by_type = {TargetTypes.REGRESSION: {"y": np.arange(5, dtype=float)}}
     train_idx = np.array([10, 11, 12])  # implies max index 12 >> target array size 5
 
-    with caplog.at_level(logging.WARNING, logger="mlframe.training.core._main_train_suite"):
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.core._main_train_suite_target_distribution"):
         _run_target_distribution_analyzer(
             enable_target_distribution_analyzer=True,
             target_by_type=target_by_type,
@@ -218,7 +216,7 @@ def test_f5_empty_train_idx_does_not_crash_on_np_max(caplog):
     target_by_type = {TargetTypes.REGRESSION: {"y": np.arange(5, dtype=float)}}
     train_idx = np.array([], dtype=int)
 
-    with caplog.at_level(logging.WARNING, logger="mlframe.training.core._main_train_suite"):
+    with caplog.at_level(logging.WARNING, logger="mlframe.training.core._main_train_suite_target_distribution"):
         _run_target_distribution_analyzer(
             enable_target_distribution_analyzer=True,
             target_by_type=target_by_type,
