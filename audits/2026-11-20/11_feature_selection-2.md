@@ -42,7 +42,6 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 
 - 11-F2: RESOLVED. RFECV empty selection scores chance (0.5) in the importance-aggregation bench instead of refitting on every column. Test tests/feature_selection/test_bench_rfecv_empty_selection_is_chance.py. Commit below.
 - 11-F1: RESOLVED. _integer_bins ranks finite values only; missing rows take bin 0 instead of the top bin. Test tests/feature_selection/test_bench_integer_bins_missing_not_top.py. Commit below.
-- 11-F3: DEFERRED. Searched arms report the max over many in-sample candidates while truth, joint and als are single candidates, so the comparison is not like for like. The fix is a study-design change (same candidate sets, or held-out scoring) for the stat-study tables; it changes every published table, so it waits for a decision.
 - 11-F4: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 11-F5: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 11-F6: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
@@ -60,3 +59,5 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 - 11-F17: DEFERRED. Empty trace gives selection_score None while the kept set has a score (current_score in greedy_backward_elimination). Fixing needs the final score exported from greedy_backward_elimination, which changes a shared function's return contract. Design decision, not changed.
 - 11-F19: FIXED. All MRMR arm and wrapper constructions draw from one bare_mrmr_kwargs helper in _arms.py; the variant arm overrides only its declared keys. Test tests/feature_selection/test_cluster11_mrmr_kwargs_single_source.py.
 - 11-F20: PARTIAL. Test gap closed for _integer_bins (the MI binning used by every MI arm): constant, few-unique, many-unique and NaN contracts pinned. The other named helpers (family_eval, als_rank1, preset_matrix_best) are not covered by this change. Test tests/feature_selection/test_cluster11_integer_bins_contract.py.
+
+- 11-F3: DEFERRED. stat_study compares searched arms (max over many in-sample candidates) against single-candidate truth/als. A like-for-like fix needs held-out scoring of the candidate chosen on training rows, which requires candidate-level outputs from family_eval (it returns only the max). That is a benchmark-contract change for its own pass. No code change.
