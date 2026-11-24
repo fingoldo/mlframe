@@ -51,7 +51,6 @@ Not verified: possible `fastmath=True` interaction with the `np.isfinite` guards
 - 08-F10: FIXED. magnitude check uses max(|min|,|max|) with Python ints, so the most negative int64 is flagged; tests/feature_engineering/transformer/test_cluster08_edges.py
 - 08-F11: FIXED. the silent temperature override now warns (RuntimeWarning); no separate test
 - 08-F7: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
-- 08-F8: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
 - 08-F12: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
 - 08-F13: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
 - 08-F15: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
@@ -70,3 +69,5 @@ Not verified: possible `fastmath=True` interaction with the `np.isfinite` guards
 - 08-F6: FIXED. Adversarial flip docstring states the implemented regression rule: a move of the prediction by more than the 10th percentile of train absolute residuals. Docstring-only fix. Test tests/feature_engineering/test_cluster08_flip_docstring_matches_rule.py.
 
 - 08-F14: FIXED. ShortlistTransformerAdapter keeps random_state exactly as given (sklearn get_params/clone contract); the effective RNG seed is resolved by _rng_seed() (seed when given, else random_state). Test tests/feature_engineering/test_cluster08_adapter_random_state_kept.py; 7 existing adapter tests pass.
+
+- 08-F8: FIXED. The key-bank cache fingerprint includes the ANN backend (build_key_bank passes its backend through to the fingerprint and save), so indices from one backend are never reused for another. Behaviour change: every cache key changes once (cache invalidation). Test tests/feature_engineering/test_cluster08_key_bank_fingerprint_backend.py; 8 key-bank cache tests pass.

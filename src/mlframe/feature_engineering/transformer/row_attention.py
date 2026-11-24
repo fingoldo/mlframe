@@ -16,6 +16,9 @@ import numpy as np
 import polars as pl
 
 from ._key_bank import KeyBank, _key_bank_fingerprint, save_key_bank, try_load_key_bank
+
+# The ANN backend this module builds its key-bank indices with; part of the cache key (08-F8).
+_KEY_BANK_ANN_BACKEND = "pynndescent"
 from ._kernels_njit import row_attention_stage4_njit
 from ._oof import apply_dedupe, kfold_attention_loop, stack_outputs_to_array
 from ._projection import (
@@ -260,7 +263,7 @@ def build_key_bank(
         fp = _key_bank_fingerprint(
             X_train=X_train, seed=seed, n_heads=n_heads, head_dim=head_dim,
             metric="cosine", standardize=standardize, ann_M=ann_M, ann_ef_construction=ann_ef_construction,
-            projection=projection, dtype=dtype, y_train=y_train,
+            projection=projection, dtype=dtype, y_train=y_train, ann_backend=_KEY_BANK_ANN_BACKEND,
         )
         cached = try_load_key_bank(cache_dir, fp)
         if cached is not None:
@@ -311,7 +314,7 @@ def build_key_bank(
     )
 
     if cache_dir is not None:
-        save_key_bank(bank, cache_dir, fp, ann_space="cosine")
+        save_key_bank(bank, cache_dir, fp, ann_space="cosine", ann_backend=_KEY_BANK_ANN_BACKEND)
 
     return bank
 
