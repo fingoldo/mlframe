@@ -56,6 +56,7 @@ from typing import Any
 import numpy as np
 from scipy import stats
 from sklearn.base import BaseEstimator, RegressorMixin, clone
+from sklearn.model_selection import KFold
 
 from .estimator import CompositeTargetEstimator
 
@@ -189,6 +190,7 @@ class TailCompositeEstimator(RegressorMixin, BaseEstimator):
         gpd_method: str = "mle",
         min_exceedances: int = _MIN_EXCEEDANCES,
         two_sided: bool = True,
+        residual_oof_folds: int = 5,
     ) -> None:
         self.base_estimator = base_estimator
         self.transform_name = transform_name
@@ -199,8 +201,27 @@ class TailCompositeEstimator(RegressorMixin, BaseEstimator):
         self.gpd_method = gpd_method
         self.min_exceedances = min_exceedances
         self.two_sided = two_sided
+        self.residual_oof_folds = residual_oof_folds
 
     # -- fit -----------------------------------------------------------------
+
+    def _oof_body_mu(self, X: Any, y: Any, fit_params: dict[str, Any]) -> np.ndarray:
+        """Out-of-fold body predictions over ``(X, y)`` from ``residual_oof_folds`` cross-fitted clones (audit 35-F33)."""
+        from sklearn.utils import _safe_indexing
+
+        y_arr = np.asarray(y, dtype=np.float64)
+        mu = np.empty(y_arr.shape[0], dtype=np.float64)
+        for tr, te in KFold(n_splits=int(self.residual_oof_folds), shuffle=True, random_state=0).split(y_arr):
+            est = CompositeTargetEstimator(
+                base_estimator=clone(self.base_estimator) if self.base_estimator is not None else None,
+                transform_name=self.transform_name,
+                base_column=self.base_column,
+                base_columns=self.base_columns,
+                group_column=self.group_column,
+            )
+            est.fit(_safe_indexing(X, tr), y_arr[tr], **fit_params)
+            mu[te] = np.asarray(est.predict(_safe_indexing(X, te)), dtype=np.float64)
+        return mu
 
     def fit(
         self,
@@ -232,15 +253,20 @@ class TailCompositeEstimator(RegressorMixin, BaseEstimator):
 
         # Residuals on the held-out split when given (honest tail), else in-sample. In-sample residuals of a boosted body are smaller than
         # held-out ones, so the threshold comes out low and the tail narrow: say so, rather than fitting the tail silently (audit 35-F33).
-        if residual_X is None:
-            logger.warning(
-                "TailCompositeEstimator.fit: no residual_X given, so the tail threshold and GPD are fitted on IN-SAMPLE residuals; "
-                "the tail quantiles are under-dispersed on held-out data. Pass out-of-fold residual_X/residual_y to avoid this.",
-            )
-        r_X = residual_X if residual_X is not None else X
-        r_y = residual_y if residual_y is not None else y
-        mu = np.asarray(self.body_estimator_.predict(r_X), dtype=np.float64)
-        y_arr = np.asarray(r_y, dtype=np.float64)
+        if residual_X is None and self.residual_oof_folds >= 2:
+            # Default (audit 35-F33): cross-fit the body so every residual is out-of-fold. Costs residual_oof_folds extra body fits.
+            mu = self._oof_body_mu(X, y, fit_params)
+            y_arr = np.asarray(y, dtype=np.float64)
+        else:
+            if residual_X is None:
+                logger.warning(
+                    "TailCompositeEstimator.fit: no residual_X given and residual_oof_folds < 2, so the tail threshold and GPD are fitted on "
+                    "IN-SAMPLE residuals; the tail quantiles are under-dispersed on held-out data.",
+                )
+            r_X = residual_X if residual_X is not None else X
+            r_y = residual_y if residual_y is not None else y
+            mu = np.asarray(self.body_estimator_.predict(r_X), dtype=np.float64)
+            y_arr = np.asarray(r_y, dtype=np.float64)
         signed = y_arr - mu
         resid = np.abs(signed) if self.two_sided else signed
         resid = resid[np.isfinite(resid)]
