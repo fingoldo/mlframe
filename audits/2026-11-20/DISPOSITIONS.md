@@ -1429,3 +1429,4 @@
 | 41-F40 | DEFERRED | Per-object-column next() scan in the ranker suite is a perf nit on wide frames; a sampled-value approach changes which value is probed, so it needs a perf and behaviour check. No code change. |
 | 41-F41 | DEFERRED | Pairwise redundancy is an O(F^2) Python double loop; vectorising it needs an equivalence check on the redundancy score, deferred to a perf pass. No code change. |
 | 41-F42 | DEFERRED | Duplicated helper and import nits span several ranking and reporting files; consolidating them is a cross-file refactor for its own pass. No code change. |
+| 15-F13 | DEFERRED | Three near-identical unwrap-to-inner-estimator loops with different attribute sets across the wrappers files. Consolidating them needs one attribute-set contract across the three call sites, deferred to a refactor pass. No code change. |
