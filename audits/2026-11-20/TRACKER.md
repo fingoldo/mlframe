@@ -693,7 +693,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 07-F13 | 07_evaluation.md | FIXED | run_once takes kwargs built once outside the timer, so the median excludes resampler setup. Bench-only, no unit test. |
 | 07-F14 | 07_evaluation.md | FIXED | The unverifiable timings in the code comments are replaced with a note that they are not stored and need a re-run. Comments only. |
 | 08-F3 | 08_feature_engineering-1.md | FIXED | a single-class fold's one-column proba maps to the seen class instead of crashing on column 1; tests/feature_engineering/transformer/test_cluster08_edges.py covers the sibling edges, not this path directly |
-| 08-F4 | 08_feature_engineering-1.md | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
+| 08-F4 | 08_feature_engineering-1.md | PARTIAL | BGM fallback to bootstrap now logs at WARNING (was INFO), so a degraded sample is visible in normal runs. Not done: the return value still does not tell callers a bootstrap was used; that needs an API change. Test tests/feature_engineering/test_cluster08_bgmm_fallback_warns.py. |
 | 08-F5 | 08_feature_engineering-1.md | FIXED | both SMOTE siblings return (0, d) on an empty minority; tests/feature_engineering/transformer/test_cluster08_edges.py |
 | 08-F6 | 08_feature_engineering-1.md | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F7 | 08_feature_engineering-1.md | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
@@ -706,7 +706,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 08-F14 | 08_feature_engineering-1.md | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F15 | 08_feature_engineering-1.md | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F16 | 08_feature_engineering-1.md | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
-| 08-F17 | 08_feature_engineering-1.md | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
+| 08-F17 | 08_feature_engineering-1.md | FIXED | Removed the unused chunk parameter from _median_pairwise_chunked and its caller argument; the median is unchanged. Test tests/feature_engineering/test_cluster08_median_pairwise_no_chunk.py. |
 | 09-F14 | 09_feature_engineering-2.md | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F15 | 09_feature_engineering-2.md | DEFERRED | tried an early return in the underdetermined branch; it broke the contract that the linear column stays finite. The real defect is the per-row exception path zeroing whole rows; needs a column-aware fix |
 | 09-F16 | 09_feature_engineering-2.md | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |

@@ -250,16 +250,16 @@ def sigma_median_heuristic(
     # naive broadcast (X_sub[:, None, :] - X_sub[None, :, :]), which materialises an n_sub^2 * d
     # float32 cube that OOMs at d > 16 for n_sub=2048 (e.g. d=50 -> 800 MB); pdist's C implementation
     # only ever holds the n_sub*(n_sub-1)/2 upper-triangle output, independent of d.
-    return _median_pairwise_chunked(X_sub, chunk=256)
+    return _median_pairwise_chunked(X_sub)
 
 
-def _median_pairwise_chunked(X_sub: np.ndarray, chunk: int) -> float:
+def _median_pairwise_chunked(X_sub: np.ndarray) -> float:
     """Pairwise-distance median via ``scipy.spatial.distance.pdist`` (returns only the upper triangle).
 
     Memory: ``n_sub * (n_sub - 1) / 2 * 8 bytes`` ~~ 16 MB for n_sub=2048. Half the cost of materialising the full n_sub^2 distance matrix and avoids the
     Windows page-file pressure that the full-matrix path hit under repeated calls in the same process.
 
-    ``chunk`` is accepted for back-compat but ignored (scipy's C implementation handles its own blocking internally).
+    scipy's C implementation handles its own blocking, so no chunk parameter is needed (08-F17).
     """
     from scipy.spatial.distance import pdist
     # pdist returns the condensed upper-triangle distance vector; all entries are pairwise distances between distinct points (no self-pairs to filter).

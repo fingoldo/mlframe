@@ -307,7 +307,6 @@
 | 08-F5 | FIXED | both SMOTE siblings return (0, d) on an empty minority; tests/feature_engineering/transformer/test_cluster08_edges.py |
 | 08-F10 | FIXED | magnitude check uses max(/min/,/max/) with Python ints, so the most negative int64 is flagged; tests/feature_engineering/transformer/test_cluster08_edges.py |
 | 08-F11 | FIXED | the silent temperature override now warns (RuntimeWarning); no separate test |
-| 08-F4 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F6 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F7 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F8 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
@@ -317,7 +316,6 @@
 | 08-F14 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F15 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F16 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
-| 08-F17 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 09-F15 | DEFERRED | tried an early return in the underdetermined branch; it broke the contract that the linear column stays finite. The real defect is the per-row exception path zeroing whole rows; needs a column-aware fix |
 | 09-F24 | FIXED | binary local-lift labels are normalised to {0,1} for both the global mean and the neighbour sums; tests/feature_engineering/transformer/test_cluster09_edges.py covers the KMeans path only, lift path covered by existing lift tests |
 | 09-F26 | FIXED | anchor count is capped by the row count, so a one-row fold yields one anchor; tests/feature_engineering/transformer/test_cluster09_edges.py |
@@ -1434,3 +1432,7 @@
 | 11-F3 | DEFERRED | stat_study compares searched arms (max over many in-sample candidates) against single-candidate truth/als. A like-for-like fix needs held-out scoring of the candidate chosen on training rows, which requires candidate-level outputs from family_eval (it returns only the max). That is a benchmark-contract change for its own pass. No code change. |
 
 | 12-F34 | DEFERRED | H35 and H32 pick the config by OOF AUC on rows the members were fit on. A real fix refits the members on a training split and scores the augmented features of held-out rows, and HybridSelector has no transform path that builds those features. Needs that transform first (a feature-engine change). Benchmark-only, not production. No code change. |
+
+| 08-F17 | FIXED | Removed the unused chunk parameter from _median_pairwise_chunked and its caller argument; the median is unchanged. Test tests/feature_engineering/test_cluster08_median_pairwise_no_chunk.py. |
+
+| 08-F4 | PARTIAL | BGM fallback to bootstrap now logs at WARNING (was INFO), so a degraded sample is visible in normal runs. Not done: the return value still does not tell callers a bootstrap was used; that needs an API change. Test tests/feature_engineering/test_cluster08_bgmm_fallback_warns.py. |
