@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ._unary_credit_stats import ALPHA, CANDIDATES, MAX_ROWS, ColumnVerdict, UnaryForm, _split, adaptive_max_pvalue, apply_form, fit_form, simplest_tied
+from ._unary_credit_stats import ALPHA, CANDIDATES, MAX_ROWS, ColumnVerdict, UnaryForm, _split, adaptive_max_pvalue, apply_form, candidate_forms, simplest_tied
 
 #: Newton iterations of the one-feature logits (the problem is two-dimensional and well conditioned after standardising the candidate).
 NEWTON_STEPS = 8
@@ -149,7 +149,7 @@ def credit_columns_binary(
             raw = X[:, j]
             if not np.isfinite(raw).all():
                 continue
-            forms = [f for f in (fit_form(c, raw[disc]) for c in candidates) if f is not None]
+            forms = candidate_forms(raw[disc], candidates)
             if not forms:
                 continue
             best, gain, p_raw, lrt_id, lrt_best = _test_column(raw[disc], y[disc], [current[k][disc] for k in range(m) if k != j], forms, alpha / m, rng)

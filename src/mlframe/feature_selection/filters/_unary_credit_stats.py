@@ -15,6 +15,7 @@ Validated by the reference implementation of research B4 (0 to 2 percent family-
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 
 import numpy as np
@@ -35,6 +36,24 @@ OOF_FOLDS = 5
 #: Null draws come in batches; a column stops as soon as its p-value cannot reach the level any more (most columns stop after the first batch).
 BATCH = 50
 MAX_DRAWS = 2000
+
+
+#: A candidate is tied with the best predicting one when the paired test of their out-of-fold squared errors (Diebold-Mariano, equal degrees of freedom) is below this z: the data cannot tell them apart.
+TIE_Z = 2.5
+
+
+def indistinguishable(errors: np.ndarray, best: int, candidates: np.ndarray, z_crit: float = TIE_Z) -> np.ndarray:
+    """Mask of the ``candidates`` (a boolean mask over the columns of ``errors``) whose pointwise squared error on the leftover is not significantly larger than that of column ``best``.
+
+    ``errors`` is (rows, forms): for each form the pointwise squared error of its model. The paired z is ``mean(d) / (sd(d) / sqrt(n))`` with ``d = e_i - e_best``, so a form that the best one beats by a
+    consistent sliver (``tanh(x)`` against ``sin(x)`` on a normal column) is told apart and one that differs by noise (``sin`` against ``tanh(x / 2)`` on [-1, 1]) is not."""
+    n = errors.shape[0]
+    tied = np.zeros(errors.shape[1], dtype=bool)
+    for i in np.flatnonzero(candidates):
+        d = errors[:, i] - errors[:, best]
+        spread = float(d.std(ddof=1))
+        tied[i] = i == best or float(d.mean()) <= z_crit * spread / np.sqrt(n) if spread > 0.0 else True
+    return tied
 
 
 def simplest_tied(gains: np.ndarray, names: "list[str]", slack: float = 0.0) -> int:
@@ -63,6 +82,22 @@ def adaptive_max_pvalue(observed: float, draw_maxima, level: float) -> float:
         if (1.0 + exceed) / (total + 1.0) > level:
             break
     return (1.0 + exceed) / (done + 1.0)
+
+
+#: How the null residual vectors are drawn: ``signflip`` (every residual keeps its magnitude and gets a random sign: a wild bootstrap whose null variance is the heteroscedastic one) or ``permute`` (rows shuffled, the
+#: homoscedastic null). Measured 2026-11-24 on ``y = cbrt(x1) * asinh(x2)`` with a t3 column (residual variance tied to the column): permute credited a form in 3 of 40 datasets, signflip in 0 of 40; power and the
+#: homoscedastic controls are the same.
+NULL_KIND = "signflip"
+
+
+def null_residuals(r: np.ndarray, k: int, rng: np.random.Generator) -> np.ndarray:
+    """``k`` null draws (columns) of the residual vector ``r`` under the hypothesis that the tested column explains nothing of it."""
+    if NULL_KIND == "signflip":
+        return r[:, None] * rng.choice([-1.0, 1.0], size=(r.shape[0], k))
+    block = np.empty((r.shape[0], k))
+    for b in range(k):
+        block[:, b] = r[rng.permutation(r.shape[0])]
+    return block
 
 
 def adaptive_two_pvalues(observed: "tuple[float, float]", draw_stats, level: float) -> "tuple[float, float]":
@@ -107,10 +142,12 @@ class UnaryForm:
     #: Sorted unique values and normal scores of the discovery rows (``rankgauss`` only; empty otherwise).
     grid_values: tuple = ()
     grid_scores: tuple = ()
+    #: A scaled variant of a base form (``tanh`` at a multiple of the base scale): it competes for the NAME of a credited column but not for the significance of the credit.
+    variant: bool = False
 
 
-def fit_form(name: str, x: np.ndarray) -> "UnaryForm | None":
-    """The form ``name`` fitted on the column ``x`` (``None`` when its domain does not hold: log / reciprocal need a positive column, sqrt a non-negative one)."""
+def fit_form(name: str, x: np.ndarray, scale_mult: float = 1.0) -> "UnaryForm | None":
+    """The form ``name`` fitted on the column ``x`` (``None`` when its domain does not hold: log / reciprocal need a positive column, sqrt a non-negative one); ``scale_mult`` multiplies the scale of the forms that have one (``tanh``, ``asinh``)."""
     x = np.asarray(x, dtype=np.float64)
     finite = x[np.isfinite(x)]
     if finite.size < 8 or float(finite.std()) <= 0.0:
@@ -121,7 +158,7 @@ def fit_form(name: str, x: np.ndarray) -> "UnaryForm | None":
         return None
     median = float(np.median(finite))
     q1, q3 = np.percentile(finite, [25.0, 75.0])
-    scale = float(q3 - q1) if q3 - q1 > 1e-12 else float(finite.std())
+    scale = (float(q3 - q1) if q3 - q1 > 1e-12 else float(finite.std())) * float(scale_mult)
     if name == "rankgauss":
         from scipy.special import ndtri
 
@@ -129,6 +166,23 @@ def fit_form(name: str, x: np.ndarray) -> "UnaryForm | None":
         mid = np.cumsum(counts) - 0.5 * counts
         return UnaryForm(name, median, scale, tuple(values.tolist()), tuple(ndtri(mid / finite.size).tolist()))
     return UnaryForm(name, median, scale)
+
+
+#: The forms with a free scale are tried at these multiples of the interquartile range of the column, a factor of the square root of two apart (``tanh(x)`` and ``tanh(x / 4)`` are different shapes on the same column,
+#: and a scale off by a factor of 1.5 makes ``asinh`` the better fit of a ``tanh``).
+SCALE_MULTS = tuple(2.0 ** (k / 2.0) for k in range(-4, 5))
+SCALED_FORMS = ("tanh", "asinh")
+
+
+def candidate_forms(x: np.ndarray, names: "tuple[str, ...]" = CANDIDATES) -> "list[UnaryForm]":
+    """Every candidate form fitted on ``x`` (those whose domain holds), the scaled ones at each multiple of ``SCALE_MULTS``."""
+    forms = []
+    for name in names:
+        for mult in SCALE_MULTS if name in SCALED_FORMS else (1.0,):
+            form = fit_form(name, x, mult)
+            if form is not None:
+                forms.append(form if mult == 1.0 else dataclasses.replace(form, variant=True))
+    return forms
 
 
 def apply_form(form: UnaryForm, x: np.ndarray) -> np.ndarray:
@@ -187,18 +241,31 @@ class ColumnVerdict:
     effect: float
     identity_score: float
     best_score: float
+    #: Names of the other forms the data cannot tell from the credited one (their out-of-fold errors are not significantly larger): the generating form is among ``form`` and these.
+    tied: tuple = ()
 
 
-def _scores(forms: "list[UnaryForm]", x: np.ndarray, q: np.ndarray, residuals: np.ndarray) -> np.ndarray:
-    """``s`` of every candidate against every residual vector (columns of ``residuals``: the observed one first, then the permuted ones): (1 + n_candidates, n_vectors), the identity in row 0."""
+def gate_mask(forms: "list[UnaryForm]") -> np.ndarray:
+    """Which candidates count for the significance of a credit: the base forms (a scaled variant only competes for the name afterwards), or all of them when nothing but variants is left (the replication on held-out rows)."""
+    gate = np.array([not f.variant for f in forms])
+    return gate if gate.any() else np.ones(len(forms), dtype=bool)
+
+
+def _partialled(forms: "list[UnaryForm]", x: np.ndarray, q: np.ndarray) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
+    """``(candidates, norms, ok)``: the identity and the forms of ``x``, centred and partialled on the design ``q``; their squared norms and whether each one kept a non-negligible part."""
     cand = np.column_stack([np.asarray(x, dtype=np.float64)] + [apply_form(f, x) for f in forms])
     cand = cand - cand.mean(axis=0)
     raw_norms = np.einsum("ij,ij->j", cand, cand)
     cand = cand - q @ (q.T @ cand)
     norms = np.einsum("ij,ij->j", cand, cand)
+    return cand, norms, norms > 1e-10 * np.maximum(raw_norms, 1e-300)
+
+
+def _scores(forms: "list[UnaryForm]", x: np.ndarray, q: np.ndarray, residuals: np.ndarray) -> np.ndarray:
+    """``s`` of every candidate against every residual vector (columns of ``residuals``: the observed one first, then the permuted ones): (1 + n_candidates, n_vectors), the identity in row 0."""
+    cand, norms, ok = _partialled(forms, x, q)
     res_norm = np.einsum("ij,ij->j", residuals, residuals)
     cross = cand.T @ residuals
-    ok = norms > 1e-10 * np.maximum(raw_norms, 1e-300)
     return np.where(ok[:, None], cross**2 / (np.where(ok, norms, 1.0)[:, None] * np.maximum(res_norm, 1e-300)[None, :]), 0.0)
 
 
@@ -216,37 +283,36 @@ def _test_column(
     r = yc - q @ (q.T @ yc)
     s_obs = _scores(forms, x, q, r[:, None])[:, 0]
     gains = s_obs[1:] - s_obs[0]
-    first_batch: "list[np.ndarray]" = []
+    gate = gate_mask(forms)
     curvature = curvature_basis(x, q)
     r_norm = max(float(r @ r), 1e-300)
     omnibus_observed = float(((curvature.T @ r) ** 2).sum() / r_norm) if curvature.shape[1] else 0.0
 
     def draw_stats(k: int) -> "tuple[np.ndarray, np.ndarray]":
         """``k`` null values of ``max_f (s_f - s_id)`` and of the omnibus statistic (the residual permuted and re-projected on the complement of the design)."""
-        block = np.empty((n, k))
-        for b in range(k):
-            block[:, b] = r[rng.permutation(n)]
+        block = null_residuals(r, k, rng)
         block -= q @ (q.T @ block)
         s = _scores(forms, x, q, block)
         null_gains = s[1:] - s[0][None, :]
-        if not first_batch:
-            first_batch.append(null_gains)
         omnibus = ((curvature.T @ block) ** 2).sum(axis=0) / np.maximum(np.einsum("ij,ij->j", block, block), 1e-300) if curvature.shape[1] else np.zeros(k)
-        return null_gains.max(axis=0), omnibus
+        return null_gains[gate].max(axis=0), omnibus
 
     # two tests of the same hypothesis ("the column itself leaves curvature"), each at half the level: the max over the candidate forms (best when one form is exact and strong), and an omnibus on the second and
     # third powers (best when the curvature is faint, as the cubic term of a sine on [-1, 1]: credited in 8 of 12 seeds at 3600 rows against 3 of 12 by the candidates alone)
-    p_forms, p_omnibus = adaptive_two_pvalues((float(gains.max()), omnibus_observed), draw_stats, level / 2.0)
+    p_forms, p_omnibus = adaptive_two_pvalues((float(gains[gate].max()), omnibus_observed), draw_stats, level / 2.0)
     p = min(1.0, 2.0 * min(p_forms, p_omnibus))
     if p > level:
         return int(np.argmax(gains)), float(gains.max()), p, float(s_obs[0]), float(s_obs[1 + int(np.argmax(gains))]), float(r @ r) / max(float(((yc - yc.mean()) ** 2).sum()), 1e-300)
     # only a form that also wins as a REPLACEMENT out of fold may be credited (the added-variable score keeps the raw column in the design and cannot see what a replacement throws away)
-    usable = np.array([oof_replacement_gain(yc, others, x, f) > 0.0 for f in forms])
+    fold_gains = np.array([oof_fold_gains(yc, others, x, f) for f in forms])
+    usable = fold_gains.mean(axis=1) > 0.0
     masked = np.where(usable, gains, -np.inf)
     if not np.isfinite(masked).any() or float(masked.max()) <= 0.0:
         return int(np.argmax(gains)), float(gains.max()), 1.0, float(s_obs[0]), float(s_obs[1 + int(np.argmax(gains))]), float(r @ r) / max(float(((yc - yc.mean()) ** 2).sum()), 1e-300)
-    slack = float(first_batch[0][int(np.argmax(masked))].std()) if first_batch else 0.0
-    best = simplest_tied(masked, [f.name for f in forms], slack)
+    # the form that PREDICTS best out of fold (squared error, as a replacement) is the reference; every form the paired test of the pointwise errors cannot tell from it is tied with it and the simplest closed form wins
+    errors = np.column_stack([oof_squared_errors(yc, others, x, f) if usable[i] else np.full(yc.size, np.inf) for i, f in enumerate(forms)])
+    top = int(np.argmin(np.where(usable, errors.mean(axis=0), np.inf)))
+    best = simplest_tied(np.where(indistinguishable(errors, top, usable), gains, -np.inf), [f.name for f in forms], float(gains.max()))
     share = float(r @ r) / max(float(((yc - yc.mean()) ** 2).sum()), 1e-300)
     return best, float(gains[best]), p, float(s_obs[0]), float(s_obs[1 + best]), share
 
@@ -274,28 +340,55 @@ def heldout_mae_gain(
     return (mae_id - mae_form) / max(mae_id, 1e-300)
 
 
-def oof_replacement_gain(y: np.ndarray, others: "list[np.ndarray]", x: np.ndarray, form: UnaryForm, folds: int = OOF_FOLDS) -> float:
-    """Out-of-fold relative MAE reduction of ``[1, others, f(x)]`` against ``[1, others, x]`` on one set of rows (the rows ``i`` with ``i % folds == k`` are the test fold ``k``).
+def fold_mae(y: np.ndarray, design: np.ndarray, folds: int = OOF_FOLDS) -> np.ndarray:
+    """Out-of-fold MAE of a least-squares fit on ``design``, one value per fold (the rows ``i`` with ``i % folds == k`` are the test fold ``k``)."""
+    fold = np.arange(y.size) % folds
+    out = np.empty(folds)
+    for k in range(folds):
+        test = fold == k
+        coef = np.linalg.lstsq(design[~test], y[~test], rcond=None)[0]
+        out[k] = float(np.abs(y[test] - design[test] @ coef).mean())
+    return out
+
+
+def oof_fold_gains(y: np.ndarray, others: "list[np.ndarray]", x: np.ndarray, form: UnaryForm, folds: int = OOF_FOLDS) -> np.ndarray:
+    """Out-of-fold relative MAE reduction of ``[1, others, f(x)]`` against ``[1, others, x]``, one value per fold.
 
     The added-variable score keeps the column in the design and so cannot see what a REPLACEMENT loses: ``cbrt`` of a column that is a sine on [-1, 1] explains some of the leftover curvature and throws the
     linear signal away (held-out MAE worse by 8 percent), ``sin`` keeps both. A form with no gain here is not a candidate."""
     y = np.asarray(y, dtype=np.float64)
-    n = y.size
-    base = [np.ones(n)] + [np.asarray(o, dtype=np.float64) for o in others]
-    fold = np.arange(n) % folds
+    base = np.column_stack([np.ones(y.size), *[np.asarray(o, dtype=np.float64) for o in others]])
+    mae_id = fold_mae(y, np.column_stack([base, np.asarray(x, dtype=np.float64)]), folds)
+    return (mae_id - fold_mae(y, np.column_stack([base, apply_form(form, x)]), folds)) / np.maximum(mae_id, 1e-300)
 
-    def oof_mae(v: np.ndarray) -> float:
-        """Out-of-fold MAE of the model with the column ``v``."""
-        design = np.column_stack([*base, v])
-        err = 0.0
-        for k in range(folds):
-            test = fold == k
-            coef = np.linalg.lstsq(design[~test], y[~test], rcond=None)[0]
-            err += float(np.abs(y[test] - design[test] @ coef).sum())
-        return err / n
 
-    mae_id = oof_mae(np.asarray(x, dtype=np.float64))
-    return (mae_id - oof_mae(apply_form(form, x))) / max(mae_id, 1e-300)
+def oof_replacement_gain(y: np.ndarray, others: "list[np.ndarray]", x: np.ndarray, form: UnaryForm, folds: int = OOF_FOLDS) -> float:
+    """Mean over the folds of :func:`oof_fold_gains`."""
+    return float(oof_fold_gains(y, others, x, form, folds).mean())
+
+
+def oof_squared_errors(y: np.ndarray, others: "list[np.ndarray]", x: np.ndarray, form: UnaryForm, folds: int = OOF_FOLDS) -> np.ndarray:
+    """Pointwise out-of-fold squared errors (one per row) of the replacement model ``[1, others, f(x)]``: the input of the paired test that tells forms apart by how well they PREDICT."""
+    y = np.asarray(y, dtype=np.float64)
+    design = np.column_stack([np.ones(y.size), *[np.asarray(o, dtype=np.float64) for o in others], apply_form(form, x)])
+    fold = np.arange(y.size) % folds
+    err = np.empty(y.size)
+    for k in range(folds):
+        test = fold == k
+        coef = np.linalg.lstsq(design[~test], y[~test], rcond=None)[0]
+        err[test] = (y[test] - design[test] @ coef) ** 2
+    return err
+
+
+def tied_form_names(y: np.ndarray, others: "list[np.ndarray]", x: np.ndarray, forms: "list[UnaryForm]", chosen: int) -> "tuple[str, ...]":
+    """Names of the forms (other than the chosen one's) that predict out of fold as well as the best predicting form, up to the noise of the paired test: the alternatives the data cannot rule out."""
+    usable = np.array([oof_replacement_gain(y, others, x, f) > 0.0 for f in forms])
+    if not usable.any():
+        return ()
+    errors = np.column_stack([oof_squared_errors(y, others, x, f) if usable[i] else np.full(np.asarray(y).size, np.inf) for i, f in enumerate(forms)])
+    top = int(np.argmin(np.where(usable, errors.mean(axis=0), np.inf)))
+    mask = indistinguishable(errors, top, usable)
+    return tuple(sorted({forms[i].name for i in np.flatnonzero(mask)} - {forms[chosen].name}))
 
 
 def _split(n: int, rng: np.random.Generator) -> "tuple[np.ndarray, np.ndarray]":
@@ -339,7 +432,7 @@ def credit_columns(
             raw = X[:, j]
             if not finite[j]:
                 continue
-            forms = [f for f in (fit_form(c, raw[disc]) for c in candidates) if f is not None]
+            forms = candidate_forms(raw[disc], candidates)
             if not forms:
                 continue
             # a column with a non-finite value takes no part in the design of the others either
@@ -358,6 +451,6 @@ def credit_columns(
                 current[j], verdicts[j] = raw.copy(), none
                 continue
             nats = 0.5 * float(np.log((1.0 - min(s_id, 0.999999)) / (1.0 - min(s_best, 0.999999))))
-            verdicts[j] = ColumnVerdict(best_form, nats, p_family, True, effect, s_id, s_best)
+            verdicts[j] = ColumnVerdict(best_form, nats, p_family, True, effect, s_id, s_best, tied_form_names(y[disc], others_disc, raw[disc], forms, best))
             current[j] = apply_form(best_form, raw)
     return verdicts

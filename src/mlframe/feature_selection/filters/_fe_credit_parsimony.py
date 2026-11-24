@@ -125,6 +125,7 @@ def run_credit_parsimony(self: Any, X: Any, selected_vars: list, cols: Any, clas
             return False, selected_vars
         raw_names = [str(cols[int(v)]) for v in selected_vars if 0 <= int(v) < len(cols)]
         recipes = list(self._engineered_recipes_ or [])
+        soft = set(getattr(self, "_unary_credit_soft_", None) or ())  # single forms credited only through a product
         # a raw column is a candidate for removal when some engineered column is a function of it alone (a credited form, or the same form an MI-greedy family emitted under its own name): the two legs decide
         credited_sources = {r.src_names[0] for r in recipes if len(r.src_names) == 1}
         columns, labels, removable = [], [], []
@@ -144,7 +145,7 @@ def run_credit_parsimony(self: Any, X: Any, selected_vars: list, cols: Any, clas
                 continue
             if values.shape[0] != len(X) or not np.isfinite(values).all():
                 continue
-            if recipe.kind != "unary_credit":
+            if recipe.kind != "unary_credit" or str(recipe.name) in soft:
                 removable.append(len(columns))
             columns.append(values)
             labels.append(("eng", str(recipe.name)))
