@@ -236,6 +236,22 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
         """Forward pass through the network."""
         return cast(torch.Tensor, self.network(*args, **kwargs))
 
+    def _mixup_cat_prefix(self) -> int:
+        """Number of leading categorical columns of the network, cached per network object (39-F71).
+
+        The module walk ran on every mixup training step; the network structure is fixed once built, so the result is memoised against the
+        network's identity and recomputed only if the network object is replaced.
+        """
+        from .._categorical_embeddings import CategoricalEmbedding
+
+        net = self.network
+        cached = self.__dict__.get("_mixup_cat_prefix_cache")
+        if cached is not None and cached[0] is net:
+            return cached[1]
+        n_cat = next((m.n_cat for m in net.modules() if isinstance(m, CategoricalEmbedding)), 0)
+        self.__dict__["_mixup_cat_prefix_cache"] = (net, n_cat)
+        return n_cat
+
     def training_step(self, batch, batch_idx: int) -> Dict[str, torch.Tensor]:
         """Training step."""
         self._current_batch_idx = batch_idx
@@ -250,11 +266,9 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
         _mixup_active = self.hparams.use_mixup and self.training and features.shape[0] >= 2
         if _mixup_active:
             from .._mixup import mixup_batch
-            from .._categorical_embeddings import CategoricalEmbedding
 
-            _n_cat = next((m.n_cat for m in self.network.modules() if isinstance(m, CategoricalEmbedding)), 0)
             features, _y_a, _y_b, _lam = mixup_batch(
-                features, labels, alpha=self.hparams.mixup_alpha, n_cat_prefix=_n_cat,
+                features, labels, alpha=self.hparams.mixup_alpha, n_cat_prefix=self._mixup_cat_prefix(),
             )
 
         raw_predictions = self(features)
