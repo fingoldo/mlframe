@@ -66,10 +66,10 @@ def _column_to_string_iter(
     Coerces None / NaN to "" so the underlying vectoriser doesn't crash. Non-string types
     are stringified -- caller should not pass numeric columns here (auto-detector excludes them).
 
-    Returns a LAZY generator (not a materialised list) so 1M-row text columns don't double-allocate:
-    sklearn's TfidfVectorizer / HashingVectorizer accept any iterable. Pre-fix code returned a
-    list[str], which was O(n) extra memory (string-object overhead ~ 50 bytes/cell on top of the
-    underlying buffer).
+    Returns a LAZY generator, not a materialised list, which avoids an O(n) list of string objects
+    when the consumer streams the values. The TF-IDF fit path in ``TextEncoder`` materialises it
+    once with ``list(texts)`` because a generator is consumed by ``fit`` and the fallback needs the
+    row count (39-F49).
     """
     try:
         import polars as pl
