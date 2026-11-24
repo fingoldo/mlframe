@@ -23,3 +23,14 @@ The owner has seen stretches where the CPU, the GPU or both are idle during a fi
 - The dispatcher is exercised with a simulated many-core configuration (the cost model with 128 workers) and a multi-GPU configuration as unit tests; it must reproduce the single-device behaviour when one device is available.
 
 Related: `project_loop_work_plan_2026_10_25`, `feedback_utilization_is_the_efficiency_metric`, `feedback_check_idle_cpu_gpu_at_scale`, `project_mrmr_host_to_device_priority`, `project_last_task_matrix_storage_gpu_vs_cpu`, `project_mrmr_1m_x_1000_completed_2026_11_23`, `feedback_every_fe_module_needs_profiled_gpu_path`.
+
+## Status 2026-11-24 (first speed round)
+
+100000 x 100 all families, quiet machine: 146 s (the unary credit at its slowest) -> 46.8 s; the per-stage ledger (`BENCH_LEDGER`, `stage_idle_report`, `ledger_timeline.py`) shows both devices idle for 1.1% of the fit. What the ledger said and what was done:
+
+- The stage that dominated, `stage:unary_credit` (44 s per call), was the bootstrap null of the binary-target credit: now a fused kernel (record `_unary_credit_logit_cuda.md`), 1.2 s per call in the fit.
+- `pair_maxt_null_floor` 13.6 s: 7 s of it was counting the occupied cells of the pair pool twice, serially, through a stride walk; now 1.7 s.
+- The pair family gate (5 calls, about 1.3 s each): scored every column; now the distinct partitions only, through one-launch gather kernels (`_family_maxt_gate_device.md`).
+- Foreign load is a measurement hazard of this machine (VS Code processes 30 to 40% CPU): single walls of 59 to 74 s were taken under it; compare quiet runs only.
+
+Not yet done from section 2: the dispatcher over all cores and GPUs by measured capability (the three FE lanes are hand-balanced; a dynamic scheduler over their 7 hybrid units would be bound by the largest unit, about 6.6 s), the 100k x 1000 run, the 1M x 1000 storage change.
