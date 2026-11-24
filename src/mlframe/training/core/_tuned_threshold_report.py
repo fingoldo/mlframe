@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-logger = logging.getLogger("mlframe.training.core._phase_train_one_target")
+logger = logging.getLogger(__name__)
 
 _SPLIT_NOTES = {
     "val": "optimistic: the threshold was tuned on this split",

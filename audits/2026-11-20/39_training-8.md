@@ -166,3 +166,5 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F9: FIXED. Persisted datetime dtype names resolve via np.dtype; unknown or non-numeric names raise ValueError instead of int8. Test tests/training/core/test_cluster39_persisted_dtype_strict.py.
 - 39-F23: FIXED. _extract_column refuses ndarray input with TypeError instead of passing the whole matrix; polars and pandas selection unchanged. Test tests/training/feature_handling/test_cluster39_custom_extract_column_refuses_ndarray.py.
 - 39-F24: DEFERRED. Owner decision. The rows never held out by a forward-chaining splitter have no past to encode from. Excluding only their own label from the prior still uses later labels (sibling time-aware test forbids that), so the fallback needs a policy: drop these rows, or use a documented constant. Not changed.
+- 39-F11: FIXED. Deleted the dead if-pass branch with a stale clean_ram comment in the extractor base.
+- 39-F12: FIXED. Tuned-threshold report logger uses __name__ instead of another module's name. Test tests/training/test_cluster39_logger_name_and_dead_pass.py.

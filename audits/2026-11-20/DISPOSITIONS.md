@@ -1338,3 +1338,5 @@
 | 29-F39 | FIXED | disk_cache docstring now states the summary key reads every element (no SHA pass, not sub-linear). |
 | 29-F40 | FIXED | Protect set drops the bogus <key>.sha256 name; real <key>.pkl.sha256 sidecar kept. Test test_cluster29_disk_cache_protect_names.py. |
 | 29-F41 | FIXED | Bagging without randomize_order/randomize_start logs a WARNING that all bags are identical. Test test_cluster29_hill_climb_bagging_warns.py. |
+| 39-F11 | FIXED | Deleted the dead if-pass branch with a stale clean_ram comment in the extractor base. |
+| 39-F12 | FIXED | Tuned-threshold report logger uses __name__ instead of another module's name. Test tests/training/test_cluster39_logger_name_and_dead_pass.py. |
