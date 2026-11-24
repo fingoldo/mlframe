@@ -161,8 +161,13 @@ def create_exp_pic(exp_range: list[float], exp_res: dict[str, Any], filename: st
         L = plt.legend(fontsize=20, loc=3)
         for line in L.get_lines():
             line.set_linewidth(5.0)
-        L.get_texts()[0].set_text("$\\sigma^{am}$")
-        L.get_texts()[3].set_text("$\\sigma^{og}$")
+        # Match the legend entries by method name, not by position: positions shift when fewer methods are plotted (29-F36).
+        for text in L.get_texts():
+            label = text.get_text()
+            if "optimality_gap" in label:
+                text.set_text("$\\sigma^{og}$")
+            elif "mean" in label:
+                text.set_text("$\\sigma^{am}$")
 
         if filename is not None:
             plt.savefig(ensure_parent_dir(filename), format="pdf")
