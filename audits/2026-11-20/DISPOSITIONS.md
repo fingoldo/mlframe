@@ -314,7 +314,6 @@
 | 09-F19 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F20 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F21 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
-| 09-F22 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F23 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F25 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F27 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
@@ -1448,3 +1447,5 @@
 | 09-F17 | FIXED | Tree path extraction failure now yields NaN for the path and match-count columns and logs a WARNING; it used to emit constant-1.0 columns, which made every path look matched. Behaviour change: failed folds produce NaN. Test tests/feature_engineering/test_cluster09_tree_path_failure_nan.py. |
 
 | 09-F14 | FIXED | H0 mean_birth was constant zero; replaced by std_lifespan (std of bar lifespans), which varies. Schema change: the column is renamed pd_mean_birth -> pd_std_lifespan. Test tests/feature_engineering/test_cluster09_persistence_no_constant_birth.py. |
+
+| 09-F22 | FIXED | A failed gradient member's cosines are NaN (were 0, which read as orthogonal disagreement); mean and min use the cosines that exist. Behaviour change: those rows change. Test tests/feature_engineering/test_cluster09_failed_member_cos_nan.py. |

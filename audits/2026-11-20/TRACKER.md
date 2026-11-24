@@ -715,7 +715,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 09-F19 | 09_feature_engineering-2.md | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F20 | 09_feature_engineering-2.md | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F21 | 09_feature_engineering-2.md | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
-| 09-F22 | 09_feature_engineering-2.md | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
+| 09-F22 | 09_feature_engineering-2.md | FIXED | A failed gradient member's cosines are NaN (were 0, which read as orthogonal disagreement); mean and min use the cosines that exist. Behaviour change: those rows change. Test tests/feature_engineering/test_cluster09_failed_member_cos_nan.py. |
 | 09-F23 | 09_feature_engineering-2.md | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F24 | 09_feature_engineering-2.md | FIXED | binary local-lift labels are normalised to {0,1} for both the global mean and the neighbour sums; tests/feature_engineering/transformer/test_cluster09_edges.py covers the KMeans path only, lift path covered by existing lift tests |
 | 09-F25 | 09_feature_engineering-2.md | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
