@@ -698,7 +698,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 08-F6 | 08_feature_engineering-1.md | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F7 | 08_feature_engineering-1.md | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F8 | 08_feature_engineering-1.md | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
-| 08-F9 | 08_feature_engineering-1.md | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
+| 08-F9 | 08_feature_engineering-1.md | FIXED | The per-fold float32 cast of the training target is computed once before the head loop, not once per head. Values unchanged. Test tests/feature_engineering/test_cluster08_oof_cast_hoisted.py; 9 OOF tests pass. |
 | 08-F10 | 08_feature_engineering-1.md | FIXED | magnitude check uses max(/min/,/max/) with Python ints, so the most negative int64 is flagged; tests/feature_engineering/transformer/test_cluster08_edges.py |
 | 08-F11 | 08_feature_engineering-1.md | FIXED | the silent temperature override now warns (RuntimeWarning); no separate test |
 | 08-F12 | 08_feature_engineering-1.md | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |

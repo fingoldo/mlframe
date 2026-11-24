@@ -310,7 +310,6 @@
 | 08-F6 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F7 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F8 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
-| 08-F9 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F12 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F13 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F14 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
@@ -1436,3 +1435,5 @@
 | 08-F17 | FIXED | Removed the unused chunk parameter from _median_pairwise_chunked and its caller argument; the median is unchanged. Test tests/feature_engineering/test_cluster08_median_pairwise_no_chunk.py. |
 
 | 08-F4 | PARTIAL | BGM fallback to bootstrap now logs at WARNING (was INFO), so a degraded sample is visible in normal runs. Not done: the return value still does not tell callers a bootstrap was used; that needs an API change. Test tests/feature_engineering/test_cluster08_bgmm_fallback_warns.py. |
+
+| 08-F9 | FIXED | The per-fold float32 cast of the training target is computed once before the head loop, not once per head. Values unchanged. Test tests/feature_engineering/test_cluster08_oof_cast_hoisted.py; 9 OOF tests pass. |
