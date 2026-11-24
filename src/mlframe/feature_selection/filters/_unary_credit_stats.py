@@ -30,6 +30,8 @@ MAX_ROWS = 20000
 #: Candidates from the simplest to the most flexible: among candidates whose gain is within ``TIE_FRACTION`` of the best, the simplest wins (``log`` of a lognormal column is also reached by ``rankgauss``; the recipe should name the closed form).
 SIMPLICITY_ORDER = ("log", "sqrt", "cbrt", "recip", "sq0", "sq", "abs", "sin", "cos", "tanh", "asinh", "rankgauss")
 TIE_FRACTION = 0.95
+#: Folds of the out-of-fold replacement check that decides which candidate forms may be credited at all.
+OOF_FOLDS = 5
 #: Null draws come in batches; a column stops as soon as its p-value cannot reach the level any more (most columns stop after the first batch).
 BATCH = 50
 MAX_DRAWS = 2000
@@ -61,6 +63,38 @@ def adaptive_max_pvalue(observed: float, draw_maxima, level: float) -> float:
         if (1.0 + exceed) / (total + 1.0) > level:
             break
     return (1.0 + exceed) / (done + 1.0)
+
+
+def adaptive_two_pvalues(observed: "tuple[float, float]", draw_stats, level: float) -> "tuple[float, float]":
+    """Permutation p-values ``(1 + #{null >= observed}) / (draws + 1)`` of two statistics computed on the SAME draws, each decided against ``level`` with as few draws as needed.
+
+    ``draw_stats(k)`` returns two arrays of ``k`` null values. The loop stops when neither statistic can reach ``level`` any more (the exceedances of both already make their final p-values larger); a statistic
+    that cannot reach it keeps its conservative p-value at the point of stopping."""
+    total = int(min(MAX_DRAWS, max(BATCH, np.ceil(2.0 / max(level, 1e-9)))))
+    done = 0
+    exceed = [0, 0]
+    while done < total:
+        batch = min(BATCH, total - done)
+        null_a, null_b = draw_stats(batch)
+        exceed[0] += int((np.asarray(null_a) >= observed[0]).sum())
+        exceed[1] += int((np.asarray(null_b) >= observed[1]).sum())
+        done += batch
+        if all((1.0 + e) / (total + 1.0) > level for e in exceed):
+            break
+    return (1.0 + exceed[0]) / (done + 1.0), (1.0 + exceed[1]) / (done + 1.0)
+
+
+def curvature_basis(x: np.ndarray, q: np.ndarray) -> np.ndarray:
+    """Orthonormal basis (n, <=2) of the second and third powers of the robustly scaled column, partialled on the design ``q`` (which already holds the column itself): the generic curvature the omnibus test asks about.
+
+    The scale is the median and the interquartile range (clipped at 5), so a heavy tail does not own the basis."""
+    x = np.asarray(x, dtype=np.float64)
+    spread = float(np.subtract(*np.percentile(x, [75, 25]))) / 1.349
+    u = np.clip((x - np.median(x)) / (spread if spread > 1e-12 else max(float(x.std()), 1e-12)), -5.0, 5.0)
+    basis = np.column_stack([u**2, u**3])
+    basis = basis - q @ (q.T @ basis)
+    qb, rr = np.linalg.qr(basis)
+    return qb[:, np.abs(np.diag(rr)) > 1e-9]
 
 
 @dataclass(frozen=True)
@@ -183,9 +217,12 @@ def _test_column(
     s_obs = _scores(forms, x, q, r[:, None])[:, 0]
     gains = s_obs[1:] - s_obs[0]
     first_batch: "list[np.ndarray]" = []
+    curvature = curvature_basis(x, q)
+    r_norm = max(float(r @ r), 1e-300)
+    omnibus_observed = float(((curvature.T @ r) ** 2).sum() / r_norm) if curvature.shape[1] else 0.0
 
-    def draw_maxima(k: int) -> np.ndarray:
-        """``k`` null values of ``max_f (s_f - s_id)`` (the residual permuted and re-projected on the complement of the design)."""
+    def draw_stats(k: int) -> "tuple[np.ndarray, np.ndarray]":
+        """``k`` null values of ``max_f (s_f - s_id)`` and of the omnibus statistic (the residual permuted and re-projected on the complement of the design)."""
         block = np.empty((n, k))
         for b in range(k):
             block[:, b] = r[rng.permutation(n)]
@@ -194,11 +231,22 @@ def _test_column(
         null_gains = s[1:] - s[0][None, :]
         if not first_batch:
             first_batch.append(null_gains)
-        return null_gains.max(axis=0)
+        omnibus = ((curvature.T @ block) ** 2).sum(axis=0) / np.maximum(np.einsum("ij,ij->j", block, block), 1e-300) if curvature.shape[1] else np.zeros(k)
+        return null_gains.max(axis=0), omnibus
 
-    p = adaptive_max_pvalue(float(gains.max()), draw_maxima, level)
-    slack = float(first_batch[0][int(np.argmax(gains))].std()) if first_batch else 0.0
-    best = simplest_tied(gains, [f.name for f in forms], slack) if float(gains.max()) > 0.0 else int(np.argmax(gains))
+    # two tests of the same hypothesis ("the column itself leaves curvature"), each at half the level: the max over the candidate forms (best when one form is exact and strong), and an omnibus on the second and
+    # third powers (best when the curvature is faint, as the cubic term of a sine on [-1, 1]: credited in 8 of 12 seeds at 3600 rows against 3 of 12 by the candidates alone)
+    p_forms, p_omnibus = adaptive_two_pvalues((float(gains.max()), omnibus_observed), draw_stats, level / 2.0)
+    p = min(1.0, 2.0 * min(p_forms, p_omnibus))
+    if p > level:
+        return int(np.argmax(gains)), float(gains.max()), p, float(s_obs[0]), float(s_obs[1 + int(np.argmax(gains))]), float(r @ r) / max(float(((yc - yc.mean()) ** 2).sum()), 1e-300)
+    # only a form that also wins as a REPLACEMENT out of fold may be credited (the added-variable score keeps the raw column in the design and cannot see what a replacement throws away)
+    usable = np.array([oof_replacement_gain(yc, others, x, f) > 0.0 for f in forms])
+    masked = np.where(usable, gains, -np.inf)
+    if not np.isfinite(masked).any() or float(masked.max()) <= 0.0:
+        return int(np.argmax(gains)), float(gains.max()), 1.0, float(s_obs[0]), float(s_obs[1 + int(np.argmax(gains))]), float(r @ r) / max(float(((yc - yc.mean()) ** 2).sum()), 1e-300)
+    slack = float(first_batch[0][int(np.argmax(masked))].std()) if first_batch else 0.0
+    best = simplest_tied(masked, [f.name for f in forms], slack)
     share = float(r @ r) / max(float(((yc - yc.mean()) ** 2).sum()), 1e-300)
     return best, float(gains[best]), p, float(s_obs[0]), float(s_obs[1 + best]), share
 
@@ -224,6 +272,30 @@ def heldout_mae_gain(
     mae_id = mae(np.asarray(x_fit, dtype=np.float64), np.asarray(x_test, dtype=np.float64))
     mae_form = mae(apply_form(form, x_fit), apply_form(form, x_test))
     return (mae_id - mae_form) / max(mae_id, 1e-300)
+
+
+def oof_replacement_gain(y: np.ndarray, others: "list[np.ndarray]", x: np.ndarray, form: UnaryForm, folds: int = OOF_FOLDS) -> float:
+    """Out-of-fold relative MAE reduction of ``[1, others, f(x)]`` against ``[1, others, x]`` on one set of rows (the rows ``i`` with ``i % folds == k`` are the test fold ``k``).
+
+    The added-variable score keeps the column in the design and so cannot see what a REPLACEMENT loses: ``cbrt`` of a column that is a sine on [-1, 1] explains some of the leftover curvature and throws the
+    linear signal away (held-out MAE worse by 8 percent), ``sin`` keeps both. A form with no gain here is not a candidate."""
+    y = np.asarray(y, dtype=np.float64)
+    n = y.size
+    base = [np.ones(n)] + [np.asarray(o, dtype=np.float64) for o in others]
+    fold = np.arange(n) % folds
+
+    def oof_mae(v: np.ndarray) -> float:
+        """Out-of-fold MAE of the model with the column ``v``."""
+        design = np.column_stack([*base, v])
+        err = 0.0
+        for k in range(folds):
+            test = fold == k
+            coef = np.linalg.lstsq(design[~test], y[~test], rcond=None)[0]
+            err += float(np.abs(y[test] - design[test] @ coef).sum())
+        return err / n
+
+    mae_id = oof_mae(np.asarray(x, dtype=np.float64))
+    return (mae_id - oof_mae(apply_form(form, x))) / max(mae_id, 1e-300)
 
 
 def _split(n: int, rng: np.random.Generator) -> "tuple[np.ndarray, np.ndarray]":
@@ -261,22 +333,24 @@ def credit_columns(
     disc, held = _split(n, rng)
     verdicts = [none] * m
     current = [X[:, j].copy() for j in range(m)]
+    finite = [bool(np.isfinite(X[:, j]).all()) for j in range(m)]
     for _ in range(max(1, passes)):
         for j in range(m):
             raw = X[:, j]
-            if not np.isfinite(raw).all():
+            if not finite[j]:
                 continue
             forms = [f for f in (fit_form(c, raw[disc]) for c in candidates) if f is not None]
             if not forms:
                 continue
-            others_disc = [current[k][disc] for k in range(m) if k != j]
+            # a column with a non-finite value takes no part in the design of the others either
+            others_disc = [current[k][disc] for k in range(m) if k != j and finite[k]]
             best, gain, p_raw, s_id, s_best, _ = _test_column(raw[disc], y[disc], others_disc, forms, alpha / m, rng)
             p_family = min(1.0, p_raw * m)
             if p_family > alpha or gain <= 0.0:
                 current[j], verdicts[j] = raw.copy(), none
                 continue
             best_form = forms[best]
-            others_held = [current[k][held] for k in range(m) if k != j]
+            others_held = [current[k][held] for k in range(m) if k != j and finite[k]]
             _, gain_h, p_h, _, _, _ = _test_column(raw[held], y[held], others_held, [best_form], alpha, rng)
             effect = heldout_mae_gain(y[disc], others_disc, raw[disc], y[held], others_held, raw[held], best_form)
             replicated = p_h <= alpha and gain_h > 0.0 and effect > 0.0

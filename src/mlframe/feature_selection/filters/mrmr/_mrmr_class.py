@@ -955,26 +955,14 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # bin counts, #4) with a denominator-positivity guard, and the order-2 maxT floor is
         # MM-debiased CONSISTENTLY (IRON RULE, see ``_permutation_null`` / ``compute_pair_maxt_floor``).
         #
-        # bench-rejected as a DEFAULT; kept OPT-IN (default False). The ISOLATED
-        # ratio fix is real - on the He2(a)*b fixture the raw ratio is 0.555 / 0.841 / 1.003
-        # at n=500 / 2000 / 8000 and the MM(occupied-K) ratio is 1.99 / 1.15 / 1.10 (crosses
-        # the 0.90 bar at small n where raw fails; n=8000 raw~=corrected => large-n untouched),
-        # and the pure-NOISE frame stays below the bar both raw AND MM-corrected (0.27 / 0.28 /
-        # 0.56 - no isolated FP). BUT it does NOT translate to an END-TO-END win and it ADMITS
-        # NOISE on the realistic weak target: (1) on the CLEAN He2(a)*b end-to-end the existing
-        # marginal-uplift FALLBACK gate already recovers the genuine (a,b) pair 5/5 at n=500 and
-        # n=2000 with MM OFF, so MM adds 0 incremental recovery; (2) on the user's WEAK F2
-        # (``0.2*a**2/b + log(c)*sin(d)``, 10 seeds uniform n=20000) MM REGRESSES genuine_ab
-        # 10/10 -> 8/10, does NOT recover genuine_cd (0/10 -> 0/10), and nearly TRIPLES cross-mix
-        # admission 3/10 -> 9/10 seeds (n_cross 6 -> 11): the MM over-correction (ratio -> ~2.0)
-        # makes the prevalence gate uniformly too permissive, so cross-signal artefacts like
-        # ``sub(reciproc(b),sin(d))`` / ``add(reciproc(b),log(d))`` clear the relaxed ratio.
-        # This is the IRON-RULE failure mode and matches the prior-session II-routing rejection
-        # on the SAME target (the cross-mix has HIGHER interaction info than the genuine pair, so
-        # NO ratio threshold separates them). The maxT-floor co-update is correct + green (6/6
-        # order-2 biz tests, noise 100% at/below the MM floor) - the reject is the RATIO gate
-        # relaxation, not the floor. True enables the full mechanism for re-bench on other data.
-        fe_mm_debias_prevalence: bool = False,
+        # Default ON since 2026-11-24. It was bench-rejected as a default on 2026-06-09 by the count of "cross-mix" columns on the weak F2 (a proxy, not a loss) and by a debias path that
+        # read the winning column through ``_resolve_col``, which raised where the chunk buffer is not kept (the occupied-K of the winner then silently fell back to the nominal bin count;
+        # fixed). Re-measured by the error of ``transform()`` on 20000 fresh rows of the weak F2 (``0.2*a**2/b + log(c*2)*sin(d/3)``, eight common seeds, MAE first): ridge 0.0828 against 0.1151
+        # with the flag off (-0.0322 +- 0.0048, better in 7 of 8 seeds), HistGradientBoosting 0.0539 against 0.0535 (+0.0004 +- 0.0002, the raw columns give 0.0546), zero cross-mix columns
+        # against 0.1 per seed. At n >= 6000 the ratio itself moves by only 0.01-0.03 (the finite-sample bias is small there; at n = 1500 it is 0.71 -> 0.85), so the gain comes from the
+        # consistent debias of the order-2 maxT floor and of the pair screen, not from the ratio alone. The interaction / sufficiency path (``_pairs_sufficiency``) is independent of the flag.
+        # The pure-NOISE frame stays below the bar both raw and corrected.
+        fe_mm_debias_prevalence: bool = True,
         # ENGINEERED-FEATURE ACCEPTANCE STRATEGY (strategy S5).
         # ``"conditional_mi"`` (default): the PRINCIPLED, constant-free gate. After the
         # per-pair search has chosen one best engineered column per pair, a greedy CMI-MRMR

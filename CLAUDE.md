@@ -32,6 +32,9 @@ A speedup may give up bit-identity of intermediate values (a different summation
 ## Enable corrective mechanisms by default (CRITICAL)
 When a fix closes a real bug class, flip its default ON in the same change — don't keep the old (wrong) behavior for "compatibility". If existing tests assumed the old wrong behavior, fix the tests. Document the flip and keep an explicit opt-out for legacy callers.
 
+## A mechanism that measurably helps is ON by default; its weak scenarios get an AUTOMATIC gate (CRITICAL)
+Never leave a measured-useful mechanism off "until the owner decides". Measure on the metric the user gets (downstream MAE first, R^2 only secondary; several seeds, paired differences with their standard errors, not a proxy count such as "cross-mix columns"). Useful and no scenario loses: default ON in the same change, reframe the tests that pinned the old default. Useful but a scenario loses: first try to remove the weakness; if no global improvement is found, gate the mechanism by a cheap check at fit time that detects that scenario (a data property, a size, a measured quantity), log when the gate takes the fallback path, and pin both sides with tests. A manual flag is only the rollback, not the policy. A default the OWNER chose still needs their word. (Owner, 2026-11-24, on `fe_mm_debias_prevalence`.)
+
 ## Fuzz/combo tests are bug DETECTORS, not bug hiders (CRITICAL)
 Every fuzz-suite failure is a real prod bug unless proven otherwise. Never paper over with: canonicalization rules that collapse combos "because they crash" (only collapse genuinely semantically-equivalent combos), runtime canonicalizations for the same reason, `xfail`/`skip` for anything but a genuine third-party/OS limitation, or a defensive prod guard hiding an upstream bug. Ask "would a real user with these settings hit this?" — if yes, fix the root cause (often retires several band-aids at once).
 

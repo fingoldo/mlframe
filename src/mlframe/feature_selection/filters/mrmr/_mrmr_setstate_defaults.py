@@ -373,10 +373,8 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_univariate_fourier_chirp": True,
     "fe_univariate_fourier_chirp_min_val_corr": 0.15,
     "_adaptive_fourier_features_": [],
-    # MILLER-MADOW DEBIAS of the joint-prevalence ratio gate (
-    # + #4). bench-rejected as default (admits cross-mix noise on
-    # weak F2); kept OPT-IN. Pre-MM pickles default to OFF for re-fits.
-    "fe_mm_debias_prevalence": False,
+    # MILLER-MADOW DEBIAS of the joint-prevalence ratio gate (+ #4). Live default ON since 2026-11-24 (see ``MRMR.__init__``); pickles without the attribute re-fit with it ON too.
+    "fe_mm_debias_prevalence": True,
     # SURROGATE-GBM SPLIT-CO-OCCURRENCE SEEDER (#6) + ORDER-3 maxT floor (#7),
     # . Seeder is OPT-IN; the order-3 floor mirrors the order-2 knobs.
     # Pre-seeder pickles default to the same safe values for re-fits.

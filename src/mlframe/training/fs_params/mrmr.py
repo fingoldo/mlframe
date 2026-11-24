@@ -150,7 +150,7 @@ class MRMRParams(BaseModel):
     fe_min_pair_mi: float = 0.001
     fe_min_pair_mi_prevalence: float | str = 1.05
     fe_min_engineered_mi_prevalence: float = 0.9
-    fe_mm_debias_prevalence: bool = False
+    fe_mm_debias_prevalence: bool = True
     fe_acceptance: str = "conditional_mi"
     fe_engineered_cmi_retain_frac: float = 0.15
     fe_engineered_cmi_significance_escape_margin: float = 3.0

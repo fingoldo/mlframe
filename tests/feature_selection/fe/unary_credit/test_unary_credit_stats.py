@@ -8,7 +8,15 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from mlframe.feature_selection.filters._unary_credit_stats import CANDIDATES, apply_form, credit_columns, fit_form
+from mlframe.feature_selection.filters._unary_credit_stats import (
+    CANDIDATES,
+    adaptive_two_pvalues,
+    apply_form,
+    credit_columns,
+    curvature_basis,
+    fit_form,
+    oof_replacement_gain,
+)
 
 N = 5000
 
@@ -70,6 +78,54 @@ def test_a_nearly_linear_sine_is_credited_when_the_rows_resolve_its_cubic_term(s
     verdicts = credit_columns(X, y, seed=seed)
     assert verdicts[0].form is not None and verdicts[0].form.name == "sin", verdicts[0]
     assert verdicts[0].effect > 0.0 and verdicts[1].form is None
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_a_nearly_linear_sine_is_credited_at_6000_rows(seed):
+    """The omnibus curvature test (second and third powers of the partialled column) and the out-of-fold replacement filter move the owner's case down from 20000 to 6000 rows: sin is credited and named in
+    6 of 6 seeds with normal noise there (against 3 of 12 at 3600 rows for the candidate-only test before the omnibus, 6 of 12 and 11 of 12 with normal and t3 noise after it)."""
+    X, y = _sin_narrow(6000, seed)
+    verdicts = credit_columns(X, y, seed=seed)
+    assert verdicts[0].form is not None and verdicts[0].form.name == "sin", verdicts[0]
+    assert verdicts[0].effect > 0.0 and verdicts[1].form is None
+
+
+def test_a_replacement_that_throws_the_linear_signal_away_is_not_a_candidate():
+    """``cbrt`` of a sine on [-1, 1] explains some of the leftover curvature in an added-variable score and loses 8 percent of the held-out MAE as a replacement: the out-of-fold check refuses it, ``sin`` passes."""
+    X, y = _sin_narrow(6000, 0)
+    others = [X[:, 1]]
+    assert oof_replacement_gain(y, others, X[:, 0], fit_form("sin", X[:, 0])) > 0.0
+    assert oof_replacement_gain(y, others, X[:, 0], fit_form("cbrt", X[:, 0])) < 0.0
+
+
+def test_the_curvature_basis_is_orthonormal_to_the_design_and_empty_for_a_constant_column():
+    """The basis holds at most the second and third powers, orthogonal to the design that already contains the column; a constant column has no curvature to test."""
+    rng = np.random.default_rng(0)
+    x = rng.standard_t(3, 500)
+    q, _ = np.linalg.qr(np.column_stack([np.ones(500), x, rng.standard_normal(500)]))
+    basis = curvature_basis(x, q)
+    assert basis.shape == (500, 2)
+    assert np.allclose(basis.T @ basis, np.eye(2), atol=1e-8)
+    assert np.abs(q.T @ basis).max() < 1e-8
+    assert curvature_basis(np.full(500, 3.0), q[:, :1]).shape[1] == 0
+
+
+def test_two_statistics_share_the_draws_and_stop_when_neither_can_reach_the_level():
+    """The p-values are ``(1 + exceedances) / (draws + 1)`` of the same draws; a strong statistic is resolved at the floor, a hopeless pair stops after the first batch."""
+    rng = np.random.default_rng(0)
+    calls = []
+
+    def draws(k):
+        """``k`` null values of two independent statistics; the batch sizes are recorded."""
+        calls.append(k)
+        return rng.standard_normal(k), rng.standard_normal(k)
+
+    p_a, p_b = adaptive_two_pvalues((8.0, -8.0), draws, 0.05)
+    assert p_a < 0.05 < p_b
+    assert sum(calls) >= 40
+    calls.clear()
+    p_a, p_b = adaptive_two_pvalues((-8.0, -8.0), draws, 0.05)
+    assert min(p_a, p_b) > 0.5 and len(calls) == 1
 
 
 def test_a_nearly_linear_sine_is_not_credited_when_the_rows_cannot_resolve_it():

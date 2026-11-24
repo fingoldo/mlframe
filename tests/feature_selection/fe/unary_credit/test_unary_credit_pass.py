@@ -99,11 +99,22 @@ def test_mrmr_outputs_the_exact_transform(case, expected):
         warnings.simplefilter("ignore")
         m = MRMR(verbose=0, random_state=0, n_jobs=1, fe_max_steps=1).fit(X, y)
     names = list(m.get_feature_names_out())
-    assert expected in names, names
+    # the exact form is either a column of its own or the operand of a pair column the pair engine built from it (``add(log(x1),x2)``): both name the generating transform, neither is an approximation
+    assert any(expected in nm for nm in names), names
     assert len(names) <= 3, f"goal 4: two signal features must not give {len(names)} columns: {names}"
     out = pd.DataFrame(m.transform(X), columns=names)
     truth = np.sin(X["x1"]) if case == "sin_wide" else np.log(X["x1"])
-    np.testing.assert_allclose(out[expected].to_numpy(), truth.to_numpy(), rtol=1e-6, atol=1e-8)
+    if expected in names:
+        np.testing.assert_allclose(out[expected].to_numpy(), truth.to_numpy(), rtol=1e-6, atol=1e-8)
+    # MAE first: a ridge head on the output is within 3 percent of the head on the oracle columns [truth, x2]
+    from sklearn.linear_model import RidgeCV
+
+    def head_mae(design: np.ndarray) -> float:
+        """MAE of a ridge head on ``design`` (in sample, both heads see the same rows)."""
+        return float(np.abs(y.to_numpy() - RidgeCV(alphas=np.logspace(-3, 3, 13)).fit(design, y.to_numpy()).predict(design)).mean())
+
+    oracle = head_mae(np.column_stack([truth.to_numpy(), X["x2"].to_numpy()]))
+    assert head_mae(np.nan_to_num(out.to_numpy())) <= 1.03 * oracle, (names, oracle)
 
 
 @pytest.mark.slow
