@@ -49,17 +49,6 @@ from .callbacks import (  # noqa: F401
 logger = logging.getLogger(__name__)
 
 
-# Per-library GPU support gating. ``CUDA_IS_AVAILABLE`` (numba probe)
-# tells us only whether the system has a usable CUDA device; it does NOT
-# tell us whether the installed XGBoost / LightGBM binaries were COMPILED
-# with GPU support. On Windows the default ``pip install xgboost`` ships
-# the CPU-only wheel, so passing ``device='cuda'`` triggers ``WARNING:
-# Device is changed from GPU to CPU as we couldn't find any available GPU
-# on the system`` per-fit (custom 3rdParty XGB build can also report
-# ``xgb.build_info() == {... 'USE_CUDA': False ...}`` despite CUDA being
-# available for CatBoost). Probe each binary's actual GPU support ONCE at
-# module-import so the helpers never set device='cuda'
-
 def parse_catboost_devices(devices: str, all_gpus: list | None = None) -> List[Dict]:
     """
     Parses a GPU devices string and returns a list of GPU info dicts
