@@ -65,12 +65,15 @@ def _process_rss() -> float:
         return 0.0
 
 
-def _rss_poll_loop() -> None:
-    """Raise the highest-seen RSS of every active entry every 50 ms while at least one entry is active."""
+_RSS_POLL_INTERVAL_S = 0.05
+
+
+def _rss_poll_loop(interval_s: float = _RSS_POLL_INTERVAL_S) -> None:
+    """Raise the highest-seen RSS of every active entry every interval_s seconds while at least one entry is active."""
     import time
 
     while True:
-        time.sleep(0.05)
+        time.sleep(interval_s)
         rss = _process_rss()
         with _LOCK:
             for rec in _RSS_ACTIVE.values():
