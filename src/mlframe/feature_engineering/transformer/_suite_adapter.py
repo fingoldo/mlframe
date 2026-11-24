@@ -92,15 +92,19 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
             # Deprecated back-compat alias: every other BaseEstimator subclass in this codebase names its
             # RNG param random_state; seed is kept only so pre-existing callers don't get a TypeError.
             logger.warning(
-                "ShortlistTransformerAdapter: 'seed' is deprecated, use 'random_state' instead. Overriding random_state=%r with seed=%r.", random_state, seed
+                "ShortlistTransformerAdapter: 'seed' is deprecated, use 'random_state' instead; seed=%r is used for the RNG while random_state=%r is kept as given.", seed, random_state
             )
-            random_state = seed
+        # random_state is stored exactly as given (sklearn get_params/clone contract); the effective RNG seed is resolved by _rng_seed() (08-F14).
         self.random_state = random_state
         self.seed = seed
         self.needs_y = needs_y
         self.passthrough = passthrough
         self.compute_kwargs = compute_kwargs
         self.splitter = splitter
+
+    def _rng_seed(self) -> int:
+        """The seed actually used for the RNG: the deprecated ``seed`` when given, otherwise ``random_state`` (08-F14)."""
+        return self.seed if self.seed is not None else self.random_state
 
     @property
     def _resolved_fn(self) -> Callable[..., pl.DataFrame]:
@@ -140,7 +144,7 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
         X = self._align_to_fit_columns(X)
         Xq = _to_2d_numeric(X)
         kwargs = dict(self.compute_kwargs or {})
-        kwargs.setdefault("seed", self.random_state)
+        kwargs.setdefault("seed", self._rng_seed())
         # Two shortlist calling conventions:
         #   * supervised kNN-style: ``f(X_train, y_train, X_query, *, seed, ...)`` (class_distance / local_lift).
         #   * RFF-style: ``f(X, *, seed, X_query=..., ...)`` -- single positional + X_query keyword.
@@ -217,7 +221,7 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
         )
         n = self._X_train_.shape[0]
         n_splits = int(min(5, max(2, n)))
-        return KFold(n_splits=n_splits, shuffle=True, random_state=self.random_state)
+        return KFold(n_splits=n_splits, shuffle=True, random_state=self._rng_seed())
 
     def fit_transform(self, X, y=None, **fit_params):
         """Mode A: honest OUT-OF-FOLD features for the TRAINING rows (each row's feature comes from a model /
@@ -234,7 +238,7 @@ class ShortlistTransformerAdapter(TransformerMixin, BaseEstimator):
         if "splitter" not in params:
             return self.transform(X)
         kwargs = dict(self.compute_kwargs or {})
-        kwargs.setdefault("seed", self.random_state)
+        kwargs.setdefault("seed", self._rng_seed())
         if self._X_train_.shape[0] < 2:
             # No split exists for one row (KFold(2).split raises), and an OOF feature for a single row has no
             # other rows to come from anyway; the out-of-sample path is the only one that can answer.

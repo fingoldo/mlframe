@@ -703,7 +703,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 08-F11 | 08_feature_engineering-1.md | FIXED | the silent temperature override now warns (RuntimeWarning); no separate test |
 | 08-F12 | 08_feature_engineering-1.md | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F13 | 08_feature_engineering-1.md | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
-| 08-F14 | 08_feature_engineering-1.md | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
+| 08-F14 | 08_feature_engineering-1.md | FIXED | ShortlistTransformerAdapter keeps random_state exactly as given (sklearn get_params/clone contract); the effective RNG seed is resolved by _rng_seed() (seed when given, else random_state). Test tests/feature_engineering/test_cluster08_adapter_random_state_kept.py; 7 existing adapter tests pass. |
 | 08-F15 | 08_feature_engineering-1.md | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F16 | 08_feature_engineering-1.md | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
 | 08-F17 | 08_feature_engineering-1.md | FIXED | Removed the unused chunk parameter from _median_pairwise_chunked and its caller argument; the median is unchanged. Test tests/feature_engineering/test_cluster08_median_pairwise_no_chunk.py. |
