@@ -321,7 +321,7 @@ def load_and_prepare_dataframe(
         log_ram_usage()
 
     if not (isinstance(_df, pl.DataFrame)):
-        raise AssertionError
+        raise TypeError(f"load_and_prepare_dataframe: expected a polars DataFrame after collection, got {type(_df).__name__} (28-F52)")
     return _df
 
 

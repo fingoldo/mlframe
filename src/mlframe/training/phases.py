@@ -296,8 +296,10 @@ def phase(name: str, level: int = logging.DEBUG, **context: Any) -> Iterator[Non
     if _names is None:
         _names = []
         _PHASE_STACK.names = _names
-        with _ALL_PHASE_STACKS_LOCK:
-            _ALL_PHASE_STACKS[threading.get_ident()] = _names
+    # Register on every entry, not only on creation: the cross-thread map can be cleared (test isolation) while this thread keeps its
+    # stack, and an unregistered thread would vanish from all_active_phases (28-F74).
+    with _ALL_PHASE_STACKS_LOCK:
+        _ALL_PHASE_STACKS[threading.get_ident()] = _names
     _names.append(name)
     logger.log(level, f"[phase] {name} START {ctx_str}".rstrip())
     _breadcrumb(f"> {name} {ctx_str}".rstrip())
@@ -315,7 +317,8 @@ def phase(name: str, level: int = logging.DEBUG, **context: Any) -> Iterator[Non
         raised = e
         raise
     finally:
-        _names.pop() if _names else None
+        if _names:
+            _names.pop()
         dt = _timer() - t0
         rss_post_gb = _try_get_rss_gb()
         ram_delta = (rss_post_gb - rss_pre_gb) if (rss_pre_gb > 0 and rss_post_gb > 0) else 0.0

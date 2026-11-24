@@ -74,7 +74,9 @@ def _coordinate_descent_simplex_search(preds: np.ndarray, y: np.ndarray, loss_fn
             best_loss = cur_loss
             best_w = w
 
-    assert best_w is not None
+    if best_w is None:
+        # n_restarts=0 runs no restart, so there is no weight vector to return; say so instead of an empty assert (29-F35).
+        raise ValueError("n_restarts must be >= 1 so at least one blend is evaluated")
     return np.asarray(best_w)
 
 
@@ -96,6 +98,9 @@ def _optuna_simplex_weight_search(preds: np.ndarray, y: np.ndarray, loss_fn: Cal
     sampler = optuna.samplers.TPESampler(seed=random_state)
     study = optuna.create_study(direction="minimize", sampler=sampler)
     study.optimize(_objective, n_trials=n_trials, show_progress_bar=False)
+    if not study.trials:
+        # With zero trials there is no best_params to read; refuse with a clear message (29-F35).
+        raise ValueError("n_optuna_trials must be >= 1 so at least one blend is evaluated")
 
     raw = np.array([study.best_params[f"w{i}"] for i in range(n_models)])
     total = raw.sum()

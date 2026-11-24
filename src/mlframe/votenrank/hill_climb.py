@@ -10,10 +10,13 @@ optimization step needed.
 """
 from __future__ import annotations
 
+import logging
 from typing import cast
 from typing import Callable, Optional, Sequence
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 def _hill_climb_single_path(
@@ -164,6 +167,14 @@ def hill_climb_ensemble(
     if n_bags <= 1:
         # exact original code path: no randomization, single deterministic greedy run.
         return _hill_climb_single_path(preds, y, metric_fn, maximize, max_iterations, tol)
+
+    if not randomize_order and not randomize_start:
+        # Every bag would replay the identical greedy path (29-F41); bagging only helps with randomisation.
+        logger.warning(
+            "hill_climb_ensemble: n_bags=%d requested with randomize_order=False and randomize_start=False; "
+            "all bags are identical, so the extra compute is wasted.",
+            n_bags,
+        )
 
     rng = np.random.default_rng(random_state)
     bag_results = []

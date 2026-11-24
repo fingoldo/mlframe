@@ -45,8 +45,7 @@ def get_sd_for_dist_percentage(dist_percentage: float, dist: norm_gen = norm, **
     return float(-dist.ppf(-(dist_percentage - 1) / 2, **dist_kwargs))
 
 
-@lru_cache
-def get_tukey_fences_multiplier_for_quantile(
+def _tukey_fences_multiplier(
     quantile: float, sd_sigma: float = 2.7, nonoutlying_dist_percentage: float | None = None, dist: norm_gen = norm, **dist_kwargs
 ) -> float:
     """Compute Tukey fences [https://en.wikipedia.org/wiki/John_Tukey] multiplier for a desired quantile or nonoutlying dist coverage percent.
@@ -79,6 +78,24 @@ def get_tukey_fences_multiplier_for_quantile(
         # The median of a symmetric distribution: the fence multiplier divides by it and has no value there.
         raise ValueError(f"get_tukey_fences_multiplier_for_quantile: quantile {quantile!r} is the median; the multiplier is undefined there.")
     return float((sd_sigma - ppf) / (2 * ppf))
+
+
+@lru_cache
+def _tukey_fences_multiplier_cached(quantile: float, sd_sigma: float, nonoutlying_dist_percentage: float | None, dist: norm_gen) -> float:
+    """Cached form for the common case: only hashable arguments reach lru_cache (22-F32)."""
+    return _tukey_fences_multiplier(quantile, sd_sigma=sd_sigma, nonoutlying_dist_percentage=nonoutlying_dist_percentage, dist=dist)
+
+
+def get_tukey_fences_multiplier_for_quantile(
+    quantile: float, sd_sigma: float = 2.7, nonoutlying_dist_percentage: float | None = None, dist: norm_gen = norm, **dist_kwargs
+) -> float:
+    """Tukey fences multiplier for a quantile or nonoutlying coverage; see ``_tukey_fences_multiplier`` for the doctests and rules.
+
+    Extra ``dist_kwargs`` are not hashable in general, so they bypass the cache rather than raising TypeError from lru_cache (22-F32).
+    """
+    if dist_kwargs:
+        return _tukey_fences_multiplier(quantile, sd_sigma=sd_sigma, nonoutlying_dist_percentage=nonoutlying_dist_percentage, dist=dist, **dist_kwargs)
+    return _tukey_fences_multiplier_cached(quantile, sd_sigma, nonoutlying_dist_percentage, dist)
 
 
 def get_expected_unique_random_numbers_qty(span_size: int, sample_size: int) -> float:

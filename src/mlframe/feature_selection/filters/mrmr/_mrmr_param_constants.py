@@ -64,6 +64,10 @@ _VALID_CLUSTER_AGGREGATE_METHODS = (
 # both linear-friendly duplicates (SU strong) and non-linear functional
 # equivalences like y = f(x^2) (VI strong, SU silent).
 _VALID_DCD_DISTANCES = ("su", "vi", "sotoca_pla", "auto")
+# ``mi_normalization`` and ``group_mi_aggregate`` accepted values. The fit validator and the fs_params spec both read these,
+# so a new value added here reaches the spec without a stale hardcoded copy (39-F66).
+_VALID_MI_NORMALIZATIONS = ("none", "su")
+_VALID_GROUP_MI_AGGREGATES = ("size", "equal")
 # DCD ``dcd_swap_method`` accepts the same expanded combiner set
 # so users can pin a single new method instead of relying on ``auto``.
 _VALID_DCD_SWAP_METHODS = (

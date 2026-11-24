@@ -40,8 +40,8 @@ def _mrmr_enums() -> Dict[str, Tuple[Any, ...]]:
         "fe_hybrid_orth_hsic_kernel": c._VALID_FE_HYBRID_ORTH_HSIC_KERNELS,
         "fe_hybrid_orth_ensemble_aggregator": c._VALID_FE_HYBRID_ORTH_ENSEMBLE_AGGREGATORS,
         "fe_hybrid_orth_cluster_basis_aggregator": c._VALID_FE_HYBRID_ORTH_CLUSTER_BASIS_AGGREGATORS,
-        "mi_normalization": ("none", "su"),
-        "group_mi_aggregate": ("size", "equal"),
+        "mi_normalization": c._VALID_MI_NORMALIZATIONS,
+        "group_mi_aggregate": c._VALID_GROUP_MI_AGGREGATES,
     }
 
 

@@ -18,9 +18,11 @@ Design:
 
 * Hashing avoids reading the full payload bytes. ``hash_array_summary``
   computes a stable summary from (shape, dtype, first/last N rows, per-column
-  sum/min/max); this keeps the key cost O(rows + cols) instead of O(rows*cols),
-  which matters at C4 (10000x20000 -> 1.6 GB of bytes that would otherwise
-  flow through SHA every cache lookup).
+  sum/min/max). The summary avoids hashing the raw bytes, but it is not
+  sub-linear: the per-column sum/min/max read every element, so the key cost
+  is O(rows * cols) reads, just without the SHA pass over the full payload
+  (10000x20000 -> 1.6 GB of bytes that would otherwise flow through SHA on
+  every cache lookup).
 
 * Atomic writes: write to ``tmp_<uuid>.pkl``, ``os.replace`` to the final
   path. ``os.replace`` is atomic on both POSIX and Windows (when on the same
@@ -492,7 +494,7 @@ class DiskCache:
         _protected: set = set()
         if protect is not None:
             _p = protect.resolve()
-            _protected = {_p, _p.with_suffix(_p.suffix + ".sha256"), _p.with_suffix(".sha256")}
+            _protected = {_p, _p.with_suffix(_p.suffix + ".sha256")}
         for _mtime, size, fpath in files:
             if total <= self.max_size_bytes:
                 break

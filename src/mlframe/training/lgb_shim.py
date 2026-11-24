@@ -441,9 +441,15 @@ class _DatasetReuseMixin:
         # _count_physical_cores_win32). LightGBM only probes when n_jobs
         # is None; setting it here to os.cpu_count() short-circuits the
         # subprocess. Honour an explicit user choice if already set.
-        if getattr(self, "n_jobs", None) is None:
+        # The resolved cpu count is used only while building params; the caller's n_jobs (None) is restored so get_params() is unchanged by fit (28-F58).
+        _caller_n_jobs = getattr(self, "n_jobs", None)
+        if _caller_n_jobs is None:
             self.n_jobs = lgb_default_n_jobs(None)
-        params: dict = self._process_params("fit")  # type: ignore[attr-defined]  # provided by the LGBMModel sklearn base this mixin is combined with
+        try:
+            params: dict = self._process_params("fit")  # type: ignore[attr-defined]  # provided by the LGBMModel sklearn base this mixin is combined with
+        finally:
+            # The caller's value may be None (sklearn default), which the int-typed attribute does not declare.
+            self.n_jobs = _caller_n_jobs  # type: ignore[assignment]
         # Same shape as xgb_shim --
         # pre-fix `or 100` silently rewrote n_estimators=0 to 100. lightgbm
         # accepts n_estimators=0 (means untrained booster); the shim

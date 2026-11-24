@@ -55,7 +55,7 @@ def evaluate_tta_quality(
 
 
 def _narrow_numeric_frame(df, columns: Sequence[str]):
-    """Return a (rows, len(columns)) float ndarray from ``df[columns]`` (polars/pandas), or None if not all numeric."""
+    """Return a (rows, len(columns)) float ndarray from ``df[columns]`` (polars/pandas), or None if not all numeric or any value is non-finite (NaN features too, 28-F51)."""
     cols = list(columns)
     try:
         if hasattr(df, "to_pandas"):  # polars

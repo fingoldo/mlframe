@@ -12,7 +12,6 @@ from typing import Any, Dict, Union
 import numpy as np
 import pandas as pd
 import polars as pl
-import matplotlib.pyplot as plt
 
 from pyutilz.pythonlib import is_jupyter_notebook
 
@@ -116,6 +115,9 @@ def _histogram_plot_data(target, max_hist_samples, random_seed):
 def _showcase_target_distributions(target_by_type, in_jupyter, random_seed, max_hist_samples):
     """Show the distribution of every target of every target type: a histogram plus summary statistics, in Jupyter or on stdout."""
     from IPython.display import display
+
+    # Imported here, not at module load, so importing the extractors package does not pull in matplotlib (39-F16).
+    import matplotlib.pyplot as plt
 
     for target_type, targets in target_by_type.items():
         for target_name, target in targets.items():

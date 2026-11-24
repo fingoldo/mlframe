@@ -62,6 +62,9 @@ def to_tensor_any(data: Any, dtype: Any = torch.float32, device: Any = None, saf
     # --- Polars
     elif isinstance(data, pl.DataFrame):
         data = data.to_torch()
+    # A bare polars Series used to fall through and fail with AttributeError (39-F63).
+    elif isinstance(data, pl.Series):
+        data = data.to_numpy()
     if isinstance(data, np.ndarray):
         if safe and data.dtype == object:
             data = _coerce_object_ndarray_numeric(data)
@@ -78,10 +81,10 @@ def to_tensor_any(data: Any, dtype: Any = torch.float32, device: Any = None, saf
     return cast(torch.Tensor, data.to(dtype=dtype, device=device))
 
 
-def to_numpy_safe(tensor: torch.Tensor, cpu: bool = False) -> np.ndarray:
+def to_numpy_safe(tensor: torch.Tensor, cpu: bool = True) -> np.ndarray:
     """Convert a torch.Tensor to a NumPy array safely and efficiently.
 
-    - Moves tensor to CPU if needed.
+    - Moves tensor to CPU if needed (``cpu=True``, the default; a CUDA tensor with ``cpu=False`` raises TypeError, 39-F64).
     - Converts unsupported dtypes (bfloat16, float16) to float32.
     - Keeps dtype otherwise unchanged (no accidental downcast).
     """
