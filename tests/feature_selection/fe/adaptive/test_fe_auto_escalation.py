@@ -100,7 +100,9 @@ def test_escalation_silent_when_library_capture_is_exact():
 
     X, df, rng = _frame(5000, 6, 7)
     y = X[:, 0] * X[:, 1] + 0.1 * rng.normal(size=len(X))
-    sel = MRMR(verbose=0, random_state=7, **LEGACY_FE_OFF)
+    # The control under test is the underdelivery trigger's (``LEGACY_FE_OFF`` switches it off, the default is on), and the product must reach the pair path: the hybrid-orth pair family captures ``x0*x1`` as ``x1*x0__He1_He1`` before
+    # the pair path sees the pair, so with it on the pair is not even a candidate and the control is never asked.
+    sel = MRMR(verbose=0, random_state=7, **{**LEGACY_FE_OFF, "fe_hybrid_orth_enable": False, "fe_escalation_underdelivery_enable": True})
     sel.fit(df, pd.Series(y, name="y"))
     recipes = {r.name: r for r in (getattr(sel, "_engineered_recipes_", None) or [])}
     assert any(("x0" in nm and "x1" in nm) for nm in recipes), f"the exact library capture should be admitted+selected: {list(recipes)}"

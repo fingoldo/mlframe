@@ -80,19 +80,19 @@ def test_struct_column_detection_failure_does_not_disarm_the_guard(monkeypatch, 
 
 def test_sklearn_mi_column_failure_is_raised_not_scored_zero(monkeypatch, caplog):
     """A per-column MI failure is a bug, not a regime: it must surface, not score the column at MRMR's never-select value."""
-    import sklearn.metrics
-
-    from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_mi_backends import _mi_classif_batch_sklearn
+    from mlframe.feature_selection.filters._orthogonal_univariate_fe import _orth_mi_backends
 
     def _boom(*args, **kwargs):
-        """Fail the way a dtype surprise inside mutual_info_score would."""
-        raise ValueError("synthetic mutual_info_score failure")
+        """Fail the way a dtype surprise inside the contingency MI would."""
+        raise ValueError("synthetic contingency MI failure")
 
-    monkeypatch.setattr(sklearn.metrics, "mutual_info_score", _boom)
+    # the backend scores a column with ``contingency_mi_nats`` (it called sklearn's ``mutual_info_score`` before that was replaced), so the failure is injected where the code calls
+    monkeypatch.setattr(_orth_mi_backends, "contingency_mi_nats", _boom)
+    _mi_classif_batch_sklearn = _orth_mi_backends._mi_classif_batch_sklearn
     rng = np.random.default_rng(0)
     X = rng.normal(size=(300, 3))
     y = (X[:, 0] > 0).astype(np.int64)
-    with caplog.at_level(logging.WARNING), pytest.raises(ValueError, match="synthetic mutual_info_score failure"):
+    with caplog.at_level(logging.WARNING), pytest.raises(ValueError, match="synthetic contingency MI failure"):
         _mi_classif_batch_sklearn(X, y, nbins=8)
     warned = [r for r in caplog.records if r.levelno >= logging.WARNING and "column 0" in r.getMessage()]
     assert warned, "the failing column was not named in a warning"

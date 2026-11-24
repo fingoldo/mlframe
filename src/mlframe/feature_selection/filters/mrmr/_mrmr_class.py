@@ -687,7 +687,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # tiny n. Set False to byte-reproduce the pre-vote support.
         # None (the default) means auto: on, except under fe_fast_search, which turns it off for speed. An explicit True
         # or False is honoured whatever fe_fast_search says.
-        fe_stability_vote_enable: Optional[bool] = True,
+        fe_stability_vote_enable: Optional[bool] = None,
         # Number of held-out folds for the stability vote (>= 2; below 2 the vote is a
         # structural no-op). 5 mirrors the backlog spec - enough folds that a genuine
         # recipe clears the quorum comfortably while a single-fold-quirk winner fails.
@@ -833,7 +833,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # envelope junk capture 14.6 - 3.0 separates with margin on both sides.
         # None (the default) means auto: on, except under fe_fast_search, which turns it off for speed. An explicit True
         # or False is honoured whatever fe_fast_search says.
-        fe_escalation_underdelivery_enable: Optional[bool] = True,
+        fe_escalation_underdelivery_enable: Optional[bool] = None,
         fe_escalation_underdelivery_excess_frac: float = 0.05,
         fe_escalation_underdelivery_self_ratio: float = 3.0,
         # PREVALENCE-FAILED SYNERGY RESCUE (F2 a**2/b miss, default-ON). A
@@ -1167,7 +1167,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # "accuracy-improving mechanisms default-on" policy. Set False to disable.
         # None (the default) means auto: on, except under fe_fast_search, which turns it off for speed. An explicit True
         # or False is honoured whatever fe_fast_search says.
-        fe_pair_prewarp_enable: Optional[bool] = True,
+        fe_pair_prewarp_enable: Optional[bool] = None,
         fe_pair_prewarp_basis: str = "chebyshev",
         fe_pair_prewarp_max_degree: int = 4,
         # PER-OPERAND MEDIAN GATE for the elementary unary/binary

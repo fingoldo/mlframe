@@ -588,6 +588,7 @@ def _materialise_and_fina_step2_esc_failed(self, _esc_failed, classes_y, st, pro
             verbose=verbose,
             capture_vals=_esc_capture_vals,
             rescue_pairs=set(_prevalence_failed_synergy.keys()),
+            marginal_mi=getattr(st, "_screen_marginal_mi", None),
         )
         # Mark the pairs escalation actually PROCESSED (budget-selected
         # eligible) as done for this fit, admitted or not - a retry on
