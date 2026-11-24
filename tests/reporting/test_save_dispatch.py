@@ -17,7 +17,7 @@ def _saved(base: str, backend: str, fmt: str, *, disambiguate: bool = False) -> 
     """Where render_and_save writes this (backend, format). The backend name is stamped into the
     filename ONLY when another backend in the SAME call also writes ``fmt`` (the one case the
     extension alone can't disambiguate) -- pass ``disambiguate=True`` for that colliding case."""
-    return resolve_output_path(base, backend, fmt, multi_output=True, disambiguate_backend=disambiguate)
+    return resolve_output_path(base, backend, fmt, disambiguate_backend=disambiguate)
 
 
 @pytest.fixture

@@ -26,6 +26,7 @@ Public API (re-exported from ``mlframe.metrics.core``):
 
 from __future__ import annotations
 
+import warnings
 from math import erfc, sqrt
 from typing import Optional, Tuple
 
@@ -563,6 +564,8 @@ def top_k_accuracy(
     if k <= 0:
         raise ValueError(f"k must be >= 1, got {k}")
     if k >= K:
+        # The docstring promises a warning here; it was silent before (17-F24).
+        warnings.warn(f"top_k_accuracy: k={k} >= K={K} classes is trivially 1.0; returning NaN", stacklevel=2)
         return np.nan  # trivial, not informative
     # argpartition on -p[i] picks top-k indices per row; partial-sort is
     # O(K) per row vs full sort's O(K log K). The per-row membership count

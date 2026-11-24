@@ -144,7 +144,7 @@ def _render_per_output_plots(plot_outputs, plot_file, reporting_config, targets,
                 # the run writes into.
                 from mlframe.reporting.renderers.save import resolve_output_path
 
-                _save_path = resolve_output_path(plot_file, "matplotlib", "png", multi_output=False)
+                _save_path = resolve_output_path(plot_file, "matplotlib", "png")
             fig.savefig(ensure_parent_dir(_save_path))
 
         if show_perf_chart:

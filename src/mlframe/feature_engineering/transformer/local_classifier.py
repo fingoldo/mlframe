@@ -52,15 +52,18 @@ def _solve_weighted_logreg(X_local: np.ndarray, y_local: np.ndarray, w: np.ndarr
     X_aug = np.hstack([np.ones((n, 1), dtype=np.float32), X_local])
     beta = np.zeros(d + 1, dtype=np.float32)
     w_safe = np.maximum(w, 1e-9)
+    # Ridge on the slopes only: the intercept (index 0) is not shrunk toward zero on low-variance neighbourhoods (09-F44).
+    pen = np.full(d + 1, ridge, dtype=np.float32)
+    pen[0] = 0.0
     for _ in range(n_iter):
         eta = X_aug @ beta
         eta = np.clip(eta, -20.0, 20.0)
         p = 1.0 / (1.0 + np.exp(-eta))
         # Weighted gradient.
-        grad = X_aug.T @ (w_safe * (p - y_local)) + ridge * beta
+        grad = X_aug.T @ (w_safe * (p - y_local)) + pen * beta
         # Weighted Hessian.
         W = w_safe * p * (1.0 - p) + 1e-9
-        H = X_aug.T @ (W[:, None] * X_aug) + ridge * np.eye(d + 1, dtype=np.float32)
+        H = X_aug.T @ (W[:, None] * X_aug) + np.diag(pen)
         try:
             step = np.linalg.solve(H, grad)
         except np.linalg.LinAlgError:

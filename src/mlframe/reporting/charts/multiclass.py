@@ -123,7 +123,10 @@ def _stratified_subsample(y_pos: np.ndarray, cap: int, seed: int = 0) -> np.ndar
     # at every K measured. The cast is exact -- it only happens when the value range fits -- so the ordering,
     # and therefore the drawn sample, is unchanged.
     order = np.argsort(_narrowed(y_pos), kind="stable")
-    classes, starts = np.unique(y_pos[order], return_index=True)
+    # The labels are already sorted by the argsort above: the class starts are the change points, no second sort (20-F39).
+    _sorted_labels = y_pos[order]
+    _starts = np.concatenate(([0], np.flatnonzero(_sorted_labels[1:] != _sorted_labels[:-1]) + 1))
+    classes, starts = _sorted_labels[_starts], _starts
     bounds = np.append(starts, len(order))
     for k in range(len(classes)):
         idx_c = order[bounds[k] : bounds[k + 1]]

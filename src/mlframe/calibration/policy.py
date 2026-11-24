@@ -714,7 +714,7 @@ def _emit_reliability_plot(
     # where it actually went.
     from mlframe.reporting.renderers.save import resolve_output_path
 
-    return os.path.abspath(resolve_output_path(root, "matplotlib", fmt, multi_output=False))
+    return os.path.abspath(resolve_output_path(root, "matplotlib", fmt))
 
 
 def _validate_pick_params(alpha: Any, n_bootstrap: Any, n_bins: Any, inner_cv_splits: Any) -> None:

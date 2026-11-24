@@ -602,6 +602,10 @@ def worst_k_table(
         fi = np.asarray(feature_importances, dtype=np.float64)
         fi_cols = [int(j) for j in np.argsort(fi)[::-1][:top_fi]]
     else:
+        if feature_importances is not None:
+            # A mismatched importance vector used to be dropped silently in favour of the first columns (20-F35).
+            logger.warning("error_analysis: feature_importances has %d entries for %d features; ignoring them and using the first columns",
+                           len(feature_importances), len(names))
         fi_cols = list(range(min(top_fi, len(names))))
 
     # Pull ONLY the chosen importance columns at the K worst rows -- avoids densifying the whole feature matrix

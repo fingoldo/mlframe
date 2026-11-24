@@ -733,7 +733,7 @@ def compose_binary_figure(
     y_true : (N,) array of binary labels in {0, 1}.
     y_score : (N,) array of positive-class scores / probabilities.
     panels_template : space-separated token list (see the module docstring). Default
-        ``DEFAULT_BINARY_PANELS`` = "ROC PR SCORE_DIST KS THRESHOLD GAIN".
+        ``DEFAULT_BINARY_PANELS`` = "ROC PR SCORE_DIST THRESHOLD" (the constant; KS and GAIN are opt-in) (20-F28).
     threshold : operating-point marker drawn on SCORE_DIST (default 0.5).
     cost_ratio : optional c_fp/c_fn scalar or ``(c_fp, c_fn)`` pair; adds the cost(t) series
         to the THRESHOLD panel (default off).

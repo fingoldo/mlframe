@@ -178,7 +178,7 @@ def _error_bias_panel(col: np.ndarray, name: str, *, masks: Dict[str, np.ndarray
         # bins for data range" (caught live via a fuzz combo with mlp in the model mix). This one feature's
         # bias panel isn't meaningful anyway (no spread to bin), so skip it rather than aborting the whole
         # diagnostic (best-effort, matches every other panel in this dispatcher).
-        logger.warning("_error_bias_panel fell back to its default after %s", type(_exc).__name__)
+        logger.warning("_error_bias_panel skipped this feature: the histogram could not be binned (%s)", type(_exc).__name__)  # a skip, not a fallback (20-F32)
         return None
     if edges.size < 2 or not np.all(np.diff(edges) > 0):
         # numpy doesn't always raise on a near-constant huge-magnitude column -- it can instead

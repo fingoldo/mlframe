@@ -296,6 +296,7 @@ def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
                 os.replace(_scratch, path)
             except OSError as _mv_exc:
                 _exc[0] = _mv_exc
+                _abandon_scratch_file(_scratch)  # a failed move must not leave the partial file behind (21-F20)
                 logger.debug("could not move the rendered chart into place: %s", _mv_exc)
             else:
                 _reset_kaleido_persistent_failures()

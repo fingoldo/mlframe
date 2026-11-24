@@ -319,7 +319,7 @@ def _combined_html_sync(*, base_path: str, chart_paths: Sequence[str], title: st
             # with subfolders on, the flat name never exists and the entry silently fell back to the fragment.
             from mlframe.reporting.renderers.save import resolve_output_path
 
-            _fallback_png = resolve_output_path(p, "matplotlib", "png", multi_output=False)
+            _fallback_png = resolve_output_path(p, "matplotlib", "png")
             png = next((c for c in _candidate_paths(p, "png", BACKEND_FORMATS) if os.path.exists(c)), _fallback_png)
         if not os.path.exists(png):
             # No PNG (e.g. a plotly[html]-only run): fall back to the interactive fragment so the entry
@@ -337,7 +337,7 @@ def _combined_html_sync(*, base_path: str, chart_paths: Sequence[str], title: st
     # than loose beside it.
     from mlframe.reporting.renderers.save import resolve_output_path
 
-    out_path = resolve_output_path(base_path + "_report", "plotly", "html", multi_output=False)
+    out_path = resolve_output_path(base_path + "_report", "plotly", "html")
     build_combined_report(entries, title=title, out_path=out_path)
     return out_path
 
@@ -385,7 +385,7 @@ def build_combined_html_report(
 
         queue = active_render_queue()
         if queue is not None:
-            out_path = resolve_output_path(base_path + "_report", "plotly", "html", multi_output=False)
+            out_path = resolve_output_path(base_path + "_report", "plotly", "html")
 
             def _reconcile(fut) -> None:
                 """Runs on the joining thread: a stitch that failed or found nothing to stitch flips the optimistic record."""
@@ -475,7 +475,7 @@ def render_decile_table_diagnostic(
                 return False  # png not requested; nothing rendered, nothing to record either way
             from mlframe.reporting.renderers.save import resolve_output_path
 
-            path = resolve_output_path(out, "matplotlib", "png", multi_output=False)
+            path = resolve_output_path(out, "matplotlib", "png")
             queue.submit(_decile_table_task, yt[:m], ys[:m], n_deciles, path, name=os.path.basename(out))
             _record(charts, "decile_table", True)
             _record_path(charts, out)

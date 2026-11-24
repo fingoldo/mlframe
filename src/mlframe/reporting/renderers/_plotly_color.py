@@ -99,10 +99,13 @@ def _mpl_to_plotly_cmap(name: str) -> "str | list":
         want_reversed = bool(reversed_suffix) ^ base.endswith("_r")
         plain = base[:-2] if base.endswith("_r") else base
         return plain + "_r" if want_reversed else plain
-    logger.warning(
+    # Throttled per name: this is called per trace, and an unthrottled warning flooded logs for one unmapped colormap (21-F22).
+    log_throttle(
+        logger, f"_plotly_color.unknown_colormap:{name}", logging.WARNING,
         "Unknown colormap %r; falling back to plotly 'Viridis'. "
         "Add the mapping to mlframe.reporting.renderers._plotly_color._MPL_TO_PLOTLY "
         "to silence this warning.",
         name,
+        max_count=1,
     )
     return "Viridis"

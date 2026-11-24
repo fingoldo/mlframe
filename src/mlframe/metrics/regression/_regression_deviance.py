@@ -129,6 +129,8 @@ def _tweedie_deviance_general_kernel(
 
 _TWEEDIE_WARN_COUNTS: dict = {}
 _TWEEDIE_WARN_LOCK = threading.Lock()
+# Bound on distinct (name, invalid, total) keys kept; the counter resets when it is reached so a long run with varying shapes cannot grow it without limit (17-F21).
+_TWEEDIE_WARN_MAX_KEYS = 4096
 
 
 def _maybe_warn_tweedie(name: str, invalid: int, total: int) -> None:
@@ -143,6 +145,8 @@ def _maybe_warn_tweedie(name: str, invalid: int, total: int) -> None:
         return
     key = (name, int(invalid), int(total))
     with _TWEEDIE_WARN_LOCK:  # read-modify-write: unlocked, concurrent folds lose increments and report the same recurrence number twice
+        if key not in _TWEEDIE_WARN_COUNTS and len(_TWEEDIE_WARN_COUNTS) >= _TWEEDIE_WARN_MAX_KEYS:
+            _TWEEDIE_WARN_COUNTS.clear()
         count = _TWEEDIE_WARN_COUNTS.get(key, 0) + 1
         _TWEEDIE_WARN_COUNTS[key] = count
     import warnings

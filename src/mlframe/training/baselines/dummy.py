@@ -320,7 +320,7 @@ def _overlay_png_path(prefix: str) -> str:
     """
     from mlframe.reporting.renderers.save import resolve_output_path
 
-    return resolve_output_path(prefix + "dummy_overlay", "matplotlib", "png", multi_output=False)
+    return resolve_output_path(prefix + "dummy_overlay", "matplotlib", "png")
 
 def compute_dummy_baselines(
     target_type: str,

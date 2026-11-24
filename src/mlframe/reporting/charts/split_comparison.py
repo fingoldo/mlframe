@@ -120,6 +120,13 @@ def _metrics_for_split(
             score = entry.get("y_pred")
         if score is None or entry.get("y_true") is None:
             return None, "no y_true / y_score"
+        # A binary panel takes the positive-class column of a (n, 2) predict_proba; any other matrix is refused rather than
+        # raveled against an n-length label vector, which silently mis-pairs labels and scores (21-F28).
+        score_arr = np.asarray(score)
+        if score_arr.ndim == 2:
+            if score_arr.shape[1] != 2:
+                raise ValueError(f"binary split score must be 1-D or (n, 2); got shape {score_arr.shape}")
+            score = score_arr[:, 1]
         yt, ys = _finite_binary(entry["y_true"], score)
         if yt.size == 0:
             return None, "no finite (label, score) pairs"
@@ -343,7 +350,16 @@ def _delta_table_panel(
 def _canonical_split_names(per_split: Mapping[str, Any]) -> Dict[str, Any]:
     """``per_split`` keyed by lower-case stripped names. The ordering, the train/test pair of the overfit verdict and the delta transitions all look splits up
     as "train" / "val" / "test", so "Train" / "Test" silently fell back to insertion order and could flip the sign of the AUC gap."""
-    return {str(k).strip().lower(): v for k, v in per_split.items()}
+    out: Dict[str, Any] = {}
+    origin: Dict[str, Any] = {}
+    for k, v in per_split.items():
+        key = str(k).strip().lower()
+        # Two spellings of one split ("Train" and "train") would silently overwrite each other (21-F27).
+        if key in out:
+            raise ValueError(f"per_split keys {origin[key]!r} and {k!r} name the same split after normalisation")
+        out[key] = v
+        origin[key] = k
+    return out
 
 
 def overfit_verdict(

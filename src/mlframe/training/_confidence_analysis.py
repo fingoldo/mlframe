@@ -428,7 +428,7 @@ def _shap_confidence_plot(use_shap, test_df, confidence_model, max_features, cma
             # loose beside it.
             from mlframe.reporting.renderers.save import resolve_output_path
 
-            _path = plot_file if _ext else resolve_output_path(plot_file, "matplotlib", "png", multi_output=False)
+            _path = plot_file if _ext else resolve_output_path(plot_file, "matplotlib", "png")
             try:
                 fig.savefig(ensure_parent_dir(_path), bbox_inches="tight")
             except Exception as _save_err:

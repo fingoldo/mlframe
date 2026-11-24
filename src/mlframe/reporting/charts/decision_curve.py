@@ -33,6 +33,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
+import logging
+
 import numpy as np
 
 from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec, PanelSpec
@@ -61,11 +63,17 @@ class DecisionCurveResult:
     useful: bool
 
 
+logger = logging.getLogger(__name__)
+
 def _finite_binary(y_true, y_score) -> Tuple[np.ndarray, np.ndarray]:
     """Finite (y in {0,1}, score) pairs as int8 / float64; rows with non-finite score or off-{0,1} label dropped."""
     yt = np.asarray(y_true, dtype=np.float64).ravel()
     ys = np.asarray(y_score, dtype=np.float64).ravel()
     mask = np.isfinite(ys) & np.isfinite(yt) & ((yt == 0.0) | (yt == 1.0))
+    dropped = int(mask.size - mask.sum())
+    if dropped:
+        # Dropping rows silently turned a multiclass or NaN-laden target into a curve from a subset (20-F37).
+        logger.warning("decision curve: dropped %d of %d rows with a non-finite score or a label outside {0, 1}", dropped, mask.size)
     return yt[mask].astype(np.int8), ys[mask]
 
 

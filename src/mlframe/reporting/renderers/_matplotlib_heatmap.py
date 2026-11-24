@@ -238,9 +238,10 @@ def _confusion_margins(self, ax, p: ConfusionMarginsPanelSpec, fig) -> None:
     _xt = _thin_tick_positions(len(p.col_labels))
     _yt = _thin_tick_positions(len(p.row_labels))
     ax_hm.set_xticks(_xt)
-    ax_hm.set_xticklabels([p.col_labels[i] for i in _xt], rotation=45, ha="right", fontsize=8)
+    # Labels truncated as in _heatmap, so long class names do not run into the neighbouring panel (21-F25).
+    ax_hm.set_xticklabels([truncate_bar_label(p.col_labels[i]) for i in _xt], rotation=45, ha="right", fontsize=8)
     ax_hm.set_yticks(_yt)
-    ax_hm.set_yticklabels([p.row_labels[i] for i in _yt], fontsize=8)
+    ax_hm.set_yticklabels([truncate_bar_label(p.row_labels[i]) for i in _yt], fontsize=8)
     ax_hm.set_xlabel(p.xlabel)
     ax_hm.set_ylabel(p.ylabel)
     rng = _finite_range(p.matrix)

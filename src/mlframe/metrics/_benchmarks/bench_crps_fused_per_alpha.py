@@ -80,7 +80,9 @@ def main():
         t_after = _time(_crps_fused, y, p, a) * 1e3
         print(f"{n:>10} {k:>4} {t_before:>12.3f} {t_after:>12.3f} {t_before / t_after:>8.2f}x {identical!s:>14}")
         # also verify shipped function equals loop
-        if not (crps_from_quantiles(y, p, a.tolist()) == r_before or np.isclose(crps_from_quantiles(y, p, a.tolist()), r_before, rtol=0, atol=0)):
+        # Compute once and compare once; with rtol=0 and atol=0 isclose is plain equality (17-F29).
+        shipped = crps_from_quantiles(y, p, a.tolist())
+        if shipped != r_before:
             raise AssertionError("shipped != loop")
 
 
