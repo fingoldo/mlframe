@@ -70,20 +70,29 @@ def test_unusable_targets_credit_nothing():
 
 @pytest.mark.parametrize("case,expected", [("log", "log"), ("sin", "sin")])
 def test_the_host_and_the_device_null_name_the_same_form(case, expected, monkeypatch):
-    """The bootstrap null runs on the GPU for large problems and on the host otherwise (``MLFRAME_FE_CREDIT_GPU=0`` forces the host): both name the generating form and credit nothing on the noise column."""
+    """The bootstrap null runs on the device kernel or on its njit twin as the kernel-tuning entry says: both name the generating form and credit nothing on the noise column, and each branch really ran."""
+    cp = pytest.importorskip("cupy")
+    if cp.cuda.runtime.getDeviceCount() < 1:
+        pytest.skip("no CUDA device")
     X, y = _binary(case)
-    monkeypatch.setenv("MLFRAME_FE_CREDIT_GPU", "0")
-    assert _unary_credit_logit._device_module() is None
+    device_calls = []
+    original = _unary_credit_logit.try_loglik_device
+    monkeypatch.setattr(_unary_credit_logit, "try_loglik_device", lambda *a, **k: device_calls.append(1) or original(*a, **k))
+    monkeypatch.setattr(_unary_credit_logit, "backend_choice", lambda n, k: "cpu")
     host = credit_columns_binary(X, y, seed=0)
-    monkeypatch.delenv("MLFRAME_FE_CREDIT_GPU")
-    device_available = _unary_credit_logit._device_module() is not None
-    monkeypatch.setattr(_unary_credit_logit, "GPU_MIN_CELLS", 1)  # every problem is large enough for the device
+    assert device_calls == []
+    monkeypatch.setattr(_unary_credit_logit, "backend_choice", lambda n, k: "cuda")
     device = credit_columns_binary(X, y, seed=0)
+    assert device_calls
     for verdicts in (host, device):
         assert verdicts[0].form is not None and verdicts[0].form.name == expected, verdicts[0]
         assert verdicts[1].form is None
-    if not device_available:
-        pytest.skip("no CUDA device: the host null ran in both calls")
+
+
+def test_the_switch_off_variable_keeps_the_null_on_the_host(monkeypatch):
+    """``MLFRAME_FE_CREDIT_GPU=0`` removes the device from the credit whatever the tuning entry says."""
+    monkeypatch.setenv("MLFRAME_FE_CREDIT_GPU", "0")
+    assert _unary_credit_logit._device_module() is None
 
 
 def test_a_second_pass_runs_only_when_the_first_one_credited_something(monkeypatch):

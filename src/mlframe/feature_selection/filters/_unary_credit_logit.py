@@ -20,19 +20,20 @@ import numpy as np
 
 from mlframe.utils.log_throttle import log_throttle
 
+from ._fe_usability_signal import _crit_np_dtype
+from ._unary_credit_logit_cuda import backend_choice, draw_classes, fits_device, loglik_host, try_loglik_device
 from ._unary_credit_stats import ALPHA, BATCH, CANDIDATES, MAX_ROWS, ColumnVerdict, UnaryForm, _split, adaptive_max_pvalue, apply_form, candidate_forms, gate_mask, simplest_tied
 
 #: Newton iterations of the one-feature logits (the problem is two-dimensional and well conditioned after standardising the candidate).
 NEWTON_STEPS = 8
 #: The bootstrap draws need less: a draw's maximum is compared with the observed one at the level of a permutation p-value, and five steps leave the deviance within 1e-3 of the converged one.
 NULL_NEWTON_STEPS = 5
-#: The bootstrap null runs on the GPU when ``rows x candidates x draws`` reaches this many cells (below it the launches cost more than the numpy passes); ``MLFRAME_FE_CREDIT_GPU=0`` keeps it on the host.
-GPU_MIN_CELLS = 1_000_000
 logger = logging.getLogger(__name__)
 
 
 def _device_module() -> Optional[Any]:
-    """The cupy module when a CUDA device is usable and the device null is not switched off (``MLFRAME_FE_CREDIT_GPU=0``), else ``None``."""
+    """The cupy module when a CUDA device is usable and the device null is not switched off (``MLFRAME_FE_CREDIT_GPU=0``), else ``None``. Whether a call uses it is the kernel-tuning entry's decision
+    (``_unary_credit_logit_cuda.backend_choice``)."""
     if os.environ.get("MLFRAME_FE_CREDIT_GPU", "1").strip().lower() in {"0", "false", "no", "off"}:
         return None
     try:
@@ -123,7 +124,10 @@ def _test_column(
     n = x.shape[0]
     offset = _fit_offset_logit(others, y)
     z = _standardise(np.column_stack([np.asarray(x, dtype=np.float64)] + [apply_form(f, x) for f in forms]))
-    observed = _deviance(offset, z, y[:, None])[:, 0]
+    zero_row = np.zeros((1, n))
+    # the observed log-likelihoods: every candidate row of z and, as the last row, the offset-plus-intercept model (a row of zeros), all fitted by the njit twin of the device kernel
+    ll_obs = loglik_host(offset, np.vstack([z.T, zero_row]), y[None, :], NEWTON_STEPS)[:, 0]
+    observed = 2.0 * (ll_obs[:-1] - ll_obs[-1])
     gains = observed[1:] - observed[0]
     # the classes redrawn from the identity logit on [offset, x]
     p_id = _sigmoid(_fit_offset_logit([*others, np.asarray(x, dtype=np.float64)], y))
@@ -131,35 +135,37 @@ def _test_column(
     first_batch: "list[np.ndarray]" = []
     gate = gate_mask(forms)
     z_gate = z[:, np.concatenate([[True], gate])]  # the identity and the base forms: a scaled variant competes for the name, not for the significance, so its column is not in the null
+    crit = _crit_np_dtype()
+    rows = np.ascontiguousarray(np.vstack([z_gate.T, zero_row]).astype(crit))  # (candidates + the zero row, n)
+    offset_c = offset.astype(crit)
 
-    cp = _device_module() if n * z_gate.shape[1] * BATCH >= GPU_MIN_CELLS else None
+    cp = _device_module() if backend_choice(n, rows.shape[0]) == "cuda" else None
     device: "dict[str, Any]" = {}
-    if cp is not None:
+    if cp is not None and fits_device(cp, n, rows.shape[0], BATCH, np.dtype(crit).itemsize):
         try:
-            device = {"offset": cp.asarray(offset, dtype=cp.float32), "z": cp.asarray(z_gate, dtype=cp.float32), "p": cp.asarray(p_id, dtype=cp.float32), "rng": cp.random.default_rng(int(rng.integers(0, 2**31 - 1)))}
+            device = {"offset": cp.asarray(offset_c), "z": cp.asarray(rows), "p": cp.asarray(p_id, dtype=cp.float32), "rng": cp.random.default_rng(int(rng.integers(0, 2**31 - 1)))}
         except Exception as exc:  # no device memory for the columns: the host null
             log_throttle(logger, "unary_credit_logit.device_upload", logging.WARNING, "logit credit: the device null is unavailable (%r); the host null runs", exc)
             device = {}
 
+    def null_gains(k: int) -> np.ndarray:
+        """``(candidates - 1, k)`` null gains ``LRT_f - LRT_id`` over ``k`` bootstrap class vectors."""
+        if device:
+            ll = try_loglik_device(cp, device["offset"], device["z"], draw_classes(cp, device["rng"], device["p"], k), NULL_NEWTON_STEPS)
+            if ll is not None:
+                lrt = 2.0 * (ll[:-1] - ll[-1][None, :])
+                return cp.asnumpy(lrt[1:] - lrt[0][None, :])
+            device.clear()  # this and every later batch of the column run on the host
+        ll = loglik_host(offset_c, rows, (rng.random((k, n)) < p_id[None, :]).astype(np.uint8), NULL_NEWTON_STEPS)
+        lrt = 2.0 * (ll[:-1] - ll[-1][None, :])
+        return lrt[1:] - lrt[0][None, :]
+
     def draw_maxima(k: int) -> np.ndarray:
         """``k`` null values of ``max_f (LRT_f - LRT_id)`` over bootstrap class vectors."""
-        if device:
-            try:
-                draws = (device["rng"].random((n, k), dtype=cp.float32) < device["p"][:, None]).astype(cp.float32)
-                null = _deviance(device["offset"], device["z"], draws, NULL_NEWTON_STEPS, np.float32, cp)
-                null_gains = cp.asnumpy(null[1:] - null[0][None, :])
-                if not first_batch:
-                    first_batch.append(null_gains)
-                return null_gains.max(axis=0)
-            except Exception as exc:  # out of device memory or a driver error: this and every later batch of the column run on the host
-                device.clear()
-                log_throttle(logger, "unary_credit_logit.device_null", logging.WARNING, "logit credit: the device null failed (%r); the host null runs", exc)
-        draws = (rng.random((n, k)) < p_id[:, None]).astype(np.float32)
-        null = _deviance(offset, z_gate, draws, NULL_NEWTON_STEPS, np.float32)
-        null_gains = null[1:] - null[0][None, :]
+        gains_k = null_gains(k)
         if not first_batch:
-            first_batch.append(null_gains)
-        return null_gains.max(axis=0)
+            first_batch.append(gains_k)
+        return gains_k.max(axis=0)
 
     p = adaptive_max_pvalue(float(gains[gate].max()), draw_maxima, level)
     slack = float(first_batch[0].std(axis=1).max()) if first_batch else 0.0
