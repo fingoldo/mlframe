@@ -54,7 +54,7 @@ class MatrixKeyedCache:
         with self._lock:
             self._drop_dead()
 
-    def clear(self) -> None:
+    def clear(self) -> None:  # audit-exempt: duplicate_function_body -- deliberate: ContentMemo.clear is the same body, and audit 34-F29 requires this class to implement its own
         """Drop every stored entry. Implemented here, not borrowed from ``ContentMemo``, which worked only because both classes name their attributes alike (audit 34-F29)."""
         with self._lock:
             self._entries.clear()
