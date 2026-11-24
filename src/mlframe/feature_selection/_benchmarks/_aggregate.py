@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -27,8 +28,26 @@ def _load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _check_versions(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
-    """Return list of warning messages for mismatched versions / stale captures."""
+def _capture_age_days(capture: dict[str, Any], now: datetime) -> float | None:
+    """Days between a capture's ``capture_ts`` and ``now``; None when the timestamp is absent or unparseable."""
+    raw = capture.get("capture_ts")
+    if not raw:
+        return None
+    try:
+        ts = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return (now - ts).total_seconds() / 86400.0
+
+
+def _check_versions(before: dict[str, Any], after: dict[str, Any], now: datetime | None = None) -> list[str]:
+    """Return list of warning messages for mismatched versions / stale captures.
+
+    Captures older than ``MAX_VERSION_AGE_DAYS`` are reported (audit 10-F7): the version-rotation policy is enforced as a warning.
+    """
+    now = now or datetime.now(timezone.utc)
     warnings: list[str] = []
     manifest_path = Path(__file__).parent / "_results" / "MANIFEST.json"
     if not manifest_path.exists():
@@ -52,6 +71,10 @@ def _check_versions(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
                 warnings.append(f"version mismatch on '{lib}': before={bef['versions'].get(lib)} " f"after={aft['versions'].get(lib)}")
         if bef.get("cpu_model") != aft.get("cpu_model"):
             warnings.append(f"CPU model differs: {bef['cpu_model']} vs {aft['cpu_model']}")
+        for label, cap in (("before", bef), ("after", aft)):
+            age = _capture_age_days(cap, now)
+            if age is not None and age > MAX_VERSION_AGE_DAYS:
+                warnings.append(f"{label} capture is {age:.0f} days old (limit {MAX_VERSION_AGE_DAYS})")
     return warnings
 
 

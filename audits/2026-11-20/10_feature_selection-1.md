@@ -37,6 +37,7 @@ Scope: 143 files listed in `audits/2026-11-20/manifests/10_feature_selection-1.t
 - 10-F8: FIXED. redundant columns without informative ones raise a clear ValueError; benchmark utility, no test
 - 10-F9: FIXED. a failed log-file write is reported once on stderr; benchmark utility, no test
 - 10-F4: DEFERRED. not changed in this pass; benchmark-script cleanup or a policy decision (MAX_VERSION_AGE_DAYS enforcement)
-- 10-F7: DEFERRED. not changed in this pass; benchmark-script cleanup or a policy decision (MAX_VERSION_AGE_DAYS enforcement)
 
 - 10-F6: FIXED. Benchmark harness failures (MRMR fit/transform, AUC scoring, per-config failures) are logged at WARNING instead of DEBUG, so NaN rows have a visible reason at the default level. Test tests/feature_selection/test_cluster10_bench_failures_warn.py.
+
+- 10-F7: FIXED. _check_versions reports a capture older than MAX_VERSION_AGE_DAYS (90) as a warning, using capture_ts; the constant is no longer dead. Test tests/feature_selection/test_cluster10_aggregate_version_policy.py.

@@ -742,7 +742,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 10-F4 | 10_feature_selection-1.md | DEFERRED | not changed in this pass; benchmark-script cleanup or a policy decision (MAX_VERSION_AGE_DAYS enforcement) |
 | 10-F5 | 10_feature_selection-1.md | FIXED | a version check with one missing capture logs that the comparison was skipped; benchmark utility, no test |
 | 10-F6 | 10_feature_selection-1.md | FIXED | Benchmark harness failures (MRMR fit/transform, AUC scoring, per-config failures) are logged at WARNING instead of DEBUG, so NaN rows have a visible reason at the default level. Test tests/feature_selection/test_cluster10_bench_failures_warn.py. |
-| 10-F7 | 10_feature_selection-1.md | DEFERRED | not changed in this pass; benchmark-script cleanup or a policy decision (MAX_VERSION_AGE_DAYS enforcement) |
+| 10-F7 | 10_feature_selection-1.md | FIXED | _check_versions reports a capture older than MAX_VERSION_AGE_DAYS (90) as a warning, using capture_ts; the constant is no longer dead. Test tests/feature_selection/test_cluster10_aggregate_version_policy.py. |
 | 10-F8 | 10_feature_selection-1.md | FIXED | redundant columns without informative ones raise a clear ValueError; benchmark utility, no test |
 | 10-F9 | 10_feature_selection-1.md | FIXED | a failed log-file write is reported once on stderr; benchmark utility, no test |
 | 11-F4 | 11_feature_selection-2.md | FIXED | qbin ranks only the finite values; NaN rows get the dedicated code k instead of the top bins. Behaviour change: NaN rows return code k (fixed-bin callers must allow k). Finite-only input is unchanged. Test tests/feature_selection/test_cluster11_qbin_nan_own_code.py. |
