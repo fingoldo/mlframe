@@ -18,8 +18,8 @@ embedding) + a target model_kind, returns one of:
     auto-SVD on any sparse blocks > 512 cols.
 
 Auto-SVD parameters are per-handler (``TextHandlerSpec.svd_dim``)
-with a global default in ``FeatureHandlingConfig.svd_globals.default_dim``
-(phase A; default 256).
+with a global default passed as the ``svd_default_dim`` argument (256 by default; ``apply.py`` passes the same value). There is
+no ``svd_globals`` config field (39-F31).
 
 Output column-name disambiguation is done at construct time for
 sparse blocks; dense blocks get the prefix prepended in-name. The
