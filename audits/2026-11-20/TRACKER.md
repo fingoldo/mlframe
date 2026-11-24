@@ -746,7 +746,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 10-F8 | 10_feature_selection-1.md | FIXED | redundant columns without informative ones raise a clear ValueError; benchmark utility, no test |
 | 10-F9 | 10_feature_selection-1.md | FIXED | a failed log-file write is reported once on stderr; benchmark utility, no test |
 | 11-F4 | 11_feature_selection-2.md | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
-| 11-F5 | 11_feature_selection-2.md | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 11-F5 | 11_feature_selection-2.md | PARTIAL | stat_study core: a failing operator is reported once per operator at WARNING via log_throttle (was DEBUG, silent). Not done: the same swallow in exp2_general.py and case2_missing.py is unchanged. Test tests/feature_selection/test_cluster11_stat_study_failure_warns.py. |
 | 11-F6 | 11_feature_selection-2.md | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F7 | 11_feature_selection-2.md | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F8 | 11_feature_selection-2.md | FIXED | catboost availability logs at INFO when not installed (ImportError) and at WARNING when installed but broken, so a broken install is no longer indistinguishable from a missing one. Test tests/feature_selection/test_cluster11_catboost_broken_warns.py. |

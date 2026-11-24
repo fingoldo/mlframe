@@ -6,6 +6,7 @@ import warnings
 
 import numpy as np
 from mlframe.feature_engineering._safe_ratio import safe_div
+from mlframe.utils.log_throttle import log_throttle
 from numba import njit, prange
 import logging
 
@@ -305,7 +306,8 @@ def preset_cands(UX, UZ, BI):
                 try:
                     val = clean(fb(UX[iu], UZ[iv]))
                 except Exception as exc:
-                    logger.debug("operator %s failed on the study inputs: %s", bn, exc)
+                    # Once per operator at WARNING: a persistently failing operator must not vanish silently (11-F5).
+                    log_throttle(logger, f"stat_study_op_failed:{bn}", logging.WARNING, "operator %s failed on the study inputs: %s", bn, exc, max_count=1)
                     continue
                 if val.std() > 0:
                     rows.append(val)
