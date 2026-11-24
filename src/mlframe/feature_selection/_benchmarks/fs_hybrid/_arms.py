@@ -87,6 +87,11 @@ def _resolve_counted_classes() -> Tuple[List[Type[Any]], List[str]]:
         except ImportError:
             missing.extend(f"{module_name}.{name}" for name in class_names)
             continue
+        except Exception as exc:
+            # An import that raises anything else would otherwise abort every arm's FitCounter.__enter__; treat it as missing and say why (11-F7).
+            logger.warning("counted estimator module %s failed to import (%s); its classes are not instrumented.", module_name, exc)
+            missing.extend(f"{module_name}.{name}" for name in class_names)
+            continue
         for name in class_names:
             obj = getattr(module, name, None)
             if isinstance(obj, type) and callable(getattr(obj, "fit", None)):
