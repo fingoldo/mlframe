@@ -328,11 +328,7 @@ class LeakageSafeEncoder:
         # Vectorised path via ``pd.factorize`` + ``np.bincount``: ~10x faster
         # than the legacy Python dict-accumulation loop on 1M+ rows
         # (440 ms -> 48 ms in the encoder bench). Falls back to the
-        # legacy loop only when pandas is unavailable.
-        try:
-            import pandas as pd
-        except ImportError:  # pragma: no cover
-            pd = None
+        # legacy loop only for empty input.
         if pd is not None and len(cats) > 0:
             codes, uniq = pd.factorize(cats, sort=False)
             K = len(uniq)
@@ -349,7 +345,7 @@ class LeakageSafeEncoder:
             counts_dict_w = {str(u): float(c) for u, c in zip(uniq, w_counts)}
             means_dict_w = {str(u): float(m) for u, m in zip(uniq, means_arr)}
             return counts_dict_w, means_dict_w
-        # Legacy fallback (pandas unavailable or empty input).
+        # Legacy fallback for empty input.
         counts: Dict[str, float] = {}
         sums: Dict[str, float] = {}
         if sample_weight is None:
@@ -443,10 +439,6 @@ class LeakageSafeEncoder:
         the per-row Python loop. Same correctness contract (verified by a
         dedicated regression test) and ~10x faster on 1M-row binary y.
         """
-        try:
-            import pandas as pd
-        except ImportError:  # pragma: no cover
-            pd = None
         if pd is not None and len(cats) > 0:
             codes, uniq = pd.factorize(cats, sort=False)
             K = len(uniq)
@@ -470,7 +462,7 @@ class LeakageSafeEncoder:
             woe_pos = {str(u): float(p) for u, p in zip(uniq, p_arr)}
             woe_neg = {str(u): float(q) for u, q in zip(uniq, q_arr)}
             return woe_pos, woe_neg
-        # Legacy fallback (pandas unavailable).
+        # Legacy fallback for empty input.
         if sample_weight is None:
             n_pos = max(1.0, float(np.sum(y == 1.0)))
             n_neg = max(1.0, float(np.sum(y == 0.0)))
@@ -629,10 +621,6 @@ class LeakageSafeEncoder:
         # The per-row encoding is a deterministic function of the category string alone, so we compute the value once over
         # the (small) unique set and gather it back with pd.factorize + take. Bit-identical to the per-row loop by construction
         # (same arithmetic per category, same unseen fallback), and ~10-30x faster at n=10M where the Python loop dominated.
-        try:
-            import pandas as pd
-        except ImportError:  # pragma: no cover
-            pd = None
         if pd is not None and len(cats) > 0:
             return self._encode_vectorised(cats, pd)
         return self._encode_per_row(cats)
