@@ -14,6 +14,7 @@ def test_bins_are_bytes_and_equal_the_int64_bins():
     df = pd.DataFrame(rng.standard_normal((4000, 5)), columns=list("abcde"))
     narrow = T._bin_dataframe_batched(df, 10)
     wide = T._quantile_bin_batched(df.to_numpy(), 10)
+    assert len(narrow) == 5
     assert all(b.dtype == np.uint8 for b in narrow)
     for j, b in enumerate(narrow):
         np.testing.assert_array_equal(b.astype(np.int64), wide[:, j])

@@ -56,7 +56,10 @@ def _plain(key: object) -> bool:
     if isinstance(key, _FORBIDDEN_KEY_TYPES):
         return False
     if isinstance(key, tuple):
-        return all(_plain(k) for k in key)
+        for k in key:
+            if not _plain(k):
+                return False
+        return True
     return True
 
 
@@ -65,7 +68,8 @@ def test_cache_keys_are_never_fit_data(module_name: str, name: str):
     """Every key currently held by the cache is a plain scalar or a tuple of them."""
     obj = getattr(importlib.import_module(module_name), name)
     keys = list(obj.keys()) if hasattr(obj, "keys") else list(obj) if isinstance(obj, (list, set, tuple)) else []
-    assert all(_plain(k) for k in keys), (module_name, name)
+    bad = [k for k in keys if not _plain(k)]
+    assert not bad, (module_name, name, bad)
 
 
 @pytest.mark.parametrize("module_name,name", CACHES)

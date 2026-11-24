@@ -26,6 +26,7 @@ def test_batch_equals_the_per_column_selection(monkeypatch):
     xs, y, los, spans = _columns()
     kw = dict(max_scale=3, max_legs=4, scale_sigma=3.0)
     want = [batched._select_wavelet_legs_batched_device(x, y, lo, sp, **kw) for x, lo, sp in zip(xs, los, spans)]
+    assert len(want) == len(xs)
     assert all(w is not None for w in want), "the device leg selection returned nothing on a host with a usable device"
     calls = []
     real = _fe_batched_mi.binned_mi_from_codes_gpu

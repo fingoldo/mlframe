@@ -55,6 +55,7 @@ def test_small_blocks_and_out_of_range_codes(monkeypatch):
     left = M._warm_marginals_in_blocks(ec, list(range(fd.shape[1])), fd, nb, entropy)
     assert left == [9] and 9 not in ec
     ref = _serial(fd, nb, [c for c in range(fd.shape[1]) if c != 9])
+    assert len(ref) == fd.shape[1] - 1
     assert all(ec[c] == ref[c] for c in ref)
 
 
@@ -67,4 +68,5 @@ def test_warm_marginal_entropies_uses_the_batch_and_fills_the_cache():
     needed = sorted({c for ab in pairs for c in ab})
     assert sorted(st.column_entropy_cache) == needed
     ref = _serial(fd, nb, needed)
+    assert needed
     assert all(st.column_entropy_cache[c] == ref[c] for c in needed)
