@@ -1323,3 +1323,4 @@
 | 28-F63 | FIXED | train_eval defines its logger once; the select_target comment now says the import re-exports it for existing callers. Test tests/training/test_cluster28_train_eval_single_logger.py (2 pass). |
 | 28-F68 | PARTIAL | Deleted the orphaned device-gating comment about a mechanism no longer in helpers.py. Not changed: the empty section header near line 126, which the finding also names and is left for a tidy-up pass. Test tests/training/test_cluster28_helpers_orphan_comment.py (2 pass). |
 | 28-F72 | FIXED | Target/model key built once by _entry_key (same value as the three inline copies). Test tests/training/test_cluster28_honest_entry_key.py (3 pass). |
+| 28-F75 | FIXED | Test coverage added for heartbeat_interval_from_env: unset gives the default, '0' disables, invalid falls back with a WARNING, negative clamps to 0. Test tests/training/test_cluster28_heartbeat_env_parsing.py (4 pass). |
