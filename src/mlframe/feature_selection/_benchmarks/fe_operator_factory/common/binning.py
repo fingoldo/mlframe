@@ -6,11 +6,20 @@ import numpy as np
 
 
 def qbin(x, k=10):
-    """Equal-frequency bin codes in ``[0, k)`` from the stable rank of ``x``."""
-    n = len(x)
-    r = np.empty(n, np.int64)
-    r[np.argsort(x, kind="stable")] = np.arange(n)  # ordinal-rank-ok: equal-frequency bins need distinct ordinal ranks
-    return np.minimum((r * k) // n, k - 1)
+    """Equal-frequency bin codes in ``[0, k)`` from the stable rank of the finite values of ``x``.
+
+    Non-finite values (NaN) are not ranked, so they cannot take a real bin: they get the dedicated code ``k`` (11-F4). With no non-finite
+    values the codes are exactly the ``[0, k)`` equal-frequency bins.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    codes = np.full(x.shape[0], k, np.int64)
+    idx = np.flatnonzero(np.isfinite(x))
+    m = idx.size
+    if m:
+        r = np.empty(m, np.int64)
+        r[np.argsort(x[idx], kind="stable")] = np.arange(m)  # ordinal-rank-ok: equal-frequency bins need distinct ordinal ranks
+        codes[idx] = np.minimum((r * k) // m, k - 1)
+    return codes
 
 
 def mi_b(xb, yb, kx=None, ky=None, mm=False):

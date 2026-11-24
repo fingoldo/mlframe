@@ -745,7 +745,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 10-F7 | 10_feature_selection-1.md | DEFERRED | not changed in this pass; benchmark-script cleanup or a policy decision (MAX_VERSION_AGE_DAYS enforcement) |
 | 10-F8 | 10_feature_selection-1.md | FIXED | redundant columns without informative ones raise a clear ValueError; benchmark utility, no test |
 | 10-F9 | 10_feature_selection-1.md | FIXED | a failed log-file write is reported once on stderr; benchmark utility, no test |
-| 11-F4 | 11_feature_selection-2.md | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
+| 11-F4 | 11_feature_selection-2.md | FIXED | qbin ranks only the finite values; NaN rows get the dedicated code k instead of the top bins. Behaviour change: NaN rows return code k (fixed-bin callers must allow k). Finite-only input is unchanged. Test tests/feature_selection/test_cluster11_qbin_nan_own_code.py. |
 | 11-F5 | 11_feature_selection-2.md | PARTIAL | stat_study core: a failing operator is reported once per operator at WARNING via log_throttle (was DEBUG, silent). Not done: the same swallow in exp2_general.py and case2_missing.py is unchanged. Test tests/feature_selection/test_cluster11_stat_study_failure_warns.py. |
 | 11-F6 | 11_feature_selection-2.md | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F7 | 11_feature_selection-2.md | FIXED | A counted estimator module that fails to import with a non-ImportError is reported as missing and logged at WARNING; it used to abort every arm's FitCounter. Test tests/feature_selection/test_cluster11_counted_import_failure_listed.py. |
