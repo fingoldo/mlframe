@@ -262,7 +262,8 @@ class PeriodicLearningRateFinder(LearningRateFinder):
 
     def on_train_epoch_start(self, trainer, pl_module):
         """Re-run the LR-finder sweep and update ``pl_module.learning_rate`` when the current epoch is a multiple of ``period``."""
-        if (trainer.current_epoch % self.period) == 0 or trainer.current_epoch == 0:
+        # ``period`` is validated positive in __init__, so epoch 0 (0 % period == 0) is already covered (39-F60).
+        if (trainer.current_epoch % self.period) == 0:
             logger.info("Finding optimal learning rate. Current rate=%s", pl_module.learning_rate)
             self.lr_find(trainer, pl_module)
             logger.info("Set learning rate to %s", pl_module.learning_rate)
