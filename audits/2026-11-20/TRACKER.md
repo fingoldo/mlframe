@@ -519,7 +519,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 39-F45 | 39_training-8.md | FIXED | Entropy counts characters with one Counter pass; values unchanged. Test test_cluster39_char_entropy_counter.py. |
 | 39-F55 | 39_training-8.md | FIXED | set_params raises for unknown keys and method names. Test test_cluster39_set_params_unknown_raises.py. |
 | 39-F25 | 39_training-8.md | FIXED | James-Stein within-category residuals vectorised with one pandas map. Test test_cluster39_js_variance_vectorised.py. |
-| 39-F26 | 39_training-8.md | DEFERRED | CPU fallback dtype (fp32 vs primary fp16): match dtype or document precision change; owner policy call. |
+| 39-F26 | 39_training-8.md | FIXED | The CUDA-lost CPU fallback stays float32 (fp16 on CPU is slow or unsupported). The fallback warning now states that the precision changes mid-run and that earlier batches were fp16, and the comment no longer claims identical embeddings. Test tests/training/feature_handling/test_cluster39_cpu_fallback_precision_documented.py (2 passed). |
 | 39-F28 | 39_training-8.md | DEFERRED | Derived budgets written into user sub-configs read back as explicit on round trip; needs a provenance design. |
 | 39-F44 | 39_training-8.md | PARTIAL | Datetime tokens vectorised (test_cluster39_datetime_tokens_vectorised.py); object-token and null-mask loops remain. |
 | 39-F29 | 39_training-8.md | FIXED | Single-flight on cache misses: one compute per key. Test test_cluster39_cache_single_flight.py. |
