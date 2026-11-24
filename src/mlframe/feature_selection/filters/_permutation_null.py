@@ -540,15 +540,54 @@ def _pairwise_occupied_joint_k(
         return np.asarray(_occupied_joint_k_cm_njit(columns_cm, inverse[:n_pairs].astype(np.int64), inverse[n_pairs:].astype(np.int64), nb[pa], nb[pb]))
 
 
+@numba.njit(cache=True, nogil=True, parallel=True)
+def _column_min_max_njit(data, cols, n_blocks):
+    """Minimum and maximum of the columns ``cols`` of ``data`` in one pass over contiguous blocks of rows (``prange`` over the blocks; the partial results are folded at the end)."""
+    n = data.shape[0]
+    m = cols.shape[0]
+    lo_b = np.empty((n_blocks, m), dtype=np.int64)
+    hi_b = np.empty((n_blocks, m), dtype=np.int64)
+    step = (n + n_blocks - 1) // n_blocks
+    for b in prange(n_blocks):
+        r0 = b * step
+        r1 = min(n, r0 + step)
+        for j in range(m):
+            lo_b[b, j] = 9223372036854775807
+            hi_b[b, j] = -9223372036854775807
+        for i in range(r0, r1):
+            for j in range(m):
+                v = np.int64(data[i, cols[j]])
+                if v < lo_b[b, j]:
+                    lo_b[b, j] = v
+                if v > hi_b[b, j]:
+                    hi_b[b, j] = v
+    lo = lo_b[0].copy()
+    hi = hi_b[0].copy()
+    for b in range(1, n_blocks):
+        for j in range(m):
+            if lo_b[b, j] < lo[j]:
+                lo[j] = lo_b[b, j]
+            if hi_b[b, j] > hi[j]:
+                hi[j] = hi_b[b, j]
+    return lo, hi
+
+
 def _validate_code_ranges(data: np.ndarray, nbins: np.ndarray, columns: np.ndarray) -> None:
-    """Reject a used column holding a code outside ``[0, nbins[col])``: the joint-count kernels index their tables by the codes without bounds checks."""
+    """Reject a used column holding a code outside ``[0, nbins[col])``: the joint-count kernels index their tables by the codes without bounds checks.
+
+    One parallel pass over blocks of rows finds the minimum and maximum of every used column (a numpy reduction per strided column was 104 ms for 108 columns of 100000 rows, a block-wise numpy
+    reduction 57 to 65 ms: int8 reductions along an axis are slow)."""
     if data.shape[0] == 0:
         return
-    for c in np.unique(columns):
-        col = data[:, int(c)]
-        lo, hi = int(col.min()), int(col.max())
-        if lo < 0 or hi >= int(nbins[int(c)]):
-            raise ValueError(f"column {int(c)} holds codes in [{lo}, {hi}] outside [0, {int(nbins[int(c)])}) of its nbins entry: the joint-count kernel indexes its table by them")
+    used = np.unique(columns).astype(np.int64)
+    arr = data if isinstance(data, np.ndarray) and data.dtype.kind in "iu" else np.asarray(data)
+    n_blocks = int(max(1, min(64, arr.shape[0] // 2048)))
+    with parallel_kernel_entry():
+        lo, hi = _column_min_max_njit(arr, used, n_blocks)
+    bad = np.flatnonzero((lo < 0) | (hi >= np.asarray(nbins, dtype=np.int64)[used]))
+    if bad.size:
+        c, low, high = int(used[bad[0]]), int(lo[bad[0]]), int(hi[bad[0]])
+        raise ValueError(f"column {c} holds codes in [{low}, {high}] outside [0, {int(nbins[c])}) of its nbins entry: the joint-count kernel indexes its table by them")
 
 
 def _validate_pair_columns(factors_data, nbins, pair_a, pair_b) -> None:
