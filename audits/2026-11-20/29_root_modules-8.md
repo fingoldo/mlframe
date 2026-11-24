@@ -101,3 +101,4 @@ Grep-only verification: `pyproject.toml:13` (requires-python), callers of `creat
 - 29-F34: FIXED. Names mismatch in diversity ablation raises ValueError listing both lists, instead of an empty AssertionError. Test test_cluster29_diversity_names_mismatch_message.py; 8 existing diversity/correlation tests pass.
 - 29-F28: FIXED. Deleted the unused _RELATIVE_IMPORT pattern in numba_cache_guard. Test tests/utils/test_cluster29_numba_guard_no_dead_pattern.py (source pin).
 - 29-F27: FIXED. Time-aware OOF skip for predict_proba is logged at WARNING (the INFO path is only for non-probability methods); covered by tests/training/composite/eval/test_composite_oof_time_aware_logged.py (3 pass). Recorded here, where the disposition was missing.
+- 29-F29: FIXED. Post-import callbacks all run even when one raises (fixed earlier in 2b08fdc4a). Covered by tests/utils/test_cluster29_post_import_callbacks_all_run.py (1 pass). Recorded here, where the disposition was missing.
