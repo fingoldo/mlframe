@@ -22,5 +22,5 @@ def test_unknown_name_error_lists_valid_names():
 def test_known_name_is_still_built():
     """Control: a valid name still builds a bed (12-F101)."""
     name = next(iter(scenarios.ALL_SCENARIOS))
-    bed = scenarios.make(name, seed=0, n=50)
-    assert bed is not None
+    X, y, _meta = scenarios.make(name, seed=0, n=50)
+    assert len(X) == len(y) > 0

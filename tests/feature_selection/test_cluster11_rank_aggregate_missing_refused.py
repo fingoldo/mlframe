@@ -30,4 +30,4 @@ def test_complete_aggregate_is_kept(monkeypatch):
     monkeypatch.setattr(ra, "aggregate_ranks", lambda table, rule: ({"a": 1.0, "b": 3.0, "c": 2.0}, rule))
     X, y = _frame()
     out = ra.RankAggregationArm(k=2)._compute(X, y)
-    assert out is not None
+    assert out["support"].tolist() == [False, True, True]
