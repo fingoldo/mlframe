@@ -128,7 +128,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 36-F5 | 36_training-5.md | FIXED | Failed candidate fold logs at WARNING with the exception class. Read and verified; no separate test. |
 | 36-F6 | 36_training-5.md | FIXED | More CV folds than rows raises ValueError naming both numbers. Test test_cluster36_hpo_refuses_more_folds_than_rows.py. |
 | 36-F7 | 36_training-5.md | FIXED | Imputed NaN meta-feature rows logged at WARNING. Read and verified; no separate test. |
-| 36-F8 | 36_training-5.md | DEFERRED | Stage-2 trained on OOF meta-features but predicts from full-refit ones (design train/serve skew). Owner decision. |
+| 36-F8 | 36_training-5.md | DOCUMENTED | Known train/serve skew is documented at _build_meta_features_at_predict: stage 2 trains on OOF meta-features, predict uses the full-refit stage-1 model. Fold-model averaging would change serve output for all callers, so it is not done. No behaviour change. |
 | 36-F9 | 36_training-5.md | FIXED | Class factories are inspected for sample_weight from the fit signature without constructing an estimator; callables are still called (test_cluster36_factory_signature_no_construction; 44 existing multi-stage tests pass ... |
 | 37-F1 | 37_training-6.md | FIXED | Median fill of out-of-domain T reached training rows, a fabricated label. Fill now only outside the train split. Test test_cluster37_composite_t_no_train_label_fill.py; pinned test updated. |
 | 37-F2 | 37_training-6.md | FIXED | Supplied lag with no lag column was never offered as a base, understating the ceiling. Attached as a named column. Test test_cluster37_supplied_lag_is_a_base.py. |

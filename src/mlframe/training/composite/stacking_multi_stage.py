@@ -221,7 +221,13 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
         return self
 
     def _build_meta_features_at_predict(self, X: Any) -> dict[str, np.ndarray]:
-        """Build stage-1 meta-feature columns at predict time from the refit stage-1 models."""
+        """Build stage-1 meta-feature columns at predict time from the refit stage-1 models.
+
+        Known train/serve skew (audit 36-F8, documented choice): stage 2 is trained on out-of-fold meta-features, but predict uses the
+        full-refit stage-1 model. Full-refit outputs can be more confident than OOF ones, so the quantile transformer fitted on OOF values
+        can map them into tails stage 2 saw rarely. Averaging the k fold models at predict time would match the training distribution;
+        it is not done because it changes serve output for every caller.
+        """
         meta_cols: dict[str, np.ndarray] = {}
         for aux_name, model in self.stage1_models_.items():
             pred = np.asarray(model.predict(X), dtype=np.float64).reshape(-1)

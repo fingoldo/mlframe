@@ -819,7 +819,6 @@
 | 36-F5 | FIXED | A failed candidate fold logs at WARNING with the exception class, not DEBUG. Verified by reading; no unit test (the optimiser path needs a full composite fit). |
 | 36-F7 | FIXED | Imputed NaN meta-feature rows in the stacker are counted and logged at WARNING. Verified by reading; no unit test. |
 | 36-F6 | FIXED | More CV folds than rows raises ValueError naming both numbers, instead of an empty-fold search returning an arbitrary winner. Test tests/training/composite/test_cluster36_hpo_refuses_more_folds_than_rows.py. |
-| 36-F8 | DEFERRED | Stage-2 is trained on OOF meta-features but predicts from full-refit ones, a train/serve skew in the stacking design. Fixing it changes the stacker's method, an owner decision. |
 | 34-F7 | FIXED | Under 50 valid rows the spec still passes unscored, but now logs a WARNING naming the spec and row count (test_cluster34_discovery_silent_skips_are_logged) |
 | 34-F8 | FIXED | Residual-std probe failure logged at WARNING with base and transform (test_cluster34_discovery_silent_skips_are_logged) |
 | 34-F5 | FIXED | Negative train/val/test positions are wrapped by len(df) and bounds-checked before the overlap test (test_cluster34_negative_indices_are_positions) |
@@ -1476,3 +1475,5 @@
 | 35-F33 | FIXED | TailCompositeEstimator.fit cross-fits the body by default (residual_oof_folds=5), so the tail threshold and GPD are fitted on out-of-fold residuals. Costs residual_oof_folds extra body fits. residual_oof_folds below 2 keeps the in-sample path with its WARNING. Behaviour change for default callers. Tests test_cluster35_tail_oof_default.py and test_cluster35_tail_in_sample_residuals_warn.py. |
 
 | 35-F26 | WON'T FIX | Discovery fits its tiny models without sample weights (model.fit(x_fit[valid], t_fit) in every call path), so passing weights into smearing would describe a weighted residual distribution that the fitted model never saw. smeared_prediction already accepts sample_weight for when a weighted fit is introduced. Existing test test_cluster35_smeared_prediction_matches_fit.py covers the unweighted match. No code change. |
+
+| 36-F8 | DOCUMENTED | Known train/serve skew is documented at _build_meta_features_at_predict: stage 2 trains on OOF meta-features, predict uses the full-refit stage-1 model. Fold-model averaging would change serve output for all callers, so it is not done. No behaviour change. |
