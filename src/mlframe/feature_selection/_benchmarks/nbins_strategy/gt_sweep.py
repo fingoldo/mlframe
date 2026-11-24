@@ -235,9 +235,9 @@ MRMR_BINNING_METHODS: "dict[str, dict]" = {
     "knuth_uniform": {"nbins_strategy": "knuth", "nbins_strategy_kwargs": {"knuth_edge_type": "uniform"}},
     # direct edge-determination methods (no separate count-formula / placement split)
     "qs_gupta": {"nbins_strategy": "quantile_spacing"},
-    # one name since 2026-11-22: "bayesian_blocks" is accepted by MRMR and by the dispatcher alike.
+    # one name: "bayesian_blocks" is accepted by MRMR and by the dispatcher alike.
     "bayesian_blocks": {"nbins_strategy": "bayesian_blocks"},
-    # row labels are the historical ones (the 2026-07-21 results use them): fayyad_irani_* is ``mdlp``; "insample_validated" is the DEFAULT ``mdlp`` (mdlp_fast_mode False), "oos_validated" is ``mdlp_validated``.
+    # row labels are the historical ones (earlier results use them): fayyad_irani_* is ``mdlp``; "insample_validated" is the DEFAULT ``mdlp`` (mdlp_fast_mode False), "oos_validated" is ``mdlp_validated``.
     "fayyad_irani_fast": {"nbins_strategy": "mdlp", "nbins_strategy_kwargs": {"mdlp_fast_mode": True}},
     "fayyad_irani_insample_validated": {"nbins_strategy": "mdlp", "nbins_strategy_kwargs": {"mdlp_fast_mode": False}},
     "fayyad_irani_oos_validated": {"nbins_strategy": "mdlp_validated"},

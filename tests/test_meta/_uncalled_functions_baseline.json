@@ -3,6 +3,10 @@
     "src/mlframe/data/datasets/replay.py::replay_from_record": {
       "count": 1,
       "note": "Public offline API of the replay module (listed in __all__): it rebuilds the bed behind one stored result cell and refuses a record without dataset_seed (04-F30). No production code reads results files back yet, so it has no caller; wiring it to a results loader is a separate feature. Accepted as a documented entry point."
+    },
+    "src/mlframe/feature_selection/filters/_orthogonal_adaptive_degree_fe.py::_build_degree_candidates": {
+      "count": 1,
+      "note": "Reference oracle for the lean production twin _build_degree_candidate_matrix: the production path (hybrid_orth_mi_adaptive_degree_fe) builds the candidate matrix directly, and the tests in test_adaptive_degree_lean_host_matrix.py and test_adaptive_degree_cells_on_device.py compare that lean output to this list-based builder cell for cell. It has no production caller by design, and it enforces nothing that production relies on; the equivalence is pinned by those tests."
     }
   },
   "gate": "uncalled-functions",

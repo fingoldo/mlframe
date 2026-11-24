@@ -581,7 +581,7 @@ def _mi_per_feature_prebinned(
 def _knn_mi_column(col: np.ndarray, target: np.ndarray, *, n_neighbors: int, random_state: int) -> float:
     """Kraskov kNN ``MI(col, target)`` of one finite column (nats): the repository's ``ksg_mi_columns``, equal to scikit-learn's ``mutual_info_regression`` on a single column (same scaling, noise stream
     and radius; pinned in ``tests/feature_selection/fe/test_ksg_dispatch_matches_sklearn.py``), 10-100x faster. One column per call: the noise stream of a call depends on its width."""
-    from mlframe.feature_selection.filters._ksg_dispatch import ksg_mi_columns
+    from mlframe.feature_selection.filters.shared import ksg_mi_columns
 
     return float(ksg_mi_columns(col.reshape(-1, 1), target, discrete_target=False, n_neighbors=int(n_neighbors), random_state=int(random_state))[0])
 

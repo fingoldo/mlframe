@@ -15,7 +15,7 @@ from collections.abc import Iterable, Sequence
 
 import numba
 import numpy as np
-from mlframe.feature_selection.filters.info_theory._reject_count import reject_count
+from mlframe.feature_selection.filters.info_theory.shared import reject_count
 from numba.core import types
 
 from pyutilz.numbalib import set_numba_random_seed

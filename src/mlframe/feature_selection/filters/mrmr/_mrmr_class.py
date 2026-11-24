@@ -378,7 +378,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # the permutation null refolds it for every permuted target. The mapping is decided per frame.
         categorical_fold_strategy: str = "frequency",
         categorical_fold_min_support: int = 5,
-        # per-feature adaptive bin chooser. Default ``'quantile_spacing'`` (the owner's choice of 2026-11-23): it depends on the column only, never on the target, so a suite of targets bins each column once
+        # per-feature adaptive bin chooser. Default ``'quantile_spacing'`` (chosen as the default): it depends on the column only, never on the target, so a suite of targets bins each column once
         # and the composite child fit can reuse the codes. Its bin count follows the row count: ``min(round(0.3 n), round(2 n^(1/3)))`` clamped to [3, 64] (20 at 1000 rows, 36 at 6000, 54 at 20000). It was
         # briefly replaced by ``sturges`` the same day, by the assistant and not on the owner's decision, because the old rule ``round(0.3 n)`` gave 64 bins at EVERY n from 214 up and lost a categorical interaction
         # in a 6000-row frame with 120 noise columns (3 of 3 seeds); with the rule above it is kept (3 of 3, as ``sturges``, ``uniform``, ``mdlp`` and ``optimal_joint`` do; ``freedman_diaconis`` loses it). Measured on
@@ -3020,16 +3020,16 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # The candidate search of the mix (one child MRMR fit per base, each about the cost of the whole fit) is OFF by default: on six continuous datasets (additive, interaction, two interactions, level plus
         # interaction, periodic plus trend, noise; 10000 x 12) and the 20000 x 20 benchmark it proposed 30 candidates and the rescue admitted none, with identical selections, at 3.5-7.5 times the wall of the fit
         # without it. The bases and their provenance (what ``TargetOffsetRegressor`` reads) are still recorded. ``True`` restores the candidate search.
-        # Re-measured 2026-11-23 with ``_benchmarks/target_mix/mix_value.py`` (y = 3*x0 + share*x1*x2 + noise, n=6000, p=10, 3 seeds per row; held-out R2 of a ridge on the selection):
+        # Re-measured with ``_benchmarks/target_mix/mix_value.py`` (y = 3*x0 + share*x1*x2 + noise, n=6000, p=10, 3 seeds per row; held-out R2 of a ridge on the selection):
         #   share 4 %, noise 0.3: R2 0.9857/0.9858/0.9871 OFF vs 0.9904/0.9858/0.9871 ON, wall 11-34 s vs 29-40 s, the x1*x2 term found in both modes;
         #   share 1.8 %, noise 0.6: R2 0.9594/0.9600/0.9593 in both modes, term found in both, wall 6-23 s vs 18-26 s;
         #   share 0.8 %, noise 1.0: R2 0.8925/0.8900/0.8951 in both modes, term found in neither.
-        # Nine fits gave one +0.005 R2 and never changed what is found, at 1.1-2.8x the wall, so the default stays False. Details: audits/2026-11-23/PLAN_target_transform_in_mrmr.md (PLAN-05).
+        # Nine fits gave one +0.005 R2 and never changed what is found, at 1.1-2.8x the wall, so the default stays False.
         fe_target_mix_candidates: bool = False,
         # TARGET-TRANSFORM SEARCH (default OFF; metadata only, MRMR never changes the target). For a continuous regression target the fit proposes monotone transforms (cbrt, signed square root, log
         # for a positive target) by the equal-width-bin MI between the numeric columns and f(y), and accepts one only when a ridge model fitted on f(y) beats a ridge fitted on y on held-out rows, on the ORIGINAL
         # scale, by a paired bootstrap (see ``_target_transform_search``). The verdict is ``target_transform_`` (name, accepted, proposals, gates); the training layer applies and inverts it. Measured
-        # 2026-11-23: it helps linear heads only (cbrt of a cubic target halves the ridge RMSE), not trees; the MI alone is biased (it proposes signed_sqrt on a linear target), hence the gate.
+        # it helps linear heads only (cbrt of a cubic target halves the ridge RMSE), not trees; the MI alone is biased (it proposes signed_sqrt on a linear target), hence the gate.
         target_transform_search: bool = False,
         # With ``redundancy_policy='drop'`` the same held-out evidence prunes a selected engineered column, or a raw column no engineered column is built from, that does not lower the held-out
         # residual of the rest of the selection significantly. A raw operand of an engineered column (``fe_drop_redundant_raw_operands``) is pruned unless it improves the held-out fit of a LINEAR

@@ -158,7 +158,7 @@ def batch_mutual_information(X: np.ndarray, y_arr: np.ndarray, random_state: int
     including non-monotonic ones (U-shaped, inverted-U, multi-modal) where AUC sits near 0.5 despite the column
     carrying real signal.
     """
-    from mlframe.feature_selection.filters._ksg_dispatch import ksg_mi_columns
+    from mlframe.feature_selection.filters.shared import ksg_mi_columns
 
     # the repository's own kernels give ``mutual_info_classif(discrete_features=False)``'s estimate (default n_neighbors=3, same noise stream), 80-125x faster
     return np.asarray(ksg_mi_columns(X, y_arr, discrete_target=True, n_neighbors=3, random_state=random_state))

@@ -49,8 +49,7 @@ def test_walk_gives_the_same_mi_with_the_packed_sort_and_with_the_argsort(monkey
     rng = np.random.default_rng(2)
     y = rng.integers(0, 3, n)
     prep = B_prep(x, y)
-    if prep is None:
-        pytest.skip("walk tables unavailable")
+    assert prep is not None, "the resample tables are always built; a None here is a regression"
     with_packed = B.distinct_walk_gpu(x, prep, 10)
     monkeypatch.setattr(B, "_sorted_block_packed", lambda *a, **k: None)
     with_argsort = B.distinct_walk_gpu(x, prep, 10)

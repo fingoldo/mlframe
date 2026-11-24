@@ -11,17 +11,8 @@ from typing import cast
 import numpy as np
 from numba import njit, prange
 
+from ._numba_utils import _psi_table  # shared njit helper, re-exported for callers of this module
 from ._numba_utils_shared import radix_order_f64
-
-
-@njit(cache=True, nogil=True)
-def _psi_table(n):
-    """digamma at integers 1..n via psi(m+1) = psi(m) + 1/m, psi(1) = -Euler gamma."""
-    out = np.zeros(n + 2)
-    out[1] = -0.5772156649015329
-    for m in range(1, n + 1):
-        out[m + 1] = out[m] + 1.0 / m
-    return out
 
 
 @njit(cache=True, nogil=True)
@@ -162,7 +153,7 @@ def ksg_mi_discrete_target(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, ra
     if step < p_all:
         # A block too wide for one float64 copy (the copy, the noise tile and the sorted columns of 100000 x 1000 are several GB): the columns are independent, so they go through in blocks, each scaled and
         # jittered by itself with the noise drawn from ``RandomState(random_state + block index)``. The jitter is a tie-breaker of 1e-10 and the MI of a column does not depend on which stream it came from, but
-        # the values are no longer the ones sklearn's single (n, p) draw gives (the owner accepted that for the selection staying the same, 2026-11-23); the unblocked path below keeps the sklearn stream.
+        # the values are no longer the ones sklearn's single (n, p) draw gives (accepted because the selection stays the same); the unblocked path below keeps the sklearn stream.
         out = np.empty(p_all, dtype=np.float64)  # Intentional float64: MI statistic vector
         for b, c0 in enumerate(range(0, p_all, step)):
             c1 = min(p_all, c0 + step)

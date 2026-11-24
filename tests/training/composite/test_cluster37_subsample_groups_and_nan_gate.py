@@ -23,7 +23,7 @@ def test_group_subsample_keeps_whole_groups_in_ordinary_case():
     """Control: with several small groups the subsample keeps whole groups only."""
     groups = np.repeat(np.arange(100), 10)
     pos = _oof_subsample_positions(1000, groups, cap=300, seed=1)
-    assert pos is not None and 0 < pos.size < 1000
+    assert pos is not None and pos.size == 300, f"ten 10-row groups under cap 300 fill it exactly; got {None if pos is None else pos.size}"
     kept = set(groups[pos].tolist())
     assert kept, "the subsample kept no group"
     for g in kept:

@@ -146,7 +146,7 @@ def _planned_code_itemsize(self) -> int:
     import numpy as _np
 
     from ._mrmr_fit_impl._fit_impl_stages._binning import _strategy_kwargs
-    from .discretization._code_storage_plan import plan_code_storage
+    from .discretization.shared import plan_code_storage
 
     _strategy = getattr(self, "nbins_strategy", None)
     plan = plan_code_storage(

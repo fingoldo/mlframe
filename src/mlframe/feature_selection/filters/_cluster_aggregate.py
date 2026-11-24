@@ -27,7 +27,7 @@ import logging
 from typing import Any, Sequence
 
 import numpy as np
-from mlframe.feature_selection.filters.discretization._code_dtype import append_code_columns
+from mlframe.feature_selection.filters.discretization.shared import append_code_columns
 
 from .engineered_recipes import apply_recipe, build_cluster_aggregate_recipe
 from .friend_graph import node_relevance, pairwise_mi_edge

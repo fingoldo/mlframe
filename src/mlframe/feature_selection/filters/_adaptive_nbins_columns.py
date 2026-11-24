@@ -18,7 +18,7 @@ import numpy as np
 
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._nbins_strategy_names import SUPERVISED_NBINS_STRATEGIES
-from mlframe.feature_selection.filters.discretization._quantile_radix import quantiles_of_sorted, sorted_unique_with_counts
+from mlframe.feature_selection.filters.discretization.shared import quantiles_of_sorted, sorted_unique_with_counts
 from mlframe.feature_selection.filters.discretization.shared import unique_with_counts
 
 logger = logging.getLogger("mlframe.feature_selection.filters._adaptive_nbins")
@@ -374,7 +374,7 @@ def _presort_for_mdlp(col: np.ndarray, finite: np.ndarray, finite_mask: np.ndarr
     label vector) and the search sorts for itself. The labels are the ones ``mdlp_bin_edges`` encodes ``y`` to, so the search gives the edges it gives unsorted."""
     if method_resolved != "mdlp" or y is None or finite.size == 0:
         return None
-    from .discretization._quantile_radix import sort_xy
+    from .discretization.shared import sort_xy
     from .supervised_binning import _encode_mdlp_target
 
     fast_mode = kwargs.get("mdlp_fast_mode", False)

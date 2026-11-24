@@ -8,6 +8,17 @@ cp = pytest.importorskip("cupy")
 from mlframe.feature_selection.filters._orthogonal_univariate_fe import _orth_mi_backends as M
 
 
+def _require_device():
+    """Skip only when there is no CUDA device at all; checked before the work, so the skip cannot follow a real run."""
+    try:
+        import cupy as _cp
+        if _cp.cuda.runtime.getDeviceCount() > 0:
+            return
+    except Exception:
+        pass
+    pytest.skip("no CUDA device on this host")
+
+
 def _case(k=40):
     """A float32 candidate matrix and binary labels."""
     rng = np.random.default_rng(0)
@@ -18,11 +29,11 @@ def _case(k=40):
 
 def test_blocks_equal_one_call_and_a_fitting_matrix_is_one_call(monkeypatch):
     """Under a tiny slot pool the matrix is split (width 16) and equals the single call; with room it is a single call."""
+    _require_device()
     monkeypatch.setenv("MLFRAME_FE_GPU_STRICT", "1")
     X, y = _case()
     whole = M._strict_resident_mi(X, y, 10, False)
-    if whole is None:
-        pytest.skip("strict resident MI is not usable on this host")
+    assert whole is not None, "strict resident MI must run on a host with a CUDA device"
     calls = []
     real = M._strict_resident_mi
     monkeypatch.setattr(M, "_strict_resident_mi", lambda Xc, *a: (calls.append(int(Xc.shape[1])), real(Xc, *a))[1])

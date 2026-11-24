@@ -17,10 +17,10 @@ def test_polars_frame_hash_differs_when_rows_are_permuted():
 
 def test_pandas_frame_hash_differs_when_rows_are_permuted():
     """The pandas path (via the polars kernel) is order-sensitive too (40-F20)."""
+    pytest.importorskip("polars")
     a = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0], "y": [10.0, 20.0, 30.0, 40.0]})
     b = a.iloc[[3, 2, 1, 0]]
     ha = pc._hash_pandas_frame_via_polars(a)
     hb = pc._hash_pandas_frame_via_polars(b)
-    if ha is None or hb is None:
-        pytest.skip("pandas-via-polars fastpath unavailable")
+    assert ha is not None and hb is not None, "pandas-via-polars fastpath returned None with polars installed"
     assert ha != hb

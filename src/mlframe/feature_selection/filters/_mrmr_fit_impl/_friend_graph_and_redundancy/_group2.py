@@ -12,7 +12,7 @@ import logging
 from typing import Any
 
 import numpy as np
-from mlframe.feature_selection.filters.discretization._code_dtype import append_code_columns
+from mlframe.feature_selection.filters.discretization.shared import append_code_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._lazy_host_codes import LazyHostCodes
 

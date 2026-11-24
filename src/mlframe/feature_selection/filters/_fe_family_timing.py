@@ -17,7 +17,10 @@ import threading
 from collections import defaultdict
 from contextlib import contextmanager
 from time import perf_counter
-from typing import Any, Callable, Iterator, TypeVar
+from collections.abc import Iterator
+from typing import Any, Callable, TypeVar
+
+from mlframe.utils.log_throttle import log_throttle
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
@@ -57,16 +60,20 @@ def _process_rss() -> float:
         import psutil
 
         return float(psutil.Process().memory_info().rss)
-    except Exception:
+    except Exception as exc:
+        log_throttle(logger, "fe_family_timing.rss_unreadable", logging.WARNING, "fe family RSS unreadable, reporting 0: %s", exc)
         return 0.0
 
 
-def _rss_poll_loop() -> None:
-    """Raise the highest-seen RSS of every active entry every 50 ms while at least one entry is active."""
+_RSS_POLL_INTERVAL_S = 0.05
+
+
+def _rss_poll_loop(interval_s: float = _RSS_POLL_INTERVAL_S) -> None:
+    """Raise the highest-seen RSS of every active entry every interval_s seconds while at least one entry is active."""
     import time
 
     while True:
-        time.sleep(0.05)
+        time.sleep(interval_s)
         rss = _process_rss()
         with _LOCK:
             for rec in _RSS_ACTIVE.values():

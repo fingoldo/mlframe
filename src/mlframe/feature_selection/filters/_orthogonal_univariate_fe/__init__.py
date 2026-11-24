@@ -51,7 +51,8 @@ from .._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engin
 import logging
 import os
 import threading
-from typing import Any, Callable, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any, Callable, Optional
 
 import numpy as np
 from .._fe_frame_ops import fe_frame_from_columns
@@ -354,7 +355,8 @@ def _copy_on_write_active() -> bool:
         if int(str(pd.__version__).split(".")[0]) >= 3:
             return True
         return bool(pd.options.mode.copy_on_write is True)
-    except Exception:  # an unreadable version or option: the safe answer is a deep copy
+    except Exception as exc:  # an unreadable version or option: the safe answer is a deep copy
+        log_throttle(logger, "orth_univariate.copy_on_write_unreadable", logging.WARNING, "pandas copy-on-write probe failed, assuming a deep copy: %s", exc)
         return False
 
 

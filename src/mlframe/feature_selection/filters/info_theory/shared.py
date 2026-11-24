@@ -36,24 +36,27 @@ from ._state_and_dispatch import (
 
 from . import _state_and_dispatch as state_and_dispatch
 
+from ._reject_count import reject_count
+
 __all__ = [
     "check_joint_cardinality",
-    "entropy",
-    "entropy_x_onto_classes",
-    "merge_vars",
     "clear_cmi_resident_cache",
     "conditional_mi_batched_dispatch",
     "cpu_cmi_loop_parallel",
+    "entropy",
+    "entropy_x_onto_classes",
     "get_group_mi",
     "group_blocked_mi",
     "group_leak_verdict",
     "group_relevance_mi",
     "host_codes_for_upload",
     "joint_cardinality_cap",
+    "merge_vars",
     "prepare_group_segments",
+    "reject_count",
     "reset_cmi_gpu_circuit_breaker",
     "select_batch_mi_kernel",
     "set_group_mi",
-    "widen_on_device",
     "state_and_dispatch",
+    "widen_on_device",
 ]

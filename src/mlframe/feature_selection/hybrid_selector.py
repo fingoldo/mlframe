@@ -133,7 +133,7 @@ class HybridSelector:
         # ADDITIVE to the tree member), byte-identical no-op on narrow frames (synth 52<=cap, bootstrap already ran)
         # AND on very-wide frames (madelon 500>250, bootstrap still skipped -> avoids its O(p^2) cost where it finds
         # nothing: madelon's 5-dim XOR is not bilinear). 250 is the cost/benefit sweet spot. (round4_hybrid_mrmrcap_bench)
-        # fit_on_train_only (default True - MEASURED, see audits/2026-11-17/full_read/bias_B.md): MRMR's engineered columns and the tree
+        # fit_on_train_only (default True, measured): MRMR's engineered columns and the tree
         # co-occurrence products are SELECTED with the labels of the rows the shared permutation-FI later scores them on, so noise
         # products/transforms that happened to fit the holdout rows look important there. True fits both stages on the train
         # partition only (the holdout stays unseen until the FI pass); False restores the legacy fit-on-all-rows behaviour.
