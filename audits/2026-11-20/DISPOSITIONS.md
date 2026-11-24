@@ -1425,3 +1425,7 @@
 | 33-F4 | DEFERRED | Binary and multiclass margin paths clip probabilities to different epsilons. Picking one changes numerical output at the clip boundary, so it needs an owner decision on the clip. No code change. |
 | 37-F42 | DEFERRED | _apply_plot_style_overrides changes process-wide matplotlib and plotly state and is not restored on failure. Restoring it needs a context-manager design across the setup path; deferred. No code change. |
 | 37-F36 | DEFERRED | The unary transforms logger name differs from the composite_transforms name used elsewhere; changing it affects log filters configured by users, so it needs a naming decision. No code change. |
+| 39-F72 | DEFERRED | The torch from_numpy benchmark's Strategy C measures a path the code does not produce, and the 0.014 ms figure needs re-measurement on the real path before the doc can be corrected. Deferred to a benchmark re-run. No code change. |
+| 41-F40 | DEFERRED | Per-object-column next() scan in the ranker suite is a perf nit on wide frames; a sampled-value approach changes which value is probed, so it needs a perf and behaviour check. No code change. |
+| 41-F41 | DEFERRED | Pairwise redundancy is an O(F^2) Python double loop; vectorising it needs an equivalence check on the redundancy score, deferred to a perf pass. No code change. |
+| 41-F42 | DEFERRED | Duplicated helper and import nits span several ranking and reporting files; consolidating them is a cross-file refactor for its own pass. No code change. |

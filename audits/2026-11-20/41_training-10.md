@@ -115,3 +115,6 @@ None. All 63 manifest files were read in full. Grep was used for callers and def
 - 41-F35: DEFERRED. interaction_strength keeps its own 20 s cap, against the shared diagnostics budget design. Making it budget-driven changes how the cap is set for every diagnostic, so it needs a design decision. No code change.
 - 41-F36: DEFERRED. Split label is inferred from the last underscore token of plot_file. Fixing it means passing the split explicitly through the chart call, an API change across the diagnostics callers. No code change.
 - 41-F44: DEFERRED. The DSL render branch ignores show and save_path. Honouring them needs a decision on the DSL's display contract across callers. No code change.
+- 41-F40: DEFERRED. Per-object-column next() scan in the ranker suite is a perf nit on wide frames; a sampled-value approach changes which value is probed, so it needs a perf and behaviour check. No code change.
+- 41-F41: DEFERRED. Pairwise redundancy is an O(F^2) Python double loop; vectorising it needs an equivalence check on the redundancy score, deferred to a perf pass. No code change.
+- 41-F42: DEFERRED. Duplicated helper and import nits span several ranking and reporting files; consolidating them is a cross-file refactor for its own pass. No code change.
