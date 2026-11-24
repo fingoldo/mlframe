@@ -62,7 +62,12 @@ def render_mtr_report(
                 (f"MULTI_TARGET_REGRESSION [{model_name}] " f"shape=(N={targets_arr.shape[0]}, K={targets_arr.shape[1]}):"),
             ]
             for _k, _v in _mtr_extra.items():
-                _msg_lines.append(f"  {_k} = {_v:+.4f}")
+                # One non-numeric metric must not drop the whole block (the old :+.4f raised and lost every line, 41-F34).
+                try:
+                    _fmt = f"{float(_v):+.4f}"
+                except (TypeError, ValueError):
+                    _fmt = str(_v)
+                _msg_lines.append(f"  {_k} = {_fmt}")
             logger.info("\n".join(_msg_lines))
         except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
             logger.debug("suppressed: %s", e)
@@ -141,7 +146,7 @@ def render_mtr_report(
             "MULTI_TARGET_REGRESSION report path: residual audit + "
             "fairness subgroup + MASE skipped (1-D-only). "
             "Aggregated metrics in metrics dict; per-target charts "
-            "rendered to {plot_file}_target{k}{ext} when plot_outputs "
+            "rendered to <plot_file>_target<k><ext> when plot_outputs "
             "+ plot_file are set."
         )
     return preds_arr, None
