@@ -233,6 +233,12 @@ def _assign_support_tai_f_step3_unary_credit(self, X, y, verbose, selected_vars,
             _yv = y.values if hasattr(y, "values") else np.asarray(y)
             _y_cont = np.asarray(_yv).reshape(-1) if np.ndim(_yv) <= 1 or np.asarray(_yv).shape[-1] == 1 else None
         _raw_names = [str(cols[int(v)]) for v in selected_vars if 0 <= int(v) < len(cols)]
+        if _y_cont is not None and getattr(self, "target_transform_search", False):
+            # with the target-transform search on, the forms are those a linear head needs on the LINKED target g(y) (``y = exp(sin(x1) + log(x2))`` -> ``sin(x1)``, ``log(x2)``)
+            from mlframe.feature_selection.filters._target_transform_record import find_target_transform, link_target
+
+            _given = [str(c) for c in getattr(self, "feature_names_in_", [])]
+            _y_cont = link_target(find_target_transform(self, X, y, _raw_names + [c for c in _given if c not in _raw_names]), _y_cont)
         _extra = credit_unary_forms(self, X, _y_cont, _raw_names, seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose)
         for _r_recipe, _r_name in _extra:
             self._engineered_recipes_.append(_r_recipe)
