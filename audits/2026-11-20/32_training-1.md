@@ -93,3 +93,4 @@ Grep and Read used for caller checks: `core/_phase_dummy_baselines.py` (the try/
 - 32-F23: DEFERRED. Verdict follows from the fixture's construction (model A strong on class 0, B on minorities). A real verdict needs real or independently generated multiclass data; owner to supply a dataset or accept a labelled synthetic claim.
 - 32-F24: DEFERRED. The near-duplicate pool builds the dedup verdict in by design. A recommendation needs a non-duplicated or real-data scenario; owner to decide the scenario.
 - 32-F16: FIXED. Group-target cast is one assignment; the two identical branches are collapsed. Test tests/training/test_cluster32_group_target_single_cast.py.
+- 32-F15: FIXED. Config sufficiency test uses the signed delta, so a negative delta (init_score better than raw) counts as sufficient, as the module note says; the abs() had made it high_potential. Test tests/training/test_cluster32_init_score_sign_consistent.py; 55 baseline diagnostics tests pass.

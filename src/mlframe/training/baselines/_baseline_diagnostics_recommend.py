@@ -43,7 +43,9 @@ def _build_recommendation(
     # delta% - positive means init_score baseline performed WORSE than raw
     # (residual still has structure). Negative or near-zero means init_score
     # baseline already matches raw, so composite-mode unlikely to extract more signal.
-    init_score_sufficient = init_score_baseline is not None and abs(init_score_baseline.delta_vs_raw_pct) <= cfg.init_score_optimal_threshold_pct
+    # Negative (init_score beats raw) and near-zero both mean the baseline already matches raw, as the note above says; only a large
+    # positive delta (init_score clearly worse) leaves residual structure. ``abs`` wrongly treated a large negative delta as insufficient (32-F15).
+    init_score_sufficient = init_score_baseline is not None and init_score_baseline.delta_vs_raw_pct <= cfg.init_score_optimal_threshold_pct
 
     if max_dom >= cfg.high_potential_min_dominance_pct and not init_score_sufficient:
         reason = f"top ablation delta%={max_dom:.2f} >= {cfg.high_potential_min_dominance_pct:.2f} " "(strong dominant feature)"

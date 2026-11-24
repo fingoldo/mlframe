@@ -77,8 +77,10 @@ def fold_rank_consistency(per_fold_phi_mean2: np.ndarray, top_k: int) -> tuple[n
     fold_pool = min(per_fold.shape[1], max(top_k * 3, 1))
     consistent = np.ones(per_fold.shape[1], dtype=bool)
     for fold_row in per_fold:
-        fold_top = set(np.argsort(-fold_row)[:fold_pool].tolist())
-        consistent &= np.array([j in fold_top for j in range(per_fold.shape[1])], dtype=bool)
+        # Boolean mask from the top indices, not a Python loop over every column (13-F21).
+        fold_mask = np.zeros(per_fold.shape[1], dtype=bool)
+        fold_mask[np.argsort(-fold_row)[:fold_pool]] = True
+        consistent &= fold_mask
     return consistent, fold_pool
 
 

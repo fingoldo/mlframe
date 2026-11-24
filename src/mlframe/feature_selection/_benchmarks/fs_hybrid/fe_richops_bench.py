@@ -51,7 +51,6 @@ def _fit_params(Xtr, pairs):
             med_a=float(np.median(va)), med_b=float(np.median(vb)),
             # proximity scale: train median |a-b| -> a data-driven "close" threshold
             med_absdiff=float(np.median(np.abs(va - vb))),
-            sd_a=float(np.std(va) + EPS), sd_b=float(np.std(vb) + EPS),
         )
     return p
 
@@ -76,8 +75,6 @@ def _apply_op(op, X, pairs, params):
             col = np.abs(va - vb)
         elif op == "ratio":  # a / (|b| + 1)   standardized ratio
             col = va / (np.abs(vb) + 1.0)
-        elif op == "ratio_eps":  # a / (|b| + eps) std ratio, small eps (clipped)
-            col = np.clip(va / (np.abs(vb) + EPS), -1e6, 1e6)
         elif op == "signed":  # sign(a) * |b|   signed magnitude
             col = np.sign(va) * np.abs(vb)
         elif op == "thr_and":  # (a>0) & (b>0)   threshold-AND (logical)
