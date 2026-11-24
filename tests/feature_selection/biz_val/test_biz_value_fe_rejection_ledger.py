@@ -276,9 +276,11 @@ def test_ledger_fingers_floors_on_canonical_fixture():
     assert not led.empty, "FE search on the canonical fixture rejected NO candidate -- ledger empty"
 
     gates = set(led["gate"].unique())
-    # The marginal pair-MI prevalence floor MUST be among the killers (the cross-mix /
-    # decoy pairs whose joint MI does not beat their marginal sum by the prevalence bar).
-    assert "marginal_pair_mi_prescreen" in gates, f"prevalence floor did not finger any dropped candidate; gates seen={sorted(gates)}"
+    # A pair-level floor MUST be among the killers (the cross-mix / decoy pairs whose joint MI does not beat their marginal sum by the prevalence bar, or whose winner does not carry enough of the pair's MI).
+    # Which of the pair-level gates fires first is not the contract: with the Miller-Madow debiased ratio on, the cross-mix pairs clear the marginal pair-MI pre-screen and are dropped by the engineered-MI
+    # prevalence gate instead; the ledger must attribute every dropped pair to the gate that dropped it.
+    pair_gates = {"marginal_pair_mi_prescreen", "engineered_mi_prevalence", "operand_uplift_floor", "order2_maxt_floor"}
+    assert gates & pair_gates, f"no pair-level floor fingered any dropped candidate; gates seen={sorted(gates)}"
     # At least one SECOND distinct floor must also fire, so the ledger covers more than a
     # single gate (the session hand-diagnosed multiple floors on this fixture).
     second_floors = {
@@ -288,21 +290,21 @@ def test_ledger_fingers_floors_on_canonical_fixture():
         "order2_maxt_floor",
         "stability_vote",
     }
-    assert gates & second_floors, f"only the pre-screen fired; expected a second floor too. gates seen={sorted(gates)}"
+    assert len(gates & (pair_gates | second_floors)) >= 2, f"only one floor fired; expected a second floor too. gates seen={sorted(gates)}"
 
-    # Every rejection records a NEGATIVE margin (observed missed the threshold) where finite,
-    # and carries the operands so the user can identify the dropped candidate.
+    # Every pair-level rejection records a NEGATIVE margin (observed missed the threshold) where finite, and carries the operands so the user can identify the dropped candidate.
+    pair_rows = led[led["gate"].isin(pair_gates)]
+    assert len(pair_rows) >= 1
+    fin = pair_rows[np.isfinite(pair_rows["margin"].astype(float))]
+    assert (fin["margin"].astype(float) < 0).all(), "pair-level floor margins must be negative misses"
+    assert (pair_rows["operands"].astype(str).str.len() > 2).all()
     prescreen = led[led["gate"] == "marginal_pair_mi_prescreen"]
-    assert len(prescreen) >= 1
-    fin = prescreen[np.isfinite(prescreen["margin"].astype(float))]
-    assert (fin["margin"].astype(float) < 0).all(), "prevalence-floor margins must be negative misses"
     assert (prescreen["operator"] == "pair").all()
-    assert (prescreen["operands"].astype(str).str.len() > 2).all()
 
     # The accessor renders a non-empty per-gate summary.
     report = fs.get_fe_rejection_report()
     assert "MRMR FE rejection ledger:" in report
-    assert "marginal_pair_mi_prescreen" in report
+    assert any(g in report for g in sorted(pair_gates & gates)), report
 
 
 # ---------------------------------------------------------------------------
