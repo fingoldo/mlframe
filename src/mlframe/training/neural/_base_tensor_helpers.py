@@ -62,6 +62,9 @@ def to_tensor_any(data: Any, dtype: Any = torch.float32, device: Any = None, saf
     # --- Polars
     elif isinstance(data, pl.DataFrame):
         data = data.to_torch()
+    # A bare polars Series used to fall through and fail with AttributeError (39-F63).
+    elif isinstance(data, pl.Series):
+        data = data.to_numpy()
     if isinstance(data, np.ndarray):
         if safe and data.dtype == object:
             data = _coerce_object_ndarray_numeric(data)
