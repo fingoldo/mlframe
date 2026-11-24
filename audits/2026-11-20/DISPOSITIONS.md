@@ -1330,3 +1330,4 @@
 | 29-F27 | FIXED | Time-aware OOF skip for predict_proba is logged at WARNING (the INFO path is only for non-probability methods); covered by tests/training/composite/eval/test_composite_oof_time_aware_logged.py (3 pass). Recorded here, where the disposition was missing. |
 | 29-F29 | FIXED | Post-import callbacks all run even when one raises (fixed earlier in 2b08fdc4a). Covered by tests/utils/test_cluster29_post_import_callbacks_all_run.py (1 pass). Recorded here, where the disposition was missing. |
 | 29-F30 | DEFERRED | The docstring already states the filter is installed once and never restored. The remaining issue is the misleading block-scoped name; renaming changes a helper used across several modules, so it is an owner decision. Not changed. |
+| 29-F31 | FIXED | Benchmark sweep logs a WARNING when no combo gives a finite score (the decorated call returns None). Test tests/utils/test_cluster29_param_oracle_no_finite_warns.py (2 pass). |
