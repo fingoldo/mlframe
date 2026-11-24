@@ -179,13 +179,6 @@ def find_change_points_pelt(
     # boundaries — convert directly.
     if not bkps or len(bkps) <= 1:
         return []
-    boundaries: list[int] = []
-    prev = 0
-    for end in bkps:
-        if end > prev:
-            boundaries.append(prev)
-            boundaries.append(int(end))
-            prev = end
     # The very first / last "segments" cover [0:end_0] and [end_{-2}:n]
     # — these are NOT anomaly intervals, they're the regime-segments.
     # For change-point output we want the *transition points*: the
