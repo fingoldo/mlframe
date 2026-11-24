@@ -253,7 +253,7 @@ class HuggingFaceProvider:
         # processes targeting an empty HF cache both race to fill the
         # shard files; the second sees half-written blobs and either
         # crashes or - worse - silently loads truncated weights.
-        # PIDAwareFileLock + StaleLockReclaimed keep the safety net.
+        # PIDAwareFileLock serialises the writers; it does not reclaim a lock held by a dead process (audit 39-F41).
         lock_path = _hf_cache_lock_path(model_name, revision)
         with PIDAwareFileLock(lock_path, timeout=600.0):
             try:

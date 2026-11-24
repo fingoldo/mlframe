@@ -513,7 +513,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 39-F57 | 39_training-8.md | FIXED | Negative and NaN codes go to the reserved row, not category 0. Test updated in test_categorical_embeddings.py. |
 | 39-F21 | 39_training-8.md | FIXED | Object columns in the fingerprint hash by value, not PyObject pointers. Test test_cluster39_object_column_hash_by_value.py. |
 | 39-F22 | 39_training-8.md | FIXED | fit() narrows its unsupervised retry to y-signature mismatches. Test test_cluster39_custom_fit_narrow_retry.py. |
-| 39-F41 | 39_training-8.md | DEFERRED | Stale-lock reclaim removed on purpose; restoring it or documenting no-reclaim is an owner call. |
+| 39-F41 | 39_training-8.md | FIXED | Stale-lock reclaim is documented as intentionally absent: a PID-check removal races with a holder whose PID was reused, so a SIGKILLed holder still blocks until timeout and the .locks directory must be cleared by hand. StaleLockReclaimed is kept as a reserved public name and never raised; hf_provider comment corrected. Test tests/training/feature_handling/test_cluster39_no_lock_reclaim_documented.py (2 passed). |
 | 39-F68 | 39_training-8.md | DEFERRED | Per-step weight sync; fix needs prep-time sample_weight validation (design change). |
 | 39-F39 | 39_training-8.md | FIXED | CUDA runtime failure in keep-n sizing falls back to 2 with WARNING. Test test_cluster39_keep_n_cuda_failure.py. |
 | 39-F45 | 39_training-8.md | FIXED | Entropy counts characters with one Counter pass; values unchanged. Test test_cluster39_char_entropy_counter.py. |
