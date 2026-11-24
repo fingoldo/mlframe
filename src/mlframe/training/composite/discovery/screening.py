@@ -29,6 +29,23 @@ from .._composite_utils import is_polars_df as _is_polars_df
 
 
 from ._corr_numba import safe_abs_corr_all_dispatch as _safe_abs_corr_all_dispatch
+# Re-exports of the sibling leaf modules ``_screening_mi_pair`` and ``_screening_tiny`` (moved to the top, audit 35-F46).
+from ._screening_mi_pair import (  # noqa: F401
+    _mi_from_binned_pair,
+    _mi_from_binned_pair_njit_kernel,
+    _mi_from_binned_pair_numpy,
+)
+from ._screening_tiny import (  # noqa: F401
+    _silence_tiny_model_output,
+    _build_tiny_model,
+    _tiny_cv_rmse_raw_y,
+    _tiny_cv_rmse_y_scale_multiseed,
+    _tiny_cv_rmse_raw_y_multiseed,
+    _per_bin_rmse,
+    _per_bin_from_fold_preds,
+    _tiny_cv_rmse_y_scale,
+)
+from mlframe.utils.array_shape import shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -674,14 +691,6 @@ def _mi_to_target_prebinned(
     return _aggregate_mi_per_feature(per_feat, aggregation)
 
 
-# Pair-MI kernel lives in sibling ``_screening_mi_pair``; re-exported here.
-from ._screening_mi_pair import (  # noqa: F401
-    _mi_from_binned_pair,
-    _mi_from_binned_pair_njit_kernel,
-    _mi_from_binned_pair_numpy,
-)
-
-
 def _mi_per_feature_y_fixed(
     feature_matrix: np.ndarray,
     y: np.ndarray,
@@ -871,20 +880,6 @@ def _mi_to_target(
         return float(np.sum(per_feat))
     # Default: mean.
     return float(np.mean(per_feat))
-
-
-# Tiny-model RMSE / CV helpers live in sibling ``_screening_tiny``; re-exported here.
-from ._screening_tiny import (  # noqa: F401
-    _silence_tiny_model_output,
-    _build_tiny_model,
-    _tiny_cv_rmse_raw_y,
-    _tiny_cv_rmse_y_scale_multiseed,
-    _tiny_cv_rmse_raw_y_multiseed,
-    _per_bin_rmse,
-    _per_bin_from_fold_preds,
-    _tiny_cv_rmse_y_scale,
-)
-from mlframe.utils.array_shape import shape_of
 
 
 def _sample_indices(
