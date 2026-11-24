@@ -200,7 +200,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 39-F35 | 39_training-8.md | FIXED | 'No terms remain' handled like empty vocabulary. |
 | 39-F36 | 39_training-8.md | FIXED | Prewarm pins entry in strong tier while loading. |
 | 39-F37 | 39_training-8.md | FIXED | NaN/inf refused in polynomial fit and transform (04ea4f9c7). |
-| 39-F38 | 39_training-8.md | DEFERRED | hgb_max_features_cap has no caller; wire in or remove is an owner decision. |
+| 39-F38 | 39_training-8.md | FIXED | HGB TF-IDF cap is now applied on the feature-handling path: TF-IDF max_features is capped for hgb via _tfidf_params_for_model (was exported but never called). Test tests/training/test_cluster39_hgb_tfidf_cap_wired.py; 38 feature-handling tests pass. |
 | 39-F53 | 39_training-8.md | FIXED | Multilabel heads use per-label sigmoid. |
 | 39-F54 | 39_training-8.md | FIXED | orthogonal_ and sparse_ fall back on 1-D tensors. |
 | 39-F67 | 39_training-8.md | FIXED | L1 exclusion ids no longer stored or pickled. |
@@ -225,21 +225,6 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 12-F39 | 12_feature_selection-3.md | FIXED | Failures at WARNING; completed/failed counts printed with the means. Test test_fs_hybrid_run_counts_by_key.py. |
 | 12-F23 | 12_feature_selection-3.md | FIXED (test pending) | The baseline filters raw_selected_ to raw columns, dropping engineered names. The fix must use the hybrid's transform output (Ztr = h.transform(Xtr)) and filter against it. Confirming which names survive takes a full ... |
 | 12-F25 | 12_feature_selection-3.md | FIXED | Refit-only budget; test extended in test_fs_hybrid_rfecv_benches_have_no_wall_clock_cap.py. |
-| 39-F2 | 39_training-8.md | FIXED | Batch alignment refused. Test test_cluster39_run_batched_alignment.py. |
-| 39-F3 | 39_training-8.md | FIXED | Failed concatenate raises. Test test_cluster39_run_batched_alignment.py. |
-| 39-F4 | 39_training-8.md | FIXED | Named target never borrows another target's params (suite-wide fallback also gated). Test test_cluster39_chosen_params_target_isolation.py. |
-| 39-F5 | 39_training-8.md | FIXED | Missing group column logged at WARNING. Test test_cluster39_missing_group_column_logged.py. |
-| 39-F17 | 39_training-8.md | FIXED | fit_transform applies the woe binary check. Test test_cluster39_woe_fit_transform_binary_check.py. |
-| 39-F18 | 39_training-8.md | FIXED | NaN text embedded as empty string. Test test_cluster39_hf_nan_text_is_empty.py. |
-| 39-F35 | 39_training-8.md | FIXED | 'no terms remain' handled as empty vocabulary. Test test_cluster39_tfidf_no_terms_remain.py. |
-| 39-F54 | 39_training-8.md | FIXED | orthogonal_/sparse_ fall back on 1-D tensors. Test test_cluster39_orthogonal_init_on_batchnorm.py. |
-| 39-F67 | 39_training-8.md | FIXED | L1 exclusion ids are a local, never stored on the module (the earlier fix still stored them). Test test_cluster39_l1_exclusion_not_pickled.py. |
-| 39-F36 | 39_training-8.md | FIXED | Prewarm pins the entry in the strong tier while loading. Test test_cluster39_prewarm_pins_entry_during_load.py. |
-| 39-F37 | 39_training-8.md | FIXED | NaN/inf refused with a clear message (default choice). Test test_cluster39_polynomial_refuses_nonfinite.py. |
-| 39-F6 | 39_training-8.md | FIXED | Missing timestamp gets the floor weight (default choice). Test test_cluster39_recency_missing_timestamp.py. |
-| 39-F38 | 39_training-8.md | DEFERRED | Cap has no pipeline caller; project policy is wire-in, not delete; insertion point is a design decision. |
-| 39-F32 | 39_training-8.md | FIXED | Only float NaN rebranded; string 'NaN' kept. Test test_cluster39_polars_string_nan_is_data.py. |
-| 39-F19 | 39_training-8.md | FIXED | Low RAM evicts one entry per check (default choice). Test test_cluster39_low_ram_evicts_one_entry.py. |
 | 04-F11 | 04_data.md | FIXED | Published Friedman-2 is sqrt(x0^2 + (x1*x2 - 1/(x1*x3))^2) and Friedman-3 is atan((x1*x2 - 1/(x1*x3))/x0). The link vocabulary (BasisTerm kinds) has no 1/(a*b) term and no compound sqrt/atan form, so neither can be ... |
 | 04-F13 | 04_data.md | FIXED | Weights 1/(levels-1). Test test_cluster04_graded_cardinality_weights.py. |
 | 23-F2 | 23_root_modules-2.md | FIXED | Leaking folds are decided with the same tolerance as the verdict (the caller's leak_tolerance when given), not a fixed 0.02, so leaky_row_positions agree with leak_detected. Regression coverage: the existing 50 ... |

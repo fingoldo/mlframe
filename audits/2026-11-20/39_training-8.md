@@ -120,7 +120,6 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F35: FIXED. the 'no terms remain' pruning error is handled like empty vocabulary; test tests/training/test_cluster39_tfidf_no_terms_remain.py
 - 39-F36: FIXED. the entry is pinned in the strong tier while it loads (RLock, safe to reenter); test tests/training/test_cluster39_prewarm_pins_entry_during_load.py
 - 39-F37: FIXED (by default choice: refuse). Previously deferred pending a NaN policy; refusing with a clear message is the conservative default. Test tests/training/test_cluster39_polynomial_refuses_nonfinite.py. Original note: NaN input to PolynomialFeatures needs a NaN policy decision (refuse, or NaN-propagate per row)
-- 39-F38: DEFERRED. not changed: hgb_max_features_cap is exported with no caller; wire in or remove, an owner decision
 - 39-F53: FIXED. multilabel heads use per-label sigmoid; tests/training/test_cluster39_encoders_and_casts.py
 - 39-F54: FIXED. orthogonal_ and sparse_ fall back on 1-D tensors instead of raising; test tests/training/test_cluster39_orthogonal_init_on_batchnorm.py
 - 39-F67: FIXED. the L1 exclusion ids are a local of training_step and never stored on the module (the earlier per-step fix still stored them on self); test tests/training/neural/test_cluster39_l1_exclusion_not_pickled.py
@@ -136,7 +135,6 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F36: FIXED. Prewarm pins the entry in the strong tier while it loads. Test tests/training/test_cluster39_prewarm_pins_entry_during_load.py.
 - 39-F37: FIXED. Decision (default taken): NaN/inf input is refused in fit and transform with a message naming the count and the remedy, instead of sklearn's opaque error. Tests tests/training/test_cluster39_polynomial_refuses_nonfinite.py.
 - 39-F6: FIXED. Decision (default taken): a missing timestamp gets the floor weight min_weight (treated as the oldest, least influential row) so every training weight is finite. Test tests/training/test_cluster39_recency_missing_timestamp.py.
-- 39-F38: DEFERRED. hgb_max_features_cap has no caller in the pipeline (only tests and the uncalled-functions allowlist in tests/test_meta). Project policy is wire in, not delete. Wiring needs the chosen insertion point (encoder construction or the assembler's dense branch), which changes how HGB text blocks are built: a design decision left open.
 - 39-F32: FIXED. Only float NaN cells become the null sentinel; the string 'NaN' in a string column is kept as data. Test tests/training/test_cluster39_polars_string_nan_is_data.py.
 - 39-F19: FIXED. Decision (default taken): low system RAM alone evicts one entry per check and yields; a cache over its size limit still evicts until under it. Tests tests/training/test_cluster39_low_ram_evicts_one_entry.py.
 - 39-F20: FIXED. Persistence on with no DiskKey logs a throttled WARNING that the disk tier is unused (feature_handling/cache.py); tests/training/test_cluster39_disk_tier_key_warning.py
@@ -192,3 +190,5 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F30: WON'T FIX. Uncalled helpers are classified, not deleted (project rule): fingerprint_df and CustomHandler.signature have no production caller and are kept as public API. purge_by_df_token is NOT dead: the dataset-cache phase calls it through getattr (_phase_train_one_target_dataset_cache.py:193). No code change.
 - 39-F31: PARTIAL. Assembler docstring names the real svd_default_dim argument (256) and states there is no svd_globals config field. Not done: apply.py still hardcodes svd_default_dim=256 because no config field exists to source it from. Test tests/training/test_cluster39_assembler_svd_doc_accuracy.py.
 - 39-F72: DEFERRED. The torch from_numpy benchmark's Strategy C measures a path the code does not produce, and the 0.014 ms figure needs re-measurement on the real path before the doc can be corrected. Deferred to a benchmark re-run. No code change.
+
+- 39-F38: FIXED. HGB TF-IDF cap is now applied on the feature-handling path: TF-IDF max_features is capped for hgb via _tfidf_params_for_model (was exported but never called). Test tests/training/test_cluster39_hgb_tfidf_cap_wired.py; 38 feature-handling tests pass.
