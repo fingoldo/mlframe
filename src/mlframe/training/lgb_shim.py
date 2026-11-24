@@ -448,7 +448,8 @@ class _DatasetReuseMixin:
         try:
             params: dict = self._process_params("fit")  # type: ignore[attr-defined]  # provided by the LGBMModel sklearn base this mixin is combined with
         finally:
-            self.n_jobs = _caller_n_jobs
+            # The caller's value may be None (sklearn default), which the int-typed attribute does not declare.
+            self.n_jobs = _caller_n_jobs  # type: ignore[assignment]
         # Same shape as xgb_shim --
         # pre-fix `or 100` silently rewrote n_estimators=0 to 100. lightgbm
         # accepts n_estimators=0 (means untrained booster); the shim

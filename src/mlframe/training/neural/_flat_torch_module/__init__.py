@@ -247,8 +247,8 @@ class MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule):
         net = self.network
         cached = self.__dict__.get("_mixup_cat_prefix_cache")
         if cached is not None and cached[0] is net:
-            return cached[1]
-        n_cat = next((m.n_cat for m in net.modules() if isinstance(m, CategoricalEmbedding)), 0)
+            return int(cached[1])
+        n_cat = int(next((m.n_cat for m in net.modules() if isinstance(m, CategoricalEmbedding)), 0))
         self.__dict__["_mixup_cat_prefix_cache"] = (net, n_cat)
         return n_cat
 
