@@ -313,7 +313,6 @@
 | 09-F26 | FIXED | anchor count is capped by the row count, so a one-row fold yields one anchor; tests/feature_engineering/transformer/test_cluster09_edges.py |
 | 09-F14 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F17 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
-| 09-F18 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F19 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F20 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F21 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
@@ -1445,3 +1444,5 @@
 | 08-F16 | DEFERRED | The package eagerly imports about 130 transformer modules. Lazy imports change the package's public import surface and the import-time behaviour of every caller; deferred as a design decision. No code change. |
 
 | 09-F16 | FIXED | FCA lattice-construction failure logs at WARNING (was INFO): the zero features are no longer indistinguishable from a real no-match. Test tests/feature_engineering/test_cluster09_fca_fallback_warns.py. |
+
+| 09-F18 | FIXED | NCA fit records warnings and logs a ConvergenceWarning at WARNING naming max_iter; other warnings stay suppressed as before. Test tests/feature_engineering/test_cluster09_nca_convergence_surfaced.py. |
