@@ -46,7 +46,6 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 - 11-F5: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 11-F6: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 11-F7: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
-- 11-F8: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 11-F9: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 11-F10: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 11-F11: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
@@ -61,3 +60,5 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 - 11-F20: PARTIAL. Test gap closed for _integer_bins (the MI binning used by every MI arm): constant, few-unique, many-unique and NaN contracts pinned. The other named helpers (family_eval, als_rank1, preset_matrix_best) are not covered by this change. Test tests/feature_selection/test_cluster11_integer_bins_contract.py.
 
 - 11-F3: DEFERRED. stat_study compares searched arms (max over many in-sample candidates) against single-candidate truth/als. A like-for-like fix needs held-out scoring of the candidate chosen on training rows, which requires candidate-level outputs from family_eval (it returns only the max). That is a benchmark-contract change for its own pass. No code change.
+
+- 11-F8: FIXED. catboost availability logs at INFO when not installed (ImportError) and at WARNING when installed but broken, so a broken install is no longer indistinguishable from a missing one. Test tests/feature_selection/test_cluster11_catboost_broken_warns.py.

@@ -325,7 +325,6 @@
 | 11-F5 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F6 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F7 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
-| 11-F8 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F9 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F10 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F11 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
@@ -1455,3 +1454,5 @@
 | 09-F21 | FIXED | Distributional moments are NaN for binary targets: the reweighted classifiers' outputs are not quantiles of one distribution, so sorting them as quantiles had no meaning. The binary quantile block is NaN and the moment features propagate it; those classifiers are no longer trained. Behaviour change: binary output is NaN. Test tests/feature_engineering/test_cluster09_distributional_binary_nan.py. |
 
 | 10-F6 | FIXED | Benchmark harness failures (MRMR fit/transform, AUC scoring, per-config failures) are logged at WARNING instead of DEBUG, so NaN rows have a visible reason at the default level. Test tests/feature_selection/test_cluster10_bench_failures_warn.py. |
+
+| 11-F8 | FIXED | catboost availability logs at INFO when not installed (ImportError) and at WARNING when installed but broken, so a broken install is no longer indistinguishable from a missing one. Test tests/feature_selection/test_cluster11_catboost_broken_warns.py. |
