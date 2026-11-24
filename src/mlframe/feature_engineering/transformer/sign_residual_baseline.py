@@ -101,6 +101,11 @@ def compute_sign_residual_baseline_features(
                         random_state=int(fold_seed) + 21 + inner_idx, verbose=-1, n_jobs=-1,
                     ).fit(Xt_s[in_tr], y_t[in_tr])
                     mu_train[in_val] = np.asarray(m_inner.predict(Xt_s[in_val])).astype(np.float32)
+        if task == "binary":
+            # For y in {0, 1} and a probability mu_hat in (0, 1), 'y > mu_hat' is exactly the label, so the sign target carries no residual
+            # information and the second model would just re-learn y. Emit NaN bias columns instead (09-F19); mu_query is kept.
+            nan_q = np.full(Xq_s.shape[0], np.nan, dtype=np.float32)
+            return np.column_stack([mu_query, nan_q, nan_q, nan_q, nan_q])
         # Sign target: 1 if y > mu_hat (under-prediction), else 0.
         sign_target = (y_t > mu_train).astype(np.int32)
         # If degenerate (all same sign), pad fallback
