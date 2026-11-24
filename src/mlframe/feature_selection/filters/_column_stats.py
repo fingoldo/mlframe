@@ -98,7 +98,7 @@ def record_column_stats(self: Any, cols: Any, nbins: Any, cached_MIs: Any, scree
             "nbins_strategy": getattr(self, "nbins_strategy", None),
             "quantization_nbins": getattr(self, "quantization_nbins", None),
             "effective_min_relevance_gain": float(effective_min_relevance_gain) if effective_min_relevance_gain is not None else float("nan"),
-            "fe_interaction_ii_floor": float(getattr(self, "fe_interaction_ii_floor_", None) or float("nan")),
+            "fe_interaction_ii_floor": float(_ii_floor) if (_ii_floor := getattr(self, "fe_interaction_ii_floor_", None)) is not None else float("nan"),
         }
     except Exception as exc:  # metadata only
         self.column_stats_ = None

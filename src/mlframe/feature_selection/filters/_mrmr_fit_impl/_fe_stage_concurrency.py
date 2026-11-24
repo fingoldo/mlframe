@@ -61,7 +61,8 @@ def memory_allows_concurrency(n_rows: int, n_cols: int) -> bool:
     Measured on 100000 x 1000 with every family: concurrent 238.0 s and 5585 MB of growth, one after the other 254.1 s (+6.8 percent) and 3845 MB (-31 percent); on a host where the working set of four
     stages does not fit, the slower order is the one that finishes (1M x 1000 on a 16 GB host). An unreadable RAM figure keeps the concurrent order."""
     try:
-        factor = float(os.environ.get("MLFRAME_FE_STAGE_CONCURRENCY_MEM_FACTOR", "").strip() or _CONCURRENT_FRAME_FACTOR)
+        _raw_factor = os.environ.get("MLFRAME_FE_STAGE_CONCURRENCY_MEM_FACTOR", "").strip()
+        factor = float(_raw_factor) if _raw_factor else _CONCURRENT_FRAME_FACTOR
         available = float(host_memory()[0])
     except Exception as exc:
         log_throttle(logger, "_fe_stage_concurrency.mem_probe", logging.INFO, "stage concurrency: available RAM unreadable (%r); the cascades keep their concurrent order", exc)
