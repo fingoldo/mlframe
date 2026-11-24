@@ -19,7 +19,9 @@ SCRIPTS = (
 @pytest.mark.parametrize("module_name", SCRIPTS)
 def test_benchmark_script_imports(module_name):
     """Each script imports without running its benchmark (the entry point is under __main__)."""
-    assert importlib.import_module(module_name) is not None
+    mod = importlib.import_module(module_name)
+    defined = [n for n, v in vars(mod).items() if callable(v) and getattr(v, "__module__", None) == module_name and not n.startswith("_")]
+    assert defined, f"{module_name} defines no public callable"
 
 
 def test_shared_fixture_builds_the_documented_shapes():
