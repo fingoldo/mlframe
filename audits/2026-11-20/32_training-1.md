@@ -94,3 +94,5 @@ Grep and Read used for caller checks: `core/_phase_dummy_baselines.py` (the try/
 - 32-F24: DEFERRED. The near-duplicate pool builds the dedup verdict in by design. A recommendation needs a non-duplicated or real-data scenario; owner to decide the scenario.
 - 32-F16: FIXED. Group-target cast is one assignment; the two identical branches are collapsed. Test tests/training/test_cluster32_group_target_single_cast.py.
 - 32-F15: FIXED. Config sufficiency test uses the signed delta, so a negative delta (init_score better than raw) counts as sufficient, as the module note says; the abs() had made it high_potential. Test tests/training/test_cluster32_init_score_sign_consistent.py; 55 baseline diagnostics tests pass.
+- 32-F28: FIXED. Skipped-target results in the profile harness return the same 16-field tuple the caller unpacks (one helper, _skipped_profile_result); the six-field early returns would have raised on unpack. Test tests/training/test_cluster32_profile_skip_arity.py.
+- 32-F28: FIXED. x
