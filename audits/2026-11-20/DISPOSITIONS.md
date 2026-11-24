@@ -1340,3 +1340,4 @@
 | 29-F41 | FIXED | Bagging without randomize_order/randomize_start logs a WARNING that all bags are identical. Test test_cluster29_hill_climb_bagging_warns.py. |
 | 39-F11 | FIXED | Deleted the dead if-pass branch with a stale clean_ram comment in the extractor base. |
 | 39-F12 | FIXED | Tuned-threshold report logger uses __name__ instead of another module's name. Test tests/training/test_cluster39_logger_name_and_dead_pass.py. |
+| 39-F15 | FIXED | Facade drops unused typing/numpy/pandas/polars/pyutilz imports and the unused private helpers, and no longer exports np/pd/pl in __all__. Test tests/training/test_cluster39_extractors_facade_exports.py. |

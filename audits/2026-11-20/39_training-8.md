@@ -168,3 +168,4 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F24: DEFERRED. Owner decision. The rows never held out by a forward-chaining splitter have no past to encode from. Excluding only their own label from the prior still uses later labels (sibling time-aware test forbids that), so the fallback needs a policy: drop these rows, or use a documented constant. Not changed.
 - 39-F11: FIXED. Deleted the dead if-pass branch with a stale clean_ram comment in the extractor base.
 - 39-F12: FIXED. Tuned-threshold report logger uses __name__ instead of another module's name. Test tests/training/test_cluster39_logger_name_and_dead_pass.py.
+- 39-F15: FIXED. Facade drops unused typing/numpy/pandas/polars/pyutilz imports and the unused private helpers, and no longer exports np/pd/pl in __all__. Test tests/training/test_cluster39_extractors_facade_exports.py.
