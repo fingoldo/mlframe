@@ -109,7 +109,7 @@ def compute_lda_projection_features(
             Xq_s = Xq
         X_pos, X_neg = class_or_quantile_slice(Xt_s, y_t, task, q_high)
         if X_pos.shape[0] < 2 or X_neg.shape[0] < 2:
-            return np.zeros((Xq_s.shape[0], 3), dtype=np.float32)
+            return np.full((Xq_s.shape[0], 3), np.nan, dtype=np.float32)  # degenerate fold: no estimate, not the origin (09-F23)
         w, c = _fisher_lda(X_pos, X_neg)
         raw = (Xq_s @ w).astype(np.float32)
         signed = raw - np.float32(c)

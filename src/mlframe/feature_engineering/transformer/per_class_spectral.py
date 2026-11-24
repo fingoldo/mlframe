@@ -40,7 +40,7 @@ def _compute_spectral_for_subset(
     n_sub = X_subset_std.shape[0]
     if n_sub < k_graph + 2:
         # Too few rows; return zeros (degenerate).
-        return np.zeros((X_query_std.shape[0], n_eigvecs), dtype=np.float32)
+        return np.full((X_query_std.shape[0], n_eigvecs), np.nan, dtype=np.float32)  # degenerate: no estimate, not the spectral origin (09-F23)
     k_used = min(k_graph, n_sub - 1)
     W, _ids, _dists = _build_knn_graph(X_subset_std, k_graph=k_used)
     eigvals, eigvecs, d_inv_sqrt = _eigvecs_from_graph(W, n_eigvecs=min(n_eigvecs, n_sub - 2))
