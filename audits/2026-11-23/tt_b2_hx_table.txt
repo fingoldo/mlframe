@@ -1,0 +1,22 @@
+small-n rerun with HX (union acceptance CV or LL pipeline with unclipped null; transform with the lowest cross-fitted error among the two proposals); 8 configs x 5 seeds per n
+n=300 rmse N=40 | W1 12/24 FP 1/16(0) reg 1.037 | N_W1 15/24 FP 4/16(0) reg 1.024 | CV 15/24 FP 3/16(0) reg 1.016 | CVm 20/24 FP 6/16(0) reg 1.018 | H 17/24 FP 3/16(0) reg 1.013 | HN 16/24 FP 5/16(0) reg 1.014 | HX 18/24 FP 5/16(0) reg 1.012
+n=300 mae N=40 | W1 11/30 FP 0/10(0) reg 1.073 | N_W1 17/30 FP 1/10(1) reg 1.046 | CV 16/30 FP 0/10(0) reg 1.049 | CVm 26/30 FP 0/10(0) reg 1.012 | H 18/30 FP 0/10(0) reg 1.040 | HN 17/30 FP 1/10(1) reg 1.041 | HX 20/30 FP 1/10(1) reg 1.037
+n=1000 rmse N=40 | W1 13/25 FP 4/15(1) reg 1.027 | N_W1 17/25 FP 4/15(0) reg 1.015 | CV 20/25 FP 5/15(0) reg 1.014 | CVm 21/25 FP 10/15(0) reg 1.008 | H 20/25 FP 7/15(1) reg 1.015 | HN 20/25 FP 6/15(0) reg 1.015 | HX 21/25 FP 6/15(0) reg 1.010
+n=1000 mae N=40 | W1 16/33 FP 0/7(0) reg 1.047 | N_W1 23/33 FP 0/7(0) reg 1.027 | CV 23/33 FP 2/7(0) reg 1.014 | CVm 33/33 FP 0/7(0) reg 1.001 | H 23/33 FP 2/7(0) reg 1.016 | HN 23/33 FP 2/7(0) reg 1.014 | HX 24/33 FP 2/7(0) reg 1.012
+
+bounded01/homo n= 300 | N_W1 0/0 [0/5] 1.003 | CV 0/0 [0/5] 1.003 | HX 0/0 [0/5] 1.003
+bounded01/homo n=1000 | N_W1 0/5 [0/0] 1.059 | CV 5/5 [0/0] 1.000 | HX 5/5 [0/0] 1.000
+contam/mult n= 300 | N_W1 1/2 [1/3] 1.087 | CV 2/2 [2/3] 1.008 | HX 2/2 [2/3] 1.008
+contam/mult n=1000 | N_W1 0/0 [3/5] 1.005 | CV 0/0 [5/5] 1.004 | HX 0/0 [5/5] 1.004
+lognormal/mult n= 300 | N_W1 5/5 [0/0] 1.000 | CV 2/5 [0/0] 1.050 | HX 5/5 [0/0] 1.007
+lognormal/mult n=1000 | N_W1 5/5 [0/0] 1.000 | CV 2/5 [0/0] 1.068 | HX 3/5 [0/0] 1.038
+normal/mult n= 300 | N_W1 0/0 [1/5] 1.004 | CV 0/0 [0/5] 1.001 | HX 0/0 [1/5] 1.004
+normal/mult n=1000 | N_W1 0/0 [0/5] 1.000 | CV 0/0 [0/5] 1.000 | HX 0/0 [0/5] 1.000
+pareto/homo n= 300 | N_W1 5/5 [0/0] 1.010 | CV 5/5 [0/0] 1.006 | HX 5/5 [0/0] 1.006
+pareto/homo n=1000 | N_W1 5/5 [0/0] 1.002 | CV 5/5 [0/0] 1.002 | HX 5/5 [0/0] 1.002
+poisson/homo n= 300 | N_W1 3/5 [0/0] 1.022 | CV 5/5 [0/0] 1.001 | HX 5/5 [0/0] 1.001
+poisson/homo n=1000 | N_W1 4/5 [0/0] 1.020 | CV 5/5 [0/0] 1.004 | HX 5/5 [0/0] 1.004
+weibull/mult n= 300 | N_W1 1/4 [1/1] 1.039 | CV 1/4 [0/1] 1.038 | HX 1/4 [1/1] 1.039
+weibull/mult n=1000 | N_W1 3/5 [0/0] 1.026 | CV 3/5 [0/0] 1.027 | HX 3/5 [0/0] 1.024
+zero_infl/mult n= 300 | N_W1 0/3 [1/2] 1.027 | CV 0/3 [1/2] 1.025 | HX 0/3 [1/2] 1.026
+zero_infl/mult n=1000 | N_W1 0/0 [1/5] 1.010 | CV 0/0 [0/5] 1.008 | HX 0/0 [1/5] 1.010

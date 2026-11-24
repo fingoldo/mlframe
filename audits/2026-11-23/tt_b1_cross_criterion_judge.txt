@@ -1,0 +1,105 @@
+
+===== judge = LR (held-out log loss of the head on [z, f(x)]); tiers: gain > 0.01, none < 0.003, ambiguous between; counts of correct decisions per fixture =====
+fixture           K   g/a/n       best      lrt   lrt_bs      eta   eta_bs    resid resid_bs    mi_ew       bd   ccll_q   ccll_l
+log               2 8/0/0          log        8        8        4        4        3        3        2        0        0        8
+log               3 8/0/0          log        8        8        8        8        8        8        6        0        0        8
+log               5 7/0/0          log        7        7        7        7        7        7        7        0        0        7
+log_weak          2 8/0/0          log        8        8        8        8        8        8        3        0        0        8
+log_weak          3 8/0/0          log        8        8        8        8        8        8        6        0        0        8
+log_imb           2 8/0/0          log        8        8        7        7        7        7        8        0        0        8
+recip             2 8/0/0        recip        8        8        0        0        1        1        4        0        0        8
+recip             3 8/0/0        recip        8        8        4        4        5        5        3        0        0        8
+sqrt              2 0/6/2         sqrt        6        6        6        7        6        7        6        1        8        6
+square            2 8/0/0       square        8        8        0        0        0        0        0        8        0        0
+square            3 8/0/0       square        8        8        0        0        0        0        0        8        0        0
+square            5 7/0/0       square        7        7        0        0        0        0        0        7        0        0
+abs               2 8/0/0          abs        8        8        8        8        8        8        8        8        8        8
+abs               3 8/0/0          abs        8        8        8        8        8        8        8        8        8        8
+beta_logit        2 0/0/8        logit        0        0        0        8        0        8        5        0        8        8
+beta_logit        3 0/6/2        logit        6        6        0        8        0        8        6        0        8        8
+count_logn        2 0/8/0         sqrt        8        8        8        8        8        8        8        0        8        8
+count_logn        3 8/0/0        log1p        8        8        5        5        5        5        7        0        0        8
+heavy_signal      2 8/0/0         tanh        8        8        8        8        8        8        8        2        0        0
+ctl_linear        2 0/0/8           id        7        7        0        7        0        7        1        0        8        8
+ctl_linear        3 0/0/8           id        8        8        0        7        0        7        1        0        8        8
+ctl_linear        5 0/0/7           id        7        7        0        6        0        6        0        0        7        7
+ctl_gamma         2 0/0/8           id        8        8        0        8        0        8        0        0        8        0
+ctl_gamma         3 0/0/8           id        8        8        0        8        0        8        0        0        8        0
+ctl_pois          2 0/0/8           id        7        7        0        8        0        8        5        2        8        8
+ctl_noise         2 0/0/8        recip        7        8        7        7        7        8        8        8        8        7
+ctl_noise         3 0/0/8          abs        6        7        6        7        6        6        8        8        8        7
+ctl_noise         5 0/0/7        recip        6        7        7        7        6        7        5        5        6        6
+ctl_noise_heavy   2 0/0/8           id        8        8        7        8        7        7        7        8        8        8
+sqrt_g            2 0/8/0         sqrt        8        8        8        8        8        8        8        2        8        2
+square_off        2 8/0/0       square        8        8        0        0        0        0        0        8        0        0
+pooled over all fixtures: lrt: hits 126/126, FP 18/90, harmful 0; lrt_bs: hits 126/126, FP 15/90, harmful 0; eta: hits 75/126, FP 63/90, harmful 11; eta_bs: hits 75/126, FP 6/90, harmful 0; resid: hits 76/126, FP 64/90, harmful 11; resid_bs: hits 76/126, FP 7/90, harmful 0; mi_ew: hits 70/126, FP 50/90, harmful 2; bd: hits 49/126, FP 59/90, harmful 145; ccll_q: hits 16/126, FP 1/90, harmful 0; ccll_l: hits 87/126, FP 21/90, harmful 11
+
+===== judge = LDA (held-out log loss of the head on [z, f(x)]); tiers: gain > 0.01, none < 0.003, ambiguous between; counts of correct decisions per fixture =====
+fixture           K   g/a/n       best      lrt   lrt_bs      eta   eta_bs    resid resid_bs    mi_ew       bd   ccll_q   ccll_l
+log               2 8/0/0          log        8        8        4        4        3        3        1        0        0        8
+log               3 8/0/0          log        8        8        8        8        8        8        3        0        0        8
+log               5 7/0/0          log        7        7        7        7        7        7        1        0        0        7
+log_weak          2 8/0/0          log        8        8        8        8        8        8        3        0        0        8
+log_weak          3 8/0/0          log        8        8        8        8        8        8        3        0        0        8
+log_imb           2 8/0/0          log        8        8        0        0        0        0        1        0        0        8
+recip             2 8/0/0        recip        8        8        0        0        1        1        4        0        0        8
+recip             3 8/0/0        recip        8        8        4        4        5        5        3        0        0        8
+sqrt              2 0/8/0         sqrt        8        8        7        7        7        7        7        1        8        8
+square            2 8/0/0          abs        0        0        8        8        8        8        4        0        0        0
+square            3 8/0/0          abs        0        0        8        8        8        8        8        0        0        0
+square            5 7/0/0          abs        0        0        7        7        7        7        5        0        0        0
+abs               2 8/0/0          abs        8        8        8        8        8        8        8        8        8        8
+abs               3 8/0/0          abs        8        8        8        8        8        8        8        8        8        8
+beta_logit        2 0/3/5        logit        3        3        0        8        0        8        6        0        8        8
+beta_logit        3 0/4/4        logit        4        4        0        8        0        8        5        0        8        8
+count_logn        2 8/0/0        log1p        8        8        7        7        7        7        8        0        0        8
+count_logn        3 8/0/0        log1p        3        3        1        1        1        1        6        0        0        0
+heavy_signal      2 8/0/0         tanh        8        8        8        8        8        8        8        2        0        0
+ctl_linear        2 0/0/8           id        7        7        0        7        0        7        1        0        8        8
+ctl_linear        3 0/0/8           id        8        8        0        7        0        7        1        0        8        8
+ctl_linear        5 0/0/7           id        7        7        0        6        0        6        0        0        7        7
+ctl_gamma         2 0/0/8           id        8        8        0        8        0        8        0        0        8        0
+ctl_gamma         3 0/2/6        asinh        8        8        2        8        2        8        2        0        8        2
+ctl_pois          2 0/0/8           id        7        7        0        8        0        8        5        2        8        8
+ctl_noise         2 0/0/8        recip        7        8        7        7        7        8        8        8        8        7
+ctl_noise         3 0/0/8          abs        6        7        6        7        6        6        8        8        8        7
+ctl_noise         5 0/0/7         tanh        6        7        7        7        6        7        5        5        6        6
+ctl_noise_heavy   2 0/0/8           id        8        8        7        8        7        7        7        8        8        8
+sqrt_g            2 8/0/0         sqrt        8        8        8        8        8        8        8        0        0        0
+square_off        2 8/0/0          abs        0        0        8        8        8        8        4        0        0        0
+pooled over all fixtures: lrt: hits 106/142, FP 15/85, harmful 0; lrt_bs: hits 106/142, FP 12/85, harmful 0; eta: hits 110/142, FP 58/85, harmful 20; eta_bs: hits 110/142, FP 5/85, harmful 2; resid: hits 111/142, FP 59/85, harmful 19; resid_bs: hits 111/142, FP 6/85, harmful 2; mi_ew: hits 86/142, FP 45/85, harmful 9; bd: hits 18/142, FP 54/85, harmful 146; ccll_q: hits 16/142, FP 1/85, harmful 0; ccll_l: hits 87/142, FP 17/85, harmful 0
+
+===== judge = GNB (held-out log loss of the head on [z, f(x)]); tiers: gain > 0.01, none < 0.003, ambiguous between; counts of correct decisions per fixture =====
+fixture           K   g/a/n       best      lrt   lrt_bs      eta   eta_bs    resid resid_bs    mi_ew       bd   ccll_q   ccll_l
+log               2 8/0/0          log        8        8        4        4        3        3        0        0        0        8
+log               3 8/0/0          log        8        8        8        8        8        8        3        0        0        8
+log               5 7/0/0          log        7        7        7        7        7        7        1        0        0        7
+log_weak          2 8/0/0          log        8        8        8        8        8        8        2        0        0        8
+log_weak          3 8/0/0          log        8        8        8        8        8        8        3        0        0        8
+log_imb           2 8/0/0          log        8        8        0        0        0        0        1        0        0        8
+recip             2 8/0/0        recip        8        8        0        0        1        1        4        0        0        8
+recip             3 8/0/0        recip        8        8        4        4        5        5        3        0        0        8
+sqrt              2 8/0/0         sqrt        8        8        0        0        0        0        2        0        0        8
+square            2 0/0/8           id        0        0        0        0        0        0        0        0        8        7
+square            3 0/0/8           id        0        0        0        0        0        0        0        0        8        8
+square            5 0/0/7           id        0        0        0        0        0        0        0        0        7        7
+abs               2 8/0/0          abs        8        8        8        8        8        8        8        8        8        8
+abs               3 8/0/0          abs        8        8        8        8        8        8        8        8        8        8
+beta_logit        2 0/3/5        logit        3        3        0        8        0        8        6        0        8        8
+beta_logit        3 1/6/1        logit        7        7        0        7        0        7        3        0        7        7
+count_logn        2 8/0/0        log1p        1        1        0        0        0        0        5        0        0        0
+count_logn        3 8/0/0        log1p        3        3        0        0        0        0        5        0        0        0
+heavy_signal      2 8/0/0         tanh        8        8        8        8        8        8        8        2        0        0
+ctl_linear        2 0/0/8           id        7        7        0        7        0        7        1        0        8        8
+ctl_linear        3 0/0/8           id        8        8        0        7        0        7        1        0        8        8
+ctl_linear        5 0/0/7           id        7        7        0        6        0        6        0        0        7        7
+ctl_gamma         2 8/0/0         cbrt        0        0        0        0        0        0        4        0        0        8
+ctl_gamma         3 8/0/0         cbrt        0        0        0        0        0        0        3        0        0        8
+ctl_pois          2 0/5/3        asinh        8        8        5        8        5        8        6        2        8        8
+ctl_noise         2 5/2/1          log        3        3        2        2        3        3        3        3        3        3
+ctl_noise         3 5/3/0         tanh        3        2        3        3        3        3        3        3        3        3
+ctl_noise         5 7/0/0         tanh        0        0        0        0        0        0        2        0        1        1
+ctl_noise_heavy   2 6/2/0         tanh        2        2        3        2        3        3        3        2        2        2
+sqrt_g            2 8/0/0        log1p        0        0        8        8        8        8        7        0        0        2
+square_off        2 0/0/8           id        0        0        0        0        0        0        0        0        8        7
+pooled over all fixtures: lrt: hits 101/159, FP 38/64, harmful 34; lrt_bs: hits 100/159, FP 38/64, harmful 32; eta: hits 72/159, FP 63/64, harmful 52; eta_bs: hits 71/159, FP 34/64, harmful 33; resid: hits 74/159, FP 63/64, harmful 52; resid_bs: hits 74/159, FP 34/64, harmful 33; mi_ew: hits 70/159, FP 56/64, harmful 46; bd: hits 18/159, FP 61/64, harmful 179; ccll_q: hits 17/159, FP 0/64, harmful 0; ccll_l: hits 106/159, FP 2/64, harmful 2

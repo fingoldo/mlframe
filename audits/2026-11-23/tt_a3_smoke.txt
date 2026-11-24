@@ -1,0 +1,98 @@
+CASE cube s0 judge-best=cbrt (ridge ratio 0.496) LLhomo=cbrt LLhet=cbrt gate=cbrt EWMI=cbrt lam={'yeojohnson': 1.0}
+  seed0 GC-MI(y;X)=1.4288 nats (rank-invariant, same for every f); per candidate: heldout LLhomo / LLhetero / ridge RMSE / EW-MI
+    identity      -3.0334   -3.0324     5.0141 0.244
+    cbrt          -0.5001   -0.5016     2.4890 0.592
+    asinh         -1.4145   -1.4150     2.9188 0.578
+    yeojohnson    -3.0341   -3.0323     5.0242 0.277
+    decomposition identity: MIgauss(f(y);X)=-0.5log(1-R2)=0.4146  marginal Gaussian LL incl Jacobian=-3.4797  sum=-3.0651
+    decomposition cbrt: MIgauss(f(y);X)=-0.5log(1-R2)=1.4303  marginal Gaussian LL incl Jacobian=-1.9357  sum=-0.5054
+CASE lognormal s0 judge-best=boxcox (ridge ratio 0.640) LLhomo=boxcox LLhet=boxcox gate=boxcox EWMI=yeojohnson lam={'boxcox': 0.01, 'yeojohnson': -0.83}
+  seed0 GC-MI(y;X)=1.0567 nats (rank-invariant, same for every f); per candidate: heldout LLhomo / LLhetero / ridge RMSE / EW-MI
+    identity      -2.2759   -1.4346     2.1697 0.024
+    cbrt          -0.8229   -0.7144     1.8629 0.468
+    asinh         -0.9405   -0.9465     1.8681 0.494
+    log           -0.5135   -0.5150     1.3913 0.540
+    sqrt          -1.1244   -0.8935     2.0095 0.305
+    log1p         -0.9689   -0.9354     1.9640 0.479
+    reciprocal    -2.3256   -1.4704    64.9085 0.103
+    boxcox        -0.5134   -0.5148     1.3891 0.541
+    yeojohnson    -0.6511   -0.6530     8.5137 0.566
+    decomposition boxcox: MIgauss(f(y);X)=-0.5log(1-R2)=1.0571  marginal Gaussian LL incl Jacobian=-1.5633  sum=-0.5062
+    decomposition identity: MIgauss(f(y);X)=-0.5log(1-R2)=0.2504  marginal Gaussian LL incl Jacobian=-2.6333  sum=-2.3829
+CASE hetero_lognormal s0 judge-best=boxcox (ridge ratio 0.948) LLhomo=boxcox LLhet=log gate=log EWMI=yeojohnson lam={'boxcox': 0.02, 'yeojohnson': -0.83}
+  seed0 GC-MI(y;X)=0.5656 nats (rank-invariant, same for every f); per candidate: heldout LLhomo / LLhetero / ridge RMSE / EW-MI
+    identity      -4.4594   -2.3380    10.2978 0.002
+    cbrt          -1.4814   -1.3074    10.2515 0.156
+    asinh         -1.4803   -1.3976    10.2791 0.326
+    log           -1.1594   -1.1610     9.8083 0.364
+    sqrt          -1.8784   -1.4603    10.3098 0.021
+    log1p         -1.5247   -1.3974    10.3522 0.298
+    reciprocal    -5.5359   -3.9696  1669.6422 0.001
+    boxcox        -1.1590   -1.1612     9.7642 0.367
+    yeojohnson    -1.2123   -1.2149   154.1727 0.429
+    decomposition boxcox: MIgauss(f(y);X)=-0.5log(1-R2)=0.5560  marginal Gaussian LL incl Jacobian=-1.6962  sum=-1.1402
+    decomposition identity: MIgauss(f(y);X)=-0.5log(1-R2)=0.0097  marginal Gaussian LL incl Jacobian=-4.7611  sum=-4.7514
+CASE exp_linear s0 judge-best=boxcox (ridge ratio 0.928) LLhomo=boxcox LLhet=log gate=log EWMI=yeojohnson lam={'boxcox': 0.01, 'yeojohnson': -0.88}
+  seed0 GC-MI(y;X)=0.4434 nats (rank-invariant, same for every f); per candidate: heldout LLhomo / LLhetero / ridge RMSE / EW-MI
+    identity      -1.3611   -1.0374     0.9299 0.030
+    cbrt          -0.8162   -0.7818     0.8883 0.275
+    asinh         -0.8756   -0.8327     0.9047 0.293
+    log           -0.7451   -0.7466     0.8664 0.304
+    sqrt          -0.9050   -0.8249     0.9078 0.246
+    log1p         -0.8803   -0.8263     0.9155 0.283
+    reciprocal    -1.3925   -1.0224    11.8716 0.135
+    boxcox        -0.7451   -0.7466     0.8633 0.304
+    yeojohnson    -0.7707   -0.7715     1.0401 0.316
+    decomposition boxcox: MIgauss(f(y);X)=-0.5log(1-R2)=0.4436  marginal Gaussian LL incl Jacobian=-1.1743  sum=-0.7306
+    decomposition identity: MIgauss(f(y);X)=-0.5log(1-R2)=0.2639  marginal Gaussian LL incl Jacobian=-1.6644  sum=-1.4005
+CASE reciprocal s0 judge-best=reciprocal (ridge ratio 0.649) LLhomo=boxcox LLhet=boxcox gate=boxcox EWMI=boxcox lam={'boxcox': -1.03, 'yeojohnson': -1.0}
+  seed0 GC-MI(y;X)=1.3862 nats (rank-invariant, same for every f); per candidate: heldout LLhomo / LLhetero / ridge RMSE / EW-MI
+    identity       1.9232    2.2078     0.0348 0.486
+    cbrt           2.2663    2.3975     0.0308 0.559
+    asinh          2.0130    2.2441     0.0340 0.518
+    log            2.4094    2.4806     0.0287 0.585
+    sqrt           2.1864    2.3533     0.0318 0.536
+    log1p          2.0836    2.2866     0.0334 0.522
+    reciprocal     2.6242    2.6227     0.0226 0.617
+    boxcox         2.6243    2.6229     0.0227 0.618
+    yeojohnson     2.2266    2.3600     0.0315 0.566
+    decomposition boxcox: MIgauss(f(y);X)=-0.5log(1-R2)=1.3875  marginal Gaussian LL incl Jacobian=1.2411  sum=2.6286
+    decomposition identity: MIgauss(f(y);X)=-0.5log(1-R2)=0.8522  marginal Gaussian LL incl Jacobian=1.0654  sum=1.9176
+CASE linear s0 judge-best=identity (ridge ratio 1.000) LLhomo=yeojohnson LLhet=yeojohnson gate=identity EWMI=asinh lam={'yeojohnson': 1.01}
+  seed0 GC-MI(y;X)=1.4288 nats (rank-invariant, same for every f); per candidate: heldout LLhomo / LLhetero / ridge RMSE / EW-MI
+    identity      -0.2226   -0.2241     0.3023 0.592
+    cbrt          -1.3828   -1.3832     0.5707 0.594
+    asinh         -0.4363   -0.4380     0.4037 0.615
+    yeojohnson    -0.2225   -0.2240     0.3034 0.592
+    decomposition identity: MIgauss(f(y);X)=-0.5log(1-R2)=1.4303  marginal Gaussian LL incl Jacobian=-1.6487  sum=-0.2184
+    decomposition yeojohnson: MIgauss(f(y);X)=-0.5log(1-R2)=1.4304  marginal Gaussian LL incl Jacobian=-1.6487  sum=-0.2183
+CASE hetero_linear s0 judge-best=identity (ridge ratio 1.000) LLhomo=yeojohnson LLhet=identity gate=identity EWMI=asinh lam={'yeojohnson': 1.02}
+  seed0 GC-MI(y;X)=0.8780 nats (rank-invariant, same for every f); per candidate: heldout LLhomo / LLhetero / ridge RMSE / EW-MI
+    identity      -0.8667   -0.8682     0.5755 0.471
+    cbrt          -1.5865   -1.5878     0.9752 0.505
+    asinh         -0.9048   -0.9068     0.6751 0.524
+    yeojohnson    -0.8662   -0.8685     0.5780 0.471
+    decomposition identity: MIgauss(f(y);X)=-0.5log(1-R2)=0.8625  marginal Gaussian LL incl Jacobian=-1.7173  sum=-0.8548
+    decomposition yeojohnson: MIgauss(f(y);X)=-0.5log(1-R2)=0.8630  marginal Gaussian LL incl Jacobian=-1.7171  sum=-0.8541
+CASE heavy s0 judge-best=identity (ridge ratio 1.000) LLhomo=asinh LLhet=asinh gate=asinh EWMI=asinh lam={'yeojohnson': 1.01}
+  seed0 GC-MI(y;X)=0.3412 nats (rank-invariant, same for every f); per candidate: heldout LLhomo / LLhetero / ridge RMSE / EW-MI
+    identity      -2.8198   -2.8271     4.0581 0.008
+    cbrt          -2.1307   -2.1311     4.5764 0.285
+    asinh         -1.6940   -1.6951     4.0956 0.315
+    yeojohnson    -2.8360   -2.8496     4.0888 0.008
+    decomposition identity: MIgauss(f(y);X)=-0.5log(1-R2)=0.0422  marginal Gaussian LL incl Jacobian=-2.8522  sum=-2.8100
+    decomposition asinh: MIgauss(f(y);X)=-0.5log(1-R2)=0.3420  marginal Gaussian LL incl Jacobian=-2.0441  sum=-1.7021
+
+SUMMARY (per kind: picks agree with judge-best k/N; mean ridge RMSE ratio picked/identity; mean regret picked/best)
+cube              | homo: 1/1 ratio 0.496 regret 1.000 nonid 1 | hetero: 1/1 ratio 0.496 regret 1.000 nonid 1 | gate: 1/1 ratio 0.496 regret 1.000 nonid 1 | mi: 1/1 ratio 0.496 regret 1.000 nonid 1 | oracle ratio 0.496; sec ll 0.56 judge(ridge+hgb) 0.48 ewmi 0.43
+lognormal         | homo: 1/1 ratio 0.640 regret 1.000 nonid 1 | hetero: 1/1 ratio 0.640 regret 1.000 nonid 1 | gate: 1/1 ratio 0.640 regret 1.000 nonid 1 | mi: 0/1 ratio 3.924 regret 6.129 nonid 1 | oracle ratio 0.640; sec ll 0.74 judge(ridge+hgb) 0.33 ewmi 0.59
+hetero_lognormal  | homo: 1/1 ratio 0.948 regret 1.000 nonid 1 | hetero: 0/1 ratio 0.952 regret 1.005 nonid 1 | gate: 0/1 ratio 0.952 regret 1.005 nonid 1 | mi: 0/1 ratio 14.971 regret 15.790 nonid 1 | oracle ratio 0.948; sec ll 0.72 judge(ridge+hgb) 0.34 ewmi 0.59
+exp_linear        | homo: 1/1 ratio 0.928 regret 1.000 nonid 1 | hetero: 0/1 ratio 0.932 regret 1.004 nonid 1 | gate: 0/1 ratio 0.932 regret 1.004 nonid 1 | mi: 0/1 ratio 1.119 regret 1.205 nonid 1 | oracle ratio 0.928; sec ll 0.71 judge(ridge+hgb) 0.29 ewmi 0.31
+reciprocal        | homo: 0/1 ratio 0.652 regret 1.005 nonid 1 | hetero: 0/1 ratio 0.652 regret 1.005 nonid 1 | gate: 0/1 ratio 0.652 regret 1.005 nonid 1 | mi: 0/1 ratio 0.652 regret 1.005 nonid 1 | oracle ratio 0.649; sec ll 0.53 judge(ridge+hgb) 0.35 ewmi 0.49
+linear            | homo: 0/1 ratio 1.004 regret 1.004 nonid 1 | hetero: 0/1 ratio 1.004 regret 1.004 nonid 1 | gate: 1/1 ratio 1.000 regret 1.000 nonid 0 | mi: 0/1 ratio 1.335 regret 1.335 nonid 1 | oracle ratio 1.000; sec ll 0.18 judge(ridge+hgb) 0.13 ewmi 0.14
+hetero_linear     | homo: 0/1 ratio 1.004 regret 1.004 nonid 1 | hetero: 1/1 ratio 1.000 regret 1.000 nonid 0 | gate: 1/1 ratio 1.000 regret 1.000 nonid 0 | mi: 0/1 ratio 1.173 regret 1.173 nonid 1 | oracle ratio 1.000; sec ll 0.23 judge(ridge+hgb) 0.15 ewmi 0.17
+heavy             | homo: 0/1 ratio 1.009 regret 1.009 nonid 1 | hetero: 0/1 ratio 1.009 regret 1.009 nonid 1 | gate: 0/1 ratio 1.009 regret 1.009 nonid 1 | mi: 0/1 ratio 1.009 regret 1.009 nonid 1 | oracle ratio 1.000; sec ll 0.26 judge(ridge+hgb) 0.13 ewmi 0.20
+
+real	0m21.613s
+user	0m0.000s
+sys	0m0.046s

@@ -1,0 +1,297 @@
+| run | scheme | family | cases | identical final names | identical MI core | max abs gain diff on shared core rows |
+|---|---|---|---|---|---|---|
+| steps0 | mdlp | feature | 61 | 54 | 60 | 1.5e-02 |
+| steps0 | mdlp | jitter | 20 | 20 | 20 | 0.0e+00 |
+| steps0 | mdlp | target | 32 | 22 | 28 | 0.0e+00 |
+| steps0 | mdlp+norescue | feature | 52 | 52 | 52 | 1.5e-02 |
+| steps0 | mdlp+norescue | jitter | 17 | 17 | 17 | 0.0e+00 |
+| steps0 | mdlp+norescue | target | 26 | 26 | 26 | 0.0e+00 |
+| steps0 | quantile | feature | 61 | 55 | 60 | 5.7e-03 |
+| steps0 | quantile | jitter | 20 | 19 | 18 | 0.0e+00 |
+| steps0 | quantile | target | 32 | 22 | 28 | 0.0e+00 |
+| steps0 | quantile+norescue | feature | 52 | 48 | 52 | 5.7e-03 |
+| steps0 | quantile+norescue | jitter | 17 | 16 | 15 | 0.0e+00 |
+| steps0 | quantile+norescue | target | 26 | 26 | 26 | 0.0e+00 |
+| steps0 | uniform | feature | 61 | 49 | 35 | 5.2e-01 |
+| steps0 | uniform | jitter | 20 | 18 | 19 | 0.0e+00 |
+| steps0 | uniform | target | 32 | 21 | 28 | 0.0e+00 |
+| steps0 | uniform+norescue | feature | 52 | 39 | 32 | 5.2e-01 |
+| steps0 | uniform+norescue | jitter | 17 | 14 | 16 | 0.0e+00 |
+| steps0 | uniform+norescue | target | 26 | 25 | 26 | 0.0e+00 |
+
+per fixture: (run, scheme, fixture, family): cases, final identical, core identical
+  ('steps0', 'mdlp', 'c_lin', 'feature') [3, 3, 3]
+  ('steps0', 'mdlp', 'c_lin', 'jitter') [1, 1, 1]
+  ('steps0', 'mdlp', 'c_skew', 'feature') [4, 4, 4]
+  ('steps0', 'mdlp', 'c_skew', 'jitter') [1, 1, 1]
+  ('steps0', 'mdlp', 'c_tail', 'feature') [3, 3, 3]
+  ('steps0', 'mdlp', 'c_tail', 'jitter') [1, 1, 1]
+  ('steps0', 'mdlp', 'cube', 'feature') [6, 6, 6]
+  ('steps0', 'mdlp', 'cube', 'jitter') [2, 2, 2]
+  ('steps0', 'mdlp', 'cube', 'target') [4, 4, 4]
+  ('steps0', 'mdlp', 'g_clf', 'feature') [3, 3, 3]
+  ('steps0', 'mdlp', 'g_clf', 'jitter') [1, 1, 1]
+  ('steps0', 'mdlp', 'g_cube', 'feature') [6, 6, 6]
+  ('steps0', 'mdlp', 'g_cube', 'jitter') [2, 2, 2]
+  ('steps0', 'mdlp', 'g_cube', 'target') [4, 0, 4]
+  ('steps0', 'mdlp', 'g_linear', 'feature') [6, 4, 6]
+  ('steps0', 'mdlp', 'g_linear', 'jitter') [2, 2, 2]
+  ('steps0', 'mdlp', 'g_linear', 'target') [4, 4, 4]
+  ('steps0', 'mdlp', 'g_lognorm', 'feature') [6, 4, 6]
+  ('steps0', 'mdlp', 'g_lognorm', 'jitter') [2, 2, 2]
+  ('steps0', 'mdlp', 'g_lognorm', 'target') [4, 3, 4]
+  ('steps0', 'mdlp', 'inter', 'feature') [6, 5, 5]
+  ('steps0', 'mdlp', 'inter', 'jitter') [2, 2, 2]
+  ('steps0', 'mdlp', 'inter', 'target') [4, 0, 0]
+  ('steps0', 'mdlp', 'linear', 'feature') [6, 6, 6]
+  ('steps0', 'mdlp', 'linear', 'jitter') [2, 2, 2]
+  ('steps0', 'mdlp', 'linear', 'target') [4, 4, 4]
+  ('steps0', 'mdlp', 'lognorm', 'feature') [6, 6, 6]
+  ('steps0', 'mdlp', 'lognorm', 'jitter') [2, 2, 2]
+  ('steps0', 'mdlp', 'lognorm', 'target') [4, 4, 4]
+  ('steps0', 'mdlp', 'weak', 'feature') [6, 4, 6]
+  ('steps0', 'mdlp', 'weak', 'jitter') [2, 2, 2]
+  ('steps0', 'mdlp', 'weak', 'target') [4, 3, 4]
+  ('steps0', 'mdlp+norescue', 'c_lin', 'feature') [3, 3, 3]
+  ('steps0', 'mdlp+norescue', 'c_lin', 'jitter') [1, 1, 1]
+  ('steps0', 'mdlp+norescue', 'c_skew', 'feature') [4, 4, 4]
+  ('steps0', 'mdlp+norescue', 'c_skew', 'jitter') [1, 1, 1]
+  ('steps0', 'mdlp+norescue', 'c_tail', 'feature') [3, 3, 3]
+  ('steps0', 'mdlp+norescue', 'c_tail', 'jitter') [1, 1, 1]
+  ('steps0', 'mdlp+norescue', 'cube', 'feature') [6, 6, 6]
+  ('steps0', 'mdlp+norescue', 'cube', 'jitter') [2, 2, 2]
+  ('steps0', 'mdlp+norescue', 'cube', 'target') [4, 4, 4]
+  ('steps0', 'mdlp+norescue', 'g_clf', 'feature') [3, 3, 3]
+  ('steps0', 'mdlp+norescue', 'g_clf', 'jitter') [1, 1, 1]
+  ('steps0', 'mdlp+norescue', 'g_cube', 'feature') [3, 3, 3]
+  ('steps0', 'mdlp+norescue', 'g_cube', 'jitter') [1, 1, 1]
+  ('steps0', 'mdlp+norescue', 'g_cube', 'target') [2, 2, 2]
+  ('steps0', 'mdlp+norescue', 'g_linear', 'feature') [3, 3, 3]
+  ('steps0', 'mdlp+norescue', 'g_linear', 'jitter') [1, 1, 1]
+  ('steps0', 'mdlp+norescue', 'g_linear', 'target') [2, 2, 2]
+  ('steps0', 'mdlp+norescue', 'g_lognorm', 'feature') [3, 3, 3]
+  ('steps0', 'mdlp+norescue', 'g_lognorm', 'jitter') [1, 1, 1]
+  ('steps0', 'mdlp+norescue', 'g_lognorm', 'target') [2, 2, 2]
+  ('steps0', 'mdlp+norescue', 'inter', 'feature') [6, 6, 6]
+  ('steps0', 'mdlp+norescue', 'inter', 'jitter') [2, 2, 2]
+  ('steps0', 'mdlp+norescue', 'inter', 'target') [4, 4, 4]
+  ('steps0', 'mdlp+norescue', 'linear', 'feature') [6, 6, 6]
+  ('steps0', 'mdlp+norescue', 'linear', 'jitter') [2, 2, 2]
+  ('steps0', 'mdlp+norescue', 'linear', 'target') [4, 4, 4]
+  ('steps0', 'mdlp+norescue', 'lognorm', 'feature') [6, 6, 6]
+  ('steps0', 'mdlp+norescue', 'lognorm', 'jitter') [2, 2, 2]
+  ('steps0', 'mdlp+norescue', 'lognorm', 'target') [4, 4, 4]
+  ('steps0', 'mdlp+norescue', 'weak', 'feature') [6, 6, 6]
+  ('steps0', 'mdlp+norescue', 'weak', 'jitter') [2, 2, 2]
+  ('steps0', 'mdlp+norescue', 'weak', 'target') [4, 4, 4]
+  ('steps0', 'quantile', 'c_lin', 'feature') [3, 3, 3]
+  ('steps0', 'quantile', 'c_lin', 'jitter') [1, 1, 1]
+  ('steps0', 'quantile', 'c_skew', 'feature') [4, 4, 4]
+  ('steps0', 'quantile', 'c_skew', 'jitter') [1, 1, 1]
+  ('steps0', 'quantile', 'c_tail', 'feature') [3, 3, 3]
+  ('steps0', 'quantile', 'c_tail', 'jitter') [1, 1, 1]
+  ('steps0', 'quantile', 'cube', 'feature') [6, 6, 6]
+  ('steps0', 'quantile', 'cube', 'jitter') [2, 2, 2]
+  ('steps0', 'quantile', 'cube', 'target') [4, 4, 4]
+  ('steps0', 'quantile', 'g_clf', 'feature') [3, 2, 3]
+  ('steps0', 'quantile', 'g_clf', 'jitter') [1, 0, 1]
+  ('steps0', 'quantile', 'g_cube', 'feature') [6, 6, 6]
+  ('steps0', 'quantile', 'g_cube', 'jitter') [2, 2, 2]
+  ('steps0', 'quantile', 'g_cube', 'target') [4, 0, 4]
+  ('steps0', 'quantile', 'g_linear', 'feature') [6, 4, 6]
+  ('steps0', 'quantile', 'g_linear', 'jitter') [2, 2, 1]
+  ('steps0', 'quantile', 'g_linear', 'target') [4, 4, 4]
+  ('steps0', 'quantile', 'g_lognorm', 'feature') [6, 4, 6]
+  ('steps0', 'quantile', 'g_lognorm', 'jitter') [2, 2, 2]
+  ('steps0', 'quantile', 'g_lognorm', 'target') [4, 3, 4]
+  ('steps0', 'quantile', 'inter', 'feature') [6, 5, 5]
+  ('steps0', 'quantile', 'inter', 'jitter') [2, 2, 2]
+  ('steps0', 'quantile', 'inter', 'target') [4, 0, 0]
+  ('steps0', 'quantile', 'linear', 'feature') [6, 6, 6]
+  ('steps0', 'quantile', 'linear', 'jitter') [2, 2, 1]
+  ('steps0', 'quantile', 'linear', 'target') [4, 4, 4]
+  ('steps0', 'quantile', 'lognorm', 'feature') [6, 6, 6]
+  ('steps0', 'quantile', 'lognorm', 'jitter') [2, 2, 2]
+  ('steps0', 'quantile', 'lognorm', 'target') [4, 4, 4]
+  ('steps0', 'quantile', 'weak', 'feature') [6, 6, 6]
+  ('steps0', 'quantile', 'weak', 'jitter') [2, 2, 2]
+  ('steps0', 'quantile', 'weak', 'target') [4, 3, 4]
+  ('steps0', 'quantile+norescue', 'c_lin', 'feature') [3, 3, 3]
+  ('steps0', 'quantile+norescue', 'c_lin', 'jitter') [1, 1, 1]
+  ('steps0', 'quantile+norescue', 'c_skew', 'feature') [4, 4, 4]
+  ('steps0', 'quantile+norescue', 'c_skew', 'jitter') [1, 1, 1]
+  ('steps0', 'quantile+norescue', 'c_tail', 'feature') [3, 3, 3]
+  ('steps0', 'quantile+norescue', 'c_tail', 'jitter') [1, 1, 1]
+  ('steps0', 'quantile+norescue', 'cube', 'feature') [6, 6, 6]
+  ('steps0', 'quantile+norescue', 'cube', 'jitter') [2, 2, 2]
+  ('steps0', 'quantile+norescue', 'cube', 'target') [4, 4, 4]
+  ('steps0', 'quantile+norescue', 'g_clf', 'feature') [3, 2, 3]
+  ('steps0', 'quantile+norescue', 'g_clf', 'jitter') [1, 0, 1]
+  ('steps0', 'quantile+norescue', 'g_cube', 'feature') [3, 3, 3]
+  ('steps0', 'quantile+norescue', 'g_cube', 'jitter') [1, 1, 1]
+  ('steps0', 'quantile+norescue', 'g_cube', 'target') [2, 2, 2]
+  ('steps0', 'quantile+norescue', 'g_linear', 'feature') [3, 2, 3]
+  ('steps0', 'quantile+norescue', 'g_linear', 'jitter') [1, 1, 0]
+  ('steps0', 'quantile+norescue', 'g_linear', 'target') [2, 2, 2]
+  ('steps0', 'quantile+norescue', 'g_lognorm', 'feature') [3, 1, 3]
+  ('steps0', 'quantile+norescue', 'g_lognorm', 'jitter') [1, 1, 1]
+  ('steps0', 'quantile+norescue', 'g_lognorm', 'target') [2, 2, 2]
+  ('steps0', 'quantile+norescue', 'inter', 'feature') [6, 6, 6]
+  ('steps0', 'quantile+norescue', 'inter', 'jitter') [2, 2, 2]
+  ('steps0', 'quantile+norescue', 'inter', 'target') [4, 4, 4]
+  ('steps0', 'quantile+norescue', 'linear', 'feature') [6, 6, 6]
+  ('steps0', 'quantile+norescue', 'linear', 'jitter') [2, 2, 1]
+  ('steps0', 'quantile+norescue', 'linear', 'target') [4, 4, 4]
+  ('steps0', 'quantile+norescue', 'lognorm', 'feature') [6, 6, 6]
+  ('steps0', 'quantile+norescue', 'lognorm', 'jitter') [2, 2, 2]
+  ('steps0', 'quantile+norescue', 'lognorm', 'target') [4, 4, 4]
+  ('steps0', 'quantile+norescue', 'weak', 'feature') [6, 6, 6]
+  ('steps0', 'quantile+norescue', 'weak', 'jitter') [2, 2, 2]
+  ('steps0', 'quantile+norescue', 'weak', 'target') [4, 4, 4]
+  ('steps0', 'uniform', 'c_lin', 'feature') [3, 3, 3]
+  ('steps0', 'uniform', 'c_lin', 'jitter') [1, 1, 1]
+  ('steps0', 'uniform', 'c_skew', 'feature') [4, 2, 2]
+  ('steps0', 'uniform', 'c_skew', 'jitter') [1, 1, 1]
+  ('steps0', 'uniform', 'c_tail', 'feature') [3, 3, 3]
+  ('steps0', 'uniform', 'c_tail', 'jitter') [1, 1, 1]
+  ('steps0', 'uniform', 'cube', 'feature') [6, 6, 6]
+  ('steps0', 'uniform', 'cube', 'jitter') [2, 2, 2]
+  ('steps0', 'uniform', 'cube', 'target') [4, 4, 4]
+  ('steps0', 'uniform', 'g_clf', 'feature') [3, 2, 1]
+  ('steps0', 'uniform', 'g_clf', 'jitter') [1, 0, 1]
+  ('steps0', 'uniform', 'g_cube', 'feature') [6, 6, 2]
+  ('steps0', 'uniform', 'g_cube', 'jitter') [2, 2, 2]
+  ('steps0', 'uniform', 'g_cube', 'target') [4, 0, 4]
+  ('steps0', 'uniform', 'g_linear', 'feature') [6, 4, 1]
+  ('steps0', 'uniform', 'g_linear', 'jitter') [2, 2, 2]
+  ('steps0', 'uniform', 'g_linear', 'target') [4, 4, 4]
+  ('steps0', 'uniform', 'g_lognorm', 'feature') [6, 4, 2]
+  ('steps0', 'uniform', 'g_lognorm', 'jitter') [2, 2, 2]
+  ('steps0', 'uniform', 'g_lognorm', 'target') [4, 2, 4]
+  ('steps0', 'uniform', 'inter', 'feature') [6, 2, 2]
+  ('steps0', 'uniform', 'inter', 'jitter') [2, 1, 1]
+  ('steps0', 'uniform', 'inter', 'target') [4, 0, 0]
+  ('steps0', 'uniform', 'linear', 'feature') [6, 6, 4]
+  ('steps0', 'uniform', 'linear', 'jitter') [2, 2, 2]
+  ('steps0', 'uniform', 'linear', 'target') [4, 4, 4]
+  ('steps0', 'uniform', 'lognorm', 'feature') [6, 6, 6]
+  ('steps0', 'uniform', 'lognorm', 'jitter') [2, 2, 2]
+  ('steps0', 'uniform', 'lognorm', 'target') [4, 4, 4]
+  ('steps0', 'uniform', 'weak', 'feature') [6, 5, 3]
+  ('steps0', 'uniform', 'weak', 'jitter') [2, 2, 2]
+  ('steps0', 'uniform', 'weak', 'target') [4, 3, 4]
+  ('steps0', 'uniform+norescue', 'c_lin', 'feature') [3, 3, 3]
+  ('steps0', 'uniform+norescue', 'c_lin', 'jitter') [1, 1, 1]
+  ('steps0', 'uniform+norescue', 'c_skew', 'feature') [4, 2, 2]
+  ('steps0', 'uniform+norescue', 'c_skew', 'jitter') [1, 1, 1]
+  ('steps0', 'uniform+norescue', 'c_tail', 'feature') [3, 3, 3]
+  ('steps0', 'uniform+norescue', 'c_tail', 'jitter') [1, 1, 1]
+  ('steps0', 'uniform+norescue', 'cube', 'feature') [6, 6, 6]
+  ('steps0', 'uniform+norescue', 'cube', 'jitter') [2, 2, 2]
+  ('steps0', 'uniform+norescue', 'cube', 'target') [4, 4, 4]
+  ('steps0', 'uniform+norescue', 'g_clf', 'feature') [3, 2, 1]
+  ('steps0', 'uniform+norescue', 'g_clf', 'jitter') [1, 0, 1]
+  ('steps0', 'uniform+norescue', 'g_cube', 'feature') [3, 2, 1]
+  ('steps0', 'uniform+norescue', 'g_cube', 'jitter') [1, 1, 1]
+  ('steps0', 'uniform+norescue', 'g_cube', 'target') [2, 2, 2]
+  ('steps0', 'uniform+norescue', 'g_linear', 'feature') [3, 1, 0]
+  ('steps0', 'uniform+norescue', 'g_linear', 'jitter') [1, 1, 1]
+  ('steps0', 'uniform+norescue', 'g_linear', 'target') [2, 2, 2]
+  ('steps0', 'uniform+norescue', 'g_lognorm', 'feature') [3, 1, 1]
+  ('steps0', 'uniform+norescue', 'g_lognorm', 'jitter') [1, 1, 1]
+  ('steps0', 'uniform+norescue', 'g_lognorm', 'target') [2, 1, 2]
+  ('steps0', 'uniform+norescue', 'inter', 'feature') [6, 2, 2]
+  ('steps0', 'uniform+norescue', 'inter', 'jitter') [2, 1, 1]
+  ('steps0', 'uniform+norescue', 'inter', 'target') [4, 4, 4]
+  ('steps0', 'uniform+norescue', 'linear', 'feature') [6, 6, 4]
+  ('steps0', 'uniform+norescue', 'linear', 'jitter') [2, 2, 2]
+  ('steps0', 'uniform+norescue', 'linear', 'target') [4, 4, 4]
+  ('steps0', 'uniform+norescue', 'lognorm', 'feature') [6, 6, 6]
+  ('steps0', 'uniform+norescue', 'lognorm', 'jitter') [2, 2, 2]
+  ('steps0', 'uniform+norescue', 'lognorm', 'target') [4, 4, 4]
+  ('steps0', 'uniform+norescue', 'weak', 'feature') [6, 5, 3]
+  ('steps0', 'uniform+norescue', 'weak', 'jitter') [2, 1, 2]
+  ('steps0', 'uniform+norescue', 'weak', 'target') [4, 4, 4]
+
+non-identical final sets (run, scheme, fixture, data seed, variant, symmetric difference with raw):
+  (0, 'mdlp', 'g_cube', 0, 'target:cbrt', ['x5'])
+  (0, 'mdlp', 'g_cube', 0, 'target:log', ['x5'])
+  (0, 'mdlp', 'g_cube', 1, 'target:cbrt', ['x5'])
+  (0, 'mdlp', 'g_cube', 1, 'target:log', ['x5'])
+  (0, 'mdlp', 'g_linear', 1, 'feature:exp', ['x5'])
+  (0, 'mdlp', 'g_linear', 1, 'feature:tanh', ['x5'])
+  (0, 'mdlp', 'g_lognorm', 1, 'feature:exp', ['x4'])
+  (0, 'mdlp', 'g_lognorm', 1, 'feature:tanh', ['x4'])
+  (0, 'mdlp', 'g_lognorm', 1, 'target:log', ['x5'])
+  (0, 'mdlp', 'inter', 0, 'feature:exp', ['x2'])
+  (0, 'mdlp', 'inter', 0, 'target:cbrt', ['x2'])
+  (0, 'mdlp', 'inter', 0, 'target:log', ['x1', 'x2'])
+  (0, 'mdlp', 'inter', 1, 'target:cbrt', ['x2'])
+  (0, 'mdlp', 'inter', 1, 'target:log', ['x2'])
+  (0, 'mdlp', 'weak', 0, 'feature:cube', ['x3'])
+  (0, 'mdlp', 'weak', 0, 'feature:tanh', ['x3'])
+  (0, 'mdlp', 'weak', 1, 'target:log', ['x3'])
+  (0, 'quantile', 'g_clf', 0, 'feature:exp', ['x3'])
+  (0, 'quantile', 'g_clf', 0, 'jitter', ['x3'])
+  (0, 'quantile', 'g_cube', 0, 'target:cbrt', ['x5'])
+  (0, 'quantile', 'g_cube', 0, 'target:log', ['x5'])
+  (0, 'quantile', 'g_cube', 1, 'target:cbrt', ['x5'])
+  (0, 'quantile', 'g_cube', 1, 'target:log', ['x5'])
+  (0, 'quantile', 'g_linear', 1, 'feature:exp', ['x5'])
+  (0, 'quantile', 'g_linear', 1, 'feature:tanh', ['x5'])
+  (0, 'quantile', 'g_lognorm', 1, 'feature:exp', ['x4'])
+  (0, 'quantile', 'g_lognorm', 1, 'feature:tanh', ['x4'])
+  (0, 'quantile', 'g_lognorm', 1, 'target:log', ['x5'])
+  (0, 'quantile', 'inter', 0, 'feature:exp', ['x2'])
+  (0, 'quantile', 'inter', 0, 'target:cbrt', ['x2'])
+  (0, 'quantile', 'inter', 0, 'target:log', ['x1', 'x2'])
+  (0, 'quantile', 'inter', 1, 'target:cbrt', ['x2'])
+  (0, 'quantile', 'inter', 1, 'target:log', ['x2'])
+  (0, 'quantile', 'weak', 1, 'target:log', ['x3'])
+  (0, 'quantile+norescue', 'g_clf', 0, 'feature:exp', ['x3'])
+  (0, 'quantile+norescue', 'g_clf', 0, 'jitter', ['x3'])
+  (0, 'quantile+norescue', 'g_linear', 0, 'feature:exp', ['x3'])
+  (0, 'quantile+norescue', 'g_lognorm', 0, 'feature:cube', ['x3'])
+  (0, 'quantile+norescue', 'g_lognorm', 0, 'feature:exp', ['x3'])
+  (0, 'uniform', 'c_skew', 0, 'feature:cube', ['x1'])
+  (0, 'uniform', 'c_skew', 0, 'feature:exp', ['x0', 'x1'])
+  (0, 'uniform', 'g_clf', 0, 'feature:exp', ['x3'])
+  (0, 'uniform', 'g_clf', 0, 'jitter', ['x3'])
+  (0, 'uniform', 'g_cube', 0, 'target:cbrt', ['x5'])
+  (0, 'uniform', 'g_cube', 0, 'target:log', ['x5'])
+  (0, 'uniform', 'g_cube', 1, 'target:cbrt', ['x5'])
+  (0, 'uniform', 'g_cube', 1, 'target:log', ['x5'])
+  (0, 'uniform', 'g_linear', 1, 'feature:exp', ['x5'])
+  (0, 'uniform', 'g_linear', 1, 'feature:tanh', ['x5'])
+  (0, 'uniform', 'g_lognorm', 0, 'target:log', ['x5'])
+  (0, 'uniform', 'g_lognorm', 1, 'feature:exp', ['x4'])
+  (0, 'uniform', 'g_lognorm', 1, 'feature:tanh', ['x4'])
+  (0, 'uniform', 'g_lognorm', 1, 'target:log', ['x5'])
+  (0, 'uniform', 'inter', 0, 'feature:exp', ['x1', 'x2'])
+  (0, 'uniform', 'inter', 0, 'jitter', ['x1', 'x2'])
+  (0, 'uniform', 'inter', 0, 'target:cbrt', ['x2'])
+  (0, 'uniform', 'inter', 0, 'target:log', ['x1', 'x2'])
+  (0, 'uniform', 'inter', 1, 'feature:cube', ['x2'])
+  (0, 'uniform', 'inter', 1, 'feature:exp', ['x2'])
+  (0, 'uniform', 'inter', 1, 'feature:tanh', ['x2'])
+  (0, 'uniform', 'inter', 1, 'target:cbrt', ['x2'])
+  (0, 'uniform', 'inter', 1, 'target:log', ['x2'])
+  (0, 'uniform', 'weak', 0, 'feature:cube', ['x3'])
+  (0, 'uniform', 'weak', 1, 'target:log', ['x3'])
+  (0, 'uniform+norescue', 'c_skew', 0, 'feature:cube', ['x1'])
+  (0, 'uniform+norescue', 'c_skew', 0, 'feature:exp', ['x0', 'x1'])
+  (0, 'uniform+norescue', 'g_clf', 0, 'feature:exp', ['x3'])
+  (0, 'uniform+norescue', 'g_clf', 0, 'jitter', ['x3'])
+  (0, 'uniform+norescue', 'g_cube', 0, 'feature:exp', ['x3'])
+  (0, 'uniform+norescue', 'g_linear', 0, 'feature:exp', ['x2', 'x3', 'x5'])
+  (0, 'uniform+norescue', 'g_linear', 0, 'feature:tanh', ['x4'])
+  (0, 'uniform+norescue', 'g_lognorm', 0, 'feature:cube', ['x3'])
+  (0, 'uniform+norescue', 'g_lognorm', 0, 'feature:exp', ['x2', 'x3'])
+  (0, 'uniform+norescue', 'g_lognorm', 0, 'target:log', ['x5'])
+  (0, 'uniform+norescue', 'inter', 0, 'feature:exp', ['x1', 'x2'])
+  (0, 'uniform+norescue', 'inter', 0, 'jitter', ['x1', 'x2'])
+  (0, 'uniform+norescue', 'inter', 1, 'feature:cube', ['x2'])
+  (0, 'uniform+norescue', 'inter', 1, 'feature:exp', ['x2'])
+  (0, 'uniform+norescue', 'inter', 1, 'feature:tanh', ['x1', 'x2'])
+  (0, 'uniform+norescue', 'weak', 0, 'feature:cube', ['x2'])
+  (0, 'uniform+norescue', 'weak', 0, 'jitter', ['x2'])

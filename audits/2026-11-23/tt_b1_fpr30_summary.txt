@@ -1,0 +1,6 @@
+control cases 90 Counter({('ctl_noise', 2): 30, ('ctl_linear', 2): 30, ('ctl_gamma', 2): 30})
+null_perm {'lrt': 3, 'bd': 60, 'eta': 62, 'resid': 62, 'mi_ew': 58, 'mi_rank': 3}
+null_bs {'lrt': 2, 'bd': 6, 'eta': 4, 'resid': 4, 'mi_ew': 11, 'mi_rank': 5}
+null_perm harmful {'lrt': 0, 'bd': 35, 'eta': 0, 'resid': 0, 'mi_ew': 2, 'mi_rank': 0}
+null_bs harmful {'lrt': 0, 'bd': 6, 'eta': 0, 'resid': 0, 'mi_ew': 0, 'mi_rank': 3}
+K 2 90 {'null_perm': 3, 'null_bs': 2}
