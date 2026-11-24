@@ -889,7 +889,11 @@ class BorutaShapArm(BaseArm):
             raise ValueError("BorutaShap.history_x_ is missing or does not cover every input feature; a 'continuous' arm may not fall back to a synthesised score.")
         hist = history.iloc[1:] if len(history) > 1 else history
         with np.errstate(invalid="ignore"):
-            means = {str(c): float(np.nan_to_num(np.nanmean(np.asarray(hist[c], dtype=np.float64)), nan=0.0)) for c in names}
+            # A column with no finite trial was never scored: rank it below every scored column (-inf), not tied with a real score of 0.0 (11-F11).
+            means = {}
+            for c in names:
+                m = float(np.nanmean(np.asarray(hist[c], dtype=np.float64)))
+                means[str(c)] = m if np.isfinite(m) else float("-inf")
         score = np.array([means[n] for n in names], dtype=np.float64)
         _names_set = set(names)  # built once per statement, not per comprehension item (11-F15)
         selected = [str(c) for c in getattr(model, "selected_features_", []) if str(c) in _names_set]

@@ -45,7 +45,6 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 - 11-F4: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 11-F6: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 11-F10: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
-- 11-F11: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 11-F13: DEFERRED. all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 11-F14: FIXED. Deleted the no-op bare expression nbins + 1 in variant a. No behaviour change; covered by the 9 existing tests in tests/feature_selection/fe/factory/test_offset_kernels.py (pass).
 - 11-F18: FIXED. rel_improvement keeps NaN for a non-positive baseline but logs a WARNING naming the cause. Test tests/feature_selection/fe/factory/test_cluster11_rel_improvement_logs_nan.py.
@@ -66,3 +65,5 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 - 11-F12: FIXED. A subnormal-width candidate range (NB / width overflows to inf) takes the flat-range branch instead of binning with a non-finite scale, so no NaN bins are produced. Test tests/feature_selection/test_cluster11_subnormal_range_no_nan_edges.py.
 
 - 11-F9: FIXED. RFECV ranking_ numeric ranks of a different length than the names fall back to kept-vs-dropped with a WARNING, instead of being stringified and matched against names. Test tests/feature_selection/test_cluster11_rfecv_numeric_rank_mismatch.py.
+
+- 11-F11: FIXED. A BorutaShap column with no finite trial maps to -inf (ranked below every scored column) instead of 0.0, which tied with a real zero score. Behaviour change: unscored scores are -inf. Test tests/feature_selection/test_cluster11_boruta_unscored_not_zero.py.

@@ -324,7 +324,6 @@
 | 11-F4 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F6 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F10 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
-| 11-F11 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 11-F13 | DEFERRED | all cluster 11 P2 findings sit under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 12-F2 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F3 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
@@ -1460,3 +1459,5 @@
 | 11-F12 | FIXED | A subnormal-width candidate range (NB / width overflows to inf) takes the flat-range branch instead of binning with a non-finite scale, so no NaN bins are produced. Test tests/feature_selection/test_cluster11_subnormal_range_no_nan_edges.py. |
 
 | 11-F9 | FIXED | RFECV ranking_ numeric ranks of a different length than the names fall back to kept-vs-dropped with a WARNING, instead of being stringified and matched against names. Test tests/feature_selection/test_cluster11_rfecv_numeric_rank_mismatch.py. |
+
+| 11-F11 | FIXED | A BorutaShap column with no finite trial maps to -inf (ranked below every scored column) instead of 0.0, which tied with a real zero score. Behaviour change: unscored scores are -inf. Test tests/feature_selection/test_cluster11_boruta_unscored_not_zero.py. |
