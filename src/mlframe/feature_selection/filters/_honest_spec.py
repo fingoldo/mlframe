@@ -15,7 +15,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
-from mlframe.feature_selection.filters.discretization._quantile_radix import radix_sorted_f32
+from mlframe.feature_selection.filters.discretization._quantile_radix import quantiles_of_sorted, radix_sorted_f32
 
 _LOW_CARD_CAP = 32  # compute_col_edges default (kwargs 'low_card_cap')
 _FALLBACK_NBINS = 5  # collapsed_fallback_nbins default
@@ -161,8 +161,7 @@ def _column_edge_sets(raw: Any, f32_exact: np.ndarray, numeric_js: "list[int]") 
     The distinct-value count and the two quantile edge sets of a column read only that column, so the columns run on the edge-jobs pool."""
     from concurrent.futures import ThreadPoolExecutor
 
-    from ._adaptive_nbins import _edges_from_quantiles, _resolve_edge_jobs
-    from ._supervised_collapse_refine import _fallback_edges
+    from ._adaptive_nbins import _resolve_edge_jobs
 
     def _edges_of(j: int) -> "tuple[bool, np.ndarray, np.ndarray]":
         """``(is continuous, ranked-quantile edges, fallback edges)`` of the filled column ``j``."""
@@ -174,8 +173,14 @@ def _column_edge_sets(raw: Any, f32_exact: np.ndarray, numeric_js: "list[int]") 
             v = np.sort(raw[:, j]).astype(np.float64, copy=False)  # Intentional float64: the edges are computed in double precision from the (exactly widened) sorted column
         if 1 + int(np.count_nonzero(v[1:] != v[:-1])) <= _LOW_CARD_CAP:
             return False, np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width
+        # Both edge sets are the inner values of the same quantiles of the finite sorted column; they differ only in where the duplicates are removed (``_edges_from_quantiles`` takes the distinct values of
+        # all the quantiles and drops the two ends, ``_fallback_edges`` drops the ends and takes the distinct values). The quantiles are read off the sorted vector once, with numpy's own interpolation
+        # (``quantiles_of_sorted``; ``np.percentile`` twice was two partitions of the column, 7 ms of 500000 values, the second most expensive step of the scan).
+        full = quantiles_of_sorted(v, np.linspace(0.0, 100.0, _FALLBACK_NBINS + 1) / 100.0)
+        distinct = np.unique(full)
         # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
-        return True, np.asarray(_edges_from_quantiles(v, _FALLBACK_NBINS), dtype=np.float64), np.asarray(_fallback_edges(v, "quantile", _FALLBACK_NBINS), dtype=np.float64)
+        ranked = np.asarray(distinct[1:-1], dtype=np.float64) if distinct.size > 2 else np.empty(0, dtype=np.float64)
+        return True, ranked, np.asarray(np.unique(full[1:-1]), dtype=np.float64)  # Intentional float64: MDLP cut search at the production binning width
 
     jobs = _resolve_edge_jobs(None, len(numeric_js))
     if jobs > 1 and len(numeric_js) > 1:

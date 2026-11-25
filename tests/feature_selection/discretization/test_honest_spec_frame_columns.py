@@ -164,3 +164,29 @@ def test_columns_of_every_kind_are_scanned_into_the_same_spec_whatever_the_pool_
         assert np.array_equal(pooled[key], serial[key])
     assert np.array_equal(pooled["nan_mask"], serial["nan_mask"]) and pooled["raw"].dtype == serial["raw"].dtype == np.float64
     assert not pooled["is_cont"][cols.index("cat")] and not pooled["is_cont"][cols.index("absent_column")]
+
+
+def test_the_edges_of_skewed_and_tied_columns_are_those_of_the_percentile_helpers():
+    """Columns that are 99 percent one value, mostly ties, bimodal or heavy-tailed: the continuous flag and both edge sets equal what ``_edges_from_quantiles`` and ``_fallback_edges`` return on the sorted column."""
+    from mlframe.feature_selection.filters._adaptive_nbins import _edges_from_quantiles
+    from mlframe.feature_selection.filters._supervised_collapse_refine import _fallback_edges
+
+    rng = np.random.default_rng(8)
+    n = 5000
+    sparse = np.zeros(n, dtype=np.float32)
+    sparse[rng.choice(n, 60, replace=False)] = rng.standard_normal(60).astype(np.float32)  # 61 distinct values, 99 percent zeros
+    tied = np.round(rng.standard_normal(n) * 3).astype(np.float32)  # about 20 distinct values: low cardinality
+    many_ties = np.round(rng.standard_normal(n) * 40).astype(np.float32)  # about 300 distinct values
+    bimodal = np.where(rng.random(n) < 0.5, rng.normal(-5, 0.2, n), rng.normal(5, 0.2, n)).astype(np.float32)
+    heavy = rng.standard_cauchy(n).astype(np.float32)
+    X = pd.DataFrame({"sparse": sparse, "tied": tied, "many_ties": many_ties, "bimodal": bimodal, "heavy": heavy})
+    y = (bimodal > 0).astype(np.int8)
+    spec = build_honest_spec(X, list(X.columns), y, 6)
+    for j, c in enumerate(X.columns):
+        v = np.sort(X[c].to_numpy()).astype(np.float64)
+        cont = int(np.count_nonzero(v[1:] != v[:-1])) + 1 > 32
+        assert bool(spec["is_cont"][j]) == cont, c
+        if cont:
+            assert np.array_equal(spec["q_fb"][j, : spec["q_fb_len"][j]], _edges_from_quantiles(v, 5)), c
+            assert np.array_equal(spec["q_rf"][j, : spec["q_rf_len"][j]], _fallback_edges(v, "quantile", 5)), c
+    assert spec["is_cont"][0] and not spec["is_cont"][1]
