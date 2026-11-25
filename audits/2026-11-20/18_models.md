@@ -61,7 +61,6 @@ No P0 found on the default path. Findings below were verified by reading the cit
 - 18-F3: RESOLVED. Target-MAE gate reads a binary (n, 2) predict_proba as its positive column (_as_gate_vector), not as 2n flattened values, so the MAE is no longer NaN and the block is no longer skipped. Test tests/models/test_gate_vector_uses_positive_column.py; 82 existing gate/stacking tests pass. Commit below.
 - 18-F9: FIXED. gate weighted means return NaN when every weight is zero instead of raising; tests/models/test_cluster18_zero_weight_gate.py; existing quality-gate and ensembling tests: 231 passed
 - 18-F7: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
-- 18-F8: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F11: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F12: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F13: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
@@ -79,3 +78,5 @@ No P0 found on the default path. Findings below were verified by reading the cit
 - 18-F10: FIXED. The regression train-split path is chosen by any member instead of member 0: each member is probed once, and members without predictions are None in the list, as the classification path already does. Before, a member-0 miss dropped the whole train-split ensemble. Tests tests/models/ensembling/test_cluster18_train_path_any_member.py (2 passed); related ensembling tests 17 passed.
 
 - 18-F6: DEFERRED. The outlier gate keeps only rows where every member is finite, while quality_gate keeps rows where any member is finite, so the two gates disagree; when every row has some NaN the gate switches itself off silently. Plan: keep rows with any finite member here too, switch the cross-member median and the per-member MAE/STD to NaN-aware reductions (the numba kernel _per_member_mae_std needs a NaN-aware path), and add a test where two members have disjoint NaN rows that the gate still excludes an outlier member. No code change in this pass.
+
+- 18-F8: FIXED. The default AUC in _score_blend drops rows with a NaN label before scoring, so they no longer count as negatives. Tests tests/models/ensembling/test_cluster18_score_drops_nan_labels.py (2 passed).
