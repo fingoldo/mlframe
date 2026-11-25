@@ -1,23 +1,19 @@
 """Cluster 28 regression: load_and_prepare_dataframe raises a typed error with a message, not a bare AssertionError (audit 2026-11-20, finding 28-F52).
 
-Source-level pin: the bare assertion is gone (and would be stripped under python -O), and the replacement names the function and the type it
-received.
+A bare assertion is stripped under ``python -O`` and carries no message. The loader must raise a TypeError that names the function and the type
+it received.
 """
 
-from pathlib import Path
+import polars as pl
+import pytest
 
 from mlframe.training import preprocessing as pp
 
-_SRC = Path(pp.__file__).resolve()
 
+def test_non_dataframe_after_collection_raises_typed_error_naming_function_and_type(monkeypatch):
+    """A collection step that returns something other than a polars DataFrame raises TypeError with the function name and the received type (28-F52)."""
+    monkeypatch.setattr(pp, "_collect_streaming", lambda _df: "not a frame")
+    frame = pl.DataFrame({"a": [1, 2, 3]})
 
-def test_no_bare_assertion_remains_in_the_loader():
-    """The bare raise AssertionError at the end of load_and_prepare_dataframe is removed (28-F52)."""
-    text = _SRC.read_text(encoding="utf-8")
-    assert "        raise AssertionError\n" not in text
-
-
-def test_replacement_error_names_the_function_and_type():
-    """The new error names load_and_prepare_dataframe and the received type (28-F52)."""
-    text = _SRC.read_text(encoding="utf-8")
-    assert "load_and_prepare_dataframe: expected a polars DataFrame after collection, got" in text
+    with pytest.raises(TypeError, match=r"load_and_prepare_dataframe: expected a polars DataFrame after collection, got str"):
+        pp.load_and_prepare_dataframe(frame, pp.PreprocessingConfig(), verbose=0)
