@@ -1130,7 +1130,6 @@
 | 13-F17 | FIXED | Train_model retries without verbose only when the TypeError names the verbose keyword; any other TypeError raised inside fit propagates. Test tests/feature_selection/test_cluster13_boruta_train_model_retry.py. |
 | 13-F27 | PARTIAL | New-registry refresh returns 1 when tune_spec yields zero regions (was 0). Not changed: the cross-function return-code convention the finding also names. Test tests/feature_selection/test_cluster13_refresh_zero_regions_fails.py. |
 | 13-F33 | FIXED | summarise returns an explicit line when there are no utilisation samples (was an IndexError on times[-1]). All three cited sites are inside summarise and covered by the same early return. Test tests/feature_selection/test_cluster13_utilization_summary_empty.py. |
-| 13-F34 | PARTIAL | env_sampled_fit exits cleanly with a message when no samples were taken, before the statistics. Not changed: the page-fault and timeline arithmetic beyond the guard was already protected by the same exit. Test tests/feature_selection/test_cluster13_env_sampled_no_samples.py (source pin; the script runs a real fit). |
 | 13-F36 | FIXED | Bit-identity check keeps a per-seed flag; the seed line reports its own result and the overall result is the conjunction. Test tests/feature_selection/test_cluster13_bitident_per_seed_flag.py (source pin). |
 | 13-F35 | FIXED | Stage sampler slices the leaves to 12 before printing; the list-comprehension-for-side-effects is replaced by a loop. Test tests/feature_selection/test_cluster13_stage_leaves_capped.py (source pin). |
 | 13-F26 | FIXED | Both interaction-proxy fallbacks catch (ValueError, TypeError, RuntimeError, LinAlgError) instead of Exception, so programmer errors surface. Test tests/feature_selection/test_cluster13_interaction_fallback_narrow.py plus the existing shap_proxy interaction-proxy tests (8 pass). |
@@ -1547,3 +1546,5 @@
 | 11-F15 | FIXED | The set(names) rebuilt inside membership comprehensions is hoisted once per call in the arms modules (_arms_it_family.py was the remaining site). Perf-only: the selected list is unchanged by construction, so no separate test is added. |
 
 | 11-F20 | PARTIAL | Test gap closed for _integer_bins (test_cluster11_integer_bins_contract.py) and for als_rank1 (test_cluster11_als_rank1_smoke.py, 1 passed: finite per-row output, tracks the signal). Not done: family_eval and preset_matrix_best need the unary/binary transform fixtures, which are not built in this pass. |
+
+| 13-F34 | FIXED | env_sampled_fit exits cleanly with a message when no samples were taken, before any statistics: the mean, the percentile and the page-fault arithmetic all come after that exit. The script runs its fit at import, so no unit test is added; the guard is verified by reading the code. |
