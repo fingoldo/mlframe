@@ -923,7 +923,6 @@
 | 38-F6 | FIXED | Empty per-type dict skipped before taking the first item; test_cluster38_predict_and_fit_side_effects.py |
 | 38-F7 | FIXED | PySR y-length mismatch and extraction failure logged at WARNING regardless of verbose; no test |
 | 38-F8 | FIXED | Non-neural time reset moved out of the pre-pipeline loop (once per target); no test |
-| 38-F9 | DEFERRED | Group column protection needs an explicit group-column name from the extractor; design change |
 | 38-F11 | FIXED | Save removes the other-format metadata file so readers cannot load stale metadata; no test |
 | 38-F12 | FIXED | Embedding detection requires a non-scalar shape; no test |
 | 38-F13 | FIXED | Failed split extraction for a high-cardinality column logged at WARNING; failed split not recorded in metadata; no test |
@@ -1497,3 +1496,5 @@
 | 26-F26 | DOCUMENTED | Queued figures are recorded as saved at submit (documented choice at the submit site): the worker owns the figure from there, and a later worker failure is counted in the queue summary but not reconciled into charts['failed']. Reconciling needs a worker-to-dict update path, not done. Test tests/training/test_cluster26_34_documented_choices.py (2 passed). |
 
 | 34-F20 | DOCUMENTED | The warm-start signature is computed on the full frame, not a sample: a sampled signature can match a frame whose rows changed outside the sample and reuse stale specs. The cost is paid per call and is documented at the check. Test tests/training/test_cluster26_34_documented_choices.py (2 passed). |
+
+| 38-F9 | PARTIAL | The pre-screen skip now tests the group column's own protection (group_ids_raw carries its name), not the whole protected set, which target names always filled. Not done: the explicit group-name field from the extractor, which needs a new TrainingContext slot. Test tests/training/core/test_cluster38_group_guard_specific.py. |
