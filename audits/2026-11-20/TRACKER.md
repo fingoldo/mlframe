@@ -549,7 +549,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 32-F24 | 32_training-1.md | DEFERRED | Dedup verdict built in by near-duplicate pool; needs a non-duplicated or real-data scenario. |
 | 22-F33 | 22_root_modules-1.md | FIXED | Subset draws with fewer than two members raise a clear ValueError. Test test_cluster22_synthetic_subset_guard.py. |
 | 22-F32 | 22_root_modules-1.md | FIXED | Both-unset Tukey parameters raise ValueError. Test test_cluster22_tukey_both_none_is_valueerror.py. |
-| 18-F15 | 18_models.md | DEFERRED | Streaming harm sentinel gives ~3e-150 where materialised gives 0; needs a zero-indicator channel in the accumulator. |
+| 18-F15 | 18_models.md | FIXED | The streaming harm tracks a zero member per cell and returns exactly 0 there, matching the materialised zero rule, instead of about 3e-150 from the 1e150 surrogate. Other cells keep the plain harmonic mean. Observation outside this finding: on non-zero cells the materialised path with default parameters gave different values for this input, not checked here. Tests tests/models/ensembling/test_cluster18_streaming_harm_zero.py (2 passed); existing streaming tests 31 passed. |
 | 14-F12 | 14_feature_selection-5.md | FIXED | Empty features_indices raises ValueError. Test test_cluster14_split_empty_features_raises.py. |
 | 15-F17 | 15_feature_selection-6.md | FIXED | All-NaN column knockoff is finite. Test test_cluster15_knockoff_all_nan_column.py. |
 | 13-F22 | 13_feature_selection-4.md | DEFERRED | Always-true row-alignment check in residual round; dead-branch cleanup with the shap_proxied batch, no cheap direct test. |
