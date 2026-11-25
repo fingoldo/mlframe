@@ -19,10 +19,5 @@ def test_docstring_names_the_real_argument_not_a_config_field():
 
 def test_assembler_default_is_256():
     """Control: the argument the docstring names defaults to 256 in the assembler (39-F31)."""
-    sig = inspect.signature(assembler._assemble_group_features_impl) if hasattr(assembler, "_assemble_group_features_impl") else None
-    if sig is None:
-        import re
-        src = inspect.getsource(assembler)
-        assert re.search(r"svd_default_dim: int = 256", src)
-    else:
-        assert sig.parameters["svd_default_dim"].default == 256
+    sig = inspect.signature(assembler.assemble_for_model)
+    assert sig.parameters["svd_default_dim"].default == 256

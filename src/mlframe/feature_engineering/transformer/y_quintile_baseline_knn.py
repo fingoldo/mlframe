@@ -43,6 +43,7 @@ import polars as pl
 
 from ._utils import require_seed, strictly_increasing_edges, validate_numeric_input
 from ._baseline_oof import fold_train_groups
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +148,7 @@ def compute_y_quintile_baseline_knn_features(
                 # them) falls back to the whole train fold's pool rather than degrading to a silent
                 # (mean=0, std=0) feature pair.
                 # The stratum features then describe the whole fold, not the stratum: say so, so it is not read as a local statistic (09-F45).
-                logger.warning("y_quintile_baseline_knn: stratum %d is empty; its features fall back to the whole train fold", q)
+                log_throttle(logger, "y_quintile_baseline_knn.empty_stratum", logging.WARNING, "y_quintile_baseline_knn: stratum %d is empty; its features fall back to the whole train fold", q)
                 X_q = Xt_s
                 pred_q = pred_train
             m, s = _knn_pred_stats(X_q, pred_q, Xq_s, k=_K_NEIGHBOURS)

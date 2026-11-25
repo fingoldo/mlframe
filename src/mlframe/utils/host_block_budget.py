@@ -19,6 +19,8 @@ import time
 from collections.abc import Callable, Iterator
 from typing import Any, TypeVar, cast
 
+from mlframe.utils.log_throttle import log_throttle
+
 logger = logging.getLogger(__name__)
 
 _MIN_BUDGET = 512 * 1024 * 1024
@@ -136,8 +138,8 @@ def reserves_host_block_budget(estimate: "Callable[..., int]") -> "Callable[[_F]
             """``fn`` under a reservation of its estimated bytes."""
             try:
                 nbytes = int(estimate(*args, **kwargs))
-            except Exception as exc:  # a failing estimate must not stop the call
-                logger.debug("host block budget: estimate failed (%r); no reservation", exc)
+            except Exception as exc:  # a failing estimate must not stop the call, but the call then runs with no reservation
+                log_throttle(logger, "host_block_budget.estimate_failed", logging.WARNING, "host block budget: estimate failed (%r); the call runs with no reservation", exc)
                 nbytes = 0
             with host_block_budget().reserve(nbytes):
                 return fn(*args, **kwargs)

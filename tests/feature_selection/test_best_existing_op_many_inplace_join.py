@@ -28,4 +28,4 @@ def test_many_matches_one_by_one_inplace_join():
     many = best_existing_op_mi_resident_many(arrs, sets, yi, 8, col_budget=20)
     one = [best_existing_op_mi_resident(arrs, s, yi, 8) for s in sets]
     assert many is not None
-    np.testing.assert_allclose(many, one, rtol=1e-6)
+    assert np.allclose(many, one, rtol=1e-6)

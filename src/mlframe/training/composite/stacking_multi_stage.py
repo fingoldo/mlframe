@@ -19,7 +19,8 @@ discipline independently auditable.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any, Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -27,6 +28,7 @@ from sklearn.base import BaseEstimator, clone
 
 from .ensemble.feature_stacking import composite_oof_predictions
 from .post_shim import _model_fit_accepts_sample_weight
+from mlframe.utils.log_throttle import log_throttle
 
 
 def _factory_accepts_sample_weight(factory) -> bool:
@@ -200,7 +202,7 @@ class MultiStageMetaFeatureStacker(BaseEstimator):
                 n_imputed = int((~finite_mask).sum())
                 if n_imputed:
                     # The imputed value is a constant the stage-2 model would learn as a real meta-feature; say how much of it is imputed (audit 36-F7).
-                    logger.warning("stacking: %d of %d out-of-fold meta-feature value(s) were NaN (failed folds) and are imputed with the OOF mean", n_imputed, oof_pred.size)
+                    log_throttle(logger, "stacking.imputed_meta_features", logging.WARNING, "stacking: %d of %d out-of-fold meta-feature value(s) were NaN (failed folds) and are imputed with the OOF mean", n_imputed, oof_pred.size)
                 fill_value = float(oof_pred[finite_mask].mean()) if finite_mask.any() else 0.0
                 oof_pred_filled = np.where(finite_mask, oof_pred, fill_value)
                 meta_cols[self._meta_column_name(aux_name)] = qt.fit_transform(oof_pred_filled.reshape(-1, 1)).ravel()

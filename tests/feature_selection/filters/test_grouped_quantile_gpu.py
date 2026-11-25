@@ -32,8 +32,10 @@ def test_the_two_forms_agree_exactly():
     host = G._stats_host(xs, codes, n_groups)
     dev = G._stats_device(xs, codes, n_groups)
     assert dev is not None, "the device path returned nothing on a host with a usable device"
-    for key in ("pct", "sorted", "iqr", "p90p10"):
-        assert np.array_equal(host[key], dev[key]), key
+    assert np.array_equal(host["pct"], dev["pct"])
+    assert np.array_equal(host["sorted"], dev["sorted"])
+    assert np.array_equal(host["iqr"], dev["iqr"])
+    assert np.array_equal(host["p90p10"], dev["p90p10"])
 
 
 def _frame(n=4000, with_nan=False):

@@ -86,7 +86,8 @@ def test_a_host_call_on_a_shared_cache_does_not_block_a_later_device_call():
     cache: dict = {}
     gate._family_bit_prep(cols, n_x, y, 3, False, cache)
     _, dev_bits = gate._family_bit_prep(cols, n_x, y, 3, True, cache)
-    assert dev_bits is not None
+    from mlframe.feature_selection.filters._family_maxt_cuda_bits import DeviceBitsets
+    assert isinstance(dev_bits, DeviceBitsets)
 
 
 def test_too_many_bins_keeps_the_histogram_kernels_and_returns_nothing():

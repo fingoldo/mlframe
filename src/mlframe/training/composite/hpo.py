@@ -44,7 +44,8 @@ import random
 import time
 import warnings
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from collections.abc import Sequence
+from typing import Any, Callable, Optional
 
 import numpy as np
 
@@ -55,6 +56,7 @@ from .estimator import CompositeTargetEstimator
 from ._hpo_metrics import rmse as _rmse
 from ..utils import coerce_to_1d_numpy as _to_1d_numpy
 from mlframe.utils.frame_rows import take_rows
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +89,7 @@ class HPOSpace:
     low: float = 0.0
     high: float = 1.0
     log: bool = False
-    choices: Tuple[Any, ...] = ()
+    choices: tuple[Any, ...] = ()
 
     def sample(self, rng: random.Random) -> Any:
         """Draw one value with the fallback (random-search) backend."""
@@ -115,7 +117,7 @@ class HPOSpace:
             return trial.suggest_float(name, self.low, self.high, log=self.log)
         raise ValueError(f"HPOSpace: unknown kind {self.kind!r}")
 
-    def enumerate_values(self) -> Optional[List[Any]]:
+    def enumerate_values(self) -> Optional[list[Any]]:
         """Finite value list for grid enumeration, or None when continuous.
 
         A ``categorical`` yields its choices; a non-log ``int`` yields the full
@@ -193,13 +195,13 @@ class CompositeHPOResult:
     """
 
     transform: str
-    inner_params: Dict[str, Any]
+    inner_params: dict[str, Any]
     selection_score: float
     estimator: CompositeTargetEstimator
     backend: str
     n_trials: int
-    trials: List[Tuple[str, Dict[str, Any], float]] = field(default_factory=list)
-    trial_oof_pool: Optional[List[np.ndarray]] = None
+    trials: list[tuple[str, dict[str, Any], float]] = field(default_factory=list)
+    trial_oof_pool: Optional[list[np.ndarray]] = None
     pruning_stats: Optional[PruningStats] = None
 
     @property
@@ -238,7 +240,7 @@ class CompositeHPOResult:
 _iloc_rows = take_rows
 
 
-def _default_inner_spaces(inner: Any) -> Optional[Dict[str, HPOSpace]]:
+def _default_inner_spaces(inner: Any) -> Optional[dict[str, HPOSpace]]:
     """Best-effort default search space for a tree/boosting inner estimator.
 
     Probes the estimator's params for the common depth / n_estimators /
@@ -251,7 +253,7 @@ def _default_inner_spaces(inner: Any) -> Optional[Dict[str, HPOSpace]]:
     except Exception as exc:  # pragma: no cover - non-sklearn inner
         logger.warning("_default_inner_spaces: get_params() failed, no default space built: %s", exc)
         return None
-    spaces: Dict[str, HPOSpace] = {}
+    spaces: dict[str, HPOSpace] = {}
     if "max_depth" in params:
         spaces["max_depth"] = HPOSpace("int", low=1, high=8)
     if "n_estimators" in params:
@@ -267,7 +269,7 @@ def _build_estimator(
     inner_factory: Callable[[], Any],
     base_column: str,
     transform_name: str,
-    inner_params: Dict[str, Any],
+    inner_params: dict[str, Any],
 ) -> CompositeTargetEstimator:
     """Construct a fresh composite for one (transform, params) candidate."""
     inner = inner_factory()
@@ -287,9 +289,9 @@ def _cv_score_candidate(
     *,
     base_column: str,
     transform_name: str,
-    inner_params: Dict[str, Any],
+    inner_params: dict[str, Any],
     inner_factory: Callable[[], Any],
-    splits: Sequence[Tuple[np.ndarray, np.ndarray]],
+    splits: Sequence[tuple[np.ndarray, np.ndarray]],
     scorer: Callable[[np.ndarray, np.ndarray], float],
     collect_oof: bool = False,
     trial: Optional[Any] = None,
@@ -318,7 +320,7 @@ def _cv_score_candidate(
     actually has visibility into (the inner estimator's own boosting rounds
     are opaque to this harness -- it only sees one final score per fold).
     """
-    fold_scores: List[float] = []
+    fold_scores: list[float] = []
     oof: Optional[np.ndarray] = np.full(y.shape[0], np.nan, dtype=np.float64) if collect_oof else None
 
     def _note_folds() -> None:
@@ -342,7 +344,7 @@ def _cv_score_candidate(
         except Exception as err:  # -- penalise, don't crash search
             # WARNING with the exception class: a genuine bug (a TypeError in the scorer, say) used to make every candidate inf with nothing
             # visible above DEBUG (audit 36-F5).
-            logger.warning("optimize_composite: candidate %r/%r fold failed (%s: %s)", transform_name, inner_params, type(err).__name__, err)
+            log_throttle(logger, "optimize_composite.candidate_fold_failed", logging.WARNING, "optimize_composite: candidate %r/%r fold failed (%s: %s)", transform_name, inner_params, type(err).__name__, err)
             fold_scores.append(float("inf"))
         if trial is not None and fold_idx < len(splits) - 1:
             running_score = float(np.mean(fold_scores))
@@ -364,7 +366,7 @@ def _resolve_splits(
     n_rows: int,
     cv: Any,
     time_ordering: Optional[np.ndarray],
-) -> List[Tuple[np.ndarray, np.ndarray]]:
+) -> list[tuple[np.ndarray, np.ndarray]]:
     """Materialise the list of (train_idx, test_idx) folds ONCE.
 
     Precedence: an explicit ``cv`` splitter object (anything with ``.split``)
@@ -393,7 +395,7 @@ def _resolve_splits(
     if time_ordering is not None:
         order = np.argsort(np.asarray(time_ordering), kind="stable")
         splitter = PurgedTimeSeriesSplit(n_splits=n_splits)
-        out: List[Tuple[np.ndarray, np.ndarray]] = []
+        out: list[tuple[np.ndarray, np.ndarray]] = []
         for tr, te in splitter.split(np.empty(n_rows)):
             out.append((order[tr], order[te]))
         return out
@@ -403,7 +405,7 @@ def _resolve_splits(
     fold_sizes[: n_rows % n_splits] += 1
     bounds = np.concatenate([[0], np.cumsum(fold_sizes)])
     all_idx = np.arange(n_rows)
-    splits: List[Tuple[np.ndarray, np.ndarray]] = []
+    splits: list[tuple[np.ndarray, np.ndarray]] = []
     for i in range(n_splits):
         te = all_idx[bounds[i] : bounds[i + 1]]
         tr = np.concatenate([all_idx[: bounds[i]], all_idx[bounds[i + 1] :]])
@@ -424,12 +426,12 @@ def _make_evaluator(
     splits: Any,
     scorer: Callable[[np.ndarray, np.ndarray], float],
     collect_oof_pool: bool,
-    trials_log: List[Tuple[str, Dict[str, Any], float]],
-    oof_pool: Optional[List[np.ndarray]],
+    trials_log: list[tuple[str, dict[str, Any], float]],
+    oof_pool: Optional[list[np.ndarray]],
 ) -> Callable[..., float]:
     """Build the ``_evaluate(transform_name, inner_params, trial=None)`` closure that CV-scores one candidate and logs it into ``trials_log``."""
 
-    def _evaluate(transform_name: str, inner_params: Dict[str, Any], trial: Optional[Any] = None) -> float:
+    def _evaluate(transform_name: str, inner_params: dict[str, Any], trial: Optional[Any] = None) -> float:
         """CV-score one (transform, inner-params) candidate and append it to ``trials_log``."""
         result = _cv_score_candidate(
             X, y_arr,
@@ -467,13 +469,13 @@ def optimize_composite(
     n_trials: int = 30,
     cv: Any = 5,
     scorer: Optional[Callable[[np.ndarray, np.ndarray], float]] = None,
-    inner_spaces: Optional[Dict[str, HPOSpace]] = None,
+    inner_spaces: Optional[dict[str, HPOSpace]] = None,
     time_ordering: Optional[Any] = None,
     random_state: int = 0,
     prefer_optuna: bool = True,
     collect_oof_pool: bool = False,
     pruner: Any = None,
-    conditional_inner_space_fn: Optional[Callable[[Any, str], Dict[str, Any]]] = None,
+    conditional_inner_space_fn: Optional[Callable[[Any, str], dict[str, Any]]] = None,
 ) -> CompositeHPOResult:
     """Jointly optimise (transform, inner hyperparameters) for a composite.
 
@@ -571,8 +573,8 @@ def optimize_composite(
 
     splits = _resolve_splits(X, n_rows, cv, None if time_ordering is None else np.asarray(time_ordering))
 
-    trials_log: List[Tuple[str, Dict[str, Any], float]] = []
-    oof_pool: Optional[List[np.ndarray]] = [] if collect_oof_pool else None
+    trials_log: list[tuple[str, dict[str, Any], float]] = []
+    oof_pool: Optional[list[np.ndarray]] = [] if collect_oof_pool else None
 
     _evaluate = _make_evaluator(
         X, y_arr, base_column=base_column, inner_factory=inner_factory, splits=splits, scorer=scorer,
@@ -610,14 +612,14 @@ def optimize_composite(
 def _run_search(
     *,
     transform_candidates: Sequence[str],
-    inner_spaces: Dict[str, HPOSpace],
+    inner_spaces: dict[str, HPOSpace],
     n_trials: int,
     random_state: int,
     prefer_optuna: bool,
     evaluate: Callable[..., float],
     pruner: Any = None,
-    conditional_inner_space_fn: Optional[Callable[[Any, str], Dict[str, Any]]] = None,
-) -> Tuple[str, str, Dict[str, Any], float, Optional[PruningStats]]:
+    conditional_inner_space_fn: Optional[Callable[[Any, str], dict[str, Any]]] = None,
+) -> tuple[str, str, dict[str, Any], float, Optional[PruningStats]]:
     """Drive the chosen backend; return (backend, transform, params, score, pruning_stats).
 
     Both backends call the SAME ``evaluate`` objective so the fallback is a
@@ -645,13 +647,13 @@ def _run_search(
 def _search_optuna(
     optuna: Any,
     transform_candidates: Sequence[str],
-    inner_spaces: Dict[str, HPOSpace],
+    inner_spaces: dict[str, HPOSpace],
     n_trials: int,
     random_state: int,
     evaluate: Callable[..., float],
     pruner: Any = None,
-    conditional_inner_space_fn: Optional[Callable[[Any, str], Dict[str, Any]]] = None,
-) -> Tuple[str, str, Dict[str, Any], float, Optional[PruningStats]]:
+    conditional_inner_space_fn: Optional[Callable[[Any, str], dict[str, Any]]] = None,
+) -> tuple[str, str, dict[str, Any], float, Optional[PruningStats]]:
     """TPE search over the joint (transform, inner) space via Optuna."""
     optuna.logging.set_verbosity(optuna.logging.WARNING)
 
@@ -735,11 +737,11 @@ def _pruning_stats_from_study(optuna: Any, study: Any) -> Optional[PruningStats]
 
 def _search_random(
     transform_candidates: Sequence[str],
-    inner_spaces: Dict[str, HPOSpace],
+    inner_spaces: dict[str, HPOSpace],
     n_trials: int,
     random_state: int,
-    evaluate: Callable[[str, Dict[str, Any]], float],
-) -> Tuple[str, str, Dict[str, Any], float]:
+    evaluate: Callable[[str, dict[str, Any]], float],
+) -> tuple[str, str, dict[str, Any], float]:
     """Self-contained search -- the no-Optuna fallback.
 
     When the full joint (transform x inner-params) grid is finite and fits the
@@ -752,7 +754,7 @@ def _search_random(
     rng = random.Random(random_state)  # nosec B311 - non-crypto sampling/jitter, not used for tokens/secrets
     best_score = float("inf")
     best_transform = transform_candidates[0]
-    best_params: Dict[str, Any] = {}
+    best_params: dict[str, Any] = {}
 
     grid = _enumerate_grid(transform_candidates, inner_spaces)
     evaluated = 0
@@ -774,17 +776,17 @@ def _search_random(
 
 def _enumerate_grid(
     transform_candidates: Sequence[str],
-    inner_spaces: Dict[str, HPOSpace],
-) -> Optional[List[Tuple[str, Dict[str, Any]]]]:
+    inner_spaces: dict[str, HPOSpace],
+) -> Optional[list[tuple[str, dict[str, Any]]]]:
     """Full (transform, inner-params) grid, or None if any space is continuous."""
-    per_space: List[List[Any]] = []
+    per_space: list[list[Any]] = []
     names = list(inner_spaces)
     for name in names:
         values = inner_spaces[name].enumerate_values()
         if values is None:
             return None
         per_space.append(values)
-    grid: List[Tuple[str, Dict[str, Any]]] = []
+    grid: list[tuple[str, dict[str, Any]]] = []
     for transform_name in transform_candidates:
         grid.extend((transform_name, dict(zip(names, combo))) for combo in (itertools.product(*per_space) if per_space else [()]))
     return grid

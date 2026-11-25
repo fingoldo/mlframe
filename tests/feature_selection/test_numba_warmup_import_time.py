@@ -39,7 +39,8 @@ def test_import_time_start_can_be_switched_off_and_runs_the_warmup_otherwise(mon
     monkeypatch.setattr(W, "warmup_typed_dict", lambda: ran.append(threading.current_thread().name))
     monkeypatch.setenv("MLFRAME_IMPORT_PREWARM", "0")
     W.start_import_time_warmup()
-    time.sleep(0.2)
+    # A started thread is visible to enumerate() as soon as start() returns, so no wait is needed to see that none was started.
+    assert not any(t.name == "mlframe-typed-dict-warmup" for t in threading.enumerate())
     assert ran == []
     monkeypatch.setenv("MLFRAME_IMPORT_PREWARM", "1")
     monkeypatch.delenv("MLFRAME_SKIP_NUMBA_WARMUP", raising=False)

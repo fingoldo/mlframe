@@ -56,6 +56,7 @@ def test_strided_column_views_are_served_from_the_table(monkeypatch):
     clean, spiked = _columns()
     block = np.ascontiguousarray(np.column_stack([clean, spiked, clean]))  # C order: a column of it is strided
     views = [block[:, 0], block[:, 1], block[:, 2]]
+    assert len(views) == 3
     assert all(not v.flags.c_contiguous for v in views)
     examined = []
     real = robust._detect_heavy_tail_numpy

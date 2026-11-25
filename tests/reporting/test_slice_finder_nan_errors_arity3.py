@@ -14,4 +14,5 @@ def test_nan_errors_with_arity_three_run_on_aligned_rows():
     y_pred = y_true + 0.1 * rng.standard_normal(n)
     y_pred[::7] = np.nan
     result = find_weak_slices(X, y_true, y_pred, max_arity=3)
-    assert result is not None
+    assert len(result.worst_slice[0]) == 3
+    assert np.isfinite(result.global_error)

@@ -50,4 +50,4 @@ def test_dispatcher_forwards_group_ids_to_the_gbm_stacker(monkeypatch):
     _stackers.build_meta_stack_ensemble(
         CompositeCrossTargetEnsemble, [object()] * 3, ["a", "b", "c"], X, y, stacker="gbm", group_ids=groups,
     )
-    assert seen.get("group_ids") is not None
+    assert np.array_equal(seen["group_ids"], groups)

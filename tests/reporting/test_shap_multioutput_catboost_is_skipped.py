@@ -17,4 +17,5 @@ def test_multioutput_catboost_never_reaches_the_tree_explainer(monkeypatch):
     X = rng.standard_normal((120, 3))
     y = rng.standard_normal(120)
     result = spi.shap_worst_errors_explanation(object(), X, y, y + 0.1)
-    assert result is not None
+    assert result.paths == []
+    assert "multi-output" in result.skipped

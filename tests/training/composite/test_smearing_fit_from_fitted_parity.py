@@ -35,7 +35,7 @@ def test_from_fitted_inner_stamps_the_same_smearing_quantiles_as_fit():
         base_train=X["x"].to_numpy(),
         X_train=X,
     )
-    np.testing.assert_allclose(
+    assert np.allclose(
         wrapped.fitted_params_["smearing_quantiles"], cte.fitted_params_["smearing_quantiles"], rtol=1e-6,
     )
 
