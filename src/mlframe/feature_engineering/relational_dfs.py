@@ -231,10 +231,9 @@ def stack_relational_chain(
     if not hops:
         raise ValueError("hops must contain at least one RelationalHop")
 
-    # Fold from the deepest hop inward: aggregate leaf_specs onto hops[-1], zero-fill (a hop with no
-    # eligible deeper-level history gets NaN, treated as "zero contribution" -- matching Featuretools' own
-    # zero-fill default for no-history aggregates), then treat the now-enriched hop as a ChildTableSpec for
-    # the next level out. Repeating this at every hop generalizes stack_relational_features's single fold.
+    # Fold from the deepest hop inward: aggregate leaf_specs onto hops[-1], then treat the now-enriched hop as a ChildTableSpec for the
+    # next level out. A parent with no eligible history keeps NaN: zero would read as a real zero average, which is indistinguishable
+    # from genuine data (audit 24-F56). Repeating this at every hop generalizes stack_relational_features's single fold.
     enriched = compute_relational_features(
         parent_df=hops[-1].df,
         parent_id_col=hops[-1].id_col,
@@ -242,7 +241,6 @@ def stack_relational_chain(
         child_specs=leaf_specs,
     )
     new_cols = [c for c in enriched.columns if c not in hops[-1].df.columns]
-    enriched[new_cols] = enriched[new_cols].fillna(0.0)
     value_cols: Dict[str, List[str]] = {**{k: list(v) for k, v in hops[-1].value_cols.items()}, **{c: ["mean", "sum"] for c in new_cols}}
 
     for depth in range(len(hops) - 1, 0, -1):
@@ -257,7 +255,6 @@ def stack_relational_chain(
         )
         rolled = compute_relational_features(parent_df=outer.df, parent_id_col=outer.id_col, cutoff_col=outer.time_col, child_specs=[spec])
         new_cols = [c for c in rolled.columns if c not in outer.df.columns]
-        rolled[new_cols] = rolled[new_cols].fillna(0.0)
         enriched = rolled
         value_cols = {**{k: list(v) for k, v in outer.value_cols.items()}, **{c: ["mean", "sum"] for c in new_cols}}
 

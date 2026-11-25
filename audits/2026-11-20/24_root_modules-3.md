@@ -137,7 +137,6 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F53: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F54: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F55: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F56: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F60: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F64: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F65: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
@@ -204,3 +203,5 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F62: FIXED. run_efs refuses duplicate target names before binning or any MI work, instead of after the full permutation loop. Test tests/feature_selection/test_cluster24_p3_guard_order_and_type.py
 
 - 24-F63: FIXED. ForwardSelectSelector raises TypeError naming the returned type instead of a bare AssertionError. Test tests/feature_selection/test_cluster24_p3_guard_order_and_type.py
+
+- 24-F56: FIXED. stack_relational_chain no longer zero-fills the new columns at each hop: a parent with no eligible history keeps NaN instead of a zero mean. Test tests/feature_engineering/test_cluster24_relational_no_history_nan.py; test_biz_val_relational_dfs.py and test_fe_top_b_fixes.py pass (17)
