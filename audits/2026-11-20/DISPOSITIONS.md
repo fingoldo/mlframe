@@ -267,7 +267,6 @@
 | 03-F6 | DEFERRED | benchmark-script change not made in this pass; low impact |
 | 04-F25 | FIXED | scipy rvs gets shape parameters first, loc and scale as keywords; tests/data/test_cluster04_sapp_args_and_coerce.py |
 | 04-F23 | FIXED | non-numeric values coerced to NaN are counted in the notes; same test file |
-| 04-F14 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
 | 04-F15 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
 | 04-F16 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
 | 04-F17 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
@@ -649,7 +648,6 @@
 | 04-F19 | FIXED | Removed the three never-populated FeatureTruth fields (marginal_mi, conditional_mi_given_rest, r2_to_source); the generator fills only role, region, source, cost. Test tests/data/test_cluster04_feature_truth_fields.py. |
 | 04-F24 | FIXED | replay(with_data=False) compares the spec hash and skips generation; replay_report uses it, so one line per scenario no longer regenerates every bed. Test tests/data/test_cluster04_replay_status_skips_generation.py. |
 | 04-F26 | FIXED | _feature_parents raises naming a parent that is neither observed, latent, nor the selected target, instead of dropping its effect while the truth graph keeps the edge. Test tests/data/test_cluster04_derived_refuses_dropped_parent.py. |
-| 04-F14 | PARTIAL | bayes_auc's per-row tie-group loop is vectorised over group boundaries and matches the old loop exactly (tests/data/test_cluster04_bayes_auc_vectorised_matches_loop.py). The prevalence bisection is not warm-started yet: it is 60 passes per call and remains the cost to address next. Pre-existing failure, not caused by this change: test_datasets_oracle.py::TestReferenceMI::test_a_signal_column_carries_more_information_than_a_probe fails on origin/master too. |
 | 05-F1 | FIXED | The recursion benchmark's second arm is labelled interpreted_py and the docstring says it is the CPython body of the njit kernel, not a numpy backend (no such backend exists). Test tests/data_valuation/test_cluster05_recursion_bench_labels_the_interpreted_arm.py. |
 | 05-F3 | FIXED | The shared fixture's docstring is rewritten to name its consumers. Docs only. |
 | 05-F5 | FIXED | functools moved into the stdlib import group. Import order only. |
@@ -1551,3 +1549,5 @@
 | 37-F51 | FIXED | The group-slice helper is renamed _group_train_slice at its definition and at its lazy-proxy call site; the old name is gone from the core sources. Test tests/training/core/test_cluster37_group_slice_name.py (2 passed). |
 
 | 38-F21 | DOCUMENTED | The fallback cache key is repr(pre_pipeline), not the object identity; the comment now says so. Keying on id() would need a strong reference that pins each pipeline in memory and changes cache hits. The collision is narrow: only un-introspectable pipelines with identical reprs share a slot, and only on the fallback path. Kept as is, documented. |
+
+| 04-F14 | DEFERRED | bayes_auc's per-row tie-group loop is vectorised and matches the old loop exactly (test_cluster04_bayes_auc_vectorised_matches_loop.py). Left open: the prevalence bisection runs 60 passes per call. A warm start narrows the bracket from the previous result, which changes the numerics within tolerance, so it needs a benchmark on real call counts before it lands. |
