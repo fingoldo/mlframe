@@ -505,13 +505,15 @@ def _collect_train_predictions(is_regression, level_models_and_predictions, _fal
     """Collect the train-time predictions of the ensemble members."""
     if not is_regression:
         train_predictions = [_oof_or_train(el, "oof_probs", "train_probs", _i, _fallback_used, _prefer_calibrated=_use_cal) for _i, el in enumerate(level_models_and_predictions)]
-    elif _oof_or_train(level_models_and_predictions[0], "oof_preds", "train_preds", 0, _fallback_used) is not None:
-        # Re-walk so every member's fallback decision is recorded (probe call above counts index 0 only if it fell back; clear and re-probe symmetrically across all members).
-        _fallback_used.clear()
-        train_predictions = [_oof_or_train(el, "oof_preds", "train_preds", _i, _fallback_used) for _i, el in enumerate(level_models_and_predictions)]
-        train_predictions = [el.reshape(el.shape[0], -1) if (el is not None) else el for el in train_predictions]  # preserve row axis for multi-target (see val-branch note)
     else:
-        train_predictions = []
+        # Probe every member once and take the regression path when ANY member has predictions. Deciding on member 0 alone dropped the
+        # whole train-split ensemble when member 0 had neither OOF nor train predictions (audit 18-F10).
+        _fallback_used.clear()
+        _probed = [_oof_or_train(el, "oof_preds", "train_preds", _i, _fallback_used) for _i, el in enumerate(level_models_and_predictions)]
+        if any(el is not None for el in _probed):
+            train_predictions = [el.reshape(el.shape[0], -1) if (el is not None) else el for el in _probed]  # preserve row axis for multi-target (see val-branch note)
+        else:
+            train_predictions = []
     return train_predictions
 
 

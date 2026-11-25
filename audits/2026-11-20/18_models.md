@@ -63,7 +63,6 @@ No P0 found on the default path. Findings below were verified by reading the cit
 - 18-F6: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F7: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F8: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
-- 18-F10: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F11: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F12: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F13: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
@@ -77,3 +76,5 @@ No P0 found on the default path. Findings below were verified by reading the cit
 - 18-F20: DEFERRED. The benchmark mirrors the ranking because the shipped _choose_ensemble_flavour takes only an ensembles dict, with no probe-order parameter. Calling the shipped logic for each probe order needs an API change in the chooser, owner decision.
 
 - 18-F15: FIXED. The streaming harm tracks a zero member per cell and returns exactly 0 there, matching the materialised zero rule, instead of about 3e-150 from the 1e150 surrogate. Other cells keep the plain harmonic mean. Observation outside this finding: on non-zero cells the materialised path with default parameters gave different values for this input, not checked here. Tests tests/models/ensembling/test_cluster18_streaming_harm_zero.py (2 passed); existing streaming tests 31 passed.
+
+- 18-F10: FIXED. The regression train-split path is chosen by any member instead of member 0: each member is probed once, and members without predictions are None in the list, as the classification path already does. Before, a member-0 miss dropped the whole train-split ensemble. Tests tests/models/ensembling/test_cluster18_train_path_any_member.py (2 passed); related ensembling tests 17 passed.

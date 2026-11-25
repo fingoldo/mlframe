@@ -932,7 +932,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 18-F7 | 18_models.md | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 18-F8 | 18_models.md | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 18-F9 | 18_models.md | FIXED | gate weighted means return NaN when every weight is zero instead of raising; tests/models/test_cluster18_zero_weight_gate.py; existing quality-gate and ensembling tests: 231 passed |
-| 18-F10 | 18_models.md | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
+| 18-F10 | 18_models.md | FIXED | The regression train-split path is chosen by any member instead of member 0: each member is probed once, and members without predictions are None in the list, as the classification path already does. Before, a member-0 miss dropped the whole train-split ensemble. Tests tests/models/ensembling/test_cluster18_train_path_any_member.py (2 passed); related ensembling tests 17 passed. |
 | 18-F11 | 18_models.md | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 18-F12 | 18_models.md | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 18-F13 | 18_models.md | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
