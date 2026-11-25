@@ -52,13 +52,15 @@ def shared_error_prep(df: Any, y_true: Any, y_pred: Any, task: str, seed: int, b
     if any(r is None for r in refs):
         return build()
     key = (id(df), id(y_true), id(y_pred), task, int(seed), extra)
+    # The lock guards the cache only: the build runs outside it, so a second target is not held for the first target's build (audit 26-F22).
     with _PREP_LOCK:
         entry = _PREP_CACHE.get(key)
         if entry is not None:
             held, result = entry
             if all(r() is o for r, o in zip(held, (df, y_true, y_pred))):
                 return tuple(result)
-        result = build()
+    result = build()
+    with _PREP_LOCK:
         if len(_PREP_CACHE) >= _PREP_CACHE_MAX:
             # evict-ok: memo; a miss recomputes the value
             _PREP_CACHE.pop(next(iter(_PREP_CACHE)), None)
