@@ -180,7 +180,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 38-F21 | 38_training-7.md | PARTIAL | Comment corrected; repr-keyed fallback documented, not re-keyed. |
 | 38-F22 | 38_training-7.md | FIXED | A pre-OD category union also takes the validation categories, so the strict val cast cannot fail on a val-only category. Behaviour change: such categories now join the Enum instead of crashing. Test tests/training/core/test_cluster38_precomputed_union_covers_val.py (plus existing test_fe_preod_enum_domain.py, 2 passed). |
 | 38-F23 | 38_training-7.md | FIXED | Documented: first regression target drives stratification. |
-| 38-F24 | 38_training-7.md | DEFERRED | Needs explicit target_type contract decision. |
+| 38-F24 | 38_training-7.md | FIXED | A CV policy without a target_type is refused with a ValueError instead of being silently wired as regression. Test tests/training/core/test_cluster38_cv_policy_needs_target_type.py (2 passed). |
 | 38-F25 | 38_training-7.md | FIXED | Narrowing suffix widened to 8 hex characters. |
 | 38-F26 | 38_training-7.md | FIXED | AssertionError message and warning text corrected. |
 | 38-F27 | 38_training-7.md | FIXED | Filtered-subset threshold skip logged and default stamped. |

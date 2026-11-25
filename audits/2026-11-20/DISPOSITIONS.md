@@ -935,7 +935,6 @@
 | 38-F20 | FIXED | Docstring corrected: cache holds the ndarray, no strong-ref window; no test |
 | 38-F21 | PARTIAL | Comment corrected (repr is not identity); fallback still keyed on repr, documented rather than re-keyed |
 | 38-F23 | FIXED | Documented: only the first regression target drives bucket stratification |
-| 38-F24 | DEFERRED | target_type=None default: needs an explicit contract decision |
 | 38-F25 | FIXED | Narrowing signature suffix widened from 4 to 8 hex characters |
 | 38-F26 | FIXED | AssertionError carries a message; pure-selector warning text corrected |
 | 38-F27 | FIXED | Threshold tuning skip on filtered subset logged and stamped default_0.5; no test |
@@ -1498,3 +1497,5 @@
 | 34-F20 | DOCUMENTED | The warm-start signature is computed on the full frame, not a sample: a sampled signature can match a frame whose rows changed outside the sample and reuse stale specs. The cost is paid per call and is documented at the check. Test tests/training/test_cluster26_34_documented_choices.py (2 passed). |
 
 | 38-F9 | PARTIAL | The pre-screen skip now tests the group column's own protection (group_ids_raw carries its name), not the whole protected set, which target names always filled. Not done: the explicit group-name field from the extractor, which needs a new TrainingContext slot. Test tests/training/core/test_cluster38_group_guard_specific.py. |
+
+| 38-F24 | FIXED | A CV policy without a target_type is refused with a ValueError instead of being silently wired as regression. Test tests/training/core/test_cluster38_cv_policy_needs_target_type.py (2 passed). |
