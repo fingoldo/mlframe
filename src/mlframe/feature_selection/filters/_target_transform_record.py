@@ -208,7 +208,8 @@ def record_target_transform(estimator: Any, X: Any, y: Any) -> None:
     if not bool(getattr(estimator, "target_transform_search", False)):
         return
     names = [str(c) for c in getattr(estimator, "feature_names_in_", [])]
-    support = [int(i) for i in (getattr(estimator, "support_", None) if getattr(estimator, "support_", None) is not None else [])]
+    support_attr = getattr(estimator, "support_", None)
+    support = [int(i) for i in (support_attr if support_attr is not None else [])]
     selected = [names[i] for i in support if 0 <= i < len(names)]
     verdict = find_target_transform(estimator, X, y, selected + [c for c in names if c not in selected])
     estimator.target_transform_ = dict(verdict) if verdict else None

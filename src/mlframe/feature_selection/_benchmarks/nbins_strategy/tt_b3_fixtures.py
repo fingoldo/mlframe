@@ -44,7 +44,7 @@ def _features(rng: np.random.Generator, n: int, p: int, mixed: bool) -> np.ndarr
                 Z[:, j] = (Z[:, j] > np.quantile(Z[:, j], rng.uniform(0.3, 0.7))).astype(np.float64)
             elif j % 5 == 4:
                 Z[:, j] = np.exp(0.7 * Z[:, j])
-    return Z
+    return np.asarray(Z)
 
 
 def make(kind: str, n: int, p: int, seed: int) -> Tuple[np.ndarray, np.ndarray]:

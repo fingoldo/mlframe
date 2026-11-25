@@ -72,22 +72,22 @@ def _fixed_forward(name: str, y: np.ndarray, s: float) -> np.ndarray:
     if name == "identity":
         return y
     if name == "cbrt":
-        return np.cbrt(y)
+        return np.asarray(np.cbrt(y))
     if name == "signed_sqrt":
-        return np.sign(y) * np.sqrt(np.abs(y))
+        return np.asarray(np.sign(y) * np.sqrt(np.abs(y)))
     if name == "signed_square":
-        return np.sign(y) * y * y
+        return np.asarray(np.sign(y) * y * y)
     if name == "asinh":
-        return np.arcsinh(y / s)
+        return np.asarray(np.arcsinh(y / s))
     if name == "log":
-        return np.log(y)
+        return np.asarray(np.log(y))
     if name == "log1p":
-        return np.log1p(y)
+        return np.asarray(np.log1p(y))
     if name == "reciprocal":
         return -1.0 / y
     if name == "logit":
         c = np.clip(y, 1e-9, 1.0 - 1e-9)
-        return np.log(c / (1.0 - c))
+        return np.asarray(np.log(c / (1.0 - c)))
     raise ValueError(name)
 
 
@@ -96,22 +96,22 @@ def _fixed_logjac(name: str, y: np.ndarray, s: float) -> np.ndarray:
     if name == "identity":
         return np.zeros_like(y)
     if name == "cbrt":
-        return -math.log(3.0) - (2.0 / 3.0) * np.log(ay)
+        return np.asarray(-math.log(3.0) - (2.0 / 3.0) * np.log(ay))
     if name == "signed_sqrt":
-        return -math.log(2.0) - 0.5 * np.log(ay)
+        return np.asarray(-math.log(2.0) - 0.5 * np.log(ay))
     if name == "signed_square":
-        return math.log(2.0) + np.log(ay)
+        return np.asarray(math.log(2.0) + np.log(ay))
     if name == "asinh":
-        return -0.5 * np.log(s * s + y * y)
+        return np.asarray(-0.5 * np.log(s * s + y * y))
     if name == "log":
-        return -np.log(y)
+        return np.asarray(-np.log(y))
     if name == "log1p":
-        return -np.log1p(y)
+        return np.asarray(-np.log1p(y))
     if name == "reciprocal":
-        return -2.0 * np.log(ay)
+        return np.asarray(-2.0 * np.log(ay))
     if name == "logit":
         c = np.clip(y, 1e-9, 1.0 - 1e-9)
-        return -np.log(c) - np.log1p(-c)
+        return np.asarray(-np.log(c) - np.log1p(-c))
     raise ValueError(name)
 
 
@@ -121,19 +121,19 @@ def _fixed_inverse(name: str, z: np.ndarray, s: float) -> np.ndarray:
     if name == "cbrt":
         return z**3
     if name == "signed_sqrt":
-        return np.sign(z) * z * z
+        return np.asarray(np.sign(z) * z * z)
     if name == "signed_square":
-        return np.sign(z) * np.sqrt(np.abs(z))
+        return np.asarray(np.sign(z) * np.sqrt(np.abs(z)))
     if name == "asinh":
-        return s * np.sinh(z)
+        return np.asarray(s * np.sinh(z))
     if name == "log":
-        return np.exp(z)
+        return np.asarray(np.exp(z))
     if name == "log1p":
-        return np.expm1(z)
+        return np.asarray(np.expm1(z))
     if name == "reciprocal":
         return -1.0 / z
     if name == "logit":
-        return 1.0 / (1.0 + np.exp(-z))
+        return np.asarray(1.0 / (1.0 + np.exp(-z)))
     raise ValueError(name)
 
 
@@ -145,7 +145,7 @@ def _param_forward(name: str, y: np.ndarray, lam: np.ndarray) -> np.ndarray:
         ly = np.log(y)[:, None]
         out = np.expm1(ly * np.where(small, 1.0, lam)[None, :]) / np.where(small, 1.0, lam)[None, :]
         out[:, small] = ly
-        return out
+        return np.asarray(out)
     pos = y >= 0
     out = np.empty((len(y), len(lam)))
     for mask, ex, sign in ((pos, lam, 1.0), (~pos, 2.0 - lam, -1.0)):
@@ -163,15 +163,15 @@ def _param_forward(name: str, y: np.ndarray, lam: np.ndarray) -> np.ndarray:
 def _param_logjac(name: str, y: np.ndarray, lam: np.ndarray) -> np.ndarray:
     lam = np.atleast_1d(np.asarray(lam, dtype=np.float64))
     if name == "box_cox":
-        return np.log(y)[:, None] * (lam - 1.0)[None, :]
-    return (np.sign(y) * np.log1p(np.abs(y)))[:, None] * (lam - 1.0)[None, :]
+        return np.asarray(np.log(y)[:, None] * (lam - 1.0)[None, :])
+    return np.asarray((np.sign(y) * np.log1p(np.abs(y)))[:, None] * (lam - 1.0)[None, :])
 
 
 def _param_inverse(name: str, z: np.ndarray, lam: float) -> np.ndarray:
     eps = 1e-12
     if name == "box_cox":
         if abs(lam) < 1e-8:
-            return np.exp(z)
+            return np.asarray(np.exp(z))
         return np.maximum(lam * z + 1.0, eps) ** (1.0 / lam)
     out = np.empty_like(z)
     pos = z >= 0
@@ -234,7 +234,7 @@ class FittedTransform:
             if residuals is None:
                 return self._inv(np.clip(z, self.z_lo, self.z_hi))
             q = np.quantile(residuals, (np.arange(_N_SMEAR) + 0.5) / _N_SMEAR)
-            return self._inv(np.clip(z[..., None] + q, self.z_lo, self.z_hi)).mean(-1)
+            return np.asarray(self._inv(np.clip(z[..., None] + q, self.z_lo, self.z_hi)).mean(-1))
 
 
 def build_transform(name: str, y_ref: np.ndarray, lam: Optional[float] = None) -> FittedTransform:
@@ -279,7 +279,7 @@ def _design(X: np.ndarray, head: str) -> np.ndarray:
                 cols.append(_nat_spline(x, t))
     D = np.hstack(cols)
     sd = D.std(0)
-    return (D[:, sd > 1e-12] - D[:, sd > 1e-12].mean(0)) / sd[sd > 1e-12]
+    return np.asarray((D[:, sd > 1e-12] - D[:, sd > 1e-12].mean(0)) / sd[sd > 1e-12])
 
 
 @dataclasses.dataclass

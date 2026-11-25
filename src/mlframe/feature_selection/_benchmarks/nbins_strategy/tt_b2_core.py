@@ -35,30 +35,30 @@ def _std_noise(kind: str, rng, n: int) -> np.ndarray:
     """Mean-0 sd-1 noise with the shape of the family (for additive / homoscedastic variants)."""
     if kind == "lognormal":
         s = 0.5
-        return (np.exp(s * rng.standard_normal(n)) - np.exp(s * s / 2)) / np.sqrt((np.exp(s * s) - 1) * np.exp(s * s))
+        return np.asarray((np.exp(s * rng.standard_normal(n)) - np.exp(s * s / 2)) / np.sqrt((np.exp(s * s) - 1) * np.exp(s * s)))
     if kind == "gamma":
-        return (rng.gamma(2.0, 1.0, n) - 2.0) / np.sqrt(2.0)
+        return np.asarray((rng.gamma(2.0, 1.0, n) - 2.0) / np.sqrt(2.0))
     if kind == "weibull":
         k = 1.5
         m = _G(1 + 1 / k)
-        return (rng.weibull(k, n) - m) / np.sqrt(_G(1 + 2 / k) - m * m)
+        return np.asarray((rng.weibull(k, n) - m) / np.sqrt(_G(1 + 2 / k) - m * m))
     if kind == "pareto":
         a = 2.5
-        return (rng.random(n) ** (-1 / a) - a / (a - 1)) / np.sqrt(a / ((a - 1) ** 2 * (a - 2)))
-    return rng.standard_normal(n)
+        return np.asarray((rng.random(n) ** (-1 / a) - a / (a - 1)) / np.sqrt(a / ((a - 1) ** 2 * (a - 2))))
+    return np.asarray(rng.standard_normal(n))
 
 
 def _unit_noise(kind: str, rng, n: int) -> np.ndarray:
     """Positive noise with mean 1 (multiplicative variants)."""
     if kind == "lognormal":
-        return np.exp(0.5 * rng.standard_normal(n) - 0.125)
+        return np.asarray(np.exp(0.5 * rng.standard_normal(n) - 0.125))
     if kind == "gamma":
-        return rng.gamma(2.0, 0.5, n)
+        return np.asarray(rng.gamma(2.0, 0.5, n))
     if kind == "weibull":
-        return rng.weibull(1.5, n) / _G(1 + 1 / 1.5)
+        return np.asarray(rng.weibull(1.5, n) / _G(1 + 1 / 1.5))
     if kind == "pareto":
         a = 2.5
-        return rng.random(n) ** (-1 / a) * (a - 1) / a
+        return np.asarray(rng.random(n) ** (-1 / a) * (a - 1) / a)
     raise ValueError(kind)
 
 
@@ -122,23 +122,23 @@ _DISC_P = np.array([0.35, 0.25, 0.2, 0.12, 0.08])
 
 def gen_x(dist: str, n: int, rng) -> np.ndarray:
     if dist == "normal":
-        return rng.standard_normal(n)
+        return np.asarray(rng.standard_normal(n))
     if dist == "lognormal":
-        return np.exp(rng.standard_normal(n))
+        return np.asarray(np.exp(rng.standard_normal(n)))
     if dist == "t3":
-        return rng.standard_t(3, n)
+        return np.asarray(rng.standard_t(3, n))
     if dist == "uniform":
-        return rng.uniform(0.25, 4.0, n)
+        return np.asarray(rng.uniform(0.25, 4.0, n))
     if dist == "bounded":
-        return np.clip(rng.beta(3, 2, n), 1e-4, None)
+        return np.asarray(np.clip(rng.beta(3, 2, n), 1e-4, None))
     if dist == "discrete":
-        return rng.choice(np.arange(1.0, 6.0), n, p=_DISC_P)
+        return np.asarray(rng.choice(np.arange(1.0, 6.0), n, p=_DISC_P))
     if dist == "zero_infl":
         return np.where(rng.random(n) < 0.3, 0.0, np.exp(0.7 * rng.standard_normal(n)))
     if dist == "bimodal":
-        return np.where(rng.random(n) < 0.5, -2.0, 2.0) + 0.6 * rng.standard_normal(n)
+        return np.asarray(np.where(rng.random(n) < 0.5, -2.0, 2.0) + 0.6 * rng.standard_normal(n))
     if dist == "mixed_skew":
-        return np.exp(0.8 * rng.standard_normal(n)) - np.exp(0.32)
+        return np.asarray(np.exp(0.8 * rng.standard_normal(n)) - np.exp(0.32))
     raise ValueError(dist)
 
 
@@ -168,15 +168,15 @@ def link_fn(link: str, x: np.ndarray, c: float) -> np.ndarray:
     if link == "none":
         return x
     if link == "log":
-        return np.log(x)
+        return np.asarray(np.log(x))
     if link == "sqrt":
-        return np.sqrt(x)
+        return np.asarray(np.sqrt(x))
     if link == "square":
         return (x - c) ** 2
     if link == "recip":
         return 1.0 / x
     if link == "abs":
-        return np.abs(x - c)
+        return np.asarray(np.abs(x - c))
     raise ValueError(link)
 
 
@@ -189,7 +189,7 @@ def g_std(dist: str, link: str, x: np.ndarray) -> np.ndarray:
         gr = link_fn(link, xr, c)
         _GSD[key] = (float(np.mean(gr)), float(np.std(np.clip(gr, *np.percentile(gr, [0.01, 99.99])))))
     m, s = _GSD[key]
-    return (link_fn(link, x, c) - m) / s
+    return np.asarray((link_fn(link, x, c) - m) / s)
 
 
 def gen_feature_fixture(dist: str, link: str, n: int, rng, amp: float = 1.0) -> tuple[np.ndarray, np.ndarray, np.ndarray]:

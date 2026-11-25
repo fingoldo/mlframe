@@ -51,7 +51,7 @@ def _hats(u: np.ndarray, k: int) -> np.ndarray:
     """``(n, k)`` piecewise-linear hat basis on ``k`` equally spaced knots of [0, 1]."""
     knots = np.linspace(0.0, 1.0, k, dtype=np.float32)
     width = knots[1] - knots[0]
-    return np.maximum(0.0, 1.0 - np.abs(u[:, None] - knots[None, :]) / width)
+    return np.asarray(np.maximum(0.0, 1.0 - np.abs(u[:, None] - knots[None, :]) / width))
 
 
 def _oof_errors(basis: np.ndarray, y: np.ndarray, folds: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":

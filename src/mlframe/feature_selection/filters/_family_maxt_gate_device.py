@@ -104,7 +104,7 @@ def _distinct_columns_on_device(cp: Any, devs: "list") -> "tuple[Any, np.ndarray
     if n * k_total * int(dtype.itemsize) > min(DEDUPE_MAX_BYTES, int(cp.cuda.runtime.memGetInfo()[0]) // 8):
         return None
     layout = _multi_layout(cp, list(devs), n)
-    block = None
+    block: Any = None
     if layout is not None:
         columns_first = transposed_codes(cp, list(devs), n)
     else:

@@ -93,7 +93,7 @@ NULL_KIND = "signflip"
 def null_residuals(r: np.ndarray, k: int, rng: np.random.Generator) -> np.ndarray:
     """``k`` null draws (columns) of the residual vector ``r`` under the hypothesis that the tested column explains nothing of it."""
     if NULL_KIND == "signflip":
-        return r[:, None] * rng.choice([-1.0, 1.0], size=(r.shape[0], k))
+        return np.asarray(r[:, None] * rng.choice([-1.0, 1.0], size=(r.shape[0], k)))
     block = np.empty((r.shape[0], k))
     for b in range(k):
         block[:, b] = r[rng.permutation(r.shape[0])]
@@ -219,7 +219,7 @@ def apply_form(form: UnaryForm, x: np.ndarray) -> np.ndarray:
     finite = np.isfinite(out)
     if not finite.all():
         out = np.where(finite, out, np.median(out[finite]) if finite.any() else 0.0)
-    return out
+    return np.asarray(out)
 
 
 def _orthonormal_design(columns: "list[np.ndarray]", n: int) -> np.ndarray:
@@ -359,7 +359,7 @@ def oof_fold_gains(y: np.ndarray, others: "list[np.ndarray]", x: np.ndarray, for
     y = np.asarray(y, dtype=np.float64)
     base = np.column_stack([np.ones(y.size), *[np.asarray(o, dtype=np.float64) for o in others]])
     mae_id = fold_mae(y, np.column_stack([base, np.asarray(x, dtype=np.float64)]), folds)
-    return (mae_id - fold_mae(y, np.column_stack([base, apply_form(form, x)]), folds)) / np.maximum(mae_id, 1e-300)
+    return np.asarray((mae_id - fold_mae(y, np.column_stack([base, apply_form(form, x)]), folds)) / np.maximum(mae_id, 1e-300))
 
 
 def oof_replacement_gain(y: np.ndarray, others: "list[np.ndarray]", x: np.ndarray, form: UnaryForm, folds: int = OOF_FOLDS) -> float:

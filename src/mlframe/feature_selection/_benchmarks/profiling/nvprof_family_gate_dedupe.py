@@ -28,6 +28,7 @@ cp.cuda.Device().synchronize()
 cp.cuda.profiler.start()
 t0 = time.perf_counter()
 out = dev.family_pass_batches_device(batches, y, 0.01, 9999, 0)
+assert out is not None, "the device route declined the family"
 cp.cuda.Device().synchronize()
 print(f"wall {time.perf_counter() - t0:.3f}s passed={sum(out)}/{len(out)}")
 cp.cuda.profiler.stop()

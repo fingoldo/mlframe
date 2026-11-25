@@ -94,4 +94,4 @@ def _apply_unary_credit_product(recipe: "EngineeredRecipe", X: Any) -> np.ndarra
     """Replay a credited product on the two source columns of ``X``."""
     if len(recipe.src_names) != 2:
         raise ValueError(f"unary_credit_product recipe '{recipe.name}': src_names must have length 2; got {len(recipe.src_names)}")
-    return _side_values(recipe, X, 0, "a_") * _side_values(recipe, X, 1, "b_")
+    return np.asarray(_side_values(recipe, X, 0, "a_") * _side_values(recipe, X, 1, "b_"))

@@ -78,7 +78,7 @@ def valid_mask(params, cands):
     return v
 
 
-def build_candidates(Xr, params, cands, grids=None, rg_from_rows=None):
+def build_candidates(Xr, params, cands, grids=None):
     """Candidate stack (n, b, K) for the columns of Xr (n, b) with the per-column `params` (already sliced to those b columns).
     Invalid cells are filled with zeros; the caller masks them with valid_mask. rankgauss uses `grids` (list of grids, one per column) when given,
     else it is computed from the rows themselves (discovery rows)."""
@@ -545,7 +545,7 @@ class Recipes:
         return out
 
 
-def all_candidate_matrix(Xfit, X, cands=CAND_DEFAULT, grids_cache=None):
+def all_candidate_matrix(Xfit, X, cands=CAND_DEFAULT):
     """Every valid non-identity candidate of every column: (matrix (n, M), list of (col, name)). Constants from Xfit (blind-add baseline)."""
     Xfit = np.asarray(Xfit, dtype=np.float64)
     X = np.asarray(X, dtype=np.float64)

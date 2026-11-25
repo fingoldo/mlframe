@@ -115,7 +115,6 @@ def main():
     else:
         for r in rows:
             r["pk"] = {"c": r["pick"]}
-        table(rows, (a.group or "dist,link").split(","), ["pick"], a.metric, id_key="id", pick_key="_", title="FEATURE") if False else None
         feat_table(rows, (a.group or "dist,link").split(","), a.metric)
 
 

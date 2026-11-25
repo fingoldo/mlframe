@@ -47,7 +47,7 @@ def _standardise(matrix: np.ndarray) -> np.ndarray:
     """Columns scaled to zero mean and unit variance, clipped at 8 standard deviations (a heavy-tailed engineered column must not own the ridge)."""
     matrix = matrix - matrix.mean(axis=0)
     sd = matrix.std(axis=0)
-    return np.clip(matrix / np.where(sd > 0, sd, 1.0), -8.0, 8.0)
+    return np.asarray(np.clip(matrix / np.where(sd > 0, sd, 1.0), -8.0, 8.0))
 
 
 def oof_squared_error(design: np.ndarray, y: np.ndarray, folds: np.ndarray) -> np.ndarray:
@@ -73,7 +73,7 @@ def rank_hats(column: np.ndarray, k: int = HATS) -> np.ndarray:
     order[np.argsort(column, kind="stable")] = np.arange(column.size)
     u = (order + 0.5) / column.size
     knots = np.linspace(0.0, 1.0, k)
-    return np.maximum(0.0, 1.0 - np.abs(u[:, None] - knots[None, :]) / (knots[1] - knots[0]))
+    return np.asarray(np.maximum(0.0, 1.0 - np.abs(u[:, None] - knots[None, :]) / (knots[1] - knots[0])))
 
 
 def eliminate(columns: np.ndarray, y: np.ndarray, removable: "list[int]", *, seed: int = 0) -> "list[int]":
@@ -128,7 +128,9 @@ def run_credit_parsimony(self: Any, X: Any, selected_vars: list, cols: Any, clas
         soft = set(getattr(self, "_unary_credit_soft_", None) or ())  # single forms credited only through a product
         # a raw column is a candidate for removal when some engineered column is a function of it alone (a credited form, or the same form an MI-greedy family emitted under its own name): the two legs decide
         credited_sources = {r.src_names[0] for r in recipes if len(r.src_names) == 1}
-        columns, labels, removable = [], [], []
+        columns: list[Any] = []
+        labels: list[Any] = []
+        removable: list[Any] = []
         for nm in raw_names:
             if nm in X.columns and pd.api.types.is_numeric_dtype(X[nm].dtype):
                 if nm in credited_sources:

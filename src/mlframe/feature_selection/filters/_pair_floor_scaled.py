@@ -122,13 +122,14 @@ def scaled_pair_floor(
     halves = [block[0::2], block[1::2]]
     rhos = [_ratio(exact_floor, factors_data, sub, y, y_sub, fy, fy_sub, nb, pa[h], pb[h], quantile, cal_seed) for h in halves]
     info["rho_halves"] = rhos
-    if any(r is None for r in rhos):
+    rho_a, rho_b = rhos
+    if rho_a is None or rho_b is None:
         info["why"] = "a floor of the calibration block is not positive"
         return None, info
-    rho = float(np.sqrt(rhos[0] * rhos[1]))
+    rho = float(np.sqrt(rho_a * rho_b))
     info["rho"] = rho
-    if abs(rhos[0] / rhos[1] - 1.0) > HALVES_AGREE:
-        info["why"] = "the two halves of the calibration block disagree (%.2f and %.2f)" % (rhos[0], rhos[1])
+    if abs(rho_a / rho_b - 1.0) > HALVES_AGREE:
+        info["why"] = "the two halves of the calibration block disagree (%.2f and %.2f)" % (rho_a, rho_b)
         return None, info
     if ACCEPT_LOW <= rho <= ACCEPT_HIGH:
         factor = 1.0

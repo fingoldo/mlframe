@@ -113,7 +113,7 @@ def _standardise(values: np.ndarray) -> np.ndarray:
     """Candidate columns scaled to zero mean and unit variance (a constant column stays at zero)."""
     values = values - values.mean(axis=0)
     sd = values.std(axis=0)
-    return values / np.where(sd > 0, sd, 1.0)
+    return np.asarray(values / np.where(sd > 0, sd, 1.0))
 
 
 def _test_column(
@@ -150,22 +150,22 @@ def _test_column(
 
     def null_gains(k: int) -> np.ndarray:
         """``(candidates - 1, k)`` null gains ``LRT_f - LRT_id`` over ``k`` bootstrap class vectors."""
-        if device:
+        if device and cp is not None:
             ll = try_loglik_device(cp, device["offset"], device["z"], draw_classes(cp, device["rng"], device["p"], k), NULL_NEWTON_STEPS)
             if ll is not None:
                 lrt = 2.0 * (ll[:-1] - ll[-1][None, :])
-                return cp.asnumpy(lrt[1:] - lrt[0][None, :])
+                return np.asarray(cp.asnumpy(lrt[1:] - lrt[0][None, :]))
             device.clear()  # this and every later batch of the column run on the host
         ll = loglik_host(offset_c, rows, (rng.random((k, n)) < p_id[None, :]).astype(np.uint8), NULL_NEWTON_STEPS)
         lrt = 2.0 * (ll[:-1] - ll[-1][None, :])
-        return lrt[1:] - lrt[0][None, :]
+        return np.asarray(lrt[1:] - lrt[0][None, :])
 
     def draw_maxima(k: int) -> np.ndarray:
         """``k`` null values of ``max_f (LRT_f - LRT_id)`` over bootstrap class vectors."""
         gains_k = null_gains(k)
         if not first_batch:
             first_batch.append(gains_k)
-        return gains_k.max(axis=0)
+        return np.asarray(gains_k.max(axis=0))
 
     p = adaptive_max_pvalue(float(gains[gate].max()), draw_maxima, level)
     slack = float(first_batch[0].std(axis=1).max()) if first_batch else 0.0

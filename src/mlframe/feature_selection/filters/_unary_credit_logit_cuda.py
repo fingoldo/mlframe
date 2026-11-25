@@ -211,7 +211,7 @@ def loglik_host(offset: np.ndarray, z: np.ndarray, y: np.ndarray, steps: int) ->
     """:func:`loglik_device` on the host: ``offset`` ``(n,)``, ``z`` ``(K, n)`` and ``y`` ``(D, n)`` of 0 / 1; the ``(K, D)`` float64 log-likelihoods."""
     with parallel_kernel_entry():
         # one compiled signature (double values, byte classes): the kernel sums in double precision whatever the input type, and every signature is a separate numba cache load of about 0.8 s per process
-        return _loglik_njit(np.ascontiguousarray(offset, dtype=np.float64), np.ascontiguousarray(z, dtype=np.float64), np.ascontiguousarray(y, dtype=np.uint8), int(steps))
+        return np.asarray(_loglik_njit(np.ascontiguousarray(offset, dtype=np.float64), np.ascontiguousarray(z, dtype=np.float64), np.ascontiguousarray(y, dtype=np.uint8), int(steps)))
 
 
 # ---- backend choice through the kernel tuning cache -------------------------------------------------------------------------------------------------------------------------------------------------
@@ -257,7 +257,7 @@ def _run_sweep() -> list:
         out = try_loglik_device(cp, cp.asarray(offset), cp.asarray(z), cp.asarray(y), _SWEEP_STEPS)
         if out is None:
             raise RuntimeError("the device kernel declined this shape")
-        return cp.asnumpy(out)
+        return np.asarray(cp.asnumpy(out))
 
     # the two kernels do the same Newton steps in different precision (float32 terms on the device, double on the host): the values agree to about 1e-4 relative
     return sweep_backend_grid(

@@ -37,9 +37,9 @@ def _extend_joint(joint: np.ndarray, col: np.ndarray) -> np.ndarray:
     # dense ids in increasing value order, from one counting pass instead of a sort (a sort of the rows for every column of every candidate)
     dense, k = _dense_small_ints(np.ascontiguousarray(key).reshape(-1), 1 << 22)
     if k >= 0:
-        return dense
+        return np.asarray(dense)
     _, ids = np.unique(key, return_inverse=True)
-    return ids.astype(np.int64, copy=False)
+    return np.asarray(ids.astype(np.int64, copy=False))
 
 
 def _dense_target(y_codes: np.ndarray) -> "tuple[np.ndarray, int]":

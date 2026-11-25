@@ -223,7 +223,7 @@ def _stdcols(F: np.ndarray) -> np.ndarray:
     F = F - F.mean(0)
     s = np.sqrt((F * F).sum(0))
     s[s == 0] = np.inf
-    return F / s
+    return np.asarray(F / s)
 
 
 def feat_scores(F: np.ndarray, r: np.ndarray) -> np.ndarray:
@@ -231,7 +231,7 @@ def feat_scores(F: np.ndarray, r: np.ndarray) -> np.ndarray:
     rc = r - r.mean()
     rn = np.sqrt((rc * rc).sum())
     rho = (_stdcols(F).T @ rc) / (rn if rn > 0 else np.inf)
-    return -0.5 * np.log(np.maximum(1 - rho**2, 1e-12))
+    return np.asarray(-0.5 * np.log(np.maximum(1 - rho**2, 1e-12)))
 
 
 def feat_decide(x: np.ndarray, Zo: np.ndarray | None, y: np.ndarray, rng, B: int = 100, q: float = 0.95, extended: bool = False) -> dict:

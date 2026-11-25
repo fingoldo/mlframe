@@ -89,7 +89,7 @@ def oof_fold_gains_interaction(y: np.ndarray, mains: "list[np.ndarray]", x: np.n
     n = y.size
     base = np.column_stack([np.ones(n), *[np.asarray(m, dtype=np.float64) for m in mains], basis])
     mae_id = fold_mae(y, np.column_stack([base, _block(x, basis)]))
-    return (mae_id - fold_mae(y, np.column_stack([base, _block(apply_form(form, x), basis)]))) / np.maximum(mae_id, 1e-300)
+    return np.asarray((mae_id - fold_mae(y, np.column_stack([base, _block(apply_form(form, x), basis)]))) / np.maximum(mae_id, 1e-300))
 
 
 def oof_replacement_gain_interaction(y: np.ndarray, mains: "list[np.ndarray]", x: np.ndarray, basis: np.ndarray, form: UnaryForm) -> float:
@@ -124,7 +124,7 @@ def _test_column(
         """``k`` null values of the maximum over forms and partners."""
         signs = rng.choice([-1.0, 1.0], size=(n, k))
         null = np.array([d.null_scores(signs) for d in designs])  # (partners, forms, k)
-        return null[:, gate].max(axis=(0, 1))
+        return np.asarray(null[:, gate].max(axis=(0, 1)))
 
     p = adaptive_max_pvalue(float(observed[:, gate].max()), draw_maxima, level)
     if p > level:
@@ -208,7 +208,12 @@ def credit_interactions(
     if n < 400 or m < 2 or not np.isfinite(y).all() or float(y.std()) <= 0.0:
         return verdicts, partner_of
     disc, held = _split(n, rng)
-    current = [X[:, j].copy() if start is None or start[j] is None else apply_form(start[j], X[:, j]) for j in range(m)]
+    def initial(j: int) -> np.ndarray:
+        """The column ``j`` as the single-column test left it: its credited form, or the raw column."""
+        form = None if start is None else start[j]
+        return X[:, j].copy() if form is None else np.asarray(apply_form(form, X[:, j]))
+
+    current = [initial(j) for j in range(m)]
     tested = [j for j in range(m) if j not in skip and np.isfinite(X[:, j]).all()]
     level = LEVEL_SHARE * alpha / max(len(tested), 1)
     for _ in range(max(1, passes)):
@@ -219,13 +224,13 @@ def credit_interactions(
             if not forms or not partners:
                 continue
             # the products of the pairs already credited sit in the null design: the leftover of ``y`` would otherwise hold their (large) signal, whose variance depends on the partners and makes the permutation null liberal
-            nuisance = [current[i] * current[k] for i in range(m) if partner_of[i] is not None and i != j for k in [partner_of[i]] if k != j]
+            nuisance = [current[i] * current[k] for i, k in enumerate(partner_of) if k is not None and i != j and k != j]
             mains_disc = [current[k][disc] for k in range(m) if k != j] + [c[disc] for c in nuisance]
             bases_disc = [partner_basis(X[disc, k], current[k][disc]) for k in partners]
             best, share, p_raw, which = _test_column(raw[disc], y[disc], mains_disc, bases_disc, forms, level, rng)
             p_family = min(1.0, p_raw * len(tested))
             if p_family > LEVEL_SHARE * alpha or share <= 0.0:
-                current[j] = X[:, j].copy() if start is None or start[j] is None else apply_form(start[j], X[:, j])
+                current[j] = initial(j)
                 verdicts[j], partner_of[j] = none, None
                 continue
             form = forms[best]
@@ -234,7 +239,7 @@ def credit_interactions(
             _, share_h, p_h, _ = _test_column(raw[held], y[held], mains_held, bases_held, [form], alpha, rng)
             effect = heldout_mae_gain_interaction(y[disc], mains_disc, raw[disc], bases_disc[which], y[held], mains_held, raw[held], bases_held[which], form)
             if not (p_h <= alpha and share_h > 0.0 and effect > 0.0):
-                current[j] = X[:, j].copy() if start is None or start[j] is None else apply_form(start[j], X[:, j])
+                current[j] = initial(j)
                 verdicts[j], partner_of[j] = none, None
                 continue
             nats = -0.5 * float(np.log(max(1.0 - min(share, 0.999999), 1e-12)))
@@ -263,7 +268,7 @@ def _product_stat(x: np.ndarray, y: np.ndarray, design: np.ndarray, rng: np.rand
     def draw_maxima(k: int) -> np.ndarray:
         """``k`` null values of the share (the residual keeps its magnitudes, random signs)."""
         draws = r[:, None] * rng.choice([-1.0, 1.0], size=(n, k))
-        return (c @ draws) ** 2 / np.maximum(np.einsum("ij,ij->j", draws, draws), 1e-300)
+        return np.asarray((c @ draws) ** 2 / np.maximum(np.einsum("ij,ij->j", draws, draws), 1e-300))
 
     return observed, adaptive_max_pvalue(observed, draw_maxima, level)
 
@@ -285,7 +290,7 @@ def select_products(
         n = MAX_ROWS
     if n < 400 or not pairs or not np.isfinite(y).all() or float(y.std()) <= 0.0:
         return []
-    z = np.column_stack([X[:, k] if forms[k] is None else apply_form(forms[k], X[:, k]) for k in range(m)])
+    z = np.column_stack([X[:, k] if f is None else apply_form(f, X[:, k]) for k in range(m) for f in [forms[k]]])
     disc, held = _split(n, rng)
     level = alpha / len(pairs)
     accepted: "list[tuple[int, int]]" = []

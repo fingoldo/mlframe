@@ -334,7 +334,7 @@ def _metrics(P, y, K):
     return ll, auc
 
 
-def judge_lr(Ftr, Fte, Ztr, Zte, ytr, yte, K, extra_id=None):
+def judge_lr(Ftr, Fte, Ztr, Zte, ytr, yte, K):
     """Held-out (logloss, auc) of the multinomial logit on [z, f(x)] for every candidate column."""
     Ytr = onehot(ytr, K)
     zm, zs = Ztr.mean(0), Ztr.std(0)

@@ -114,4 +114,5 @@ if sampler is not None:
     sampler.__exit__(None, None, None)
     from mlframe.feature_selection._benchmarks.profiling import stage_idle_report
 
+    assert ledger_prefix is not None
     stage_idle_report.main([ledger_prefix + ".ledger.jsonl", ledger_prefix + ".timeline.jsonl"])

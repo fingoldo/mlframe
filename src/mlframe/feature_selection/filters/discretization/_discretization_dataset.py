@@ -590,7 +590,7 @@ def categorize_dataset(
         # CMI redundancy loop (~290s at 100k) which the batched-CUDA CMI kernel attacks first. A cheaper interim
         # lever (column-parallelising per_feature_edges) is a candidate if MDLP discretization becomes the wall.
         per_column_edges = binning is not None and not binning.is_fixed
-        if per_column_edges:
+        if per_column_edges and binning is not None:
             data, per_col_bins = _discretize_with_binning(arr, cols, binning, binning_kwargs, y_for_strategy, cache_dir, dtype)
         else:
             # Unsupervised numeric path: each column binned independently of others AND of the target, so per-column
