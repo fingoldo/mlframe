@@ -658,6 +658,24 @@ def _sequential_label_shuffles(classes_y: np.ndarray, k: int, random_seed: Any) 
     return y_perms
 
 
+def _resolve_mm_bias(mm_debias: bool, mm_bias: "np.ndarray | None", factors_data: np.ndarray, pa: np.ndarray, pb: np.ndarray, nb: np.ndarray, k_y: int) -> "np.ndarray | None":
+    """The per-pair Miller-Madow bias vector (occupied joint-K), permutation-invariant, or ``None`` without ``mm_debias``.
+
+    ``mm_bias`` is the vector a caller already computed on these rows (``pairwise_mm_joint_bias``; the row cap is off in this mode, so its rows are the ones scored here): used as given instead of counting
+    the occupied joint cells of every pair a second time.
+    """
+    if not mm_debias:
+        return None
+    if mm_bias is not None and int(np.asarray(mm_bias).shape[0]) == int(pa.shape[0]):
+        return np.asarray(mm_bias, dtype=np.float64)  # Intentional float64: statistic vector
+    n = int(factors_data.shape[0])
+    k_joint = _pairwise_occupied_joint_k(factors_data, pa, pb, nb)
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    bias = (k_joint - 1).astype(np.float64) * float(k_y - 1) / (2.0 * n)
+    bias[k_joint <= 1] = 0.0
+    return bias
+
+
 def pooled_pair_permutation_null_joint_mi_floor(
     factors_data: np.ndarray,
     nbins: np.ndarray,
@@ -781,19 +799,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
     # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
 
-    # Per-pair Miller-Madow bias vector (occupied joint-K), permutation-invariant. ``mm_bias`` is the vector a caller already computed on these rows (``pairwise_mm_joint_bias``; the row cap is off
-    # in this mode, so its rows are the ones scored here): used as given instead of counting the occupied joint cells of every pair a second time.
-    if not mm_debias:
-        mm_bias = None
-    elif mm_bias is not None and int(np.asarray(mm_bias).shape[0]) == n_pairs:
-        mm_bias = np.asarray(mm_bias, dtype=np.float64)  # Intentional float64: statistic vector
-    else:
-        mm_bias = None
-    if mm_debias and mm_bias is None:
-        k_joint = _pairwise_occupied_joint_k(factors_data, pa, pb, nb)
-        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-        mm_bias = (k_joint - 1).astype(np.float64) * float(k_y - 1) / (2.0 * n)
-        mm_bias[k_joint <= 1] = 0.0
+    mm_bias = _resolve_mm_bias(mm_debias, mm_bias, factors_data, pa, pb, nb, k_y)
 
     K = int(n_permutations)
     # The retry of an FE step asks for the same floor over the same pool: remember the K per-shuffle maxima by the content of the inputs (the quantile is taken from them).
