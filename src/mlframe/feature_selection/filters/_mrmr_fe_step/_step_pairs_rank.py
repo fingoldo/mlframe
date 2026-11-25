@@ -225,8 +225,13 @@ def _make_cached_operand(self: Any, X: Any, cols: Any, *, max_entries: int) -> C
     """
     from .._fe_usability_signal import _crit_np_dtype as _op_cache_dtype
 
-    _operand_cache: OrderedDict = OrderedDict()
-    # The entry cap is a floor: the cache also grows to the operands that fit a tenth of the free host RAM, because a pool wider than the cap made every pair re-extract its two operand
+    # Two memos. An operand the cast COPIED (``owndata``) costs a full column and is bounded as before; an operand that is a VIEW of the frame's own column (a float32 column asked at float32, the usual
+    # case) costs nothing, so it is bounded only by a ceiling far above the number of columns. A single LRU of 512 entries over a pool of 1000 operands that the scan walks in a cycle never hits
+    # (every access evicts the entry that is needed next): 290000 extractions at 54 us each through pandas (15.6 s at 500000 x 1000, a frame of 1800 columns).
+    _owned_cache: OrderedDict = OrderedDict()
+    _view_cache: OrderedDict = OrderedDict()
+    _view_ceiling = max(4096, 4 * len(cols)) if hasattr(cols, "__len__") else 4096
+    # The entry cap of the copies is a floor: the cache also grows to the operands that fit a tenth of the free host RAM, because a pool wider than the cap made every pair re-extract its two operand
     # columns from the frame (247104 extractions, 37 s, at 600 columns; the cache held 512 of ~700 operands and the scan order cycles through all of them).
     try:
         _row_bytes = max(1, len(X)) * np.dtype(_op_cache_dtype()).itemsize
@@ -236,17 +241,19 @@ def _make_cached_operand(self: Any, X: Any, cols: Any, *, max_entries: int) -> C
 
     def _cached_operand(_idx):
         """Return operand ``_idx``'s continuous usability value, computing and memoizing it on first use."""
-        _hit = _operand_cache.get(_idx)
-        if _hit is not None:
-            _operand_cache.move_to_end(_idx)
-            return _hit
+        for _memo in (_view_cache, _owned_cache):
+            _hit = _memo.get(_idx)
+            if _hit is not None:
+                _memo.move_to_end(_idx)
+                return _hit
         _val = _usability_operand_continuous(self, X, cols, _idx)
         if _val is None:
             return None
         _val = np.asarray(_val, dtype=_op_cache_dtype())
-        _operand_cache[_idx] = _val
-        if len(_operand_cache) > max_entries:
-            _operand_cache.popitem(last=False)
+        _memo, _cap = (_owned_cache, max_entries) if _val.flags.owndata else (_view_cache, _view_ceiling)
+        _memo[_idx] = _val
+        if len(_memo) > _cap:
+            _memo.popitem(last=False)
         return _val
 
     return _cached_operand

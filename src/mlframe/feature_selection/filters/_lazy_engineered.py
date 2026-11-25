@@ -25,15 +25,18 @@ from pandas.api.extensions import ExtensionArray, ExtensionDtype, register_exten
 
 from mlframe.utils.env_flags import env_int
 
+from ._cache_release import register_cache_releaser
+
 #: Rows from which the full-length replay of a winner is deferred (0: never deferred).
 DEFAULT_MIN_ROWS = 250_000
-#: Bytes of materialised columns kept for repeated reads (shared by every lazy column of the process).
-CACHE_BYTES = 512 * 1024 * 1024
+#: Bytes of materialised columns kept for repeated reads (shared by every lazy column of the process): room for every engineered column of a 500000 x 1000 fit (800 columns of 2 MB), given back under memory pressure.
+CACHE_BYTES = 3 * 1024 * 1024 * 1024
 #: Bytes of the replayed first rows of lazy columns (the heads the decision stages probe a recipe on).
 HEAD_CACHE_BYTES = 64 * 1024 * 1024
-#: A cache holds at most this share of the memory the machine has available when a column is put into it (floor ``CACHE_FLOOR_BYTES``): the caches hold only what can be recomputed, and a fit at the
-#: edge of the RAM (1M x 1000 on 16 GB) has to give it back before the code matrix is copied.
-CACHE_AVAILABLE_SHARE = 0.1
+#: A cache holds what the machine has available above this reserve when a column is put into it (floor ``CACHE_FLOOR_BYTES``): the caches hold only what can be recomputed, and a fit at the edge of the
+#: RAM (1M x 1000 on 16 GB) has to give it back before the code matrix is copied. The reserve is the FE stages' own (``_fe_min_free_ram_bytes``, 3 GiB). Replaying a column costs seconds at the full
+#: row count: with a cache of 512 MB a 500000 x 1000 fit replayed each of its 800 engineered columns three times (4.8 GB of replays, 54 s of the critical path).
+CACHE_RESERVE_BYTES = 3 * 1024 * 1024 * 1024
 CACHE_FLOOR_BYTES = 64 * 1024 * 1024
 #: A head slice of at most this many rows is replayed on the head alone; a longer one computes the column.
 HEAD_MAX_ROWS = 65_536
@@ -74,11 +77,11 @@ class _ColumnCache:
             return hit
 
     def bound(self) -> int:
-        """The bytes the cache may hold now: its own bound, or the share of the available memory (never below the floor) when the machine is tight."""
+        """The bytes the cache may hold now: its own bound, or what the machine has available above ``CACHE_RESERVE_BYTES`` (never below the floor) when it is tight."""
         try:
             import psutil
 
-            return min(self.max_bytes, max(CACHE_FLOOR_BYTES, int(psutil.virtual_memory().available * CACHE_AVAILABLE_SHARE)))
+            return min(self.max_bytes, max(CACHE_FLOOR_BYTES, int(psutil.virtual_memory().available) - CACHE_RESERVE_BYTES))
         except Exception:  # psutil missing or unreadable: the own bound
             return self.max_bytes
 
@@ -97,16 +100,25 @@ class _ColumnCache:
                 _, dropped = self._items.popitem(last=False)
                 self._bytes -= dropped.nbytes
 
-    def clear(self) -> None:
-        """Forget every column."""
+    def clear(self) -> int:
+        """Forget every column; the bytes that were held."""
         with self._lock:
+            freed = self._bytes
             self._items.clear()
             self._bytes = 0
+            return freed
 
 
 _CACHE = _ColumnCache(CACHE_BYTES)
 _HEAD_CACHE = _ColumnCache(HEAD_CACHE_BYTES)
 _GATHER_CACHE = _ColumnCache(GATHER_CACHE_BYTES)
+def release_caches() -> int:
+    """Drop the materialised columns, the replayed heads and the gathered rows (all recomputable); the bytes freed. Registered with the FE stages' cache releaser: it runs when the free RAM is low."""
+    return _CACHE.clear() + _HEAD_CACHE.clear() + _GATHER_CACHE.clear()
+
+
+register_cache_releaser(release_caches)
+
 #: Counters of the process (columns created, replays run, reads answered by the cache, bytes replayed): what the profile of a fit reads to see how often a lazy column is computed.
 STATS = {"created": 0, "replayed": 0, "cache_hits": 0, "replayed_bytes": 0, "head_replays": 0, "gather_hits": 0}
 _SERIAL = itertools.count()  # a key per column that is never reused (the ids of collected objects are)

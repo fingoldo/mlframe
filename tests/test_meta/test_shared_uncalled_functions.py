@@ -699,6 +699,7 @@ _KEPT_SUPERSEDED_REFERENCES = {
 #: lose the reference the test checks the production twin against; restoring a caller would route production to a variant that
 #: was measured as slower, coarser or unsafe.
 _KEPT_TEST_REFERENCES = {
+    "_su_codes_of_finite_columns",  # the per-column host form of the SU quantiser (int32 codes and a bin count each), the oracle the device twin and the tiled block writer are checked against (test_su_quantiser_device_twin)
     "corrected_joint_mi",  # the joint MI of a column list built from scratch, the oracle test_selection_compaction checks the prefix-cached JointCache against
     "_pairwise_occupied_joint_k_njit",  # the serial distinct-code count of the pair tables, the reference of the fast kernel (test_pair_occupied_joint_k_fast_kernel compares them)
     "_deviance",  # the numpy / cupy form of the logit likelihood-ratio statistic, the oracle the njit twin and the device kernel of the logit credit are checked against (test_unary_credit_logit_kernels)

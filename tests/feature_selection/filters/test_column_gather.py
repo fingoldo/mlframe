@@ -43,3 +43,32 @@ def test_no_columns_and_no_rows_give_empty_blocks_of_the_right_shape():
     data = np.zeros((10, 4), dtype=np.uint8)
     assert gather_columns_cm(data, np.empty(0, dtype=np.int64), pad_to=4).shape == (0, 12)
     assert gather_columns_cm(np.zeros((0, 4), dtype=np.uint8), np.array([1, 2]), pad_to=4).shape == (2, 0)
+
+
+@pytest.mark.parametrize("dtype", [np.int8, np.int32])
+@pytest.mark.parametrize("n", [1, 63, 65, 8193, 20_001])
+def test_the_scatter_writes_each_block_row_into_its_matrix_column(dtype, n):
+    """``dst[:, cols[j]] = src[j]`` for scattered (not contiguous, not sorted-adjacent) destination columns, cast to the matrix dtype; the other columns stay as they were."""
+    from mlframe.feature_selection.filters._column_gather import scatter_columns_rm
+
+    rng = np.random.default_rng(n)
+    dst = np.full((n, 11), -1, dtype=dtype)
+    src = rng.integers(0, 100, (4, n)).astype(np.int16)
+    cols = np.array([9, 0, 4, 5], dtype=np.int64)
+    scatter_columns_rm(dst, cols, src)
+    expected = np.full((n, 11), -1, dtype=dtype)
+    for j, c in enumerate(cols):
+        expected[:, c] = src[j]
+    assert np.array_equal(dst, expected)
+
+
+def test_the_scatter_refuses_a_block_that_does_not_fit():
+    """A block with another row count, or more rows than destination columns, is an error and writes nothing."""
+    from mlframe.feature_selection.filters._column_gather import scatter_columns_rm
+
+    dst = np.zeros((10, 3), dtype=np.int8)
+    with pytest.raises(ValueError, match="does not fit"):
+        scatter_columns_rm(dst, np.array([0, 1]), np.zeros((2, 9), dtype=np.int16))
+    with pytest.raises(ValueError, match="does not fit"):
+        scatter_columns_rm(dst, np.array([0]), np.zeros((2, 10), dtype=np.int16))
+    assert not dst.any()

@@ -358,8 +358,11 @@ def _resolve_index_columns(mrmr_self: Any, df: pd.DataFrame) -> None:
                 return "(" + ", ".join(_name(o) for o in ops) + ")" if len(ops) else ""
             return _name(ops)
 
-        _resolved = [_row(o) for o in df["operands"]]
-        if any(_resolved):
+        # a pair is recorded once per operator and gate: render each DISTINCT operand tuple once (500000 records, about 25000 distinct tuples at 1000 columns)
+        _distinct = pd.unique(df["operands"])
+        _rendered = {o: _row(o) for o in _distinct}
+        _resolved = [_rendered[o] if o in _rendered else _row(o) for o in df["operands"]]  # a NaN is a new key at every lookup: rendered where it is met
+        if any(_rendered.values()):
             df["operand_names"] = _resolved
     except Exception as exc:  # nosec B110 - a readability aid must never break the ledger
         logger.debug("fe_rejection_ledger_: operand-name resolution failed: %s", exc)

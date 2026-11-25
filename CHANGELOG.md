@@ -11,6 +11,9 @@ history.
 
 ## [Unreleased]
 ### Fixed
+- The pair ranking no longer extracts the operands of its candidate pairs from the frame again and again: the memo of operand columns that are views of the frame is not bounded by the entry cap of the copies (a 1000-operand pool walked in a cycle through a 512-entry LRU never hit; 290000 extractions, 15.6 s at 500000 x 1000).
+- The symmetric-uncertainty quantiser of the cluster hierarchy writes its codes into the matrix as one tiled block on every core (`scatter_columns_rm`) instead of one strided column at a time, and the rejection ledger renders each distinct operand tuple once.
+- Lazy engineered columns: the cache holds what the machine has above a 3 GiB reserve (up to 3 GB) and is registered with the stage cache releaser, so replays of a 500000 x 1000 fit fall from 4.8 to 3.3 GB without a larger peak.
 - The pair maxT permutation-null floor of a binary target counts the outcomes of up to eight permutations with one shared atomic per row (`_pair_mi_perm_cuda_bin`, pairs grouped by the number of permutations their joint table allows per pass): 29 ms against 143 ms for 600 pairs x 500000 rows x 25 permutations, MI equal to 5e-19; at 500000 x 1000 the floor takes 28 s instead of 129 s.
 - The acceptance scan of the honest null reads the sorted-space tables with coalesced loads (`root_split_accept_pre_co`, 43.2 -> 11.2 ms for 24 columns x 128 permutations at 500000 rows, equal gain, candidate count and index on every pair); the reference kernel stays behind `MLFRAME_HONEST_ACCEPT_PRE_SCAN=block`.
 - The feature-major pair-MI kernel no longer gives up after a refusal of the whole matrix (the refusal started the OOM cooldown and every smaller block was declined), gathers its column blocks on every core (`_column_gather`) and the pairs of a streamed call are cut in tiles of ranked column blocks: the all-pairs table of a 1M x 1000 fit takes about 40 s instead of 900 s.

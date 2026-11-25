@@ -258,7 +258,7 @@ def test_the_subsample_gather_of_a_lazy_column_replays_it_once_per_draw(monkeypa
 
 
 def test_a_cache_gives_memory_back_when_the_machine_is_tight(monkeypatch):
-    """With little memory available a cache keeps the share of it (never less than the floor); with plenty it keeps its own bound."""
+    """With little memory available above the reserve a cache keeps no more than the floor; with plenty it keeps its own bound."""
     import types
 
     cache = L._ColumnCache(max_bytes=10_000)
@@ -269,3 +269,21 @@ def test_a_cache_gives_memory_back_when_the_machine_is_tight(monkeypatch):
     monkeypatch.setitem(__import__("sys").modules, "psutil", types.SimpleNamespace(virtual_memory=lambda: types.SimpleNamespace(available=10_000)))
     cache.put(99, np.zeros(500, dtype=np.float32))
     assert cache._bytes <= 2_500 and cache.get(99) is not None and cache.get(0) is None
+
+
+def test_the_cache_may_use_the_memory_above_the_reserve_and_the_registered_releaser_empties_every_cache(monkeypatch):
+    """With 5 GB available and a reserve of 3 GB a cache holds 2 GB; the releaser the FE stages call under memory pressure drops the value, head and gather caches and reports the bytes."""
+    import types
+
+    monkeypatch.setitem(__import__("sys").modules, "psutil", types.SimpleNamespace(virtual_memory=lambda: types.SimpleNamespace(available=5 * 1024**3)))
+    assert L._ColumnCache(max_bytes=10 * 1024**3).bound() == 2 * 1024**3
+    assert L._ColumnCache(max_bytes=1024**3).bound() == 1024**3
+    from mlframe.feature_selection.filters import _cache_release
+
+    assert L.release_caches in _cache_release._RELEASERS
+    L.release_caches()  # what the other tests of the file left in the caches
+    L._CACHE.put(("a", 1), np.zeros(1000, dtype=np.float32))
+    L._HEAD_CACHE.put(("b", 2), np.zeros(10, dtype=np.float32))
+    L._GATHER_CACHE.put(("c", 3), np.zeros(100, dtype=np.float32))
+    assert L.release_caches() == 4000 + 40 + 400
+    assert L._CACHE.get(("a", 1)) is None and L._HEAD_CACHE.get(("b", 2)) is None and L._GATHER_CACHE.get(("c", 3)) is None

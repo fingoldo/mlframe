@@ -36,6 +36,34 @@ def _gather_columns_cm_njit(data, cols, out):
                     out[j, r] = data[r, c]
 
 
+@numba.njit(cache=True, nogil=True, parallel=True)
+def _scatter_columns_rm_njit(dst, dst_cols, src):
+    """``dst[r, dst_cols[j]] = src[j, r]``: the rows of the column-major block ``src`` go into the columns ``dst_cols`` of the row-major matrix ``dst``."""
+    n = dst.shape[0]
+    m = src.shape[0]
+    n_blocks = (n + _ROW_BLOCK - 1) // _ROW_BLOCK
+    for b in prange(n_blocks):
+        r0 = b * _ROW_BLOCK
+        r1 = min(n, r0 + _ROW_BLOCK)
+        for t0 in range(r0, r1, _TILE):
+            t1 = min(r1, t0 + _TILE)
+            for r in range(t0, t1):
+                for j in range(m):
+                    dst[r, dst_cols[j]] = src[j, r]
+
+
+def scatter_columns_rm(dst: np.ndarray, dst_cols: np.ndarray, src: np.ndarray) -> None:
+    """Write the ``(m, n)`` column-major block ``src`` into the columns ``dst_cols`` of the ``(n, p)`` row-major matrix ``dst`` (cast to its dtype), tiled on every core.
+
+    ``dst[:, j] = column`` writes one byte of a row every ``p`` bytes: 900 million such writes took 7.7 s for the 1800 columns of a 500000-row symmetric-uncertainty quantisation."""
+    cols = np.ascontiguousarray(dst_cols, dtype=np.int64)
+    if cols.shape[0] != src.shape[0] or src.shape[1] != dst.shape[0]:
+        raise ValueError(f"scatter_columns_rm: block {src.shape} does not fit {cols.shape[0]} columns of a matrix with {dst.shape[0]} rows")
+    if src.size:
+        with parallel_kernel_entry():
+            _scatter_columns_rm_njit(dst, cols, src)
+
+
 def gather_columns_cm(data: np.ndarray, cols: np.ndarray, *, pad_to: int = 1, dtype: "np.dtype | type" = np.uint8) -> np.ndarray:
     """The columns ``cols`` of the row-major matrix ``data`` as a C-contiguous ``(len(cols), n_rows_padded)`` block of ``dtype``; the rows are padded with zeros up to a multiple of ``pad_to``.
 
@@ -50,4 +78,4 @@ def gather_columns_cm(data: np.ndarray, cols: np.ndarray, *, pad_to: int = 1, dt
     return out
 
 
-__all__ = ["gather_columns_cm"]
+__all__ = ["gather_columns_cm", "scatter_columns_rm"]
