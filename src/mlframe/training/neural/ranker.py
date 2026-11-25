@@ -857,6 +857,8 @@ class MLPRanker(RegressorMixin, BaseEstimator):
         X_arr = self._x_to_array(X)
         y_arr = np.asarray(y, dtype=np.float32).ravel()
         n_features = X_arr.shape[1]
+        # Column names and order are part of the schema: predict must see the same columns in the same order (audit 40-F22).
+        self.feature_names_in_ = [str(c) for c in X.columns] if hasattr(X, "columns") else None
         # Fit imputer + scaler on train statistics before applying to train/val/predict;
         # the same column means and z-score parameters are reused across all splits so
         # OOF / OOS see the same transform. Order matters: impute first (NaN -> mean)
@@ -929,9 +931,12 @@ class MLPRanker(RegressorMixin, BaseEstimator):
         check_is_fitted(self)
         X_arr = self._x_to_array(X)
         # Feature count must match the fitted schema before any transform; a mismatch used to fail deep in the scaler or
-        # score garbage (audit 40-F22). Column names are not checked.
+        # score garbage (audit 40-F22).
         if X_arr.shape[1] != self.n_features_in_:
             raise ValueError(f"MLPRanker.predict: got {X_arr.shape[1]} features, fitted with {self.n_features_in_}.")
+        _fitted_names = getattr(self, "feature_names_in_", None)
+        if _fitted_names is not None and hasattr(X, "columns") and [str(c) for c in X.columns] != _fitted_names:
+            raise ValueError("MLPRanker.predict: the input columns differ from the fitted columns in name or order (audit 40-F22).")
         X_arr = self._apply_scaler(self._apply_imputer(X_arr))
         self.module_.eval()
         device = next(self.module_.parameters()).device
