@@ -506,7 +506,6 @@
 | 24-F39 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F41 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F42 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F43 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F45 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F46 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F47 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
@@ -1555,3 +1554,5 @@
 | 24-F34 | FIXED | Rolling Hurst-family wrappers report NaN for every window that held a non-finite input (cumulative-count mask), instead of a finite value from the zero fill. Test test_cluster24_spectral_scale_and_nan_windows.py::test_hurst_window_with_nan |
 
 | 24-F44 | FIXED | Verify path uses max(..., default=0.0) for the derived signal: a raw column with no present derived column keeps a zero retained fraction, so it is kept and recorded in safety_report instead of raising ValueError. Test tests/feature_selection/test_cluster24_drop_raw_no_derived_columns.py |
+
+| 24-F43 | FIXED | Hetero vote importance reads coef_ / feature_importances_ from a Pipeline's final step, so the linear panel member votes with /coef_/ as documented instead of permutation importance on a subsample. Test tests/feature_selection/test_cluster24_hetero_pipeline_coef.py; stability/test_hetero_vote.py and test_degenerate_input_guards.py pass (10 passed). biz_val hetero tests left to CI |

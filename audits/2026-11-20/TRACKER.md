@@ -1062,7 +1062,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 24-F40 | 24_root_modules-3.md | FIXED | Windowed edge aggregation: a NaN entity is its own group. Positions come from factorize codes (NaN kept), so the lookup no longer raises KeyError; grouping is one stable argsort, not a per-entity scan. Test tests/feature_engineering/test_cluster24_nan_entity_and_warmup_vote.py |
 | 24-F41 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F42 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F43 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F43 | 24_root_modules-3.md | FIXED | Hetero vote importance reads coef_ / feature_importances_ from a Pipeline's final step, so the linear panel member votes with /coef_/ as documented instead of permutation importance on a subsample. Test tests/feature_selection/test_cluster24_hetero_pipeline_coef.py; stability/test_hetero_vote.py and test_degenerate_input_guards.py pass (10 passed). biz_val hetero tests left to CI |
 | 24-F44 | 24_root_modules-3.md | FIXED | Verify path uses max(..., default=0.0) for the derived signal: a raw column with no present derived column keeps a zero retained fraction, so it is kept and recorded in safety_report instead of raising ValueError. Test tests/feature_selection/test_cluster24_drop_raw_no_derived_columns.py |
 | 24-F45 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F46 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
