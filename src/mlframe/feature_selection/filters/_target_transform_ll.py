@@ -324,7 +324,7 @@ def _nat_spline(x: np.ndarray, t: np.ndarray) -> np.ndarray:
 
     def p3(v: np.ndarray) -> np.ndarray:
         """Truncated cube."""
-        return np.maximum(v, 0.0) ** 3
+        return np.asarray(np.maximum(v, 0.0) ** 3, dtype=np.float64)
 
     for j in range(k - 2):
         out[:, j] = (p3(x - t[j]) - (p3(x - t[k - 2]) * (t[k - 1] - t[j]) - p3(x - t[k - 1]) * (t[k - 2] - t[j])) / d) / (t[-1] - t[0]) ** 2

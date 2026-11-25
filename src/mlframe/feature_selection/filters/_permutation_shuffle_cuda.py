@@ -76,7 +76,7 @@ def _round_keys(nperm: int, seed: int) -> np.ndarray:
         z = (z ^ (z >> np.uint64(30))) * np.uint64(0xBF58476D1CE4E5B9)
         z = (z ^ (z >> np.uint64(27))) * np.uint64(0x94D049BB133111EB)
         z = z ^ (z >> np.uint64(31))
-    return (z & np.uint64(0xFFFFFFFF)).astype(np.uint32).reshape(int(nperm), ROUNDS)
+    return np.asarray((z & np.uint64(0xFFFFFFFF)).astype(np.uint32).reshape(int(nperm), ROUNDS))
 
 
 def half_bits_for(n: int) -> int:
