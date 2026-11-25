@@ -182,6 +182,8 @@ def per_group_recency_weighted_mean(
             # One recurrence pass per group instead of a prefix re-walk (24-F16); identical values for this scheme.
             out[sort_idx] = _causal_exp_prefix_mean(v_sorted, starts, ends, param)
             return out
+        # The poly scheme keeps the prefix re-walk (O(m^2) per group): its weights depend on the window length, so prefix sums cannot be updated
+        # exactly as the exp recurrence is (audit 24-F16, documented choice). The exp scheme above is the one-pass form.
         p_starts, p_ends = _prefix_bounds(starts, ends)
         out[sort_idx] = _group_recency_weighted_mean_sorted(v_sorted, p_starts, p_ends, scheme_code, param)
         return out

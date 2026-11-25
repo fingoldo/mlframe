@@ -1337,7 +1337,6 @@
 
 | 17-F9 | FIXED | Degenerate calibration report and fast_ice_only on empty input use ICE_UNCOMPUTABLE (1e6, finite) instead of 1.0, so a real model with ICE above 1.0 can no longer tie it. Behaviour change: degenerate ICE value changes. Test tests/metrics/test_cluster17_degenerate_ice_sentinel.py; existing degenerate-report test updated to the sentinel. |
 
-| 24-F16 | PARTIAL | Exp-scheme causal aggregation is one recurrence pass per group (A_L = p*(A+v), B_L = p*(B+1)), equal to the prefix re-walk within 1e-9. The poly scheme's weights depend on window length, so its prefix sums cannot be updated exactly; it keeps the O(m^2) path (documented). Test tests/feature_engineering/test_cluster24_exp_causal_recurrence.py; 5 existing recency tests pass. |
 
 
 | 09-F7 | PARTIAL | stacked_qnn Mode A is nested: each outer fold rebuilds layer 1 on its training part only, so a row's label never shapes its own layer-2 feature. Behaviour change: Mode A values change. Not done: stacked_attention.py (same leak, and its docstring still claims leak-free) is unchanged. Test tests/feature_engineering/test_cluster09_stacked_mode_a_nested_no_self_label.py; 100 shortlist tests pass. |
@@ -1530,3 +1529,5 @@
 | 09-F35 | FIXED | The quantile-neighbour graph is Euclidean (NearestNeighbors with the default metric) and the module docstring now says so; the cosine claim is gone. Test tests/feature_engineering/test_cluster09_quantile_neighbours_euclidean.py pins the requested metric (1 passed). The other docstrings listed in this finding are not re-checked here. |
 
 | 40-F22 | FIXED | MLPRanker stores the fitted column names and predict refuses a different name set or order, so reordered columns of equal width no longer score silently. NaN labels are refused at fit and the count is checked at predict (already in place). Tests tests/training/neural/test_cluster40_ranker_column_names_order.py and the existing test_cluster40_ranker_refuses_nan_labels_and_bad_width.py (4 passed). |
+
+| 24-F16 | DOCUMENTED | The exp scheme uses one recurrence pass per group (A_L = p*(A+v), B_L = p*(B+1)), equal to the prefix re-walk within 1e-9 (test_cluster24_exp_causal_recurrence.py, 2 passed). The poly scheme keeps the O(m^2) prefix re-walk: its weights depend on the window length, so prefix sums cannot be updated exactly. The choice is now stated at the poly branch. |
