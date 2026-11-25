@@ -32,6 +32,7 @@ logger = logging.getLogger("mlframe.training.composite.ensemble")
 def _composite_component_holdout_preds(inner, spec, base_train_full_per_spec, train_X, y_train_full, X_stack_t, X_holdout_t,
                                        external_holdout_X, sample_weight, group_ids, _g_arr_all, random_state):
     """Refit a composite component on its valid train rows and predict the external holdout (inner transform undone by the wrapper)."""
+    # Group semantics (audit 35-F19, documented): this external-holdout copy refits on the valid train rows and predicts the external holdout. The three composite-refit copies differ here on purpose for now; a fix to one must be checked in the others.
     from mlframe.training.composite import ensemble as _ens  # helpers stay in the package module; resolved at call time (import order)
 
     if spec is None:
