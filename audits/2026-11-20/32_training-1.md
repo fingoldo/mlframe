@@ -74,7 +74,6 @@ Grep and Read used for caller checks: `core/_phase_dummy_baselines.py` (the try/
 - 32-F5: FIXED. nanmedian and nanquantile for the quantile baselines; no separate test
 - 32-F6: FIXED. nanstd for the cross-output scale, non-finite scales skipped, non-finite normalized means excluded before the pick; no separate test
 - 32-F10: FIXED. Integer timestamps go through the same unit detector as object timestamps, so epoch seconds are no longer read as nanoseconds. Test tests/training/test_cluster32_integer_epoch_seconds_unit.py.
-- 32-F11: DEFERRED. The combiner is fit on all rows, so the holdout's init_score depends on holdout labels. The fix refits the combiner inside each training fold, a change to the diagnostic's method, deferred.
 - 32-F7: DEFERRED. Building the class universe from train alone changes how unseen validation and test labels are encoded downstream, and that encoding is not yet checked. Deferred until the encoding path is read end to end.
 - 32-F26: FIXED. The smoke script exits 1 when the suite raises instead of printing a pass line and returning 0. Verified by reading; the smoke run is a manual end-to-end script, not a unit test.
 - 32-F8: FIXED. Polars group-mean join matches null keys (nulls_equal=True), as the pandas path does. Test test_cluster32_polars_null_group_matches_pandas.py.
@@ -99,3 +98,5 @@ Grep and Read used for caller checks: `core/_phase_dummy_baselines.py` (the try/
 - 32-F9: FIXED. CBIterationMetricsCallback.flush() captures the final round when the stride skipped it. It is now called by the fit wrapper (_train_model_with_fallback) after a successful fit; a failed fit does not flush. Tests tests/training/test_cluster32_fit_wrapper_flushes_cb.py and tests/training/callbacks/test_cluster32_cb_flush_last_round.py (5 passed).
 
 - 32-F12: FIXED. The baseline diagnostic skips when fewer than 50 rows remain after sampling, with a reason naming the in-sample problem, instead of scoring the training rows as its own holdout. Tests tests/training/baselines/test_cluster32_diagnostic_min_rows.py and the existing test_baseline_diagnostics.py (35 passed).
+
+- 32-F11: DEFERRED. The init_score linear combiner is fit on all rows, while the quick model holds out 20% of them, so the holdout init_score depends on holdout labels and the delta is optimistic. Plan: draw the 80/20 split once in the diagnostic, fit the combiner (LR for binary, OLS for regression) on the training rows only, apply its fitted coefficients to the holdout rows, and pass the two arrays to _fit_quick_and_score. Needs a test that a holdout-label change does not move the training init_score, and a check that the combined top-K recommendation stays stable. No code change in this pass.
