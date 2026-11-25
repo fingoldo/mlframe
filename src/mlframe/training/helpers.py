@@ -56,11 +56,13 @@ def parse_catboost_devices(devices: str, all_gpus: list | None = None) -> List[D
 
     Parameters
     ----------
-    devices : str
+    devices
         A string specifying device indices. Formats supported:
           - "0"             (single GPU)
           - "0:1:3"         (multiple GPUs)
           - "0-3"           (range of GPUs, inclusive)
+    all_gpus
+        The GPU info list to index into; when None the devices are looked up on the host.
 
     Returns
     -------

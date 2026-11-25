@@ -11,12 +11,14 @@ from __future__ import annotations
 import logging
 import warnings
 
+from typing import Any
+
 import numpy as np
 
 logger = logging.getLogger(__name__)
 
 
-def fit_bgmm_and_sample(X_minority: np.ndarray, n_synthetic: int, n_components: int, seed: int, *, caller: str, return_source: bool = False):
+def fit_bgmm_and_sample(X_minority: np.ndarray, n_synthetic: int, n_components: int, seed: int, *, caller: str, return_source: bool = False) -> Any:
     """Fit a BayesianGaussianMixture on the minority rows and draw ``n_synthetic`` virtual samples.
 
     Bootstraps instead when there are too few minority rows to fit ``n_components``, and again if the fit

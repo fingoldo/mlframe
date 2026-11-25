@@ -552,6 +552,17 @@ def ensemble_probabilistic_predictions_streaming(
     the caller knows. For small-M / small-N use cases, call the
     materialised path instead.
 
+    Parameters
+    ----------
+    *preds
+        Member prediction arrays, each (N,) or (N, K), with the same shape.
+    ensemble_method
+        One of the moment-based methods listed above (default 'harm').
+    ensure_prob_limits
+        Clip the ensembled probabilities to [0, 1] (default True).
+    verbose
+        Log progress and the outlier-filter warning (default True).
+
     Returns
     -------
     (ensembled_predictions, uncertainty, confident_indices)
