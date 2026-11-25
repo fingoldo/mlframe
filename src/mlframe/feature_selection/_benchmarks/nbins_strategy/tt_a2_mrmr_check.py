@@ -1,7 +1,7 @@
 """What does MRMR's current FE (fe_max_steps=1) engineer on feature-transform fixtures? (research agent 2)"""
 import sys, warnings
 import numpy as np, pandas as pd
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 sys.path.insert(0, __file__.rsplit("\\", 1)[0].rsplit("/", 1)[0] + "/nbins_strategy")
 from tt_a2_feature_transform import make
 from mlframe.feature_selection.filters import MRMR

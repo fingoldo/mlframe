@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import warnings
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 from mlframe.feature_selection._benchmarks.fs_quality.mrmr_largeN_campaign import _make_dgp
 

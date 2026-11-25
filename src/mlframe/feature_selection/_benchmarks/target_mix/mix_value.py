@@ -14,7 +14,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 
 def make(seed: int, n: int, p: int, share: float, noise: float):

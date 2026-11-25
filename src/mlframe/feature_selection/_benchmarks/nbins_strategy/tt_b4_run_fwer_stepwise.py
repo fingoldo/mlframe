@@ -12,7 +12,7 @@ import time
 import warnings
 
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 sys.path.insert(0, __file__.replace("\\", "/").rsplit("/", 1)[0])
 from tt_b4_panel import make_null_panel
 from tt_b4_reference import recommend_stepwise

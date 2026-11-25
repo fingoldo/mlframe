@@ -17,7 +17,7 @@ data -- the regime where wiring grand-fusion as a size-gated default pays. Run::
 """
 import warnings, os, time
 if __name__ == "__main__":
-    warnings.filterwarnings("ignore"); os.environ.setdefault("TQDM_DISABLE","1")
+    warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning); os.environ.setdefault("TQDM_DISABLE","1")
     import numpy as np
     from mlframe.feature_selection.filters._gpu_resident_fe import _build_candidate_matrix, grand_fused_pair_mi
     from mlframe.feature_selection.filters.discretization import discretize_2d_quantile_batch

@@ -22,7 +22,7 @@ from sklearn.preprocessing import StandardScaler
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 N_ROWS = 20_000
 TEST_FRACTION = 0.25
 CAT_LEVELS = 8

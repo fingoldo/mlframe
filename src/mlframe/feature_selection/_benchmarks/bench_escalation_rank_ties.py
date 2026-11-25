@@ -17,7 +17,7 @@ from unittest import mock
 import numpy as np
 import pandas as pd
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 def _average_rank_stash(original):

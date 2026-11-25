@@ -27,7 +27,7 @@ import numpy as np
 
 import tt_b1_cls_feature_transform as T
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 TINY = 1e-9
 GAIN, NONE, TOL, HARM = 0.010, 0.003, 0.005, 0.005

@@ -37,7 +37,7 @@ import warnings
 
 import numpy as np
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 SCHEMES = ("quantile", "uniform", "mdlp")
 NCOL = 6

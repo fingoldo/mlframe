@@ -103,7 +103,7 @@ def _f_won(names) -> bool:
 
 def run() -> dict:
     out: dict[str, Any] = {}
-    warnings.simplefilter("ignore")
+    warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
     for reverse in (False, True):
         pre_auc, post_auc, fpre, fpost = [], [], 0, 0
         for s in WARP_SEEDS:

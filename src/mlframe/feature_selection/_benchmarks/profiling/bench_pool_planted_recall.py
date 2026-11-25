@@ -10,7 +10,7 @@ import sys
 import time
 import warnings
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 from mlframe.feature_selection._benchmarks.profiling import family_scale as F
 from mlframe.feature_selection.filters.mrmr import MRMR

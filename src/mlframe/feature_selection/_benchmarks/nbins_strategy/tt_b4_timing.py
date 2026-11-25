@@ -16,7 +16,7 @@ import warnings
 import numpy as np
 from scipy.special import ndtr
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 sys.path.insert(0, __file__.replace("\\", "/").rsplit("/", 1)[0])
 from tt_b4_reference import recommend_feature_transforms
 

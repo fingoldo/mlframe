@@ -66,7 +66,7 @@ def all_families_kwargs() -> dict:
 
 def child(a: argparse.Namespace) -> None:
     """Fit once and print one JSON line with the wall, the family walls, the peak resident memory and the selected features."""
-    warnings.simplefilter("ignore")
+    warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
     if a.mode == "cpu":
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
     else:

@@ -48,7 +48,7 @@ def make_xor_dataset(n: int, n_noise: int = 6, seed: int = 42):
 
 def fit_and_summarize(name: str, mrmr: MRMR, df_train, y_train, df_test):
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
         mrmr.fit(df_train, y_train)
 
     selected = list(mrmr.get_feature_names_out())

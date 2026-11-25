@@ -6,11 +6,11 @@ DeprecationWarning, the same narrowing applied to the fs_hybrid benches (12-F31)
 
 from pathlib import Path
 
-FACTORY = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "feature_selection" / "_benchmarks" / "fe_operator_factory"
+FACTORY = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "feature_selection" / "_benchmarks"
 
 
-def test_no_factory_module_installs_a_catch_all_ignore():
-    """No fe_operator_factory module contains a bare simplefilter or filterwarnings ignore (11-F6)."""
+def test_no_benchmark_module_installs_a_catch_all_ignore():
+    """No feature-selection benchmark module contains a bare simplefilter or filterwarnings ignore (11-F6)."""
     offenders = []
     for path in FACTORY.rglob("*.py"):
         text = path.read_text(encoding="utf-8")

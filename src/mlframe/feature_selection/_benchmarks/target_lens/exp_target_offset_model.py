@@ -16,7 +16,7 @@ import numpy as np
 
 from mlframe.feature_selection._benchmarks.target_lens.exp_target_mix import N_TEST, PROCESSES, _models, _rmse
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 
 def one(process: str, n_train: int, seed: int) -> dict:

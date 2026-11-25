@@ -57,7 +57,7 @@ from mlframe.feature_selection._benchmarks._bench_shared import make_shap_proxy_
 if TYPE_CHECKING:
     pass
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 def _make_selector(seed=0):

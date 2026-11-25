@@ -17,7 +17,7 @@ import numpy as np
 from scipy.optimize import minimize_scalar
 from scipy.special import ndtri
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 EPS = 1e-9
 
 

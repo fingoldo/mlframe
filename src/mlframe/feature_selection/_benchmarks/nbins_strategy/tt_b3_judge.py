@@ -19,7 +19,7 @@ import numpy as np
 import tt_a4_oracle as O
 import tt_b3_reference as R
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 _OLD_PATH = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "filters", "_target_transform_search.py"))
 _old_mod = None

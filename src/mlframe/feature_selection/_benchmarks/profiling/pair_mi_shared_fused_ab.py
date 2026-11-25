@@ -10,7 +10,7 @@ import warnings
 import cupy as cp
 import numpy as np
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 from mlframe.feature_selection.filters import _batch_pair_mi_cuda_shared_fused as M
 
 rng = np.random.default_rng(0)

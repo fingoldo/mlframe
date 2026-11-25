@@ -22,7 +22,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 FIXTURES = (
     "lognormal", "hetero_lognormal", "cube", "linear", "hetero_linear", "exp_linear", "zero_inflated", "counts", "neg_skew", "bounded01", "heavy_tail",

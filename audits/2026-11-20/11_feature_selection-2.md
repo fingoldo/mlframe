@@ -71,6 +71,7 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 
 - 11-F3: DOCUMENTED. The searched arms in exp6_tables (preset_best and each mode) report the max over many in-sample candidates, while truth and als are single candidates, so the searched numbers are inflated even on noise. Documented at the comparison as an upper bound, not a like-for-like result. A null run (permuted y) would be the follow-up if a conclusion depends on it; no code or numbers changed.
 
-- 11-F6: FIXED. No fe_operator_factory benchmark installs a process-wide catch-all warning filter: the stat_study and kernel_prototypes modules and the brainstorm module silence only FutureWarning and DeprecationWarning, as the fs_hybrid benches do. Test tests/feature_selection/test_cluster11_no_catch_all_filter_in_factory.py (1 passed).
 
 - 11-F5: FIXED. A failing operator in the exp2 study is reported at WARNING through the throttled logger, once per operator; the same change was already in core.py. Test tests/feature_selection/test_cluster11_exp2_failure_warns.py (1 passed).
+
+- 11-F6: FIXED. No feature-selection benchmark module installs a process-wide catch-all warning filter: the whole _benchmarks tree (148 files, the fe_operator_factory and stat_study modules included) silences only FutureWarning and DeprecationWarning. Each changed file compiles. Test tests/feature_selection/test_cluster11_no_catch_all_filter_in_factory.py (1 passed) walks the whole tree.

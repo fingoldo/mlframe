@@ -322,5 +322,5 @@ def main():
 
 
 if __name__ == "__main__":
-    warnings.filterwarnings("ignore")
+    warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
     main()

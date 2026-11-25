@@ -32,7 +32,7 @@ from pathlib import Path
 
 from mlframe.feature_selection._benchmarks._bench_shared import build_classification_scene as build_scene, extract_boruta_shap_golden as extract_golden
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 def make_selector() -> "object":

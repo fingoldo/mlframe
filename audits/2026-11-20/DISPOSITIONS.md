@@ -1517,7 +1517,6 @@
 
 | 24-F16 | DOCUMENTED | The exp scheme uses one recurrence pass per group (A_L = p*(A+v), B_L = p*(B+1)), equal to the prefix re-walk within 1e-9 (test_cluster24_exp_causal_recurrence.py, 2 passed). The poly scheme keeps the O(m^2) prefix re-walk: its weights depend on the window length, so prefix sums cannot be updated exactly. The choice is now stated at the poly branch. |
 
-| 11-F6 | FIXED | No fe_operator_factory benchmark installs a process-wide catch-all warning filter: the stat_study and kernel_prototypes modules and the brainstorm module silence only FutureWarning and DeprecationWarning, as the fs_hybrid benches do. Test tests/feature_selection/test_cluster11_no_catch_all_filter_in_factory.py (1 passed). |
 
 | 08-F4 | FIXED | The BGM sampler gained an opt-in return_source flag: (samples, 'bgmm') for a mixture sample and (samples, 'bootstrap') for any resample, including a too-small minority set. The default return is unchanged, so current callers are unaffected. The fallback is logged at WARNING (earlier change). Its inner warning filter is narrowed to Future/Deprecation. Tests tests/feature_engineering/test_cluster08_bgmm_source_flag.py (3 passed). |
 
@@ -1544,3 +1543,5 @@
 | 17-F21 | FIXED | The RMSLE and MAPE warn-dedup sets in _regression_extras.py are cleared at a 4096-entry bound, the same bound the Tweedie cache uses, so a long run cannot grow them without limit. Test tests/metrics/test_cluster17_warn_seen_bounded.py (2 passed). |
 
 | 11-F5 | FIXED | A failing operator in the exp2 study is reported at WARNING through the throttled logger, once per operator; the same change was already in core.py. Test tests/feature_selection/test_cluster11_exp2_failure_warns.py (1 passed). |
+
+| 11-F6 | FIXED | No feature-selection benchmark module installs a process-wide catch-all warning filter: the whole _benchmarks tree (148 files, the fe_operator_factory and stat_study modules included) silences only FutureWarning and DeprecationWarning. Each changed file compiles. Test tests/feature_selection/test_cluster11_no_catch_all_filter_in_factory.py (1 passed) walks the whole tree. |
