@@ -413,6 +413,8 @@ def _compute_col_edges_uncached(col: np.ndarray, method_resolved: str, base: str
     1-bin because ``_edges_from_quantiles`` returns empty edges after ``np.unique`` dedup. Such columns get midpoint-edges between consecutive unique
     values - this preserves the column's natural cardinality without going through quantile / supervised logic that doesn't apply.
     """
+    from ._mdlp_gpu_presort import SuppliedPresort
+
     _facts_cache = kwargs.get("optimal_joint_plan_cache")
     _facts_key = None
     if _facts_cache is not None:
@@ -427,7 +429,7 @@ def _compute_col_edges_uncached(col: np.ndarray, method_resolved: str, base: str
         # per-value counts) reuses THIS array instead of re-running np.unique a second time.
         if _presorted is not None:
             # the column was sorted once for the MDLP search: its distinct values and counts are a pass over that sort, not a second radix sort of the same values (or, from the device, the runs it read off its sort)
-            if hasattr(_presorted, "uniq"):
+            if isinstance(_presorted, SuppliedPresort):
                 _uniq, _uniq_counts = _presorted.uniq, _presorted.counts
             else:
                 _uniq, _uniq_counts = sorted_unique_with_counts(_presorted[0])
