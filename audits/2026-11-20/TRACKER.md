@@ -155,7 +155,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 37-F23 | 37_training-6.md | WON'T FIX | MTRPerColumnEqualMeanEnsemble.fit is the public E3 API, exercised by tests/training/test_mtr_nnls_ensemble.py; production path uses compute_mtr_oof_nnls_weights. Premise 'no caller' holds only for production; semantics ... |
 | 37-F24 | 37_training-6.md | FIXED | Already classified as intentionally unused in uncalled-functions allowlist. |
 | 37-F50 | 37_training-6.md | FIXED | Redundant tier alias removed. |
-| 37-F51 | 37_training-6.md | PARTIAL | Redundant placeholder removed; helper rename not done. |
+| 37-F51 | 37_training-6.md | FIXED | The group-slice helper is renamed _group_train_slice at its definition and at its lazy-proxy call site; the old name is gone from the core sources. Test tests/training/core/test_cluster37_group_slice_name.py (2 passed). |
 | 37-F52 | 37_training-6.md | FIXED | Binary-only Venn-Abers message tidied. |
 | 38-F1 | 38_training-7.md | FIXED | Suite-wide ensemble no longer spans targets (9d0472dca). |
 | 38-F2 | 38_training-7.md | FIXED | Conformal residuals use pre-recalibration predictions (9d0472dca). |

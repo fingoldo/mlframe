@@ -275,7 +275,7 @@ def ceiling_gate(
     metadata = ctx.metadata
     filtered_train_df = ctx.filtered_train_df
     _disc_feature_cols = ctx.disc_feature_cols
-    _grp_train = _pcd._run_composite_targ_source_truth_did_skip(group_ids, filtered_train_idx, None)  # audit 37-F51: no pre-assigned placeholder
+    _grp_train = _pcd._group_train_slice(group_ids, filtered_train_idx, None)  # audit 37-F51: no pre-assigned placeholder
     _ceiling_verdict = None
     try:
         _ceiling_verdict = run_achievable_ceiling_precheck(
