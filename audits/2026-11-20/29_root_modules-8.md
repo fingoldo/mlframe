@@ -93,7 +93,6 @@ Grep-only verification: `pyproject.toml:13` (requires-python), callers of `creat
 - 29-F7: FIXED. The stability figure passes the x-axis range once, not repeated 100 times. Test tests/votenrank/test_cluster29_stability_axis_and_reference.py.
 - 29-F8: FIXED. The stability reference ranking comes from the unmodified table's rank_all, not from the first noised entry of exp_range. Verified by reading; no unit test, since the leaderboard setup is heavy. Test file tests/votenrank/test_cluster29_stability_axis_and_reference.py covers F7 only.
 - 29-F25: DEFERRED. The shared DMatrix must be mutated and trained inside one lock. That wraps the xgb.train call, and a threaded regression test needs a dedicated harness, so it is deferred to its own change.
-- 29-F14: DEFERRED. The param-oracle store's ML correctness needs a design decision about the recommendation contract, which is deferred with the store design (see 29-F13).
 - 29-F29: FIXED. A raising post-import callback is logged with its traceback and the remaining callbacks still run. Test test_cluster29_post_import_callbacks_all_run.py; 3 existing post-import tests pass.
 - 29-F32: FIXED. Plain signed numbers are not formula-prefixed; real formulas still are. Test test_cluster29_csv_safe_numbers_untouched.py (8 passing); existing formula-injection tests (3) pass.
 - 29-F38: FIXED. A failing KTC cache lookup logs a WARNING naming the fallback backend, instead of DEBUG. Test test_cluster29_ktc_lookup_failure_warns.py; 13 existing KTC/gated-blend tests pass.
@@ -111,3 +110,5 @@ Grep-only verification: `pyproject.toml:13` (requires-python), callers of `creat
 - 29-F39: FIXED. disk_cache docstring now states the summary key reads every element (no SHA pass, not sub-linear).
 - 29-F40: FIXED. Protect set drops the bogus <key>.sha256 name; real <key>.pkl.sha256 sidecar kept. Test test_cluster29_disk_cache_protect_names.py.
 - 29-F41: FIXED. Bagging without randomize_order/randomize_start logs a WARNING that all bags are identical. Test test_cluster29_hill_climb_bagging_warns.py.
+
+- 29-F14: DOCUMENTED. Aggregated oracle rows keep only the median and n_obs, so a later append takes a median of medians and the result depends on append batching. The exact fix stores (value, weight) pairs per metric, which changes the stored format and needs a schema bump and migration. Documented at the aggregation site; not changed here.

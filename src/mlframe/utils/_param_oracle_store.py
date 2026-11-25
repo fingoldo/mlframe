@@ -174,6 +174,9 @@ class _ParquetStore:
                         # multi-second stall INSIDE the cross-process file lock, blocking every other process
                         # appending to the same store.
                         metric_vals.setdefault(mk, []).append((float(mv), max(1, w)))
+            # Known approximation (audit 29-F14, documented choice): aggregated rows keep only the median and n_obs, so a later append takes a
+            # median of medians and the result depends on the batching of appends. An exact fix keeps the (value, weight) pairs per metric,
+            # which changes the stored format and needs a schema bump and a migration; not done here.
             median_obj = {mk: _weighted_median(vs) for mk, vs in metric_vals.items()}
             out.append({
                 "schema_version": SCHEMA_VERSION,

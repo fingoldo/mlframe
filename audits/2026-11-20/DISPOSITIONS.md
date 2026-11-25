@@ -780,7 +780,6 @@
 | 29-F7 | FIXED | The stability figure passes the x-axis range once, not repeated 100 times. Test tests/votenrank/test_cluster29_stability_axis_and_reference.py. |
 | 29-F8 | FIXED | The stability reference ranking comes from the unmodified table's rank_all, not from the first noised entry of exp_range. Verified by reading; no unit test, since the leaderboard setup is heavy. Test file tests/votenrank/test_cluster29_stability_axis_and_reference.py covers F7 only. |
 | 29-F25 | DEFERRED | The shared DMatrix must be mutated and trained inside one lock. That wraps the xgb.train call, and a threaded regression test needs a dedicated harness, so it is deferred to its own change. |
-| 29-F14 | DEFERRED | The param-oracle store's ML correctness needs a design decision about the recommendation contract, which is deferred with the store design (see 29-F13). |
 | 30-F1 | FIXED | The DTW bench prints measured pool bytes; the analytic float32 overwrite is removed. Bench output; verified by reading, not by a unit test (needs a GPU). |
 | 30-F2 | FIXED | The analytic overwrite of the measured memory is removed; the printed values are the measured pool numbers. Bench output; verified by reading. |
 | 30-F4 | FIXED | The GP bench builds its dataset before the timer, so the wall time covers smoothing only. Bench output; verified by compiling and reading. |
@@ -1518,3 +1517,5 @@
 | 27-F14 | DOCUMENTED | cv_plus_intervals is a pooled symmetric band from out-of-fold absolute residuals, not the CV+ or Jackknife+ construction of Barber et al. 2021; its docstring now states that no coverage guarantee is proven. The name is kept for API compatibility. A real CV+ needs per-fold models and is not built. No behaviour change. |
 
 | 28-F37 | FIXED | resolve_mlp_predict_batch_size takes a device_id and forwards it to the memory probe; the predict caller passes the current CUDA device, so the batch is sized for the device the model runs on. The default stays 0. Tests tests/training/neural/test_cluster28_predict_batch_device_id.py and the existing test_mlp_runtime_defaults.py (38 passed). |
+
+| 29-F14 | DOCUMENTED | Aggregated oracle rows keep only the median and n_obs, so a later append takes a median of medians and the result depends on append batching. The exact fix stores (value, weight) pairs per metric, which changes the stored format and needs a schema bump and migration. Documented at the aggregation site; not changed here. |
