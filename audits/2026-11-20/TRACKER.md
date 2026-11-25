@@ -1051,9 +1051,9 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 24-F29 | 24_root_modules-3.md | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
 | 24-F30 | 24_root_modules-3.md | DOCUMENTED | The complement fallback is pinned by tests/feature_engineering/test_aggregated_view_based.py; the subset_direct feature flags it in the feature names. No behaviour change. |
 | 24-F31 | 24_root_modules-3.md | FIXED | empty parallel chunks are skipped and an all-empty run returns (None, None); tests/feature_engineering/test_timeseries.py expectation updated to the corrected cumsum end contract; 129 related tests pass |
-| 24-F32 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2 still open |
-| 24-F33 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2 still open |
-| 24-F34 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2 still open |
+| 24-F32 | 24_root_modules-3.md | FIXED | Spectral NaN fill is per window inside _spec_pow (the segment-wide mean let early windows read future values); _nan_impute_segment removed. Test tests/feature_engineering/test_cluster24_spectral_scale_and_nan_windows.py; test_fe_top_a_fixes.py::test_f20 revised |
+| 24-F33 | 24_root_modules-3.md | FIXED | Spectral entropy normalises by the window's own power with p*log(p) only where p>0; flatness floor is relative to each window's mean power, and a zero-power window reports 0.0. Scale-invariance test in test_cluster24_spectral_scale_and_nan_windows.py |
+| 24-F34 | 24_root_modules-3.md | FIXED | Rolling Hurst-family wrappers report NaN for every window that held a non-finite input (cumulative-count mask), instead of a finite value from the zero fill. Test test_cluster24_spectral_scale_and_nan_windows.py::test_hurst_window_with_nan |
 | 24-F35 | 24_root_modules-3.md | FIXED | MA crossover vote_sum is NaN on rows where every pair is still warming up (any_vote mask), instead of 0 that reads as neutral consensus. Test tests/feature_engineering/test_cluster24_nan_entity_and_warmup_vote.py |
 | 24-F36 | 24_root_modules-3.md | FIXED | the long MA is reindexed to the short one's index before differencing; tests/feature_engineering/test_cluster24_empty_and_alignment.py |
 | 24-F37 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |

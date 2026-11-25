@@ -500,9 +500,6 @@
 | 24-F29 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F30 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F31 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F32 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F33 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F34 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F36 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F37 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F38 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
@@ -542,9 +539,6 @@
 | 24-F28 | DEFERRED | not reviewed in this pass; P2 still open |
 | 24-F29 | DEFERRED | not reviewed in this pass; P2 still open |
 | 24-F30 | DEFERRED | not reviewed in this pass; P2 still open |
-| 24-F32 | DEFERRED | not reviewed in this pass; P2 still open |
-| 24-F33 | DEFERRED | not reviewed in this pass; P2 still open |
-| 24-F34 | DEFERRED | not reviewed in this pass; P2 still open |
 | 24-F31 | FIXED | empty parallel chunks are skipped and an all-empty run returns (None, None); tests/feature_engineering/test_timeseries.py expectation updated to the corrected cumsum end contract; 129 related tests pass |
 | 24-F23 | FIXED | local density drops the self-match when the query is the reference, so dist_to_kth is the k-th other point; tests/feature_engineering/test_cluster24_min_periods_and_self_match.py; 57 related tests pass |
 | 24-F26 | FIXED | rolling min_periods is clamped to the window; same test file |
@@ -1554,3 +1548,9 @@
 | 24-F40 | FIXED | Windowed edge aggregation: a NaN entity is its own group. Positions come from factorize codes (NaN kept), so the lookup no longer raises KeyError; grouping is one stable argsort, not a per-entity scan. Test tests/feature_engineering/test_cluster24_nan_entity_and_warmup_vote.py |
 
 | 24-F35 | FIXED | MA crossover vote_sum is NaN on rows where every pair is still warming up (any_vote mask), instead of 0 that reads as neutral consensus. Test tests/feature_engineering/test_cluster24_nan_entity_and_warmup_vote.py |
+
+| 24-F32 | FIXED | Spectral NaN fill is per window inside _spec_pow (the segment-wide mean let early windows read future values); _nan_impute_segment removed. Test tests/feature_engineering/test_cluster24_spectral_scale_and_nan_windows.py; test_fe_top_a_fixes.py::test_f20 revised |
+
+| 24-F33 | FIXED | Spectral entropy normalises by the window's own power with p*log(p) only where p>0; flatness floor is relative to each window's mean power, and a zero-power window reports 0.0. Scale-invariance test in test_cluster24_spectral_scale_and_nan_windows.py |
+
+| 24-F34 | FIXED | Rolling Hurst-family wrappers report NaN for every window that held a non-finite input (cumulative-count mask), instead of a finite value from the zero fill. Test test_cluster24_spectral_scale_and_nan_windows.py::test_hurst_window_with_nan |

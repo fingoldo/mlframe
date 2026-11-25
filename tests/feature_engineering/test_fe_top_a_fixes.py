@@ -429,17 +429,21 @@ def test_f19_rolling_integral_above_baseline_still_works_after_dead_code_removal
 # ---------------------------------------------------------------------------------------------------------------
 
 
-def test_f20_nan_impute_segment_shared_helper_matches_prior_inline_behavior():
-    """F20: the extracted _nan_impute_segment helper must reproduce the prior inline NaN-fill exactly."""
-    from mlframe.feature_engineering.spectral import _nan_impute_segment
+def test_f20_spectral_nan_fill_is_per_window_and_all_nan_window_is_zero():
+    """F20 (revised by audit 24-F32): the shared spectral helper fills NaN with each window's own finite mean, and an all-NaN window with 0.
 
-    seg = np.array([1.0, np.nan, 3.0, np.nan, 5.0])
-    out = _nan_impute_segment(seg)
-    assert np.isfinite(out).all()
-    assert out[1] == pytest.approx(np.nanmean(seg))
+    The earlier whole-segment fill let a window take its fill from values after it; the segment helper is gone and the fill lives in _spec_pow.
+    """
+    from mlframe.feature_engineering.spectral import _spec_pow
 
-    all_nan = np.full(5, np.nan)
-    assert (_nan_impute_segment(all_nan) == 0.0).all()
+    seg = np.array([1.0, np.nan, 3.0, np.nan, np.nan])
+    _spec, wins = _spec_pow(seg, 3, False)
+    assert np.isfinite(wins).all()
+    assert wins[0, 1] == pytest.approx(2.0)  # window [1, nan, 3]: mean of its own finite values
+    np.testing.assert_array_equal(wins[2], [3.0, 3.0, 3.0])  # window [3, nan, nan]: both NaN take that window's only finite value
+    all_nan_spec, all_nan_wins = _spec_pow(np.full(5, np.nan), 3, False)
+    assert (all_nan_wins == 0.0).all()
+    assert np.isfinite(all_nan_spec).all()
 
 
 # ---------------------------------------------------------------------------------------------------------------
