@@ -243,6 +243,8 @@ def _run_stability_bootstraps(
                 fi_dict = get_feature_importances(
                     model=est_clone, current_features=feature_names,
                     data=X_eval, target=y_eval,
+                    # The coefficient scale comes from the rows the bootstrap was FIT on, not from its out-of-bag rows (audit 15-F7).
+                    train_data=X_sub,
                     importance_getter=importance_getter,
                     n_repeats=_resolve_n_repeats(self),
                     # W3: same fix as the main RFECV fold path - derive a per-bootstrap seed from the

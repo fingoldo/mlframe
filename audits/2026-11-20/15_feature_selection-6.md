@@ -53,7 +53,6 @@ So the audit is incomplete. Roughly 60% of the manifest lines were not read, so 
 - 15-F8: FIXED. a callable prescreen's result is filtered to the candidate names the search offered; no direct test (the prescreen path needs a full RFECV fixture)
 - 15-F9: FIXED. the importance callable is called with target only when its signature accepts it, so a TypeError inside it runs once; tests/feature_selection/test_cluster15_importance_getter_and_prescreen.py
 - 15-F6: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
-- 15-F7: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
 - 15-F10: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
 - 15-F11: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
 - 15-F17: FIXED. All-NaN column gets mean 0 and std 1 in the knockoff standardisation, so its knockoff is finite. Test test_cluster15_knockoff_all_nan_column.py.
@@ -70,3 +69,5 @@ So the audit is incomplete. Roughly 60% of the manifest lines were not read, so 
 - 15-F4: FIXED. The RFECV checkpoint now saves and restores per_fold_scores, so the per-split columns survive a resume. Test tests/feature_selection/test_cluster15_checkpoint_round_trip.py.
 
 - 15-F5: FIXED. The RFECV checkpoint now saves and restores the signed importances onto the estimator, so dispatched linear aggregation sees the same scale after a resume. Test tests/feature_selection/test_cluster15_checkpoint_round_trip.py. The heavy test_biz_val_wrappers_rfecv.py file was not confirmed in this pass.
+
+- 15-F7: FIXED. Stability selection passes the bootstrap's fitted rows as train_data, so the coefficient scale comes from the rows the model was fit on rather than its out-of-bag rows. Test tests/feature_selection/test_cluster15_coef_scale_uses_fit_rows.py (2 passed).
