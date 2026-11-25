@@ -204,7 +204,8 @@ class CorrelatedFeaturesSelectorArm(BaseArm):
         names = _feature_names(X)
         model = CorrelatedFeaturesSelector(_bare_mrmr(self.max_runtime_mins, self.random_seed), corr_threshold=self.corr_threshold, expand=self.expand)
         model.fit(X, pd.Series(np.asarray(y)))
-        selected = [str(c) for c in model.get_feature_names_out() if str(c) in set(names)]
+        _names_set = set(names)  # built once, not per comprehension item (audit 11-F15)
+        selected = [str(c) for c in model.get_feature_names_out() if str(c) in _names_set]
         return {
             "support": _mask_from_names(names, selected),
             "provenance": {"expand": self.expand, "corr_threshold": self.corr_threshold, "reduction": float(getattr(model, "reduction_", float("nan")))},
@@ -242,7 +243,8 @@ class StabilityMRMRArm(BaseArm):
         probabilities = np.asarray(getattr(model, "selection_probabilities_"), dtype=np.float64)
         if probabilities.shape[0] != len(names):
             raise ValueError(f"StabilityMRMR returned {probabilities.shape[0]} selection probabilities for {len(names)} columns")
-        selected = [str(c) for c in model.get_feature_names_out() if str(c) in set(names)]
+        _names_set = set(names)  # built once, not per comprehension item (audit 11-F15)
+        selected = [str(c) for c in model.get_feature_names_out() if str(c) in _names_set]
         return {
             "support": _mask_from_names(names, selected),
             "score": np.nan_to_num(probabilities, nan=0.0),
