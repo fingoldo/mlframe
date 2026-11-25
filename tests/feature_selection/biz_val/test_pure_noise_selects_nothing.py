@@ -53,7 +53,7 @@ def _frame(kind: str, seed: int) -> pd.DataFrame:
 
 
 # Production binning strategies the guarantee must hold under. Research-only strategies (knuth, blocks, ...) are excluded by design.
-BINNING_STRATEGIES = (None, "quantile", "uniform", "mdlp", "mdlp_validated")
+BINNING_STRATEGIES = (None, "quantile_spacing", "uniform", "mdlp", "mdlp_validated")
 
 
 @pytest.mark.parametrize("nbins_strategy", BINNING_STRATEGIES)
