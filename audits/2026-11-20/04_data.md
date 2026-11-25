@@ -107,4 +107,5 @@ Scope: the 42 files in `audits/2026-11-20/manifests/04_data.txt`, all read in fu
 
 - 04-F14: DEFERRED. bayes_auc's per-row tie-group loop is vectorised and matches the old loop exactly (test_cluster04_bayes_auc_vectorised_matches_loop.py). Left open: the prevalence bisection runs 60 passes per call. A warm start narrows the bracket from the previous result, which changes the numerics within tolerance, so it needs a benchmark on real call counts before it lands.
 
-- 04-F28: FIXED. The M-bias collider test uses membership in the precomputed ancestor set of the target instead of a descendant walk from every parent; the two are equivalent because reachability is symmetric and the caller passes ancestors(target). Test tests/data/test_cluster04_m_collider_no_descendant_walk.py (2 passed). The _collapse_redundant set rebuild and _declared_kind_role edge scan named in the finding are not changed in this pass.
+
+- 04-F28: FIXED. Declared kind roles built once per derivation (_declared_kind_roles, first edge wins) instead of rescanning all edges per column; M-bias collider check uses the precomputed ancestor set. Tests: tests/data/test_cluster04_declared_roles_single_pass.py, test_cluster04_m_collider_no_descendant_walk.py

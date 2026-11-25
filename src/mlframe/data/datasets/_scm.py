@@ -271,29 +271,24 @@ def _reachable(adjacency: Dict[str, List[str]], start: str) -> Set[str]:
     return seen
 
 
-def _declared_kind_role(graph: CausalGraph, node: str) -> Optional[FeatureRole]:
-    """Return the role an incoming edge kind declares for ``node``, if any.
+def _declared_kind_roles(graph: CausalGraph) -> Dict[str, FeatureRole]:
+    """Map every node that some incoming edge kind declares to its role, built in one pass over the edges (audit 04-F28).
 
-    Some roles are not determined by graph shape: an instrument and a plain causal ancestor have the same
-    shape, and so do a proxy and any other child of a latent. Those are declared on the edge and read back
-    here, so the declaration still lives in the one structure the generator consumes.
+    Some roles are not determined by graph shape: an instrument and a plain causal ancestor have the same shape, and so do a
+    proxy and any other child of a latent. Those are declared on the edge, so the declaration still lives in the one structure
+    the generator consumes.
 
-    Args:
-        graph: The model.
-        node: Column to classify.
-
-    Returns:
-        The declared role, or ``None`` when every incoming edge is a plain ``direct`` / ``latent`` arrow.
+    Convention: a copy or proxy kind marks its TARGET (the redundant copy, the proxy), while an instrument marks its SOURCE,
+    because ``instrument -> treatment`` is a causal arrow and the instrument is the node that carries the role. The first edge
+    that declares a node wins.
     """
-    # Convention: a copy or proxy kind marks its TARGET (the redundant copy, the proxy), while an instrument marks its SOURCE, because
-    # ``instrument -> treatment`` is a causal arrow and the instrument is the node that carries the role.
+    roles: Dict[str, FeatureRole] = {}
     for edge in graph.edges:
         if edge.kind not in _KIND_TO_ROLE:
             continue
         marked = edge.source if edge.kind == "instrument" else edge.target
-        if marked == node:
-            return _KIND_TO_ROLE[edge.kind]
-    return None
+        roles.setdefault(marked, _KIND_TO_ROLE[edge.kind])
+    return roles
 
 
 def _is_m_collider(graph: CausalGraph, node: str, ancestors_of_target: Set[str], descendants_of_target: Set[str]) -> bool:
@@ -346,8 +341,9 @@ def derive_roles(graph: CausalGraph, regions: Optional[Dict[str, GateSpec]] = No
     spouses -= {graph.target}
 
     roles: Dict[str, FeatureRole] = {}
+    declared_roles = _declared_kind_roles(graph)
     for name in graph.observed:
-        declared = _declared_kind_role(graph, name)
+        declared = declared_roles.get(name)
         if declared is not None:
             roles[name] = declared
             continue
