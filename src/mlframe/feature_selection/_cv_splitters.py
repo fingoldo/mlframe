@@ -22,6 +22,8 @@ from typing import cast
 import logging
 from typing import Any, Iterator, Optional, Tuple
 
+import warnings
+
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import GroupKFold, TimeSeriesSplit
@@ -138,7 +140,17 @@ def chronological_order(timestamps: Any) -> np.ndarray:
     if isinstance(series.dtype, pd.DatetimeTZDtype):
         series = series.dt.tz_convert("UTC").dt.tz_localize(None)
     elif series.dtype == object:
-        series = pd.to_datetime(series, utc=True, errors="coerce").dt.tz_localize(None)
+        parsed = pd.to_datetime(series, utc=True, errors="coerce")
+        # Unparseable labels become NaT and sort last. That is a silent reordering of the folds, so it is reported (audit 24-F46).
+        lost = int(series.notna().sum() - parsed.notna().sum())
+        if lost > 0:
+            warnings.warn(
+                f"chronological_order: {lost} timestamp value(s) could not be parsed and were treated as missing (sorted last); "
+                "the fold order for those rows is not chronological",
+                UserWarning,
+                stacklevel=2,
+            )
+        series = parsed.dt.tz_localize(None)
     values = series.to_numpy()
     if values.dtype.kind in "mM":
         keys = values.view(np.int64).copy()

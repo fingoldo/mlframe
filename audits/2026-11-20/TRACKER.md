@@ -1065,10 +1065,10 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 24-F43 | 24_root_modules-3.md | FIXED | Hetero vote importance reads coef_ / feature_importances_ from a Pipeline's final step, so the linear panel member votes with /coef_/ as documented instead of permutation importance on a subsample. Test tests/feature_selection/test_cluster24_hetero_pipeline_coef.py; stability/test_hetero_vote.py and test_degenerate_input_guards.py pass (10 passed). biz_val hetero tests left to CI |
 | 24-F44 | 24_root_modules-3.md | FIXED | Verify path uses max(..., default=0.0) for the derived signal: a raw column with no present derived column keeps a zero retained fraction, so it is kept and recorded in safety_report instead of raising ValueError. Test tests/feature_selection/test_cluster24_drop_raw_no_derived_columns.py |
 | 24-F45 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F46 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F46 | 24_root_modules-3.md | FIXED | chronological_order warns (UserWarning) with the count of labels that could not be parsed; they still sort last as before. Test tests/feature_selection/test_cluster24_unparsed_time_and_append_index.py |
 | 24-F47 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F48 | 24_root_modules-3.md | FIXED | validation-only class labels get the probability floor instead of a neighbouring class's column; tests/feature_selection/test_cluster24_unseen_validation_label.py |
-| 24-F49 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F49 | 24_root_modules-3.md | FIXED | append_columns raises ValueError when new_cols does not share X's index, instead of appending NaN columns silently; all three callers already pass index=X.index. Test tests/feature_selection/test_cluster24_unparsed_time_and_append_index.py |
 | 24-F50 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F51 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F52 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |

@@ -507,9 +507,7 @@
 | 24-F41 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F42 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F45 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F46 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F47 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F49 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F50 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F51 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F52 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
@@ -1558,3 +1556,7 @@
 | 24-F58 | FIXED | nearest_past_join fallback carries the row position in a private column instead of reset_index(), which created a column named index; the caller's index is restored. Test tests/feature_engineering/test_cluster24_nearest_past_fallback_index.py |
 
 | 24-F57 | RESOLVED | Not reproduced: pandas sort_values keeps tied rows in input order for both the multi-key and single-key sorts used here, so the tie order is deterministic. No code change. |
+
+| 24-F46 | FIXED | chronological_order warns (UserWarning) with the count of labels that could not be parsed; they still sort last as before. Test tests/feature_selection/test_cluster24_unparsed_time_and_append_index.py |
+
+| 24-F49 | FIXED | append_columns raises ValueError when new_cols does not share X's index, instead of appending NaN columns silently; all three callers already pass index=X.index. Test tests/feature_selection/test_cluster24_unparsed_time_and_append_index.py |
