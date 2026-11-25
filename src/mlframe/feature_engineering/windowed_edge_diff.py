@@ -69,11 +69,16 @@ def windowed_edge_aggregate_diff(
     # df[df[col]==val] rescan fixed elsewhere this session, just at the column-extraction layer instead.
     time_arr = df[time_col].to_numpy()
     value_arr = df[value_col].to_numpy(dtype=np.float64)
-    group_positions = df.groupby(entity_col, sort=False).indices
+    # A NaN entity is its own group (audit 24-F40): pd.unique lists NaN as an entity, but the default groupby drops it, so a
+    # NaN-keyed lookup raised KeyError. Positions come from factorize codes, which number entities in first-seen order and keep
+    # NaN as a code, so entity i is code i; a NaN dict key would only match by identity and is avoided altogether.
+    codes, _uniques = pd.factorize(df[entity_col], sort=False, use_na_sentinel=False)
+    by_code = np.argsort(codes, kind="stable")
+    bounds = np.concatenate(([0], np.cumsum(np.bincount(codes, minlength=len(entities)))))
     reducer = getattr(np, agg)
 
-    for i, entity in enumerate(entities):
-        positions = group_positions[entity]
+    for i in range(len(entities)):
+        positions = by_code[bounds[i] : bounds[i + 1]]
         order = np.argsort(time_arr[positions])
         sorted_vals = value_arr[positions][order]
         k = min(n, len(sorted_vals))

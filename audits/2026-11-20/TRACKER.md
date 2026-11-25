@@ -1054,12 +1054,12 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 24-F32 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2 still open |
 | 24-F33 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2 still open |
 | 24-F34 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2 still open |
-| 24-F35 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2 still open |
+| 24-F35 | 24_root_modules-3.md | FIXED | MA crossover vote_sum is NaN on rows where every pair is still warming up (any_vote mask), instead of 0 that reads as neutral consensus. Test tests/feature_engineering/test_cluster24_nan_entity_and_warmup_vote.py |
 | 24-F36 | 24_root_modules-3.md | FIXED | the long MA is reindexed to the short one's index before differencing; tests/feature_engineering/test_cluster24_empty_and_alignment.py |
 | 24-F37 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F38 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F39 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F40 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F40 | 24_root_modules-3.md | FIXED | Windowed edge aggregation: a NaN entity is its own group. Positions come from factorize codes (NaN kept), so the lookup no longer raises KeyError; grouping is one stable argsort, not a per-entity scan. Test tests/feature_engineering/test_cluster24_nan_entity_and_warmup_vote.py |
 | 24-F41 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F42 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F43 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |

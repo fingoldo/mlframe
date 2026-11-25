@@ -128,12 +128,10 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F32: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F33: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F34: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F35: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F36: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F37: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F38: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F39: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F40: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F41: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F42: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F43: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
@@ -172,7 +170,6 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F32: DEFERRED. not reviewed in this pass; P2 still open
 - 24-F33: DEFERRED. not reviewed in this pass; P2 still open
 - 24-F34: DEFERRED. not reviewed in this pass; P2 still open
-- 24-F35: DEFERRED. not reviewed in this pass; P2 still open
 - 24-F31: FIXED. empty parallel chunks are skipped and an all-empty run returns (None, None); tests/feature_engineering/test_timeseries.py expectation updated to the corrected cumsum end contract; 129 related tests pass
 - 24-F23: FIXED. local density drops the self-match when the query is the reference, so dist_to_kth is the k-th other point; tests/feature_engineering/test_cluster24_min_periods_and_self_match.py; 57 related tests pass
 - 24-F26: FIXED. rolling min_periods is clamped to the window; same test file
@@ -190,3 +187,7 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F17: PARTIAL. Causal KDE lookback (opt-in, default exact). Dominant error found: the grid argmax jumps to another density peak on about 0.6% of rows, giving max gaps near 0.36 while the mean is 0.006. The auto criterion now uses the MEAN probe gap, default lookback_tol=1e-2 (chosen by me; owner to confirm). Measured on synthetic AR(1) groups (20 x 1500, exp 0.95): fixed L=256 7.1x faster, mean gap 6.0e-3, 0.84% of rows gap above 0.05; auto (selects a candidate) 18.3x faster, mean gap 1.1e-2, 2.1% of rows gap above 0.05. Owner decision still open: accept this tail or tighten tol. Tests tests/feature_engineering/test_cluster24_causal_kde_lookback.py (6 passed). Bench: scratchpad/bench_kde_lookback.py.
 
 - 24-F16: DOCUMENTED. The exp scheme uses one recurrence pass per group (A_L = p*(A+v), B_L = p*(B+1)), equal to the prefix re-walk within 1e-9 (test_cluster24_exp_causal_recurrence.py, 2 passed). The poly scheme keeps the O(m^2) prefix re-walk: its weights depend on the window length, so prefix sums cannot be updated exactly. The choice is now stated at the poly branch.
+
+- 24-F40: FIXED. Windowed edge aggregation: a NaN entity is its own group. Positions come from factorize codes (NaN kept), so the lookup no longer raises KeyError; grouping is one stable argsort, not a per-entity scan. Test tests/feature_engineering/test_cluster24_nan_entity_and_warmup_vote.py
+
+- 24-F35: FIXED. MA crossover vote_sum is NaN on rows where every pair is still warming up (any_vote mask), instead of 0 that reads as neutral consensus. Test tests/feature_engineering/test_cluster24_nan_entity_and_warmup_vote.py
