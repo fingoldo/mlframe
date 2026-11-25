@@ -233,6 +233,12 @@ def strata_null_cmi(cp: Any, shuffled_sorted: Any, y_sorted: Any, z_rank: Any, d
     n = int(shuffled_sorted.shape[1])
     S = int(z_rank[-1]) + 1
     inv_n = 1.0 / float(max(1, n))
+    if kx > 255 or S < MIN_STRATA:  # known on the host: declined before the entropy terms of the support and the target are computed on the device (they were, for every declined call)
+        log_throttle(
+            logger, "cmi_null_strata_gpu_declined_early", logging.INFO,
+            "per-stratum null CMI declined (kx=%d, strata=%d; needs codes<=255, strata>=%d); the dense route runs for this call", kx, S, MIN_STRATA,
+        )
+        return None
     ky, h_zy, k_z, k_yz = _zy_terms(cp, dz, dy, inv_n)
     if kx * ky > MAX_CELLS or kx > 255 or ky > 255 or S < MIN_STRATA:
         log_throttle(
