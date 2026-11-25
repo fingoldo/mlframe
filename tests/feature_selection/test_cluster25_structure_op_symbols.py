@@ -4,8 +4,7 @@
 25-F20: every numba kernel in mi.py is compiled with cache=False, as the module comment requires; none is left cache=True.
 """
 
-import re
-from pathlib import Path
+from numba.core.registry import CPUDispatcher
 
 import mlframe.feature_selection.mi as mi_module
 from mlframe.feature_selection.structure_discovery import _modular_op_text
@@ -20,6 +19,8 @@ def test_modular_ops_read_with_their_symbols():
 
 
 def test_no_numba_kernel_in_mi_is_cached():
-    """The source of mi.py has no cache=True decorator: every kernel carries the CI-driven cache=False."""
-    source = Path(mi_module.__file__).read_text(encoding="utf-8")
-    assert re.search(r"cache=True", source) is None
+    """Every numba kernel in mi.py has caching off: a cached kernel can keep serving machine code built from a stale callee."""
+    dispatchers = [v for v in vars(mi_module).values() if isinstance(v, CPUDispatcher)]
+    assert dispatchers, "mi.py is expected to define numba kernels"
+    cached = [d.py_func.__name__ for d in dispatchers if type(d._cache).__name__ != "NullCache"]
+    assert cached == []
