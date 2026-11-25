@@ -13,6 +13,8 @@ stays in the source framework (polars ``hstack`` / pandas ``concat``), so a 100+
 from __future__ import annotations
 
 import logging
+import threading
+import weakref
 from typing import Any, Iterable, Iterator
 
 logger = logging.getLogger(__name__)
@@ -290,6 +292,41 @@ def fe_frame_from_columns(cols: dict, index: Any) -> "pd.DataFrame":
     return pd.DataFrame({name: (arr if getattr(arr, "flags", None) is None or arr.flags.writeable else arr.copy()) for name, arr in cols.items()}, index=index, copy=False)
 
 
+_APPENDED_FROM: "dict[int, tuple[weakref.ref, weakref.ref, tuple, Any]]" = {}
+_APPENDED_LOCK = threading.Lock()
+
+
+def _note_appended(child: Any, parent: Any, names: Iterable[str], added: Any = None) -> None:
+    """Remember that the pandas frame ``child`` is ``parent`` with the columns ``names`` appended at the end, and the small frame ``added`` that holds exactly those columns (the frame and its parent held weakly,
+    ``added`` as long as the entry lives; the entry goes when ``child`` does).
+
+    ``added`` lets a reader take rows of the appended columns without touching ``child``: the first column selection of a freshly concatenated frame makes pandas rebuild its block bookkeeping,
+    which costs a tenth of a second at 1000 columns and more with hundreds of extension blocks."""
+    key = id(child)
+
+    def _drop(_ref: Any, key: int = key) -> None:
+        """Forget the entry of a collected frame."""
+        with _APPENDED_LOCK:
+            _APPENDED_FROM.pop(key, None)
+
+    try:
+        entry = (weakref.ref(child, _drop), weakref.ref(parent), tuple(names), added)
+    except TypeError:  # not weakly referenceable: no lineage
+        return
+    with _APPENDED_LOCK:
+        _APPENDED_FROM[key] = entry
+
+
+def appended_from(child: Any) -> "tuple[Any, tuple, Any] | None":
+    """``(parent frame, appended column names, frame of the appended columns or None)`` when ``child`` was made by :func:`fe_append_columns` from a parent that is still alive, else ``None``."""
+    with _APPENDED_LOCK:
+        entry = _APPENDED_FROM.get(id(child))
+    if entry is None or entry[0]() is not child:
+        return None
+    parent = entry[1]()
+    return None if parent is None else (parent, entry[2], entry[3])
+
+
 @fe_timed("stage:append_columns")
 def fe_append_columns(X: Any, cols: dict[str, np.ndarray]) -> Any:
     """Append engineered numpy columns ``{name: 1d-array}`` to ``X`` in ITS OWN framework (no whole-frame conversion).
@@ -307,9 +344,12 @@ def fe_append_columns(X: Any, cols: dict[str, np.ndarray]) -> Any:
         src = getattr(cols, "source", None)
         if src is not None and src.index.equals(X.index) and not src.columns.duplicated().any():
             # the columns are views of ``src``'s blocks (read-only): the frame's own columns are shared under copy-on-write, where wrapping the views would copy each one
-            return pd.concat([X, src[list(cols)]], axis=1)
-        add = fe_frame_from_columns(cols, X.index)
-        return pd.concat([X, add], axis=1)
+            added = src[list(cols)]
+        else:
+            added = fe_frame_from_columns(cols, X.index)
+        out = pd.concat([X, added], axis=1)
+        _note_appended(out, X, list(cols), added)
+        return out
     if is_polars(X):
         return X.with_columns([pl.Series(name, np.asarray(vals)) for name, vals in cols.items()])
     if isinstance(X, np.ndarray):

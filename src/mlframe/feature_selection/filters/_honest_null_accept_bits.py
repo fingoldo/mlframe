@@ -16,6 +16,7 @@ Handled when the sorted-space bitset fits the shared budget (about 380000 rows) 
 
 from __future__ import annotations
 
+import functools
 import logging
 
 import numpy as np
@@ -454,17 +455,42 @@ extern "C" __global__ void sorted_label_bits8(const int* __restrict__ order, con
 }
 """
 _MODULE_SORTED8 = RawModuleCache(_SRC_SORTED_BITS8)
+
+#: ``(n, pw)`` row-major label words from the ``(permutations, words)`` row-space bit rows, one 32 x 32 bit transpose per warp (word ``w`` of 32 permutations -> the 32 rows ``32 w .. 32 w + 31``): lane t reads
+#: word ``w`` of permutation ``32 pw + t`` (bit j = the label of row ``32 w + j``), the five butterfly steps leave lane t the bits of row ``32 w + t`` (bit p = the label under permutation ``32 pw + p``). The cupy chain it replaces
+#: (unpackbits to bytes, a transposed byte copy, packbits) took 18.5 ms per call at 500000 rows x 128 permutations, 405 calls in a 500k fit (nvprof: cupy_copy uint8 5.2 s, unpackbits 1.6 s, packbits 0.8 s).
+_SRC_LABEL_TRANSPOSE = r"""
+extern "C" __global__ void label_bits_transpose(const unsigned int* __restrict__ yb, unsigned int* __restrict__ yt, const long long n, const int YW, const int nb, const int PW) {
+    const int w = blockIdx.x;
+    const int pw = blockIdx.y;
+    const int t = threadIdx.x;
+    const int perm = pw * 32 + t;
+    unsigned int x = (perm < nb) ? yb[(long long)perm * YW + w] : 0u;
+#pragma unroll
+    for (int j = 16, mk = 0x0000FFFF; j != 0; j >>= 1, mk ^= (mk << j)) {
+        const unsigned int y = __shfl_xor_sync(0xffffffffu, x, j);
+        x = (t & j) ? (((y >> j) & (unsigned int)mk) | (x & ~(unsigned int)mk)) : ((x & (unsigned int)mk) | ((y & (unsigned int)mk) << j));
+    }
+    const long long row = (long long)w * 32 + t;
+    if (row < n) yt[row * PW + pw] = x;
+}
+"""
+_MODULE_LABEL_TRANSPOSE = RawModuleCache(_SRC_LABEL_TRANSPOSE)
 _PERM_CHUNK = 128  # permutations per pass: the unpacked label matrix is rows x 128 bytes
 _PRE_BYTES = 192 * 1024 * 1024  # sorted-space bit tables held at a time
 
 
+@functools.lru_cache(maxsize=8)
 def threshold_table(n: int, alpha: float) -> np.ndarray:
-    """``thr[c]``: the gain a pair with ``c`` valid cuts must exceed to be accepted (``p(g) * max(1, c) < alpha`` with ``p = erfc(sqrt(n g))``), scaled down by the prune margin; ``thr[0]`` is infinite (no candidate)."""
+    """``thr[c]``: the gain a pair with ``c`` valid cuts must exceed to be accepted (``p(g) * max(1, c) < alpha`` with ``p = erfc(sqrt(n g))``), scaled down by the prune margin; ``thr[0]`` is infinite (no candidate).
+
+    A function of ``(n, alpha)`` only, asked at every acceptance call of a fit (92 of them at 500000 rows, 57 ms of ``erfcinv`` each): remembered, and returned read-only."""
     from scipy.special import erfcinv
 
     c = np.maximum(1, np.arange(n + 1, dtype=np.float64))  # Intentional float64: the acceptance bar in double precision
     thr = erfcinv(np.minimum(alpha / c, 1.0)) ** 2 / float(n) * (1.0 - _MARGIN)
     thr[0] = np.inf
+    thr.flags.writeable = False
     return np.asarray(thr)
 
 
@@ -480,18 +506,18 @@ def valid_cut_bits(tie: np.ndarray, n: int, min_split: int) -> np.ndarray:
     return np.ascontiguousarray(np.packbits(padded, axis=1, bitorder="little").view(np.uint32))
 
 
-def accept_fits(n: int, y_raw_perm: np.ndarray) -> bool:
-    """Whether the bitset path applies: the bitset fits the shared budget and every permutation has the same number of label-1 rows."""
+def accept_fits(n: int, y_raw_perm: np.ndarray, ones: "np.ndarray | None" = None) -> bool:
+    """Whether the bitset path applies: the bitset fits the shared budget and every permutation has the same number of label-1 rows (``ones``: those counts when the caller has them)."""
     words = (int(n) + 31) // 32
     if words * 4 > SHARED_BUDGET_BYTES:
         return False
-    ones = label_one_counts(y_raw_perm)
+    ones = label_one_counts(y_raw_perm) if ones is None else ones
     return bool(ones.size and (ones == ones[0]).all() and 0 < int(ones[0]) < int(n))
 
 
-def accept_fits_global(n: int, y_raw_perm: np.ndarray) -> bool:
-    """Whether the bitset path applies with its tables in global memory (any row count): every permutation has the same number of label-1 rows."""
-    ones = label_one_counts(y_raw_perm)
+def accept_fits_global(n: int, y_raw_perm: np.ndarray, ones: "np.ndarray | None" = None) -> bool:
+    """Whether the bitset path applies with its tables in global memory (any row count): every permutation has the same number of label-1 rows (``ones``: those counts when the caller has them)."""
+    ones = label_one_counts(y_raw_perm) if ones is None else ones
     return bool(ones.size and (ones == ones[0]).all() and 0 < int(ones[0]) < int(n))
 
 
@@ -529,6 +555,21 @@ def _launch_global(cp: Any, d_order: Any, valid: Any, ybits: Any, tab_full: Any,
     return True
 
 
+def _transposed_label_bits_kernel(cp: Any, yb: Any, n: int, pw: int) -> Any:
+    """:func:`_transposed_label_bits` by one bit-transpose kernel (a warp per 32 rows x 32 permutations) instead of unpack, byte transpose and pack: 0.2 ms against 18.5 ms at 500000 rows x 128 permutations."""
+    nb, yw = int(yb.shape[0]), int(yb.shape[1])
+    out = cp.zeros((n, pw), dtype=cp.uint32)
+    _MODULE_LABEL_TRANSPOSE.get(cp).get_function("label_bits_transpose")((yw, pw), (32,), (cp.ascontiguousarray(yb), out, np.int64(n), np.int32(yw), np.int32(nb), np.int32(pw)))
+    return out
+
+
+def label_transpose_kernel_enabled() -> bool:
+    """Whether the label words are transposed by the kernel (default; ``MLFRAME_HONEST_ACCEPT_LABEL_TRANSPOSE=cupy`` keeps the cupy chain), read on every call."""
+    import os
+
+    return os.environ.get("MLFRAME_HONEST_ACCEPT_LABEL_TRANSPOSE", "kernel").strip().lower() != "cupy"
+
+
 def _transposed_label_bits(cp: Any, yb: Any, n: int, pw: int) -> Any:
     """``(n, pw)`` uint32: row ``r`` holds bit ``b`` = the label of row ``r`` under permutation ``b`` of ``yb`` (``(permutations, words)`` row-space bits), 32 permutations per word."""
     nb = int(yb.shape[0])
@@ -555,7 +596,7 @@ def _launch_pre(cp: Any, d_order: Any, valid: Any, ybits: Any, tab_full: Any, th
     g2, c2, i2 = d_gain.reshape(kc, n_perm), d_ncand.reshape(kc, n_perm), d_idx.reshape(kc, n_perm)
     for b0 in range(0, n_perm, _PERM_CHUNK):
         bc = min(_PERM_CHUNK, n_perm - b0)
-        yt = _transposed_label_bits(cp, ybits[b0 : b0 + bc], n, 4)  # padded to four words a row (a chunk is at most 128 permutations): one 16-byte gather per row
+        yt = (_transposed_label_bits_kernel if label_transpose_kernel_enabled() else _transposed_label_bits)(cp, ybits[b0 : b0 + bc], n, 4)  # padded to four words a row (a chunk is at most 128 permutations): one 16-byte gather per row
         col_chunk = max(1, _PRE_BYTES // (wp * bc * 4))
         for j0 in range(0, kc, col_chunk):
             jc = min(col_chunk, kc - j0)
@@ -583,7 +624,8 @@ def root_split_accept_gpu(cp: Any, order: Any, tie: Any, y_raw_perm: Any, n: int
     mode = os.environ.get("MLFRAME_HONEST_ACCEPT_MODE", "").strip().lower()
     if not mode and os.environ.get("MLFRAME_HONEST_ACCEPT_GLOBAL", "").strip() == "1":
         mode = "global"
-    shared_ok = accept_fits(n, y_raw_perm)
+    ones = label_one_counts(y_raw_perm)  # one pass over the permutations for the shape tests and the row total
+    shared_ok = accept_fits(n, y_raw_perm, ones)
     use_global = mode == "global"
     # the precomputed sorted-space tables are the default at every row count (``block`` keeps the kernel that fills a shared bit table per pair, the reference): at 100000 rows x 120 columns x 999
     # permutations the fill phase was 69 percent of that kernel's cycles (random shared-memory lookups, 24 percent shared efficiency), and building the tables 32 permutations per gather is
@@ -591,10 +633,10 @@ def root_split_accept_gpu(cp: Any, order: Any, tie: Any, y_raw_perm: Any, n: int
     use_pre = mode in ("pre", "")
     if mode == "off" and not shared_ok:
         return False
-    if not shared_ok and not accept_fits_global(n, y_raw_perm):
+    if not shared_ok and not accept_fits_global(n, y_raw_perm, ones):
         return False
     words = (int(n) + 31) // 32
-    m = int(label_one_counts(y_raw_perm)[0])
+    m = int(ones[0])
     d_order = cp.asarray(np.ascontiguousarray(order, dtype=np.int32))
     valid = cp.asarray(valid_cut_bits(tie, n, int(min_split)))
     thr = cp.asarray(threshold_table(int(n), float(alpha)))

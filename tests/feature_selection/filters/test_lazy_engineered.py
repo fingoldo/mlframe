@@ -267,6 +267,7 @@ def test_a_cache_gives_memory_back_when_the_machine_is_tight(monkeypatch):
     assert cache._bytes == 10_000
     monkeypatch.setattr(L, "CACHE_FLOOR_BYTES", 2_500)
     monkeypatch.setitem(__import__("sys").modules, "psutil", types.SimpleNamespace(virtual_memory=lambda: types.SimpleNamespace(available=10_000)))
+    monkeypatch.setattr(L, "_AVAILABLE", [-1e9, 0.0])
     cache.put(99, np.zeros(500, dtype=np.float32))
     assert cache._bytes <= 2_500 and cache.get(99) is not None and cache.get(0) is None
 
@@ -276,6 +277,7 @@ def test_the_cache_may_use_the_memory_above_the_reserve_and_the_registered_relea
     import types
 
     monkeypatch.setitem(__import__("sys").modules, "psutil", types.SimpleNamespace(virtual_memory=lambda: types.SimpleNamespace(available=5 * 1024**3)))
+    monkeypatch.setattr(L, "_AVAILABLE", [-1e9, 0.0])
     assert L._ColumnCache(max_bytes=10 * 1024**3).bound() == 2 * 1024**3
     assert L._ColumnCache(max_bytes=1024**3).bound() == 1024**3
     from mlframe.feature_selection.filters import _cache_release
@@ -287,3 +289,19 @@ def test_the_cache_may_use_the_memory_above_the_reserve_and_the_registered_relea
     L._GATHER_CACHE.put(("c", 3), np.zeros(100, dtype=np.float32))
     assert L.release_caches() == 4000 + 40 + 400
     assert L._CACHE.get(("a", 1)) is None and L._HEAD_CACHE.get(("b", 2)) is None and L._GATHER_CACHE.get(("c", 3)) is None
+
+
+def test_the_available_memory_is_read_once_per_ttl_not_once_per_put(monkeypatch):
+    """Forty puts inside the window read the machine's memory once (the call is 2.4 ms on Windows); after the window it is read again."""
+    import types
+
+    reads = []
+    monkeypatch.setitem(__import__("sys").modules, "psutil", types.SimpleNamespace(virtual_memory=lambda: reads.append(1) or types.SimpleNamespace(available=8 * 1024**3)))
+    monkeypatch.setattr(L, "_AVAILABLE", [-1e9, 0.0])
+    cache = L._ColumnCache(max_bytes=10**9)
+    for j in range(40):
+        cache.put(j, np.zeros(10, dtype=np.float32))
+    assert len(reads) == 1
+    monkeypatch.setattr(L, "_AVAILABLE_TTL_S", 0.0)
+    cache.put(99, np.zeros(10, dtype=np.float32))
+    assert len(reads) == 2

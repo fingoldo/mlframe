@@ -15,7 +15,9 @@ Used only for pandas frames of at least ``MLFRAME_FE_LAZY_REPLAY_MIN_ROWS`` rows
 from __future__ import annotations
 
 import itertools
+import logging
 import threading
+import time
 from collections import OrderedDict
 from typing import Any, Callable, Optional
 
@@ -24,8 +26,11 @@ import pandas as pd
 from pandas.api.extensions import ExtensionArray, ExtensionDtype, register_extension_dtype
 
 from mlframe.utils.env_flags import env_int
+from mlframe.utils.log_throttle import log_throttle
 
 from ._cache_release import register_cache_releaser
+
+logger = logging.getLogger(__name__)
 
 #: Rows from which the full-length replay of a winner is deferred (0: never deferred).
 DEFAULT_MIN_ROWS = 250_000
@@ -49,6 +54,26 @@ GATHER_MAX_SHARE = 0.25
 def lazy_replay_min_rows() -> int:
     """Rows from which a replayed winner stays lazy, read on every call (``MLFRAME_FE_LAZY_REPLAY_MIN_ROWS``; 0 turns the mechanism off)."""
     return int(env_int("MLFRAME_FE_LAZY_REPLAY_MIN_ROWS", DEFAULT_MIN_ROWS, minimum=0))
+
+
+_AVAILABLE_TTL_S = 0.5
+_AVAILABLE: "list[float]" = [-1e9, 0.0]  # [monotonic time of the reading, available bytes]
+
+
+def _available_bytes() -> "int | None":
+    """The machine's available RAM, read at most every ``_AVAILABLE_TTL_S`` (``psutil.virtual_memory`` takes 2.4 ms on Windows and the caches ask at every ``put``: 96 ms for the 40 columns of one family); ``None`` when unreadable."""
+    now = time.monotonic()
+    if now - _AVAILABLE[0] < _AVAILABLE_TTL_S:
+        return int(_AVAILABLE[1])
+    try:
+        import psutil
+
+        value = int(psutil.virtual_memory().available)
+    except Exception as exc:  # psutil missing or unreadable: the caches keep their own bounds
+        log_throttle(logger, "_lazy_engineered.available_bytes", logging.WARNING, "available RAM unreadable (%s: %s); the lazy-column caches keep their own bound", type(exc).__name__, exc)
+        return None
+    _AVAILABLE[0], _AVAILABLE[1] = now, float(value)
+    return value
 
 
 class _ColumnCache:
@@ -78,12 +103,8 @@ class _ColumnCache:
 
     def bound(self) -> int:
         """The bytes the cache may hold now: its own bound, or what the machine has available above ``CACHE_RESERVE_BYTES`` (never below the floor) when it is tight."""
-        try:
-            import psutil
-
-            return min(self.max_bytes, max(CACHE_FLOOR_BYTES, int(psutil.virtual_memory().available) - CACHE_RESERVE_BYTES))
-        except Exception:  # psutil missing or unreadable: the own bound
-            return self.max_bytes
+        available = _available_bytes()
+        return self.max_bytes if available is None else min(self.max_bytes, max(CACHE_FLOOR_BYTES, available - CACHE_RESERVE_BYTES))
 
     def put(self, key: Any, values: np.ndarray) -> None:
         """Remember ``values``; the oldest columns go when the total exceeds the bound (a single column above the bound is not kept)."""

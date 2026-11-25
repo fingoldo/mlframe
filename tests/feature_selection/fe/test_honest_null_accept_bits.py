@@ -189,3 +189,20 @@ def test_the_coalesced_scan_with_a_queue_that_overflows_equals_the_reference(mon
     got = _scan(cp, A, order, tie, yperm, n, kc, n_perm, h_full, tab)
     for w, g in zip(want, got):
         np.testing.assert_array_equal(w, g)
+
+
+@pytest.mark.parametrize("n,nb", [(5003, 70), (32, 128), (33, 1), (64000, 128), (97, 32)])
+def test_the_label_word_transpose_kernel_equals_the_cupy_chain(n, nb):
+    """The bit-transpose kernel and the unpack / transposed copy / pack chain give the same ``(n, 4)`` words for row counts that are and are not multiples of 32 and for fewer than 128 permutations."""
+    cp = pytest.importorskip("cupy")
+    import mlframe.feature_selection.filters._honest_null_accept_bits as A
+
+    rng = np.random.default_rng(n + nb)
+    labels = (rng.random((nb, n)) < 0.37).astype(np.uint8)
+    words = (n + 31) // 32
+    padded = np.zeros((nb, words * 32), dtype=np.uint8)
+    padded[:, :n] = labels
+    yb = cp.asarray(np.ascontiguousarray(np.packbits(padded, axis=1, bitorder="little").view(np.uint32)))
+    want = cp.asnumpy(A._transposed_label_bits(cp, yb, n, 4))
+    got = cp.asnumpy(A._transposed_label_bits_kernel(cp, yb, n, 4))
+    np.testing.assert_array_equal(got, want)

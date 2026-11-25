@@ -11,6 +11,9 @@ history.
 
 ## [Unreleased]
 ### Fixed
+- The decision subsample of the FE families is reused across families: the cache compared the index array by object (every family builds its own copy of the one draw, so it hit only for the same family twice) and now compares the rows; a frame that is its parent plus appended columns gathers only the appended columns, read from the small frame the append held. 22 s -> 12 s of a 500000 x 1000 fit.
+- The honest-null acceptance call no longer rebuilds what depends on two numbers or on the permutations alone: the threshold table is remembered, the transposed label words come from a bit-transpose kernel (18.5 -> 0.2 ms, equal words), the ones per permutation are counted once; 138.7 -> 62.8 ms of a call at 500000 rows.
+- The degenerate-column audit projects the unit vectors of the columns in two passes with no temporaries, a block at a time on every core (8.3 s of the start of a 500000 x 1000 fit); the cache of lazy engineered columns reads the available RAM at most every 0.5 s (it was 2.4 ms at every put).
 - The pair ranking no longer extracts the operands of its candidate pairs from the frame again and again: the memo of operand columns that are views of the frame is not bounded by the entry cap of the copies (a 1000-operand pool walked in a cycle through a 512-entry LRU never hit; 290000 extractions, 15.6 s at 500000 x 1000).
 - The symmetric-uncertainty quantiser of the cluster hierarchy writes its codes into the matrix as one tiled block on every core (`scatter_columns_rm`) instead of one strided column at a time, and the rejection ledger renders each distinct operand tuple once.
 - Lazy engineered columns: the cache holds what the machine has above a 3 GiB reserve (up to 3 GB) and is registered with the stage cache releaser, so replays of a 500000 x 1000 fit fall from 4.8 to 3.3 GB without a larger peak.

@@ -282,6 +282,72 @@ def _unit_column(X: Any, name: Any) -> "np.ndarray | None":
     return v / norm if norm > 0 else None
 
 
+#: Bytes of columns stacked for one parallel pass of the unit projections.
+_UNIT_PROJECTION_BLOCK_BYTES = 32 << 20
+
+
+@njit(cache=True, nogil=True, parallel=True)
+def _unit_projections_njit(block, basis, good, proj):
+    """For each row ``j`` of ``block`` (one column of the data): whether it has variance (``good[j]``) and the projections ``proj[j]`` of its unit vector on the three columns of ``basis``.
+
+    The unit vector is :func:`_unit_column`'s: non-finite values replaced by the mean of the finite ones, centred, divided by the norm; two passes over the column and no temporary (the numpy chain made
+    six passes and as many 2 MB arrays per column, 8.3 s for 1000 columns of 500000 rows)."""
+    m, n = block.shape
+    for j in prange(m):
+        total = 0.0
+        count = 0
+        for i in range(n):
+            x = np.float64(block[j, i])  # Intentional float64: the sums of a column are accumulated in double whatever the data dtype
+            if np.isfinite(x):
+                total += x
+                count += 1
+        mean = total / count if count > 0 else 0.0
+        ss = 0.0
+        p0 = 0.0
+        p1 = 0.0
+        p2 = 0.0
+        for i in range(n):
+            x = np.float64(block[j, i])  # Intentional float64: the centred sums and the projections are accumulated in double
+            d = (x - mean) if np.isfinite(x) else 0.0
+            ss += d * d
+            p0 += d * basis[i, 0]
+            p1 += d * basis[i, 1]
+            p2 += d * basis[i, 2]
+        norm = np.sqrt(ss)
+        good[j] = norm > 0.0
+        if norm > 0.0:
+            proj[j, 0] = p0 / norm
+            proj[j, 1] = p1 / norm
+            proj[j, 2] = p2 / norm
+        else:
+            proj[j, 0] = 0.0
+            proj[j, 1] = 0.0
+            proj[j, 2] = 0.0
+
+
+def _unit_projections(X: Any, live: list, basis: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
+    """``(good, proj)``: which of the ``live`` columns have variance and the projections of their unit vectors on the three columns of ``basis``, a block of columns at a time on every core."""
+    from mlframe._numba_parallel_guard import parallel_kernel_entry
+
+    dtype = _crit_np_dtype()
+    n_rows = int(basis.shape[0])
+    good = np.zeros(len(live), dtype=bool)
+    proj = np.zeros((len(live), 3), dtype=dtype)
+    step = max(1, min(64, _UNIT_PROJECTION_BLOCK_BYTES // max(1, n_rows * np.dtype(dtype).itemsize)))
+    for j0 in range(0, len(live), step):
+        names = live[j0 : j0 + step]
+        block = np.empty((len(names), n_rows), dtype=dtype)  # filled column by column: no list of converted columns beside the block
+        for i, name in enumerate(names):
+            block[i] = _column_values(X, name)
+        g = np.zeros(len(names), dtype=bool)
+        pr = np.zeros((len(names), 3), dtype=np.float64)  # Intentional float64: the projections are accumulated and kept in double, as the matrix product with the double basis was
+        with parallel_kernel_entry():
+            _unit_projections_njit(block, basis, g, pr)
+        good[j0 : j0 + len(names)] = g
+        proj[j0 : j0 + len(names)] = pr
+    return good, proj
+
+
 def _collinear_hits_streaming(X: Any, live: list, n_rows: int, tol: float = _COLLINEAR_TOL) -> "tuple[np.ndarray, dict]":
     """``(good, hits)``: which of the ``live`` columns have variance, and for each column ``j`` the earlier columns ``i`` with ``| |corr| - 1 | <= tol``.
 
@@ -293,15 +359,8 @@ def _collinear_hits_streaming(X: Any, live: list, n_rows: int, tol: float = _COL
     # the unit columns are built at the crit dtype: a tolerance below that dtype's rounding (1e-9 against float32's 1.2e-7) rejected an exact sign-flipped copy, so the
     # tolerance is at least 16 epsilons of it (about 1.9e-6 for float32; |corr| above 0.999998 is collinear for this diagnostic)
     tol = max(float(tol), 16.0 * float(np.finfo(_crit_np_dtype()).eps))
-    n = len(live)
-    good = np.zeros(n, dtype=bool)
-    proj = np.zeros((n, 3), dtype=_crit_np_dtype())
     basis = np.random.default_rng(0).standard_normal((n_rows, 3))
-    for k, name in enumerate(live):
-        unit = _unit_column(X, name)
-        if unit is not None:
-            good[k] = True
-            proj[k] = unit @ basis
+    good, proj = _unit_projections(X, live, basis)
     window = 8.0 * float(np.sqrt(2.0 * tol)) + 1e-12
     idx = np.flatnonzero(good)
     order = idx[np.argsort(np.abs(proj[idx, 0]), kind="stable")]

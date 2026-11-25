@@ -42,8 +42,9 @@ def test_cache_size_follows_the_row_count(monkeypatch):
 
     import collections
 
+    X = _frame()
+    M._collinear_hits_streaming(X, list(X.columns), len(X))  # the projection kernel is compiled before the spy is installed: numba's own ordered dicts are not the cache under test
     monkeypatch.setattr(collections, "OrderedDict", Spy)
     monkeypatch.setattr(M, "_UNIT_CACHE_BYTES", 3 * 3000 * 4)
-    X = _frame()
     M._collinear_hits_streaming(X, list(X.columns), len(X))
     assert sizes and max(sizes) <= 3 + 1
