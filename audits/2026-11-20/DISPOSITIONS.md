@@ -1402,7 +1402,6 @@
 
 | 11-F4 | FIXED | qbin ranks only the finite values; NaN rows get the dedicated code k instead of the top bins. Behaviour change: NaN rows return code k (fixed-bin callers must allow k). Finite-only input is unchanged. Test tests/feature_selection/test_cluster11_qbin_nan_own_code.py. |
 
-| 11-F6 | PARTIAL | stat_study core no longer installs a process-wide warning filter at import. Not done: cost_bench.py, t_curve.py, case2_mi.py and exp2_general.py still do the same at import. Test tests/feature_selection/test_cluster11_stat_core_no_global_filter.py. |
 
 | 11-F10 | DEFERRED | InformationGreedyArm calls the njit kernel once per (candidate, chosen) pair from Python. Vectorising needs an equivalence check of the selected sets across JMIM, RELAX and CMIM, and the finding is performance-only with unchanged output. Deferred to a benchmark-validated pass. No code change. |
 
@@ -1531,3 +1530,5 @@
 | 40-F22 | FIXED | MLPRanker stores the fitted column names and predict refuses a different name set or order, so reordered columns of equal width no longer score silently. NaN labels are refused at fit and the count is checked at predict (already in place). Tests tests/training/neural/test_cluster40_ranker_column_names_order.py and the existing test_cluster40_ranker_refuses_nan_labels_and_bad_width.py (4 passed). |
 
 | 24-F16 | DOCUMENTED | The exp scheme uses one recurrence pass per group (A_L = p*(A+v), B_L = p*(B+1)), equal to the prefix re-walk within 1e-9 (test_cluster24_exp_causal_recurrence.py, 2 passed). The poly scheme keeps the O(m^2) prefix re-walk: its weights depend on the window length, so prefix sums cannot be updated exactly. The choice is now stated at the poly branch. |
+
+| 11-F6 | FIXED | No fe_operator_factory benchmark installs a process-wide catch-all warning filter: the stat_study and kernel_prototypes modules and the brainstorm module silence only FutureWarning and DeprecationWarning, as the fs_hybrid benches do. Test tests/feature_selection/test_cluster11_no_catch_all_filter_in_factory.py (1 passed). |

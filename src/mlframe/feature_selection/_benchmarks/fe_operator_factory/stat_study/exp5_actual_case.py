@@ -8,7 +8,7 @@ import numpy as np
 from ..common.binning import mi, mi_b, qbin
 from .exp2_general import als_rank1, best, centered, preset, shift_in, shift_out, zerocross
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 n = 30000
 rng = np.random.default_rng(0)
 a, b, c, d, e, f = (rng.random(n) for _ in range(6))

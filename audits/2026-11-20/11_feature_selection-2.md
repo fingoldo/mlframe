@@ -67,8 +67,9 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 
 - 11-F4: FIXED. qbin ranks only the finite values; NaN rows get the dedicated code k instead of the top bins. Behaviour change: NaN rows return code k (fixed-bin callers must allow k). Finite-only input is unchanged. Test tests/feature_selection/test_cluster11_qbin_nan_own_code.py.
 
-- 11-F6: PARTIAL. stat_study core no longer installs a process-wide warning filter at import. Not done: cost_bench.py, t_curve.py, case2_mi.py and exp2_general.py still do the same at import. Test tests/feature_selection/test_cluster11_stat_core_no_global_filter.py.
 
 - 11-F10: DEFERRED. InformationGreedyArm calls the njit kernel once per (candidate, chosen) pair from Python. Vectorising needs an equivalence check of the selected sets across JMIM, RELAX and CMIM, and the finding is performance-only with unchanged output. Deferred to a benchmark-validated pass. No code change.
 
 - 11-F3: DOCUMENTED. The searched arms in exp6_tables (preset_best and each mode) report the max over many in-sample candidates, while truth and als are single candidates, so the searched numbers are inflated even on noise. Documented at the comparison as an upper bound, not a like-for-like result. A null run (permuted y) would be the follow-up if a conclusion depends on it; no code or numbers changed.
+
+- 11-F6: FIXED. No fe_operator_factory benchmark installs a process-wide catch-all warning filter: the stat_study and kernel_prototypes modules and the brainstorm module silence only FutureWarning and DeprecationWarning, as the fs_hybrid benches do. Test tests/feature_selection/test_cluster11_no_catch_all_filter_in_factory.py (1 passed).

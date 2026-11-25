@@ -3,7 +3,7 @@ Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.kerne
 
 import warnings
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 import numpy as np
 
 from mlframe.feature_selection.filters._fe_cpu_batch import cpu_fe_batch_mi

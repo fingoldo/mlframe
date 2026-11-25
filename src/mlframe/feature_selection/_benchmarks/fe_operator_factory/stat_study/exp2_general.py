@@ -10,7 +10,7 @@ import warnings
 import numpy as np
 from mlframe.feature_engineering._safe_ratio import safe_div
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 from mlframe.feature_selection.filters.feature_engineering import create_binary_transformations, create_unary_transformations
 
 from ..common.binning import mi, mi_b, qbin
