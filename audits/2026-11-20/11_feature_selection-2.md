@@ -47,7 +47,6 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 - 11-F16: FIXED. Rank-aggregation arm refuses a feature missing from the aggregate with KeyError instead of padding it with the minimum score. Test tests/feature_selection/test_cluster11_rank_aggregate_missing_refused.py.
 - 11-F17: DEFERRED. Empty trace gives selection_score None while the kept set has a score (current_score in greedy_backward_elimination). Fixing needs the final score exported from greedy_backward_elimination, which changes a shared function's return contract. Design decision, not changed.
 - 11-F19: FIXED. All MRMR arm and wrapper constructions draw from one bare_mrmr_kwargs helper in _arms.py; the variant arm overrides only its declared keys. Test tests/feature_selection/test_cluster11_mrmr_kwargs_single_source.py.
-- 11-F20: PARTIAL. Test gap closed for _integer_bins (the MI binning used by every MI arm): constant, few-unique, many-unique and NaN contracts pinned. The other named helpers (family_eval, als_rank1, preset_matrix_best) are not covered by this change. Test tests/feature_selection/test_cluster11_integer_bins_contract.py.
 
 
 - 11-F8: FIXED. catboost availability logs at INFO when not installed (ImportError) and at WARNING when installed but broken, so a broken install is no longer indistinguishable from a missing one. Test tests/feature_selection/test_cluster11_catboost_broken_warns.py.
@@ -76,3 +75,5 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 - 11-F6: FIXED. No feature-selection benchmark module installs a process-wide catch-all warning filter: the whole _benchmarks tree (148 files, the fe_operator_factory and stat_study modules included) silences only FutureWarning and DeprecationWarning. Each changed file compiles. Test tests/feature_selection/test_cluster11_no_catch_all_filter_in_factory.py (1 passed) walks the whole tree.
 
 - 11-F15: FIXED. The set(names) rebuilt inside membership comprehensions is hoisted once per call in the arms modules (_arms_it_family.py was the remaining site). Perf-only: the selected list is unchanged by construction, so no separate test is added.
+
+- 11-F20: PARTIAL. Test gap closed for _integer_bins (test_cluster11_integer_bins_contract.py) and for als_rank1 (test_cluster11_als_rank1_smoke.py, 1 passed: finite per-row output, tracks the signal). Not done: family_eval and preset_matrix_best need the unary/binary transform fixtures, which are not built in this pass.
