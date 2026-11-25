@@ -14,7 +14,7 @@ def _apply_large_n_regression_nbins_gate(self, X, y):
     """Switch to fixed 20-bin quantile binning on large-n regression when the user left the quantization params at defaults."""
     if (
         getattr(self, "adaptive_nbins_large_n_reg", False)
-        and getattr(self, "nbins_strategy", None) == "mdlp"
+        and getattr(self, "binning_scheme", None) == "mdlp"
         and int(getattr(self, "quantization_nbins", 10)) == 10
     ):
         _n_rows_gate = int(X.shape[0]) if hasattr(X, "shape") else 0
@@ -33,7 +33,8 @@ def _apply_large_n_regression_nbins_gate(self, X, y):
                     _ratio_gate = len(_y_arr_gate) / max(1, _n_unique_gate)
                     _is_reg_gate = not (_ratio_gate > 100 and _n_unique_gate <= 64)
             if _is_reg_gate:
-                self.nbins_strategy = None
+                self.binning_scheme = "quantile"
+                self.nbins_rule = "fixed"
                 self.quantization_nbins = int(getattr(self, "adaptive_nbins_large_n_reg_nbins", 20))
                 self._adaptive_nbins_large_n_reg_fired_ = True
 

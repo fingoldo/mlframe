@@ -1,6 +1,6 @@
 """High-impact-parameter coverage for ``MRMR`` via one-at-a-time (OAT) per axis plus a small pairwise (2-wise) covering array.
 
-Goal: exercise the parameters that change WHICH / how-many features MRMR picks (mi_normalization, mi_correction, cardinality_bias_correction, nbins_strategy,
+Goal: exercise the parameters that change WHICH / how-many features MRMR picks (mi_normalization, mi_correction, cardinality_bias_correction, binning_scheme,
 quantization_method, nan_strategy, min_relevance_gain_mode, mrmr_relevance_algo, mrmr_redundancy_algo, redundancy_aggregator) WITHOUT a combinatorial blow-up.
 
 Strategy:
@@ -22,6 +22,7 @@ import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
+from tests.feature_selection.binning_cases import binning_kwargs
 
 warnings.filterwarnings("ignore")
 
@@ -125,7 +126,7 @@ def _assert_both_contracts(label, **axis_kwargs):
 # mi_normalization: only 'none' | 'su' are accepted (inline validator).
 # mi_correction: _VALID_MI_CORRECTIONS = ('none','miller_madow','chao_shen').
 # cardinality_bias_correction: bool.
-# nbins_strategy: 'optimal_joint' admits a noise col on the confounder case so it is excluded from the both-contracts OAT (covered separately on exact_dup only).
+# binning_scheme: 'optimal_joint' admits a noise col on the confounder case so it is excluded from the both-contracts OAT (covered separately on exact_dup only).
 # quantization_method: _VALID_QUANTIZATION_METHODS = ('quantile','uniform').
 # nan_strategy: _VALID_NAN_STRATEGIES = ('separate_bin','fillna_zero','ffill_bfill','propagate','raise'); all pass on NaN-free data.
 # min_relevance_gain_mode: 'relative_to_entropy' | 'absolute'.
@@ -164,16 +165,16 @@ def test_oat_cardinality_bias_correction(cardinality_bias_correction):
 
 
 # 'optimal_joint' admits a confounder noise col so it is exercised on exact_dup only (where it is clean); the rest run both contracts.
-@pytest.mark.parametrize("nbins_strategy", [None, "mdlp", "mdlp_validated"])
-def test_oat_nbins_strategy(nbins_strategy):
-    """Oat nbins strategy."""
-    _assert_both_contracts(f"nbins_strategy={nbins_strategy}", nbins_strategy=nbins_strategy)
+@pytest.mark.parametrize("binning_case", ["fixed", "mdlp", "mdlp_validated"])
+def test_oat_binning(binning_case):
+    """Oat binning scheme x rule."""
+    _assert_both_contracts(f"binning={binning_case}", **binning_kwargs(binning_case))
 
 
-def test_oat_nbins_strategy_optimal_joint_exact_dup():
-    """Oat nbins strategy optimal joint exact dup."""
+def test_oat_binning_optimal_joint_exact_dup():
+    """Oat binning optimal joint exact dup."""
     Xd, yd = _make_exact_dup(seed=0)
-    _assert_exact_dup_contract(_select(Xd, yd, nbins_strategy="optimal_joint"), label="[nbins=optimal_joint]")
+    _assert_exact_dup_contract(_select(Xd, yd, binning_scheme="optimal_joint"), label="[nbins=optimal_joint]")
 
 
 @pytest.mark.parametrize("quantization_method", ["quantile", "uniform"])

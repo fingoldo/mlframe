@@ -8,7 +8,7 @@ from mlframe.feature_selection._benchmarks.profiling import family_scale as F
 from mlframe.feature_selection.filters.mrmr import MRMR
 from mlframe.feature_selection.filters import _gbm_seeder_prefetch as P
 import mlframe.feature_selection.filters._surrogate_interaction_seeder as S
-kw: dict[str, Any] = {f: True for f in F._flag_names()}; kw["nbins_strategy"] = "mdlp"
+kw: dict[str, Any] = {f: True for f in F._flag_names()}; kw["binning_scheme"] = "mdlp"
 MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20000, 30, 1))
 data = F._make(100000, 100, 0)
 T0 = [0.0]; ev: list[Any] = []

@@ -453,12 +453,12 @@ class _MRMRFitStagesMixin:
         st._skip_shape = getattr(self, "skip_retraining_on_same_shape", None)
         st._orig_skip_content = self._fit_body_freshly_constructed_instance_never(st._skip_shape, st._orig_skip_content)
         # _fit_impl's large-n regression adaptive-quantization
-        # gate (adaptive_nbins_large_n_reg) permanently overwrote self.nbins_strategy/self.quantization_nbins
+        # gate (adaptive_nbins_large_n_reg) permanently overwrote self.binning_scheme/self.nbins_rule/self.quantization_nbins
         # in place with no restore anywhere - breaking the sklearn clone()/get_params() round-trip contract
         # and permanently freezing a config the gate's own campaign data says LOSES at smaller n on any
         # subsequent .fit() call on the same instance. Snapshot unconditionally here (mirrors _orig_random_seed
         # / _orig_skip_content above) and restore in the finally block below regardless of whether the gate fired.
-        st._orig_nbins_strategy = getattr(self, "nbins_strategy", None)
+        st._orig_binning = (getattr(self, "binning_scheme", None), getattr(self, "nbins_rule", None))
         st._orig_quantization_nbins = getattr(self, "quantization_nbins", None)
 
     def _fit_body_run_fit_impl(self, X: Any, y: Any, groups: Any, fit_params: dict) -> Any:

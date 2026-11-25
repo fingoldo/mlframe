@@ -20,7 +20,7 @@ for k,v in {"MLFRAME_FE_GPU_STRICT":"1","MLFRAME_CMI_GPU":"1","MLFRAME_FE_VRAM_F
 from mlframe.feature_selection._benchmarks.profiling import family_scale as F
 from mlframe.feature_selection.filters.mrmr import MRMR
 from mlframe.feature_selection.filters._fe_family_timing import reset_fe_family_wall
-kw=F.all_families_kwargs(); kw["nbins_strategy"]="mdlp"
+kw=F.all_families_kwargs(); kw["binning_scheme"] = "mdlp"
 reset_fe_family_wall()
 sel=MRMR(verbose=0,random_seed=0,n_jobs=1,**kw).fit(*F._make(30000,40,0))
 w=sel.fe_family_wall_

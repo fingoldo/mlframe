@@ -144,15 +144,34 @@ class CBIterationMetricsCallback:
         self.stride = max(1, int(stride))
         self.n_classes = n_classes
         self.iteration_metrics_: dict[int, dict[str, float]] = {}
+        # The last round seen and its model, so flush() can capture the final round when a stride skipped it (audit 32-F9).
+        self._last_it: int = 0
+        self._last_model: Any = None
+
+    def flush(self) -> None:
+        """Capture the last round seen if the stride skipped it (audit 32-F9).
+
+        CatBoost has no after-training hook, so the caller must call this after ``fit`` returns. Without it, with ``stride > 1`` the final round
+        is absent from ``iteration_metrics_``. A round already captured is not recaptured.
+        """
+        round_idx = self._last_it - 1
+        if round_idx < 0 or round_idx in self.iteration_metrics_ or self._last_model is None:
+            return
+        score = self._predict(self._last_model, self._last_it)
+        if score is not None:
+            _store(self.iteration_metrics_, round_idx, self.y_val, score, self.target_type, self.n_classes)
 
     def after_iteration(self, info) -> bool:
         """Capture the val metric suite for the current round when it lands on a stride boundary. Always
         returns ``True`` (CatBoost's convention: ``True`` means continue training, this callback never stops it)."""
         it = int(getattr(info, "iteration", 0))
         round_idx = it - 1  # normalise to 0-based to match lgb / xgb
+        model = getattr(info, "model", None)
+        if round_idx >= 0:
+            self._last_it = it
+            self._last_model = model
         if round_idx < 0 or not _should_capture(round_idx, self.stride):
             return True
-        model = getattr(info, "model", None)
         if model is None:
             return True
         score = self._predict(model, it)

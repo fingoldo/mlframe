@@ -11,11 +11,11 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters._adaptive_nbins import (
-    edges_sturges,
     edges_freedman_diaconis,
     edges_knuth,
     _plug_in_mi,
 )
+from tests.feature_selection.binning_cases import edges_sturges
 
 # ln(4) - the maximum achievable MI when x perfectly separates 4 equiprobable clusters.
 _MAX_MI_4_CLUSTERS = float(np.log(4))

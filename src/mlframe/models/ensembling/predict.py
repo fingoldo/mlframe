@@ -547,15 +547,22 @@ def ensemble_probabilistic_predictions_streaming(
     # Also accumulate raw preds mean + std for uncertainty reporting
     raw_acc = _WelfordAccumulator(shape=shape)
 
+    # Harm: a zero member forces the harmonic mean to exactly 0, as in the materialised path. The streaming sums carry 1e150 for it, so the
+    # zero is tracked explicitly here rather than inferred from the finalized value (audit 18-F15).
+    zero_seen = np.zeros(shape, dtype=bool)
     for p in preds_list:
         p = np.asarray(p, dtype=np.float64)
         if p.ndim == 1:
             p = p.reshape(-1, 1)
         raw_acc.push(p)
+        if ensemble_method == "harm":
+            zero_seen |= p == 0
         _push_transformed(primary_acc, p, ensemble_method)
 
     # Finalize per method
     ensembled_predictions = _finalize_mean_of_transformed(primary_acc.mean, ensemble_method)
+    if ensemble_method == "harm":
+        ensembled_predictions = np.where(zero_seen, 0.0, ensembled_predictions)
 
     ensembled_predictions = _streaming_nonfinite_fallback(ensembled_predictions, raw_acc, verbose)
 

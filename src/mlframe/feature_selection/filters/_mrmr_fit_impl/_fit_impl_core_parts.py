@@ -65,11 +65,11 @@ def _fit_impl_part9(_ret_fit_impl_part7: Any, self: Any, y: pd.DataFrame | pd.Se
 
     X = _second_pass_cmi_gate(self, X, _y_np, recipes, verbose)
 
-    X, _is_polars_input, target_names, _nbins_strategy, _x_for_cat, cols, data, nbins, _numeric_names, _name_to_idx, target_indices, _rebin_continuous_targets = _fit_impl_part3(
+    X, _is_polars_input, target_names, _binning, _x_for_cat, cols, data, nbins, _numeric_names, _name_to_idx, target_indices, _rebin_continuous_targets = _fit_impl_part3(
         self, X, verbose, _y_np, y, numeric_column_names, fe, n_jobs,
     )
 
-    _rebin_continuous_targets(self, _nbins_strategy, target_indices, cols, _x_for_cat, nbins, data, verbose)
+    _rebin_continuous_targets(self, _binning, target_indices, cols, _x_for_cat, nbins, data, verbose)
 
     data, categorical_vars_names, categorical_vars, binary_transformations, checked_pairs, engineered_features, unary_transformations, engineered_recipes, cols, nbins, _effective_min_relevance_gain, num_fs_steps, _did_confirm_rescreen, _persisted_dcd_state, _persisted_screen_caches = _fit_impl_part5(
         data, _is_polars_input, X, _name_to_idx, fe, self, verbose, ROUTED_RECIPE_FAMILIES, recipes, target_indices, cols, _include_numeric_input_nan_cols,
@@ -86,7 +86,7 @@ def _fit_impl_part9(_ret_fit_impl_part7: Any, self: Any, y: pd.DataFrame | pd.Se
     while True:
         n_recommended_features = 0
         _persisted_dcd_state, selected_vars, predictors, cached_MIs, cached_confident_MIs, classes_y, classes_y_safe, freqs_y, _dcd_state, _attach_dcd_results, _persisted_screen_caches = _fit_impl_part4(
-            self, data, target_indices, screen_predictors, _nbins_strategy, cols, _numeric_names, nbins, _screen_factors_names_to_use,
+            self, data, target_indices, screen_predictors, _binning, cols, _numeric_names, nbins, _screen_factors_names_to_use,
             _effective_min_relevance_gain, _effective_max_confirmation_cand_nbins, _cat_fe_lineage, _dcd_config, X, engineered_recipes,
             _raw_input_cols_pre_fe, _persisted_dcd_state, _persisted_screen_caches, _persisted_maxt_floor_cache, _persisted_workers_pool,
         )
@@ -407,7 +407,7 @@ def _fit_impl_part5(
 
 
 def _fit_impl_part4(
-    self: Any, data: Any, target_indices: Any, screen_predictors: Any, _nbins_strategy: Any, cols: Any, _numeric_names: Any, nbins: Any,
+    self: Any, data: Any, target_indices: Any, screen_predictors: Any, _binning: Any, cols: Any, _numeric_names: Any, nbins: Any,
     _screen_factors_names_to_use: Any, _effective_min_relevance_gain: Any, _effective_max_confirmation_cand_nbins: Any, _cat_fe_lineage: Any,
     _dcd_config: Any, X: pd.DataFrame | np.ndarray, engineered_recipes: Any, _raw_input_cols_pre_fe: Any, _persisted_dcd_state: Any,
     _persisted_screen_caches: Any, _persisted_maxt_floor_cache: Any, _persisted_workers_pool: Any,
@@ -431,7 +431,7 @@ def _fit_impl_part4(
         # Recomputed from the CURRENT ``cols``: the cat-interaction FE step rebinds data/cols/nbins with
         # engineered columns, and a crossed categorical can carry real cardinality, so it must stay
         # eligible for the ceiling rather than inherit an exemption computed before it existed.
-        raw_cardinality_cols=(None if not _nbins_strategy else {c for c in cols if c not in _numeric_names}),
+        raw_cardinality_cols=(None if not _binning else {c for c in cols if c not in _numeric_names}),
         factors_data=data,
         y=target_indices,
         honest_null_codes_fn=getattr(self, "_honest_null_codes_fn", None),
@@ -615,14 +615,14 @@ def _fit_impl_part3(
     # correctly with no special-casing on the receiving side.
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._binning import _discretize_inputs
 
-    _nbins_strategy, _x_for_cat, cols, data, nbins = _discretize_inputs(self, _is_polars_input, X, target_names)
+    _binning, _x_for_cat, cols, data, nbins = _discretize_inputs(self, _is_polars_input, X, target_names)
 
     # Which columns the cardinality pre-screen may judge by bin count. Under a SUPERVISED nbins strategy (the
     # default MDLP) a numeric column earns bins for explaining the target, so its bin count is a signal-strength
     # measure, not a cardinality one -- feeding it to a "too many levels" guard drops the best feature. Only
     # genuinely categorical columns, whose bins ARE their levels, stay eligible. With no supervised strategy every
     # bin count is unsupervised again and the guard applies to all of them, as before.
-    _numeric_names = numeric_column_names(_x_for_cat) if _nbins_strategy else set()
+    _numeric_names = numeric_column_names(_x_for_cat) if _binning else set()
 
     # perf: speculatively pre-warm the polynom-pair-FE loky pool here, AFTER categorization (not
     # before it). ``run_polynom_pair_fe`` is otherwise the pool's first user in a typical fit (the sibling CPU
@@ -649,7 +649,7 @@ def _fit_impl_part3(
 
     target_indices = np.array([_name_to_idx[col] for col in target_names], dtype=np.int64)
 
-    # TARGET REBIN GUARD. The adaptive per-column ``nbins_strategy``
+    # TARGET REBIN GUARD. The adaptive per-column ``binning``
     # (default ``"mdlp"``) is meant for FEATURE columns; applied to the
     # injected TARGET column it is SELF-REFERENTIAL (MDLP bins y supervised on y) and
     # on a heavy-tailed continuous y it produces a DEGENERATE encoding - measured on
@@ -661,9 +661,9 @@ def _fit_impl_part3(
     # CONTINUOUS target columns (raw unique count > quantization_nbins; classification
     # labels are left untouched) with the legacy ``quantization_method`` /
     # ``quantization_nbins`` equal-frequency quantile path. No-op when
-    # ``nbins_strategy`` is None (legacy fits already bin the target this way).
+    # ``binning_scheme`` is None (legacy fits already bin the target this way).
     from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._binning import _rebin_continuous_targets
-    return X, _is_polars_input, target_names, _nbins_strategy, _x_for_cat, cols, data, nbins, _numeric_names, _name_to_idx, target_indices, _rebin_continuous_targets
+    return X, _is_polars_input, target_names, _binning, _x_for_cat, cols, data, nbins, _numeric_names, _name_to_idx, target_indices, _rebin_continuous_targets
 
 
 def _fit_impl_part2(

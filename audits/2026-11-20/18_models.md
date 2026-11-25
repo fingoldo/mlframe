@@ -60,19 +60,23 @@ No P0 found on the default path. Findings below were verified by reading the cit
 - 18-F5: RESOLVED. batch_numaggs passes whiten_means=False as the serial path does. Test tests/models/test_batch_numaggs_matches_serial_whitening.py is a source-level guard (weak: it checks the call text, not the output); 74 existing numagg tests pass. Commit below.
 - 18-F3: RESOLVED. Target-MAE gate reads a binary (n, 2) predict_proba as its positive column (_as_gate_vector), not as 2n flattened values, so the MAE is no longer NaN and the block is no longer skipped. Test tests/models/test_gate_vector_uses_positive_column.py; 82 existing gate/stacking tests pass. Commit below.
 - 18-F9: FIXED. gate weighted means return NaN when every weight is zero instead of raising; tests/models/test_cluster18_zero_weight_gate.py; existing quality-gate and ensembling tests: 231 passed
-- 18-F6: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F7: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
-- 18-F8: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
-- 18-F10: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F11: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F12: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F13: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F14: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F2: PARTIAL. Multiclass (N,K>2) member probabilities now produce an explicit warning that the NNLS/Caruana weight fit does not support them (score_flavours.py run_stacking_aware_gate), instead of blaming the row count. Per-class weighting is not built; tests/models/test_cluster18_multiclass_gate_skip_is_explicit.py
 - 18-F4: FIXED. Level-1 member tuples (entry, train_df, val_df, test_df) are unwrapped to the entry namespace in the probability accessors (models/ensembling/process_method.py _entry_of); tests/models/test_cluster18_level_member_tuple_unwrapped.py
-- 18-F15: DEFERRED. Streaming harmonic mean maps a zero prediction to a finite 1e150 sentinel, so it finishes near 3e-150 while the materialised path returns 0. Fixing it needs a zero-indicator channel in the streaming accumulator, which changes its memory footprint. Owner to approve the accumulator change.
 - 18-F17: FIXED. Removed the unreachable except NameError around the gate-stats lookup: _gate_stats is a parameter, always bound. Behaviour unchanged; 71 existing ensembling tests pass.
 - 18-F18: FIXED. Docstring corrected: probabilistic outputs are averaged across per-class correlations, not collapsed to the last column. Docstring-only; no behaviour change, no test.
 - 18-F16: FIXED. Removed the never-read ENSEMBLE_STREAMING_THRESHOLD_BYTES constant; the streaming choice is driven by EnsemblingConfig.quantile_budget_bytes. Regression: 7 existing ensembling tests pass.
 - 18-F19: PARTIAL. The broad except around member test-prediction stacking now names what was skipped and logs the traceback (it already logged at WARNING). Reaching this branch in a test is impractical; no direct test. Related ensembling tests pass (4).
 - 18-F20: DEFERRED. The benchmark mirrors the ranking because the shipped _choose_ensemble_flavour takes only an ensembles dict, with no probe-order parameter. Calling the shipped logic for each probe order needs an API change in the chooser, owner decision.
+
+- 18-F15: FIXED. The streaming harm tracks a zero member per cell and returns exactly 0 there, matching the materialised zero rule, instead of about 3e-150 from the 1e150 surrogate. Other cells keep the plain harmonic mean. Observation outside this finding: on non-zero cells the materialised path with default parameters gave different values for this input, not checked here. Tests tests/models/ensembling/test_cluster18_streaming_harm_zero.py (2 passed); existing streaming tests 31 passed.
+
+- 18-F10: FIXED. The regression train-split path is chosen by any member instead of member 0: each member is probed once, and members without predictions are None in the list, as the classification path already does. Before, a member-0 miss dropped the whole train-split ensemble. Tests tests/models/ensembling/test_cluster18_train_path_any_member.py (2 passed); related ensembling tests 17 passed.
+
+- 18-F6: DEFERRED. The outlier gate keeps only rows where every member is finite, while quality_gate keeps rows where any member is finite, so the two gates disagree; when every row has some NaN the gate switches itself off silently. Plan: keep rows with any finite member here too, switch the cross-member median and the per-member MAE/STD to NaN-aware reductions (the numba kernel _per_member_mae_std needs a NaN-aware path), and add a test where two members have disjoint NaN rows that the gate still excludes an outlier member. No code change in this pass.
+
+- 18-F8: FIXED. The default AUC in _score_blend drops rows with a NaN label before scoring, so they no longer count as negatives. Tests tests/models/ensembling/test_cluster18_score_drops_nan_labels.py (2 passed).

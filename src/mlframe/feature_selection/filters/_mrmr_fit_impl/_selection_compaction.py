@@ -27,31 +27,80 @@ logger = logging.getLogger(__name__)
 _MIN_ROWS_PER_CELL = 20  # a joint table with more occupied cells than n / this is too sparse for the Miller-Madow correction
 
 
-def corrected_joint_mi(columns: "list[np.ndarray]", y_codes: np.ndarray) -> "tuple[float, int]":
-    """``(bias-corrected joint MI in nats, occupied joint cells)`` of the integer-coded ``columns`` with ``y_codes``."""
+def _extend_joint(joint: np.ndarray, col: np.ndarray) -> np.ndarray:
+    """Dense ids (in increasing key order, as ``np.unique(return_inverse=True)`` numbers them) of the joint of the partition ``joint`` with the integer-coded column ``col``."""
+    from mlframe.feature_selection.filters._added_information_gate import _dense_small_ints
+
+    c = np.asarray(col).astype(np.int64, copy=False)
+    base = int(c.max()) + 1 if c.size else 1
+    key = joint * base + c
+    # dense ids in increasing value order, from one counting pass instead of a sort (a sort of the rows for every column of every candidate)
+    dense, k = _dense_small_ints(np.ascontiguousarray(key).reshape(-1), 1 << 22)
+    if k >= 0:
+        return np.asarray(dense)
+    _, ids = np.unique(key, return_inverse=True)
+    return np.asarray(ids.astype(np.int64, copy=False))
+
+
+def _dense_target(y_codes: np.ndarray) -> "tuple[np.ndarray, int]":
+    """``(dense ids of the target codes, number of classes)``."""
     from mlframe.feature_selection.filters._added_information_gate import _dense_small_ints
 
     n = int(y_codes.shape[0])
-    joint = np.zeros(n, dtype=np.int64)
-    for col in columns:
-        c = np.asarray(col).astype(np.int64, copy=False)
-        base = int(c.max()) + 1 if c.size else 1
-        key = joint * base + c
-        # dense ids in increasing value order, as ``np.unique(return_inverse=True)`` numbers them, from one counting pass instead of a sort (a sort of the rows for every column of every candidate)
-        dense, k = _dense_small_ints(np.ascontiguousarray(key).reshape(-1), 1 << 22)
-        if k >= 0:
-            joint = dense
-        else:
-            _, joint = np.unique(key, return_inverse=True)
-            joint = joint.astype(np.int64, copy=False)
-    cells = int(joint.max()) + 1 if n else 1
     y_flat = np.ascontiguousarray(np.asarray(y_codes).astype(np.int64, copy=False)).reshape(-1)
     y_dense, ky = _dense_small_ints(y_flat, 1 << 22)
     if ky < 0:
         _, y_dense = np.unique(y_codes, return_inverse=True)
     n_y = int(y_dense.max()) + 1 if n else 1
-    mi = float(_mi_codes_njit(joint, cells, y_dense.astype(np.int64).ravel(), n_y))
+    return np.ascontiguousarray(y_dense.astype(np.int64).ravel()), n_y
+
+
+def _corrected_mi(joint: np.ndarray, y_dense: np.ndarray, n_y: int) -> "tuple[float, int]":
+    """``(bias-corrected MI of the partition ``joint`` with the target, occupied cells)``."""
+    n = int(y_dense.shape[0])
+    cells = int(joint.max()) + 1 if n else 1
+    mi = float(_mi_codes_njit(joint, cells, y_dense, n_y))
     return mi - (cells - 1.0) * (n_y - 1.0) / (2.0 * n), cells
+
+
+def corrected_joint_mi(columns: "list[np.ndarray]", y_codes: np.ndarray) -> "tuple[float, int]":
+    """``(bias-corrected joint MI in nats, occupied joint cells)`` of the integer-coded ``columns`` with ``y_codes``."""
+    n = int(y_codes.shape[0])
+    joint = np.zeros(n, dtype=np.int64)
+    for col in columns:
+        joint = _extend_joint(joint, col)
+    y_dense, n_y = _dense_target(y_codes)
+    return _corrected_mi(joint, y_dense, n_y)
+
+
+class JointCache:
+    """``corrected_joint_mi`` of ordered name tuples, each joint built from the longest cached prefix by one more column.
+
+    The compaction scores a set that differs from an earlier one by one name (every candidate replacement shares the kept prefix of its covered set; a dropped feature leaves the set the next
+    drop starts from), so the joint of the shared prefix is formed once instead of once per candidate. A bounded number of joints is kept (a joint is ``n`` int64); the result of a tuple is the
+    same as ``corrected_joint_mi`` of its columns in the same order. ``columns`` maps a name to its integer codes, ``y_codes`` is the target, ``max_entries`` bounds the cached joints.
+    """
+
+    def __init__(self, columns: Mapping[str, np.ndarray], y_codes: np.ndarray, max_entries: int = 24) -> None:
+        self._columns = columns
+        self._y_dense, self._n_y = _dense_target(y_codes)
+        self._max = int(max_entries)
+        self._joints: "dict[tuple[str, ...], np.ndarray]" = {(): np.zeros(int(y_codes.shape[0]), dtype=np.int64)}
+
+    def _joint(self, names: "tuple[str, ...]") -> np.ndarray:
+        """The joint partition of ``names``, extending the cached joint of ``names[:-1]``; the least recently used joint goes when the cache is full."""
+        got = self._joints.pop(names, None)
+        if got is None:
+            got = _extend_joint(self._joint(names[:-1]), self._columns[names[-1]])
+            while len(self._joints) >= self._max:
+                oldest = next(k for k in self._joints if k)  # the empty tuple (the root) stays
+                del self._joints[oldest]
+        self._joints[names] = got  # re-inserted last: dict order is the recency order
+        return got
+
+    def corrected(self, names: "Iterable[str]") -> "tuple[float, int]":
+        """``(bias-corrected joint MI in nats, occupied joint cells)`` of the columns ``names`` (in this order) with the target."""
+        return _corrected_mi(self._joint(tuple(names)), self._y_dense, self._n_y)
 
 
 def _equivalence_tolerance(extra_cells: int, n_y: int, n: int) -> float:
@@ -87,7 +136,8 @@ def choose_compaction(
     consumers = consumers or {}
     if len(engineered_selected) < 2 or any(nm not in columns for nm in selected):
         return None
-    current, cells = corrected_joint_mi([columns[nm] for nm in selected], y_codes)
+    joints = JointCache(columns, y_codes)
+    current, cells = joints.corrected(selected)
     if cells > n / _MIN_ROWS_PER_CELL:
         return None
     best = None
@@ -100,7 +150,7 @@ def choose_compaction(
         if any(consumers.get(e, set()) - set(covered) - {cand} for e in covered):
             continue
         kept = [nm for nm in selected if nm not in covered]
-        score, new_cells = corrected_joint_mi([columns[nm] for nm in [*kept, cand]], y_codes)
+        score, new_cells = joints.corrected([*kept, cand])
         if new_cells > n / _MIN_ROWS_PER_CELL:
             continue
         if score < current - _equivalence_tolerance(new_cells - cells, n_y, n):
@@ -149,16 +199,17 @@ def prune_redundant(
     n_y = int(np.unique(y_codes).size)
     kept = list(selected)
     dropped = []
+    joints = JointCache(columns, y_codes)
     for e in sorted(engineered_selected):
         if e not in kept or any(c in kept for c in consumers.get(e, ()) if c != e):
             continue
         rest = [nm for nm in kept if nm != e]
         if not rest:
             continue
-        with_e, cells_with = corrected_joint_mi([columns[nm] for nm in kept], y_codes)
+        with_e, cells_with = joints.corrected(kept)
         if cells_with > n / _MIN_ROWS_PER_CELL:
             continue
-        without, cells_without = corrected_joint_mi([columns[nm] for nm in rest], y_codes)
+        without, cells_without = joints.corrected(rest)
         if without >= with_e - _equivalence_tolerance(cells_without - cells_with, n_y, n):
             if keeps_linear_value is not None and keeps_linear_value(e, rest):
                 continue

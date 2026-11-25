@@ -33,6 +33,8 @@ from sklearn.model_selection import BaseCrossValidator
 # Top-level helpers (histogram + fingerprint/hash + replay + chunker) live in
 # ``_mrmr_fingerprints.py``; re-imported below so the parent module and
 # downstream callers continue to resolve historical names.
+from .._binning_spec import BINNING_SCHEMES, NBINS_RULES
+
 # Pure-data constants carved out of this module (no class refs -> safe top-level import):
 # the constructor-param validation allow-lists and the legacy-pickle default-injection roster.
 from ._mrmr_param_constants import (
@@ -41,11 +43,9 @@ from ._mrmr_param_constants import (
     _VALID_CATEGORICAL_FOLD_STRATEGIES,
     _VALID_MRMR_RELEVANCE_ALGOS,
     _VALID_MRMR_REDUNDANCY_ALGOS,
-    _VALID_NBINS_STRATEGIES,
     _VALID_MI_CORRECTIONS,
     _VALID_REDUNDANCY_AGGREGATORS,
     _VALID_STABILITY_SELECTION_METHODS,
-    _DEMOTED_NBINS_STRATEGIES,
     _VALID_FE_UNARY_PRESETS,
     _VALID_FE_BINARY_PRESETS,
     _VALID_CLUSTER_AGGREGATE_MODES,
@@ -378,36 +378,38 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # the permutation null refolds it for every permuted target. The mapping is decided per frame.
         categorical_fold_strategy: str = "frequency",
         categorical_fold_min_support: int = 5,
-        # per-feature adaptive bin chooser. Default ``'quantile_spacing'`` (chosen as the default): it depends on the column only, never on the target, so a suite of targets bins each column once
-        # and the composite child fit can reuse the codes. Its bin count follows the row count: ``min(round(0.3 n), round(2 n^(1/3)))`` clamped to [3, 64] (20 at 1000 rows, 36 at 6000, 54 at 20000). It was
-        # briefly replaced by ``sturges`` the same day, by the assistant and not on the owner's decision, because the old rule ``round(0.3 n)`` gave 64 bins at EVERY n from 214 up and lost a categorical interaction
-        # in a 6000-row frame with 120 noise columns (3 of 3 seeds); with the rule above it is kept (3 of 3, as ``sturges``, ``uniform``, ``mdlp`` and ``optimal_joint`` do; ``freedman_diaconis`` loses it). Measured on
-        # 20000 x 50 out of fold (``_benchmarks/nbins_strategy``, the old rule): binary AUC 0.951 against 0.950 for ``sturges``, regression R2 0.888 against 0.886, wall 21 s against 23 s per fold; ``mdlp`` has the best
-        # ground-truth F1 (0.73) at about twice the wall. Pass ``nbins_strategy=None`` to restore the earlier fixed ``quantization_nbins`` quantile behaviour. The MRMR hot path stays exclusively on the plug-in MI
-        # njit kernel chain (mi_direct / fleuret / permutation); alternative MI estimator families live in their own modules and are NOT wired into MRMR.fit().
-        nbins_strategy: str = "quantile_spacing",
-        # ``nbins_strategy='mdlp'`` runs significance-gated ("validated")
+        # How a numeric column is binned: the PARTITION (``binning_scheme``), the COUNT RULE (``nbins_rule``) and a cap on the count (``nbins_cap``); see ``_binning_spec`` for every value.
+        # Default: equal-frequency bins (``quantile``) with the ``rice_capped`` count, ``min(round(0.3 n), round(2 n^(1/3)), nbins_cap)`` (20 at 1000 rows, 36 at 6000, 48 from about 13800). A target-independent
+        # scheme bins each column once per frame, so a suite of targets re-uses the codes. ``nbins_rule=None`` takes the scheme's own rule (``rice_capped`` for ``quantile``, ``freedman_diaconis`` for ``uniform``);
+        # the supervised schemes (``mdlp``, ``mdlp_validated``, ``optimal_joint``, ``mah``) and ``bayesian_blocks`` pick their own count and reject a rule. ``nbins_rule='fixed'`` bins every column into exactly
+        # ``quantization_nbins`` bins (the discretiser of the FE operands). Measured 2026-11-23 on the default rule: 100000 x 100 with every family, wall 50.3 s at ``nbins_cap=64`` against 37.1 s at 48; out-of-fold
+        # 80000 x 50 binary AUC 0.9491 at 64, 0.9507 at 48, 0.9305 at 32 (one fold failed); ``mdlp`` has the best ground-truth F1 (0.73) at about twice the wall. The MRMR hot path stays exclusively on the plug-in
+        # MI njit kernel chain (mi_direct / fleuret / permutation); alternative MI estimator families live in their own modules and are NOT wired into MRMR.fit().
+        binning_scheme: str = "quantile",
+        nbins_rule: str | None = None,
+        nbins_cap: int = 48,
+        # ``binning_scheme='mdlp'`` runs significance-gated ("validated")
         # splitting by DEFAULT instead of the classic in-sample MDL threshold + depth cap -
         # measured real accuracy win on held-out RMSE (see supervised_binning.py's
         # ``mdlp_bin_edges`` docstring) at a 20-80x per-column cost. Pass
-        # ``nbins_strategy_kwargs={"mdlp_fast_mode": True}`` to opt back into the cheap
+        # ``binning_kwargs={"mdlp_fast_mode": True}`` to opt back into the cheap
         # classic path for a specific run where wall-time matters more (e.g. a quick
         # exploratory fit); other recognised keys: ``mdlp_alpha``, ``mdlp_n_permutations``,
         # ``mdlp_bonferroni``, ``mdlp_max_y_classes``, ``mdlp_backend``, ``mdlp_scaled_min_split``.
-        nbins_strategy_kwargs: dict | None = None,
-        # Shared per-column bin-count ceiling applied to every adaptive strategy whose own formula
-        # has no natural upper bound (knuth, bayesian_blocks, freedman_diaconis) - see
+        binning_kwargs: dict | None = None,
+        # Shared per-column bin-count ceiling applied to every scheme whose own formula
+        # has no natural upper bound (bayesian_blocks, mah, optimal_joint; the count rules of the quantile / uniform schemes use ``nbins_cap``) - see
         # ``_adaptive_nbins.MAX_ADAPTIVE_NBINS``. 127 is the largest code a signed int8 holds: with the default ``max_categorical_cardinality=127`` (which also bounds MDLP's recursion depth at 6, so at most 64
         # intervals) every column's codes stay in int8, one byte a cell, and every strategy answers "how many bins can one column produce" the same way by default. Lower it (e.g. 64) to bound downstream pairwise-MI cost
         # further on very wide / high-row-count real data; per-method overrides
-        # (``nbins_strategy_kwargs={"knuth_m_max_cap": ..., "bb_m_max_cap": ...}``) still win when set.
+        # (``binning_kwargs={"bb_m_max_cap": ...}``) still win when set.
         max_adaptive_nbins: int = 127,
         # Large-n REGRESSION adaptive quantization gate. On a large-n regression target the supervised MDLP per-feature binning
         # under-resolves a heavy-tailed continuous y: the 180-cell large-n MRMR campaign (reg n=100k, 15 seeds) measured a 15/15
         # paired win for fixed 20-bin quantile over MDLP - holdout R2 0.597 vs 0.481 (+0.116, std 0.0025) and F1 0.909 vs 0.667
         # (+0.242, std 0.0). The same fixed-20 path LOST at reg n=20k (holdout -0.143) and at classification (clf n=20k holdout
         # -0.052; clf n=100k exact tie), so the win is regime-specific, not a blanket flip. This knob gates the campaign-winner
-        # config (nbins_strategy=None, quantization_nbins=20) ON exactly where it wins: detected regression AND n_rows >= the
+        # config (binning_scheme='quantile', nbins_rule='fixed', quantization_nbins=20) ON exactly where it wins: detected regression AND n_rows >= the
         # threshold below, ONLY when the user left both quantization params at their constructor defaults (explicit user values
         # are never overridden). Set to False to keep MDLP everywhere (previous behaviour); set the threshold to retune.
         adaptive_nbins_large_n_reg: bool = True,
@@ -685,7 +687,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # tiny n. Set False to byte-reproduce the pre-vote support.
         # None (the default) means auto: on, except under fe_fast_search, which turns it off for speed. An explicit True
         # or False is honoured whatever fe_fast_search says.
-        fe_stability_vote_enable: Optional[bool] = True,
+        fe_stability_vote_enable: Optional[bool] = None,
         # Number of held-out folds for the stability vote (>= 2; below 2 the vote is a
         # structural no-op). 5 mirrors the backlog spec - enough folds that a genuine
         # recipe clears the quorum comfortably while a single-fold-quirk winner fails.
@@ -831,7 +833,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # envelope junk capture 14.6 - 3.0 separates with margin on both sides.
         # None (the default) means auto: on, except under fe_fast_search, which turns it off for speed. An explicit True
         # or False is honoured whatever fe_fast_search says.
-        fe_escalation_underdelivery_enable: Optional[bool] = True,
+        fe_escalation_underdelivery_enable: Optional[bool] = None,
         fe_escalation_underdelivery_excess_frac: float = 0.05,
         fe_escalation_underdelivery_self_ratio: float = 3.0,
         # PREVALENCE-FAILED SYNERGY RESCUE (F2 a**2/b miss, default-ON). A
@@ -953,26 +955,14 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # bin counts, #4) with a denominator-positivity guard, and the order-2 maxT floor is
         # MM-debiased CONSISTENTLY (IRON RULE, see ``_permutation_null`` / ``compute_pair_maxt_floor``).
         #
-        # bench-rejected as a DEFAULT; kept OPT-IN (default False). The ISOLATED
-        # ratio fix is real - on the He2(a)*b fixture the raw ratio is 0.555 / 0.841 / 1.003
-        # at n=500 / 2000 / 8000 and the MM(occupied-K) ratio is 1.99 / 1.15 / 1.10 (crosses
-        # the 0.90 bar at small n where raw fails; n=8000 raw~=corrected => large-n untouched),
-        # and the pure-NOISE frame stays below the bar both raw AND MM-corrected (0.27 / 0.28 /
-        # 0.56 - no isolated FP). BUT it does NOT translate to an END-TO-END win and it ADMITS
-        # NOISE on the realistic weak target: (1) on the CLEAN He2(a)*b end-to-end the existing
-        # marginal-uplift FALLBACK gate already recovers the genuine (a,b) pair 5/5 at n=500 and
-        # n=2000 with MM OFF, so MM adds 0 incremental recovery; (2) on the user's WEAK F2
-        # (``0.2*a**2/b + log(c)*sin(d)``, 10 seeds uniform n=20000) MM REGRESSES genuine_ab
-        # 10/10 -> 8/10, does NOT recover genuine_cd (0/10 -> 0/10), and nearly TRIPLES cross-mix
-        # admission 3/10 -> 9/10 seeds (n_cross 6 -> 11): the MM over-correction (ratio -> ~2.0)
-        # makes the prevalence gate uniformly too permissive, so cross-signal artefacts like
-        # ``sub(reciproc(b),sin(d))`` / ``add(reciproc(b),log(d))`` clear the relaxed ratio.
-        # This is the IRON-RULE failure mode and matches the prior-session II-routing rejection
-        # on the SAME target (the cross-mix has HIGHER interaction info than the genuine pair, so
-        # NO ratio threshold separates them). The maxT-floor co-update is correct + green (6/6
-        # order-2 biz tests, noise 100% at/below the MM floor) - the reject is the RATIO gate
-        # relaxation, not the floor. True enables the full mechanism for re-bench on other data.
-        fe_mm_debias_prevalence: bool = False,
+        # Default ON since 2026-11-24. It was bench-rejected as a default on 2026-06-09 by the count of "cross-mix" columns on the weak F2 (a proxy, not a loss) and by a debias path that
+        # read the winning column through ``_resolve_col``, which raised where the chunk buffer is not kept (the occupied-K of the winner then silently fell back to the nominal bin count;
+        # fixed). Re-measured by the error of ``transform()`` on 20000 fresh rows of the weak F2 (``0.2*a**2/b + log(c*2)*sin(d/3)``, eight common seeds, MAE first): ridge 0.0828 against 0.1151
+        # with the flag off (-0.0322 +- 0.0048, better in 7 of 8 seeds), HistGradientBoosting 0.0539 against 0.0535 (+0.0004 +- 0.0002, the raw columns give 0.0546), zero cross-mix columns
+        # against 0.1 per seed. At n >= 6000 the ratio itself moves by only 0.01-0.03 (the finite-sample bias is small there; at n = 1500 it is 0.71 -> 0.85), so the gain comes from the
+        # consistent debias of the order-2 maxT floor and of the pair screen, not from the ratio alone. The interaction / sufficiency path (``_pairs_sufficiency``) is independent of the flag.
+        # The pure-NOISE frame stays below the bar both raw and corrected.
+        fe_mm_debias_prevalence: bool = True,
         # ENGINEERED-FEATURE ACCEPTANCE STRATEGY (strategy S5).
         # ``"conditional_mi"`` (default): the PRINCIPLED, constant-free gate. After the
         # per-pair search has chosen one best engineered column per pair, a greedy CMI-MRMR
@@ -1177,7 +1167,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # "accuracy-improving mechanisms default-on" policy. Set False to disable.
         # None (the default) means auto: on, except under fe_fast_search, which turns it off for speed. An explicit True
         # or False is honoured whatever fe_fast_search says.
-        fe_pair_prewarp_enable: Optional[bool] = True,
+        fe_pair_prewarp_enable: Optional[bool] = None,
         fe_pair_prewarp_basis: str = "chebyshev",
         fe_pair_prewarp_max_degree: int = 4,
         # PER-OPERAND MEDIAN GATE for the elementary unary/binary
@@ -3026,11 +3016,12 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         #   share 0.8 %, noise 1.0: R2 0.8925/0.8900/0.8951 in both modes, term found in neither.
         # Nine fits gave one +0.005 R2 and never changed what is found, at 1.1-2.8x the wall, so the default stays False.
         fe_target_mix_candidates: bool = False,
-        # TARGET-TRANSFORM SEARCH (default OFF; metadata only, MRMR never changes the target). For a continuous regression target the fit proposes monotone transforms (cbrt, signed square root, log
-        # for a positive target) by the equal-width-bin MI between the numeric columns and f(y), and accepts one only when a ridge model fitted on f(y) beats a ridge fitted on y on held-out rows, on the ORIGINAL
-        # scale, by a paired bootstrap (see ``_target_transform_search``). The verdict is ``target_transform_`` (name, accepted, proposals, gates); the training layer applies and inverts it. Measured
-        # it helps linear heads only (cbrt of a cubic target halves the ridge RMSE), not trees; the MI alone is biased (it proposes signed_sqrt on a linear target), hence the gate.
-        target_transform_search: bool = False,
+        # TARGET-TRANSFORM SEARCH (default ON; the verdict is logged at INFO and kept in ``target_transform_``, MRMR never changes the target). For a continuous regression target the fit ranks the inverse links of
+        # the admissible unary forms (log, exp, cbrt, cube, signed square / square root, reciprocal, logit, atanh, asinh / sinh with a fitted scale, Yeo-Johnson) by the Jacobian log-likelihood of an additive-spline
+        # head on the selected raw columns, with a sign-flip null, and accepts one only when its held-out MAE on the ORIGINAL scale beats the identity's (``_target_transform_ll``); an accepted link makes the unary credit
+        # run on the linked target, so ``y = exp(sin(x1) + log(x2))`` names ``sin(x1)`` and ``log(x2)``. The verdict is ``target_transform_`` (name, params, accepted, held-out errors, the fitted ``transform`` with its
+        # clipped inverse); the head that consumes the selection applies it. Valid for linear and additive heads, not trees. About one second per fit (a 6000-row subsample). False turns it off.
+        target_transform_search: bool = True,
         # With ``redundancy_policy='drop'`` the same held-out evidence prunes a selected engineered column, or a raw column no engineered column is built from, that does not lower the held-out
         # residual of the rest of the selection significantly. A raw operand of an engineered column (``fe_drop_redundant_raw_operands``) is pruned unless it improves the held-out fit of a LINEAR
         # model on the other columns, significantly and by at least this share of the target variance (a private linear term the engineered column cannot give a linear model).
@@ -3281,11 +3272,11 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
     _VALID_CATEGORICAL_FOLD_STRATEGIES = _VALID_CATEGORICAL_FOLD_STRATEGIES
     _VALID_MRMR_RELEVANCE_ALGOS = _VALID_MRMR_RELEVANCE_ALGOS
     _VALID_MRMR_REDUNDANCY_ALGOS = _VALID_MRMR_REDUNDANCY_ALGOS
-    _VALID_NBINS_STRATEGIES = _VALID_NBINS_STRATEGIES
+    _VALID_BINNING_SCHEMES = BINNING_SCHEMES
+    _VALID_NBINS_RULES = (None, *NBINS_RULES)
     _VALID_MI_CORRECTIONS = _VALID_MI_CORRECTIONS
     _VALID_REDUNDANCY_AGGREGATORS = _VALID_REDUNDANCY_AGGREGATORS
     _VALID_STABILITY_SELECTION_METHODS = _VALID_STABILITY_SELECTION_METHODS
-    _DEMOTED_NBINS_STRATEGIES = _DEMOTED_NBINS_STRATEGIES
     _VALID_FE_UNARY_PRESETS = _VALID_FE_UNARY_PRESETS
     _VALID_FE_BINARY_PRESETS = _VALID_FE_BINARY_PRESETS
     _VALID_CLUSTER_AGGREGATE_MODES = _VALID_CLUSTER_AGGREGATE_MODES
@@ -3564,7 +3555,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
             # hardcoded literals: an inner fit must leave an outer fit's toggles intact. Mirrors the
             # _prev_* restore in _evaluation_driver.py's worker path.
             self._fit_body_step2_prev_restore_evaluation(
-                st._toggles_snapshot, st, st._orig_cluster_aggregate_enable, st._orig_nbins_strategy, st._orig_quantization_nbins, _fe_auto_restore
+                st._toggles_snapshot, st, st._orig_cluster_aggregate_enable, st._orig_binning, st._orig_quantization_nbins, _fe_auto_restore
             )
 
     def _fit_body_constructor_arg_semantics_stay(self, X, y, _fe_auto_restore):

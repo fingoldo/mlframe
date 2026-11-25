@@ -509,6 +509,11 @@ def _save_outer_loop_checkpoint(self, signature, state, verbose):
                 "best_score": state.best_score,
                 "dummy_scores": list(state.dummy_scores),
                 "optimizer": state.Optimizer,
+                # The no-features baseline, the per-split scores and the signed coefficients are part of the outer state too: without them a
+                # resumed run compares against NaN, loses its per-split columns and mixes two importance scales (audit 15-F3/F4/F5).
+                "nofeatures_score": state.nofeatures_score,
+                "per_fold_scores": {int(k): list(v) for k, v in state.per_fold_scores.items()},
+                "signed_importances": getattr(self, "_signed_importances", None),
             })
         except Exception as _ckpt_exc:
             if verbose:

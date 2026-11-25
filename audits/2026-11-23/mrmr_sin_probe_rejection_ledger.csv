@@ -1,0 +1,208 @@
+candidate,operands,operator,gate,observed,threshold,margin,reason,step,operand_names
+sin(x1),(x1),sin,marginal_uplift_floor,0.18748241103899627,0.4070947747225041,-0.21961236368350784,mi_greedy abs-MAD floor: engineered_mi below med+k*MAD noise floor,0,(x1)
+reciprocal_safe(n5),(n5),reciprocal_safe,marginal_uplift_floor,0.015081041278653605,0.4070947747225041,-0.3920137334438505,mi_greedy abs-MAD floor: engineered_mi below med+k*MAD noise floor,0,(n5)
+(n1__ratio_log__n5),"(n1, n5)",ratio_log,marginal_uplift_floor,0.015226516523716963,0.4070947747225041,-0.3918682581987871,mi_greedy abs-MAD floor: engineered_mi below med+k*MAD noise floor,0,"(n1, n5)"
+(n5__ratio_log__n1),"(n5, n1)",ratio_log,marginal_uplift_floor,0.01522651652371696,0.4070947747225041,-0.3918682581987871,mi_greedy abs-MAD floor: engineered_mi below med+k*MAD noise floor,0,"(n5, n1)"
+n1__cond_resid_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.017986636353049455,0.023424454912827294,-0.005437818559777839,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__cond_resid_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.01576517493923631,0.023424454912827294,-0.007659279973590984,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__cond_resid_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.011080699258688289,0.023424454912827294,-0.012343755654139005,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__cond_resid_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.012061689719786085,0.023424454912827294,-0.011362765193041208,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__cond_resid_by__x1,(),unified_local_mi_gate,marginal_uplift_floor,0.013374990692308736,0.023424454912827294,-0.010049464220518558,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__cond_resid_by__x1,(),unified_local_mi_gate,marginal_uplift_floor,0.013459331674616522,0.023424454912827294,-0.009965123238210772,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__cond_resid_by__x1,(),unified_local_mi_gate,marginal_uplift_floor,0.011937543982804442,0.023424454912827294,-0.011486910930022852,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__cond_resid_by__x1,(),unified_local_mi_gate,marginal_uplift_floor,0.011016109959969012,0.023424454912827294,-0.012408344952858282,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__cond_resid_by__n1,(),unified_local_mi_gate,marginal_uplift_floor,0.01630463963691476,0.023424454912827294,-0.007119815275912534,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__cond_resid_by__n1,(),unified_local_mi_gate,marginal_uplift_floor,0.010770737185834774,0.023424454912827294,-0.01265371772699252,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__cond_resid_by__n1,(),unified_local_mi_gate,marginal_uplift_floor,0.012335006496143289,0.023424454912827294,-0.011089448416684005,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__cond_resid_by__n5,(),unified_local_mi_gate,marginal_uplift_floor,0.015951055367540982,0.023424454912827294,-0.007473399545286311,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__cond_resid_by__n5,(),unified_local_mi_gate,marginal_uplift_floor,0.012440823462299739,0.023424454912827294,-0.010983631450527555,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__cond_resid_by__n5,(),unified_local_mi_gate,marginal_uplift_floor,0.011059576915593228,0.023424454912827294,-0.012364877997234066,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__cond_resid_by__n3,(),unified_local_mi_gate,marginal_uplift_floor,0.01571537370917678,0.023424454912827294,-0.007709081203650513,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__cond_resid_by__n3,(),unified_local_mi_gate,marginal_uplift_floor,0.013931316901064745,0.023424454912827294,-0.00949313801176255,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__cond_resid_by__n3,(),unified_local_mi_gate,marginal_uplift_floor,0.012918761932927061,0.023424454912827294,-0.010505692979900233,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__cond_resid_by__n4,(),unified_local_mi_gate,marginal_uplift_floor,0.014090566710260223,0.023424454912827294,-0.009333888202567071,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__cond_resid_by__n4,(),unified_local_mi_gate,marginal_uplift_floor,0.01176677418739086,0.023424454912827294,-0.011657680725436433,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__cond_resid_by__n4,(),unified_local_mi_gate,marginal_uplift_floor,0.010928886228789939,0.023424454912827294,-0.012495568684037355,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+x1__absz_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.022775651728510257,0.023424454912827294,-0.0006488031843170372,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+x1__z2_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.022775651728510257,0.023424454912827294,-0.0006488031843170372,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__absz_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.014417388843748153,0.023424454912827294,-0.009007066069079141,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__z2_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.014417388843748153,0.023424454912827294,-0.009007066069079141,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__absz_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.011520746408868899,0.023424454912827294,-0.011903708503958395,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__z2_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.011520746408868899,0.023424454912827294,-0.011903708503958395,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__absz_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.010548734278206117,0.023424454912827294,-0.012875720634621177,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__z2_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.010548734278206117,0.023424454912827294,-0.012875720634621177,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__absz_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.012791373975449242,0.023424454912827294,-0.010633080937378052,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__z2_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.012791373975449242,0.023424454912827294,-0.010633080937378052,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__absz_by__x1,(),unified_local_mi_gate,marginal_uplift_floor,0.01551854403283886,0.023424454912827294,-0.007905910879988433,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__z2_by__x1,(),unified_local_mi_gate,marginal_uplift_floor,0.01551854403283886,0.023424454912827294,-0.007905910879988433,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__absz_by__x1,(),unified_local_mi_gate,marginal_uplift_floor,0.012355142247096915,0.023424454912827294,-0.011069312665730378,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__z2_by__x1,(),unified_local_mi_gate,marginal_uplift_floor,0.012355142247096915,0.023424454912827294,-0.011069312665730378,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__absz_by__x1,(),unified_local_mi_gate,marginal_uplift_floor,0.009520306800230973,0.023424454912827294,-0.013904148112596321,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__z2_by__x1,(),unified_local_mi_gate,marginal_uplift_floor,0.009520306800230973,0.023424454912827294,-0.013904148112596321,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__absz_by__x1,(),unified_local_mi_gate,marginal_uplift_floor,0.013311665626524936,0.023424454912827294,-0.010112789286302357,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__z2_by__x1,(),unified_local_mi_gate,marginal_uplift_floor,0.013311665626524936,0.023424454912827294,-0.010112789286302357,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+x1__absz_by__n1,(),unified_local_mi_gate,marginal_uplift_floor,0.02175030287529662,0.023424454912827294,-0.0016741520375306747,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+x1__z2_by__n1,(),unified_local_mi_gate,marginal_uplift_floor,0.02175030287529662,0.023424454912827294,-0.0016741520375306747,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__absz_by__n1,(),unified_local_mi_gate,marginal_uplift_floor,0.013434984952028241,0.023424454912827294,-0.009989469960799052,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__z2_by__n1,(),unified_local_mi_gate,marginal_uplift_floor,0.013434984952028241,0.023424454912827294,-0.009989469960799052,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__absz_by__n1,(),unified_local_mi_gate,marginal_uplift_floor,0.00992841541046277,0.023424454912827294,-0.013496039502364525,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__z2_by__n1,(),unified_local_mi_gate,marginal_uplift_floor,0.00992841541046277,0.023424454912827294,-0.013496039502364525,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__absz_by__n1,(),unified_local_mi_gate,marginal_uplift_floor,0.013287025667088304,0.023424454912827294,-0.01013742924573899,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__z2_by__n1,(),unified_local_mi_gate,marginal_uplift_floor,0.013287025667088304,0.023424454912827294,-0.01013742924573899,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+x1__absz_by__n5,(),unified_local_mi_gate,marginal_uplift_floor,0.019531179448982954,0.023424454912827294,-0.0038932754638443395,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+x1__z2_by__n5,(),unified_local_mi_gate,marginal_uplift_floor,0.019531179448982954,0.023424454912827294,-0.0038932754638443395,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__absz_by__n5,(),unified_local_mi_gate,marginal_uplift_floor,0.013640774274342423,0.023424454912827294,-0.00978368063848487,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__z2_by__n5,(),unified_local_mi_gate,marginal_uplift_floor,0.013640774274342423,0.023424454912827294,-0.00978368063848487,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__absz_by__n5,(),unified_local_mi_gate,marginal_uplift_floor,0.011055546214031068,0.023424454912827294,-0.012368908698796225,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__z2_by__n5,(),unified_local_mi_gate,marginal_uplift_floor,0.011055546214031068,0.023424454912827294,-0.012368908698796225,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__absz_by__n5,(),unified_local_mi_gate,marginal_uplift_floor,0.012243095243135249,0.023424454912827294,-0.011181359669692045,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__z2_by__n5,(),unified_local_mi_gate,marginal_uplift_floor,0.012243095243135249,0.023424454912827294,-0.011181359669692045,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+x1__absz_by__n3,(),unified_local_mi_gate,marginal_uplift_floor,0.016381660783788585,0.023424454912827294,-0.007042794129038708,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+x1__z2_by__n3,(),unified_local_mi_gate,marginal_uplift_floor,0.016381660783788585,0.023424454912827294,-0.007042794129038708,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__absz_by__n3,(),unified_local_mi_gate,marginal_uplift_floor,0.014488896267353885,0.023424454912827294,-0.008935558645473409,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__z2_by__n3,(),unified_local_mi_gate,marginal_uplift_floor,0.014488896267353885,0.023424454912827294,-0.008935558645473409,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__absz_by__n3,(),unified_local_mi_gate,marginal_uplift_floor,0.013028066627388703,0.023424454912827294,-0.01039638828543859,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__z2_by__n3,(),unified_local_mi_gate,marginal_uplift_floor,0.013028066627388703,0.023424454912827294,-0.01039638828543859,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__absz_by__n3,(),unified_local_mi_gate,marginal_uplift_floor,0.012932756433421788,0.023424454912827294,-0.010491698479405506,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__z2_by__n3,(),unified_local_mi_gate,marginal_uplift_floor,0.012932756433421788,0.023424454912827294,-0.010491698479405506,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+x1__absz_by__n4,(),unified_local_mi_gate,marginal_uplift_floor,0.01906898632413772,0.023424454912827294,-0.004355468588689574,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+x1__z2_by__n4,(),unified_local_mi_gate,marginal_uplift_floor,0.01906898632413772,0.023424454912827294,-0.004355468588689574,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__absz_by__n4,(),unified_local_mi_gate,marginal_uplift_floor,0.011798871231791044,0.023424454912827294,-0.01162558368103625,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__z2_by__n4,(),unified_local_mi_gate,marginal_uplift_floor,0.011798871231791044,0.023424454912827294,-0.01162558368103625,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__absz_by__n4,(),unified_local_mi_gate,marginal_uplift_floor,0.012385105351032778,0.023424454912827294,-0.011039349561794516,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__z2_by__n4,(),unified_local_mi_gate,marginal_uplift_floor,0.012385105351032778,0.023424454912827294,-0.011039349561794516,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__absz_by__n4,(),unified_local_mi_gate,marginal_uplift_floor,0.010781020709795083,0.023424454912827294,-0.012643434203032211,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__z2_by__n4,(),unified_local_mi_gate,marginal_uplift_floor,0.010781020709795083,0.023424454912827294,-0.012643434203032211,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__qrank_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.017065111781408532,0.023424454912827294,-0.006359343131418761,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__qrank_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.014534310467658967,0.023424454912827294,-0.008890144445168327,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__qrank_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.00916286214038156,0.023424454912827294,-0.014261592772445734,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__qrank_by__x2,(),unified_local_mi_gate,marginal_uplift_floor,0.009384044234324764,0.023424454912827294,-0.01404041067850253,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__qrank_by__x1,(),unified_local_mi_gate,marginal_uplift_floor,0.014472573336085775,0.023424454912827294,-0.00895188157674152,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__qrank_by__x1,(),unified_local_mi_gate,marginal_uplift_floor,0.01423210968389625,0.023424454912827294,-0.009192345228931044,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__qrank_by__x1,(),unified_local_mi_gate,marginal_uplift_floor,0.0098260528007819,0.023424454912827294,-0.013598402112045395,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__qrank_by__x1,(),unified_local_mi_gate,marginal_uplift_floor,0.01040097789944284,0.023424454912827294,-0.013023477013384454,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__qrank_by__n1,(),unified_local_mi_gate,marginal_uplift_floor,0.014447757518626645,0.023424454912827294,-0.008976697394200648,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__qrank_by__n1,(),unified_local_mi_gate,marginal_uplift_floor,0.013884155171973151,0.023424454912827294,-0.009540299740854142,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__qrank_by__n1,(),unified_local_mi_gate,marginal_uplift_floor,0.012547441838474907,0.023424454912827294,-0.010877013074352387,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__qrank_by__n5,(),unified_local_mi_gate,marginal_uplift_floor,0.015098728307370803,0.023424454912827294,-0.00832572660545649,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__qrank_by__n5,(),unified_local_mi_gate,marginal_uplift_floor,0.011271839460578987,0.023424454912827294,-0.012152615452248307,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__qrank_by__n5,(),unified_local_mi_gate,marginal_uplift_floor,0.01093958286661183,0.023424454912827294,-0.012484872046215463,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__qrank_by__n3,(),unified_local_mi_gate,marginal_uplift_floor,0.01829975879948516,0.023424454912827294,-0.005124696113342132,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__qrank_by__n3,(),unified_local_mi_gate,marginal_uplift_floor,0.014925968560325091,0.023424454912827294,-0.008498486352502202,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n4__qrank_by__n3,(),unified_local_mi_gate,marginal_uplift_floor,0.01352336842483927,0.023424454912827294,-0.009901086487988023,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n1__qrank_by__n4,(),unified_local_mi_gate,marginal_uplift_floor,0.012870290615621987,0.023424454912827294,-0.010554164297205307,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n5__qrank_by__n4,(),unified_local_mi_gate,marginal_uplift_floor,0.012348126466767254,0.023424454912827294,-0.01107632844606004,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+n3__qrank_by__n4,(),unified_local_mi_gate,marginal_uplift_floor,0.011250308536845806,0.023424454912827294,-0.012174146375981488,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+opat__x1_n1_n5,(),unified_local_mi_gate,marginal_uplift_floor,0.017319570009389156,0.023424454912827294,-0.006104884903438138,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+opat__x1_n1_n3,(),unified_local_mi_gate,marginal_uplift_floor,0.010030591201694855,0.023424454912827294,-0.013393863711132438,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+opat__x1_n5_n3,(),unified_local_mi_gate,marginal_uplift_floor,0.01625282842015506,0.023424454912827294,-0.007171626492672233,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+opat__n1_n5_n3,(),unified_local_mi_gate,marginal_uplift_floor,0.018323847549303697,0.023424454912827294,-0.005100607363523597,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__0,(),unified_local_mi_gate,marginal_uplift_floor,0.01260642885928425,0.023424454912827294,-0.010818026053543043,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__1,(),unified_local_mi_gate,marginal_uplift_floor,0.010486711728816201,0.023424454912827294,-0.012937743184011093,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__6,(),unified_local_mi_gate,marginal_uplift_floor,0.009888901807320992,0.023424454912827294,-0.013535553105506302,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__13,(),unified_local_mi_gate,marginal_uplift_floor,0.014592923997848803,0.023424454912827294,-0.008831530914978491,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__17,(),unified_local_mi_gate,marginal_uplift_floor,0.017919202061649295,0.023424454912827294,-0.005505252851177998,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__18,(),unified_local_mi_gate,marginal_uplift_floor,0.01373553521452581,0.023424454912827294,-0.009688919698301483,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__28,(),unified_local_mi_gate,marginal_uplift_floor,0.014301420681354189,0.023424454912827294,-0.009123034231473105,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__30,(),unified_local_mi_gate,marginal_uplift_floor,0.01800225974866201,0.023424454912827294,-0.005422195164165283,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__43,(),unified_local_mi_gate,marginal_uplift_floor,0.02187285774549677,0.023424454912827294,-0.0015515971673305227,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__45,(),unified_local_mi_gate,marginal_uplift_floor,0.015706423656199668,0.023424454912827294,-0.007718031256627626,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__47,(),unified_local_mi_gate,marginal_uplift_floor,0.009972363241502902,0.023424454912827294,-0.013452091671324391,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__50,(),unified_local_mi_gate,marginal_uplift_floor,0.0154551831955676,0.023424454912827294,-0.007969271717259694,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__53,(),unified_local_mi_gate,marginal_uplift_floor,0.010845532643532177,0.023424454912827294,-0.012578922269295117,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__55,(),unified_local_mi_gate,marginal_uplift_floor,0.01999989961128273,0.023424454912827294,-0.003424555301544563,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__56,(),unified_local_mi_gate,marginal_uplift_floor,0.017483970983349525,0.023424454912827294,-0.005940483929477769,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__57,(),unified_local_mi_gate,marginal_uplift_floor,0.010973248300546665,0.023424454912827294,-0.012451206612280628,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__59,(),unified_local_mi_gate,marginal_uplift_floor,0.014540680250253932,0.023424454912827294,-0.008883774662573361,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__60,(),unified_local_mi_gate,marginal_uplift_floor,0.01532444700325713,0.023424454912827294,-0.008100007909570163,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__61,(),unified_local_mi_gate,marginal_uplift_floor,0.01921944351782811,0.023424454912827294,-0.004205011394999184,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+sir__x1_x2_n0_n1_n2_n3_n4_n5__dir1,(),unified_local_mi_gate,marginal_uplift_floor,0.013847579387842857,0.023424454912827294,-0.009576875524984436,unified local-MI abs-MAD floor: MI below med+k*MAD raw noise floor,0,
+x2xx1,(),offmul,offset_product_gain,-1.0130490914353334,,,held-out MI gain not significant or below the practical effect,0,
+x1xn5,(),offmul,offset_product_gain,-0.0006664367934759163,,,held-out MI gain not significant or below the practical effect,0,
+oofwarp(x2),(),oof_warp1d,oof_warp_gain,-0.005051279729155089,0.007782206003120218,-0.012833485732275308,"held-out MI gain over the raw column not significant, below the practical effect, or not carried by the bulk of the column",0,
+oofwarp(n0),(),oof_warp1d,oof_warp_gain,-0.002643896666587188,0.012183284408589977,-0.014827181075177165,"held-out MI gain over the raw column not significant, below the practical effect, or not carried by the bulk of the column",0,
+oofwarp(n1),(),oof_warp1d,oof_warp_gain,-0.0029795300158170293,0.012902683440866893,-0.015882213456683923,"held-out MI gain over the raw column not significant, below the practical effect, or not carried by the bulk of the column",0,
+oofwarp(n2),(),oof_warp1d,oof_warp_gain,0.0007333929754341252,0.01330275662030407,-0.012569363644869944,"held-out MI gain over the raw column not significant, below the practical effect, or not carried by the bulk of the column",0,
+oofwarp(n3),(),oof_warp1d,oof_warp_gain,0.0045926990054029546,0.013613853939054078,-0.009021154933651123,"held-out MI gain over the raw column not significant, below the practical effect, or not carried by the bulk of the column",0,
+oofwarp(n4),(),oof_warp1d,oof_warp_gain,0.0027132718534177737,0.012710527339715144,-0.00999725548629737,"held-out MI gain over the raw column not significant, below the practical effect, or not carried by the bulk of the column",0,
+oofwarp(n5),(),oof_warp1d,oof_warp_gain,-0.010943612428922531,0.012729655280153714,-0.023673267709076247,"held-out MI gain over the raw column not significant, below the practical effect, or not carried by the bulk of the column",0,
+"(0, 12)","(0, 12)",pair,marginal_pair_mi_prescreen,0.2503958075729867,0.6449682776818922,-0.39457247010890556,synergy_prevalence,0,"(x1, <engineered#12>)"
+"(12, 33)","(12, 33)",pair,order2_maxt_floor,0.9925095566689751,1.1135894752138351,-0.12107991854486,below_maxt_floor,0,"(<engineered#12>, <engineered#33>)"
+"(0, 33)","(0, 33)",pair,order2_maxt_floor,0.999576375468662,1.1135894752138351,-0.11401309974517315,below_maxt_floor,0,"(x1, <engineered#33>)"
+"(4, 5)","(4, 5)",pair,order2_maxt_floor,1.0724121273742082,1.1135894752138351,-0.0411773478396269,below_maxt_floor,0,"(n2, n3)"
+"(2, 6)","(2, 6)",pair,order2_maxt_floor,1.077454692134775,1.1135894752138351,-0.03613478307906015,below_maxt_floor,0,"(n0, n4)"
+"(3, 6)","(3, 6)",pair,order2_maxt_floor,1.0793491948906349,1.1135894752138351,-0.034240280323200256,below_maxt_floor,0,"(n1, n4)"
+"(3, 5)","(3, 5)",pair,order2_maxt_floor,1.0799264227000827,1.1135894752138351,-0.033663052513752456,below_maxt_floor,0,"(n1, n3)"
+"(2, 3)","(2, 3)",pair,order2_maxt_floor,1.0807171338194983,1.1135894752138351,-0.03287234139433681,below_maxt_floor,0,"(n0, n1)"
+"(6, 7)","(6, 7)",pair,order2_maxt_floor,1.0807758197048505,1.1135894752138351,-0.03281365550898463,below_maxt_floor,0,"(n4, n5)"
+"(2, 4)","(2, 4)",pair,order2_maxt_floor,1.0816187507703265,1.1135894752138351,-0.03197072444350857,xor_zero_marginal_below_maxt,0,"(n0, n2)"
+"(5, 7)","(5, 7)",pair,order2_maxt_floor,1.0834978757911786,1.1135894752138351,-0.03009159942265649,below_maxt_floor,0,"(n3, n5)"
+"(3, 4)","(3, 4)",pair,order2_maxt_floor,1.0878355428548445,1.1135894752138351,-0.025753932358990594,below_maxt_floor,0,"(n1, n2)"
+"(4, 7)","(4, 7)",pair,order2_maxt_floor,1.0901320553437337,1.1135894752138351,-0.023457419870101415,xor_zero_marginal_below_maxt,0,"(n2, n5)"
+"(3, 7)","(3, 7)",pair,order2_maxt_floor,1.0930858179746856,1.1135894752138351,-0.020503657239149486,below_maxt_floor,0,"(n1, n5)"
+"(2, 7)","(2, 7)",pair,order2_maxt_floor,1.0946348022914598,1.1135894752138351,-0.018954672922375293,xor_zero_marginal_below_maxt,0,"(n0, n5)"
+"(2, 5)","(2, 5)",pair,order2_maxt_floor,1.0988061358306418,1.1135894752138351,-0.014783339383193317,below_maxt_floor,0,"(n0, n3)"
+"(5, 6)","(5, 6)",pair,order2_maxt_floor,1.0992326723047898,1.1135894752138351,-0.014356802909045285,below_maxt_floor,0,"(n3, n4)"
+"(4, 6)","(4, 6)",pair,order2_maxt_floor,1.1007036363286613,1.1135894752138351,-0.012885838885173806,below_maxt_floor,0,"(n2, n4)"
+"(7, 33)","(7, 33)",pair,order2_maxt_floor,1.1025647613349563,1.1135894752138351,-0.011024713878878822,below_maxt_floor,0,"(n5, <engineered#33>)"
+"(6, 33)","(6, 33)",pair,order2_maxt_floor,1.1066499294051075,1.1135894752138351,-0.006939545808727576,below_maxt_floor,0,"(n4, <engineered#33>)"
+"(12, 41)","(12, 41)",sub,engineered_mi_prevalence,0.622127421932585,0.9,-0.27787257806741505,best_mi_over_pair_mi_below_floor,0,"(<engineered#12>, <engineered#41>)"
+"(0, 41)","(0, 41)",sub,engineered_mi_prevalence,0.6218035828798746,0.9,-0.27819641712012544,best_mi_over_pair_mi_below_floor,0,"(x1, <engineered#41>)"
+"(0, 1)","(0, 1)",add,engineered_mi_prevalence,0.7487642846309307,0.9,-0.15123571536906932,best_mi_over_pair_mi_below_floor,0,"(x1, x2)"
+"(1, 12)","(1, 12)",add,engineered_mi_prevalence,0.7478583228553333,0.9,-0.15214167714466675,best_mi_over_pair_mi_below_floor,0,"(x2, <engineered#12>)"
+"(33, 41)","(33, 41)",sub,engineered_mi_prevalence,0.42282311202755396,0.9,-0.47717688797244606,best_mi_over_pair_mi_below_floor,0,"(<engineered#33>, <engineered#41>)"
+"(1, 33)","(1, 33)",sub,engineered_mi_prevalence,0.37793073665102134,0.9,-0.5220692633489787,best_mi_over_pair_mi_below_floor,0,"(x2, <engineered#33>)"
+"(4, 41)","(4, 41)",add,engineered_mi_prevalence,0.3958153442777995,0.9,-0.5041846557222005,best_mi_over_pair_mi_below_floor,0,"(n2, <engineered#41>)"
+"(1, 2)","(1, 2)",mul,engineered_mi_prevalence,0.3834181999809787,0.9,-0.5165818000190213,best_mi_over_pair_mi_below_floor,0,"(x2, n0)"
+"(7, 41)","(7, 41)",add,engineered_mi_prevalence,0.3948924192749478,0.9,-0.5051075807250522,best_mi_over_pair_mi_below_floor,0,"(n5, <engineered#41>)"
+"(2, 41)","(2, 41)",mul,engineered_mi_prevalence,0.39245595015253937,0.9,-0.5075440498474606,best_mi_over_pair_mi_below_floor,0,"(n0, <engineered#41>)"
+"(1, 3)","(1, 3)",max,engineered_mi_prevalence,0.3796963772284576,0.9,-0.5203036227715424,best_mi_over_pair_mi_below_floor,0,"(x2, n1)"
+"(3, 41)","(3, 41)",sub,engineered_mi_prevalence,0.39992118656116415,0.9,-0.5000788134388359,best_mi_over_pair_mi_below_floor,0,"(n1, <engineered#41>)"
+"(1, 6)","(1, 6)",mul,engineered_mi_prevalence,0.38537550579875196,0.9,-0.5146244942012481,best_mi_over_pair_mi_below_floor,0,"(x2, n4)"
+"(5, 41)","(5, 41)",sub,engineered_mi_prevalence,0.39957902084156816,0.9,-0.5004209791584319,best_mi_over_pair_mi_below_floor,0,"(n3, <engineered#41>)"
+"(1, 7)","(1, 7)",max,engineered_mi_prevalence,0.38343511210841286,0.9,-0.5165648878915872,best_mi_over_pair_mi_below_floor,0,"(x2, n5)"
+"(1, 4)","(1, 4)",max,engineered_mi_prevalence,0.3854708231532071,0.9,-0.514529176846793,best_mi_over_pair_mi_below_floor,0,"(x2, n2)"
+"(1, 5)","(1, 5)",max,engineered_mi_prevalence,0.38471248079002696,0.9,-0.5152875192099731,best_mi_over_pair_mi_below_floor,0,"(x2, n3)"
+"(6, 41)","(6, 41)",sub,engineered_mi_prevalence,0.4013540315902397,0.9,-0.49864596840976033,best_mi_over_pair_mi_below_floor,0,"(n4, <engineered#41>)"
+"(0, 12)","(0, 12)",pair,marginal_pair_mi_prescreen,0.2503958075729867,0.6449682776818922,-0.39457247010890556,synergy_prevalence,0,"(x1, <engineered#12>)"
+"(12, 33)","(12, 33)",pair,order2_maxt_floor,0.9925095566689751,1.1135894752138351,-0.12107991854486,below_maxt_floor,0,"(<engineered#12>, <engineered#33>)"
+"(0, 33)","(0, 33)",pair,order2_maxt_floor,0.999576375468662,1.1135894752138351,-0.11401309974517315,below_maxt_floor,0,"(x1, <engineered#33>)"
+"(4, 5)","(4, 5)",pair,order2_maxt_floor,1.0724121273742082,1.1135894752138351,-0.0411773478396269,below_maxt_floor,0,"(n2, n3)"
+"(2, 6)","(2, 6)",pair,order2_maxt_floor,1.077454692134775,1.1135894752138351,-0.03613478307906015,below_maxt_floor,0,"(n0, n4)"
+"(3, 6)","(3, 6)",pair,order2_maxt_floor,1.0793491948906349,1.1135894752138351,-0.034240280323200256,below_maxt_floor,0,"(n1, n4)"
+"(3, 5)","(3, 5)",pair,order2_maxt_floor,1.0799264227000827,1.1135894752138351,-0.033663052513752456,below_maxt_floor,0,"(n1, n3)"
+"(2, 3)","(2, 3)",pair,order2_maxt_floor,1.0807171338194983,1.1135894752138351,-0.03287234139433681,below_maxt_floor,0,"(n0, n1)"
+"(6, 7)","(6, 7)",pair,order2_maxt_floor,1.0807758197048505,1.1135894752138351,-0.03281365550898463,below_maxt_floor,0,"(n4, n5)"
+"(2, 4)","(2, 4)",pair,order2_maxt_floor,1.0816187507703265,1.1135894752138351,-0.03197072444350857,xor_zero_marginal_below_maxt,0,"(n0, n2)"
+"(5, 7)","(5, 7)",pair,order2_maxt_floor,1.0834978757911786,1.1135894752138351,-0.03009159942265649,below_maxt_floor,0,"(n3, n5)"
+"(3, 4)","(3, 4)",pair,order2_maxt_floor,1.0878355428548445,1.1135894752138351,-0.025753932358990594,below_maxt_floor,0,"(n1, n2)"
+"(4, 7)","(4, 7)",pair,order2_maxt_floor,1.0901320553437337,1.1135894752138351,-0.023457419870101415,xor_zero_marginal_below_maxt,0,"(n2, n5)"
+"(3, 7)","(3, 7)",pair,order2_maxt_floor,1.0930858179746856,1.1135894752138351,-0.020503657239149486,below_maxt_floor,0,"(n1, n5)"
+"(2, 7)","(2, 7)",pair,order2_maxt_floor,1.0946348022914598,1.1135894752138351,-0.018954672922375293,xor_zero_marginal_below_maxt,0,"(n0, n5)"
+"(2, 5)","(2, 5)",pair,order2_maxt_floor,1.0988061358306418,1.1135894752138351,-0.014783339383193317,below_maxt_floor,0,"(n0, n3)"
+"(5, 6)","(5, 6)",pair,order2_maxt_floor,1.0992326723047898,1.1135894752138351,-0.014356802909045285,below_maxt_floor,0,"(n3, n4)"
+"(4, 6)","(4, 6)",pair,order2_maxt_floor,1.1007036363286613,1.1135894752138351,-0.012885838885173806,below_maxt_floor,0,"(n2, n4)"
+"(7, 33)","(7, 33)",pair,order2_maxt_floor,1.1025647613349563,1.1135894752138351,-0.011024713878878822,below_maxt_floor,0,"(n5, <engineered#33>)"
+"(6, 33)","(6, 33)",pair,order2_maxt_floor,1.1066499294051075,1.1135894752138351,-0.006939545808727576,below_maxt_floor,0,"(n4, <engineered#33>)"
+"(12, 41)","(12, 41)",sub,engineered_mi_prevalence,0.622127421932585,0.81,-0.18787257806741509,best_mi_over_pair_mi_below_floor,0,"(<engineered#12>, <engineered#41>)"
+"(0, 41)","(0, 41)",sub,engineered_mi_prevalence,0.6218035828798746,0.81,-0.18819641712012547,best_mi_over_pair_mi_below_floor,0,"(x1, <engineered#41>)"
+"(0, 1)","(0, 1)",add,engineered_mi_prevalence,0.7487642846309307,0.81,-0.061235715369069355,best_mi_over_pair_mi_below_floor,0,"(x1, x2)"
+"(1, 12)","(1, 12)",add,engineered_mi_prevalence,0.7478583228553333,0.81,-0.062141677144666785,best_mi_over_pair_mi_below_floor,0,"(x2, <engineered#12>)"
+"(33, 41)","(33, 41)",sub,engineered_mi_prevalence,0.42282311202755396,0.81,-0.3871768879724461,best_mi_over_pair_mi_below_floor,0,"(<engineered#33>, <engineered#41>)"
+"(1, 33)","(1, 33)",sub,engineered_mi_prevalence,0.37793073665102134,0.81,-0.4320692633489787,best_mi_over_pair_mi_below_floor,0,"(x2, <engineered#33>)"
+"(4, 41)","(4, 41)",add,engineered_mi_prevalence,0.3958153442777995,0.81,-0.41418465572220053,best_mi_over_pair_mi_below_floor,0,"(n2, <engineered#41>)"
+"(1, 2)","(1, 2)",mul,engineered_mi_prevalence,0.3834181999809787,0.81,-0.42658180001902135,best_mi_over_pair_mi_below_floor,0,"(x2, n0)"
+"(7, 41)","(7, 41)",add,engineered_mi_prevalence,0.3948924192749478,0.81,-0.41510758072505227,best_mi_over_pair_mi_below_floor,0,"(n5, <engineered#41>)"
+"(2, 41)","(2, 41)",mul,engineered_mi_prevalence,0.39245595015253937,0.81,-0.4175440498474607,best_mi_over_pair_mi_below_floor,0,"(n0, <engineered#41>)"
+"(1, 3)","(1, 3)",max,engineered_mi_prevalence,0.3796963772284576,0.81,-0.43030362277154244,best_mi_over_pair_mi_below_floor,0,"(x2, n1)"
+"(3, 41)","(3, 41)",sub,engineered_mi_prevalence,0.39992118656116415,0.81,-0.4100788134388359,best_mi_over_pair_mi_below_floor,0,"(n1, <engineered#41>)"
+"(1, 6)","(1, 6)",mul,engineered_mi_prevalence,0.38537550579875196,0.81,-0.4246244942012481,best_mi_over_pair_mi_below_floor,0,"(x2, n4)"
+"(5, 41)","(5, 41)",sub,engineered_mi_prevalence,0.39957902084156816,0.81,-0.4104209791584319,best_mi_over_pair_mi_below_floor,0,"(n3, <engineered#41>)"
+"(1, 7)","(1, 7)",max,engineered_mi_prevalence,0.38343511210841286,0.81,-0.4265648878915872,best_mi_over_pair_mi_below_floor,0,"(x2, n5)"
+"(1, 4)","(1, 4)",max,engineered_mi_prevalence,0.3854708231532071,0.81,-0.424529176846793,best_mi_over_pair_mi_below_floor,0,"(x2, n2)"
+"(1, 5)","(1, 5)",max,engineered_mi_prevalence,0.38471248079002696,0.81,-0.4252875192099731,best_mi_over_pair_mi_below_floor,0,"(x2, n3)"
+"(6, 41)","(6, 41)",sub,engineered_mi_prevalence,0.4013540315902397,0.81,-0.40864596840976036,best_mi_over_pair_mi_below_floor,0,"(n4, <engineered#41>)"
+sir__x1_x2_n0_n1_n2_n3_n4_n5__dir0,(),engineered,residual_rescue_prune,,,,no held-out gain given the rest of the selection,-1,
+rff__x1_x2_n0_n1_n2_n3_n4_n5__62,(),engineered,residual_rescue_prune,,,,no held-out gain given the rest of the selection,-1,
+x1__round_0p1,(),engineered,residual_rescue_prune,,,,no held-out gain given the rest of the selection,-1,
+x1__tnh_L3,(),engineered,residual_rescue_prune,,,,no held-out gain given the rest of the selection,-1,

@@ -46,6 +46,10 @@ def _maybe_resume_from_checkpoint(self, *, signature, verbose, state: Dict[str, 
         state["best_iter"] = int(_state.get("best_iter", 0))
         state["best_score"] = _state.get("best_score", -np.inf)
         state["dummy_scores"] = list(_state.get("dummy_scores", []))
+        state["nofeatures_score"] = float(_state.get("nofeatures_score", state.get("nofeatures_score", float("nan"))))
+        state["per_fold_scores"] = {int(k): list(v) for k, v in dict(_state.get("per_fold_scores", {})).items()}
+        if _state.get("signed_importances") is not None:
+            self._signed_importances = _state["signed_importances"]
         # MBHOptimizer carries its own evaluation history; restore if present and current search method is MBH.
         _saved_optimizer = _state.get("optimizer")
         if _saved_optimizer is not None and state.get("Optimizer") is not None:

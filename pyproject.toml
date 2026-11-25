@@ -1136,6 +1136,12 @@ exclude = "(legacy)/"
 module = "tests.*"
 ignore_errors = true
 
+# The nbins_strategy benchmark package, above all its target-transform research scripts (tt_a*, tt_b*): one-off analysis drivers that read result tables and print reports, not library code and not imported by it. They are
+# still compiled, linted and covered by the dead-code scan; annotating a few hundred dict-of-lists accumulators in throwaway scripts is not worth the churn.
+[[tool.mypy.overrides]]
+module = "mlframe.feature_selection._benchmarks.nbins_strategy.*"
+ignore_errors = true
+
 # Strict-mode beachhead: mlframe.calibration is the smallest subpackage (5 files, ~1.3 kLOC total)
 # with a stable public surface, low optional-dep churn (only ``post.py`` pulls heavy deps and gates
 # them lazily), and tight scope (probability calibration metrics + post-hoc calibrators). Adopting

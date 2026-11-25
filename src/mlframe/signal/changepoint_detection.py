@@ -43,7 +43,9 @@ def detect_regime_changepoints(
         Minimum number of rows in a segment for PELT's search; also used post-hoc to drop candidate
         breakpoints that would create a shorter segment.
     penalty
-        PELT's ``pen`` parameter -- higher values detect fewer, more conservative breakpoints.
+        Dimensionless PELT penalty: it multiplies a robust variance of ``y`` (the squared MAD-scaled standard deviation), so the breakpoint
+        count does not change when ``y`` is rescaled (audit 26-F12). Higher values detect fewer, more conservative breakpoints. For ``y``
+        with unit variance this reproduces the former absolute penalty.
     min_effect_size
         A detected breakpoint is kept only if the absolute difference between the segment means on either
         side, divided by the pooled standard deviation (Cohen's-d-style effect size), exceeds this threshold
@@ -76,15 +78,22 @@ def detect_regime_changepoints(
             result["segment_stats"] = [_segment_stats(y, 0, n)] if n > 0 else []
         return result
 
+    # Scale-free penalty: the L2 cost is in squared units of y, so the dimensionless ``penalty`` is applied to a robust variance (audit 26-F12).
+    _mad = float(np.median(np.abs(y - np.median(y))))
+    _robust_var = (1.4826 * _mad) ** 2
+    if not np.isfinite(_robust_var) or _robust_var <= 0.0:
+        _robust_var = float(np.var(y)) if np.isfinite(np.var(y)) and np.var(y) > 0.0 else 1.0
+    _pen_abs = penalty * _robust_var
+
     if backend == "njit":
         from mlframe.signal._pelt_l2_njit import pelt_l2
 
-        raw_breakpoints = pelt_l2(y, min_segment_length, penalty)
+        raw_breakpoints = pelt_l2(y, min_segment_length, _pen_abs)
     elif backend == "ruptures":
         import ruptures as rpt
 
         algo = rpt.Pelt(model="l2", min_size=min_segment_length).fit(y.reshape(-1, 1))
-        raw_breakpoints = algo.predict(pen=penalty)
+        raw_breakpoints = algo.predict(pen=_pen_abs)
         raw_breakpoints = [bp for bp in raw_breakpoints if bp < n]  # ruptures includes n as a terminal marker
     else:
         raise ValueError(f"Unknown backend: {backend!r}, expected 'njit' or 'ruptures'.")

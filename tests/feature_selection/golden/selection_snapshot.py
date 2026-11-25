@@ -64,7 +64,7 @@ def snapshot(rows: int = 20000, cols: int = 40) -> dict:
     from mlframe.feature_selection._benchmarks.profiling import family_scale as F
 
     kw = F.all_families_kwargs()
-    kw["nbins_strategy"] = "mdlp"
+    kw["binning_scheme"] = "mdlp"
     X, y = F._make(rows, cols, 0)[:2]
     res = {"rows": rows, "cols": cols, "pandas": _one(X, y, kw)}
     try:

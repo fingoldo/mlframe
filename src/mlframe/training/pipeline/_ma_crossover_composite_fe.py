@@ -99,6 +99,7 @@ def apply_ma_crossover_composite_fe(
             out[split_name] = df
             continue
         n_rows = pd_df.shape[0]
+        # Rolling means are per split (audit 40-F26, documented choice): each split's entities restart their own history; see the entity-time FE.
         g, t = _slice(idx, n_rows)
         if group_ids is not None and g is None:
             # Without an aligned index the per-entity means cannot be formed, and computing one global rolling mean would average

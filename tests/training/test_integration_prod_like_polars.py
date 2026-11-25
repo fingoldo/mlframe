@@ -698,7 +698,7 @@ def test_polars_enum_with_mrmr_feature_selection(model_name, tmp_path):
         verbose=0,
         output_config=_lean_output_config(tmp_path),
         reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
-        feature_selection_config=FeatureSelectionConfig(mrmr={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3, 'full_npermutations': 3, 'nbins_strategy_kwargs': {'mdlp_fast_mode': True}, 'fe_max_steps': 0}),
+        feature_selection_config=FeatureSelectionConfig(mrmr={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3, 'full_npermutations': 3, 'binning_kwargs': {'mdlp_fast_mode': True}, 'fe_max_steps': 0}),
     )
     assert trained
 
@@ -753,7 +753,7 @@ def test_polars_kitchen_sink_all_trees_mrmr_multi_target_types(tmp_path):
         verbose=0,
         output_config=_lean_output_config(tmp_path),
         reporting_config=ReportingConfig(**_LEAN_REPORTING_KWARGS),
-        feature_selection_config=FeatureSelectionConfig(mrmr={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3, 'full_npermutations': 3, 'nbins_strategy_kwargs': {'mdlp_fast_mode': True}, 'fe_max_steps': 0}),
+        feature_selection_config=FeatureSelectionConfig(mrmr={'verbose': 0, 'max_runtime_mins': 1, 'n_workers': 1, 'quantization_nbins': 5, 'use_simple_mode': True, 'min_nonzero_confidence': 0.9, 'max_consec_unconfirmed': 3, 'full_npermutations': 3, 'binning_kwargs': {'mdlp_fast_mode': True}, 'fe_max_steps': 0}),
     )
     assert trained
     assert TargetTypes.BINARY_CLASSIFICATION in trained

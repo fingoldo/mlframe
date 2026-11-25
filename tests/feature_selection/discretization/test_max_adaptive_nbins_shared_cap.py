@@ -53,19 +53,25 @@ def test_freedman_diaconis_nbins_bounded_at_large_n_even_with_sqrt_cap_above_cei
     assert n_bins <= MAX_ADAPTIVE_NBINS, f"freedman_diaconis produced {n_bins} bins at n=50000, exceeding the shared cap {MAX_ADAPTIVE_NBINS}"
 
 
-def test_max_adaptive_nbins_kwarg_propagates_through_categorize_dataset():
-    """The single ``max_adaptive_nbins`` key in ``nbins_strategy_kwargs`` -- the same path
-    ``MRMR(max_adaptive_nbins=...)`` feeds into -- must actually lower every uncapped-by-construction
-    strategy's per-column bin count, not just the strategy it happens to be named after."""
+def test_nbins_cap_lowers_the_count_of_every_count_rule():
+    """``nbins_cap`` bounds the bin count of the Freedman-Diaconis and Knuth rules (and a cap of 256 leaves them room): a lower cap must lower every column's count, not only one rule's."""
+    from mlframe.feature_selection.filters._binning_spec import make_binning_spec
+
     rng = np.random.default_rng(0)
     X = pd.DataFrame({"a": rng.standard_normal(5000) * 100, "b": rng.standard_normal(5000)})
-    y = (X["a"] * 2 + rng.standard_normal(5000) * 0.3).to_numpy()
-    for method in ("knuth", "freedman_diaconis"):
-        _, cols, nbins_loose = categorize_dataset(
-            df=X, method="quantile", n_bins=10, dtype=np.int32, nbins_strategy=method, nbins_strategy_kwargs={"max_adaptive_nbins": 256}, y_for_strategy=y,
-        )
-        _, _, nbins_tight = categorize_dataset(
-            df=X, method="quantile", n_bins=10, dtype=np.int32, nbins_strategy=method, nbins_strategy_kwargs={"max_adaptive_nbins": 8}, y_for_strategy=y,
-        )
-        assert np.size(nbins_tight) > 0 and max(nbins_tight) <= 8, f"{method}: max_adaptive_nbins=8 not respected, got {dict(zip(cols, nbins_tight))}"
-        assert any(nb > 8 for nb in nbins_loose), f"{method}: fixture didn't exercise the cap (all columns already <=8 bins at cap=256)"
+    for rule in ("knuth", "freedman_diaconis"):
+        _, cols, nbins_loose = categorize_dataset(df=X, method="quantile", n_bins=10, dtype=np.int32, binning=make_binning_spec("uniform", rule, 256, warn=False))
+        _, _, nbins_tight = categorize_dataset(df=X, method="quantile", n_bins=10, dtype=np.int32, binning=make_binning_spec("uniform", rule, 8, warn=False))
+        assert np.size(nbins_tight) > 0 and max(nbins_tight) <= 8, f"{rule}: nbins_cap=8 not respected, got {dict(zip(cols, nbins_tight))}"
+        assert any(nb > 8 for nb in nbins_loose), f"{rule}: fixture didn't exercise the cap (all columns already <=8 bins at cap=256)"
+
+
+def test_max_adaptive_nbins_kwarg_bounds_the_schemes_that_pick_their_own_count():
+    """The ``max_adaptive_nbins`` key of ``binning_kwargs`` (what ``MRMR(max_adaptive_nbins=...)`` feeds) bounds ``bayesian_blocks``, which picks its own count."""
+    from mlframe.feature_selection.filters._binning_spec import make_binning_spec
+
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame({"a": np.concatenate([rng.standard_normal(2500), 5 + rng.standard_normal(2500)])})
+    spec = make_binning_spec("bayesian_blocks", warn=False)
+    _, _, nbins_tight = categorize_dataset(df=X, method="quantile", n_bins=10, dtype=np.int32, binning=spec, binning_kwargs={"max_adaptive_nbins": 4})
+    assert max(nbins_tight) <= 4, f"max_adaptive_nbins=4 not respected: {list(nbins_tight)}"

@@ -20,7 +20,7 @@ Covers:
   held-out R^2 (and never degrade the default capture's).
 * ``fourier_adaptive`` prewarp spec replay: closed-form, bit-identical fit/transform for
   both the linear and the quadratic-chirp argument.
-* Target-rebin guard: the adaptive ``nbins_strategy`` (default mdlp) must never leave a
+* Target-rebin guard: the adaptive ``binning_scheme`` (default mdlp) must never leave a
   degenerate self-referential encoding on a heavy-tailed CONTINUOUS target.
 """
 
@@ -32,6 +32,8 @@ from itertools import combinations
 import numpy as np
 import pandas as pd
 import pytest
+
+from tests.feature_selection.conftest import LEGACY_FE_OFF
 
 warnings.filterwarnings("ignore")
 
@@ -98,7 +100,9 @@ def test_escalation_silent_when_library_capture_is_exact():
 
     X, df, rng = _frame(5000, 6, 7)
     y = X[:, 0] * X[:, 1] + 0.1 * rng.normal(size=len(X))
-    sel = MRMR(verbose=0, random_state=7)
+    # The control under test is the underdelivery trigger's (``LEGACY_FE_OFF`` switches it off, the default is on), and the product must reach the pair path: the hybrid-orth pair family captures ``x0*x1`` as ``x1*x0__He1_He1`` before
+    # the pair path sees the pair, so with it on the pair is not even a candidate and the control is never asked.
+    sel = MRMR(verbose=0, random_state=7, **{**LEGACY_FE_OFF, "fe_hybrid_orth_enable": False, "fe_escalation_underdelivery_enable": True})
     sel.fit(df, pd.Series(y, name="y"))
     recipes = {r.name: r for r in (getattr(sel, "_engineered_recipes_", None) or [])}
     assert any(("x0" in nm and "x1" in nm) for nm in recipes), f"the exact library capture should be admitted+selected: {list(recipes)}"
@@ -131,7 +135,8 @@ def test_biz_val_escalation_skips_complete_he3_capture():
 
     X, df, rng = _frame(5000, 6, 42)
     y = (X[:, 0] ** 3 - 3 * X[:, 0]) * X[:, 1] + 0.1 * rng.normal(size=len(X))
-    sel = MRMR(verbose=0, random_state=42)
+    # the contract is that of the escalation as it was before the underdelivery trigger and the feed-forward became defaults (2026-11-09): pre-warp stays on, the trigger is the one this test is about
+    sel = MRMR(verbose=0, random_state=42, **{**LEGACY_FE_OFF, "fe_pair_prewarp_enable": True})
     sel.fit(df, pd.Series(y, name="y"))
     recipes = {r.name: r for r in (getattr(sel, "_engineered_recipes_", None) or [])}
     assert any("prewarp(x0)" in nm for nm in recipes), f"default prewarp should stay: {list(recipes)}"
@@ -361,12 +366,12 @@ def test_escalation_poly_proposer_recovers_smooth_product_term():
 
 
 # ---------------------------------------------------------------------------
-# Target-rebin guard: adaptive nbins_strategy must not degrade a continuous target
+# Target-rebin guard: adaptive binning_scheme must not degrade a continuous target
 # ---------------------------------------------------------------------------
 
 
 def test_target_rebin_guard_fires_on_heavy_tailed_continuous_target(caplog):
-    """A heavy-tailed continuous y under the default ``nbins_strategy='mdlp'`` used to
+    """A heavy-tailed continuous y under the default ``binning_scheme='mdlp'`` used to
     get a degenerate self-referential encoding (37 bins, 84% of rows in ONE bin on the
     F2 fixture) that blinded every downstream MI gate. The guard must re-bin the target
     with the legacy equal-frequency quantile codes (and log that it did)."""
@@ -386,7 +391,7 @@ def test_target_rebin_guard_fires_on_heavy_tailed_continuous_target(caplog):
         sel.fit(df, pd.Series(y, name="y"))
     assert any(
         "target-rebin guard" in r.message for r in caplog.records
-    ), "the target-rebin guard must fire on a heavy-tailed continuous target under the adaptive nbins_strategy default"
+    ), "the target-rebin guard must fire on a heavy-tailed continuous target under the adaptive binning_scheme default"
 
 
 # ---------------------------------------------------------------------------

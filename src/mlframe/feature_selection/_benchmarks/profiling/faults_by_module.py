@@ -1,5 +1,6 @@
 """Inclusive wall seconds of every function of the given modules in one warm GPU fit (wrapper timing, all threads summed). Usage: module_walls.py n p mod1 mod2 ..."""
 
+from mlframe.feature_selection._benchmarks.binning_label import binning_params
 from typing import Any
 import types
 import os, sys, time, threading, warnings, importlib, functools
@@ -11,7 +12,7 @@ for k, v in {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_V
     os.environ.setdefault(k, v)
 from mlframe.feature_selection._benchmarks.profiling import family_scale as F
 from mlframe.feature_selection.filters.mrmr import MRMR
-kw = F.all_families_kwargs(); kw["nbins_strategy"] = os.environ.get("BENCH_NBINS", "mdlp")
+kw = F.all_families_kwargs(); kw.update(binning_params(os.environ.get("BENCH_NBINS", "mdlp")))
 MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20000, 30, 1))
 walls: Any = {}; calls: dict[Any, Any] = {}; stats = types.SimpleNamespace(faults={}); lock = threading.Lock()
 base = "mlframe.feature_selection.filters."

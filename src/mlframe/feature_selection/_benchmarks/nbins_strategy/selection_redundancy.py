@@ -3,12 +3,13 @@
 ``loss(without) - loss(with)`` near zero (t about 0) means the feature is redundant given the rest of the selection. A pairwise conditional-MI test is NOT a substitute: a feature that is a finer view of the
 same underlying column keeps a significant CMI against its 8-bin version (artifact measured 2026-11-23), so conditioning on one coarse feature at a time proves nothing.
 
-Usage: ``python selection_redundancy.py uniform,quantile_spacing``. Results of 2026-11-23: see ``audits/2026-11-23/_TRACKER.md`` (NOISE-IN-SELECTION).
+Usage: ``python selection_redundancy.py uniform,quantile``. Results of 2026-11-23: see ``audits/2026-11-23/_TRACKER.md`` (NOISE-IN-SELECTION).
 """
 
 from __future__ import annotations
 
 import sys, re, warnings, numpy as np
+from mlframe.feature_selection._benchmarks.binning_label import binning_params
 warnings.simplefilter("ignore")
 from sklearn.ensemble import HistGradientBoostingClassifier as H
 from sklearn.model_selection import StratifiedKFold
@@ -23,7 +24,7 @@ def oof_loss(A, y):
     return L
 for strategy in sys.argv[1].split(","):
     X, ys = make_data(20000, 50, "binary", 0); y = ys.to_numpy().astype(np.int64)
-    kw = F.all_families_kwargs(); kw["nbins_strategy"] = strategy
+    kw = F.all_families_kwargs(); kw.update(binning_params(strategy))
     m = MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(X, ys)
     names = [str(c) for c in m.get_feature_names_out()]; T = np.nan_to_num(np.asarray(m.transform(X), dtype=np.float64))
     print("STRATEGY", strategy, "selected", len(names), flush=True)

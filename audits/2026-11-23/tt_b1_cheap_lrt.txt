@@ -1,0 +1,5 @@
+cases 72, candidates scored 616
+time per candidate: full 33.14 ms, 1 step(s) 11.54 ms, 2 step(s) 18.25 ms, 3 step(s) 26.67 ms
+1 Newton step(s): same argmax as full LRT 46/72, argmax within 2% of the full top value 54/72, mean Spearman over non-identity candidates 0.915
+2 Newton step(s): same argmax as full LRT 60/72, argmax within 2% of the full top value 64/72, mean Spearman over non-identity candidates 0.980
+3 Newton step(s): same argmax as full LRT 66/72, argmax within 2% of the full top value 66/72, mean Spearman over non-identity candidates 0.991

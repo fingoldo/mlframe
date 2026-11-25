@@ -64,9 +64,13 @@ def _wire_cv_policies(pre_pipelines: list, cv_policy: Any, target_type: Any) -> 
     """Hand the suite's shared split policy (see ``feature_selection.cv_policy``) to every built selector that reads it; returns ``pre_pipelines``."""
     if cv_policy is None:
         return pre_pipelines
+    # A CV policy needs the target type to choose a classification or regression splitter. A None target type used to be
+    # silently wired as regression (audit 38-F24), so it is refused instead.
+    if target_type is None:
+        raise ValueError("a CV policy was supplied without a target_type; pass the target type so the splitter matches the task (audit 38-F24)")
     from mlframe.feature_selection.cv_policy import wire_selector_policy
 
-    is_classification = target_type is not None and "regression" not in str(target_type).lower()
+    is_classification = "regression" not in str(target_type).lower()
     for selector in pre_pipelines:
         if getattr(selector, "_mlframe_selector_kind_", None) in _CV_POLICY_SELECTOR_KINDS:
             wire_selector_policy(selector, cv_policy, classification=is_classification)

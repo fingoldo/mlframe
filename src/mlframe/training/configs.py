@@ -147,7 +147,8 @@ class BaselineDiagnosticsConfig(BaseConfig):
 
     # Higher-is-better metrics (AUC) flip the sign convention for
     # ablation Δ% computation. Auto-derived from target_type at runtime.
-    apply_to_target_types: Tuple[str, ...] = ("regression", "binary_classification")
+    # FrozenSet like DummyBaselinesConfig.apply_to_target_types (audit 28-F69); pydantic coerces list/tuple input to it.
+    apply_to_target_types: FrozenSet[str] = frozenset({"regression", "binary_classification"})
 
     random_state: int = DEFAULT_RANDOM_SEED
 

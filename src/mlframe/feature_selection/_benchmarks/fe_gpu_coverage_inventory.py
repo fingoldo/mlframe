@@ -641,7 +641,7 @@ CARVED_FAMILIES: dict[str, tuple[str, ...]] = {
     "_target_encoding_order_stats": ("_order_stats_gpu",),
     "_temporal_agg_fe_rolling": ("_rolling_window_gpu",),
     "_periodic_fe": ("_modular_codes_gpu",),
-    "batch_pair_usability_corr_gpu": ("_pair_usability_table",),
+    "batch_pair_usability_corr_gpu": ("_pair_usability_table", "_pair_usability_specialised"),
     "_orthogonal_univariate_fe": ("_orth_scoring_memo", "_orth_basis_memo", "_orth_gpu_resident",),
     "hermite_fe": ("_hermite_basis_eval", "_hermite_oracle", "_hermite_prewarp", "_hermite_prewarp_gpu_resident", "_hermite_robust"),
     "_extra_basis_resident": ("_orth_extra_basis_fe_generate",),

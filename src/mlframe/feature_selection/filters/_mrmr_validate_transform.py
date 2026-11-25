@@ -148,12 +148,14 @@ def _planned_code_itemsize(self) -> int:
     from ._mrmr_fit_impl._fit_impl_stages._binning import _strategy_kwargs
     from .discretization.shared import plan_code_storage
 
-    _strategy = getattr(self, "nbins_strategy", None)
+    from ._binning_spec import spec_from_estimator
+
+    _binning = spec_from_estimator(self)
     plan = plan_code_storage(
         n_bins=int(self.quantization_nbins),
         method=str(self.quantization_method),
-        nbins_strategy=None if _strategy is None else str(_strategy),
-        nbins_strategy_kwargs=_strategy_kwargs(self, _strategy),
+        binning=_binning,
+        binning_kwargs=_strategy_kwargs(self, _binning),
         max_adaptive_nbins=int(getattr(self, "max_adaptive_nbins", 127) or 127),
         max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None),
         categorical_cardinalities=None,

@@ -7,16 +7,17 @@ import types
 import pytest
 
 from mlframe.feature_selection.filters import _mrmr_validate_transform as vt
+from tests.feature_selection.binning_cases import binning_kwargs
 
 
 def test_the_default_settings_store_one_byte_a_cell_for_every_strategy():
     """A default MRMR plans int8 codes whatever the numeric binning strategy (MDLP depth and the adaptive ceiling follow the 127 cap); the plan widens only when the caps are lifted."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
-    for strategy in ("mdlp", "knuth", "bayesian_blocks", None):
-        assert vt._planned_code_itemsize(MRMR(nbins_strategy=strategy)) == 1
-    assert vt._planned_code_itemsize(MRMR(nbins_strategy="mdlp", max_categorical_cardinality=255)) == 2
-    assert vt._planned_code_itemsize(MRMR(nbins_strategy="knuth", max_adaptive_nbins=1000, max_categorical_cardinality=None)) >= 2
+    for strategy in ("mdlp", "knuth", "bayesian_blocks", "fixed"):
+        assert vt._planned_code_itemsize(MRMR(**binning_kwargs(strategy))) == 1
+    assert vt._planned_code_itemsize(MRMR(binning_scheme="mdlp", max_categorical_cardinality=255)) == 2
+    assert vt._planned_code_itemsize(MRMR(binning_scheme="uniform", nbins_rule="knuth", nbins_cap=1000, max_adaptive_nbins=1000, max_categorical_cardinality=None)) >= 2
 
 
 def test_an_object_without_the_binning_settings_is_an_error_not_an_int32_guess():

@@ -1,10 +1,10 @@
 """Cross-instance per-column code cache for the unsupervised numeric discretization path.
 
-Unsupervised binning (``nbins_strategy=None``) bins each numeric column independently of the others and of
+Unsupervised binning (``nbins_rule='fixed'``) bins each numeric column independently of the others and of
 the target, so per-column ordinal codes are a pure function of (column values, n_bins, method, dtype). The
 process-wide cache (``_discretize_2d_array_col_cached``) lets a suite training many targets on the SAME
 feature frame reuse feature-column codes and rebin only the new target column -- bit-identical by construction.
-The cache is correctly NOT consulted on the supervised ``nbins_strategy`` path (mdlp/...), where bins depend
+The cache is correctly NOT consulted on the supervised ``binning_scheme`` path (mdlp/...), where bins depend
 on the target.
 """
 
@@ -16,6 +16,7 @@ import pytest
 
 from mlframe.feature_selection.filters.discretization import categorize_dataset
 from mlframe.feature_selection.filters.discretization._discretization_dataset import clear_numeric_code_cache
+from mlframe.feature_selection.filters._binning_spec import make_binning_spec
 
 
 def _frame(seed, n=400, target_vals=None):
@@ -40,11 +41,11 @@ def test_cache_on_bit_identical_to_cache_off(monkeypatch):
 
     monkeypatch.setenv("MLFRAME_DISCRETIZE_COL_CACHE", "0")
     clear_numeric_code_cache()
-    data_off, cols_off, nbins_off = categorize_dataset(df=df, method="quantile", n_bins=10, nbins_strategy=None)
+    data_off, cols_off, nbins_off = categorize_dataset(df=df, method="quantile", n_bins=10, )
 
     monkeypatch.setenv("MLFRAME_DISCRETIZE_COL_CACHE", "1")
     clear_numeric_code_cache()
-    data_on, cols_on, nbins_on = categorize_dataset(df=df, method="quantile", n_bins=10, nbins_strategy=None)
+    data_on, cols_on, nbins_on = categorize_dataset(df=df, method="quantile", n_bins=10, )
 
     assert cols_off == cols_on
     assert np.array_equal(nbins_off, nbins_on)
@@ -59,14 +60,14 @@ def test_shared_feature_columns_reused_across_targets():
     df_b = _frame(1)  # same features (seed 1) ...
     df_b["target"] = np.random.default_rng(999).normal(size=len(df_b))  # ... different target
 
-    data_a, cols_a, _ = categorize_dataset(df=df_a, method="quantile", n_bins=8, nbins_strategy=None)
+    data_a, cols_a, _ = categorize_dataset(df=df_a, method="quantile", n_bins=8, )
 
     # Confirm the cache is actually consulted (feature-column entries exist after the first categorize).
     from mlframe.feature_selection.filters.discretization import _discretization_dataset as _dd
 
     assert len(_dd._NUMERIC_CODE_CACHE) >= 5, "feature columns were not cached after first categorize"
 
-    data_b, cols_b, _ = categorize_dataset(df=df_b, method="quantile", n_bins=8, nbins_strategy=None)
+    data_b, cols_b, _ = categorize_dataset(df=df_b, method="quantile", n_bins=8, )
 
     # Feature columns (f0..f4) must be byte-identical between A and B (same values -> same codes).
     for fc in [c for c in cols_a if c.startswith("f")]:
@@ -75,13 +76,13 @@ def test_shared_feature_columns_reused_across_targets():
 
 
 def test_cache_not_consulted_on_supervised_strategy():
-    """Supervised nbins_strategy (mdlp) must NOT populate the unsupervised per-column cache (bins are y-dependent)."""
+    """Supervised binning_scheme (mdlp) must NOT populate the unsupervised per-column cache (bins are y-dependent)."""
     pytest.importorskip("numba")
     clear_numeric_code_cache()
     df = _frame(2)
     from mlframe.feature_selection.filters.discretization import _discretization_dataset as _dd
 
-    categorize_dataset(df=df, method="quantile", n_bins=10, nbins_strategy="mdlp", y_for_strategy=df["target"].to_numpy())
+    categorize_dataset(df=df, method="quantile", n_bins=10, binning=make_binning_spec("mdlp", warn=False), y_for_strategy=df["target"].to_numpy())
     assert len(_dd._NUMERIC_CODE_CACHE) == 0, "supervised path must not use the unsupervised per-column cache"
     categorize_dataset(df=df, method="quantile", n_bins=10)
     assert len(_dd._NUMERIC_CODE_CACHE) > 0, "the unsupervised path must populate the per-column cache, else the supervised emptiness proves nothing"

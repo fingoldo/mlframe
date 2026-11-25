@@ -18,6 +18,7 @@ class MRMRParams(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, arbitrary_types_allowed=True)
     __signature_overrides__ = (
         "additional_rfecv_selection_rule",
+        "binning_scheme",
         "cluster_aggregate_mode",
         "dcd_distance",
         "dcd_swap_method",
@@ -35,7 +36,7 @@ class MRMRParams(BaseModel):
         "mrmr_redundancy_algo",
         "mrmr_relevance_algo",
         "nan_strategy",
-        "nbins_strategy",
+        "nbins_rule",
         "quantization_method",
         "redundancy_aggregator",
         "stability_selection_method",
@@ -48,11 +49,10 @@ class MRMRParams(BaseModel):
     max_categorical_cardinality: int | None = 127
     categorical_fold_strategy: str = "frequency"
     categorical_fold_min_support: int = 5
-    nbins_strategy: (
-        Literal["sturges", "freedman_diaconis", "quantile_spacing", "uniform", "knuth", "bayesian_blocks", "mdlp", "mdlp_validated", "optimal_joint", "mah"]
-        | None
-    ) = "quantile_spacing"
-    nbins_strategy_kwargs: dict | None = None
+    binning_scheme: Literal["quantile", "uniform", "mdlp", "mdlp_validated", "optimal_joint", "mah", "bayesian_blocks"] = "quantile"
+    nbins_rule: Literal["rice_capped", "sturges", "freedman_diaconis", "knuth", "fixed"] | None = None
+    nbins_cap: int = 48
+    binning_kwargs: dict | None = None
     max_adaptive_nbins: int = 127
     adaptive_nbins_large_n_reg: bool = True
     adaptive_nbins_large_n_reg_threshold: int = 50000
@@ -150,7 +150,7 @@ class MRMRParams(BaseModel):
     fe_min_pair_mi: float = 0.001
     fe_min_pair_mi_prevalence: float | str = 1.05
     fe_min_engineered_mi_prevalence: float = 0.9
-    fe_mm_debias_prevalence: bool = False
+    fe_mm_debias_prevalence: bool = True
     fe_acceptance: str = "conditional_mi"
     fe_engineered_cmi_retain_frac: float = 0.15
     fe_engineered_cmi_significance_escape_margin: float = 3.0
@@ -558,7 +558,7 @@ class MRMRParams(BaseModel):
     fe_target_mix_max_bases: int = 2
     fe_target_mix_scan_rows: int = 20000
     fe_target_mix_candidates: bool = False
-    target_transform_search: bool = False
+    target_transform_search: bool = True
     fe_residual_rescue_operand_min_linear_gain: float = 0.001
     fe_wavelet_enable: bool = True
     fe_wavelet_max_cols: int | None = 100

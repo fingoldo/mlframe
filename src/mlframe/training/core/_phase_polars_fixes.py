@@ -342,6 +342,13 @@ def _apply_polars_categ_t_step4_col_eligible_cols(_eligible_cols, precomputed_ca
             # from being lost in the Enum and silently casting val to null.
             if precomputed_category_union and col in precomputed_category_union:
                 union = set(precomputed_category_union[col])
+                # Val categories absent from the pre-OD union would make the strict val cast below fail outside the per-column try
+                # (audit 38-F22); adding them to the Enum keeps that cast total.
+                if val_df_polars is not None:
+                    if _val_unique_lists is not None and col in _val_unique_lists.columns:
+                        union |= set(_val_unique_lists[col][0].to_list())
+                    else:
+                        union |= set(val_df_polars.select(pl.col(col).drop_nulls().unique())[col].to_list())
             else:
                 if _tr_unique_lists is not None and col in _tr_unique_lists.columns:
                     union = set(_tr_unique_lists[col][0].to_list())

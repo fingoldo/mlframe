@@ -17,43 +17,44 @@ import pytest
 import numpy as np
 
 import mlframe
-from mlframe.feature_selection.filters._adaptive_nbins import edges_qs, qs_nbins
+from mlframe.feature_selection.filters._adaptive_nbins import rice_capped_nbins
+from tests.feature_selection.binning_cases import edges_rice_capped
 from mlframe.feature_selection.filters._mah import _compute_y_binning, clear_mah_y_binning_cache, mah_bin_edges, mah_mi
 
 # ---------------------------------------------------------------------------
-# qs_nbins / edges_qs
+# rice_capped_nbins / edges_rice_capped
 # ---------------------------------------------------------------------------
 
 
-def test_qs_nbins_no_overflow_at_extreme_n():
-    """``qs_nbins`` must stay clamped in [3, 64] even at astronomically large N (no int overflow, no
+def test_rice_capped_nbins_no_overflow_at_extreme_n():
+    """``rice_capped_nbins`` must stay clamped in [3, 48] even at astronomically large N (no int overflow, no
     runaway bin count that would blow up downstream joint histograms)."""
-    # 1000 -> 20: the Rice cap 2 * N ** (1/3) of ``qs_nbins`` (64 at every N from 214 lost a categorical interaction at N = 6000)
-    expected = {0: 1, 1: 1, 2: 3, 10: 3, 1000: 20, 10**6: 64, 10**12: 64, 10**18: 64}
-    got = {n: qs_nbins(n) for n in expected}
+    # 1000 -> 20: the Rice cap 2 * N ** (1/3) of ``rice_capped_nbins`` (64 at every N from 214 lost a categorical interaction at N = 6000)
+    expected = {0: 1, 1: 1, 2: 3, 10: 3, 1000: 20, 10**6: 48, 10**12: 48, 10**18: 48}
+    got = {n: rice_capped_nbins(n) for n in expected}
     assert got == expected
 
 
-def test_qs_nbins_alpha_extremes_stay_clamped():
+def test_rice_capped_nbins_alpha_extremes_stay_clamped():
     """Alpha outside the recommended [0.25, 0.35] band (a caller typo/misuse) must still clamp, not
     silently explode the bin count or collapse to 0."""
-    expected = {0.0: 3, 1e-9: 3, 0.99: 64, 5.0: 64, -1.0: 3}
-    got = {alpha: qs_nbins(100_000, alpha=alpha) for alpha in expected}
+    expected = {0.0: 3, 1e-9: 3, 0.99: 48, 5.0: 48, -1.0: 3}
+    got = {alpha: rice_capped_nbins(100_000, alpha=alpha) for alpha in expected}
     assert got == expected
 
 
-def test_edges_qs_all_identical_values_returns_empty_not_garbage():
-    """A constant column has zero variance -- edges_qs must return an EMPTY array cleanly (the
+def test_edges_rice_capped_all_identical_values_returns_empty_not_garbage():
+    """A constant column has zero variance -- edges_rice_capped must return an EMPTY array cleanly (the
     documented degenerate contract), never NaN/garbage edges from a divide-by-zero quantile spread."""
     x = np.full(5000, 7.0)
-    edges = edges_qs(x)
+    edges = edges_rice_capped(x)
     assert edges.size == 0
     assert np.isfinite(edges).all()
 
 
-def test_edges_qs_extreme_skew_real_variance_not_silently_worse_than_documented():
+def test_edges_rice_capped_extreme_skew_real_variance_not_silently_worse_than_documented():
     """99.9% mass at one value + a real, spread-out tail (real variance, not a degenerate constant
-    column) -- edges_qs is allowed to return few/no edges (Gupta's method legitimately underpowers
+    column) -- edges_rice_capped is allowed to return few/no edges (Gupta's method legitimately underpowers
     heavy skew), but whatever it returns must be finite and monotonic (never NaN/unsorted garbage
     silently propagated to searchsorted)."""
     rng = np.random.default_rng(0)
@@ -61,43 +62,43 @@ def test_edges_qs_extreme_skew_real_variance_not_silently_worse_than_documented(
     dominant = np.zeros(n - 20)
     tail = rng.uniform(100.0, 200.0, size=20)
     x = np.concatenate([dominant, tail])
-    edges = edges_qs(x, alpha=0.30)
+    edges = edges_rice_capped(x, alpha=0.30)
     assert np.isfinite(edges).all()
     assert np.all(np.diff(edges) > 0)  # strictly increasing (np.unique guarantees this, but assert the contract)
 
 
-def test_edges_qs_tiny_n_no_crash():
+def test_edges_rice_capped_tiny_n_no_crash():
     """n below any reasonable quantile granularity must not crash / must not return garbage (finite,
     monotonic edges or a clean empty array -- never NaN/unsorted)."""
     for n in (0, 1, 2, 3):
         x = np.arange(n, dtype=np.float64)
-        edges = edges_qs(x)
+        edges = edges_rice_capped(x)
         assert np.isfinite(edges).all()
         assert np.all(np.diff(edges) > 0)
     # n=0/1 truly have no spread to bin -> must be empty.
     for n in (0, 1):
         x = np.arange(n, dtype=np.float64)
-        assert edges_qs(x).size == 0
+        assert edges_rice_capped(x).size == 0
 
 
-def test_edges_qs_huge_n_bounded_edge_count():
-    """At huge N the returned edge count must stay bounded by the qs_nbins cap (<=63 inner edges),
+def test_edges_rice_capped_huge_n_bounded_edge_count():
+    """At huge N the returned edge count must stay bounded by the rice_capped_nbins cap (<=63 inner edges),
     never scale with N (an unbounded edge count would defeat the whole point of QS's fixed-alpha
     cardinality control and blow up downstream joint histograms)."""
     rng = np.random.default_rng(1)
     x = rng.normal(size=2_000_000)
-    edges = edges_qs(x)
+    edges = edges_rice_capped(x)
     assert edges.size <= 63
 
 
-def test_edges_qs_never_silently_empty_on_healthy_continuous_data():
-    """Sanity floor: on well-behaved, non-degenerate continuous data with ample N, edges_qs must NOT
+def test_edges_rice_capped_never_silently_empty_on_healthy_continuous_data():
+    """Sanity floor: on well-behaved, non-degenerate continuous data with ample N, edges_rice_capped must NOT
     silently collapse to empty -- this is the exact failure signature the MDLP bug produced. A healthy
     N(0,1) sample with n=5000 has no excuse to return 0 edges."""
     rng = np.random.default_rng(2)
     x = rng.normal(size=5000)
-    edges = edges_qs(x)
-    assert edges.size > 0, "edges_qs silently returned EMPTY edges for healthy continuous data with real variance"
+    edges = edges_rice_capped(x)
+    assert edges.size > 0, "edges_rice_capped silently returned EMPTY edges for healthy continuous data with real variance"
 
 
 # ---------------------------------------------------------------------------
@@ -125,9 +126,9 @@ def _plug_in_mi_from_edges(x: np.ndarray, y_codes: np.ndarray, edges: np.ndarray
     return float(ratio.sum())
 
 
-def test_biz_val_edges_qs_detects_real_dependence_above_independence_floor():
+def test_biz_val_edges_rice_capped_detects_real_dependence_above_independence_floor():
     """Ground truth: y = 1 if x > median else 0 (perfect step dependence) must score MEASURABLY higher
-    plug-in MI through edges_qs bins than an independent shuffle of the same y -- QS's whole selling
+    plug-in MI through edges_rice_capped bins than an independent shuffle of the same y -- QS's whole selling
     point (flat marginal under independence) means the independence floor should be small and the
     signal case should clear it by a wide, quantitatively-checkable margin."""
     rng = np.random.default_rng(3)
@@ -136,7 +137,7 @@ def test_biz_val_edges_qs_detects_real_dependence_above_independence_floor():
     y_signal = (x > np.median(x)).astype(np.int64)
     y_indep = rng.permutation(y_signal)
 
-    edges = edges_qs(x, alpha=0.30)
+    edges = edges_rice_capped(x, alpha=0.30)
     assert edges.size > 0
 
     mi_signal = _plug_in_mi_from_edges(x, y_signal, edges)
@@ -286,7 +287,14 @@ def test_biz_val_mah_mi_detects_real_dependence_above_independence_floor():
     assert mi_indep <= 0.05, f"expected near-zero mah_mi under independence, got {mi_indep}"
 
 
-def test_qs_nbins_grows_with_n_instead_of_sitting_at_the_cap():
-    """The bin count follows the Rice rule below the cap (36 at 6000 rows, 54 at 20000) and is the cap from about 33000 rows; the old rule gave 64 from 214 rows on."""
-    got = {n: qs_nbins(n) for n in (214, 1000, 6000, 20000, 40000)}
-    assert got == {214: 12, 1000: 20, 6000: 36, 20000: 54, 40000: 64}
+def test_rice_capped_nbins_grows_with_n_up_to_the_cap():
+    """The bin count follows the Rice rule below the cap of 48 (12 at 214 rows, 20 at 1000, 36 at 6000, 48 from about 13800 rows); the first rule gave 64 from 214 rows on, which lost a categorical interaction at 6000 rows."""
+    got = {n: rice_capped_nbins(n) for n in (214, 1000, 3000, 6000, 20000, 40000)}
+    assert got == {214: 12, 1000: 20, 3000: 29, 6000: 36, 20000: 48, 40000: 48}
+
+
+def test_the_cap_is_an_explicit_argument():
+    """``cap`` moves the clamp of the ``rice_capped`` rule (``nbins_cap`` of the estimator); there is no environment variable for it."""
+    assert rice_capped_nbins(100_000, cap=16) == 16
+    assert rice_capped_nbins(100_000) == 48
+    assert rice_capped_nbins(100_000, cap=3) == 3

@@ -5,6 +5,7 @@ Consolidated verbatim from test_biz_value_mrmr_layer48.py (per audit finding tes
 
 from __future__ import annotations
 
+from tests.feature_selection.conftest import LEGACY_FE_OFF
 import pickle  # nosec B403 -- test-only local pickle round-trip, never untrusted/network data
 import warnings
 
@@ -88,6 +89,7 @@ def _flat_independent_data(n: int = 1500, seed: int = 1):
 
 class TestLayer48_BuilderUnit:
     """Groups tests covering TestLayer48_BuilderUnit."""
+
     def test_none_summary_returns_empty(self):
         """``build_cluster_hierarchy(None, X)`` returns ``{}``."""
         from mlframe.feature_selection.filters._cluster_hierarchy import (
@@ -170,6 +172,7 @@ class TestLayer48_BuilderUnit:
 
 class TestLayer48_TwoLevelHierarchy:
     """Groups tests covering TestLayer48_TwoLevelHierarchy."""
+
     def test_C1_super_clusters_detected_on_synthetic(self):
         """C1: with a low ``super_tau``, the analyser merges anchors
         that share a meta-latent into one super-cluster, even though
@@ -264,13 +267,14 @@ class TestLayer48_TwoLevelHierarchy:
 
 class TestLayer48_FitIntegration:
     """Groups tests covering TestLayer48_FitIntegration."""
+
     def test_cluster_hierarchy_attr_present_when_dcd_disabled(self):
         """DCD disabled -> ``cluster_hierarchy_`` is ``None`` (mirrors
         the ``cluster_members_`` semantics)."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _hierarchical_two_super_three_sub(n=500, seed=20)
-        m = MRMR(dcd_enable=False, verbose=0, random_state=0).fit(X, y)
+        m = MRMR(**LEGACY_FE_OFF, dcd_enable=False, verbose=0, random_state=0).fit(X, y)
         assert hasattr(m, "cluster_hierarchy_")
         assert m.cluster_hierarchy_ is None
 
@@ -281,6 +285,7 @@ class TestLayer48_FitIntegration:
 
         X, y = _hierarchical_two_super_three_sub(n=1500, seed=21)
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster=0.5,
             full_npermutations=5,
@@ -296,6 +301,7 @@ class TestLayer48_FitIntegration:
 
         X, y = _hierarchical_two_super_three_sub(n=1200, seed=22)
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster=0.5,
             full_npermutations=3,
@@ -312,6 +318,7 @@ class TestLayer48_FitIntegration:
 
         X, y = _hierarchical_two_super_three_sub(n=1200, seed=23)
         m1 = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster=0.5,
             full_npermutations=3,
@@ -319,6 +326,7 @@ class TestLayer48_FitIntegration:
             random_seed=0,
         ).fit(X, y)
         m2 = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster=0.5,
             full_npermutations=3,
@@ -335,6 +343,7 @@ class TestLayer48_FitIntegration:
 
 class TestLayer48_RegressionL41L47:
     """Groups tests covering TestLayer48_RegressionL41L47."""
+
     def test_l41_cluster_members_still_populated(self):
         """L41 contract preserved: ``cluster_members_`` reports the
         per-anchor membership map; the new L48 hierarchy_ does not
@@ -343,6 +352,7 @@ class TestLayer48_RegressionL41L47:
 
         X, y = _hierarchical_two_super_three_sub(n=1500, seed=30)
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster=0.5,
             full_npermutations=3,
@@ -361,6 +371,7 @@ class TestLayer48_RegressionL41L47:
 
         X, y = _hierarchical_two_super_three_sub(n=1500, seed=31)
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster="auto",
             full_npermutations=3,

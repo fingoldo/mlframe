@@ -47,7 +47,6 @@ def test_propagate_does_not_collide_nan_with_top_real_bin():
         n_bins=4,
         dtype=np.int16,
         missing_strategy="propagate",
-        nbins_strategy=None,
     )
     codes = data[:, cols.index("x")]
     real_codes = {int(c) for c in codes[~np.isnan(x)]}
@@ -76,7 +75,6 @@ def test_propagate_preserves_nan_as_signal():
         n_bins=4,
         dtype=np.int16,
         missing_strategy="propagate",
-        nbins_strategy=None,
     )
     mi_val = mi(
         data,
@@ -114,7 +112,6 @@ def test_propagate_and_separate_bin_produce_equivalent_results():
             n_bins=4,
             dtype=np.int16,
             missing_strategy=strat,
-            nbins_strategy=None,
         )
         miv[strat] = float(
             mi(

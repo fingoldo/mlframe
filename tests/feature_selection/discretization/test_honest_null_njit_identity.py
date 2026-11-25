@@ -39,7 +39,7 @@ def _mrmr(kwargs):
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     return MRMR(
-        nbins_strategy="mdlp", nbins_strategy_kwargs=dict(kwargs), quantization_nbins=8, full_npermutations=5,
+        binning_scheme="mdlp", binning_kwargs=dict(kwargs), quantization_nbins=8, full_npermutations=5,
         baseline_npermutations=5, fe_max_steps=0, random_state=0, verbose=0,
     )
 

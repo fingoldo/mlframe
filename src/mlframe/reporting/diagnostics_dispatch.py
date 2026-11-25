@@ -109,6 +109,8 @@ def _save_figure(fig, plot_outputs: str, base_path: str) -> Optional[bool]:
 
             _path = resolve_output_path(base_path, "matplotlib", "png")
             _queue = active_render_queue()
+            # Recorded as saved at submit (audit 26-F26, documented choice): the worker owns the figure from here, and a later worker failure is
+            # counted in the queue summary, not reconciled into charts['failed'] as combined_html does. Reconciling needs a worker-to-dict update.
             if _queue is not None and submit_figure_save(_queue, fig, _path):
                 deferred = True  # the worker owns the figure now and closes it after saving
                 return True

@@ -55,7 +55,7 @@ def test_fit_meta_describes_the_target_and_the_gate(fitted):
     meta = m.fit_meta_
     assert meta["n_rows"] == len(X) and meta["n_classes_y"] == 2 and meta["n_columns"] == len(m.column_stats_)
     assert meta["target_entropy"] == pytest.approx(np.log(2.0), abs=1e-2)
-    assert meta["nbins_strategy"] == "quantile_spacing" and meta["effective_min_relevance_gain"] > 0.0
+    assert (meta["binning_scheme"], meta["nbins_rule"], meta["nbins_cap"]) == ("quantile", "rice_capped", 48) and meta["effective_min_relevance_gain"] > 0.0
     assert sum(meta["class_frequencies"]) == pytest.approx(1.0)
 
 
@@ -65,3 +65,25 @@ def test_survives_pickle(fitted):
     back = pickle.loads(pickle.dumps(m))  # nosec B301 - the bytes come from pickle.dumps of this test's own object
     pd.testing.assert_frame_equal(back.column_stats_, m.column_stats_)
     assert back.fit_meta_ == m.fit_meta_
+
+
+def test_fit_meta_says_which_kind_of_number_mi_confidence_is(fitted):
+    """The default (serial) confirmation reports the raw permutation failure rate of a tiny budget, not a p-value: ``fit_meta_`` says so."""
+    m, _ = fitted
+    assert m.fit_meta_["mi_confidence_kind"] == "one_minus_permutation_failure_rate"
+    assert m.fit_meta_["mi_confidence_is_pvalue"] is False
+
+
+@pytest.mark.parametrize(
+    "n_workers,budget,is_pvalue",
+    [(1, 99, False), (4, 2, False), (4, 3, True), (2, 99, True), (0, 99, False)],
+)
+def test_confidence_kind_follows_the_multi_worker_semantics(n_workers, budget, is_pvalue):
+    """Multi-worker AND a budget above ``NMAX_NONPARALLEL_ITERS`` is the segmented route (one minus the add-one p-value); every other setting is the serial raw rate."""
+    from types import SimpleNamespace
+
+    from mlframe.feature_selection.filters._column_stats import _confidence_meta
+
+    meta = _confidence_meta(SimpleNamespace(n_workers=n_workers, full_npermutations=budget))
+    assert meta["mi_confidence_is_pvalue"] is is_pvalue
+    assert meta["mi_confidence_kind"] == ("one_minus_add_one_pvalue" if is_pvalue else "one_minus_permutation_failure_rate")

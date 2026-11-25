@@ -15,6 +15,8 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 import os
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_core import logger
 from typing import Optional, Any
+
+from mlframe.feature_selection.filters._binning_spec import BinningSpec, spec_from_estimator
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 from mlframe.utils.log_throttle import log_throttle
 
@@ -104,9 +106,9 @@ def _compact_code_storage(data):
     return data
 
 
-def _rebin_continuous_targets(self, _nbins_strategy, target_indices, cols, _x_for_cat, nbins, data, verbose):
+def _rebin_continuous_targets(self, _binning, target_indices, cols, _x_for_cat, nbins, data, verbose):
     """Re-bin continuous target columns with the legacy equal-frequency quantile path so target codes keep their signal."""
-    if _nbins_strategy is not None and len(target_indices) > 0:
+    if _binning is not None and len(target_indices) > 0:
         from mlframe.feature_selection.filters.discretization import discretize_array as _t_discretize
 
         for _ti in target_indices:
@@ -132,11 +134,11 @@ def _rebin_continuous_targets(self, _nbins_strategy, target_indices, cols, _x_fo
                 if verbose:
                     logger.info(
                         "MRMR.fit target-rebin guard: target %r re-binned from the adaptive "
-                        "nbins_strategy=%r encoding (%d bins, max-bin %.1f%%) to the legacy "
+                        "binning=%s encoding (%d bins, max-bin %.1f%%) to the legacy "
                         "%s/%d equal-frequency codes (%d bins) -- the adaptive strategy is "
                         "feature-side only; on the target it degrades MI sensitivity.",
                         _t_name,
-                        str(_nbins_strategy),
+                        _binning.describe(),
                         int(nbins[int(_ti)]),
                         100.0 * float(np.bincount(data[:, int(_ti)].astype(np.int64)).max()) / max(1, data.shape[0]),
                         str(self.quantization_method),
@@ -147,7 +149,6 @@ def _rebin_continuous_targets(self, _nbins_strategy, target_indices, cols, _x_fo
                 nbins[int(_ti)] = _t_nb
 
 
-_SUPERVISED_STRATEGIES = ("mdlp", "mdlp_validated", "optimal_joint", "mah")
 _WARMUPS: "dict[int, Any]" = {}
 _WARMUPS_LOCK = threading.Lock()  # guards the table only (the dict operations), never the warm-up or the join
 
@@ -162,15 +163,15 @@ def start_discretization_warmup(self: Any, X: Any, y: Any) -> None:
 
     from mlframe.feature_selection.filters._mrmr_fit_impl._fe_stage_concurrency import concurrency_enabled
 
-    strategy = getattr(self, "nbins_strategy", None)
-    if not concurrency_enabled() or strategy is None or str(strategy) not in _SUPERVISED_STRATEGIES:
+    spec = spec_from_estimator(self)
+    if not concurrency_enabled() or not spec.supervised:
         return
     if not isinstance(X, pd.DataFrame) or self.nan_strategy in ("ffill_bfill",):
         return
     try:
         from mlframe.feature_selection.filters.mrmr.shared import target_to_numpy_values as _target_to_numpy_values
 
-        kwargs = _strategy_kwargs(self, strategy)
+        kwargs = _strategy_kwargs(self, spec)
         vals = self._coerce_target_dtype(_target_to_numpy_values(y))
         y_for = np.asarray(vals[:, 0] if vals.ndim == 2 else vals)
         # Shallow: its own column index keeps the FE stages' new columns out of the warm-up's view, and the buffers stay shared, so no second copy of the data is taken.
@@ -187,7 +188,7 @@ def start_discretization_warmup(self: Any, X: Any, y: Any) -> None:
             categorize_dataset(
                 df=frame, method=self.quantization_method, n_bins=self.quantization_nbins, dtype=self.quantization_dtype,
                 max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None), categorical_fold_min_support=_fold_support(self), missing_strategy=self.nan_strategy,
-                nbins_strategy=strategy, nbins_strategy_kwargs=kwargs, y_for_strategy=y_for, cache_dir=getattr(self, "cache_dir", None),
+                binning=spec, binning_kwargs=kwargs, y_for_strategy=y_for, cache_dir=getattr(self, "cache_dir", None),
             )
         except Exception as exc:
             logger.debug("discretisation warm-up failed: %r", exc)
@@ -224,19 +225,16 @@ def _discretize_inputs(self, _is_polars_input, X, target_names):
     else:
         _x_for_cat = X
         _strategy_for_categorize = self.nan_strategy
-    # Propagate the new ``nbins_strategy`` knob through to
-    # categorize_dataset so per-column adaptive bin counts (FD, QS, MDLP, Knuth,
-    # OptimalJoint, ...) actually take effect inside fit(). When None,
-    # categorize_dataset uses the legacy fixed ``quantization_nbins``.
-    _nbins_strategy = getattr(self, "nbins_strategy", None)
-    _ret_discretize_inputs_part1 = _discretize_inputs_part1(self, _nbins_strategy, target_names, _x_for_cat, categorize_dataset, _strategy_for_categorize)
+    # Hand the binning spec (``binning_scheme`` x ``nbins_rule`` x ``nbins_cap``) to categorize_dataset so the per-column bin counts of the rule (rice_capped, Sturges, Freedman-Diaconis, ...) or the
+    # scheme (MDLP, optimal_joint, ...) take effect inside fit(); with ``nbins_rule='fixed'`` the fixed ``quantization_nbins`` discretiser runs.
+    _ret_discretize_inputs_part1 = _discretize_inputs_part1(self, spec_from_estimator(self), target_names, _x_for_cat, categorize_dataset, _strategy_for_categorize)
     if _ret_discretize_inputs_part1[0]:
         return _ret_discretize_inputs_part1[1]
 
 
-def _null_strategy_kwargs_with_plan_cache(nbins_strategy: Any, kwargs: Any) -> Any:
+def _null_strategy_kwargs_with_plan_cache(binning: BinningSpec, kwargs: Any) -> Any:
     """``kwargs`` of the supervised binning of a permutation, with an ``OptimalJointPlanCache`` added for ``optimal_joint`` (MLFRAME_OJ_PLAN_CACHE=0 keeps the plain search)."""
-    if str(nbins_strategy) == "optimal_joint" and os.environ.get("MLFRAME_OJ_PLAN_CACHE", "1") != "0":
+    if binning.scheme == "optimal_joint" and os.environ.get("MLFRAME_OJ_PLAN_CACHE", "1") != "0":
         from mlframe.feature_selection.filters._adaptive_nbins import OptimalJointPlanCache
 
         return {**(kwargs or {}), "optimal_joint_plan_cache": OptimalJointPlanCache()}
@@ -264,25 +262,25 @@ def _attach_column_hook(codes_fn: Any, binner: Any, y_raw: np.ndarray, n_cols: i
 _NULL_BINNER_STRATEGIES = ("optimal_joint", "mah")
 
 
-def _make_null_binner(self: Any, nbins_strategy: Any, x_for_cat: Any, cols: Any, dependent: set, fixed_codes: Any, strategy_for_categorize: Any, strategy_kwargs: Any) -> Any:
+def _make_null_binner(self: Any, binning: BinningSpec, x_for_cat: Any, cols: Any, dependent: set, fixed_codes: Any, strategy_for_categorize: Any, strategy_kwargs: Any) -> Any:
     """The binner that re-bins the target-dependent columns under permuted targets (see ``PermutedTargetBinner``), or ``None`` when the strategy or the frame is not covered.
 
     ``optimal_joint`` takes a handful of edge sets per column over the permutations: a binner that prepares the frame once and memoises the code column of each edge set replaces the whole-frame
     ``categorize_dataset`` pass per permutation (MLFRAME_OJ_NULL_BINNER=0 restores it)."""
-    if str(nbins_strategy) not in _NULL_BINNER_STRATEGIES or os.environ.get("MLFRAME_OJ_NULL_BINNER", "1") == "0":
+    if binning.scheme not in _NULL_BINNER_STRATEGIES or os.environ.get("MLFRAME_OJ_NULL_BINNER", "1") == "0":
         return None
     from mlframe.feature_selection.filters.discretization.shared import PermutedTargetBinner
 
     dep_df = x_for_cat if fixed_codes is None else x_for_cat[[c for c in x_for_cat.columns if str(c) in dependent]]
     if not PermutedTargetBinner.supported(dep_df):
         return None
-    binner = PermutedTargetBinner(dep_df, strategy_for_categorize, nbins_strategy, strategy_kwargs, _code_alloc_dtype(self), out_cols=[str(c) for c in cols], fixed=fixed_codes)
+    binner = PermutedTargetBinner(dep_df, strategy_for_categorize, binning, strategy_kwargs, _code_alloc_dtype(self), out_cols=[str(c) for c in cols], fixed=fixed_codes)
     return binner if binner.ok else None
 
 
 def _install_honest_null_hook(
-    self: Any, *, categorize_dataset: Any, _x_for_cat: Any, cols: Any, data: Any, nbins: Any, _y_for_strategy: Any, _nbins_strategy: Any,
-    _nbins_strategy_kwargs: Any, _strategy_for_categorize: Any,
+    self: Any, *, categorize_dataset: Any, _x_for_cat: Any, cols: Any, data: Any, nbins: Any, _y_for_strategy: Any, _binning: BinningSpec,
+    _binning_kwargs: Any, _strategy_for_categorize: Any,
 ) -> None:
     """Attach the target-permutation null of supervised binning to ``self``: the codes of each permutation are re-binned on the permuted raw target."""
     _y_raw_for_null = np.asarray(_y_for_strategy)
@@ -297,9 +295,9 @@ def _install_honest_null_hook(
 
     # The cross-validated bin-count search (``optimal_joint``) splits and bins the SAME column for every permutation; only the target changes. A plan cache keeps the target-independent part per
     # column, so a permutation costs the fold scoring only (identical edges; MLFRAME_OJ_PLAN_CACHE=0 restores the uncached search).
-    _null_strategy_kwargs = _null_strategy_kwargs_with_plan_cache(_nbins_strategy, _nbins_strategy_kwargs)
+    _null_strategy_kwargs = _null_strategy_kwargs_with_plan_cache(_binning, _binning_kwargs)
 
-    _binner = _make_null_binner(self, _nbins_strategy, _x_for_cat, cols, _dependent, _fixed_codes, _strategy_for_categorize, _null_strategy_kwargs)
+    _binner = _make_null_binner(self, _binning, _x_for_cat, cols, _dependent, _fixed_codes, _strategy_for_categorize, _null_strategy_kwargs)
 
     def _honest_null_codes_uncached(row_perm):
         """Codes of every column re-binned on the RAW target permuted by ``row_perm`` (same columns, same order as ``data``)."""
@@ -314,8 +312,8 @@ def _install_honest_null_hook(
             dtype=_code_alloc_dtype(self),
             max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None), categorical_fold_min_support=_fold_support(self), categorical_fold_target=_fold_target(self, y_perm),
             missing_strategy=_strategy_for_categorize,
-            nbins_strategy=_nbins_strategy,
-            nbins_strategy_kwargs=_null_strategy_kwargs,
+            binning=_binning,
+            binning_kwargs=_null_strategy_kwargs,
             y_for_strategy=np.asarray(y_perm),
             cache_dir=None,
         )
@@ -368,11 +366,11 @@ def _install_honest_null_hook(
     # Numba spec for the honest null (see _mdlp_honest_njit): only the plain 'mdlp' (fayyad_irani) strategy with no extra kwargs is
     # covered by the njit chain, whose identity with categorize_dataset was verified on continuous columns; other strategies keep
     # the categorise-per-permutation path.
-    _kw_keys = set((_nbins_strategy_kwargs or {}).keys())
-    _strategy_lc = str(_nbins_strategy)
+    _kw_keys = set((_binning_kwargs or {}).keys())
+    _strategy_lc = _binning.scheme
     # ``mdlp_fast_mode=False`` is the production default, so spelling it out selects the same categorisation; only ``True`` (the
     # depth-capped path) is outside the njit chain.
-    _fast_mode_off = not bool((_nbins_strategy_kwargs or {}).get("mdlp_fast_mode", False))
+    _fast_mode_off = not bool((_binning_kwargs or {}).get("mdlp_fast_mode", False))
     if (
         _strategy_lc in ("mdlp", "mdlp_validated")
         and _kw_keys <= {"max_depth", "max_adaptive_nbins", "mdlp_fast_mode"}
@@ -393,42 +391,42 @@ def _install_honest_null_hook(
                     X=_x_for_cat,
                     cols=list(cols),
                     y_raw=_y_spec,
-                    max_depth=int((_nbins_strategy_kwargs or {}).get("max_depth", 8)),
+                    max_depth=int((_binning_kwargs or {}).get("max_depth", 8)),
                     method="oos" if _validated else "mdlp",
                 ),
             )
     self._honest_null_codes_fn = _honest_null_codes
 
 
-def _strategy_kwargs(self: Any, _nbins_strategy: Any) -> Any:
-    """The ``nbins_strategy_kwargs`` of the categorisation: the user's, with the cardinality cap's ``max_depth`` and the shared adaptive-bin ceiling added as defaults."""
-    _nbins_strategy_kwargs = getattr(self, "nbins_strategy_kwargs", None)
+def _strategy_kwargs(self: Any, _binning: BinningSpec) -> Any:
+    """The ``binning_kwargs`` of the categorisation: the user's, with the cardinality cap's ``max_depth`` and the shared adaptive-bin ceiling added as defaults."""
+    _binning_kwargs = getattr(self, "binning_kwargs", None)
     # When capping cardinality for the compact-codes int8 goal, also bound the NUMERIC side: the supervised MDLP
     # (fayyad_irani) recursion can emit up to 2**max_depth intervals (default max_depth=8 -> ~256), which would exceed
     # int8 just like a high-card categorical. Cap max_depth to floor(log2(cap)) so numeric bins <= cap too (unless the
     # user pinned max_depth explicitly). This makes max_categorical_cardinality a single knob for a universally-narrow
     # codes matrix - categorical tail folded AND numeric intervals bounded.
     _cap = getattr(self, "max_categorical_cardinality", None)
-    if _cap and int(_cap) < 255 and str(_nbins_strategy) in ("mdlp", "mdlp_validated"):  # at the default cap the default depth (<= 256 intervals) already fits
+    if _cap and int(_cap) < 255 and _binning.mdlp_family:  # at the default cap the default depth (<= 256 intervals) already fits
         _md = max(2, int(np.floor(np.log2(int(_cap)))))
-        _nbins_strategy_kwargs = dict(_nbins_strategy_kwargs or {})
-        _nbins_strategy_kwargs.setdefault("max_depth", _md)
+        _binning_kwargs = dict(_binning_kwargs or {})
+        _binning_kwargs.setdefault("max_depth", _md)
         # The cap is deliberate (a narrow codes matrix) but it limits the numeric intervals of an MDLP column to 2**depth, which changes the selection on a column that wants more: say so once.
-        if "max_depth" not in (getattr(self, "nbins_strategy_kwargs", None) or {}):
+        if "max_depth" not in (getattr(self, "binning_kwargs", None) or {}):
             log_throttle(
                 logger, "_binning.mdlp_depth_cap", logging.INFO,
-                "nbins_strategy=%r: max_categorical_cardinality=%s caps the MDLP recursion at max_depth=%d, i.e. at most %d intervals per numeric column; pass nbins_strategy_kwargs={'max_depth': ...} or raise max_categorical_cardinality (255 and above leaves the default depth) to allow more.",
-                str(_nbins_strategy), int(_cap), _md, 2**_md,
+                "binning_scheme=%r: max_categorical_cardinality=%s caps the MDLP recursion at max_depth=%d, i.e. at most %d intervals per numeric column; pass binning_kwargs={'max_depth': ...} or raise max_categorical_cardinality (255 and above leaves the default depth) to allow more.",
+                _binning.scheme, int(_cap), _md, 2**_md,
             )
-    # Constructor-level shared adaptive-bin-count ceiling (knuth / bayesian_blocks / freedman_diaconis
-    # - see MRMR.__init__'s max_adaptive_nbins docstring and _adaptive_nbins.MAX_ADAPTIVE_NBINS).
-    # setdefault so an explicit per-method override in nbins_strategy_kwargs (e.g. "knuth_m_max_cap")
+    # Constructor-level shared adaptive-bin-count ceiling of the schemes that pick their own count (bayesian_blocks, mah, optimal_joint; the count rules of the quantile / uniform
+    # schemes are bounded by ``nbins_cap``) - see MRMR.__init__'s max_adaptive_nbins docstring and _adaptive_nbins.MAX_ADAPTIVE_NBINS).
+    # setdefault so an explicit per-method override in binning_kwargs (e.g. "knuth_m_max_cap")
     # still wins.
     _max_adaptive_nbins = getattr(self, "max_adaptive_nbins", None)
     if _max_adaptive_nbins is not None:
-        _nbins_strategy_kwargs = dict(_nbins_strategy_kwargs or {})
-        _nbins_strategy_kwargs.setdefault("max_adaptive_nbins", int(_max_adaptive_nbins))
-    return _nbins_strategy_kwargs
+        _binning_kwargs = dict(_binning_kwargs or {})
+        _binning_kwargs.setdefault("max_adaptive_nbins", int(_max_adaptive_nbins))
+    return _binning_kwargs
 
 
 def _categorical_cardinalities(x_for_cat: Any, limit: int = 64) -> "list[int] | None":
@@ -446,15 +444,15 @@ def _categorical_cardinalities(x_for_cat: Any, limit: int = 64) -> "list[int] | 
     return None
 
 
-def _plan_code_storage_for_fit(self: Any, nbins_strategy: Any, nbins_strategy_kwargs: Any, x_for_cat: Any) -> Any:
+def _plan_code_storage_for_fit(self: Any, binning: BinningSpec, binning_kwargs: Any, x_for_cat: Any) -> Any:
     """Resolve the code dtype from this fit's binning settings, record it as ``code_storage_plan_`` and return the plan (``quantization_dtype`` is a hint: see ``plan_code_storage``)."""
     from mlframe.feature_selection.filters.discretization.shared import plan_code_storage
 
     plan = plan_code_storage(
         n_bins=int(self.quantization_nbins),
         method=str(self.quantization_method),
-        nbins_strategy=None if nbins_strategy is None else str(nbins_strategy),
-        nbins_strategy_kwargs=nbins_strategy_kwargs,
+        binning=binning,
+        binning_kwargs=binning_kwargs,
         max_adaptive_nbins=int(getattr(self, "max_adaptive_nbins", 256) or 256),
         max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None),
         categorical_cardinalities=_categorical_cardinalities(x_for_cat),
@@ -467,17 +465,17 @@ def _plan_code_storage_for_fit(self: Any, nbins_strategy: Any, nbins_strategy_kw
 
 
 def _discretize_inputs_part1(
-    self: Any, _nbins_strategy: Any, target_names: Any, _x_for_cat: Any, categorize_dataset: Any, _strategy_for_categorize: Any,
+    self: Any, _binning: BinningSpec, target_names: Any, _x_for_cat: Any, categorize_dataset: Any, _strategy_for_categorize: Any,
 ) -> tuple[Any, ...]:
     """Extracted block of ``_discretize_inputs`` (part 1); returns the names the caller still uses."""
-    _nbins_strategy_kwargs = _strategy_kwargs(self, _nbins_strategy)
-    _plan_code_storage_for_fit(self, _nbins_strategy, _nbins_strategy_kwargs, _x_for_cat)
+    _binning_kwargs = _strategy_kwargs(self, _binning)
+    _plan_code_storage_for_fit(self, _binning, _binning_kwargs, _x_for_cat)
     # The supervised strategies (mdlp / optimal_joint) need y. Pull the raw
     # target column from the input frame - categorize_dataset is called with
     # _x_for_cat which is a DataFrame; the target column is one of its members
     # (target injection happens upstream in _mrmr_fit_impl).
     _y_for_strategy = None
-    if _nbins_strategy is not None and str(_nbins_strategy) in _SUPERVISED_STRATEGIES:
+    if _binning.supervised:
         # Use the first target column as the supervised signal.
         if target_names:
             try:
@@ -498,8 +496,8 @@ def _discretize_inputs_part1(
         dtype=_code_alloc_dtype(self),
         max_categorical_cardinality=getattr(self, "max_categorical_cardinality", None), categorical_fold_min_support=_fold_support(self), categorical_fold_target=_fold_codes,
         missing_strategy=_strategy_for_categorize,
-        nbins_strategy=_nbins_strategy,
-        nbins_strategy_kwargs=_nbins_strategy_kwargs,
+        binning=_binning,
+        binning_kwargs=_binning_kwargs,
         y_for_strategy=_y_for_strategy,
         cache_dir=getattr(self, "cache_dir", None),
     )
@@ -507,7 +505,7 @@ def _discretize_inputs_part1(
     # Supervised binning fits its cut points on the target, so the significance null must re-bin on every permuted target with the SAME
     # production categorisation; a null that permutes y over fixed codes cannot see the in-sample bias of those cuts. The closure is
     # stripped from pickles (see MRMR.__getstate__).
-    _supervised = _y_for_strategy is not None and str(_nbins_strategy) in _SUPERVISED_STRATEGIES
+    _supervised = _y_for_strategy is not None and _binning.supervised
     if _supervised:
         _install_honest_null_hook(
             self,
@@ -517,10 +515,10 @@ def _discretize_inputs_part1(
             data=data,
             nbins=nbins,
             _y_for_strategy=_y_for_strategy,
-            _nbins_strategy=_nbins_strategy,
-            _nbins_strategy_kwargs=_nbins_strategy_kwargs,
+            _binning=_binning,
+            _binning_kwargs=_binning_kwargs,
             _strategy_for_categorize=_strategy_for_categorize,
         )
     else:
         self._honest_null_codes_fn = None
-    return True, (_nbins_strategy, _x_for_cat, cols, data, nbins)
+    return True, (None if _binning.is_fixed else _binning, _x_for_cat, cols, data, nbins)

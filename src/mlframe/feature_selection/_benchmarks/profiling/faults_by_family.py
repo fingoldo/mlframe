@@ -11,7 +11,7 @@ for k, v in {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_V
     os.environ.setdefault(k, v)
 from mlframe.feature_selection._benchmarks.profiling import family_scale as F
 from mlframe.feature_selection.filters.mrmr import MRMR
-kw = F.all_families_kwargs(); kw["nbins_strategy"] = "mdlp"
+kw = F.all_families_kwargs(); kw["binning_scheme"] = "mdlp"
 MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20000, 30, 1))
 walls: Any = {}; stats = types.SimpleNamespace(faults={}); lock = threading.Lock()
 pkg = "mlframe.feature_selection.filters._mrmr_fit_impl"

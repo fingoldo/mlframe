@@ -695,7 +695,7 @@ class _MRMRFitHelpersMixin:
         except Exception as exc:
             logger.debug("mrmr: provenance_ metadata build failed (diagnostic only): %r", exc, exc_info=True)
 
-    def _fit_body_step2_prev_restore_evaluation(self, _toggles_snapshot, st, _orig_cluster_aggregate_enable, _orig_nbins_strategy, _orig_quantization_nbins, _fe_auto_restore):
+    def _fit_body_step2_prev_restore_evaluation(self, _toggles_snapshot, st, _orig_cluster_aggregate_enable, _orig_binning, _orig_quantization_nbins, _fe_auto_restore):
         """Step 2 of _fit_body: lines starting at ``_su0, _jmim0, _bur0, _mm0, _relax0, _pid0, _cmi0, _cpt0, _cs0 = _toggl``."""
         from ._mrmr_class import _UNSET, _hashable_params_signature, _safe_restore, set_bur_lambda, set_cmi_perm_stop, set_cpt_test, set_jmim_aggregator, set_mi_chao_shen, set_mi_miller_madow, set_pid_synergy_bonus, set_relaxmrmr_alpha, set_su_normalization  # resolved on the class module so patches of its names reach this method
         from .._dynamic_cluster_discovery import set_dcd_active as _set_dcd_active
@@ -740,9 +740,10 @@ class _MRMRFitHelpersMixin:
         if st._orig_skip_content is not _UNSET:
             self.skip_retraining_on_same_content = cast(bool, st._orig_skip_content)
         # Restore the adaptive_nbins_large_n_reg gate's in-place overwrite of
-        # nbins_strategy/quantization_nbins so clone()/get_params()/a subsequent .fit() on this same
+        # binning_scheme/nbins_rule/quantization_nbins so clone()/get_params()/a subsequent .fit() on this same
         # instance see the constructor's original values, not whatever the gate last computed.
-        _safe_restore(lambda: setattr(self, "nbins_strategy", _orig_nbins_strategy), "nbins_strategy (adaptive_nbins_large_n_reg gate)")
+        _safe_restore(lambda: setattr(self, "binning_scheme", _orig_binning[0]), "binning_scheme (adaptive_nbins_large_n_reg gate)")
+        _safe_restore(lambda: setattr(self, "nbins_rule", _orig_binning[1]), "nbins_rule (adaptive_nbins_large_n_reg gate)")
         _safe_restore(lambda: setattr(self, "quantization_nbins", _orig_quantization_nbins), "quantization_nbins (adaptive_nbins_large_n_reg gate)")
         # restore the fast-search profile overrides (constructor-arg stability).
         # Restore the default screen-subsample knobs to their pre-fit (constructor) values so

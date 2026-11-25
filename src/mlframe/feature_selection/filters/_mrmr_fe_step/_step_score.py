@@ -148,6 +148,7 @@ def materialise_and_finalise_fe_candidates(
     discretize_array: Callable[..., Any],
     get_new_feature_name: Callable[..., str],
     _poly_coefs: Any = None,
+    _screen_marginal_mi: Any = None,
 ) -> tuple:
     """Run the redundancy gates, materialise admitted FE candidates, escalate, and stability-vote.
 
@@ -160,6 +161,7 @@ def materialise_and_finalise_fe_candidates(
     )
     st._leaf_test_data = data  # the binned matrix of the pool so far: the admission filter reads the raw leaves of each candidate from it
     st._leaf_test_y = classes_y  # and the target codes, for the test that a candidate adds something beyond its other leaves
+    st._screen_marginal_mi = _screen_marginal_mi  # the screen's marginal MI of every column, keyed (index,): the escalation ranks pairs by the MI beyond their operands'
     X, cols, n_recommended_features, nbins = _materialise_and_fina_step3_cols_space_index(self, prospective_additions, engineered_features, verbose, fe_max_steps, X, discretize_array, cols, st, nbins, _is_polars_input, engineered_recipes, get_new_feature_name, _poly_coefs, fe_unary_preset, fe_binary_preset, n_recommended_features, checked_pairs)
 
     # Flush the accumulated per-pair code blocks into ``data`` in a SINGLE concatenate (column order

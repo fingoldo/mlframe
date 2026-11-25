@@ -1,4 +1,4 @@
-"""Wave 11 (Category 3) M8: ``categorize_dataset``'s adaptive-``nbins_strategy`` (MDLP/optimal_joint/...)
+"""Wave 11 (Category 3) M8: ``categorize_dataset``'s adaptive-``binning_scheme`` (MDLP/optimal_joint/...)
 path called ``np.searchsorted`` once per column instead of the padded-edge-matrix batched
 ``_searchsorted_2d_right_njit_parallel`` kernel that already existed. Pins the discretised codes at every
 originally-finite position against the pre-fix per-column ``np.searchsorted`` loop (the batching + padding
@@ -12,6 +12,7 @@ import pandas as pd
 
 from mlframe.feature_selection.filters.discretization import categorize_dataset
 import mlframe.feature_selection.filters._adaptive_nbins as _adaptive_nbins_mod
+from mlframe.feature_selection.filters._binning_spec import make_binning_spec
 
 
 def _old_adaptive_searchsorted(arr, edges_per_col, dtype):
@@ -58,7 +59,7 @@ def test_adaptive_categorize_dataset_matches_per_column_searchsorted_at_finite_p
             try:
                 data_new, _cols_new, _nbins_new = categorize_dataset(
                     df,
-                    nbins_strategy="freedman_diaconis",
+                    binning=make_binning_spec("quantile", "freedman_diaconis", warn=False),
                     missing_strategy="separate_bin",
                     dtype=np.int32,
                 )

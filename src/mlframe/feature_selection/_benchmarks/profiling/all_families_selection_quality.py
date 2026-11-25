@@ -24,7 +24,7 @@ import numpy as np, lightgbm as lgb
 from sklearn.metrics import roc_auc_score
 from mlframe.feature_selection._benchmarks.profiling import family_scale as Fm
 from mlframe.feature_selection.filters.mrmr import MRMR
-kw=Fm.all_families_kwargs(); kw["nbins_strategy"]="mdlp"
+kw=Fm.all_families_kwargs(); kw["binning_scheme"] = "mdlp"
 Xtr,ytr=Fm._make(100000,100,0); Xte,yte=Fm._make(50000,100,1)
 t=time.perf_counter(); m=MRMR(verbose=0,random_seed=0,n_jobs=1,**kw).fit(Xtr,ytr); wall=time.perf_counter()-t
 Ttr=m.transform(Xtr); Tte=m.transform(Xte)

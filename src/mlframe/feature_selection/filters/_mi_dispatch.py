@@ -58,6 +58,8 @@ from typing import Any, Dict, Optional
 import numpy as np
 from ._fe_usability_signal import _crit_np_dtype
 
+from ._binning_spec import BinningSpec, make_binning_spec
+
 logger = logging.getLogger(__name__)
 
 # DORMANT PATH: ``score_pair_mi`` / ``_score_plug_in`` have no caller in the per-pair MRMR loop; the deep integration
@@ -65,7 +67,8 @@ logger = logging.getLogger(__name__)
 # "for a future caller"; with no caller it could never hit, so it only cost a lock, a weakref and up to eight retained
 # arrays. bench-attempt-rejected (2026-09-23): reinstating it needs a real caller that loops one y over many columns.
 _PLUG_IN_DEFAULTS = {
-    "nbins_strategy": "freedman_diaconis",
+    "binning_scheme": "quantile",
+    "nbins_rule": "freedman_diaconis",
     "miller_madow": False,
 }
 
@@ -73,8 +76,10 @@ _PLUG_IN_DEFAULTS = {
 def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
                    estimator: str = "plug_in",
                    estimator_kwargs: Optional[Dict[str, Any]] = None,
-                   nbins_strategy: Optional[str] = None,
-                   nbins_strategy_kwargs: Optional[Dict[str, Any]] = None,
+                   binning_scheme: str = "quantile",
+                   nbins_rule: Optional[str] = "freedman_diaconis",
+                   nbins_cap: int = 48,
+                   binning_kwargs: Optional[Dict[str, Any]] = None,
                    miller_madow: bool = False) -> float:
     """Single entry point to all MI estimators.
 
@@ -84,10 +89,10 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
         estimator: One of the strings listed in the module docstring.
         estimator_kwargs: Forwarded verbatim to the chosen estimator (e.g.
             ``{'k': 7}`` for KSG, ``{'n_epochs': 800}`` for MINE).
-        nbins_strategy: For 'plug_in' only - the per-column bin-chooser
-            strategy ('freedman_diaconis', 'quantile_spacing', 'knuth', 'mdlp', etc.). When None,
-            uses fixed 10-quantile bins (legacy default).
-        nbins_strategy_kwargs: kwargs for the strategy (e.g. ``{'qs_alpha': 0.25}``).
+        binning_scheme: For 'plug_in' only - where the cut points of ``x`` go (see ``_binning_spec``: ``quantile``, ``uniform``, or a scheme that picks its own count such as ``mdlp``).
+        nbins_rule: For 'plug_in' only - how many bins the ``quantile`` / ``uniform`` schemes make (the default is the Freedman-Diaconis count); pass ``None`` for a scheme that picks its own count.
+        nbins_cap: For 'plug_in' only - the bound of every count rule but ``fixed``.
+        binning_kwargs: kwargs for the edge builder (e.g. ``{'qs_alpha': 0.25}``).
         miller_madow: For 'plug_in' only - subtract MM bias correction at the
             scoring step. Restores honest no-signal floor at higher M values.
 
@@ -100,7 +105,7 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
     y_arr = np.asarray(y).ravel()
 
     if estimator == "plug_in":
-        return _score_plug_in(x, y_arr, nbins_strategy=nbins_strategy, nbins_strategy_kwargs=nbins_strategy_kwargs, miller_madow=miller_madow)
+        return _score_plug_in(x, y_arr, binning=make_binning_spec(binning_scheme, nbins_rule, nbins_cap, warn=False), binning_kwargs=binning_kwargs, miller_madow=miller_madow)
     if estimator in ("mixed_ksg", "ksg_lnc"):
         from ._ksg import mixed_ksg_mi, ksg_lnc_mi
         fn = mixed_ksg_mi if estimator == "mixed_ksg" else ksg_lnc_mi
@@ -125,21 +130,18 @@ def score_pair_mi(x: np.ndarray, y: np.ndarray, *,
         _mi_bits = float(renyi_alpha_mi(x_raw, np.asarray(y_arr, dtype=_crit_np_dtype()), **estimator_kwargs))
         return _mi_bits * math.log(2.0)
     if estimator in ("median", "genie"):
-        return _score_aggregator(x, y_arr, kind=estimator, nbins_strategy=nbins_strategy, nbins_strategy_kwargs=nbins_strategy_kwargs)
+        return _score_aggregator(x, y_arr, kind=estimator)
     raise ValueError(f"score_pair_mi: unknown estimator {estimator!r}")
 
 
-def _score_plug_in(x: np.ndarray, y_arr: np.ndarray, *, nbins_strategy: Optional[str], nbins_strategy_kwargs: Optional[Dict], miller_madow: bool) -> float:
-    """Plug-in MI estimator: bin ``x`` via the given ``nbins_strategy``, coerce a low-cardinality float ``y`` to integer label codes (avoiding the quantile-binning trap that collapses binary y to a single bin), and score the joint histogram MI."""
+def _score_plug_in(x: np.ndarray, y_arr: np.ndarray, *, binning: BinningSpec, binning_kwargs: Optional[Dict], miller_madow: bool) -> float:
+    """Plug-in MI estimator: bin ``x`` via the given ``binning``, coerce a low-cardinality float ``y`` to integer label codes (avoiding the quantile-binning trap that collapses binary y to a single bin), and score the joint histogram MI."""
     from ._adaptive_nbins import per_feature_edges, _plug_in_mi
-    strategy_kwargs = dict(nbins_strategy_kwargs or {})
-    if nbins_strategy is None:
-        nbins_strategy = "freedman_diaconis"
-    needs_y = nbins_strategy in ("mdlp", "mdlp_validated", "optimal_joint", "mah")
-    y_for_strategy = y_arr if needs_y else None
+    strategy_kwargs = {**binning.edge_kwargs(), **dict(binning_kwargs or {})}
+    y_for_strategy = y_arr if binning.supervised else None
     edges_list = per_feature_edges(
         x.reshape(-1, 1), y=y_for_strategy,
-        method=nbins_strategy, **strategy_kwargs,
+        method=binning.edge_method, **strategy_kwargs,
     )
     edges = edges_list[0]
     if edges.size == 0:
@@ -160,13 +162,13 @@ def _score_plug_in(x: np.ndarray, y_arr: np.ndarray, *, nbins_strategy: Optional
     return _plug_in_mi(xb, y_arr.astype(np.int64), miller_madow=miller_madow)
 
 
-def _score_aggregator(x: np.ndarray, y_arr: np.ndarray, *, kind: str, nbins_strategy: Optional[str], nbins_strategy_kwargs: Optional[Dict]) -> float:
+def _score_aggregator(x: np.ndarray, y_arr: np.ndarray, *, kind: str) -> float:
     """Score a pair via a panel of MI estimators (FD-binned, quantile-binned, mixed-KSG) combined by either the median or the Genie-style robust aggregator, per ``kind``."""
     from ._mi_aggregator import median_mi_panel, genie_mi_panel
     from ._ksg import mixed_ksg_mi
     estimators = {
-        "freedman_diaconis": lambda a, b: _score_plug_in(a, np.asarray(b), nbins_strategy="freedman_diaconis", nbins_strategy_kwargs={}, miller_madow=True),
-        "quantile_spacing": lambda a, b: _score_plug_in(a, np.asarray(b), nbins_strategy="quantile_spacing", nbins_strategy_kwargs={}, miller_madow=True),
+        "quantile_freedman_diaconis": lambda a, b: _score_plug_in(a, np.asarray(b), binning=make_binning_spec("quantile", "freedman_diaconis", warn=False), binning_kwargs={}, miller_madow=True),
+        "quantile_rice_capped": lambda a, b: _score_plug_in(a, np.asarray(b), binning=make_binning_spec("quantile", "rice_capped", warn=False), binning_kwargs={}, miller_madow=True),
         "mixed_ksg": lambda a, b: float(mixed_ksg_mi(a, np.asarray(b).astype(_crit_np_dtype()), k=5)),
     }
     fn = median_mi_panel if kind == "median" else genie_mi_panel

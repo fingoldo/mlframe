@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters.discretization import _discretization_dataset as D
+from tests.feature_selection.binning_cases import binning_spec
 
 
 def _frame(n=1500, p=23, seed=0):
@@ -22,12 +23,12 @@ def _frame(n=1500, p=23, seed=0):
     return X, y
 
 
-@pytest.mark.parametrize("strategy", [None, "mdlp", "mah"])
+@pytest.mark.parametrize("strategy", ["fixed", "mdlp", "mah"])
 @pytest.mark.parametrize("missing", ["separate_bin", "fillna_zero"])
 def test_blocks_equal_one_pass(monkeypatch, strategy, missing):
     """A 3-column block (several blocks, the last one short) returns the one-pass matrix, column names and bin counts, NaN bins included."""
     X, y = _frame()
-    kwargs = dict(nbins_strategy=strategy, y_for_strategy=y if strategy else None, missing_strategy=missing, dtype=np.int16)
+    kwargs = dict(binning=binning_spec(strategy), y_for_strategy=y if strategy != "fixed" else None, missing_strategy=missing, dtype=np.int16)
     one_pass = D.categorize_dataset(X, **kwargs)
     monkeypatch.setattr(D, "_NUMERIC_BLOCK_BYTES", 3 * len(X) * 4)
     blocked = D.categorize_dataset(X, **kwargs)

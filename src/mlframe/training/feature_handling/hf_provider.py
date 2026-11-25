@@ -253,7 +253,7 @@ class HuggingFaceProvider:
         # processes targeting an empty HF cache both race to fill the
         # shard files; the second sees half-written blobs and either
         # crashes or - worse - silently loads truncated weights.
-        # PIDAwareFileLock + StaleLockReclaimed keep the safety net.
+        # PIDAwareFileLock serialises the writers; it does not reclaim a lock held by a dead process (audit 39-F41).
         lock_path = _hf_cache_lock_path(model_name, revision)
         with PIDAwareFileLock(lock_path, timeout=600.0):
             try:
@@ -448,15 +448,17 @@ class HuggingFaceProvider:
                     if str(self._device) != "cpu" and getattr(self, "_load_model_name", None):
                         warnings.warn(
                             "HuggingFaceProvider: CUDA context lost during inference (likely a multi-library "
-                            "GPU cublas collision); falling back to CPU for the rest of this transform.",
+                            "GPU cublas collision); falling back to CPU in float32 for the rest of this transform. "
+                            "Batches before the failure were computed in the primary dtype (fp16 by default), so the "
+                            "embeddings change precision mid-run (audit 39-F26).",
                             UserWarning, stacklevel=2,
                         )
                         from transformers import AutoModel
                         self._model = AutoModel.from_pretrained(
                             self._load_model_name, revision=self._load_revision,
-                            # A real torch.dtype object, matching the primary load path (line ~192) --
-                            # not the bare string "float32", whose acceptance by from_pretrained's
-                            # torch_dtype kwarg is transformers-version-dependent.
+                            # float32 on CPU is deliberate (fp16 on CPU is slow or unsupported): the precision change is
+                            # logged in the warning above, and it is NOT identical to the pre-failure fp16 output (audit 39-F26).
+                            # A real torch.dtype object, not the bare string "float32", for transformers-version independence.
                             torch_dtype=torch.float32, trust_remote_code=self._load_trust_remote,
                         ).to("cpu").eval()
                         self._device = "cpu"

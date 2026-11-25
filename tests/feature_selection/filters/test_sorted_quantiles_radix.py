@@ -1,6 +1,6 @@
-"""``sorted_quantiles`` (radix sort of a float32 copy plus numpy's linear interpolation in float64) equals ``np.nanpercentile`` of the float64-widened column bit for bit, and ``edges_qs`` returns the same edges as before.
+"""``sorted_quantiles`` (radix sort of a float32 copy plus numpy's linear interpolation in float64) equals ``np.nanpercentile`` of the float64-widened column bit for bit, and ``edges_partition`` returns the same edges as before.
 
-The quantile spacing binner widened every column to float64 and called ``np.nanpercentile`` (a partition, 4.4 ms for 100000 values); the radix route takes 1 ms. The quantile grids of ``edges_qs`` (3 to 64 bins), tied and constant columns, zeros of both signs,
+The quantile spacing binner widened every column to float64 and called ``np.nanpercentile`` (a partition, 4.4 ms for 100000 values); the radix route takes 1 ms. The quantile grids of ``edges_partition`` (3 to 64 bins), tied and constant columns, zeros of both signs,
 float32 extremes and sizes around the switch-over must give identical float64 values; other dtypes and small vectors return ``None`` so the caller keeps numpy.
 """
 
@@ -14,20 +14,20 @@ from mlframe.feature_selection.filters.discretization import _quantile_radix as 
 
 
 def _grid(n_q: int) -> "tuple[np.ndarray, np.ndarray]":
-    """The percentile grid ``edges_qs`` builds and the fractions it hands to the radix route (``q_pos / 100``, which numpy divides the same way)."""
+    """The percentile grid ``edges_partition`` builds and the fractions it hands to the radix route (``q_pos / 100``, which numpy divides the same way)."""
     q_pos = np.linspace(0.0, 100.0, n_q + 1)
     return q_pos, q_pos / 100.0
 
 
 def _reference(values: np.ndarray, q_pos: np.ndarray) -> np.ndarray:
-    """What ``edges_qs`` computed before: ``nanpercentile`` of the float64-widened finite values."""
+    """What ``edges_partition`` computed before: ``nanpercentile`` of the float64-widened finite values."""
     return np.nanpercentile(values.astype(np.float64), q_pos)
 
 
 @pytest.mark.parametrize("n", [4096, 5000, 100_003])
 @pytest.mark.parametrize("kind", ["continuous", "ties", "ten_levels", "zeros", "constant"])
 def test_quantiles_equal_numpy_bit_for_bit(n, kind):
-    """The grids edges_qs uses for 3 to 64 bins on columns of several shapes."""
+    """The grids edges_partition uses for 3 to 64 bins on columns of several shapes."""
     rng = np.random.default_rng(n + len(kind))
     if kind == "continuous":
         x = rng.standard_normal(n).astype(np.float32)
@@ -70,17 +70,17 @@ def test_other_dtypes_and_small_vectors_return_none():
 
 @pytest.mark.parametrize("alpha", [0.25, 0.30, 0.35])
 @pytest.mark.parametrize("n", [5000, 100_000])
-def test_edges_qs_is_unchanged_for_float32_and_float64_columns(alpha, n, monkeypatch):
+def test_edges_partition_is_unchanged_for_float32_and_float64_columns(alpha, n, monkeypatch):
     """The binner's edges for a float32 column (radix route) equal the edges of the same values taken through the numpy route, and a float64 column is untouched."""
     rng = np.random.default_rng(int(alpha * 100) + n)
     x32 = (rng.standard_normal(n) * 3).astype(np.float32)
     x32[rng.random(n) < 0.02] = np.nan
-    fast = ab.edges_qs(x32, alpha)
+    fast = ab.edges_partition(x32, "quantile", "rice_capped", alpha=alpha)
     monkeypatch.setattr(ab, "sorted_quantiles", lambda values, quantiles: None)
-    slow = ab.edges_qs(x32, alpha)
+    slow = ab.edges_partition(x32, "quantile", "rice_capped", alpha=alpha)
     np.testing.assert_array_equal(fast, slow)
     assert fast.dtype == np.float64 and fast.size > 0
-    np.testing.assert_array_equal(ab.edges_qs(x32.astype(np.float64), alpha), slow)
+    np.testing.assert_array_equal(ab.edges_partition(x32.astype(np.float64), "quantile", "rice_capped", alpha=alpha), slow)
 
 
 @pytest.mark.parametrize("n_bins", [2, 3, 5, 10, 33, 64])

@@ -1,0 +1,100 @@
+
+##### group multi3: 80 cases, 8 seeds, 10 fixtures
+
+--- correct decisions per fixture (null_perm); tier counts gain/ambig/none; judge-best LR candidate; mean LR gain in nats
+fixture            g/a/n     judge best   gain      lrt       bd      eta    resid    mi_ew  mi_rank
+log              8/0/0            log 8  0.042        8        0        8        8        6        0
+log_weak         8/0/0            log 8  0.031        8        0        8        8        6        0
+recip            8/0/0          recip 8  0.036        8        0        4        5        3        0
+square           8/0/0         square 8  0.176        8        8        0        0        0        8
+abs              8/0/0            abs 8  0.681        8        8        8        8        8        0
+beta_logit       0/6/2          logit 8  0.004        6        0        0        0        6        8
+count_logn       8/0/0          log1p 5  0.014        8        0        5        5        7        0
+ctl_linear       0/0/8             id 7  0.000        8        0        0        0        1        8
+ctl_gamma        0/0/8             id 8  0.000        8        0        0        0        0        8
+ctl_noise        0/0/8            abs 3  0.000        6        8        6        6        8        7
+-- pooled (null_perm): hits on gain cases | false positives on none cases | harmful accepts on all cases
+   cases: gain 48, ambiguous 6, none 26, total 80
+   lrt      hits 48/48  FP 4/26  harmful 0/80
+   bd       hits 16/48  FP 18/26  harmful 54/80
+   eta      hits 33/48  FP 20/26  harmful 10/80
+   resid    hits 34/48  FP 20/26  harmful 10/80
+   mi_ew    hits 30/48  FP 17/26  harmful 1/80
+   mi_rank  hits 8/48  FP 1/26  harmful 0/80
+-- FP on control fixtures only (null_perm): accepted although the fixture is a control (ctl_*)
+   lrt      FP 2/24
+   bd       FP 16/24
+   eta      FP 18/24
+   resid    FP 18/24
+   mi_ew    FP 15/24
+   mi_rank  FP 1/24
+
+--- correct decisions per fixture (null_bs); tier counts gain/ambig/none; judge-best LR candidate; mean LR gain in nats
+fixture            g/a/n     judge best   gain      lrt       bd      eta    resid    mi_ew  mi_rank
+log              8/0/0            log 8  0.042        8        0        8        8        6        0
+log_weak         8/0/0            log 8  0.031        8        0        8        8        6        0
+recip            8/0/0          recip 8  0.036        8        0        4        5        3        0
+square           8/0/0         square 8  0.176        8        8        0        0        0        8
+abs              8/0/0            abs 8  0.681        8        8        8        8        8        0
+beta_logit       0/6/2          logit 8  0.004        6        4        8        8        8        8
+count_logn       8/0/0          log1p 5  0.014        8        0        5        5        7        0
+ctl_linear       0/0/8             id 7  0.000        8        7        7        7        8        8
+ctl_gamma        0/0/8             id 8  0.000        8        8        8        8        6        8
+ctl_noise        0/0/8            abs 3  0.000        7        8        7        6        7        7
+-- pooled (null_bs): hits on gain cases | false positives on none cases | harmful accepts on all cases
+   cases: gain 48, ambiguous 6, none 26, total 80
+   lrt      hits 48/48  FP 3/26  harmful 0/80
+   bd       hits 16/48  FP 1/26  harmful 5/80
+   eta      hits 33/48  FP 2/26  harmful 0/80
+   resid    hits 34/48  FP 3/26  harmful 0/80
+   mi_ew    hits 30/48  FP 3/26  harmful 0/80
+   mi_rank  hits 8/48  FP 1/26  harmful 0/80
+-- FP on control fixtures only (null_bs): accepted although the fixture is a control (ctl_*)
+   lrt      FP 1/24
+   bd       FP 1/24
+   eta      FP 2/24
+   resid    FP 3/24
+   mi_ew    FP 3/24
+   mi_rank  FP 1/24
+
+--- accepted picks (null_perm) per fixture: lrt | resid | eta | mi_ew
+   log              lrt:logx8 | resid:logx8 | eta:logx8 | mi_ew:log1px5,logx3
+   log_weak         lrt:logx8 | resid:logx8 | eta:logx8 | mi_ew:log1px4,logx3,cbrtx1
+   recip            lrt:recipx8 | resid:recipx5,tanhx3 | eta:tanhx4,recipx4 | mi_ew:tanhx5,recipx3
+   square           lrt:squarex8 | resid:absx8 | eta:absx8 | mi_ew:absx8
+   abs              lrt:absx8 | resid:absx8 | eta:absx8 | mi_ew:absx8
+   beta_logit       lrt:logitx8 | resid:tanhx8 | eta:tanhx8 | mi_ew:asinhx4,-x3,log1px1
+   count_logn       lrt:sqrtx5,log1px3 | resid:tanhx8 | eta:tanhx8 | mi_ew:log1px5,tanhx3
+   ctl_linear       lrt:-x8 | resid:asinhx8 | eta:asinhx8 | mi_ew:tanhx4,asinhx3,-x1
+   ctl_gamma        lrt:-x8 | resid:tanhx5,asinhx3 | eta:tanhx4,asinhx4 | mi_ew:asinhx4,log1px2,tanhx1
+   ctl_noise        lrt:-x6,tanhx1,recipx1 | resid:-x6,tanhx1,recipx1 | eta:-x6,squarex1,tanhx1 | mi_ew:-x8
+
+--- uncalibrated argmax on none-tier cases: non-identity pick rate and harmful pick rate (what the null removes)
+   lrt      non-id 26/26  harmful 0/26
+   bd       non-id 26/26  harmful 17/26
+   eta      non-id 26/26  harmful 4/26
+   resid    non-id 26/26  harmful 4/26
+   mi_ew    non-id 26/26  harmful 1/26
+   mi_rank  non-id 26/26  harmful 9/26
+
+--- judge agreement across model families (gain cases): does the LDA / GNB judge-best cost <= 0.005 nats more than the LR judge-best under the LR judge
+   log              LDA-best agrees 1.00  GNB-best agrees 1.00  (n=8)
+   log_weak         LDA-best agrees 1.00  GNB-best agrees 1.00  (n=8)
+   recip            LDA-best agrees 1.00  GNB-best agrees 1.00  (n=8)
+   square           LDA-best agrees 0.00  GNB-best agrees 0.00  (n=8)
+   abs              LDA-best agrees 1.00  GNB-best agrees 1.00  (n=8)
+   count_logn       LDA-best agrees 1.00  GNB-best agrees 1.00  (n=8)
+
+--- replace vs append, GAM ceiling, trees (mean nats gain over LR on raw x [z, x]; AUC gain of the best replace candidate)
+   log              replace +0.0418 (AUC +0.0116)  append +0.0416  GAM +0.0408  | HGB: gain from any fitted transform +0.0000, LR(raw x) minus HGB(raw x) +0.0165
+   log_weak         replace +0.0311 (AUC +0.0113)  append +0.0309  GAM +0.0303  | HGB: gain from any fitted transform +0.0000, LR(raw x) minus HGB(raw x) +0.0066
+   recip            replace +0.0359 (AUC +0.0084)  append +0.0359  GAM +0.0351  | HGB: gain from any fitted transform +0.0003, LR(raw x) minus HGB(raw x) +0.0108
+   square           replace +0.1762 (AUC +0.1010)  append +0.1761  GAM +0.1752  | HGB: gain from any fitted transform +0.0011, LR(raw x) minus HGB(raw x) +0.1510
+   abs              replace +0.6807 (AUC +0.2653)  append +0.6809  GAM +0.6861  | HGB: gain from any fitted transform +0.0014, LR(raw x) minus HGB(raw x) +0.6643
+   beta_logit       replace +0.0035 (AUC +0.0010)  append +0.0034  GAM +0.0024  | HGB: gain from any fitted transform +0.0000, LR(raw x) minus HGB(raw x) -0.0234
+   count_logn       replace +0.0136 (AUC +0.0034)  append +0.0141  GAM +0.0143  | HGB: gain from any fitted transform +0.0000, LR(raw x) minus HGB(raw x) -0.0124
+   ctl_linear       replace +0.0000 (AUC +0.0000)  append +0.0001  GAM -0.0007  | HGB: gain from any fitted transform +0.0000, LR(raw x) minus HGB(raw x) -0.0240
+   ctl_gamma        replace +0.0000 (AUC +0.0000)  append -0.0000  GAM -0.0008  | HGB: gain from any fitted transform +0.0000, LR(raw x) minus HGB(raw x) -0.0254
+   ctl_noise        replace +0.0001 (AUC +0.0001)  append -0.0001  GAM -0.0008  | HGB: gain from any fitted transform +0.0001, LR(raw x) minus HGB(raw x) -0.0251
+
+--- cost per candidate (ms, mean) : lrt 50.88, bde 0.24, resid 6.03, mi 4.08

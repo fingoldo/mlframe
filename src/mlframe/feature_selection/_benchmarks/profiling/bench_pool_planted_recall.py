@@ -44,7 +44,7 @@ def _linear_auc(model, X_tr, y_tr, X_te, y_te) -> tuple:
 def run(rows: int, cols: int, seeds: int, only: str = "") -> None:
     """Fit every generator at ``seeds`` seeds and print one line per fit."""
     kw = F.all_families_kwargs()
-    kw["nbins_strategy"] = "mdlp"
+    kw["binning_scheme"] = "mdlp"
     kw["fe_shape_pool"] = os.environ.get("BENCH_FE_SHAPE_POOL", "all")
     for flag in filter(None, os.environ.get("BENCH_EXCLUDE", "").split(",")):
         kw[flag.strip()] = False  # BENCH_EXCLUDE=fe_a_enable,fe_b_enable switches families off to test a default without them

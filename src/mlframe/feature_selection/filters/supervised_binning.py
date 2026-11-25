@@ -322,8 +322,8 @@ def mdlp_bin_edges(
             ``fast_mode=True`` depth-capped path); pure-noise synthetic data confirmed
             it does NOT over-split (matches the capped baseline's 1-bin collapse). Pass
             ``fast_mode=True`` (reachable from
-            ``MRMR(nbins_strategy_kwargs={"mdlp_fast_mode": True})`` or
-            ``train_mlframe_models_suite(mrmr_kwargs={"nbins_strategy_kwargs":
+            ``MRMR(binning_kwargs={"mdlp_fast_mode": True})`` or
+            ``train_mlframe_models_suite(mrmr_kwargs={"binning_kwargs":
             {"mdlp_fast_mode": True}})``) to opt back into the cheap depth-capped
             classic path for a specific run where wall-time matters more than the
             measured accuracy win. A GPU-resident batched permutation-null (mirroring

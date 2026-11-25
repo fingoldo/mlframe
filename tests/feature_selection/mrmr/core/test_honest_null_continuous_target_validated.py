@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from mlframe.feature_selection.filters._mrmr_fit_impl._fit_impl_stages._binning import _validated_target_classes
+from tests.feature_selection.binning_cases import binning_spec
 
 
 def test_target_classes_follow_the_production_rebucketing():
@@ -29,7 +30,7 @@ def test_numba_null_matches_the_categorise_per_permutation_floor():
     n = 700
     X = pd.DataFrame({f"c{j}": rng.normal(size=n) for j in range(4)})
     y = rng.normal(size=n)
-    kw = dict(method="quantile", n_bins=10, dtype=np.int16, missing_strategy="median", nbins_strategy="mdlp_validated", nbins_strategy_kwargs={}, cache_dir=None)
+    kw = dict(method="quantile", n_bins=10, dtype=np.int16, missing_strategy="median", binning=binning_spec("mdlp_validated"), binning_kwargs={}, cache_dir=None)
     df = X.assign(y=y)
     data, cols, nbins = categorize_dataset(df=df, y_for_strategy=y, **kw)
 
@@ -63,7 +64,7 @@ def test_numba_null_serves_columns_with_missing_values_and_matches_the_categoris
     for c in ("c0", "c2"):
         X.loc[rng.random(n) < 0.12, c] = np.nan
     y = rng.normal(size=n)
-    kw = dict(method="quantile", n_bins=10, dtype=np.int16, missing_strategy="separate_bin", nbins_strategy="mdlp_validated", nbins_strategy_kwargs={}, cache_dir=None)
+    kw = dict(method="quantile", n_bins=10, dtype=np.int16, missing_strategy="separate_bin", binning=binning_spec("mdlp_validated"), binning_kwargs={}, cache_dir=None)
     df = X.assign(y=y)
     data, cols, nbins = categorize_dataset(df=df, y_for_strategy=y, **kw)
 

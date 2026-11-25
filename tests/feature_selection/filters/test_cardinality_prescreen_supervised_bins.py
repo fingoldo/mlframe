@@ -21,6 +21,7 @@ import pytest
 
 from mlframe.feature_selection.filters._screen_predictors_prescreen import cardinality_prescreen
 from mlframe.feature_selection.filters.discretization import numeric_column_names
+from tests.feature_selection.binning_cases import binning_kwargs, binning_spec
 
 N = 500
 CEILING = 2.0 * np.sqrt(N)
@@ -153,7 +154,10 @@ class TestTheSelectorEndToEnd:
 # came back as ['B']); mdlp_validated, quantile, sturges, knuth and freedman_diaconis all kept it, because their
 # bin counts for that column stay under the ceiling. The passing strategies are parametrised anyway so a future
 # change to any of their bin-count formulas cannot re-introduce the defect unnoticed.
-BINNING_STRATEGIES = ("mdlp", "mdlp_validated", "quantile", "sturges", "knuth", "freedman_diaconis")
+# ``fixed_wide`` is a fixed 60-bin discretiser: since the count rules are capped (``rice_capped`` gives 16 bins at n=500) and MDLP gives the driving column 19, it is the one strategy here that puts every numeric
+# column over the ceiling, which keeps the guard test below honest.
+FIXED_WIDE_NBINS = 60
+BINNING_STRATEGIES = ("mdlp", "mdlp_validated", "rice_capped", "sturges", "knuth", "freedman_diaconis", "fixed_wide")
 
 
 def _make_frame(kind: str, seed: int = 20260611):
@@ -183,7 +187,10 @@ def _bin_counts(X, y, strategy):
     """Per-column bin counts ``categorize_dataset`` assigns under one strategy."""
     from mlframe.feature_selection.filters.discretization import categorize_dataset
 
-    _, cols, nbins = categorize_dataset(df=X, n_bins=5, nbins_strategy=strategy, y_for_strategy=y.values)
+    if strategy == "fixed_wide":
+        _, cols, nbins = categorize_dataset(df=X, n_bins=FIXED_WIDE_NBINS, binning=None, y_for_strategy=y.values)
+    else:
+        _, cols, nbins = categorize_dataset(df=X, n_bins=5, binning=binning_spec(strategy), y_for_strategy=y.values)
     return dict(zip(cols, (int(v) for v in nbins)))
 
 
@@ -195,8 +202,11 @@ class TestAcrossBinningStrategies:
         """Feature names one MRMR fit keeps under ``strategy``."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
-        m = MRMR(verbose=0, use_simple_mode=True, quantization_nbins=5, random_state=20260610, n_workers=1,
-                 fe_max_steps=0, max_runtime_mins=1, nbins_strategy=strategy)
+        if strategy == "fixed_wide":
+            kw = {"binning_scheme": "quantile", "nbins_rule": "fixed", "quantization_nbins": FIXED_WIDE_NBINS}
+        else:
+            kw = {**binning_kwargs(strategy), "quantization_nbins": 5}
+        m = MRMR(verbose=0, use_simple_mode=True, random_state=20260610, n_workers=1, fe_max_steps=0, max_runtime_mins=1, **kw)
         m.fit(X, y)
         return set(m.get_feature_names_out())
 

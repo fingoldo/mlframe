@@ -359,8 +359,24 @@ def _subsample_decision_inputs(self: Any, X: Any, classes_y: Any, capture_vals: 
     return X, classes_y, capture_vals, admitted_pool, n_rows, y_f, y_dense, _esc_do_sub
 
 
-def _select_eligible_pairs(failed_pairs: Any, cols: Sequence[str], raw_names: set, rescue_pairs: set | None, max_pairs: int, info: dict) -> tuple:
-    """Pick the raw-raw pairs to escalate (half of the budget reserved for rescue pairs) and record them in ``info``; returns ``(rescue_set, eligible)``."""
+def _pair_rank_key(pair: Any, pair_mi: float, marginal_mi: dict | None) -> float:
+    """Rank of a candidate pair for the escalation budget: the joint MI beyond what its two operands carry alone (the interaction content), or the joint MI when the marginals are unknown."""
+    if not marginal_mi:
+        return float(pair_mi)
+    try:
+        return float(pair_mi) - float(marginal_mi[(int(pair[0]),)]) - float(marginal_mi[(int(pair[1]),)])
+    except (KeyError, IndexError, TypeError, ValueError):
+        return float(pair_mi)
+
+
+def _select_eligible_pairs(
+    failed_pairs: Any, cols: Sequence[str], raw_names: set, rescue_pairs: set | None, max_pairs: int, info: dict, marginal_mi: dict | None = None,
+) -> tuple:
+    """Pick the raw-raw pairs to escalate (half of the budget reserved for rescue pairs) and record them in ``info``; returns ``(rescue_set, eligible)``.
+
+    Pairs compete for the budget on their interaction content (``_pair_rank_key``), not on raw joint MI: an additive cross pair of two strong operands has the highest joint MI of all and nothing to gain from a richer basis, and ranked by joint MI it
+    filled the whole budget ahead of a genuine weak-marginal interaction (F2's ``a**2/b``, ninth by joint MI of nine candidates, never escalated).
+    """
     # RAW-RAW pairs only, bounded by the pair budget. A prevalence-failed-synergy rescue
     # pair (a genuine SMOOTH ratio interaction the raw-MI ratio under-rates) has LOW raw
     # joint MI BY CONSTRUCTION, so a plain joint-MI sort buries it below the zero-admission
@@ -388,14 +404,15 @@ def _select_eligible_pairs(failed_pairs: Any, cols: Sequence[str], raw_names: se
             continue
         if na in raw_names and nb in raw_names:
             eligible_all.append((pair, float(pair_mi), na, nb))
-    eligible_all.sort(key=lambda e: e[1], reverse=True)
+    _rank = {tuple(e[0]): _pair_rank_key(e[0], e[1], marginal_mi) for e in eligible_all}
+    eligible_all.sort(key=lambda e: _rank[tuple(e[0])], reverse=True)
     _rescue_cap = max(1, max_pairs // 2)
     eligible: list = []
     _others: list = []
     _rescue_taken = 0
     _split_rescue_eligible(eligible_all, _rescue, _rescue_taken, _rescue_cap, eligible, _others)
     eligible.extend(_others[: max_pairs - len(eligible)])
-    eligible.sort(key=lambda e: (tuple(e[0]) in _rescue, e[1]), reverse=True)
+    eligible.sort(key=lambda e: (tuple(e[0]) in _rescue, _rank[tuple(e[0])]), reverse=True)
     eligible = eligible[:max_pairs]
     info["eligible_pairs"] = [(na, nb) for _, _, na, nb in eligible]
     # Raw cols-space index tuples of the processed pairs - the caller's per-fit
@@ -479,6 +496,7 @@ def run_fe_auto_escalation(
     verbose: int = 0,
     capture_vals: dict | None = None,
     rescue_pairs: set | None = None,
+    marginal_mi: dict | None = None,
 ) -> list[dict]:
     """Escalate the FE search to the richer shipped bases for prescreen-surviving pairs
     the unary/binary step admitted NOTHING for (or, via the UNDERDELIVERY trigger,
@@ -536,7 +554,7 @@ def run_fe_auto_escalation(
         self, X, classes_y, capture_vals, admitted_pool, n_rows, seed, nbins,
     )
 
-    _rescue, eligible = _select_eligible_pairs(failed_pairs, cols, raw_names, rescue_pairs, max_pairs, info)
+    _rescue, eligible = _select_eligible_pairs(failed_pairs, cols, raw_names, rescue_pairs, max_pairs, info, marginal_mi)
     if not eligible:
         return []
 

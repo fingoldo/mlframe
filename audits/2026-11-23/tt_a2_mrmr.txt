@@ -1,0 +1,44 @@
+## log 0 support_ [1]
+##   engineered/selected rows:       feature_name      origin  mrmr_gain
+                 z         raw        NaN
+       (x__add__z)   mi_greedy   0.463589
+ x__relu_lt1.24635 hinge_basis        NaN
+x__relu_lt0.278002 hinge_basis        NaN
+x__relu_gt0.278002 hinge_basis        NaN
+        log_abs(x)   mi_greedy        NaN
+##   unary-looking names in provenance: ['log_abs(x)', 'x__LL2', 'x__LL3']
+FE stage emitted column(s) ['x__LL2'] already produced by an earlier stage of the same step; keeping the first
+FE stage emitted column(s) ['(x__add__z)'] already produced by an earlier stage of the same step; keeping the first
+## log 1 support_ [0 1]
+##   engineered/selected rows:               feature_name      origin  mrmr_gain
+                         x         raw        NaN
+                         z         raw        NaN
+sir__x_z_n0_n1_n2_n3__dir1    extra_fe   0.429381
+         x__relu_lt1.35523 hinge_basis        NaN
+        x__relu_lt0.277597 hinge_basis        NaN
+                log_abs(x)   mi_greedy        NaN
+##   unary-looking names in provenance: ['log_abs(x)', 'x__LL2']
+FE stage emitted column(s) ['x__He2'] already produced by an earlier stage of the same step; keeping the first
+FE stage emitted column(s) ['x__He2'] already produced by an earlier stage of the same step; keeping the first
+FE stage emitted column(s) ['x__He2', 'x__He3'] already produced by an earlier stage of the same step; keeping the first
+FE stage emitted column(s) ['x__pade2'] already produced by an earlier stage of the same step; keeping the first
+FE stage emitted column(s) ['log_abs(x)'] already produced by an earlier stage of the same step; keeping the first
+## square 0 support_ [1 0]
+##   engineered/selected rows:  feature_name   origin  mrmr_gain
+            z      raw   0.561883
+            x      raw        NaN
+x__modcos_365 periodic   0.424807
+##   unary-looking names in provenance: []
+FE stage emitted column(s) ['x__He2'] already produced by an earlier stage of the same step; keeping the first
+FE stage emitted column(s) ['x__He2'] already produced by an earlier stage of the same step; keeping the first
+FE stage emitted column(s) ['x__He2', 'x__He3'] already produced by an earlier stage of the same step; keeping the first
+FE stage emitted column(s) ['x__pade2'] already produced by an earlier stage of the same step; keeping the first
+FE stage emitted column(s) ['log_abs(x)'] already produced by an earlier stage of the same step; keeping the first
+## square 1 support_ [1 0]
+##   engineered/selected rows:         feature_name      origin  mrmr_gain
+                   z         raw        NaN
+                   x         raw        NaN
+           x__sqa_T2 hybrid_orth   0.435738
+   x__relu_gt1.26394 hinge_basis        NaN
+x__relu_gt-0.0450345 hinge_basis        NaN
+##   unary-looking names in provenance: []

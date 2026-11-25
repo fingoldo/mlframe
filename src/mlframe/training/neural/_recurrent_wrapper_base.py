@@ -21,12 +21,12 @@ import lightning as L
 import torch
 from sklearn.base import BaseEstimator
 from sklearn.preprocessing import StandardScaler
-from torch.utils.data import DataLoader, WeightedRandomSampler
+from torch.utils.data import DataLoader
 
 from mlframe.training.neural.base.shared import ensure_numpy as _ensure_numpy
 from ._recurrent_cat_embeddings import _RecurrentCatEmbeddingMixin
 from ._recurrent_config import RNNType, InputMode, RecurrentConfig
-from ._recurrent_data import RecurrentDataset, recurrent_collate_fn
+from ._recurrent_data import RecurrentDataset, build_stratified_sampler, recurrent_collate_fn
 from ._recurrent_torch_model import RecurrentTorchModel
 from mlframe.utils.env_flags import env_int
 
@@ -329,25 +329,9 @@ class _RecurrentWrapperBase(_RecurrentCatEmbeddingMixin, BaseEstimator):
         # actually a stratifiable single-label classification dataset.
         _is_multilabel_ds = dataset.labels.ndim == 2 and dataset.labels.shape[1] >= 2
         if shuffle and self._cfg.use_stratified_sampler and not self._is_regression and not _is_multilabel_ds:
-            labels = dataset.labels.numpy()
-            # np.bincount needs non-negative contiguous integer labels and
-            # silently misreports for non-contiguous label sets ({0,5} ->
-            # length-6 array with zeros); use np.unique for correctness.
-            unique_labels, class_counts = np.unique(labels, return_counts=True)
-            if len(unique_labels) > 1 and (class_counts > 0).all():
-                label_to_weight = {int(lbl): 1.0 / int(cnt) for lbl, cnt in zip(unique_labels, class_counts)}
-                sample_weights = np.array([label_to_weight[int(lbl)] for lbl in labels], dtype=np.float64)
-                # Seeded generator: WeightedRandomSampler without an explicit generator pulls from
-                # the GLOBAL torch RNG, which means parallel processes / re-instantiated wrappers
-                # produce different sample orders across runs. self.random_state pins the order.
-                _gen_sampler = torch.Generator()
-                _gen_sampler.manual_seed(int(self.random_state))
-                sampler = WeightedRandomSampler(
-                    weights=cast(Any, sample_weights),
-                    num_samples=len(dataset),
-                    replacement=True,
-                    generator=_gen_sampler,
-                )
+            # Seeded through self.random_state so the sample order is reproducible across instances (shared helper, audit 40-F31).
+            sampler = build_stratified_sampler(dataset.labels.numpy(), num_samples=len(dataset), seed=self.random_state)
+            if sampler is not None:
                 shuffle = False
 
         # DataLoader shuffle=True also uses the global torch RNG unless an explicit generator

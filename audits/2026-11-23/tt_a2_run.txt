@@ -1,0 +1,101 @@
+
+== log: judge best=[('log', 7)] R2 id=0.476 best=0.713 GAM=0.711 t/cand=61.4ms
+  pear_m    correct 7/7 accepted 7/7 picks {'log': 7}
+  pearRG_m  correct 7/7 accepted 7/7 picks {'log': 7}
+  ewMI_m    correct 4/7 accepted 7/7 picks {'tanh': 3, 'log': 4}
+  dcor_m    correct 6/7 accepted 7/7 picks {'cbrt': 1, 'log': 6}
+  pear_c    correct 7/7 accepted 7/7 picks {'log': 7}
+  pearRG_c  correct 7/7 accepted 7/7 picks {'log': 7}
+  ewMI_c    correct 5/7 accepted 7/7 picks {'log': 5, 'tanh': 2}
+  dcor_c    correct 7/7 accepted 7/7 picks {'log': 7}
+
+== recip: judge best=[('recip', 7)] R2 id=0.428 best=0.655 GAM=0.654 t/cand=97.3ms
+  pear_m    correct 7/7 accepted 7/7 picks {'recip': 7}
+  pearRG_m  correct 7/7 accepted 7/7 picks {'recip': 7}
+  ewMI_m    correct 7/7 accepted 7/7 picks {'recip': 7}
+  dcor_m    correct 6/7 accepted 7/7 picks {'recip': 6, 'tanh': 1}
+  pear_c    correct 7/7 accepted 7/7 picks {'recip': 7}
+  pearRG_c  correct 7/7 accepted 7/7 picks {'recip': 7}
+  ewMI_c    correct 7/7 accepted 7/7 picks {'recip': 7}
+  dcor_c    correct 7/7 accepted 7/7 picks {'recip': 7}
+
+== sqrt: judge best=[('sqrt', 7)] R2 id=0.561 best=0.595 GAM=0.594 t/cand=81.7ms
+  pear_m    correct 7/7 accepted 7/7 picks {'sqrt': 7}
+  pearRG_m  correct 7/7 accepted 7/7 picks {'sqrt': 7}
+  ewMI_m    correct 6/7 accepted 7/7 picks {'tanh': 1, 'cbrt': 5, 'sqrt': 1}
+  dcor_m    correct 0/7 accepted 0/7 picks {'-': 7}
+  pear_c    correct 7/7 accepted 7/7 picks {'sqrt': 7}
+  pearRG_c  correct 7/7 accepted 7/7 picks {'sqrt': 7}
+  ewMI_c    correct 7/7 accepted 7/7 picks {'cbrt': 6, 'sqrt': 1}
+  dcor_c    correct 0/7 accepted 0/7 picks {'-': 7}
+
+== square: judge best=[('square', 7)] R2 id=0.090 best=0.816 GAM=0.812 t/cand=53.6ms
+  pear_m    correct 7/7 accepted 7/7 picks {'square': 7}
+  pearRG_m  correct 0/7 accepted 7/7 picks {'abs': 7}
+  ewMI_m    correct 0/7 accepted 7/7 picks {'abs': 7}
+  dcor_m    correct 7/7 accepted 7/7 picks {'square': 7}
+  pear_c    correct 7/7 accepted 7/7 picks {'square': 7}
+  pearRG_c  correct 0/7 accepted 7/7 picks {'abs': 7}
+  ewMI_c    correct 0/7 accepted 7/7 picks {'abs': 7}
+  dcor_c    correct 7/7 accepted 7/7 picks {'square': 7}
+
+== abs: judge best=[('abs', 7)] R2 id=0.222 best=0.548 GAM=0.548 t/cand=54.4ms
+  pear_m    correct 7/7 accepted 7/7 picks {'abs': 7}
+  pearRG_m  correct 7/7 accepted 7/7 picks {'abs': 7}
+  ewMI_m    correct 5/7 accepted 7/7 picks {'abs': 5, 'tanh': 2}
+  dcor_m    correct 4/7 accepted 7/7 picks {'abs': 4, 'square': 3}
+  pear_c    correct 7/7 accepted 7/7 picks {'abs': 7}
+  pearRG_c  correct 7/7 accepted 7/7 picks {'abs': 7}
+  ewMI_c    correct 7/7 accepted 7/7 picks {'abs': 7}
+  dcor_c    correct 6/7 accepted 7/7 picks {'abs': 6, 'square': 1}
+
+== sigmoid: judge best=[('cbrt', 7)] R2 id=0.673 best=0.853 GAM=0.875 t/cand=58.6ms
+  pear_m    correct 7/7 accepted 7/7 picks {'cbrt': 7}
+  pearRG_m  correct 7/7 accepted 7/7 picks {'cbrt': 7}
+  ewMI_m    correct 7/7 accepted 7/7 picks {'cbrt': 7}
+  dcor_m    correct 7/7 accepted 7/7 picks {'cbrt': 7}
+  pear_c    correct 7/7 accepted 7/7 picks {'cbrt': 7}
+  pearRG_c  correct 7/7 accepted 7/7 picks {'cbrt': 7}
+  ewMI_c    correct 7/7 accepted 7/7 picks {'cbrt': 7}
+  dcor_c    correct 7/7 accepted 7/7 picks {'cbrt': 7}
+
+== ctl_linear: judge best=[('id', 7)] R2 id=0.713 best=0.713 GAM=0.713 t/cand=84.2ms
+  pear_m    correct 7/7 accepted 0/7 picks {'-': 7}
+  pearRG_m  correct 7/7 accepted 0/7 picks {'-': 7}
+  ewMI_m    correct 0/7 accepted 7/7 picks {'tanh': 7}
+  dcor_m    correct 7/7 accepted 0/7 picks {'-': 7}
+  pear_c    correct 7/7 accepted 0/7 picks {'-': 7}
+  pearRG_c  correct 7/7 accepted 0/7 picks {'-': 7}
+  ewMI_c    correct 0/7 accepted 7/7 picks {'tanh': 7}
+  dcor_c    correct 7/7 accepted 0/7 picks {'-': 7}
+
+== ctl_lognormal_linear: judge best=[('id', 7)] R2 id=0.731 best=0.731 GAM=0.718 t/cand=80.6ms
+  pear_m    correct 7/7 accepted 0/7 picks {'-': 7}
+  pearRG_m  correct 0/7 accepted 7/7 picks {'sqrt': 7}
+  ewMI_m    correct 0/7 accepted 7/7 picks {'cbrt': 1, 'log': 6}
+  dcor_m    correct 7/7 accepted 0/7 picks {'-': 7}
+  pear_c    correct 7/7 accepted 0/7 picks {'-': 7}
+  pearRG_c  correct 0/7 accepted 7/7 picks {'sqrt': 7}
+  ewMI_c    correct 0/7 accepted 7/7 picks {'cbrt': 2, 'log': 5}
+  dcor_c    correct 7/7 accepted 0/7 picks {'-': 7}
+
+== ctl_noise: judge best=[('abs', 2), ('square', 1), ('id', 1)] R2 id=0.331 best=0.331 GAM=0.330 t/cand=57.5ms
+  pear_m    correct 7/7 accepted 0/7 picks {'-': 7}
+  pearRG_m  correct 7/7 accepted 0/7 picks {'-': 7}
+  ewMI_m    correct 5/7 accepted 2/7 picks {'-': 5, 'tanh': 1, 'log': 1}
+  dcor_m    correct 6/7 accepted 1/7 picks {'-': 6, 'recip': 1}
+  pear_c    correct 7/7 accepted 0/7 picks {'-': 7}
+  pearRG_c  correct 7/7 accepted 0/7 picks {'-': 7}
+  ewMI_c    correct 5/7 accepted 2/7 picks {'-': 5, 'log': 1, 'tanh': 1}
+  dcor_c    correct 5/7 accepted 2/7 picks {'recip': 2, '-': 5}
+
+SUMMARY correct decisions out of 7
+crit            log     recip      sqrt    square       abs   sigmoid ctl_linea ctl_logno ctl_noise
+pear_m            7         7         7         7         7         7         7         7         7
+pearRG_m          7         7         7         0         7         7         7         0         7
+ewMI_m            4         7         6         0         5         7         0         0         5
+dcor_m            6         6         0         7         4         7         7         7         6
+pear_c            7         7         7         7         7         7         7         7         7
+pearRG_c          7         7         7         0         7         7         7         0         7
+ewMI_c            5         7         7         0         7         7         0         0         5
+dcor_c            7         7         0         7         6         7         7         7         5

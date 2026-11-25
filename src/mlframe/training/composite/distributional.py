@@ -118,6 +118,9 @@ logger = logging.getLogger(__name__)
 # Dense default grid: 0.05 .. 0.95 step 0.05 (19 levels). Symmetric, includes the
 # 0.5 median, gives a fine enough quantile mesh that the pinball-integral CRPS is
 # a close approximation of the continuous CRPS while keeping K inner fits modest.
+# Known truncation (audit 35-F28, documented choice): the grid spans 0.05 .. 0.95, so sample() holds draws flat outside Q(0.05)..Q(0.95) and
+# crps() omits the [0, 0.05] and [0.95, 1] mass. Adding 0.001 / 0.999 costs two more inner fits and is noisy on small samples, so the default
+# is kept; pass an explicit ``quantiles`` grid with tail levels when the tails matter.
 _DEFAULT_DENSE_QUANTILES: tuple[float, ...] = tuple(round(0.05 * k, 2) for k in range(1, 20))
 
 

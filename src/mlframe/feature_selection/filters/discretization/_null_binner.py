@@ -1,4 +1,4 @@
-"""Re-binning of a frame under permuted targets for a supervised ``nbins_strategy`` whose edges come from a small set per column (``optimal_joint``).
+"""Re-binning of a frame under permuted targets for a supervised ``binning_scheme`` whose edges come from a small set per column (``optimal_joint``).
 
 ``categorize_dataset`` repeats, for every permutation of the target, the target-free work (the float copy of the frame, the NaN scan and fill) and re-encodes every column from its edges. The edges
 of a column take only a few distinct values over the permutations (one per candidate bin count), so :class:`PermutedTargetBinner` prepares the frame once, memoises the code column of each
@@ -33,15 +33,15 @@ class PermutedTargetBinner:
     Args:
         df: pandas frame of numeric columns (anything else makes :meth:`supported` false).
         missing_strategy: the ``missing_strategy`` of ``categorize_dataset``.
-        nbins_strategy: the supervised strategy name.
-        nbins_strategy_kwargs: its kwargs (they may carry a plan cache).
+        binning: the supervised :class:`BinningSpec`.
+        binning_kwargs: its kwargs (they may carry a plan cache).
         dtype: the code dtype of ``categorize_dataset``.
         out_cols: the names of the columns of the returned matrix, in order (default: the columns of ``df``); each is a column of ``df`` or a key of ``fixed``.
         fixed: ``{name: (codes, bin count)}`` of columns that do not depend on the target; they fill their place of the matrix unchanged.
     """
 
     def __init__(
-        self, df: Any, missing_strategy: str, nbins_strategy: str, nbins_strategy_kwargs: Optional[dict], dtype: type, out_cols: Optional[list] = None, fixed: Optional[dict] = None,
+        self, df: Any, missing_strategy: str, binning: Any, binning_kwargs: Optional[dict], dtype: type, out_cols: Optional[list] = None, fixed: Optional[dict] = None,
     ) -> None:
         from . import _handle_missing
         from ._discretization_dataset import _discretize_input_dtype
@@ -59,8 +59,8 @@ class PermutedTargetBinner:
         # read-only: the plan cache keys the content hash of a column view by the view itself when its base cannot change (no re-hash per call)
         self._arr.setflags(write=False)
         self._nan = {int(j): nan_mask[:, j].copy() for j in nan_cols} if nan_mask is not None else {}
-        self._strategy = nbins_strategy
-        self._kwargs = dict(nbins_strategy_kwargs or {})
+        self._strategy = binning.edge_method
+        self._kwargs = {**binning.edge_kwargs(), **dict(binning_kwargs or {})}
         self._dtype = dtype
         self._lock = threading.Lock()
         self._slots: "dict[tuple, int]" = {}

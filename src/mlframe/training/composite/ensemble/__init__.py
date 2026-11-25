@@ -613,6 +613,8 @@ def _composite_fold_holdout_preds(inner, spec, base_train_full_per_spec, X_stack
 
 def _plain_fold_holdout_preds(inner, X_stack_t, X_holdout_t, y_stack, fold_train_idx, group_ids, sample_weight, random_state, group_arr_all, n_train):
     """Holdout predictions of one plain component refit on this fold's train rows (group-aware inner eval carve)."""
+    # Group semantics (audit 35-F19, documented): this copy carves a group-aware inner eval set and skips it with a WARNING on a length
+    # mismatch. The three composite-refit copies differ here on purpose for now; a fix to one must be checked in the others.
     inner_clone = clone(inner)
     _sw_stack = None if sample_weight is None else sample_weight[fold_train_idx]
     _group_for_fold = None
@@ -804,6 +806,7 @@ def _oof_holdout_predic_group_aware_inner_eval(group_ids, n_train, train_idx, _g
 
 def _oof_holdout_predic_model_name_spec_zip(component_models, component_names, component_specs, _pair_memo, X_stack, X_holdout, y_stack, base_train_full_per_spec, train_idx, group_ids, sample_weight, _group_stack, random_state, holdout_cols, surviving_names):
     """Block of _oof_holdout_predictions_with_rows starting at ``for model, name, spec in zip(component_models, component_names, compon``."""
+    # Group semantics (audit 35-F19, documented): this copy checks the group shape and refits on the valid train rows. The three composite-refit copies differ here on purpose for now; a fix to one must be checked in the others.
     for model, name, spec in zip(component_models, component_names, component_specs):
         try:
             inner, pp = _unwrap_shim(model)

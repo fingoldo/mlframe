@@ -122,7 +122,11 @@ def _maybe_run_unsupervised_pre_screen(ctx, targets):
         _protected = _pre_screen_protected_columns(ctx, targets)
         _split_cfg = getattr(ctx, "split_config", None)
         _split_cfg_use_groups = bool(getattr(_split_cfg, "use_groups", False)) if _split_cfg is not None else False
-        if _split_cfg_use_groups and not _protected:
+        # Guard the GROUP column specifically (audit 38-F9): target names always fill ``_protected``, so the old ``not _protected`` test never
+        # fired once any target existed. A group column is protected only when group_ids_raw carries its name.
+        _group_name = getattr(getattr(ctx, "group_ids_raw", None), "name", None)
+        _group_protected = isinstance(_group_name, str) and bool(_group_name) and _group_name in _protected
+        if _split_cfg_use_groups and not _group_protected:
             # SKIP the pre-screen entirely: with a group-aware split and an empty protected set we cannot
             # know which column is the group/ts key, so variance/null pruning could silently drop it (group
             # IDs frequently look like near-all-unique strings) and break GroupShuffleSplit downstream. A

@@ -59,7 +59,9 @@ def _split_row_based_without_timestamps(df, groups, stratify_y, timestamps, test
     train_idx, val_idx = _make_train_test_sp_ml_way_done(_ml_3way_done, val_size, _groups_arr, _strat_groups_active, _stratify_active, train_idx, sklearn_seed, shuffle_val, val_idx)
 
     if trainset_aging_limit is not None:
-        train_idx = train_idx[int(len(train_idx) * (1 - trainset_aging_limit)) :]
+        # Without timestamps the 'most recent fraction' cannot be found: the positional order of a shuffled or stratified split is not time
+        # order, so a slice would be a random subsample. Refuse instead (audit 27-F12).
+        raise ValueError("trainset_aging_limit requires timestamps: without them the kept fraction is not the most recent rows (audit 27-F12)")
 
     train_details, val_details, test_details = "", "", ""
     return test_details, test_idx, train_details, train_idx, val_details, val_idx
