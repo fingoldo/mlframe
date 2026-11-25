@@ -736,6 +736,11 @@ _KEPT_OPTIN_VARIANTS = {
     "reset_host_block_budget",  # forgets the process-wide budget so the next use sizes it again; the tests and fits that need the current free RAM call it
 }
 
+#: Entry points of components that are built and tested but not yet called by the fit. Each one has a named consumer outside the fit and a stated next step; delete the entry when the fit calls it.
+_NOT_YET_WIRED = {
+    "plan",  # the scheduling-problem solver of filters/_fe_plan (list scheduling + CP-SAT, bounds, validity check); consumed by _benchmarks/profiling/plan_from_ledger.py and test_fe_plan; the fit's stage scheduler adopts it in the next step of section 2a of the speed plan
+}
+
 #: Diagnostic hooks: the docstring says they are not for the production path (every transfer is hashed on the host anyway).
 _DIAGNOSTIC_HOOKS = {
     "duplicate_transfer_audit",  # yields a report of repeated device-to-host copies inside a block; a developer tool
@@ -1256,7 +1261,7 @@ def test_no_new_function_without_a_caller(request):
         files,
         REPO_ROOT,
         BASELINE,
-        ignore=_INTERPRETER_INVOKED | _KEPT_KERNEL_VERSIONS | _KEPT_SUPERSEDED_REFERENCES | _KEPT_TEST_REFERENCES | _KEPT_OPTIN_VARIANTS | _DIAGNOSTIC_HOOKS
+        ignore=_INTERPRETER_INVOKED | _KEPT_KERNEL_VERSIONS | _KEPT_SUPERSEDED_REFERENCES | _KEPT_TEST_REFERENCES | _KEPT_OPTIN_VARIANTS | _DIAGNOSTIC_HOOKS | _NOT_YET_WIRED
         | _PUBLIC_API
         | _REEXPORTED_PUBLIC_API
         | _OFFLINE_GENERATORS
