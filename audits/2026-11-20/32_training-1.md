@@ -96,4 +96,5 @@ Grep and Read used for caller checks: `core/_phase_dummy_baselines.py` (the try/
 - 32-F28: FIXED. Skipped-target results in the profile harness return the same 16-field tuple the caller unpacks (one helper, _skipped_profile_result); the six-field early returns would have raised on unpack. Test tests/training/test_cluster32_profile_skip_arity.py.
 - 32-F28: FIXED. x
 
-- 32-F9: PARTIAL. CBIterationMetricsCallback remembers the last round and its model and exposes flush(), which captures the final round when the stride skipped it; a stored round is not recaptured. Not done: the caller must call flush() after fit returns (_train_model_with_fallback, not located in this pass), so until that is wired a stride > 1 run still misses the final round. Tests tests/training/callbacks/test_cluster32_cb_flush_last_round.py (3 passed) and test_cb_iteration_metrics_target_type.py.
+
+- 32-F9: FIXED. CBIterationMetricsCallback.flush() captures the final round when the stride skipped it. It is now called by the fit wrapper (_train_model_with_fallback) after a successful fit; a failed fit does not flush. Tests tests/training/test_cluster32_fit_wrapper_flushes_cb.py and tests/training/callbacks/test_cluster32_cb_flush_last_round.py (5 passed).

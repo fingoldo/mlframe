@@ -1487,7 +1487,6 @@
 
 | 28-F69 | FIXED | apply_to_target_types is a frozenset in both BaselineDiagnosticsConfig and DummyBaselinesConfig; pydantic coerces list and tuple input. Test tests/training/test_cluster28_apply_types_one_type.py and the updated tests/training/baselines/test_baseline_diagnostics.py (35 passed). |
 
-| 32-F9 | PARTIAL | CBIterationMetricsCallback remembers the last round and its model and exposes flush(), which captures the final round when the stride skipped it; a stored round is not recaptured. Not done: the caller must call flush() after fit returns (_train_model_with_fallback, not located in this pass), so until that is wired a stride > 1 run still misses the final round. Tests tests/training/callbacks/test_cluster32_cb_flush_last_round.py (3 passed) and test_cb_iteration_metrics_target_type.py. |
 
 | 26-F26 | DOCUMENTED | Queued figures are recorded as saved at submit (documented choice at the submit site): the worker owns the figure from there, and a later worker failure is counted in the queue summary but not reconciled into charts['failed']. Reconciling needs a worker-to-dict update path, not done. Test tests/training/test_cluster26_34_documented_choices.py (2 passed). |
 
@@ -1502,3 +1501,5 @@
 | 35-F28 | DOCUMENTED | The default quantile grid (0.05..0.95) truncates the tails: sample() holds draws flat outside Q(0.05)..Q(0.95) and crps() omits the outer 5% per side. Documented at the grid; extending it with 0.001/0.999 costs two inner fits and is noisy on small samples, so the default is kept and an explicit tail grid is the way out. Test tests/training/composite/test_cluster35_grid_truncation_documented.py (2 passed). |
 
 | 35-F19 | DOCUMENTED | The three composite-refit copies (ensemble/__init__.py plain fold, ensemble/__init__.py oof holdout, ensemble/_oof_external.py) each state their group semantics at the function. Behaviour is unchanged; the copies still differ, and a fix to one must be checked in the others. Consolidating them needs the owner's group semantics. Test tests/training/composite/test_cluster35_refit_copies_documented.py (2 passed). |
+
+| 32-F9 | FIXED | CBIterationMetricsCallback.flush() captures the final round when the stride skipped it. It is now called by the fit wrapper (_train_model_with_fallback) after a successful fit; a failed fit does not flush. Tests tests/training/test_cluster32_fit_wrapper_flushes_cb.py and tests/training/callbacks/test_cluster32_cb_flush_last_round.py (5 passed). |
