@@ -1067,7 +1067,6 @@
 | 28-F67 | FIXED | parse_catboost_devices returns GPUs in the requested order, each once. Test test_cluster28_catboost_devices_requested_order.py; 37 existing device-parsing tests pass. |
 | 28-F60 | FIXED | Removed the unreachable '(none)' description branch: _bad_desc is only built inside if _bad. Regression: 14 existing CatBoost text-feature probe tests pass. |
 | 28-F64 | DEFERRED | process_model writes trainset_features_stats into the shared common_params. It may be relied on by later models in the same loop; removing the write needs an audit of every reader of common_params first. Deferred. |
-| 28-F69 | DEFERRED | DummyBaselinesConfig.apply_to_target_types is a frozenset (its own comment uses set difference) while the same-named baseline-diagnostics field is a tuple. Unifying the type changes set operations on the config; consumers need an audit first. Deferred. |
 | 28-F71 | FIXED | The categorical column set is built once per call rather than once per feature. Output unchanged. Regression: 53 existing drift-report tests pass. |
 | 27-F22 | FIXED | Title positive rate counts the larger label as positive, matching the decision-threshold block (labels {1, 2} no longer read as 0%). Test test_cluster27_title_rate_positive_larger_label.py. |
 | 27-F21 | FIXED | recalibrate on an unfitted DistributionalRecalibrator raises RuntimeError instead of returning the identity. Test test_cluster27_unfitted_recalibrator_raises.py; 19 existing calibration tests pass. |
@@ -1493,3 +1492,5 @@
 | 18-F15 | FIXED | The streaming harm tracks a zero member per cell and returns exactly 0 there, matching the materialised zero rule, instead of about 3e-150 from the 1e150 surrogate. Other cells keep the plain harmonic mean. Observation outside this finding: on non-zero cells the materialised path with default parameters gave different values for this input, not checked here. Tests tests/models/ensembling/test_cluster18_streaming_harm_zero.py (2 passed); existing streaming tests 31 passed. |
 
 | 39-F68 | FIXED | The all-zero-weight check in the weighted MLP loss runs on every 50th batch (_ZERO_WEIGHT_CHECK_EVERY), not on every step, so the host-device sync is paid 1/50 as often. A zero-weight batch is reported at the next sampled batch rather than on the batch itself; the loss value is unchanged. Test tests/training/neural/test_cluster39_zero_weight_check_sampled.py (2 passed). |
+
+| 28-F69 | FIXED | apply_to_target_types is a frozenset in both BaselineDiagnosticsConfig and DummyBaselinesConfig; pydantic coerces list and tuple input. Test tests/training/test_cluster28_apply_types_one_type.py and the updated tests/training/baselines/test_baseline_diagnostics.py (35 passed). |

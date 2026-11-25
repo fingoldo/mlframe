@@ -164,7 +164,6 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F67: FIXED. parse_catboost_devices returns GPUs in the requested order, each once. Test test_cluster28_catboost_devices_requested_order.py; 37 existing device-parsing tests pass.
 - 28-F60: FIXED. Removed the unreachable '(none)' description branch: _bad_desc is only built inside if _bad. Regression: 14 existing CatBoost text-feature probe tests pass.
 - 28-F64: DEFERRED. process_model writes trainset_features_stats into the shared common_params. It may be relied on by later models in the same loop; removing the write needs an audit of every reader of common_params first. Deferred.
-- 28-F69: DEFERRED. DummyBaselinesConfig.apply_to_target_types is a frozenset (its own comment uses set difference) while the same-named baseline-diagnostics field is a tuple. Unifying the type changes set operations on the config; consumers need an audit first. Deferred.
 - 28-F71: FIXED. The categorical column set is built once per call rather than once per feature. Output unchanged. Regression: 53 existing drift-report tests pass.
 - 28-F50: FIXED. Removed the duplicate SimpleNamespace import (aliased copy) and used the plain name. The repeated _pre_pipeline_groups reset is left in place: it is only redundant if the attribute is already None, which this change does not establish. Regression: module import check and a related trainer test pass.
 - 28-F55: FIXED. Removed the no-op del of a parameter (it freed nothing while the caller held the frame); _maybe_clean_ram still runs. Import check passes; the removed branch had no observable effect, so no test.
@@ -186,3 +185,5 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F54: DEFERRED. The two CatBoost loss-ensuring helpers duplicate about 60 lines. Extracting a shared helper is a refactor that needs call-site tests in both paths; deferred to a refactor pass. No code change.
 
 - 28-F70: FIXED. A failed grid variant with stop_on_error=False is a typed GridVariantError (label, exc_type, message) instead of a plain error dict. No in-repo consumer read the old dict. Test tests/training/test_cluster28_grid_typed_error.py (2 passed).
+
+- 28-F69: FIXED. apply_to_target_types is a frozenset in both BaselineDiagnosticsConfig and DummyBaselinesConfig; pydantic coerces list and tuple input. Test tests/training/test_cluster28_apply_types_one_type.py and the updated tests/training/baselines/test_baseline_diagnostics.py (35 passed).

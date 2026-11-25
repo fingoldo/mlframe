@@ -117,10 +117,10 @@ class TestBaselineDiagnosticsConfig:
         assert cfg.ablation_top_k == 3
         assert cfg.sample_n == 1000
 
-    def test_apply_to_target_types_immutable_tuple(self) -> None:
+    def test_apply_to_target_types_is_frozenset(self) -> None:
         """Apply to target types immutable tuple."""
         cfg = BaselineDiagnosticsConfig(apply_to_target_types=("regression",))
-        assert cfg.apply_to_target_types == ("regression",)
+        assert cfg.apply_to_target_types == frozenset({"regression"})
 
 
 # ----------------------------------------------------------------------
