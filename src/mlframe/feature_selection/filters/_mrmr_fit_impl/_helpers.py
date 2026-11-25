@@ -581,7 +581,12 @@ def fe_decide_on_subsample(
         if refit is not None:
             _full_cols, recipes = refit(X, y, recipes, kwargs)
         else:
+            _defer = _replay_is_deferred(X, _store)
             for r in recipes:
+                _lazy_col = _deferred_replay_column(r, X, _store) if _defer else None
+                if _lazy_col is not None:
+                    _full_cols[r.name] = _lazy_col
+                    continue
                 _v = np.asarray(apply_recipe(r, X))
                 # Intentional float64: narrows only a float64 replay result to the fit's dtype
                 _full_cols[r.name] = _v.astype(_store, copy=False) if (_store is not None and _v.dtype == np.float64) else _v
@@ -596,6 +601,32 @@ def fe_decide_on_subsample(
     # are materialised, never a copy of X.
     X_aug = fe_append_columns(X, _full_cols)
     return (X_aug, *_middle, recipes)
+
+
+def _replay_is_deferred(X: Any, store: Any) -> bool:
+    """Whether the winners of a decision are kept as recipes and replayed when read: a pandas frame of at least ``MLFRAME_FE_LAZY_REPLAY_MIN_ROWS`` rows whose engineered columns are kept in float32."""
+    from .._lazy_engineered import lazy_replay_min_rows
+
+    floor = lazy_replay_min_rows()
+    return bool(floor > 0 and store is not None and np.dtype(store) == np.float32 and hasattr(X, "iloc") and len(X) >= floor)
+
+
+def _deferred_replay_column(recipe: Any, X: Any, store: Any) -> Any:
+    """The winner ``recipe`` as a :class:`LazyEngineeredColumn` replayed on ``X`` when it is read, or ``None`` when its values are not floats (codes keep their own dtype and are replayed now).
+
+    The recipe is tried on the first rows first, so a recipe that cannot be replayed fails here, at the decision, as the eager replay did, and the family falls back to the full-data decision."""
+    from ..engineered_recipes import apply_recipe
+    from .._lazy_engineered import LazyEngineeredColumn
+
+    head = np.asarray(apply_recipe(recipe, X.iloc[: min(len(X), 2048)]))
+    if head.dtype.kind != "f":
+        return None
+
+    def compute() -> np.ndarray:
+        """The replay of the recipe on every row, in the dtype the eager replay stored."""
+        return np.asarray(apply_recipe(recipe, X)).astype(store, copy=False)
+
+    return LazyEngineeredColumn(compute, len(X))
 
 
 def _replay_store_dtype() -> Any:

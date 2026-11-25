@@ -178,6 +178,13 @@ class _FrameColumns(dict):
     source: Any = None
 
 
+def _is_lazy_engineered(arr: Any) -> bool:
+    """Whether ``arr`` is an engineered column replayed on demand (it moves between frames as it is, so the values are not computed by the move)."""
+    from ._lazy_engineered import LazyEngineeredColumn
+
+    return isinstance(arr, LazyEngineeredColumn)
+
+
 def fe_extract_columns(X: Any, names: Iterable[str]) -> dict[str, np.ndarray]:
     """Extract the named columns of ``X`` (pandas / polars) as ``{name: 1d numpy array}`` - per-column views, no
     whole-frame copy. Used to move engineered columns off an augmented frame for a native re-append onto another frame."""
@@ -185,7 +192,8 @@ def fe_extract_columns(X: Any, names: Iterable[str]) -> dict[str, np.ndarray]:
     out.source = X if is_pandas(X) else None
     for nm in names:
         if is_pandas(X):
-            out[nm] = fe_column_values(X, nm)
+            arr = _pandas_column_array(X, nm)
+            out[nm] = arr if _is_lazy_engineered(arr) else fe_column_values(X, nm)
         elif is_polars(X):
             out[nm] = X[nm].to_numpy()
         else:

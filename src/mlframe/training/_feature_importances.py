@@ -13,23 +13,19 @@ the bottom of evaluation only surfaces the public-API surface.
 from __future__ import annotations
 
 import logging
-
-from mlframe.utils.log_throttle import log_throttle
-from typing import Any, Optional, Tuple, Union
 from collections.abc import Sequence
+from typing import Any, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
-
 from sklearn.pipeline import Pipeline
 
 from mlframe.feature_selection.importance import plot_feature_importance
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
-# FI bar-plot figsize. Half the perf-chart figsize so the FI panels
-# don't dominate the suite report. Originally defined in
-# evaluation.py at module top; carved alongside its only consumer.
+# FI bar-plot figsize: half the perf-chart figsize, so the FI panels don't dominate the suite report (carved from evaluation.py with its only consumer).
 DEFAULT_FI_FIGSIZE = (7.5, 2.5)
 
 # Permutation-importance fallback caps. Used when the inner estimator has

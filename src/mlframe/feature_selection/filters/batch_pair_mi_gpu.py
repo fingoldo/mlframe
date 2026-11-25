@@ -590,6 +590,30 @@ class _PairMiDispatch:
             )
 
 
+def _shared_fit_mask(pair_a: np.ndarray, pair_b: np.ndarray, nbins: np.ndarray, n_classes_y: int) -> "np.ndarray | None":
+    """``True`` for the pairs whose joint histogram (``nbins[a] * nbins[b]`` cells times the target classes) fits the dynamic shared memory of the feature-major / shared-fused kernels, when the set MIXES
+    pairs that fit with pairs that do not; ``None`` when every pair fits, none does, or the set is empty.
+
+    The kernels size one shared histogram for the LARGEST pair of the launch, so a single wide pair (two columns of 48 bins against 10 classes) used to send the whole chunk of tens of thousands of
+    pairs to the row-chunked kernel that reads the row-major matrix with a stride (25.0 s for 79800 pairs of 100000 rows against 0.6 s when the 66 wide pairs are set apart; the counts are exact
+    integers, so the MI of every pair is the same double either way)."""
+    if pair_a.shape[0] < 2:
+        return None
+    joint = np.asarray(nbins)[pair_a].astype(np.int64) * np.asarray(nbins)[pair_b].astype(np.int64)
+    widest = int(joint.max())
+    if shared_fused_kernel_fits_budget(widest, n_classes_y) > 0 or shared_fused_kernel_fits_budget(1, n_classes_y) == 0:
+        return None
+    low, high = 1, widest
+    while low < high:  # the largest joint cardinality that fits: the budget is monotone in it
+        mid = (low + high + 1) // 2
+        if shared_fused_kernel_fits_budget(mid, n_classes_y) > 0:
+            low = mid
+        else:
+            high = mid - 1
+    fits = joint <= low
+    return fits if bool(fits.any()) and not bool(fits.all()) else None
+
+
 def dispatch_batch_pair_mi(
     factors_data: np.ndarray,
     pair_a: np.ndarray,
@@ -620,6 +644,15 @@ def dispatch_batch_pair_mi(
         # force_backend="cuda"/"cupy" caller request - that is the whole point of the switch.
         return _batch_pair_mi_cols(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y), "njit"
 
+    if (force_backend is None or force_backend.lower() == "cuda") and _CUDA_AVAIL and _CUPY_AVAIL:
+        # the all-pairs table of the FE step asks for the CUDA backend by name: the split applies to that request as well (both parts are asked for the same backend)
+        fits = _shared_fit_mask(pair_a, pair_b, nbins, int(freqs_y.shape[0]))
+        if fits is not None:
+            # Intentional float64: pair MI statistic returned at full precision (the kernels' double output)
+            mi = np.empty(pair_a.shape[0], dtype=np.float64)
+            mi[fits], tag_fit = dispatch_batch_pair_mi(factors_data, pair_a[fits], pair_b[fits], nbins, classes_y, freqs_y, force_backend)
+            mi[~fits], tag_wide = dispatch_batch_pair_mi(factors_data, pair_a[~fits], pair_b[~fits], nbins, classes_y, freqs_y, force_backend)
+            return mi, (tag_fit if int(fits.sum()) >= int((~fits).sum()) else tag_wide)
     run = _PairMiDispatch(factors_data, pair_a, pair_b, nbins, classes_y, freqs_y)
     # Explicit override
     if force_backend is not None:
