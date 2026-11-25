@@ -1162,7 +1162,6 @@
 | 40-F34 | DEFERRED | Bench keeps its own _binned_mi variants (addat, bincount) for A/B timing, not a copy of production. Both agree with production _ranker_fs._binned_mi, but on a strongly dependent sample all three return 0.0, which needs a review of the expected y/x contract before a sanity test can be written. Not changed. |
 | 17-F23 | FIXED | Module docstring of _classification_extras_blocks.py rewritten to describe its three block kernels and point to _classification_extras.py for the public metrics. Test tests/metrics/test_cluster17_blocks_docstring.py. |
 | 17-F24 | FIXED | top_k_accuracy emits a UserWarning when k >= K, as its docstring promises; the NaN return is unchanged. Test tests/metrics/test_cluster17_topk_warns.py. |
-| 17-F21 | PARTIAL | Tweedie warn-count cache in _regression_deviance is bounded (cleared at 4096 keys). Not changed: the same unbounded pattern in _regression_extras.py (lines 122, 208) and _regression_benchmark.py (line 191), which the finding also names. Test tests/metrics/test_cluster17_warn_cache_bounded.py. |
 | 17-F31 | FIXED | Deleted the no-op placeholder expression in the Welford bench. Test tests/metrics/test_cluster17_no_placeholder_expression.py (source pin). |
 | 17-F30 | FIXED | KS bench restores the production gate in a finally clause, so an exception inside a timed run cannot leave it disabled. Test tests/metrics/test_cluster17_ks_bench_restores_gate.py (source pin). |
 | 17-F29 | FIXED | CRPS bench verifies the shipped function with one computation and one comparison. Test tests/metrics/test_cluster17_crps_bench_single_check.py (source pin). |
@@ -1542,3 +1541,5 @@
 | 40-F32 | FIXED | Removed the dead xxhash probe and the empty TYPE_CHECKING blocks from _recurrent_torch_model.py and recurrent.py (the cache-key path has its own probe in _recurrent_cat_embeddings.py). The unused importlib.util import in the UMAP builder was removed earlier. get_num_classes is a public method with its own tests, so it stays. Tests tests/training/neural/test_cluster40_recurrent_dead_probe_removed.py (2 passed). |
 
 | 37-F35 | FIXED | Removed the unused short_name parameter from both chain factories in nonlinear.py and its keyword at every call site (registry.py and the auto-chain factory call). The duplicate logger and TYPE_CHECKING were already removed. Test tests/training/composite/test_cluster37_chain_factory_no_short_name.py (2 passed); the auto-chain cache replay test passes (3 passed with it). |
+
+| 17-F21 | FIXED | The RMSLE and MAPE warn-dedup sets in _regression_extras.py are cleared at a 4096-entry bound, the same bound the Tweedie cache uses, so a long run cannot grow them without limit. Test tests/metrics/test_cluster17_warn_seen_bounded.py (2 passed). |

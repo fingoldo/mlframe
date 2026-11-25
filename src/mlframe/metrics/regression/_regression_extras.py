@@ -120,6 +120,8 @@ def _rmsle_kernel_par(y_true: np.ndarray, y_pred: np.ndarray, nthr: int) -> Tupl
 
 
 _RMSLE_NEG_WARN_SEEN: set = set()
+# Bounded like the Tweedie warn cache (audit 17-F21): one entry per distinct (count, total) pair would otherwise grow without limit.
+_WARN_SEEN_MAX = 4096
 
 
 def fast_rmsle(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -151,6 +153,8 @@ def fast_rmsle(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     if neg > 0:
         key = (int(neg), int(yt.shape[0]))
         if key not in _RMSLE_NEG_WARN_SEEN:
+            if len(_RMSLE_NEG_WARN_SEEN) >= _WARN_SEEN_MAX:
+                _RMSLE_NEG_WARN_SEEN.clear()
             _RMSLE_NEG_WARN_SEEN.add(key)
             import warnings
             warnings.warn(
@@ -228,6 +232,8 @@ def fast_mape_mean(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     if n_zero > 0:
         key = (int(n_zero), int(yt.shape[0]))
         if key not in _MAPE_MEAN_ZERO_WARN_SEEN:
+            if len(_MAPE_MEAN_ZERO_WARN_SEEN) >= _WARN_SEEN_MAX:
+                _MAPE_MEAN_ZERO_WARN_SEEN.clear()
             _MAPE_MEAN_ZERO_WARN_SEEN.add(key)
             import warnings
             warnings.warn(
