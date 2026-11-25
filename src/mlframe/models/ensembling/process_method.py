@@ -565,10 +565,14 @@ def _flag_degenerate_confident_subset(flag_degenerate_conf_subset, is_regression
             # Count positives via boolean comparison so float / bool / int
             # targets all behave the same. Ratio is min/max regardless of
             # which class is the minority.
-            _n_pos = int((_ct == 1).sum())
-            _n_neg = int(_ct.shape[0] - _n_pos)
-            _hi = max(_n_pos, _n_neg)
-            _lo = min(_n_pos, _n_neg)
-            if _hi > 0 and (_lo / _hi) < degenerate_class_ratio:
+            # Count the ACTUAL label values, not a hard-wired 1 vs the rest: labels {0, 2} used to read as one-class and every subset was tagged (audit 18-F7).
+            # A single label is degenerate; two labels are judged by their ratio; a multiclass subset is not a degenerate binary case and is left alone.
+            _classes = np.unique(_ct)
+            if _classes.shape[0] == 1:
                 _degenerate_marker = "[DEGENERATE] "
+            elif _classes.shape[0] == 2:
+                _counts = [int((_ct == c).sum()) for c in _classes]
+                _hi, _lo = max(_counts), min(_counts)
+                if _hi > 0 and (_lo / _hi) < degenerate_class_ratio:
+                    _degenerate_marker = "[DEGENERATE] "
     return _degenerate_marker

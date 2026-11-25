@@ -420,7 +420,6 @@
 | 17-F19 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 17-F20 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 18-F9 | FIXED | gate weighted means return NaN when every weight is zero instead of raising; tests/models/test_cluster18_zero_weight_gate.py; existing quality-gate and ensembling tests: 231 passed |
-| 18-F7 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 18-F11 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 18-F12 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 18-F13 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
@@ -1519,3 +1518,5 @@
 | 28-F37 | FIXED | resolve_mlp_predict_batch_size takes a device_id and forwards it to the memory probe; the predict caller passes the current CUDA device, so the batch is sized for the device the model runs on. The default stays 0. Tests tests/training/neural/test_cluster28_predict_batch_device_id.py and the existing test_mlp_runtime_defaults.py (38 passed). |
 
 | 29-F14 | DOCUMENTED | Aggregated oracle rows keep only the median and n_obs, so a later append takes a median of medians and the result depends on append batching. The exact fix stores (value, weight) pairs per metric, which changes the stored format and needs a schema bump and migration. Documented at the aggregation site; not changed here. |
+
+| 18-F7 | FIXED | The DEGENERATE marker judges the actual label values: a single label is tagged, two labels are judged by their ratio, and a multiclass subset is not tagged by this binary rule. Labels {0, 2} balanced are no longer tagged. Tests tests/models/ensembling/test_cluster18_degenerate_actual_labels.py (4 passed) and the train-path tests (6 passed in total). |
