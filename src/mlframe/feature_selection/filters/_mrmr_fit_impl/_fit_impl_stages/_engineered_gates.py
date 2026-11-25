@@ -181,12 +181,18 @@ def _gate_base_columns(X, gate_cols, y, seed):
                 _cut[name] = (_full if _draw is None else _full[_draw], float(np.mean(~np.isfinite(_full))))
             return _cut[name]
 
-        for _start in range(0, len(base_cols), _PREFETCH_CHUNK):  # the engineered candidates are replayed by a pool a chunk ahead of their reading (800 columns one by one were 12 s of one core)
-            _chunk = base_cols[_start : _start + _PREFETCH_CHUNK]
-            prefetch_columns(X, [_gc for _gc, _src in _chunk])
-            for _gc, _src in _chunk:
-                _cut_column(_gc)
-                _cut_column(_src)
+        from concurrent.futures import ThreadPoolExecutor
+
+        from mlframe.feature_selection.filters._adaptive_nbins import _resolve_edge_jobs
+
+        # the engineered candidates are replayed by a pool a chunk ahead of their reading (800 columns one by one were 12 s of one core), and each chunk is cut to the draw on the same number of threads (a pass over the
+        # full column for its non-finite share and a gather of the draw: numpy releases the GIL in both, and a source met twice is cut twice at worst, to the same values)
+        _cut_jobs = _resolve_edge_jobs(None, len(base_cols))
+        with ThreadPoolExecutor(max_workers=max(1, _cut_jobs), thread_name_prefix="gate_cut") as _cut_pool:
+            for _start in range(0, len(base_cols), _PREFETCH_CHUNK):
+                _chunk = base_cols[_start : _start + _PREFETCH_CHUNK]
+                prefetch_columns(X, [_gc for _gc, _src in _chunk])
+                list(_cut_pool.map(_cut_column, [_name for _pair in _chunk for _name in _pair]))
         _srcs = [_cut_column(_src)[0] for _gc, _src in base_cols]
         _engs = [_cut_column(_gc)[0] for _gc, _src in base_cols]
         _mnar = [_cut_column(_src)[1] > 0.02 for _gc, _src in base_cols]  # the gate's missingness fail-closed rule decides these without a probe
