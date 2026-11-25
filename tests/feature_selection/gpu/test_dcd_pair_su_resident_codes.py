@@ -52,3 +52,30 @@ def test_the_matrix_is_uploaded_once_per_array():
     assert first is second and first is not None
     other, *_ = _case(5000, 10, 8, 10, 4)
     assert D._resident_codes(cp, other) is not first
+
+
+def test_a_byte_matrix_stays_bytes_on_the_device_and_gives_the_host_values():
+    """int8 codes are made resident as int8 (half the memory of int16) and the entropies are the host's; int32 codes within int16 keep int16."""
+    fd, a, b, nb = _case(8000, 14, 9, 80, 5)
+    dev = D._resident_codes(cp, fd)
+    assert dev is not None and dev.dtype == cp.int8
+    np.testing.assert_allclose(D.joint_entropies_gpu(fd, a, b, nb), np.asarray(_joint_entropies_host(fd, a, b, nb)), rtol=0, atol=1e-9)
+    wide = D._resident_codes(cp, fd.astype(np.int32))
+    assert wide is not None and wide.dtype == cp.int16
+
+
+def test_an_out_of_memory_matrix_is_not_resident_and_the_sweep_still_runs_on_the_device(monkeypatch):
+    """When the whole matrix does not fit the pool, the per-block upload serves the sweep: the values are the host's, nothing raises."""
+    fd, a, b, nb = _case(7000, 12, 7, 60, 6)
+    real_empty = cp.empty
+
+    def refusing(shape, dtype=float, *args, **kwargs):
+        """The first matrix-sized allocation is refused as a full pool refuses it."""
+        if isinstance(shape, tuple) and len(shape) == 2 and shape == fd.shape:
+            raise cp.cuda.memory.OutOfMemoryError(1 << 40, 0)
+        return real_empty(shape, dtype, *args, **kwargs)
+
+    monkeypatch.setattr(cp, "empty", refusing)
+    assert D._resident_codes(cp, fd) is None
+    got = D.joint_entropies_gpu(fd, a, b, nb)
+    np.testing.assert_allclose(got, np.asarray(_joint_entropies_host(fd, a, b, nb)), rtol=0, atol=1e-9)
