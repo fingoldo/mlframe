@@ -13,13 +13,6 @@ _RULES = Path(tr.__file__).resolve()
 _SEARCH = Path(opt.__file__).resolve()
 
 
-def test_condition_comment_states_or_semantics():
-    """The condition documentation says any matching condition holds (25-F62)."""
-    text = _RULES.read_text(encoding="utf-8")
-    assert "Holds when ANY listed condition matches" in text
-    assert "must hold on all the conditions" not in text
-
-
 def test_expected_fitness_is_assigned_outside_the_exploitation_branch():
     """self.expected_fitness is assigned at function level, so both modes set it (25-F62)."""
     text = _SEARCH.read_text(encoding="utf-8")

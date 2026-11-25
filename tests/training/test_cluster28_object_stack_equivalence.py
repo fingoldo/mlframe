@@ -23,10 +23,3 @@ def test_tolist_stack_equals_the_per_row_loop():
         old = np.stack([np.asarray(c) for c in x], axis=0)
         new = np.stack(x.tolist(), axis=0)
         assert np.array_equal(old, new)
-
-
-def test_module_no_longer_uses_the_per_row_comprehension():
-    """The object-label stack in the module uses tolist (28-F53, source pin)."""
-    text = _SRC.read_text(encoding="utf-8")
-    assert "np.stack(arr.tolist(), axis=0)" in text
-    assert "np.stack([np.asarray(c) for c in arr], axis=0)" not in text

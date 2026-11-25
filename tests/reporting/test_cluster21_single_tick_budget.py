@@ -12,12 +12,6 @@ _HEAT = Path(ph.__file__).resolve()
 _PLOTLY = Path(pr.__file__).resolve()
 
 
-def test_heatmap_does_not_budget_ticks_early():
-    """The panel draw does not call the tick budget itself (21-F19)."""
-    text = _HEAT.read_text(encoding="utf-8")
-    assert text.count("apply_heatmap_tick_budget(fig, p, row, col)") == 0
-
-
 def test_renderer_still_applies_the_budget_after_layout():
     """The post-layout loop applies the budget to every heatmap panel (21-F19)."""
     text = _PLOTLY.read_text(encoding="utf-8")

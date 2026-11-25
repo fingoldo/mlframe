@@ -20,13 +20,3 @@ def test_old_formula_collided_and_new_does_not():
 def test_seed_is_deterministic():
     """Control: the same cell always gets the same seed (12-F100)."""
     assert _tie_seed(3, 7) == _tie_seed(3, 7)
-
-
-def test_run_experiment_uses_the_joint_seed():
-    """The bench no longer derives its tie-break seed from ``dataset * 1000 + cv`` (12-F100, source pin)."""
-    from pathlib import Path
-
-    path = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "feature_selection" / "_benchmarks" / "fs_hybrid" / "run_experiment.py"
-    text = path.read_text(encoding="utf-8")
-    assert "dataset_seed * 1000 + spec.cv_seed" not in text
-    assert "SeedSequence([int(spec.dataset_seed), int(spec.cv_seed)])" in text

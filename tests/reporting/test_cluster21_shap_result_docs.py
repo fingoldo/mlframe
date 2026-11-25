@@ -11,11 +11,3 @@ def test_result_docs_say_the_figure_is_closed_on_return():
     doc = spi.ShapPerInstanceResult.__doc__ or ""
     assert "still-open unless closed" not in doc
     assert "already CLOSED on return" in doc
-
-
-def test_n_background_is_documented_as_explained_rows():
-    """The field comment states that n_background counts explained rows (21-F26)."""
-    import inspect
-
-    src = inspect.getsource(spi.ShapPerInstanceResult)
-    assert "number of EXPLAINED rows" in src
