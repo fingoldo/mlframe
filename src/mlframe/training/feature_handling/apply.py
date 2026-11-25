@@ -104,6 +104,9 @@ class FeatureHandlingResult:
 # =====================================================================
 
 
+# The SVD width used when a handler sets none (audit 39-F31): one named constant instead of a repeated literal. There is no config field for it.
+_SVD_DEFAULT_DIM = 256
+
 def _resolve_cat_columns(train_df: Any, candidate_cat_columns: Optional[List[str]], text_cols: List[str]) -> List[str]:
     """Return the explicit cat columns, or auto-detect them by dtype excluding the columns already claimed as text."""
     if candidate_cat_columns is None:
@@ -320,7 +323,7 @@ def _assemble_held_out(df: Any, blocks: Any, model_kind: Any, numeric_block: Any
         blocks, model_kind=model_kind,
         numeric_block=numeric_block,
         numeric_feature_names=numeric_feature_names,
-        svd_default_dim=256,
+        svd_default_dim=_SVD_DEFAULT_DIM,
         fitted_svds=train_asm.fitted_svds,
     )
 
@@ -447,7 +450,7 @@ def feature_handling_apply(
         train_blocks, model_kind=model_kind,
         numeric_block=numeric_block_train,
         numeric_feature_names=numeric_feature_names,
-        svd_default_dim=256,
+        svd_default_dim=_SVD_DEFAULT_DIM,
     )
     val_asm = _assemble_held_out(val_df, val_blocks, model_kind, numeric_block_val, numeric_feature_names, train_asm)
     test_asm = _assemble_held_out(test_df, test_blocks, model_kind, numeric_block_test, numeric_feature_names, train_asm)
