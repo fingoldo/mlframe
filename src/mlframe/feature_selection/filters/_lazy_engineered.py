@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import itertools
 import logging
+import os
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Iterable
 from typing import Any, Callable, Optional
 
 import numpy as np
@@ -133,6 +135,50 @@ class _ColumnCache:
 _CACHE = _ColumnCache(CACHE_BYTES)
 _HEAD_CACHE = _ColumnCache(HEAD_CACHE_BYTES)
 _GATHER_CACHE = _ColumnCache(GATHER_CACHE_BYTES)
+def prefetch_columns(X: Any, names: Iterable[str], workers: "int | None" = None) -> int:
+    """Compute, on a thread pool, the values of the lazy engineered columns of ``X`` among ``names`` that are not in the cache yet; the number computed.
+
+    A stage that reads hundreds of engineered columns one after another replays them one at a time on one thread (the accuracy gate: 800 columns at 500000 rows, 12 s of the critical path with the other cores
+    idle). The replays run in ``nogil`` numba kernels and numpy, so they overlap; the reader then finds the values in the cache. At most as many columns as half the value cache holds are computed ahead of
+    the reader (a prefetch that pushed out its own head would compute everything twice). A replay that fails is left for the reader, which meets the same error on its own call."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    todo = []
+    for name in names:
+        try:
+            array = X[name].array
+        except (KeyError, TypeError, AttributeError):
+            continue
+        if isinstance(array, LazyEngineeredColumn) and array._values is None and _CACHE.get(array._key) is None:
+            todo.append(array)
+    if not todo:
+        return 0
+    if workers is None:
+        try:
+            import psutil
+
+            workers = psutil.cpu_count(logical=False) or 2
+        except Exception:  # psutil missing: the logical count
+            workers = os.cpu_count() or 2
+    workers = max(1, min(8, int(workers)))
+    room = max(1, int(_CACHE.bound() // 2 // max(1, todo[0]._length * 4)))
+    done = 0
+
+    def replay_one(column: "LazyEngineeredColumn") -> bool:
+        """One replay; False when it failed (the reader will meet the error itself)."""
+        try:
+            column.materialize()
+            return True
+        except Exception as exc:
+            log_throttle(logger, "_lazy_engineered.prefetch", logging.INFO, "prefetch of a lazy column failed (%s: %s); the reader computes it", type(exc).__name__, exc)
+            return False
+
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="lazy_prefetch") as pool:
+        for start in range(0, len(todo), room):
+            done += sum(pool.map(replay_one, todo[start : start + room]))
+    return done
+
+
 def release_caches() -> int:
     """Drop the materialised columns, the replayed heads and the gathered rows (all recomputable); the bytes freed. Registered with the FE stages' cache releaser: it runs when the free RAM is low."""
     return _CACHE.clear() + _HEAD_CACHE.clear() + _GATHER_CACHE.clear()
@@ -142,6 +188,15 @@ register_cache_releaser(release_caches)
 
 #: Counters of the process (columns created, replays run, reads answered by the cache, bytes replayed): what the profile of a fit reads to see how often a lazy column is computed.
 STATS = {"created": 0, "replayed": 0, "cache_hits": 0, "replayed_bytes": 0, "head_replays": 0, "gather_hits": 0}
+_STATS_LOCK = threading.Lock()  # the prefetch pool replays columns on several threads: a bare ``+=`` on a dict value loses increments
+
+
+def _count(name: str, amount: int = 1) -> None:
+    """Add ``amount`` to the process counter ``name``."""
+    with _STATS_LOCK:
+        STATS[name] += amount
+
+
 _SERIAL = itertools.count()  # a key per column that is never reused (the ids of collected objects are)
 
 
@@ -200,7 +255,7 @@ class LazyEngineeredColumn(ExtensionArray):
         self._values = values  # set for a held (sliced / concatenated) column: ``replay`` is then None
         self._key = next(_SERIAL)
         if replay is not None:
-            STATS["created"] += 1
+            _count("created")
 
     # ---- construction -------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -233,15 +288,15 @@ class LazyEngineeredColumn(ExtensionArray):
             return self._values
         hit = _CACHE.get(self._key)
         if hit is not None:
-            STATS["cache_hits"] += 1
+            _count("cache_hits")
             return hit
         assert self._replay is not None
         computed = np.ascontiguousarray(self._replay(), dtype=np.float32).reshape(-1)
         if computed.shape[0] != self._length:
             raise ValueError(f"a lazy engineered column replayed to {computed.shape[0]} rows, expected {self._length}")
         computed.flags.writeable = False
-        STATS["replayed"] += 1
-        STATS["replayed_bytes"] += int(computed.nbytes)
+        _count("replayed")
+        _count("replayed_bytes", int(computed.nbytes))
         _CACHE.put(self._key, computed)
         return computed
 
@@ -301,7 +356,7 @@ class LazyEngineeredColumn(ExtensionArray):
                 if head.shape[0] != rows:
                     raise ValueError(f"a lazy engineered column replayed to {head.shape[0]} head rows, expected {rows}")
                 head.flags.writeable = False
-                STATS["head_replays"] += 1
+                _count("head_replays")
                 _HEAD_CACHE.put((self._key, rows), head)
             return LazyEngineeredColumn.from_values(head)
         if values is None:
@@ -331,7 +386,7 @@ class LazyEngineeredColumn(ExtensionArray):
         key = (self._key, idx.shape[0], hash(idx.tobytes()))
         out = _GATHER_CACHE.get(key)
         if out is not None:
-            STATS["gather_hits"] += 1
+            _count("gather_hits")
         else:
             out = np.ascontiguousarray(self.materialize()[idx], dtype=np.float32)
             out.flags.writeable = False

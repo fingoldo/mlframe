@@ -305,3 +305,79 @@ def test_the_available_memory_is_read_once_per_ttl_not_once_per_put(monkeypatch)
     monkeypatch.setattr(L, "_AVAILABLE_TTL_S", 0.0)
     cache.put(99, np.zeros(10, dtype=np.float32))
     assert len(reads) == 2
+
+
+def test_prefetch_computes_the_pending_lazy_columns_of_a_frame_concurrently_and_once(monkeypatch):
+    """Sixteen lazy columns whose replay takes 50 ms are ready in far less than their sequential 0.8 s, each computed exactly once; plain columns, held columns and cached ones are left alone."""
+    import threading
+    import time
+
+    L.release_caches()
+    base = _frame(n=200)
+    lock = threading.Lock()
+    calls: "dict[int, int]" = {}
+
+    def make(j):
+        """A lazy column whose replay takes a while."""
+
+        def compute():
+            """The slow replay."""
+            time.sleep(0.05)
+            with lock:
+                calls[j] = calls.get(j, 0) + 1
+            return np.full(len(base), float(j), dtype=np.float32)
+
+        return L.LazyEngineeredColumn(compute, len(base))
+
+    lazies = {f"e{j}": make(j) for j in range(16)}
+    X = pd.concat([base, pd.DataFrame(lazies, index=base.index, copy=False)], axis=1)
+    started = time.perf_counter()
+    done = L.prefetch_columns(X, ["x0", "k", *lazies], workers=8)
+    elapsed = time.perf_counter() - started
+    assert done == 16 and elapsed < 0.6 and sorted(calls) == list(range(16)) and set(calls.values()) == {1}
+    assert L.prefetch_columns(X, list(lazies), workers=8) == 0  # all cached now
+    assert [float(np.asarray(X[f"e{j}"])[0]) for j in range(16)] == [float(j) for j in range(16)]
+    assert set(calls.values()) == {1}
+
+
+def test_a_failing_replay_is_left_to_the_reader(monkeypatch):
+    """The prefetch swallows the error of a replay; the reader's own call raises it as before."""
+    L.release_caches()
+    base = _frame(n=50)
+
+    def boom():
+        """A replay that fails."""
+        raise RuntimeError("cannot replay")
+
+    X = pd.concat([base, pd.DataFrame({"bad": L.LazyEngineeredColumn(boom, len(base))}, index=base.index, copy=False)], axis=1)
+    assert L.prefetch_columns(X, ["bad"], workers=2) == 0
+    with pytest.raises(RuntimeError, match="cannot replay"):
+        np.asarray(X["bad"])
+
+
+def test_the_counters_lose_no_increment_when_the_prefetch_pool_replays_columns_on_several_threads(monkeypatch):
+    """Eight threads replaying sixty-four columns count exactly sixty-four replays and their bytes, and a counter hammered by eight threads at a tiny switch interval keeps every increment."""
+    import sys
+    import threading
+
+    L.release_caches()
+    base = _frame(n=100)
+    lazies = {f"c{j}": L.LazyEngineeredColumn(lambda j=j: np.full(len(base), float(j), dtype=np.float32), len(base)) for j in range(64)}
+    X = pd.concat([base, pd.DataFrame(lazies, index=base.index, copy=False)], axis=1)
+    before = dict(L.STATS)
+    assert L.prefetch_columns(X, list(lazies), workers=8) == 64
+    assert L.STATS["replayed"] - before["replayed"] == 64
+    assert L.STATS["replayed_bytes"] - before["replayed_bytes"] == 64 * len(base) * 4
+
+    previous = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        start = L.STATS["cache_hits"]
+        workers = [threading.Thread(target=lambda: [L._count("cache_hits") for _ in range(5000)]) for _ in range(8)]
+        for t in workers:
+            t.start()
+        for t in workers:
+            t.join()
+    finally:
+        sys.setswitchinterval(previous)
+    assert L.STATS["cache_hits"] - start == 8 * 5000
