@@ -41,6 +41,9 @@ for tn, tr in T.items():
     rec = dict(target=tn, preset=preset, seed=seed)
     rec["truth"] = float(mi_cnt(bins_of(tr.astype(float), 10), yb, 10, 10, False))
     rec["joint"] = float(mi_cnt((qbin(x, 10) * 10 + qbin(z, 10)).astype(np.int8), yb, 100, 10, False))
+    # SELECTION BIAS (audit 11-F3, documented): the searched arms below (preset_best and each mode name) report the MAXIMUM over many candidates,
+    # all scored in-sample on the rows that picked them. truth and als are single candidates. The searched numbers are inflated relative to
+    # truth and als even on noise, so "searched beats truth" is NOT a like-for-like conclusion. Read the searched columns as an upper bound.
     rec["preset_best"] = preset_matrix_best(UX, UZ, BI, yb)[0]
     for name, mode, zthr, fb, wi, hu in [
         ("median", 1, 0.0, False, False, False),

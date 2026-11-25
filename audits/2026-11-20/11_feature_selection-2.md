@@ -50,7 +50,6 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 - 11-F19: FIXED. All MRMR arm and wrapper constructions draw from one bare_mrmr_kwargs helper in _arms.py; the variant arm overrides only its declared keys. Test tests/feature_selection/test_cluster11_mrmr_kwargs_single_source.py.
 - 11-F20: PARTIAL. Test gap closed for _integer_bins (the MI binning used by every MI arm): constant, few-unique, many-unique and NaN contracts pinned. The other named helpers (family_eval, als_rank1, preset_matrix_best) are not covered by this change. Test tests/feature_selection/test_cluster11_integer_bins_contract.py.
 
-- 11-F3: DEFERRED. stat_study compares searched arms (max over many in-sample candidates) against single-candidate truth/als. A like-for-like fix needs held-out scoring of the candidate chosen on training rows, which requires candidate-level outputs from family_eval (it returns only the max). That is a benchmark-contract change for its own pass. No code change.
 
 - 11-F8: FIXED. catboost availability logs at INFO when not installed (ImportError) and at WARNING when installed but broken, so a broken install is no longer indistinguishable from a missing one. Test tests/feature_selection/test_cluster11_catboost_broken_warns.py.
 
@@ -71,3 +70,5 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 - 11-F6: PARTIAL. stat_study core no longer installs a process-wide warning filter at import. Not done: cost_bench.py, t_curve.py, case2_mi.py and exp2_general.py still do the same at import. Test tests/feature_selection/test_cluster11_stat_core_no_global_filter.py.
 
 - 11-F10: DEFERRED. InformationGreedyArm calls the njit kernel once per (candidate, chosen) pair from Python. Vectorising needs an equivalence check of the selected sets across JMIM, RELAX and CMIM, and the finding is performance-only with unchanged output. Deferred to a benchmark-validated pass. No code change.
+
+- 11-F3: DOCUMENTED. The searched arms in exp6_tables (preset_best and each mode) report the max over many in-sample candidates, while truth and als are single candidates, so the searched numbers are inflated even on noise. Documented at the comparison as an upper bound, not a like-for-like result. A null run (permuted y) would be the follow-up if a conclusion depends on it; no code or numbers changed.
