@@ -1375,7 +1375,6 @@
 
 | 11-F8 | FIXED | catboost availability logs at INFO when not installed (ImportError) and at WARNING when installed but broken, so a broken install is no longer indistinguishable from a missing one. Test tests/feature_selection/test_cluster11_catboost_broken_warns.py. |
 
-| 11-F5 | PARTIAL | stat_study core: a failing operator is reported once per operator at WARNING via log_throttle (was DEBUG, silent). Not done: the same swallow in exp2_general.py and case2_missing.py is unchanged. Test tests/feature_selection/test_cluster11_stat_study_failure_warns.py. |
 
 | 11-F7 | FIXED | A counted estimator module that fails to import with a non-ImportError is reported as missing and logged at WARNING; it used to abort every arm's FitCounter. Test tests/feature_selection/test_cluster11_counted_import_failure_listed.py. |
 
@@ -1543,3 +1542,5 @@
 | 37-F35 | FIXED | Removed the unused short_name parameter from both chain factories in nonlinear.py and its keyword at every call site (registry.py and the auto-chain factory call). The duplicate logger and TYPE_CHECKING were already removed. Test tests/training/composite/test_cluster37_chain_factory_no_short_name.py (2 passed); the auto-chain cache replay test passes (3 passed with it). |
 
 | 17-F21 | FIXED | The RMSLE and MAPE warn-dedup sets in _regression_extras.py are cleared at a 4096-entry bound, the same bound the Tweedie cache uses, so a long run cannot grow them without limit. Test tests/metrics/test_cluster17_warn_seen_bounded.py (2 passed). |
+
+| 11-F5 | FIXED | A failing operator in the exp2 study is reported at WARNING through the throttled logger, once per operator; the same change was already in core.py. Test tests/feature_selection/test_cluster11_exp2_failure_warns.py (1 passed). |

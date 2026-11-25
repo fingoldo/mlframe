@@ -53,7 +53,6 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 
 - 11-F8: FIXED. catboost availability logs at INFO when not installed (ImportError) and at WARNING when installed but broken, so a broken install is no longer indistinguishable from a missing one. Test tests/feature_selection/test_cluster11_catboost_broken_warns.py.
 
-- 11-F5: PARTIAL. stat_study core: a failing operator is reported once per operator at WARNING via log_throttle (was DEBUG, silent). Not done: the same swallow in exp2_general.py and case2_missing.py is unchanged. Test tests/feature_selection/test_cluster11_stat_study_failure_warns.py.
 
 - 11-F7: FIXED. A counted estimator module that fails to import with a non-ImportError is reported as missing and logged at WARNING; it used to abort every arm's FitCounter. Test tests/feature_selection/test_cluster11_counted_import_failure_listed.py.
 
@@ -73,3 +72,5 @@ Coverage: read in full: `fs_hybrid/_arms.py`, `_arms_wrappers.py`, `_arms_baseli
 - 11-F3: DOCUMENTED. The searched arms in exp6_tables (preset_best and each mode) report the max over many in-sample candidates, while truth and als are single candidates, so the searched numbers are inflated even on noise. Documented at the comparison as an upper bound, not a like-for-like result. A null run (permuted y) would be the follow-up if a conclusion depends on it; no code or numbers changed.
 
 - 11-F6: FIXED. No fe_operator_factory benchmark installs a process-wide catch-all warning filter: the stat_study and kernel_prototypes modules and the brainstorm module silence only FutureWarning and DeprecationWarning, as the fs_hybrid benches do. Test tests/feature_selection/test_cluster11_no_catch_all_filter_in_factory.py (1 passed).
+
+- 11-F5: FIXED. A failing operator in the exp2 study is reported at WARNING through the throttled logger, once per operator; the same change was already in core.py. Test tests/feature_selection/test_cluster11_exp2_failure_warns.py (1 passed).
