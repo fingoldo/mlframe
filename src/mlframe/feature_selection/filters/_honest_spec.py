@@ -58,13 +58,36 @@ class _FrameColumns:
         rows, j = key
         if rows != slice(None):
             raise IndexError("_FrameColumns serves whole columns only")
-        j = int(j)
+        return self.column(int(j), self.dtype)
+
+    def column(self, j: int, dtype: Any) -> np.ndarray:
+        """Column ``j`` in ``dtype``: a float32 column of the frame is read as it is when ``dtype`` is float32 (no widening copy), a median-filled one is converted from its double-precision fill."""
         if j in self._filled:
-            return self._filled[j].astype(self.dtype, copy=False)
+            return self._filled[j].astype(dtype, copy=False)
         name = self._cols[j]
         if name is None:
-            return np.zeros(self.shape[0], dtype=self.dtype)
-        return np.asarray(fe_column_values(self._X, name), dtype=self.dtype)
+            return np.zeros(self.shape[0], dtype=dtype)
+        return np.asarray(fe_column_values(self._X, name), dtype=dtype)
+
+
+def _exact_in_float32(dtype: Any) -> bool:
+    """Whether every value of a column of ``dtype`` is the same number in float32: float32 itself, the lazy engineered float32 column, booleans and the integers of at most 16 bits (the target the frame carries is one)."""
+    from ._lazy_engineered import LazyEngineeredDtype
+
+    if isinstance(dtype, LazyEngineeredDtype):
+        return True
+    return isinstance(dtype, np.dtype) and (dtype == np.float32 or dtype == np.bool_ or (dtype.kind in "iu" and dtype.itemsize <= 2))
+
+
+def _float32_exact_flags(X: pd.DataFrame, cols: Sequence[str], nan_by_col: "dict[int, np.ndarray]") -> np.ndarray:
+    """Per column of ``cols``: whether the spec serves it in float32 without changing a value. A column the frame does not have or that is not numeric is served as zeros (exact); a numeric one is exact when
+    its dtype is float32 in value and it has no NaN to fill."""
+    flags = np.ones(len(cols), dtype=np.bool_)
+    for j, c in enumerate(cols):
+        if c not in X.columns or not pd.api.types.is_numeric_dtype(X[c]):
+            continue
+        flags[j] = _exact_in_float32(X[c].dtype) and j not in nan_by_col
+    return flags
 
 
 def _median_filled_column(col: pd.Series) -> "tuple[np.ndarray, np.ndarray] | None":
@@ -96,10 +119,11 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
     nan_by_col: dict[int, np.ndarray] = {}  # the NaN masks of the columns that have NaN; the (n, m) bool matrix exists only when one does
     # float32 frames keep a float32 matrix: widening a float32 value to float64 is exact, so the cut search reads the same numbers (a column with NaN is median-filled in double
     # precision, so any NaN keeps the double matrix); the (n, m) matrix is the largest array of the spec, 4 bytes per cell instead of 8
+    # The dtype test alone decides here: the target and the lazy engineered columns the frame carries are float32 in value although their dtype is not float32, and a test that read ``dtype == float32`` turned
+    # the matrix to float64 in every fit that has one of them (the sort of the honest null then ran on 8-byte keys). The NaN test comes with the column pass below.
     _numeric = [c for c in cols if fe_column_is_numeric(X, c)]
-    _f32_exact = bool(_numeric) and all(X[c].dtype == np.float32 for c in _numeric) and not any(bool(X[c].isna().any()) for c in _numeric)
+    _f32_dtypes = bool(_numeric) and all(_exact_in_float32(X[c].dtype) for c in _numeric)
     filled: dict[int, np.ndarray] = {}  # the median-filled columns of the frame's columns that have NaN
-    raw: Any = _FrameColumns(X, cols, n, np.float32 if _f32_exact else np.float64, filled)  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
     is_cont = np.zeros(m, dtype=np.bool_)
     q_fb_rows: list[np.ndarray] = []
     q_rf_rows: list[np.ndarray] = []
@@ -129,6 +153,11 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
         q_fb_rows.append(np.empty(0, dtype=np.float64))  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
         q_rf_rows.append(np.empty(0, dtype=np.float64))  # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning)
         numeric_js.append(j)
+    # Intentional float64: MDLP cut search at the production binning width (cut points must match supervised_binning); float32 only when every column is float32 in value and none has NaN
+    raw: Any = _FrameColumns(X, cols, n, np.float32 if (_f32_dtypes and not nan_by_col) else np.float64, filled)
+    # Per column: float32 in value (its dtype says so and it has no NaN to fill). A block of the honest null whose continuous columns are all such is read, sorted and binned in float32 although the matrix
+    # is double: one median-filled column or one column computed in double makes the matrix double, and the other thousand are float32 widened.
+    f32_exact = _float32_exact_flags(X, cols, nan_by_col)
     # The distinct-value count and the two quantile edge sets of a column read only that column, so the columns run on the edge-jobs pool; results are written by column index.
     from concurrent.futures import ThreadPoolExecutor
 
@@ -177,6 +206,7 @@ def build_honest_spec(X: pd.DataFrame, cols: Sequence[str], y_raw: np.ndarray, m
     return {
         "method": method,
         "raw": raw,
+        "raw_f32_exact": f32_exact,
         "nan_mask": nan_mask,
         "has_nan": nan_mask is not None,
         "is_cont": is_cont,

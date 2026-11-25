@@ -209,6 +209,24 @@ def _njit_null_columns(spec: dict, factors_data: np.ndarray, factors_nbins, y_id
     return np.concatenate([p[0] for p in by_perm], axis=0), np.concatenate([p[1] for p in by_perm], axis=0)
 
 
+def _block_raw_dtype(spec: dict, cont_cols: list) -> Any:
+    """The dtype of the raw matrix of one block of columns: the spec's own, narrowed to float32 when the spec is double precision only because of a few columns and every continuous column of the block is float32 in
+    value (``raw_f32_exact``). Widening a float32 value to double is exact, so the sort, the codes and the cut search read the same numbers from half the bytes."""
+    dtype = spec["raw"].dtype
+    exact = spec.get("raw_f32_exact")
+    if dtype == np.float64 and exact is not None and cont_cols and all(bool(exact[c]) for c in cont_cols):  # Intentional float64: the spec's double-precision matrix is what is narrowed
+        return np.dtype(np.float32)
+    return dtype
+
+
+def _spec_column(spec: dict, c: int, dtype: Any) -> np.ndarray:
+    """Column ``c`` of the spec's raw matrix in ``dtype`` (a frame-backed matrix reads it from the frame in that dtype)."""
+    raw = spec["raw"]
+    if hasattr(raw, "column"):
+        return raw.column(int(c), dtype)
+    return np.asarray(raw[:, c], dtype=dtype)
+
+
 def _njit_null_columns_block(spec: dict, factors_data: np.ndarray, factors_nbins, y_idx: int, cols, n_permutations: int, seed_key: int, eval_rows=None, label_blocks=None):
     """Per-permutation null MI of ``cols`` (no cache): ``(plain, corrected)`` each ``(n_permutations, len(cols))``, from ``honest_null_columns``.
 
@@ -226,12 +244,12 @@ def _njit_null_columns_block(spec: dict, factors_data: np.ndarray, factors_nbins
     # (n, P) copies, float64 and int64, did not fit next to a 50000-row fit with a pool of ~1500 columns.
     cont_cols = [c for c, f in zip(cols, is_cont) if f]
     fixed_cols = [c for c, f in zip(cols, is_cont) if not f]
-    raw_dtype = spec["raw"].dtype
+    raw_dtype = _block_raw_dtype(spec, cont_cols)
     raw_cont = np.empty((n, max(1, len(cont_cols))), dtype=raw_dtype)
     if cont_cols:
         from ._fe_frame_ops import fe_stack_columns
 
-        fe_stack_columns([spec["raw"][:, c] for c in cont_cols], raw_dtype, out=raw_cont)  # in row tiles: the column-by-column fill was 0.5 s for 170 columns of 100000 rows
+        fe_stack_columns([_spec_column(spec, c, raw_dtype) for c in cont_cols], raw_dtype, out=raw_cont)  # in row tiles: the column-by-column fill was 0.5 s for 170 columns of 100000 rows
     # Rows that were NaN before the median fill: they keep the column's NaN code instead of their filled value's bin.
     nan_cont = np.zeros((n, max(1, len(cont_cols))), dtype=np.bool_)
     if spec.get("nan_mask") is not None:
