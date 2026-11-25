@@ -14,6 +14,7 @@ Used only for pandas frames of at least ``MLFRAME_FE_LAZY_REPLAY_MIN_ROWS`` rows
 
 from __future__ import annotations
 
+import functools
 import itertools
 import logging
 import os
@@ -135,39 +136,55 @@ class _ColumnCache:
 _CACHE = _ColumnCache(CACHE_BYTES)
 _HEAD_CACHE = _ColumnCache(HEAD_CACHE_BYTES)
 _GATHER_CACHE = _ColumnCache(GATHER_CACHE_BYTES)
-def prefetch_columns(X: Any, names: Iterable[str], workers: "int | None" = None) -> int:
+
+
+@functools.lru_cache(maxsize=1)
+def _prefetch_workers() -> int:
+    """Threads of the prefetch pool: the physical cores, at most 8 (read once, the count of cores does not change)."""
+    try:
+        import psutil
+
+        count = psutil.cpu_count(logical=False) or 2
+    except Exception:  # psutil missing: the logical count
+        count = os.cpu_count() or 2
+    return max(1, min(8, int(count)))
+
+
+def prefetch_columns(X: Any, names: Iterable[str], workers: "int | None" = None, rows: "np.ndarray | None" = None) -> int:
     """Compute, on a thread pool, the values of the lazy engineered columns of ``X`` among ``names`` that are not in the cache yet; the number computed.
+
+    With ``rows`` the work is the gather of those rows of each column (what ``X.iloc[rows]`` asks of them), kept in the gather cache: the columns whose gather is cached are left alone.
 
     A stage that reads hundreds of engineered columns one after another replays them one at a time on one thread (the accuracy gate: 800 columns at 500000 rows, 12 s of the critical path with the other cores
     idle). The replays run in ``nogil`` numba kernels and numpy, so they overlap; the reader then finds the values in the cache. At most as many columns as half the value cache holds are computed ahead of
     the reader (a prefetch that pushed out its own head would compute everything twice). A replay that fails is left for the reader, which meets the same error on its own call."""
     from concurrent.futures import ThreadPoolExecutor
 
+    idx = None if rows is None else np.asarray(rows, dtype=np.int64)
+    gather_key = None if idx is None else (idx.shape[0], hash(idx.tobytes()))
     todo = []
     for name in names:
         try:
             array = X[name].array
         except (KeyError, TypeError, AttributeError):
             continue
-        if isinstance(array, LazyEngineeredColumn) and array._values is None and _CACHE.get(array._key) is None:
+        if not isinstance(array, LazyEngineeredColumn) or array._values is not None or _CACHE.get(array._key) is not None:
+            continue
+        if gather_key is None or _GATHER_CACHE.get((array._key, *gather_key)) is None:
             todo.append(array)
     if not todo:
         return 0
-    if workers is None:
-        try:
-            import psutil
-
-            workers = psutil.cpu_count(logical=False) or 2
-        except Exception:  # psutil missing: the logical count
-            workers = os.cpu_count() or 2
-    workers = max(1, min(8, int(workers)))
-    room = max(1, int(_CACHE.bound() // 2 // max(1, todo[0]._length * 4)))
+    workers = _prefetch_workers() if workers is None else max(1, min(8, int(workers)))
+    room = len(todo) if idx is not None else max(1, int(_CACHE.bound() // 2 // max(1, todo[0]._length * 4)))
     done = 0
 
     def replay_one(column: "LazyEngineeredColumn") -> bool:
-        """One replay; False when it failed (the reader will meet the error itself)."""
+        """One replay (or gather); False when it failed (the reader will meet the error itself)."""
         try:
-            column.materialize()
+            if idx is None:
+                column.materialize()
+            else:
+                column.take(idx)
             return True
         except Exception as exc:
             log_throttle(logger, "_lazy_engineered.prefetch", logging.INFO, "prefetch of a lazy column failed (%s: %s); the reader computes it", type(exc).__name__, exc)

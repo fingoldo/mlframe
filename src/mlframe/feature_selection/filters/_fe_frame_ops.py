@@ -155,6 +155,17 @@ def fe_is_numeric_col(X: Any, c: str) -> bool:
     raise TypeError(f"fe_is_numeric_col: unsupported frame type {type(X)!r}")
 
 
+def _prefetch_lazy_rows(X: Any, idx: np.ndarray) -> None:
+    """Gather the rows ``idx`` of the pending lazy engineered columns of the pandas frame ``X`` on a thread pool, before the frame is cut: the cut reads them one after another and replays each at the full row count."""
+    from . import _lazy_engineered as lazy
+
+    if not lazy.STATS["created"]:
+        return
+    names = [name for name, dtype in X.dtypes.items() if isinstance(dtype, lazy.LazyEngineeredDtype)]
+    if names:
+        lazy.prefetch_columns(X, names, rows=idx)
+
+
 def fe_subsample_to_pandas(X: Any, idx: np.ndarray) -> Any:
     """Row-subsample ``X`` at integer positions ``idx`` and return a PANDAS frame (index reset).
 
@@ -166,6 +177,7 @@ def fe_subsample_to_pandas(X: Any, idx: np.ndarray) -> Any:
     while those bodies upcast to f64 (see the bench + Open-work-items note on the matrix-native plane).
     """
     if is_pandas(X):
+        _prefetch_lazy_rows(X, idx)
         return X.iloc[idx].reset_index(drop=True)
     if is_polars(X):
         # X[idx] gathers rows natively; to_pandas on the small subsample is the cheap correct bridge for the pandas-native

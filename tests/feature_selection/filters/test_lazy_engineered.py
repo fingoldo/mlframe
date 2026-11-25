@@ -381,3 +381,40 @@ def test_the_counters_lose_no_increment_when_the_prefetch_pool_replays_columns_o
     finally:
         sys.setswitchinterval(previous)
     assert L.STATS["cache_hits"] - start == 8 * 5000
+
+
+def test_the_subsample_cut_of_a_frame_gathers_its_pending_lazy_columns_on_a_pool_and_once():
+    """Sixteen lazy columns whose replay takes 50 ms are cut to a subsample in far less than their sequential 0.8 s, each replayed once, with the rows a plain gather gives; a second cut replays nothing."""
+    import threading
+    import time
+
+    from mlframe.feature_selection.filters._fe_frame_ops import fe_subsample_to_pandas
+
+    L.release_caches()
+    base = _frame(n=400)
+    lock = threading.Lock()
+    calls: "dict[int, int]" = {}
+
+    def make(j):
+        """A lazy column whose replay takes a while."""
+
+        def replay():
+            """The slow replay."""
+            time.sleep(0.05)
+            with lock:
+                calls[j] = calls.get(j, 0) + 1
+            return np.arange(len(base), dtype=np.float32) * (j + 1)
+
+        return L.LazyEngineeredColumn(replay, len(base))
+
+    lazies = {f"s{j}": make(j) for j in range(16)}
+    X = pd.concat([base, pd.DataFrame(lazies, index=base.index, copy=False)], axis=1)
+    idx = np.arange(0, 400, 7)
+    started = time.perf_counter()
+    cut = fe_subsample_to_pandas(X, idx)
+    elapsed = time.perf_counter() - started
+    assert elapsed < 0.6 and sorted(calls) == list(range(16)) and set(calls.values()) == {1}
+    for j in range(16):
+        assert np.array_equal(np.asarray(cut[f"s{j}"]), idx.astype(np.float32) * (j + 1))
+    again = fe_subsample_to_pandas(X, idx)
+    assert set(calls.values()) == {1} and list(again.columns) == list(cut.columns)
