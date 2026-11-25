@@ -1015,7 +1015,6 @@
 | 42-F12 | DEFERRED | Repeated cProfile/perf_counter boilerplate across about a dozen bench scripts: a cross-file cleanup with no behaviour impact; deferred so the benches are not churned in this pass. |
 | 32-F8 | FIXED | Polars group-mean join matches null keys (nulls_equal=True), as the pandas path does. Test test_cluster32_polars_null_group_matches_pandas.py. |
 | 32-F17 | FIXED | Threshold benchmark seed uses zlib.crc32 (was already in code); pinned by test_cluster32_bench_seed_is_stable.py. |
-| 32-F9 | DEFERRED | CatBoost callbacks have no after-training hook, so the final round cannot be captured inside the callback when stride > 1. A fix needs the caller to capture the final round after fit (design). Owner decision. |
 | 32-F14 | DEFERRED | Per-drop X.loc copy is held per concurrent worker. Removing it needs _fit_quick_and_score to accept a column mask instead of a frame (API change across the baseline diagnostics). Owner to schedule. |
 | 32-F13 | FIXED | Baseline numba kernels use the NaN-safe fastmath flag set (no nnan/ninf), so NaN predictions propagate. Test test_cluster32_kernels_nan_propagates.py. |
 | 32-F27 | DEFERRED | Perf-only: the first full-size frame is built before the extra-target and ts knobs are known, then rebuilt. Avoiding it means reordering the benchmark's setup, which needs checking every use of df in between. Deferred. |
@@ -1494,3 +1493,5 @@
 | 39-F68 | FIXED | The all-zero-weight check in the weighted MLP loss runs on every 50th batch (_ZERO_WEIGHT_CHECK_EVERY), not on every step, so the host-device sync is paid 1/50 as often. A zero-weight batch is reported at the next sampled batch rather than on the batch itself; the loss value is unchanged. Test tests/training/neural/test_cluster39_zero_weight_check_sampled.py (2 passed). |
 
 | 28-F69 | FIXED | apply_to_target_types is a frozenset in both BaselineDiagnosticsConfig and DummyBaselinesConfig; pydantic coerces list and tuple input. Test tests/training/test_cluster28_apply_types_one_type.py and the updated tests/training/baselines/test_baseline_diagnostics.py (35 passed). |
+
+| 32-F9 | PARTIAL | CBIterationMetricsCallback remembers the last round and its model and exposes flush(), which captures the final round when the stride skipped it; a stored round is not recaptured. Not done: the caller must call flush() after fit returns (_train_model_with_fallback, not located in this pass), so until that is wired a stride > 1 run still misses the final round. Tests tests/training/callbacks/test_cluster32_cb_flush_last_round.py (3 passed) and test_cb_iteration_metrics_target_type.py. |
