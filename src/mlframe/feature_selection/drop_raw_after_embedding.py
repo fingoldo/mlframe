@@ -139,7 +139,12 @@ def drop_raw_after_embedding(
         if raw_signal <= 0.0:
             to_drop.append(raw_col)
             continue
-        derived_signal = max(_univariate_signal(df[c].to_numpy(dtype=_crit_np_dtype()), y_arr) for c in present_derived)
+        # No derived column present (possible with min_derived_present=0): the embedding retains nothing, so the raw column is kept
+        # rather than max() raising on an empty sequence (audit 24-F44).
+        derived_signal = max(
+            (_univariate_signal(df[c].to_numpy(dtype=_crit_np_dtype()), y_arr) for c in present_derived),
+            default=0.0,
+        )
         retained_fraction = derived_signal / raw_signal
         if retained_fraction >= min_retained_fraction:
             to_drop.append(raw_col)

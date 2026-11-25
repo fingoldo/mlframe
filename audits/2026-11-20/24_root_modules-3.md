@@ -132,7 +132,6 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F41: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F42: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F43: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F44: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F45: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F46: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F47: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
@@ -191,3 +190,5 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F33: FIXED. Spectral entropy normalises by the window's own power with p*log(p) only where p>0; flatness floor is relative to each window's mean power, and a zero-power window reports 0.0. Scale-invariance test in test_cluster24_spectral_scale_and_nan_windows.py
 
 - 24-F34: FIXED. Rolling Hurst-family wrappers report NaN for every window that held a non-finite input (cumulative-count mask), instead of a finite value from the zero fill. Test test_cluster24_spectral_scale_and_nan_windows.py::test_hurst_window_with_nan
+
+- 24-F44: FIXED. Verify path uses max(..., default=0.0) for the derived signal: a raw column with no present derived column keeps a zero retained fraction, so it is kept and recorded in safety_report instead of raising ValueError. Test tests/feature_selection/test_cluster24_drop_raw_no_derived_columns.py
