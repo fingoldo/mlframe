@@ -42,5 +42,6 @@ def test_no_synthetic_row_equals_a_minority_row(monkeypatch):
     rng = np.random.default_rng(0)
     X = rng.normal(size=(12, 3)).astype(np.float64)
     out = dw._density_weighted_smote_synthesize(X, n_synthetic=40, k_neighbors=3, seed=0)
+    assert len(out) > 0
     for row in out:
         assert not np.any(np.all(np.isclose(X, row), axis=1))

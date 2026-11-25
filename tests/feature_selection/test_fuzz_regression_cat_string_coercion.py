@@ -200,6 +200,7 @@ class TestMrmrBinningNamesHaveNoAliases:
         """None of the former strategy names is a scheme (a count rule such as ``sturges`` or ``knuth`` is accepted only as ``nbins_rule``)."""
         from mlframe.feature_selection.filters._binning_spec import BINNING_SCHEMES
 
+        assert self.REMOVED
         for old in self.REMOVED:
             assert old not in BINNING_SCHEMES, old
 
