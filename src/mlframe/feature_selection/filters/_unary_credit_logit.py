@@ -40,7 +40,8 @@ def _device_module() -> Optional[Any]:
         from ._batch_mi_noise_gate_kernels import cuda_available, cupy
 
         return cupy() if cuda_available() else None
-    except Exception:
+    except Exception as exc:
+        log_throttle(logger, "unary_credit_logit.device_module", logging.WARNING, "logit credit: the CUDA device probe failed (%r); the host null runs", exc)
         return None
 
 

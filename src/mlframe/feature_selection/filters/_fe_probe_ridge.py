@@ -67,7 +67,7 @@ def fit_ridge_closed_form_multi(X: np.ndarray, Y: np.ndarray, alpha: float) -> "
     if w is None:
         try:
             w = np.linalg.solve(gram, rhs)
-        except np.linalg.LinAlgError:
+        except np.linalg.LinAlgError:  # best-effort: a singular probe design means no ridge fit; the caller reads None as no candidate, the same outcome as a rejected fit
             return None
     if not np.isfinite(w).all():
         return None
