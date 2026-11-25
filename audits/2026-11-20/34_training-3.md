@@ -84,7 +84,6 @@ Scope: the 88 files in `audits/2026-11-20/manifests/34_training-3.txt` under wor
 - 34-F30: FIXED. Attached target kept float64 on the val side (keep_float64); engineered bases stay float32 by design (test_cluster34_attach_keeps_target_float64)
 - 34-F15: FIXED. Tie ranking vectorised for finite input (NaN keeps the walk); PAVA compiled via njit_or_passthrough (test_cluster34_leakage_rank_and_pava; 62 existing leakage tests pass)
 - 34-F17: DEFERRED. Batched null kernel shuffles blocks of binned codes; the carry null shuffles raw base values and bins inside _mi_pair_bin. Switching changes the null distribution, so it needs a benchmark and owner sign-off on numerics.
-- 34-F20: DEFERRED. A sampled data signature can miss a changed row and reuse stale specs. Owner decision on the accuracy cost of a cheaper signature.
 - 34-F21: PARTIAL. Post-impute finite mask computed once and reused (4 full-matrix passes reduced to 2; the first fraction check stays before the impute). No new test; existing 40 auto-base tests pass.
 - 34-F26: FIXED. Helper renamed to _run_folds_serial_early_stop (rename only; no behaviour change, so no separate test)
 - 34-F28: FIXED. BoundedMemo builds outside the lock; first stored value wins on a race. Re-entrancy and single-build tests (test_cluster34_bounded_memo_build_outside_lock)
@@ -96,3 +95,5 @@ Scope: the 88 files in `audits/2026-11-20/manifests/34_training-3.txt` under wor
 - 34-F16: WON'T FIX. calibration_adjusted_score has no caller inside the package but is a public lazy export (mlframe.training.__init__). Wiring it in would change the calibration path; removing the export breaks the public API. Classified as an intentional public helper, per the uncalled-functions rule. No code change.
 
 - 34-F14: DEFERRED. RAM is already bounded: the Gram is accumulated over 8192-row blocks, so one block of 500 float64 columns is about 32 MB. The audit's full-buffer fix (about 6.4 GB) would raise RAM, and column chunking re-reads columns per block pair, so it trades RAM for more reads. Reducing the 195k column reads is a speed change that needs a benchmark on real data. No code change.
+
+- 34-F20: DOCUMENTED. The warm-start signature is computed on the full frame, not a sample: a sampled signature can match a frame whose rows changed outside the sample and reuse stale specs. The cost is paid per call and is documented at the check. Test tests/training/test_cluster26_34_documented_choices.py (2 passed).
