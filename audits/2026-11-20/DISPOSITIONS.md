@@ -504,8 +504,6 @@
 | 24-F37 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F38 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F39 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F41 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F42 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F45 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F47 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F50 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
@@ -1560,3 +1558,7 @@
 | 24-F46 | FIXED | chronological_order warns (UserWarning) with the count of labels that could not be parsed; they still sort last as before. Test tests/feature_selection/test_cluster24_unparsed_time_and_append_index.py |
 
 | 24-F49 | FIXED | append_columns raises ValueError when new_cols does not share X's index, instead of appending NaN columns silently; all three callers already pass index=X.index. Test tests/feature_selection/test_cluster24_unparsed_time_and_append_index.py |
+
+| 24-F41 | FIXED | MRMR member abstains (no mrmr key, warning logged) when MRMR selects no relevant column, instead of voting for every relevant column. Tests: tests/feature_selection/test_cluster24_hybrid_vote_fallbacks.py; stability/test_hybrid_selector_deep.py::test_use_mrmr_false_zeroes_engineering_and_still_votes updated |
+
+| 24-F42 | FIXED | No-consensus fallback keeps the clusters with the most votes (ties all kept) instead of the union of every pick. Tests: test_cluster24_hybrid_vote_fallbacks.py; stability/test_hybrid_selector_chunk48_fixes.py::test_combine_union_fallback_warns updated |
