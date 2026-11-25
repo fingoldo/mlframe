@@ -758,7 +758,6 @@
 | 28-F26 | DEFERRED | Streaming the hash and the unpickle from one handle changes the verified-open contract the loader relies on. Deferred to a dedicated change to the bundle reader. |
 | 28-F31 | FIXED | The multiclass split summary drops non-finite labels before counting and reports them as n_missing, as the binary summary does. Test tests/training/test_cluster28_multiclass_summary_drops_missing_labels.py. |
 | 28-F36 | FIXED | A host-RAM fallback from a failed GPU memory probe is returned but not cached under the cuda:N key. Test tests/training/test_cluster28_mem_probe_fallback_not_cached_as_gpu.py; 19 tests pass with the existing memory-probe tests. |
-| 28-F37 | DEFERRED | The predict batch resolver still probes device 0. Adding device_id is simple; wiring the training device into its only caller (neural/base/_base_predict.py) needs the owner of that device state to say where it lives. |
 | 28-F21 | FIXED | The pandas inf-to-NaN replacement writes into a shallow copy, so the caller's frame keeps its infinities. Test tests/training/test_cluster28_special_values_leave_caller_frame.py. |
 | 28-F19 | FIXED | When both refit paths fail, the saturated-best-iteration refit restores the model's parameters, as the degenerate path does. Verified by reading; no unit test, since it needs a CatBoost-shaped loss fallback. |
 | 28-F30 | FIXED | Eviction first adopts .pkl entries on disk that this process's ledger does not know, as the oldest, so they count against and can be evicted from the byte budget. Test tests/training/test_cluster28_cache_adopts_other_process_entries.py; 5 cache tests pass. |
@@ -1517,3 +1516,5 @@
 | 27-F12 | FIXED | Trainset aging without timestamps is refused with a ValueError in the no-timestamp row-based split, instead of slicing a shuffled split by position. Without the limit the split is unchanged. Test tests/training/test_cluster27_aging_needs_timestamps.py (2 passed). |
 
 | 27-F14 | DOCUMENTED | cv_plus_intervals is a pooled symmetric band from out-of-fold absolute residuals, not the CV+ or Jackknife+ construction of Barber et al. 2021; its docstring now states that no coverage guarantee is proven. The name is kept for API compatibility. A real CV+ needs per-fold models and is not built. No behaviour change. |
+
+| 28-F37 | FIXED | resolve_mlp_predict_batch_size takes a device_id and forwards it to the memory probe; the predict caller passes the current CUDA device, so the batch is sized for the device the model runs on. The default stays 0. Tests tests/training/neural/test_cluster28_predict_batch_device_id.py and the existing test_mlp_runtime_defaults.py (38 passed). |

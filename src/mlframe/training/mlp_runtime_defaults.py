@@ -415,6 +415,7 @@ def resolve_mlp_predict_batch_size(
     n_features: int | None = None,
     available_memory_bytes: int | None = None,
     cuda_available: bool | None = None,
+    device_id: int = 0,
     dtype_bytes: int = _PREDICT_DTYPE_BYTES,
     activation_multiplier: int = _PREDICT_ACTIVATION_MULTIPLIER,
     mem_fraction: float = _PREDICT_MEM_FRACTION,
@@ -471,6 +472,7 @@ def resolve_mlp_predict_batch_size(
     if available_memory_bytes is None:
         available_memory_bytes = _probe_available_memory_bytes(
             cuda_available=cuda_available,
+            device_id=device_id,  # the device the predictions run on, not always device 0 (audit 28-F37)
         )
     if available_memory_bytes is None or available_memory_bytes <= 0:
         # Memory probe failed (no torch / no psutil / OS denial). Use the

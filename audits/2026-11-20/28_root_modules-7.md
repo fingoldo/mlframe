@@ -146,7 +146,6 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F26: DEFERRED. Streaming the hash and the unpickle from one handle changes the verified-open contract the loader relies on. Deferred to a dedicated change to the bundle reader.
 - 28-F31: FIXED. The multiclass split summary drops non-finite labels before counting and reports them as n_missing, as the binary summary does. Test tests/training/test_cluster28_multiclass_summary_drops_missing_labels.py.
 - 28-F36: FIXED. A host-RAM fallback from a failed GPU memory probe is returned but not cached under the cuda:N key. Test tests/training/test_cluster28_mem_probe_fallback_not_cached_as_gpu.py; 19 tests pass with the existing memory-probe tests.
-- 28-F37: DEFERRED. The predict batch resolver still probes device 0. Adding device_id is simple; wiring the training device into its only caller (neural/base/_base_predict.py) needs the owner of that device state to say where it lives.
 - 28-F21: FIXED. The pandas inf-to-NaN replacement writes into a shallow copy, so the caller's frame keeps its infinities. Test tests/training/test_cluster28_special_values_leave_caller_frame.py.
 - 28-F19: FIXED. When both refit paths fail, the saturated-best-iteration refit restores the model's parameters, as the degenerate path does. Verified by reading; no unit test, since it needs a CatBoost-shaped loss fallback.
 - 28-F30: FIXED. Eviction first adopts .pkl entries on disk that this process's ledger does not know, as the oldest, so they count against and can be evicted from the byte budget. Test tests/training/test_cluster28_cache_adopts_other_process_entries.py; 5 cache tests pass.
@@ -187,3 +186,5 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F70: FIXED. A failed grid variant with stop_on_error=False is a typed GridVariantError (label, exc_type, message) instead of a plain error dict. No in-repo consumer read the old dict. Test tests/training/test_cluster28_grid_typed_error.py (2 passed).
 
 - 28-F69: FIXED. apply_to_target_types is a frozenset in both BaselineDiagnosticsConfig and DummyBaselinesConfig; pydantic coerces list and tuple input. Test tests/training/test_cluster28_apply_types_one_type.py and the updated tests/training/baselines/test_baseline_diagnostics.py (35 passed).
+
+- 28-F37: FIXED. resolve_mlp_predict_batch_size takes a device_id and forwards it to the memory probe; the predict caller passes the current CUDA device, so the batch is sized for the device the model runs on. The default stays 0. Tests tests/training/neural/test_cluster28_predict_batch_device_id.py and the existing test_mlp_runtime_defaults.py (38 passed).

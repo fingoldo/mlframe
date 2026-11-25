@@ -320,9 +320,16 @@ class _PredictMixin:
                 except Exception as e:  # best-effort: the width only tunes the predict batch size; the default size is used
                     logger.debug("could not probe input width for predict batch-size auto-tune: %s", e)
                     _n_features = None
+                # Size the batch for the CUDA device the model is running on, not always device 0 (audit 28-F37).
+                try:
+                    import torch as _torch
+                    _device_id = int(_torch.cuda.current_device()) if _torch.cuda.is_available() else 0
+                except Exception:  # best-effort: device 0 is the old behaviour
+                    _device_id = 0
                 pred_batch_size = resolve_mlp_predict_batch_size(
                     n_features=_n_features,
                     train_batch_size=self.datamodule_params.get("batch_size"),
+                    device_id=_device_id,
                 )
                 _batch_source = f"auto n_features={_n_features if _n_features is not None else 'unknown'}"
             except Exception as e:
