@@ -864,7 +864,6 @@
 | 35-F24 | FIXED | Failed lag-column extraction logged at WARNING via log_throttle, naming the column and exception (test_cluster35_lag_extraction_failure_warns; 27 existing soft-shrink tests pass) |
 | 35-F25 | FIXED | A base fit range stamped on the spec is kept; capture runs only when the key is absent (test_cluster35_from_fitted_keeps_stamped_range; 48 related tests pass) |
 | 35-F27 | FIXED | predict_quantile resolves the causal lag once per batch and passes it to apply_smart_fallback; default path unchanged (test_cluster35_smart_fallback_resolves_lag_once; 22 soft-shrink and parity tests pass) |
-| 35-F28 | DEFERRED | The grid spans 0.05 to 0.95, so sample() flattens tails and crps() omits the 0-0.05 and 0.95-1 mass. Fixing it means adding tail levels (0.001/0.999) or a GPD tail, a modelling choice the owner should make; the truncation is not hidden by a code change here. |
 | 35-F29 | FIXED | Mixture decides sample_weight support from the fit signature; unrelated TypeError propagates; unweighted regressors logged at WARNING (test_cluster35_mixture_sample_weight_support; 44 existing mixture tests pass) |
 | 35-F30 | FIXED | discover_and_wrap coerces a dict config before reading the seed, so the seed and report use the dict's random_state (test_cluster35_highlevel_dict_config_seed; 201 existing highlevel tests pass) |
 | 35-F31 | FIXED | Group broadcast is one vectorised reindex; NaN group ids are counted and logged at WARNING (test_cluster35_group_broadcast_vectorised; 6 existing group-aggregate tests pass) |
@@ -1500,3 +1499,5 @@
 | 38-F24 | FIXED | A CV policy without a target_type is refused with a ValueError instead of being silently wired as regression. Test tests/training/core/test_cluster38_cv_policy_needs_target_type.py (2 passed). |
 
 | 39-F28 | DEFERRED | _derive_memory_budgets writes derived values into the user's memory and cache sub-configs, so a dump and re-validation treats them as explicit. The fix needs the cache to read the resolved values: cache.py reads self._cfg.ram_max_gb and ram_reserve_gb from the sub-config, so the cache construction site must receive the _resolved_* values. Plan: pass resolved values into the cache constructor, stop writing into the sub-configs, and test a round trip on a smaller simulated RAM limit. No code change in this pass. |
+
+| 35-F28 | DOCUMENTED | The default quantile grid (0.05..0.95) truncates the tails: sample() holds draws flat outside Q(0.05)..Q(0.95) and crps() omits the outer 5% per side. Documented at the grid; extending it with 0.001/0.999 costs two inner fits and is noisy on small samples, so the default is kept and an explicit tail grid is the way out. Test tests/training/composite/test_cluster35_grid_truncation_documented.py (2 passed). |
