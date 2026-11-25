@@ -142,8 +142,6 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F54: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F55: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F56: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F57: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F58: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F59: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F60: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F61: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
@@ -193,3 +191,7 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F44: FIXED. Verify path uses max(..., default=0.0) for the derived signal: a raw column with no present derived column keeps a zero retained fraction, so it is kept and recorded in safety_report instead of raising ValueError. Test tests/feature_selection/test_cluster24_drop_raw_no_derived_columns.py
 
 - 24-F43: FIXED. Hetero vote importance reads coef_ / feature_importances_ from a Pipeline's final step, so the linear panel member votes with /coef_/ as documented instead of permutation importance on a subsample. Test tests/feature_selection/test_cluster24_hetero_pipeline_coef.py; stability/test_hetero_vote.py and test_degenerate_input_guards.py pass (10 passed). biz_val hetero tests left to CI
+
+- 24-F58: FIXED. nearest_past_join fallback carries the row position in a private column instead of reset_index(), which created a column named index; the caller's index is restored. Test tests/feature_engineering/test_cluster24_nearest_past_fallback_index.py
+
+- 24-F57: RESOLVED. Not reproduced: pandas sort_values keeps tied rows in input order for both the multi-key and single-key sorts used here, so the tie order is deterministic. No code change.

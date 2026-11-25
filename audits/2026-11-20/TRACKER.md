@@ -1076,8 +1076,8 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 24-F54 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F55 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F56 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F57 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F58 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F57 | 24_root_modules-3.md | RESOLVED | Not reproduced: pandas sort_values keeps tied rows in input order for both the multi-key and single-key sorts used here, so the tie order is deterministic. No code change. |
+| 24-F58 | 24_root_modules-3.md | FIXED | nearest_past_join fallback carries the row position in a private column instead of reset_index(), which created a column named index; the caller's index is restored. Test tests/feature_engineering/test_cluster24_nearest_past_fallback_index.py |
 | 24-F59 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F60 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F61 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
