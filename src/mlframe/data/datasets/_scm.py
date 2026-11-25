@@ -318,7 +318,9 @@ def _is_m_collider(graph: CausalGraph, node: str, ancestors_of_target: Set[str],
     parents = graph.parents(node)
     if len(parents) < 2:
         return False
-    return any(parent in ancestors_of_target or graph.target in graph.descendants(parent) for parent in parents)
+    # ``graph.target in graph.descendants(parent)`` is the same as ``parent in ancestors(target)`` (reachability is symmetric),
+    # and the caller passes ``ancestors(target)``, so the per-parent descendant walk is not needed (audit 04-F28).
+    return any(parent in ancestors_of_target for parent in parents)
 
 
 def derive_roles(graph: CausalGraph, regions: Optional[Dict[str, GateSpec]] = None) -> Dict[str, FeatureRole]:
