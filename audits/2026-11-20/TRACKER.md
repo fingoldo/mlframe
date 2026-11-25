@@ -907,7 +907,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 16-F10 | 16_inference.md | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 16-F11 | 16_inference.md | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 17-F10 | 17_metrics.md | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
-| 17-F11 | 17_metrics.md | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
+| 17-F11 | 17_metrics.md | FIXED | The comment claimed ECE used the same data-adaptive grid as CMAEW. The ECE kernel uses the fixed [0,1] equal-width grid, and CMAEW uses the data span, so the two partition the data differently. The comment is corrected; behaviour is unchanged (aligning the grids would change the headline ECE). |
 | 17-F12 | 17_metrics.md | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 17-F13 | 17_metrics.md | FIXED | the quantile calibration branch refuses non-integer labels instead of truncating them; tests/metrics/test_cluster17_kappa_and_label_guard.py |
 | 17-F14 | 17_metrics.md | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |

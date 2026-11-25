@@ -412,7 +412,6 @@
 | 17-F16 | FIXED | single-class perfect agreement gives kappa 1, as sklearn; tests/metrics/test_cluster17_kappa_and_label_guard.py |
 | 17-F15 | FIXED | a failed title-token metric is logged at WARNING, not DEBUG; no separate test |
 | 17-F10 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
-| 17-F11 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 17-F12 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 17-F14 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 17-F17 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
@@ -1520,3 +1519,5 @@
 | 29-F14 | DOCUMENTED | Aggregated oracle rows keep only the median and n_obs, so a later append takes a median of medians and the result depends on append batching. The exact fix stores (value, weight) pairs per metric, which changes the stored format and needs a schema bump and migration. Documented at the aggregation site; not changed here. |
 
 | 18-F7 | FIXED | The DEGENERATE marker judges the actual label values: a single label is tagged, two labels are judged by their ratio, and a multiclass subset is not tagged by this binary rule. Labels {0, 2} balanced are no longer tagged. Tests tests/models/ensembling/test_cluster18_degenerate_actual_labels.py (4 passed) and the train-path tests (6 passed in total). |
+
+| 17-F11 | FIXED | The comment claimed ECE used the same data-adaptive grid as CMAEW. The ECE kernel uses the fixed [0,1] equal-width grid, and CMAEW uses the data span, so the two partition the data differently. The comment is corrected; behaviour is unchanged (aligning the grids would change the headline ECE). |
