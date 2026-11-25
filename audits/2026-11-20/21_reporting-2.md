@@ -71,7 +71,6 @@ Name-reference counts are a grep of `tests/` for each public or load-bearing nam
 - 21-F10: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F11: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F12: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
-- 21-F13: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F14: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F15: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F18: FIXED. Perfect model gets a 'deferral cannot reduce error' verdict instead of 'insufficient data' (new branch for err_at_100 == 0). Test tests/reporting/test_cluster21_perfect_model_verdict.py drives build_risk_coverage_spec with a perfect model that has varying confidence.
@@ -88,3 +87,5 @@ Name-reference counts are a grep of `tests/` for each public or load-bearing nam
 - 21-F26: PARTIAL. SHAP per-instance result docstring now says the figure is closed on return (the finally closes it) and that n_background counts explained rows. Not changed: the same closed-figure pattern in shap_panels.py:811-812 named in the finding, and the field itself is not renamed (API). Test tests/reporting/test_cluster21_shap_result_docs.py (docstring pins).
 
 - 21-F6: FIXED. Multiclass SHAP interactions rank each pair by the class it moves most (largest mean /interaction/), as the main-effects panel does; binary keeps the positive-class convention. Tests tests/reporting/test_cluster21_multiclass_interaction_best_class.py (2 passed).
+
+- 21-F13: FIXED. The trend fit cache stores a blake2b digest of each array's contents and checks it on every hit, so an in-place refill of the same buffer is refitted rather than served stale. Tests tests/reporting/test_cluster21_trend_cache_content.py (2 passed).

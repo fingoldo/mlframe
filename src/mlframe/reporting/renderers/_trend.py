@@ -8,6 +8,7 @@ points -- exactly the residual structure these overlays are meant to expose agai
 
 from __future__ import annotations
 
+import hashlib
 import threading
 import weakref
 from typing import Dict, Optional, Tuple, Union
@@ -48,21 +49,30 @@ _FIT_CACHE_LOCK = threading.Lock()
 _Endpoints = Optional[Tuple[Tuple[float, float], Tuple[float, float]]]
 
 
+def _content_digest(arr: np.ndarray) -> bytes:
+    """Digest of the array's full contents. An in-place refill keeps the id and the weakref, so identity alone cannot see new data (audit 21-F13)."""
+    return hashlib.blake2b(np.ascontiguousarray(arr).tobytes(), digest_size=16).digest()
+
+
 def _cached_fit(x: np.ndarray, y: np.ndarray, method: str) -> Union[_Endpoints, "_Miss"]:
-    """The memoised endpoints for these exact arrays, or ``_MISS``."""
+    """The memoised endpoints for these exact arrays with the same contents, or ``_MISS``."""
     key = (id(x), id(y), method)
     with _FIT_CACHE_LOCK:
         entry = _FIT_CACHE.get(key)
     if entry is None:
         return _MISS
-    x_ref, y_ref, result = entry
-    return result if (x_ref() is x and y_ref() is y) else _MISS
+    x_ref, y_ref, x_digest, y_digest, result = entry
+    if not (x_ref() is x and y_ref() is y):
+        return _MISS
+    if _content_digest(x) != x_digest or _content_digest(y) != y_digest:
+        return _MISS
+    return result
 
 
 def _store_fit(x: np.ndarray, y: np.ndarray, method: str, result: _Endpoints) -> None:
     """Remember ``result`` for these arrays, dropping the oldest entry once the cache is full."""
     try:
-        entry = (weakref.ref(x), weakref.ref(y), result)
+        entry = (weakref.ref(x), weakref.ref(y), _content_digest(x), _content_digest(y), result)
     except TypeError as _exc:
         logger.debug("_store_fit fell back to its default after %s", type(_exc).__name__)
         return  # not weak-referenceable (a plain memoryview / subclass without __weakref__): skip the cache

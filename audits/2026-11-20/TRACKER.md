@@ -993,7 +993,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 21-F10 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F11 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F12 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
-| 21-F13 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
+| 21-F13 | 21_reporting-2.md | FIXED | The trend fit cache stores a blake2b digest of each array's contents and checks it on every hit, so an in-place refill of the same buffer is refitted rather than served stale. Tests tests/reporting/test_cluster21_trend_cache_content.py (2 passed). |
 | 21-F14 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F15 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F16 | 21_reporting-2.md | FIXED | metric direction uses the family name before any @k cutoff; same test file |
