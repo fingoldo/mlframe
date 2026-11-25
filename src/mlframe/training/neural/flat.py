@@ -35,7 +35,7 @@ from ._flat_generate_helpers import (
     _generate_mlp_affine_composition_extrapolation_motivated,
     _generate_mlp_verbose,
     _generate_mlp_weights_init_fcn,
-    _generate_mlp_every_fit_bench_profiling,
+    _generate_mlp_every_fit_init_probe,
 )
 
 class Snake(nn.Module):
@@ -440,7 +440,7 @@ def generate_mlp(
 
     _generate_mlp_weights_init_fcn(weights_init_fcn, model)
 
-    _generate_mlp_every_fit_bench_profiling(model)
+    _generate_mlp_every_fit_init_probe(model)
 
     # example_input_array MUST reflect the USER-facing input shape
     # (raw features), NOT the embedded shape — the model accepts raw
