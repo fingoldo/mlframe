@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import threading
 import weakref
-from typing import Dict, Optional, Tuple, Union
+from typing import Dict, Optional, Tuple, Union, cast
 
 import numpy as np
 import logging
@@ -66,7 +66,7 @@ def _cached_fit(x: np.ndarray, y: np.ndarray, method: str) -> Union[_Endpoints, 
         return _MISS
     if _content_digest(x) != x_digest or _content_digest(y) != y_digest:
         return _MISS
-    return result
+    return cast(Union[_Endpoints, _Miss], result)
 
 
 def _store_fit(x: np.ndarray, y: np.ndarray, method: str, result: _Endpoints) -> None:
