@@ -394,9 +394,6 @@
 | 14-F5 | FIXED | note: tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_core_refine.py::test_biz_val_auto_matches_core_on_non_saturated_bed fails on the exact pre-change file too (pre-existing, verified) |
 | 15-F8 | FIXED | a callable prescreen's result is filtered to the candidate names the search offered; no direct test (the prescreen path needs a full RFECV fixture) |
 | 15-F9 | FIXED | the importance callable is called with target only when its signature accepts it, so a TypeError inside it runs once; tests/feature_selection/test_cluster15_importance_getter_and_prescreen.py |
-| 15-F3 | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
-| 15-F4 | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
-| 15-F5 | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
 | 15-F6 | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
 | 15-F7 | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
 | 15-F10 | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
@@ -1508,3 +1505,9 @@
 | 18-F6 | DEFERRED | The outlier gate keeps only rows where every member is finite, while quality_gate keeps rows where any member is finite, so the two gates disagree; when every row has some NaN the gate switches itself off silently. Plan: keep rows with any finite member here too, switch the cross-member median and the per-member MAE/STD to NaN-aware reductions (the numba kernel _per_member_mae_std needs a NaN-aware path), and add a test where two members have disjoint NaN rows that the gate still excludes an outlier member. No code change in this pass. |
 
 | 18-F8 | FIXED | The default AUC in _score_blend drops rows with a NaN label before scoring, so they no longer count as negatives. Tests tests/models/ensembling/test_cluster18_score_drops_nan_labels.py (2 passed). |
+
+| 15-F3 | FIXED | The RFECV checkpoint now saves and restores nofeatures_score, so a resumed run keeps its no-features baseline instead of NaN. Test tests/feature_selection/test_cluster15_checkpoint_round_trip.py (3 passed). |
+
+| 15-F4 | FIXED | The RFECV checkpoint now saves and restores per_fold_scores, so the per-split columns survive a resume. Test tests/feature_selection/test_cluster15_checkpoint_round_trip.py. |
+
+| 15-F5 | FIXED | The RFECV checkpoint now saves and restores the signed importances onto the estimator, so dispatched linear aggregation sees the same scale after a resume. Test tests/feature_selection/test_cluster15_checkpoint_round_trip.py. The heavy test_biz_val_wrappers_rfecv.py file was not confirmed in this pass. |

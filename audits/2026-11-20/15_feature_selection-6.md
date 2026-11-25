@@ -52,9 +52,6 @@ So the audit is incomplete. Roughly 60% of the manifest lines were not read, so 
 - 15-F2: RESOLVED. The dispatcher completes ragged per-run tables with fi_missing_policy before the tree and linear aggregators run, as the legacy path does. Test tests/feature_selection/test_dispatched_agg_imputes_ragged_runs.py; 3 existing importance-agg tests pass. Commit below.
 - 15-F8: FIXED. a callable prescreen's result is filtered to the candidate names the search offered; no direct test (the prescreen path needs a full RFECV fixture)
 - 15-F9: FIXED. the importance callable is called with target only when its signature accepts it, so a TypeError inside it runs once; tests/feature_selection/test_cluster15_importance_getter_and_prescreen.py
-- 15-F3: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
-- 15-F4: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
-- 15-F5: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
 - 15-F6: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
 - 15-F7: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
 - 15-F10: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
@@ -67,3 +64,9 @@ So the audit is incomplete. Roughly 60% of the manifest lines were not read, so 
 - 15-F15: FIXED. get_signed_linear_coef takes an optional trailing data argument used as the scaling fallback when train_data is None, matching the legacy path; train_data still wins. Tests tests/feature_selection/test_cluster15_signed_coef_scaling_fallback.py.
 - 15-F16: FIXED. Swap pass snapshots selected_features_per_nfeatures, evaluated_scores_mean and evaluated_scores_std before running and restores them in place on failure, so the argmax never reads a half-updated state. Tests tests/feature_selection/test_cluster15_swap_rollback.py; existing swap_top_k test files also pass.
 - 15-F13: DEFERRED. Three near-identical unwrap-to-inner-estimator loops with different attribute sets across the wrappers files. Consolidating them needs one attribute-set contract across the three call sites, deferred to a refactor pass. No code change.
+
+- 15-F3: FIXED. The RFECV checkpoint now saves and restores nofeatures_score, so a resumed run keeps its no-features baseline instead of NaN. Test tests/feature_selection/test_cluster15_checkpoint_round_trip.py (3 passed).
+
+- 15-F4: FIXED. The RFECV checkpoint now saves and restores per_fold_scores, so the per-split columns survive a resume. Test tests/feature_selection/test_cluster15_checkpoint_round_trip.py.
+
+- 15-F5: FIXED. The RFECV checkpoint now saves and restores the signed importances onto the estimator, so dispatched linear aggregation sees the same scale after a resume. Test tests/feature_selection/test_cluster15_checkpoint_round_trip.py. The heavy test_biz_val_wrappers_rfecv.py file was not confirmed in this pass.

@@ -879,9 +879,9 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 14-F5 | 14_feature_selection-5.md | FIXED | note: tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_core_refine.py::test_biz_val_auto_matches_core_on_non_saturated_bed fails on the exact pre-change file too (pre-existing, verified) |
 | 14-F6 | 14_feature_selection-5.md | FIXED | an unreadable xgboost class count fails closed; tests/feature_selection/shap_proxied/test_cluster14_xgb_eligibility_fails_closed.py |
 | 14-F7 | 14_feature_selection-5.md | DEFERRED | duplicated per-column correlation loops: performance refactor, not a correctness fix |
-| 15-F3 | 15_feature_selection-6.md | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
-| 15-F4 | 15_feature_selection-6.md | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
-| 15-F5 | 15_feature_selection-6.md | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
+| 15-F3 | 15_feature_selection-6.md | FIXED | The RFECV checkpoint now saves and restores nofeatures_score, so a resumed run keeps its no-features baseline instead of NaN. Test tests/feature_selection/test_cluster15_checkpoint_round_trip.py (3 passed). |
+| 15-F4 | 15_feature_selection-6.md | FIXED | The RFECV checkpoint now saves and restores per_fold_scores, so the per-split columns survive a resume. Test tests/feature_selection/test_cluster15_checkpoint_round_trip.py. |
+| 15-F5 | 15_feature_selection-6.md | FIXED | The RFECV checkpoint now saves and restores the signed importances onto the estimator, so dispatched linear aggregation sees the same scale after a resume. Test tests/feature_selection/test_cluster15_checkpoint_round_trip.py. The heavy test_biz_val_wrappers_rfecv.py file was not confirmed in this pass. |
 | 15-F6 | 15_feature_selection-6.md | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
 | 15-F7 | 15_feature_selection-6.md | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
 | 15-F8 | 15_feature_selection-6.md | FIXED | a callable prescreen's result is filtered to the candidate names the search offered; no direct test (the prescreen path needs a full RFECV fixture) |
