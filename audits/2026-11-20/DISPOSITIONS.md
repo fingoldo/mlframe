@@ -795,7 +795,6 @@
 | 28-F48 | DEFERRED | report_title is built and never emitted: wiring it in changes the train report, so it is an owner decision (emit or delete). |
 | 28-F76 | DEFERRED | Seven public or load-bearing functions have no test reference. Each needs a targeted test; deferred as a batch to its own change. |
 | 32-F10 | FIXED | Integer timestamps go through the same unit detector as object timestamps, so epoch seconds are no longer read as nanoseconds. Test tests/training/test_cluster32_integer_epoch_seconds_unit.py. |
-| 32-F7 | DEFERRED | Building the class universe from train alone changes how unseen validation and test labels are encoded downstream, and that encoding is not yet checked. Deferred until the encoding path is read end to end. |
 | 32-F26 | FIXED | The smoke script exits 1 when the suite raises instead of printing a pass line and returning 0. Verified by reading; the smoke run is a manual end-to-end script, not a unit test. |
 | 33-F3 | FIXED | The conformal rank rule lives in one helper (conformal_rank), used by the split, signed and online calibrations. Two further copies in conformal_classification.py and conformal_glm.py are outside the finding and are not yet changed. Tests: tests/training/composite/test_biz_val_conformal_ood.py (16 pass). |
 | 36-F5 | FIXED | A failed candidate fold logs at WARNING with the exception class, not DEBUG. Verified by reading; no unit test (the optimiser path needs a full composite fit). |
@@ -1521,3 +1520,5 @@
 | 18-F7 | FIXED | The DEGENERATE marker judges the actual label values: a single label is tagged, two labels are judged by their ratio, and a multiclass subset is not tagged by this binary rule. Labels {0, 2} balanced are no longer tagged. Tests tests/models/ensembling/test_cluster18_degenerate_actual_labels.py (4 passed) and the train-path tests (6 passed in total). |
 
 | 17-F11 | FIXED | The comment claimed ECE used the same data-adaptive grid as CMAEW. The ECE kernel uses the fixed [0,1] equal-width grid, and CMAEW uses the data span, so the two partition the data differently. The comment is corrected; behaviour is unchanged (aligning the grids would change the headline ECE). |
+
+| 32-F7 | DOCUMENTED | The class universe is the union of train, val and test labels, so eval-only labels stay encodable in 0..K-1. The priors are train-only, so an eval-only class gets zero prior mass and no eval split informs the baseline probabilities; only the (N, K) width depends on the union. Documented at the union in dummy.py; behaviour unchanged. |
