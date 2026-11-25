@@ -317,6 +317,19 @@ for _spec in [x for x in os.environ.get("RSS_TRACE_CALLS", "").split(",") if x.s
 
 th = threading.Thread(target=sampler, daemon=True)
 th.start()
+_ledger_prefix = os.environ.get("BENCH_LEDGER", "").strip()  # BENCH_LEDGER=<prefix>: the stage ledger and the hardware timeline of the fit go to <prefix>.ledger.jsonl / <prefix>.timeline.jsonl, the idle-device report is printed
+_timeline = None
+if _ledger_prefix:
+    from mlframe.feature_selection._benchmarks.profiling.hardware_timeline import TimelineSampler
+    from mlframe.feature_selection.filters import _stage_ledger
+
+    for _suffix in (".ledger.jsonl", ".timeline.jsonl"):
+        if os.path.exists(_ledger_prefix + _suffix):
+            os.remove(_ledger_prefix + _suffix)
+    os.environ[_stage_ledger.ENV] = _ledger_prefix + ".ledger.jsonl"
+    _stage_ledger.reset()
+    _timeline = TimelineSampler(_ledger_prefix + ".timeline.jsonl", interval=float(os.environ.get("BENCH_LEDGER_INTERVAL_S", "1.0")))
+    _timeline.__enter__()
 t = time.perf_counter()
 status = "ok"
 try:
@@ -340,6 +353,12 @@ try:
 
         _rows = sorted(_fft._FE_FAMILY_RSS.items(), key=lambda kv: kv[1][0], reverse=True)
         print("FAMILY_RSS " + "; ".join(f"{k}=+{v[0] / 2**20:.0f}/+{v[1] / 2**20:.0f}" for k, v in _rows[:45]), flush=True)
+    try:  # how often the lazy engineered columns were computed, read from the cache and replayed on their first rows alone
+        from mlframe.feature_selection.filters import _lazy_engineered as _lazy
+
+        print("LAZY_STATS " + "; ".join(f"{k}={v}" for k, v in _lazy.STATS.items()), flush=True)
+    except Exception as _exc:
+        print("LAZY_STATS unavailable:", type(_exc).__name__, _exc, flush=True)
     if _CALL_STATS:
         print("CALLS " + "; ".join(f"{k}: n={v[0]} wall={v[1]:.1f}s none={_CALL_NONE.get(k, 0)}" for k, v in _CALL_STATS.items()), flush=True)
         for _k, _v in _CALL_STATS.items():
@@ -380,6 +399,11 @@ except BaseException as exc:  # reported with the peak: a MemoryError at scale i
     status = f"{type(exc).__name__}: {str(exc)[:120]}"
 wall = time.perf_counter() - t
 stop.set()
+if _timeline is not None:
+    _timeline.__exit__(None, None, None)
+    from mlframe.feature_selection._benchmarks.profiling import stage_idle_report
+
+    stage_idle_report.main([_ledger_prefix + ".ledger.jsonl", _ledger_prefix + ".timeline.jsonl"])
 def _rss_growth_mb():
     """The process RSS growth over the start of the script, in MB."""
     return (proc.memory_info().rss - base) / 1e6

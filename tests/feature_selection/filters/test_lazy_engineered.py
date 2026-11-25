@@ -189,3 +189,83 @@ def test_a_recipe_that_cannot_be_replayed_falls_back_to_the_full_data_decision(m
     monkeypatch.setenv("MLFRAME_FE_LAZY_REPLAY_MIN_ROWS", "1000")
     fe_decide_on_subsample(family, _frame(n=4000), np.zeros(4000), subsample_n=500, recipes_at=1)
     assert seen_rows == [500, 4000]
+
+
+# ---- the head of a frame ------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+def _chain(monkeypatch, seam):
+    """A frame with two lazy winners and a replay for a third recipe that reads one of them."""
+    from mlframe.feature_selection.filters import engineered_recipes
+
+    def replay(recipe, X):
+        """The two closed forms of the fixture and ``dep = sq(x0) + 1``."""
+        if recipe.kind == "dep":
+            return np.asarray(X["sq(x0)"], dtype=np.float64) + 1.0
+        return _fake_apply_recipe(recipe, X)
+
+    monkeypatch.setattr(engineered_recipes, "apply_recipe", replay)
+    monkeypatch.setenv("MLFRAME_FE_LAZY_REPLAY_MIN_ROWS", "1000")
+    return fe_decide_on_subsample(_fit_with_recipes, _frame(n=4000), np.zeros(4000), subsample_n=500, recipes_at=1)[0]
+
+
+def test_the_head_of_a_frame_does_not_replay_its_lazy_columns_at_full_length(monkeypatch, seam):
+    """``X.iloc[:2048]`` (the probe of a recipe on the first rows) reads the head of every lazy column by replaying its recipe on those rows alone: no full-length replay happens, and the head equals the head of the full values."""
+    from mlframe.feature_selection.filters._mrmr_fit_impl._helpers import _deferred_replay_column
+
+    X = _chain(monkeypatch, seam)
+    L._CACHE.clear()
+    before = dict(L.STATS)
+    head = X.iloc[:300]
+    assert L.STATS["replayed"] == before["replayed"] and L.STATS["head_replays"] - before["head_replays"] == 2
+    col = _deferred_replay_column(SimpleNamespace(name="dep", kind="dep"), X, np.float32)
+    assert col is not None and L.STATS["replayed"] == before["replayed"]
+    full = np.asarray(X["sq(x0)"])
+    assert L.STATS["replayed"] - before["replayed"] == 1
+    assert np.array_equal(np.asarray(head["sq(x0)"]), full[:300]) and np.array_equal(np.asarray(head["x1+x2"]), np.asarray(X["x1+x2"])[:300])
+    assert np.array_equal(np.asarray(col), full.astype(np.float64).astype(np.float32) + np.float32(1.0))
+
+
+def test_a_head_slice_of_a_known_column_is_cut_from_its_values_and_a_long_one_computes_it(monkeypatch, seam):
+    """A column that is cached (or held) is cut, with nothing replayed; a slice past the head bound computes the column once."""
+    X = _chain(monkeypatch, seam)
+    L._CACHE.clear()
+    values = np.asarray(X["sq(x0)"])
+    before = dict(L.STATS)
+    assert np.array_equal(np.asarray(X["sq(x0)"].array[:50]), values[:50]) and L.STATS["replayed"] == before["replayed"] and L.STATS["head_replays"] == before["head_replays"]
+    monkeypatch.setattr(L, "HEAD_MAX_ROWS", 10)
+    L._CACHE.clear()
+    assert np.array_equal(np.asarray(X["x1+x2"].array[:50]), np.asarray(X["x1+x2"])[:50])
+    assert L.STATS["head_replays"] == before["head_replays"]
+
+
+def test_the_subsample_gather_of_a_lazy_column_replays_it_once_per_draw(monkeypatch, seam):
+    """Every family that decides on the same subsample gathers the same rows of the same lazy columns: the column is replayed once, the later gathers are answered by the gather cache, and a different draw gives its own rows."""
+    X = _chain(monkeypatch, seam)
+    L._CACHE.clear()
+    L._GATHER_CACHE.clear()
+    expected = np.asarray(X["sq(x0)"]).copy()
+    L._CACHE.clear()
+    idx = np.random.default_rng(3).choice(len(X), 500, replace=False)
+    before = dict(L.STATS)
+    first = X.iloc[idx]
+    L._CACHE.clear()
+    second = X.iloc[idx.copy()]
+    assert L.STATS["replayed"] - before["replayed"] == 2 and L.STATS["gather_hits"] - before["gather_hits"] == 2
+    assert np.array_equal(np.asarray(first["sq(x0)"]), expected[idx]) and np.array_equal(np.asarray(second["sq(x0)"]), expected[idx])
+    other = np.sort(idx)
+    assert np.array_equal(np.asarray(X.iloc[other]["sq(x0)"]), expected[other])
+
+
+def test_a_cache_gives_memory_back_when_the_machine_is_tight(monkeypatch):
+    """With little memory available a cache keeps the share of it (never less than the floor); with plenty it keeps its own bound."""
+    import types
+
+    cache = L._ColumnCache(max_bytes=10_000)
+    for j in range(5):
+        cache.put(j, np.zeros(500, dtype=np.float32))
+    assert cache._bytes == 10_000
+    monkeypatch.setattr(L, "CACHE_FLOOR_BYTES", 2_500)
+    monkeypatch.setitem(__import__("sys").modules, "psutil", types.SimpleNamespace(virtual_memory=lambda: types.SimpleNamespace(available=10_000)))
+    cache.put(99, np.zeros(500, dtype=np.float32))
+    assert cache._bytes <= 2_500 and cache.get(99) is not None and cache.get(0) is None

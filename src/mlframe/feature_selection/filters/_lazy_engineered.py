@@ -29,6 +29,18 @@ from mlframe.utils.env_flags import env_int
 DEFAULT_MIN_ROWS = 250_000
 #: Bytes of materialised columns kept for repeated reads (shared by every lazy column of the process).
 CACHE_BYTES = 512 * 1024 * 1024
+#: Bytes of the replayed first rows of lazy columns (the heads the decision stages probe a recipe on).
+HEAD_CACHE_BYTES = 64 * 1024 * 1024
+#: A cache holds at most this share of the memory the machine has available when a column is put into it (floor ``CACHE_FLOOR_BYTES``): the caches hold only what can be recomputed, and a fit at the
+#: edge of the RAM (1M x 1000 on 16 GB) has to give it back before the code matrix is copied.
+CACHE_AVAILABLE_SHARE = 0.1
+CACHE_FLOOR_BYTES = 64 * 1024 * 1024
+#: A head slice of at most this many rows is replayed on the head alone; a longer one computes the column.
+HEAD_MAX_ROWS = 65_536
+#: Bytes of the rows of lazy columns gathered for the decision subsample (one gather per column and draw, whatever the number of families that read it).
+GATHER_CACHE_BYTES = 128 * 1024 * 1024
+#: A row gather of at most this share of the rows is answered from (and kept in) the gather cache; a larger one is a plain take.
+GATHER_MAX_SHARE = 0.25
 
 
 def lazy_replay_min_rows() -> int:
@@ -41,7 +53,7 @@ class _ColumnCache:
 
     def __init__(self, max_bytes: int) -> None:
         self.max_bytes = int(max_bytes)
-        self._items: "OrderedDict[int, np.ndarray]" = OrderedDict()
+        self._items: "OrderedDict[Any, np.ndarray]" = OrderedDict()
         self._bytes = 0
         self._lock = threading.Lock()
 
@@ -53,7 +65,7 @@ class _ColumnCache:
         """Restore an empty cache of the saved bound."""
         self.__init__(state["max_bytes"])  # type: ignore[misc]
 
-    def get(self, key: int) -> "Optional[np.ndarray]":
+    def get(self, key: Any) -> "Optional[np.ndarray]":
         """The cached column (made the newest) or ``None``."""
         with self._lock:
             hit = self._items.get(key)
@@ -61,9 +73,19 @@ class _ColumnCache:
                 self._items.move_to_end(key)
             return hit
 
-    def put(self, key: int, values: np.ndarray) -> None:
+    def bound(self) -> int:
+        """The bytes the cache may hold now: its own bound, or the share of the available memory (never below the floor) when the machine is tight."""
+        try:
+            import psutil
+
+            return min(self.max_bytes, max(CACHE_FLOOR_BYTES, int(psutil.virtual_memory().available * CACHE_AVAILABLE_SHARE)))
+        except Exception:  # psutil missing or unreadable: the own bound
+            return self.max_bytes
+
+    def put(self, key: Any, values: np.ndarray) -> None:
         """Remember ``values``; the oldest columns go when the total exceeds the bound (a single column above the bound is not kept)."""
-        if values.nbytes > self.max_bytes:
+        limit = self.bound()
+        if values.nbytes > limit:
             return
         with self._lock:
             old = self._items.pop(key, None)
@@ -71,7 +93,7 @@ class _ColumnCache:
                 self._bytes -= old.nbytes
             self._items[key] = values
             self._bytes += values.nbytes
-            while self._bytes > self.max_bytes and self._items:
+            while self._bytes > limit and self._items:
                 _, dropped = self._items.popitem(last=False)
                 self._bytes -= dropped.nbytes
 
@@ -83,8 +105,10 @@ class _ColumnCache:
 
 
 _CACHE = _ColumnCache(CACHE_BYTES)
+_HEAD_CACHE = _ColumnCache(HEAD_CACHE_BYTES)
+_GATHER_CACHE = _ColumnCache(GATHER_CACHE_BYTES)
 #: Counters of the process (columns created, replays run, reads answered by the cache, bytes replayed): what the profile of a fit reads to see how often a lazy column is computed.
-STATS = {"created": 0, "replayed": 0, "cache_hits": 0, "replayed_bytes": 0}
+STATS = {"created": 0, "replayed": 0, "cache_hits": 0, "replayed_bytes": 0, "head_replays": 0, "gather_hits": 0}
 _SERIAL = itertools.count()  # a key per column that is never reused (the ids of collected objects are)
 
 
@@ -130,8 +154,15 @@ class LazyEngineeredColumn(ExtensionArray):
 
     _dtype = LazyEngineeredDtype()
 
-    def __init__(self, replay: "Optional[Callable[[], np.ndarray]]", length: int, values: "Optional[np.ndarray]" = None) -> None:
+    def __init__(
+        self,
+        replay: "Optional[Callable[[], np.ndarray]]",
+        length: int,
+        values: "Optional[np.ndarray]" = None,
+        head_replay: "Optional[Callable[[int], np.ndarray]]" = None,
+    ) -> None:
         self._replay = replay
+        self._head_replay = head_replay  # replays the first ``rows`` rows alone (the recipe is row-wise: the transform of any batch is what the full replay holds for its rows)
         self._length = int(length)
         self._values = values  # set for a held (sliced / concatenated) column: ``replay`` is then None
         self._key = next(_SERIAL)
@@ -211,14 +242,38 @@ class LazyEngineeredColumn(ExtensionArray):
         return self._length
 
     def __getitem__(self, item: Any) -> Any:
-        """A scalar for an integer, the column itself for a slice of all its rows (``concat`` slices every block that way, and must not compute it), a held column for anything else."""
-        if isinstance(item, slice) and item.indices(self._length) == (0, self._length, 1):
-            return self
+        """A scalar for an integer, the column itself for a slice of all its rows (``concat`` slices every block that way, and must not compute it), the first rows of the column for a slice that starts at
+        its top (replayed on those rows alone), a held column for anything else."""
+        if isinstance(item, slice):
+            start, stop, step = item.indices(self._length)
+            if (start, step) == (0, 1):
+                return self if stop == self._length else self._head(stop)
         values = self.materialize()
         if isinstance(item, (int, np.integer)):
             return values[item]
         taken = values[item]
         return LazyEngineeredColumn.from_values(taken)
+
+    def _head(self, rows: int) -> "LazyEngineeredColumn":
+        """The first ``rows`` rows as a held column.
+
+        A frame slice ``X.iloc[:2048]`` (the probe of a recipe on the head of the data) slices every column of the frame; answering each lazy one by computing the whole column replayed the engineered
+        columns of every earlier family at the full row count again and again (the cache holds a fraction of them). A column whose values are known is cut; otherwise its recipe is replayed on the head alone, once per
+        length (a small cache), which recurses through the columns of its own frame the same way."""
+        values = self._values if self._values is not None else _CACHE.get(self._key)
+        if values is None and self._head_replay is not None and rows <= HEAD_MAX_ROWS:
+            head = _HEAD_CACHE.get((self._key, rows))
+            if head is None:
+                head = np.ascontiguousarray(self._head_replay(rows), dtype=np.float32).reshape(-1)
+                if head.shape[0] != rows:
+                    raise ValueError(f"a lazy engineered column replayed to {head.shape[0]} head rows, expected {rows}")
+                head.flags.writeable = False
+                STATS["head_replays"] += 1
+                _HEAD_CACHE.put((self._key, rows), head)
+            return LazyEngineeredColumn.from_values(head)
+        if values is None:
+            values = self.materialize()
+        return LazyEngineeredColumn.from_values(values[:rows].copy())
 
     def isna(self) -> np.ndarray:
         """The NaN mask of the values."""
@@ -227,12 +282,27 @@ class LazyEngineeredColumn(ExtensionArray):
     def take(self, indices: Any, *, allow_fill: bool = False, fill_value: Any = None) -> "LazyEngineeredColumn":
         """The rows at ``indices`` as a held column (``-1`` is filled with ``fill_value`` or NaN when ``allow_fill``)."""
         idx = np.asarray(indices, dtype=np.int64)
+        if 0 < idx.shape[0] <= GATHER_MAX_SHARE * self._length and not (allow_fill and bool((idx < 0).any())):  # pandas asks for a fill even when no index is -1
+            return self._gather(idx)
         values = self.materialize()
         if allow_fill:
             fill = np.nan if fill_value is None or fill_value is pd.NA else fill_value
             out = np.where(idx < 0, fill, values[np.where(idx < 0, 0, idx)]).astype(np.float32)
         else:
             out = values[idx]
+        return LazyEngineeredColumn.from_values(out)
+
+    def _gather(self, idx: np.ndarray) -> "LazyEngineeredColumn":
+        """The rows ``idx`` as a held column, computed once per column and index: every family of a fit that decides on the same subsample gathers the same rows of the same engineered columns, and each
+        gather used to replay the column at the full row count again (the value cache holds a fraction of the columns of a fit)."""
+        key = (self._key, idx.shape[0], hash(idx.tobytes()))
+        out = _GATHER_CACHE.get(key)
+        if out is not None:
+            STATS["gather_hits"] += 1
+        else:
+            out = np.ascontiguousarray(self.materialize()[idx], dtype=np.float32)
+            out.flags.writeable = False
+            _GATHER_CACHE.put(key, out)
         return LazyEngineeredColumn.from_values(out)
 
     def copy(self) -> "LazyEngineeredColumn":

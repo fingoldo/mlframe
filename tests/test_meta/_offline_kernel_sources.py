@@ -107,6 +107,7 @@ _RECIPES: dict = {
     "_family_columns_gather_cuda.py::_SRC": lambda s: [(dt, _fill(s, **{"{DT}": dt}), ()) for dt in ("signed char", "unsigned char", "short", "int", "long long")],
     "_permutation_shuffle_cuda.py::_SRC": lambda s: [(dt, _fill(s, **{"{DT}": dt}), ()) for dt in ("signed char", "unsigned char", "short", "int", "long long")],
     "_pair_mi_perm_cuda.py::_SRC": lambda s: [(f"KB={kb}", _fill(s, **{"{ACC}": "double"}), (f"-DKB={kb}",)) for kb in (1, 4, 8)],
+    "_pair_mi_perm_cuda_bin.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
     "_fe_batched_mi_cmi.py::_BATCHED_JOINT_ENTROPY_SRC": lambda s: [(xt, _fill(s, **{"{ACC}": "double", "{XT}": xt}), ()) for xt in ("long long", "unsigned char")],
     "_parity_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
     "_dcor_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],

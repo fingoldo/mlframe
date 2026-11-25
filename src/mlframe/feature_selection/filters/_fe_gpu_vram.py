@@ -375,8 +375,31 @@ def _reset_gpu_oom_cooldown() -> None:
         _last_oom_at = float("-inf")
 
 
+def fe_gpu_bytes_above_cushion() -> "int | None":
+    """Bytes a GPU allocation may take right now while the device keeps its cushion (``None`` without cupy; 0 when the free memory cannot be read).
+
+    A SIZING reading for callers that split a job into blocks: the idle cached blocks of our own pools are released first (``memGetInfo`` counts them as used), then the free memory is read once. Unlike
+    ``fe_gpu_has_vram_cushion`` it neither consults nor starts the OOM cooldown: a halving search through that check began with a refusal that set the cooldown, after which every smaller size was declined
+    without a look at the device and the feature-major pair-MI kernel gave up on a card with room for hundreds of its columns."""
+    try:
+        import cupy as cp
+    except ImportError as _exc:
+        logger.debug("fe_gpu_bytes_above_cushion: no cupy (%s)", type(_exc).__name__)
+        return None
+    ensure_fe_gpu_pool_limit()
+    try:
+        if _own_pool_free_bytes() > 0:
+            _release_own_pool()
+        free_b, total_b = cp.cuda.runtime.memGetInfo()
+    except Exception as exc:
+        log_throttle(logger, "fe_gpu_bytes_above_cushion_probe", logging.WARNING, "fe_gpu_bytes_above_cushion: memGetInfo failed (%s: %s); no GPU budget", type(exc).__name__, exc)
+        return 0
+    return max(0, int(free_b) - _cushion_bytes(int(total_b)))
+
+
 __all__ = [
     "fe_gpu_has_vram_cushion",
+    "fe_gpu_bytes_above_cushion",
     "ensure_fe_gpu_pool_limit",
 ]
 

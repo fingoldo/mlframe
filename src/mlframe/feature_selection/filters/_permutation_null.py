@@ -43,6 +43,7 @@ import numba
 import numpy as np
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+from ._column_gather import gather_columns_cm
 from mlframe.utils.log_throttle import log_throttle
 
 from ._content_memo import ContentMemo
@@ -534,7 +535,7 @@ def _pairwise_occupied_joint_k(
     if pa.size == 0:
         return np.empty(0, dtype=np.int64)
     used, inverse = np.unique(np.concatenate([pa, pb]), return_inverse=True)
-    columns_cm = np.ascontiguousarray(np.asarray(factors_data)[:, used].T)  # only the columns the pairs touch, one contiguous row each
+    columns_cm = gather_columns_cm(np.asarray(factors_data), used, dtype=np.asarray(factors_data).dtype)  # only the columns the pairs touch, one contiguous row each, gathered on every core
     n_pairs = int(pa.shape[0])
     with parallel_kernel_entry():
         return np.asarray(_occupied_joint_k_cm_njit(columns_cm, inverse[:n_pairs].astype(np.int64), inverse[n_pairs:].astype(np.int64), nb[pa], nb[pb]))
@@ -572,6 +573,14 @@ def _column_min_max_njit(data, cols, n_blocks):
     return lo, hi
 
 
+def column_code_bounds(data: np.ndarray, columns: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
+    """``(lowest, highest)`` code of each of the sorted unique ``columns`` of ``data``, in one parallel pass over blocks of rows."""
+    arr = data if isinstance(data, np.ndarray) and data.dtype.kind in "iu" else np.asarray(data)
+    n_blocks = int(max(1, min(64, arr.shape[0] // 2048)))
+    with parallel_kernel_entry():
+        return _column_min_max_njit(arr, np.ascontiguousarray(columns, dtype=np.int64), n_blocks)
+
+
 def _validate_code_ranges(data: np.ndarray, nbins: np.ndarray, columns: np.ndarray) -> None:
     """Reject a used column holding a code outside ``[0, nbins[col])``: the joint-count kernels index their tables by the codes without bounds checks.
 
@@ -580,10 +589,7 @@ def _validate_code_ranges(data: np.ndarray, nbins: np.ndarray, columns: np.ndarr
     if data.shape[0] == 0:
         return
     used = np.unique(columns).astype(np.int64)
-    arr = data if isinstance(data, np.ndarray) and data.dtype.kind in "iu" else np.asarray(data)
-    n_blocks = int(max(1, min(64, arr.shape[0] // 2048)))
-    with parallel_kernel_entry():
-        lo, hi = _column_min_max_njit(arr, used, n_blocks)
+    lo, hi = column_code_bounds(data, used)
     bad = np.flatnonzero((lo < 0) | (hi >= np.asarray(nbins, dtype=np.int64)[used]))
     if bad.size:
         c, low, high = int(used[bad[0]]), int(lo[bad[0]]), int(hi[bad[0]])

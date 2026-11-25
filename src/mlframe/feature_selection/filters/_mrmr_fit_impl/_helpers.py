@@ -626,7 +626,11 @@ def _deferred_replay_column(recipe: Any, X: Any, store: Any) -> Any:
         """The replay of the recipe on every row, in the dtype the eager replay stored."""
         return np.asarray(apply_recipe(recipe, X)).astype(store, copy=False)
 
-    return LazyEngineeredColumn(compute, len(X))
+    def compute_head(rows: int) -> np.ndarray:
+        """The replay on the first ``rows`` rows alone (what a slice of the column at the top of a frame reads, without the full-length replay)."""
+        return np.asarray(apply_recipe(recipe, X.iloc[:rows])).astype(store, copy=False)
+
+    return LazyEngineeredColumn(compute, len(X), head_replay=compute_head)
 
 
 def _replay_store_dtype() -> Any:

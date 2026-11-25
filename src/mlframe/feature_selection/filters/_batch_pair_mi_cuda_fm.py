@@ -19,6 +19,7 @@ from typing import Any
 import numpy as np
 
 from ._batch_pair_mi_cuda_shared_fused import shared_fused_kernel_fits_budget, validate_pair_codes
+from ._column_gather import gather_columns_cm
 from ._kernel_types import render
 
 logger = logging.getLogger(__name__)
@@ -118,6 +119,10 @@ def codes_fit_bytes(factors_data: np.ndarray, classes_y: np.ndarray, nbins: np.n
     return not classes_y.size or (int(classes_y.min()) >= 0 and int(classes_y.max()) <= 255)
 
 
+#: Bytes of the column-major block the host gathers for one launch of a streamed call (the block is on the host and on the card at once; 1141 columns of 1000000 rows are 1.1 GB).
+_HOST_BLOCK_BYTES = 512 * 1024 * 1024
+
+
 def _get_kernel() -> Any:
     """Lazy-compile and cache the RawKernel."""
     global _FM_KERNEL
@@ -168,9 +173,10 @@ def batch_pair_mi_cuda_feature_major(
     n_used = int(np.unique(np.concatenate([pa, pb])).shape[0])
     if fe_gpu_has_vram_cushion(n_used * (n_samples + n_pad)):
         return _launch_pairs(factors_data, pa, pb, nbins_i, classes_y, freqs_y, max_joint, shared_bytes, threads_per_block, gather_on_host=False)
-    limit = operand_block_limit(n_used, n_samples + n_pad, 16)
+    limit = operand_block_limit(n_used, n_pad, 16)  # a block lives on the card as its column-major copy only: the host gathers and transposes it
     if not limit:
         raise RuntimeError("batch_pair_mi_cuda_feature_major: not even two operand columns fit the VRAM cushion")
+    limit = min(limit, max(2, _HOST_BLOCK_BYTES // max(1, n_pad)))  # the host holds the block while it is uploaded: a bounded share of the machine's memory
     out = np.empty(n_pairs, dtype=np.float64)  # Intentional float64: MI statistic output compared at full precision
     pair_blocks = pair_chunks_by_operand_block(pa, pb, limit)
     for chunk in pair_blocks:
@@ -198,16 +204,17 @@ def _launch_pairs(
     n_classes_y = int(freqs_y.shape[0])
     n_pad = (n_samples + 3) & ~3
     if gather_on_host:
+        # the columns of the chunk are gathered and transposed on the host on every core, already padded to whole words: one upload, no device transpose
         used, inverse = np.unique(np.concatenate([pa, pb]), return_inverse=True)
-        factors_data = np.ascontiguousarray(factors_data[:, used])
+        d_cm = _cp.asarray(gather_columns_cm(factors_data, used, pad_to=4))
         nbins_i = np.ascontiguousarray(nbins_i[used])
         pa, pb = inverse[:n_pairs].astype(np.int64), inverse[n_pairs:].astype(np.int64)
-    n_features = int(factors_data.shape[1])
-    # transpose on the device: upload the row-major bytes once, then one (features, rows) copy with the rows padded to whole words
-    d_rm = _cp.asarray(np.ascontiguousarray(factors_data, dtype=np.uint8))
-    d_cm = _cp.zeros((n_features, n_pad), dtype=_cp.uint8)
-    d_cm[:, :n_samples] = d_rm.T
-    del d_rm
+    else:
+        # transpose on the device: upload the row-major bytes once, then one (features, rows) copy with the rows padded to whole words
+        d_rm = _cp.asarray(np.ascontiguousarray(factors_data, dtype=np.uint8))
+        d_cm = _cp.zeros((int(factors_data.shape[1]), n_pad), dtype=_cp.uint8)
+        d_cm[:, :n_samples] = d_rm.T
+        del d_rm
     d_y = _cp.zeros(n_pad, dtype=_cp.uint8)
     d_y[:n_samples] = _cp.asarray(np.ascontiguousarray(classes_y, dtype=np.uint8))
     d_pa, d_pb = _cp.asarray(pa), _cp.asarray(pb)

@@ -240,6 +240,155 @@ _MODULE_NOQUEUE = RawModuleCache("#define ACCEPT_NOQUEUE 1\n" + _SRC)  # v1: the
 _MODULE_G = RawModuleCache("#define ACCEPT_GLOBAL 1\n" + _SRC)
 _MODULE_PRE = RawModuleCache("#define ACCEPT_PRE 1\n" + _SRC)
 
+#: The acceptance scan over the precomputed sorted-space tables with COALESCED loads (ACCEPT_PRE, ``root_split_accept`` above, is kept as the reference). In that kernel every thread owns a contiguous run of
+#: 61 words (500000 rows), so a warp load touches 32 sectors: nvprof gld_efficiency 13 percent, 17.4 transactions per request, 25 million local loads, IPC 0.32 and two thirds of the stalls waiting for memory,
+#: 43.2 ms for 24 columns x 128 permutations. Here a warp walks a contiguous SEGMENT of the words 32 at a time (one 128-byte load per step); the ones before a word come from a shuffle scan in the warp plus a carry,
+#: the segments' starting counts from one scan of the warp totals. Outputs (gain, ncand, idx) equal the reference kernel's: ``ncand`` is an integer sum, the exact gain is the same expression, and the winner is the
+#: larger gain, the smaller index on a tie, whatever order the words are visited in. 11.2 ms for the same shape (3.85 times). A loop unrolled four times with all loads issued first was no faster (11.8 ms).
+#: Launch bounds (512, 2): the reference's (512, MLF_THREADS_PER_SM / 512) caps the kernel at 32 registers on sm_61 and it spills (48 bytes of local memory, flagged by the offline ptxas check); this one needs 56 and does not spill, at the same time.
+_SRC_PRE_CO = ARCH_THREADS_HEADER + render(r"""
+#define QCAP 512
+extern "C" __global__ void __launch_bounds__(512, 2) root_split_accept_pre_co(const int* __restrict__ order, const unsigned int* __restrict__ valid, const unsigned int* __restrict__ ybits,
+                                             const {ACC}* __restrict__ tab, const {ACC}* __restrict__ thr, const long long n, const int W, const int YW, const int m,
+                                             const int B, const {ACC} h_full, const {ACC} pi,
+                                             {ACC}* __restrict__ out_gain, int* __restrict__ out_ncand, int* __restrict__ out_idx,
+                                             const unsigned int* __restrict__ pre, const int WP) {
+    __shared__ int warp_pc[32];
+    __shared__ int s_ncand;
+    __shared__ int s_qn;
+    __shared__ int q_w[QCAP];
+    __shared__ int q_l[QCAP];
+    __shared__ {ACC} best_g[32];
+    __shared__ int best_i[32];
+    const int tid = threadIdx.x, lane = tid & 31, warp = tid >> 5, nw = (int)(blockDim.x >> 5);
+    const long long pair = blockIdx.x;
+    const int j = (int)(pair / B);
+    const int b = (int)(pair - (long long)j * B);
+    const unsigned int* bw = pre + ((long long)(j * B + b)) * WP;
+    const unsigned int* vj = valid + (long long)j * W;
+    const int seg = (((W + nw - 1) / nw) + 31) & ~31;      // words per warp, a multiple of 32
+    const int s0 = min(W, warp * seg), s1 = min(W, s0 + seg);
+    if (tid == 0) { s_ncand = 0; s_qn = 0; }
+    __syncthreads();
+    // pass 1: ones and valid label changes of the segment, one coalesced load of 32 words per step
+    int pc = 0, nc = 0;
+    for (int base = s0; base < s1; base += 32) {
+        const int w = base + lane;
+        unsigned int cur = 0u, v = 0u;
+        if (w < s1) { cur = bw[w]; v = vj[w]; }
+        unsigned int nxt = __shfl_down_sync(0xffffffffu, cur, 1);
+        if (lane == 31 || w + 1 >= s1) nxt = (w + 1 < W) ? bw[w + 1] : 0u;
+        if (w < s1) {
+            const unsigned int bnd = cur ^ ((cur >> 1) | (nxt << 31));
+            pc += __popc(cur);
+            nc += __popc(bnd & v);
+        }
+    }
+#pragma unroll
+    for (int o = 16; o >= 1; o >>= 1) { pc += __shfl_down_sync(0xffffffffu, pc, o); nc += __shfl_down_sync(0xffffffffu, nc, o); }
+    if (lane == 0) { warp_pc[warp] = pc; atomicAdd(&s_ncand, nc); }
+    __syncthreads();
+    if (tid == 0) {
+        int run = 0;
+        for (int w = 0; w < nw; ++w) { const int t = warp_pc[w]; warp_pc[w] = run; run += t; }
+    }
+    __syncthreads();
+    int L = warp_pc[warp];                              // ones before the first word of this warp's segment
+    const int ncand = s_ncand;
+    {ACC} bg = -1e300;
+    int bi = -1;
+    if (ncand > 0) {
+        const {ACC} th = thr[ncand];
+        const {REAL} pif = ({REAL})pi;
+        const {REAL} pi1mf = ({REAL})(pi * (1.0 - pi));
+        const {REAL} nnf = ({REAL})n;
+        const {ACC} nn = ({ACC})n;
+        for (int base = s0; base < s1; base += 32) {
+            const int w = base + lane;
+            unsigned int cur = 0u, v = 0u;
+            if (w < s1) { cur = bw[w]; v = vj[w]; }
+            unsigned int nxt = __shfl_down_sync(0xffffffffu, cur, 1);
+            if (lane == 31 || w + 1 >= s1) nxt = (w + 1 < W) ? bw[w + 1] : 0u;
+            const int x = (w < s1) ? __popc(cur) : 0;
+            int incl = x;                                // inclusive scan of the ones counts of the 32 words
+#pragma unroll
+            for (int o = 1; o < 32; o <<= 1) { const int t = __shfl_up_sync(0xffffffffu, incl, o); if (lane >= o) incl += t; }
+            const int Lw = L + incl - x;                  // ones before word w
+            L += __shfl_sync(0xffffffffu, incl, 31);
+            if (w < s1) {
+                const unsigned int cand = (cur ^ ((cur >> 1) | (nxt << 31))) & v;
+                if (cand) {
+                    const {REAL} i0 = ({REAL})w * 32.0f;
+                    const {REAL} dlo = ({REAL})Lw - (i0 + 32.0f) * pif;
+                    const {REAL} dhi = ({REAL})Lw + 32.0f - (i0 + 1.0f) * pif;
+                    const {REAL} d = fmaxf(fabsf(dlo), fabsf(dhi)) + 0.5f;
+                    const {REAL} nl1 = i0 + 1.0f, nl2 = fminf(i0 + 32.0f, nnf - 1.0f);
+                    const {REAL} fmn = fminf(nl1 * (nnf - nl1), nl2 * (nnf - nl2));
+                    const {ACC} bound = ({ACC})(d * d / (fmn * pi1mf)) * 1.001 + 1e-12;
+                    if (bound >= th) {
+                        const int slot = atomicAdd(&s_qn, 1);
+                        if (slot < QCAP) { q_w[slot] = w; q_l[slot] = Lw; }
+                        else {
+                            unsigned int c = cand;
+                            while (c) {
+                                const int bpos = __ffs(c) - 1;
+                                c &= c - 1;
+                                const long long i = (long long)w * 32 + bpos;
+                                const unsigned int upto = (bpos == 31) ? 0xFFFFFFFFu : ((2u << bpos) - 1u);
+                                const long long l1 = (long long)Lw + __popc(cur & upto);
+                                const long long n_l = i + 1, n_r = (long long)n - n_l, l0 = n_l - l1;
+                                const long long r1 = (long long)m - l1, r0 = ((long long)n - m) - l0;
+                                const {ACC} gain = h_full - (tab[n_l] - (tab[l0] + tab[l1]) + tab[n_r] - (tab[r0] + tab[r1])) / nn;
+                                if (gain > bg || (gain == bg && i < bi)) { bg = gain; bi = (int)i; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    __syncthreads();                                   // the queue is complete
+    {
+        const int nq = min(s_qn, QCAP);
+        const {ACC} nn2 = ({ACC})n;
+        for (int e = warp; e < nq; e += nw) {
+            const int w = q_w[e];
+            const int Lw = q_l[e];
+            const unsigned int cur = bw[w];
+            const unsigned int nxt = (w + 1 < W) ? bw[w + 1] : 0u;
+            const unsigned int cand = (cur ^ ((cur >> 1) | (nxt << 31))) & vj[w];
+            if ((cand >> lane) & 1u) {
+                const long long i = (long long)w * 32 + lane;
+                const unsigned int upto = (lane == 31) ? 0xFFFFFFFFu : ((2u << lane) - 1u);
+                const long long l1 = (long long)Lw + __popc(cur & upto);
+                const long long n_l = i + 1, n_r = (long long)n - n_l, l0 = n_l - l1;
+                const long long r1 = (long long)m - l1, r0 = ((long long)n - m) - l0;
+                const {ACC} gain = h_full - (tab[n_l] - (tab[l0] + tab[l1]) + tab[n_r] - (tab[r0] + tab[r1])) / nn2;
+                if (gain > bg || (gain == bg && i < bi)) { bg = gain; bi = (int)i; }
+            }
+        }
+    }
+#pragma unroll
+    for (int o = 16; o >= 1; o >>= 1) {
+        const {ACC} og = __shfl_down_sync(0xffffffffu, bg, o);
+        const int oi = __shfl_down_sync(0xffffffffu, bi, o);
+        if (oi >= 0 && (bi < 0 || og > bg || (og == bg && oi < bi))) { bg = og; bi = oi; }
+    }
+    if (lane == 0) { best_g[warp] = bg; best_i[warp] = bi; }
+    __syncthreads();
+    if (tid == 0) {
+        {ACC} G = -1e300;
+        int I = -1;
+        for (int t = 0; t < nw; ++t)
+            if (best_i[t] >= 0 && (best_g[t] > G || (best_g[t] == G && best_i[t] < I))) { G = best_g[t]; I = best_i[t]; }
+        out_gain[pair] = G;
+        out_ncand[pair] = ncand;
+        out_idx[pair] = I;
+    }
+}
+""", real=np.float32)
+_MODULE_PRE_CO = RawModuleCache(_SRC_PRE_CO)
+
 #: Builds the sorted-space label sequences of every (column, permutation) pair of a chunk from the row-major label bit matrix ``yt`` (row r: one word per 32 permutations, bit b = label of row r under
 #: permutation b): a warp owns 32 sorted positions, gathers the B-bit vector of the row at each position (one sector per position instead of one lookup per position and permutation) and transposes the
 #: 32 x 32 bit tile with ballots, so thread t ends with the 32 positions' bits of permutation ``pw * 32 + t``.
@@ -389,11 +538,18 @@ def _transposed_label_bits(cp: Any, yb: Any, n: int, pw: int) -> Any:
     return cp.packbits(padded.reshape(-1), bitorder="little").view(cp.uint32).reshape(n, pw)
 
 
+def coalesced_pre_scan_enabled() -> bool:
+    """Whether the scan over the precomputed tables runs the coalesced kernel (default; ``MLFRAME_HONEST_ACCEPT_PRE_SCAN=block`` runs the reference thread-per-run kernel), read on every call."""
+    import os
+
+    return os.environ.get("MLFRAME_HONEST_ACCEPT_PRE_SCAN", "coalesced").strip().lower() != "block"
+
+
 def _launch_pre(cp: Any, d_order: Any, valid: Any, ybits: Any, tab_full: Any, thr: Any, n: int, words: int, m: int, n_perm: int, kc: int, h_full: float, d_gain: Any, d_ncand: Any, d_idx: Any) -> bool:
     """The scan over sorted-space label sequences built beforehand by gathering one B-bit vector per sorted position (``sorted_label_bits``): the scan kernel does no label lookup per (position,
     permutation), whatever the row count. Permutations go in chunks of ``_PERM_CHUNK`` and columns in chunks that keep the tables under ``_PRE_BYTES``."""
     build = _MODULE_SORTED8.get(cp).get_function("sorted_label_bits8")
-    scan = _MODULE_PRE.get(cp).get_function("root_split_accept")
+    scan = _MODULE_PRE_CO.get(cp).get_function("root_split_accept_pre_co") if coalesced_pre_scan_enabled() else _MODULE_PRE.get(cp).get_function("root_split_accept")
     width = _block_width(scan, 0, n)
     wp = ((words + 7) // 8) * 8
     g2, c2, i2 = d_gain.reshape(kc, n_perm), d_ncand.reshape(kc, n_perm), d_idx.reshape(kc, n_perm)
