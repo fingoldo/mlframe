@@ -997,7 +997,6 @@
 | 39-F45 | FIXED | Character entropy counts with a single Counter over chained characters. Test test_cluster39_char_entropy_counter.py. |
 | 39-F55 | FIXED | set_params raises ValueError for unknown keys and method names instead of warning or overwriting. Test test_cluster39_set_params_unknown_raises.py. |
 | 39-F25 | FIXED | James-Stein pooled-variance residuals use one pandas map per fit instead of a dict lookup per row. Test test_cluster39_js_variance_vectorised.py. |
-| 39-F28 | DEFERRED | Derived memory/cache values are written into the user's sub-configs and re-read as explicit on a model_dump round trip. Fixing it needs a design choice (keep derived values out of the sub-configs, or track their provenance across serialisation). Owner decision. |
 | 39-F44 | PARTIAL | Datetime token construction is vectorised (np.char.add), pinned to the per-element formula. The object-token loop (_canonical_cat_token per value) and the _objectwise_isnull per-row loop are still Python loops. Test test_cluster39_datetime_tokens_vectorised.py. |
 | 39-F29 | FIXED | Concurrent misses on one cache key elect a leader; other callers wait and then read the memory tier. Test test_cluster39_cache_single_flight.py. |
 | 42-F4 | FIXED | Leaderboard refuses duplicate task column names. Test test_cluster42_duplicate_task_and_missing_task.py. |
@@ -1499,3 +1498,5 @@
 | 38-F9 | PARTIAL | The pre-screen skip now tests the group column's own protection (group_ids_raw carries its name), not the whole protected set, which target names always filled. Not done: the explicit group-name field from the extractor, which needs a new TrainingContext slot. Test tests/training/core/test_cluster38_group_guard_specific.py. |
 
 | 38-F24 | FIXED | A CV policy without a target_type is refused with a ValueError instead of being silently wired as regression. Test tests/training/core/test_cluster38_cv_policy_needs_target_type.py (2 passed). |
+
+| 39-F28 | DEFERRED | _derive_memory_budgets writes derived values into the user's memory and cache sub-configs, so a dump and re-validation treats them as explicit. The fix needs the cache to read the resolved values: cache.py reads self._cfg.ram_max_gb and ram_reserve_gb from the sub-config, so the cache construction site must receive the _resolved_* values. Plan: pass resolved values into the cache constructor, stop writing into the sub-configs, and test a round trip on a smaller simulated RAM limit. No code change in this pass. |
