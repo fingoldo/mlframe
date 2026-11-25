@@ -177,7 +177,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 38-F18 | 38_training-7.md | FIXED | Dead expression removed. |
 | 38-F19 | 38_training-7.md | FIXED | Duplicate logger removed. |
 | 38-F20 | 38_training-7.md | FIXED | Docstring corrected (no strong-ref window). |
-| 38-F21 | 38_training-7.md | PARTIAL | Comment corrected; repr-keyed fallback documented, not re-keyed. |
+| 38-F21 | 38_training-7.md | DOCUMENTED | The fallback cache key is repr(pre_pipeline), not the object identity; the comment now says so. Keying on id() would need a strong reference that pins each pipeline in memory and changes cache hits. The collision is narrow: only un-introspectable pipelines with identical reprs share a slot, and only on the fallback path. Kept as is, documented. |
 | 38-F22 | 38_training-7.md | FIXED | A pre-OD category union also takes the validation categories, so the strict val cast cannot fail on a val-only category. Behaviour change: such categories now join the Enum instead of crashing. Test tests/training/core/test_cluster38_precomputed_union_covers_val.py (plus existing test_fe_preod_enum_domain.py, 2 passed). |
 | 38-F23 | 38_training-7.md | FIXED | Documented: first regression target drives stratification. |
 | 38-F24 | 38_training-7.md | FIXED | A CV policy without a target_type is refused with a ValueError instead of being silently wired as regression. Test tests/training/core/test_cluster38_cv_policy_needs_target_type.py (2 passed). |

@@ -909,7 +909,6 @@
 | 38-F18 | FIXED | Dead metadata.get expression removed |
 | 38-F19 | FIXED | Duplicate logger assignment removed |
 | 38-F20 | FIXED | Docstring corrected: cache holds the ndarray, no strong-ref window; no test |
-| 38-F21 | PARTIAL | Comment corrected (repr is not identity); fallback still keyed on repr, documented rather than re-keyed |
 | 38-F23 | FIXED | Documented: only the first regression target drives bucket stratification |
 | 38-F25 | FIXED | Narrowing signature suffix widened from 4 to 8 hex characters |
 | 38-F26 | FIXED | AssertionError carries a message; pure-selector warning text corrected |
@@ -1550,3 +1549,5 @@
 | 28-F68 | FIXED | Removed the empty trailing 'Callback Classes for Training Monitoring' section header from helpers.py (no code under it). The device-gating comment the finding names is no longer in the file. Test tests/training/test_cluster28_helpers_no_empty_header.py (2 passed). |
 
 | 37-F51 | FIXED | The group-slice helper is renamed _group_train_slice at its definition and at its lazy-proxy call site; the old name is gone from the core sources. Test tests/training/core/test_cluster37_group_slice_name.py (2 passed). |
+
+| 38-F21 | DOCUMENTED | The fallback cache key is repr(pre_pipeline), not the object identity; the comment now says so. Keying on id() would need a strong reference that pins each pipeline in memory and changes cache hits. The collision is narrow: only un-introspectable pipelines with identical reprs share a slot, and only on the fallback path. Kept as is, documented. |
