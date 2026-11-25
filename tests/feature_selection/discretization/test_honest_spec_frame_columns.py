@@ -108,3 +108,59 @@ def test_a_block_of_float32_columns_of_a_double_spec_is_read_in_float32_and_its_
         got = _njit_null_columns(spec, codes, nbins, 0, block, 20, 5)
         ref = _njit_null_columns(dense, codes, nbins, 0, block, 20, 5)
         assert np.array_equal(got[0], ref[0]) and np.array_equal(got[1], ref[1])
+
+
+def test_radix_sorted_copy_equals_numpy_sort_for_long_and_short_vectors():
+    """The radix sort of a float32 vector gives numpy's order (zeros of either sign compare equal), leaves its input alone and sorts a short vector by numpy."""
+    from mlframe.feature_selection.filters.discretization._quantile_radix import radix_sorted_f32
+
+    rng = np.random.default_rng(11)
+    for n in (10, 4095, 4096, 50_001):
+        x = np.round(rng.standard_normal(n), 2).astype(np.float32)
+        x[::13] = 0.0
+        x[1::13] = -0.0
+        x[2::17] = np.float32(3.5)
+        before = x.copy()
+        got = radix_sorted_f32(x)
+        assert got.dtype == np.float32 and np.array_equal(got, np.sort(x)) and np.array_equal(x, before, equal_nan=True)
+
+
+def test_the_edges_of_a_long_float32_spec_are_those_of_the_numpy_sort():
+    """On 6000 rows (the radix route) the continuous flags and both edge sets of every column equal the ones computed from numpy's sorted double-precision column."""
+    from mlframe.feature_selection.filters._adaptive_nbins import _edges_from_quantiles
+    from mlframe.feature_selection.filters._supervised_collapse_refine import _fallback_edges
+
+    rng = np.random.default_rng(5)
+    n = 6000
+    X = pd.DataFrame(rng.standard_normal((n, 4)).astype(np.float32), columns=list("pqrs"))
+    X["r"] = np.round(X["r"], 1)  # heavy ties
+    X["s"] = (np.arange(n) % 7).astype(np.float32)  # low cardinality
+    y = (X["p"].to_numpy() > 0).astype(np.int8)
+    spec = build_honest_spec(X, list(X.columns), y, 6)
+    assert spec["raw"].dtype == np.float32
+    for j, c in enumerate(X.columns):
+        v = np.sort(X[c].to_numpy()).astype(np.float64)
+        cont = int(np.count_nonzero(v[1:] != v[:-1])) + 1 > 32
+        assert bool(spec["is_cont"][j]) == cont
+        if cont:
+            fb, rf = _edges_from_quantiles(v, 5), _fallback_edges(v, "quantile", 5)
+            assert np.array_equal(spec["q_fb"][j, : spec["q_fb_len"][j]], fb) and np.array_equal(spec["q_rf"][j, : spec["q_rf_len"][j]], rf)
+
+
+def test_columns_of_every_kind_are_scanned_into_the_same_spec_whatever_the_pool_size(monkeypatch):
+    """A frame with a categorical, an absent, a NaN, a double and an integer column gives the same spec on the pool and one column at a time."""
+    from mlframe.feature_selection.filters import _adaptive_nbins as nb
+
+    X, y = _frame(np.float32)
+    X["cat"] = pd.Categorical(np.where(np.arange(len(X)) % 2, "u", "v"))
+    X["gap"] = X["b"].where(np.arange(len(X)) % 9 != 0)
+    X["wide"] = np.random.default_rng(2).standard_normal(len(X))
+    X["small"] = (np.arange(len(X)) % 5).astype(np.int8)
+    cols = [*X.columns, "absent_column"]
+    pooled = build_honest_spec(X, cols, y, 6)
+    monkeypatch.setattr(nb, "_resolve_edge_jobs", lambda *a, **k: 1)
+    serial = build_honest_spec(X, cols, y, 6)
+    for key in ("is_cont", "q_fb", "q_fb_len", "q_rf", "q_rf_len", "y_enc"):
+        assert np.array_equal(pooled[key], serial[key])
+    assert np.array_equal(pooled["nan_mask"], serial["nan_mask"]) and pooled["raw"].dtype == serial["raw"].dtype == np.float64
+    assert not pooled["is_cont"][cols.index("cat")] and not pooled["is_cont"][cols.index("absent_column")]
