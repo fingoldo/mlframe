@@ -11,6 +11,7 @@ history.
 
 ## [Unreleased]
 ### Fixed
+- The early-stop check for a dominant column between the FE cascades scores a long frame (from 262144 rows) on an evenly spaced sample of 65536 rows first and scores at full length only the columns that clear the screen (0.9 of the sample's H(y) against the 0.99 bar): the stretch between `cascade_early_a` and `cascade_early_b` of a 500000 x 1000 fit fell from 27.9 to 4.2 s with the same verdicts.
 - The row subsample of a frame with pending lazy engineered columns gathers their rows on a pool of threads before the frame is cut (`fe_subsample_to_pandas`): the cut replayed each column at the full row count one after another (`stage:decide_gather` 11.9 -> 5.9 s and the conditional-routing gate 16.9 -> 11.1 s at 500000 x 1000, same selection).
 - The accuracy gate of a large frame no longer replays its 800 pending engineered columns one after another on one thread: `prefetch_columns` computes them on a pool of threads a chunk ahead of the reader (`stage:accuracy_gate` 13.5 -> 7.9 s at 500000 x 1000, same selection), and the process counters of the lazy columns are taken under a lock so concurrent replays lose no increment.
 - The decision subsample of the FE families is reused across families: the cache compared the index array by object (every family builds its own copy of the one draw, so it hit only for the same family twice) and now compares the rows; a frame that is its parent plus appended columns gathers only the appended columns, read from the small frame the append held. 22 s -> 12 s of a 500000 x 1000 fit.

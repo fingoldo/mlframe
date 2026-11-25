@@ -11,7 +11,7 @@ import os
 
 import numpy as np
 
-from ._fe_frame_ops import fe_columns, fe_extract_columns, fe_is_numeric_col, fe_stack_columns
+from ._fe_frame_ops import fe_columns, fe_extract_columns, fe_is_numeric_col, fe_stack_columns, fe_subsample_to_pandas
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -41,26 +41,21 @@ def _target_codes(y: np.ndarray) -> "np.ndarray | None":
 
 #: Host bytes of one block of columns scored together (the sanitised float32 matrix of the block).
 _BLOCK_BYTES = 256 * 1024 * 1024
+#: Rows of the evenly spaced sample a long frame is screened on, and the frame length from which the screen is used (below it the sample is no cheaper than the frame).
+_SCREEN_ROWS = 65_536
+_SCREEN_MIN_ROWS = 4 * _SCREEN_ROWS
+#: A column survives the screen when its corrected MI on the sample reaches this share of the sample's H(y). The bar of a dominant column is 0.99 of H(y) on all rows; the plug-in MI of 65536 rows
+#: is within a few thousandths of the full-length value, so a column that clears the bar is nowhere near 0.9 on the sample.
+_SCREEN_FRACTION = 0.9
+#: The screen is used only when the bias of the plug-in MI is a small share of H(y) on the sample (a target with a handful of rare rows in the sample is decided on all rows).
+_SCREEN_MIN_ENTROPY_OVER_BIAS = 50.0
 
 
-def dominant_candidate(X: Any, y: Any, n_rows_min: int = _MIN_ROWS) -> "str | None":
-    """Name of a numeric column of ``X`` whose corrected MI with ``y`` reaches ``_DOMINANT_FRACTION`` of H(y), else None."""
-    if os.environ.get("MLFRAME_FE_DOMINANT_STOP", "1") == "0":
-        return None
-    codes = _target_codes(y)
-    n = 0 if codes is None else len(codes)
-    if codes is None or n < n_rows_min:
-        return None
-    counts = np.bincount(codes)
-    p = counts[counts > 0] / n
-    h_y = float(-(p * np.log(p)).sum())
-    if h_y <= 0:
-        return None
-    names = [c for c in fe_columns(X) if fe_is_numeric_col(X, c)]
-    if not names:
-        return None
+def _column_mis(X: Any, names: "list[str]", codes: np.ndarray) -> np.ndarray:
+    """Plug-in MI (``_N_BINS`` quantile bins) of the columns ``names`` of ``X`` with the target ``codes``, scored a block of columns at a time."""
     from ._hermite_fe_mi import plugin_mi_classif_batch_dispatch
 
+    n = len(codes)
     # A frame that fits the budget is scored in one call, as before. A larger one goes in blocks of columns: the extracted columns, their sanitised copies and the stacked matrix were
     # three frame-sized arrays at once (1.2 GB for a million rows x 100 columns), and every column's MI is its own.
     width = len(names) if n * len(names) * 4 <= _BLOCK_BYTES else max(1, _BLOCK_BYTES // (n * 4))
@@ -78,8 +73,51 @@ def dominant_candidate(X: Any, y: Any, n_rows_min: int = _MIN_ROWS) -> "str | No
         # Intentional float64: MI statistic vector from the plug-in estimator
         parts.append(np.asarray(plugin_mi_classif_batch_dispatch(mat, codes, _N_BINS), dtype=np.float64))
         del mat
-    mi = np.concatenate(parts)
-    bias = (_N_BINS - 1) * (len(p) - 1) / (2.0 * n)
+    return np.concatenate(parts)
+
+
+def _entropy_and_bias(codes: np.ndarray) -> "tuple[float, float]":
+    """``(H(y), bias of the plug-in MI)`` of the target ``codes`` in nats."""
+    counts = np.bincount(codes)
+    p = counts[counts > 0] / len(codes)
+    return float(-(p * np.log(p)).sum()), (_N_BINS - 1) * (len(p) - 1) / (2.0 * len(codes))
+
+
+def _screened(X: Any, names: "list[str]", codes: np.ndarray) -> "list[str]":
+    """The columns of ``names`` that can still be dominant after a look at an evenly spaced sample of the rows (all of them when the sample cannot tell).
+
+    Scoring every column of a 500000 x 1400 frame at full length stacked 2.8 GB on one thread (21 s in a 500k x 1000 fit, both devices idle); the sample is an eighth of the rows, and the full-length
+    scoring that decides is left to the few columns that clear the screen (none, in almost every fit)."""
+    n = len(codes)
+    if n < _SCREEN_MIN_ROWS:
+        return names
+    rows = np.linspace(0, n - 1, _SCREEN_ROWS).astype(np.int64)
+    sample_codes = codes[rows]
+    h_sample, bias_sample = _entropy_and_bias(sample_codes)
+    if h_sample <= 0 or h_sample < _SCREEN_MIN_ENTROPY_OVER_BIAS * bias_sample:
+        return names
+    mi_sample = _column_mis(fe_subsample_to_pandas(X, rows), names, sample_codes)
+    keep = np.flatnonzero(mi_sample - bias_sample >= _SCREEN_FRACTION * h_sample)
+    return [names[j] for j in keep]
+
+
+def dominant_candidate(X: Any, y: Any, n_rows_min: int = _MIN_ROWS) -> "str | None":
+    """Name of a numeric column of ``X`` whose corrected MI with ``y`` reaches ``_DOMINANT_FRACTION`` of H(y), else None."""
+    if os.environ.get("MLFRAME_FE_DOMINANT_STOP", "1") == "0":
+        return None
+    codes = _target_codes(y)
+    n = 0 if codes is None else len(codes)
+    if codes is None or n < n_rows_min:
+        return None
+    h_y, bias = _entropy_and_bias(codes)
+    if h_y <= 0:
+        return None
+    names = [c for c in fe_columns(X) if fe_is_numeric_col(X, c)]
+    if names:
+        names = _screened(X, names, codes)
+    if not names:
+        return None
+    mi = _column_mis(X, names, codes)
     best = int(np.argmax(mi))
     if mi[best] - bias >= _DOMINANT_FRACTION * h_y:
         logger.info("FE early stop: column %r explains %.4f of the target entropy, remaining stages skipped", names[best], (mi[best] - bias) / h_y)
