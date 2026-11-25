@@ -48,7 +48,7 @@ if mode == "all":
     from mlframe.feature_selection._benchmarks.profiling import family_scale as F
 
     kwargs = F.all_families_kwargs()
-    kwargs.update(binning_params(os.environ.get("BENCH_NBINS", "mdlp")))
+    kwargs.update(binning_params(os.environ.get("BENCH_NBINS", "quantile")))  # the MRMR default; BENCH_NBINS=mdlp reproduces every number above (all taken with mdlp up to 2026-11-25)
     if os.environ.get("BENCH_QDTYPE"):  # e.g. int16 / int8: A/B of the codes-matrix width
         kwargs["quantization_dtype"] = getattr(np, os.environ["BENCH_QDTYPE"])
 else:

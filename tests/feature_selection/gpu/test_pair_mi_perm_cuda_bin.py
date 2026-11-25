@@ -83,3 +83,57 @@ def test_a_three_class_target_stays_on_the_general_kernel(monkeypatch):
     monkeypatch.setattr(B, "launch_pairs_binary", lambda *a, **k: (_ for _ in ()).throw(AssertionError("the binary kernel was used")))
     args = _case(2000, [4, 6, 5], 30, 5, ky=3)
     assert P.pair_mi_perm_matrix_cuda(*args, 10_000) is not None
+
+
+@pytest.mark.parametrize("bins", [[2, 5, 7], [16, 16, 16], [32, 48, 48]])
+@pytest.mark.parametrize("n", [3, 4001, 55_297])
+def test_the_table_form_equals_the_logarithm_form(monkeypatch, bins, n):
+    """The kernel that reads ``c ln c`` from a table gives the logarithm kernel's matrix to 1e-12 for narrow and wide pair tables (a 48 x 48 pair takes 2 permutations a pass) and every row count."""
+    args = _case(n, bins, 40, 25, seed=3)
+    monkeypatch.setenv("MLFRAME_PAIR_PERM_LUT", "0")
+    logarithm = P.pair_mi_perm_matrix_cuda(*args, 10_000)
+    monkeypatch.setenv("MLFRAME_PAIR_PERM_LUT", "1")
+    table = P.pair_mi_perm_matrix_cuda(*args, 10_000)
+    assert np.abs(logarithm - table).max() < 1e-12 and np.isfinite(table).all()
+
+
+def test_the_table_is_c_ln_c_with_zero_at_zero():
+    """``_xlogx_host(n)`` holds ``c ln c`` for ``c = 0 .. n``, read-only, and 0 at 0 and 1."""
+    t = B._xlogx_host(10)
+    assert t.shape == (11,) and t[0] == 0.0 and t[1] == 0.0 and t[10] == pytest.approx(10 * np.log(10)) and not t.flags.writeable
+
+
+def test_a_pair_over_the_cardinality_cap_stays_zero_in_the_table_form(monkeypatch):
+    """The cap rule is the kernel's, not the formula's: a pair whose joint table is over the cap gives zeros in both forms, and the pairs under it agree."""
+    args = _case(2000, [30, 40, 3], 30, 10, seed=5)
+    monkeypatch.setenv("MLFRAME_PAIR_PERM_LUT", "1")
+    table = P.pair_mi_perm_matrix_cuda(*args, 100)
+    monkeypatch.setenv("MLFRAME_PAIR_PERM_LUT", "0")
+    logarithm = P.pair_mi_perm_matrix_cuda(*args, 100)
+    a, b, nb = args[1], args[2], args[3]
+    over = (nb[a] * nb[b] > 100)[None, :].repeat(table.shape[0], axis=0)
+    assert over.any() and (~over).any()
+    assert (table[over] == 0.0).all() and (logarithm[over] == 0.0).all()
+    assert np.abs(table - logarithm).max() < 1e-12
+
+
+@pytest.mark.parametrize("threads", [32, 64, 96, 288, 1024])
+@pytest.mark.parametrize("bins, seed", [([2, 5], 11), ([5, 6, 7], 12), ([32, 48], 13)])
+def test_the_table_form_gives_the_same_matrix_for_any_block_width(monkeypatch, threads, bins, seed):
+    """The warps of a block share the cells of a permutation (``kb`` permutations a pass, 1 to 32 warps): with fewer warps than permutations, one warp per permutation, with more, a fixed split of the cells.
+    Every width gives the logarithm kernel's matrix, for 8 permutations a pass (a 2 x 2 table), 5 and 2 (a 48 x 48 one), on two seeds' worth of data."""
+    args = _case(3001, bins, 50, 25, seed=seed)
+    monkeypatch.setenv("MLFRAME_PAIR_PERM_LUT", "0")
+    logarithm = P.pair_mi_perm_matrix_cuda(*args, 10_000)
+    monkeypatch.setenv("MLFRAME_PAIR_PERM_LUT", "1")
+    monkeypatch.setattr(B, "block_size_for", lambda *a, **k: threads)
+    table = P.pair_mi_perm_matrix_cuda(*args, 10_000)
+    assert np.abs(logarithm - table).max() < 1e-12
+
+
+def test_the_table_form_is_repeatable_to_the_bit(monkeypatch):
+    """The partial sums of the warps are added in a fixed order, so two launches of the same data give the same bits."""
+    args = _case(20_001, [32, 48, 40], 40, 25, seed=21)
+    monkeypatch.setenv("MLFRAME_PAIR_PERM_LUT", "1")
+    first = P.pair_mi_perm_matrix_cuda(*args, 10_000)
+    assert np.array_equal(first, P.pair_mi_perm_matrix_cuda(*args, 10_000))
