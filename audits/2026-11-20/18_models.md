@@ -76,8 +76,9 @@ No P0 found on the default path. Findings below were verified by reading the cit
 
 - 18-F10: FIXED. The regression train-split path is chosen by any member instead of member 0: each member is probed once, and members without predictions are None in the list, as the classification path already does. Before, a member-0 miss dropped the whole train-split ensemble. Tests tests/models/ensembling/test_cluster18_train_path_any_member.py (2 passed); related ensembling tests 17 passed.
 
-- 18-F6: DEFERRED. The outlier gate keeps only rows where every member is finite, while quality_gate keeps rows where any member is finite, so the two gates disagree; when every row has some NaN the gate switches itself off silently. Plan: keep rows with any finite member here too, switch the cross-member median and the per-member MAE/STD to NaN-aware reductions (the numba kernel _per_member_mae_std needs a NaN-aware path), and add a test where two members have disjoint NaN rows that the gate still excludes an outlier member. No code change in this pass.
 
 - 18-F8: FIXED. The default AUC in _score_blend drops rows with a NaN label before scoring, so they no longer count as negatives. Tests tests/models/ensembling/test_cluster18_score_drops_nan_labels.py (2 passed).
 
 - 18-F7: FIXED. The DEGENERATE marker judges the actual label values: a single label is tagged, two labels are judged by their ratio, and a multiclass subset is not tagged by this binary rule. Labels {0, 2} balanced are no longer tagged. Tests tests/models/ensembling/test_cluster18_degenerate_actual_labels.py (4 passed) and the train-path tests (6 passed in total).
+
+- 18-F6: FIXED. The outlier gate keeps a row when any member is finite (the quality_gate rule), and uses nanmedian with NaN-aware MAE/STD when cells are missing, so disjoint NaN rows no longer switch the gate off. The finite path and the numba kernel are unchanged. Tests tests/models/ensembling/test_cluster18_gate_disjoint_nan.py (2 passed). Note: tests/models/test_ensemble_gate_does_not_freeze_caller_arrays.py::test_the_cache_does_not_retain_the_arrays already fails on HEAD without this change; not caused here.

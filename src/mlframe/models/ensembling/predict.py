@@ -85,6 +85,27 @@ def _member_fingerprint(p) -> tuple:
     return (p.shape, p.dtype.str, int(p.size), hashlib.blake2b(buf, digest_size=16).digest())
 
 
+def _nan_aware_member_stats(arr: np.ndarray, median_preds: np.ndarray) -> tuple:
+    """Per-member MAE and STD of |arr - median| over the finite cells only (audit 18-F6).
+
+    Same semantics as the finite path: MAE is the mean over cells, and STD is the per-column std averaged across columns. A member with no
+    finite cell gets NaN, which the gate's median treats as missing.
+    """
+    import warnings
+
+    m_count = arr.shape[0]
+    diff = np.abs(arr - median_preds[None, ...])
+    flat = diff.reshape(m_count, arr.shape[1], -1)
+    mae = np.empty(m_count, dtype=np.float64)
+    std = np.empty(m_count, dtype=np.float64)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        for m in range(m_count):
+            mae[m] = np.nanmean(flat[m])
+            std[m] = np.nanmean(np.nanstd(flat[m], axis=0))
+    return mae, std
+
+
 def _compute_outlier_gate(
     preds: list,
     preds_arr: np.ndarray,
@@ -112,12 +133,18 @@ def _compute_outlier_gate(
         # construction) -- intentionally unweighted here. ``np.median`` (dedicated C reduction) over ``np.quantile(q=0.5)`` --
         # bit-identical for the unweighted member-axis median, ~1.4x faster on the ensemble anchor shape.
         # rows with a non-finite cell in any member make the median NaN there and every member's statistic NaN, which silently disables the gate
-        _rows_ok = np.isfinite(preds_arr).reshape(preds_arr.shape[0], preds_arr.shape[1], -1).all(axis=(0, 2))
+        # A row is kept when ANY member is finite, the same rule quality_gate uses (audit 18-F6). Rows where every member is NaN are dropped.
+        _rows_ok = np.isfinite(preds_arr).reshape(preds_arr.shape[0], preds_arr.shape[1], -1).any(axis=(0, 2))
         if not _rows_ok.all() and _rows_ok.any():
             preds_arr = preds_arr[:, _rows_ok]
-        median_preds = np.median(preds_arr, axis=0)
-        # Vectorised per-member MAE/STD over (K, N, ...); dispatched to a numba kernel for big inputs via _per_member_mae_std.
-        per_member_mae, per_member_std = _per_member_mae_std(preds_arr, median_preds)
+        if np.isfinite(preds_arr).all():
+            median_preds = np.median(preds_arr, axis=0)
+            # Vectorised per-member MAE/STD over (K, N, ...); dispatched to a numba kernel for big inputs via _per_member_mae_std.
+            per_member_mae, per_member_std = _per_member_mae_std(preds_arr, median_preds)
+        else:
+            # Members with disjoint NaN rows: the median and the MAE/STD use only the finite cells (the numba kernel assumes finite input).
+            median_preds = np.nanmedian(preds_arr, axis=0)
+            per_member_mae, per_member_std = _nan_aware_member_stats(preds_arr, median_preds)
 
         # Relative thresholds resolved against the MEDIAN across members (robust to a single outlier; mean would let one bad
         # member drag the threshold up and shield itself).
