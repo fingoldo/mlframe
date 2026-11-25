@@ -31,9 +31,10 @@ def _predict_accepts(predict, predict_params) -> bool:
         return True
     try:
         inspect.signature(predict).bind(None, **predict_params)
-    except TypeError:
+    except TypeError as exc:
+        log_throttle(logger, "_ttr_eval_set_scaling.predict_params", logging.WARNING, "predict rejects the keyword params %s (%s)", sorted(predict_params), exc)
         return False
-    except ValueError:  # no signature available: let the call decide
+    except ValueError:  # best-effort: no signature to check against; the call itself reports any mismatch, unmasked
         return True
     return True
 
