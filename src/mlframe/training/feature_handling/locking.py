@@ -1,5 +1,5 @@
 """
-PID-aware filelock with stale-lock reclaim.
+PID-aware filelock. Stale-lock reclaim is NOT performed (audit 39-F41).
 
 The standard ``filelock`` package does NOT
 detect when the process holding a lock has died (OOM-killed,
@@ -12,10 +12,9 @@ This module wraps ``filelock.FileLock`` with two extras:
 
 1. On acquire, write the current PID into the lock file alongside
    the OS-level exclusive lock (POSIX ``fcntl`` / Windows ``msvcrt``).
-2. On acquisition timeout, read the PID from the lock file and
-   call ``psutil.pid_exists()``; if dead, remove the lock and retry
-   ONCE. Surface the reclaim via ``StaleLockReclaimed`` log event
-   so users know an orphan was cleaned up.
+2. Reclaim of a lock left by a dead holder is intentionally absent: removing a lock file on a PID check races with a live holder whose
+   PID was reused. A holder killed with SIGKILL therefore blocks later acquirers until the timeout, and the caller must clear the
+   ``.locks`` directory by hand. ``StaleLockReclaimed`` is kept as a reserved public name for a future reclaim and is never raised.
 
 Pin requirement: ``filelock>=3.15.0`` (3.13.x had a Windows bug that
 left .lock files behind on crash; 3.15+ cleans up on context-manager
@@ -40,7 +39,7 @@ except ImportError:  # pragma: no cover -- optional dep until D phase wires cach
 
 
 class StaleLockReclaimed(UserWarning):
-    """Emitted when a lock left by a dead process was reclaimed.
+    """Reserved name for a lock reclaimed from a dead process (audit 39-F41). Not raised: reclaim is not implemented.
 
     Surfaced as both a logged warning AND a Python ``warnings.warn``
     so test fixtures can use ``pytest.warns`` to assert reclaim

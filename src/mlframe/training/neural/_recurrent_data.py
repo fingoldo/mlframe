@@ -113,6 +113,25 @@ class RecurrentDataset(Dataset):
         return item
 
 
+def build_stratified_sampler(labels: np.ndarray, num_samples: int, seed: Optional[int] = None) -> Optional[WeightedRandomSampler]:
+    """Inverse-frequency ``WeightedRandomSampler`` over 1-D class labels, or None when there is nothing to balance (audit 40-F31).
+
+    The single source for both the wrapper's DataLoader and ``RecurrentDataModule``, so the weights cannot diverge. With ``seed`` the
+    sampler gets its own generator so the sample order is reproducible across instances; without it the global torch RNG is used.
+    """
+    # np.unique handles negative and non-contiguous labels ({0, 5}, {-1, 1}); np.bincount would misreport them.
+    unique_labels, class_counts = np.unique(labels, return_counts=True)
+    if len(unique_labels) <= 1 or not (class_counts > 0).all():
+        return None
+    label_to_weight = {int(lbl): 1.0 / int(cnt) for lbl, cnt in zip(unique_labels, class_counts)}
+    sample_weights = np.array([label_to_weight[int(lbl)] for lbl in labels], dtype=np.float64)
+    generator = None
+    if seed is not None:
+        generator = torch.Generator()
+        generator.manual_seed(int(seed))
+    return WeightedRandomSampler(weights=cast(Any, sample_weights), num_samples=num_samples, replacement=True, generator=generator)
+
+
 def recurrent_collate_fn(batch: list[dict[str, torch.Tensor]]) -> dict[str, torch.Tensor]:
     """
     Collate function handling variable-length sequences. Pads to max length in batch.
@@ -300,20 +319,8 @@ class RecurrentDataModule(LightningDataModule):
         # Stratified weighted sampling for imbalanced classification data;
         # sampler is mutually exclusive with shuffle=True in PyTorch DataLoader, hence shuffle=False when sampler is set.
         if self.use_stratified_sampler and not self.is_regression and dataset.labels.dim() == 1:  # 2-D (multilabel) labels have no single class to stratify on
-            labels = dataset.labels.numpy()
-            # np.bincount requires non-negative contiguous integer labels and
-            # returns length max+1 with zeros for any missing label in [0, max].
-            # Use np.unique to handle negative labels and non-contiguous label
-            # sets ({0, 5}, {-1, 1}) correctly.
-            unique_labels, class_counts = np.unique(labels, return_counts=True)
-            if len(unique_labels) > 1 and (class_counts > 0).all():
-                label_to_weight = {int(lbl): 1.0 / int(cnt) for lbl, cnt in zip(unique_labels, class_counts)}
-                sample_weights = np.array([label_to_weight[int(lbl)] for lbl in labels], dtype=np.float64)
-                sampler = WeightedRandomSampler(
-                    weights=cast(Any, sample_weights),
-                    num_samples=len(dataset),
-                    replacement=True,
-                )
+            sampler = build_stratified_sampler(dataset.labels.numpy(), num_samples=len(dataset))
+            if sampler is not None:
                 shuffle = False
 
         return DataLoader(

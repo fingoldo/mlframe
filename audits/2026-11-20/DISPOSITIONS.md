@@ -843,7 +843,6 @@
 | 34-F29 | FIXED | MatrixKeyedCache implements its own clear(); no borrowed ContentMemo method (test_cluster34_matrix_cache_clear; 4 existing matrix-cache tests pass) |
 | 34-F30 | FIXED | Attached target kept float64 on the val side (keep_float64); engineered bases stay float32 by design (test_cluster34_attach_keeps_target_float64) |
 | 34-F15 | FIXED | Tie ranking vectorised for finite input (NaN keeps the walk); PAVA compiled via njit_or_passthrough (test_cluster34_leakage_rank_and_pava; 62 existing leakage tests pass) |
-| 34-F14 | DEFERRED | Gathering every column once for all rows needs n x F floats (about 6.4 GB at 3.2M x 500 float32), which defeats the block design. A column-chunked Gram would need a redesign of the pairwise pass. Owner decision on the memory budget. |
 | 34-F17 | DEFERRED | Batched null kernel shuffles blocks of binned codes; the carry null shuffles raw base values and bins inside _mi_pair_bin. Switching changes the null distribution, so it needs a benchmark and owner sign-off on numerics. |
 | 34-F20 | DEFERRED | A sampled data signature can miss a changed row and reuse stale specs. Owner decision on the accuracy cost of a cheaper signature. |
 | 34-F21 | PARTIAL | Post-impute finite mask computed once and reused (4 full-matrix passes reduced to 2; the first fraction check stays before the impute). No new test; existing 40 auto-base tests pass. |
@@ -926,7 +925,6 @@
 | 38-F7 | FIXED | PySR y-length mismatch and extraction failure logged at WARNING regardless of verbose; no test |
 | 38-F8 | FIXED | Non-neural time reset moved out of the pre-pipeline loop (once per target); no test |
 | 38-F9 | DEFERRED | Group column protection needs an explicit group-column name from the extractor; design change |
-| 38-F10 | DEFERRED | Owner decision: delete _run_one_weight_iteration or finish the refactor |
 | 38-F11 | FIXED | Save removes the other-format metadata file so readers cannot load stale metadata; no test |
 | 38-F12 | FIXED | Embedding detection requires a non-scalar shape; no test |
 | 38-F13 | FIXED | Failed split extraction for a high-cardinality column logged at WARNING; failed split not recorded in metadata; no test |
@@ -938,7 +936,6 @@
 | 38-F19 | FIXED | Duplicate logger assignment removed |
 | 38-F20 | FIXED | Docstring corrected: cache holds the ndarray, no strong-ref window; no test |
 | 38-F21 | PARTIAL | Comment corrected (repr is not identity); fallback still keyed on repr, documented rather than re-keyed |
-| 38-F22 | DEFERRED | Unused precomputed_category_union parameter: owner decision (remove or guard the strict cast) |
 | 38-F23 | FIXED | Documented: only the first regression target drives bucket stratification |
 | 38-F24 | DEFERRED | target_type=None default: needs an explicit contract decision |
 | 38-F25 | FIXED | Narrowing signature suffix widened from 4 to 8 hex characters |
@@ -963,8 +960,6 @@
 | 40-F20 | FIXED | Frame content hash hashes the per-row hash bytes in row order instead of their sum, so row-permuted frames no longer share a cache key (training/pipeline/_pipeline_cache.py); tests/training/pipeline/test_cluster40_frame_hash_is_row_order_sensitive.py |
 | 40-F21 | FIXED | TrunkResidualMLPRegressor and FieldGroupedMLPRegressor refuse NaN/inf X at fit (and at predict), as Tabular1DCNN does; helper _refuse_nonfinite in each module; tests/training/neural/test_cluster40_residual_regressors_refuse_nonfinite.py |
 | 40-F24 | FIXED | With keep_cols pinned, the nullable-bool scan covers only the pinned columns; the dropped object columns are no longer scanned (training/pipeline/_pipeline_extensions.py); tests/training/pipeline/test_cluster40_filter_numeric_keep_path.py pins the behaviour |
-| 40-F26 | DEFERRED | Per-entity state restarts at each split's first row (entity time/recency, rolling MA). Changing it changes feature distributions between train and val/test: needs an owner decision on the intended history semantics before a fix. |
-| 40-F31 | DEFERRED | Stratified sampler is implemented twice; the RecurrentDataModule copy is documented as test-only. Needs an owner decision on the canonical copy (keep one, or classify the other as test-only) before consolidation. |
 | 41-F13 | FIXED | A failing normality test is logged at WARNING and the verdict falls back to the moment heuristic visibly (training/targets/regression_residual_audit.py); tests/training/targets/test_cluster41_normality_fallback_warns.py |
 | 41-F27 | FIXED | A failing collapse sensor (outer probe and envelope probe) is logged at WARNING, so a broken sensor is not mistaken for a healthy run (training/reporting/_reporting_regression/_sensors.py); tests/training/reporting/test_cluster41_collapse_sensor_failure_warns.py |
 | 41-F8 | FIXED | Timestamp bin starts are differenced as datetime64 (real unequal ages for monthly bins), and the even-spacing fallback is a WARNING (training/targets/_target_temporal_audit_from_agg.py); tests/training/targets/test_cluster41_bin_ages_from_timestamps.py |
@@ -1002,13 +997,11 @@
 | 39-F57 | FIXED | Negative and NaN categorical codes map to the reserved row instead of category 0. Tests updated in test_categorical_embeddings.py. |
 | 39-F21 | FIXED | Object-column fingerprints hash by value (hash_pandas_object), not PyObject pointers. Test test_cluster39_object_column_hash_by_value.py. |
 | 39-F22 | FIXED | fit() retries without y only for a y-signature mismatch, the same narrowing fit_transform uses; genuine TypeErrors surface. Test test_cluster39_custom_fit_narrow_retry.py. |
-| 39-F41 | DEFERRED | Stale-lock reclaim was removed deliberately (class docstring says so); restoring it changes lock behaviour, so the owner must pick reclaim vs documented no-reclaim. Module docstring is the only stale claim. |
 | 39-F68 | DEFERRED | The per-step sync detects an all-zero batch at runtime; moving the check to prep time means validating sample_weight before the epoch, a design change to the weight pipeline. Owner to confirm the approach. |
 | 39-F39 | FIXED | CUDA runtime failure in keep-n auto sizing falls back to 2 with a WARNING instead of breaking every acquire. Test test_cluster39_keep_n_cuda_failure.py. |
 | 39-F45 | FIXED | Character entropy counts with a single Counter over chained characters. Test test_cluster39_char_entropy_counter.py. |
 | 39-F55 | FIXED | set_params raises ValueError for unknown keys and method names instead of warning or overwriting. Test test_cluster39_set_params_unknown_raises.py. |
 | 39-F25 | FIXED | James-Stein pooled-variance residuals use one pandas map per fit instead of a dict lookup per row. Test test_cluster39_js_variance_vectorised.py. |
-| 39-F26 | DEFERRED | CUDA-lost CPU fallback reloads in float32 while the primary is fp16. Choosing between matching the dtype (CPU fp16 kernel support varies) and documenting the mid-run precision change is a policy decision for the owner. |
 | 39-F28 | DEFERRED | Derived memory/cache values are written into the user's sub-configs and re-read as explicit on a model_dump round trip. Fixing it needs a design choice (keep derived values out of the sub-configs, or track their provenance across serialisation). Owner decision. |
 | 39-F44 | PARTIAL | Datetime token construction is vectorised (np.char.add), pinned to the per-element formula. The object-token loop (_canonical_cat_token per value) and the _objectwise_isnull per-row loop are still Python loops. Test test_cluster39_datetime_tokens_vectorised.py. |
 | 39-F29 | FIXED | Concurrent misses on one cache key elect a leader; other callers wait and then read the memory tier. Test test_cluster39_cache_single_flight.py. |
@@ -1077,7 +1070,6 @@
 | 28-F67 | FIXED | parse_catboost_devices returns GPUs in the requested order, each once. Test test_cluster28_catboost_devices_requested_order.py; 37 existing device-parsing tests pass. |
 | 28-F60 | FIXED | Removed the unreachable '(none)' description branch: _bad_desc is only built inside if _bad. Regression: 14 existing CatBoost text-feature probe tests pass. |
 | 28-F64 | DEFERRED | process_model writes trainset_features_stats into the shared common_params. It may be relied on by later models in the same loop; removing the write needs an audit of every reader of common_params first. Deferred. |
-| 28-F70 | DEFERRED | A failed grid variant is stored as a plain error dict in a results dict of result objects. Changing it to a typed error object is a public results-contract change; no in-repo consumer reads these entries. Owner to choose the contract. |
 | 28-F69 | DEFERRED | DummyBaselinesConfig.apply_to_target_types is a frozenset (its own comment uses set difference) while the same-named baseline-diagnostics field is a tuple. Unifying the type changes set operations on the config; consumers need an audit first. Deferred. |
 | 28-F71 | FIXED | The categorical column set is built once per call rather than once per feature. Output unchanged. Regression: 53 existing drift-report tests pass. |
 | 27-F22 | FIXED | Title positive rate counts the larger label as positive, matching the decision-threshold block (labels {1, 2} no longer read as 0%). Test test_cluster27_title_rate_positive_larger_label.py. |
@@ -1383,7 +1375,6 @@
 
 | 24-F16 | PARTIAL | Exp-scheme causal aggregation is one recurrence pass per group (A_L = p*(A+v), B_L = p*(B+1)), equal to the prefix re-walk within 1e-9. The poly scheme's weights depend on window length, so its prefix sums cannot be updated exactly; it keeps the O(m^2) path (documented). Test tests/feature_engineering/test_cluster24_exp_causal_recurrence.py; 5 existing recency tests pass. |
 
-| 24-F17 | DEFERRED | No exact speedup exists: the KDE bandwidth (_kde_bandwidth) and the grid (vmin..vmax) are functions of each prefix's own mean and span, so an incremental density cannot reuse earlier prefixes. The only speedup is a bounded lookback, which changes every estimate; the lookback length needs an owner decision. No code change. |
 
 | 09-F7 | PARTIAL | stacked_qnn Mode A is nested: each outer fold rebuilds layer 1 on its training part only, so a row's label never shapes its own layer-2 feature. Behaviour change: Mode A values change. Not done: stacked_attention.py (same leak, and its docstring still claims leak-free) is unchanged. Test tests/feature_engineering/test_cluster09_stacked_mode_a_nested_no_self_label.py; 100 shortlist tests pass. |
 
@@ -1478,3 +1469,24 @@
 | 36-F8 | DOCUMENTED | Known train/serve skew is documented at _build_meta_features_at_predict: stage 2 trains on OOF meta-features, predict uses the full-refit stage-1 model. Fold-model averaging would change serve output for all callers, so it is not done. No behaviour change. |
 
 | 34-F16 | WON'T FIX | calibration_adjusted_score has no caller inside the package but is a public lazy export (mlframe.training.__init__). Wiring it in would change the calibration path; removing the export breaks the public API. Classified as an intentional public helper, per the uncalled-functions rule. No code change. |
+
+| 28-F70 | FIXED | A failed grid variant with stop_on_error=False is a typed GridVariantError (label, exc_type, message) instead of a plain error dict. No in-repo consumer read the old dict. Test tests/training/test_cluster28_grid_typed_error.py (2 passed). |
+
+| 38-F22 | FIXED | A pre-OD category union also takes the validation categories, so the strict val cast cannot fail on a val-only category. Behaviour change: such categories now join the Enum instead of crashing. Test tests/training/core/test_cluster38_precomputed_union_covers_val.py (plus existing test_fe_preod_enum_domain.py, 2 passed). |
+
+| 34-F14 | DEFERRED | RAM is already bounded: the Gram is accumulated over 8192-row blocks, so one block of 500 float64 columns is about 32 MB. The audit's full-buffer fix (about 6.4 GB) would raise RAM, and column chunking re-reads columns per block pair, so it trades RAM for more reads. Reducing the 195k column reads is a speed change that needs a benchmark on real data. No code change. |
+
+| 38-F10 | RESOLVED | Deleted the dead weight-iteration module (_phase_train_one_target_weight_iteration.py) and its test; the live inline loop in _phase_train_one_target_steps.py is the only copy. Its allowlist entry in test_shared_uncalled_functions.py is removed. Note: the removed test pinned the identity-equivalent dedup ordering on the dead copy; the live path has no unit test for that ordering yet. |
+
+
+
+
+| 24-F17 | PARTIAL | Causal KDE lookback (opt-in, default exact). Dominant error found: the grid argmax jumps to another density peak on about 0.6% of rows, giving max gaps near 0.36 while the mean is 0.006. The auto criterion now uses the MEAN probe gap, default lookback_tol=1e-2 (chosen by me; owner to confirm). Measured on synthetic AR(1) groups (20 x 1500, exp 0.95): fixed L=256 7.1x faster, mean gap 6.0e-3, 0.84% of rows gap above 0.05; auto (selects a candidate) 18.3x faster, mean gap 1.1e-2, 2.1% of rows gap above 0.05. Owner decision still open: accept this tail or tighten tol. Tests tests/feature_engineering/test_cluster24_causal_kde_lookback.py (6 passed). Bench: scratchpad/bench_kde_lookback.py. |
+
+| 40-F31 | FIXED | The stratified inverse-frequency sampler is one function, build_stratified_sampler in _recurrent_data.py, used by the wrapper (seeded by random_state) and by RecurrentDataModule (unseeded, as before). RecurrentDataModule stays exported. Tests tests/training/neural/test_cluster40_stratified_sampler_single_source.py and test_recurrent_workers_default.py (17 passed). |
+
+| 39-F41 | FIXED | Stale-lock reclaim is documented as intentionally absent: a PID-check removal races with a holder whose PID was reused, so a SIGKILLed holder still blocks until timeout and the .locks directory must be cleared by hand. StaleLockReclaimed is kept as a reserved public name and never raised; hf_provider comment corrected. Test tests/training/feature_handling/test_cluster39_no_lock_reclaim_documented.py (2 passed). |
+
+| 40-F26 | DOCUMENTED | Per-split entity history is a documented choice at both sites (entity-time and MA-crossover FE): eval splits restart their entity history so no eval row sees training-era state; carrying train history forward would shift the scored distributions. Test tests/training/pipeline/test_cluster40_per_split_history_documented.py (2 passed). |
+
+| 39-F26 | FIXED | The CUDA-lost CPU fallback stays float32 (fp16 on CPU is slow or unsupported). The fallback warning now states that the precision changes mid-run and that earlier batches were fp16, and the comment no longer claims identical embeddings. Test tests/training/feature_handling/test_cluster39_cpu_fallback_precision_documented.py (2 passed). |

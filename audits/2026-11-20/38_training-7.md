@@ -66,7 +66,6 @@ Coverage: every listed file was read in full except `_phase_train_one_target_wei
 - 38-F7: FIXED. PySR y-length mismatch and extraction failure logged at WARNING regardless of verbose; no test
 - 38-F8: FIXED. Non-neural time reset moved out of the pre-pipeline loop (once per target); no test
 - 38-F9: DEFERRED. Group column protection needs an explicit group-column name from the extractor; design change
-- 38-F10: DEFERRED. Owner decision: delete _run_one_weight_iteration or finish the refactor
 - 38-F11: FIXED. Save removes the other-format metadata file so readers cannot load stale metadata; no test
 - 38-F12: FIXED. Embedding detection requires a non-scalar shape; no test
 - 38-F13: FIXED. Failed split extraction for a high-cardinality column logged at WARNING; failed split not recorded in metadata; no test
@@ -78,9 +77,12 @@ Coverage: every listed file was read in full except `_phase_train_one_target_wei
 - 38-F19: FIXED. Duplicate logger assignment removed
 - 38-F20: FIXED. Docstring corrected: cache holds the ndarray, no strong-ref window; no test
 - 38-F21: PARTIAL. Comment corrected (repr is not identity); fallback still keyed on repr, documented rather than re-keyed
-- 38-F22: DEFERRED. Unused precomputed_category_union parameter: owner decision (remove or guard the strict cast)
 - 38-F23: FIXED. Documented: only the first regression target drives bucket stratification
 - 38-F24: DEFERRED. target_type=None default: needs an explicit contract decision
 - 38-F25: FIXED. Narrowing signature suffix widened from 4 to 8 hex characters
 - 38-F26: FIXED. AssertionError carries a message; pure-selector warning text corrected
 - 38-F27: FIXED. Threshold tuning skip on filtered subset logged and stamped default_0.5; no test
+
+- 38-F22: FIXED. A pre-OD category union also takes the validation categories, so the strict val cast cannot fail on a val-only category. Behaviour change: such categories now join the Enum instead of crashing. Test tests/training/core/test_cluster38_precomputed_union_covers_val.py (plus existing test_fe_preod_enum_domain.py, 2 passed).
+
+- 38-F10: RESOLVED. Deleted the dead weight-iteration module (_phase_train_one_target_weight_iteration.py) and its test; the live inline loop in _phase_train_one_target_steps.py is the only copy. Its allowlist entry in test_shared_uncalled_functions.py is removed. Note: the removed test pinned the identity-equivalent dedup ordering on the dead copy; the live path has no unit test for that ordering yet.

@@ -81,6 +81,9 @@ def apply_entity_time_composite_fe(
         _t = ts_arr[idx_arr] if ts_arr is not None and len(ts_arr) > int(idx_arr.max()) else None
         return _g, _t
 
+    # Per-entity state is computed within each split (audit 40-F26, documented choice): val and test rows start their entity's history at
+    # their own first row, so no evaluation row sees training-era state. Carrying train history forward would shift the distributions
+    # the model is scored on, so it is not done here; the trade-off is that early eval rows have shorter histories than train rows.
     _splits = {"train": (train_df, train_idx), "val": (val_df, val_idx), "test": (test_df, test_idx)}
     out: dict = {}
     for split_name, (df, idx) in _splits.items():
