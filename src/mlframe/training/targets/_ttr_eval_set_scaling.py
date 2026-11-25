@@ -31,9 +31,11 @@ def _predict_accepts(predict, predict_params) -> bool:
         return True
     try:
         inspect.signature(predict).bind(None, **predict_params)
-    except TypeError:
+    except TypeError as exc:
+        logger.debug("%r does not accept the predict params as keywords (%s)", predict, type(exc).__name__)
         return False
-    except ValueError:  # no signature available: let the call decide
+    except ValueError as exc:  # no signature available: let the call decide
+        logger.debug("no signature for %r (%s); the call decides whether it accepts the predict params", predict, type(exc).__name__)
         return True
     return True
 

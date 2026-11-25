@@ -16,6 +16,7 @@ Validated by the reference implementation of research B4 (0 to 2 percent family-
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -24,6 +25,11 @@ import numpy as np
 CANDIDATES = ("log", "sqrt", "recip", "sq0", "sq", "abs", "tanh", "cbrt", "asinh", "sin", "cos", "rankgauss")
 #: The family-wise level of the decision.
 ALPHA = 0.05
+#: A column whose interquartile range (over 1.349) is not above this is scaled by its standard deviation instead.
+SPREAD_FLOOR = 1e-12
+#: A target with fewer distinct values among its first ``DISTINCT_SAMPLE_ROWS`` rows is a class label or a small count, not a continuous target: no unary form is credited against it.
+MIN_DISTINCT_TARGET_VALUES = 20
+DISTINCT_SAMPLE_ROWS = 5000
 #: Rows used at most for the screen (a seeded draw above it).
 MAX_ROWS = 20000
 
@@ -67,7 +73,7 @@ def simplest_tied(gains: np.ndarray, names: "list[str]", slack: float = 0.0) -> 
     return min(tied, key=lambda i: (SIMPLICITY_ORDER.index(names[i]) if names[i] in SIMPLICITY_ORDER else len(SIMPLICITY_ORDER), -gains[i]))
 
 
-def adaptive_max_pvalue(observed: float, draw_maxima, level: float) -> float:
+def adaptive_max_pvalue(observed: float, draw_maxima: Callable[[int], np.ndarray], level: float) -> float:
     """Permutation p-value ``(1 + #{null >= observed}) / (draws + 1)`` of a maximum statistic, decided against ``level`` with as few draws as needed.
 
     ``draw_maxima(k)`` returns ``k`` fresh null maxima. In the worst case ``2 / level`` draws are made (so a Bonferroni level over many columns is reachable at all), up to ``MAX_DRAWS``; the loop stops as soon
@@ -85,7 +91,7 @@ def adaptive_max_pvalue(observed: float, draw_maxima, level: float) -> float:
 
 
 #: How the null residual vectors are drawn: ``signflip`` (every residual keeps its magnitude and gets a random sign: a wild bootstrap whose null variance is the heteroscedastic one) or ``permute`` (rows shuffled, the
-#: homoscedastic null). Measured 2026-11-24 on ``y = cbrt(x1) * asinh(x2)`` with a t3 column (residual variance tied to the column): permute credited a form in 3 of 40 datasets, signflip in 0 of 40; power and the
+#: homoscedastic null). Measured on ``y = cbrt(x1) * asinh(x2)`` with a t3 column (residual variance tied to the column): permute credited a form in 3 of 40 datasets, signflip in 0 of 40; power and the
 #: homoscedastic controls are the same.
 NULL_KIND = "signflip"
 
@@ -100,7 +106,7 @@ def null_residuals(r: np.ndarray, k: int, rng: np.random.Generator) -> np.ndarra
     return block
 
 
-def adaptive_two_pvalues(observed: "tuple[float, float]", draw_stats, level: float) -> "tuple[float, float]":
+def adaptive_two_pvalues(observed: "tuple[float, float]", draw_stats: "Callable[[int], tuple[np.ndarray, np.ndarray]]", level: float) -> "tuple[float, float]":
     """Permutation p-values ``(1 + #{null >= observed}) / (draws + 1)`` of two statistics computed on the SAME draws, each decided against ``level`` with as few draws as needed.
 
     ``draw_stats(k)`` returns two arrays of ``k`` null values. The loop stops when neither statistic can reach ``level`` any more (the exceedances of both already make their final p-values larger); a statistic
@@ -119,13 +125,24 @@ def adaptive_two_pvalues(observed: "tuple[float, float]", draw_stats, level: flo
     return (1.0 + exceed[0]) / (done + 1.0), (1.0 + exceed[1]) / (done + 1.0)
 
 
+def robust_scaled(x: np.ndarray) -> np.ndarray:
+    """``x`` less its median over its robust spread (the interquartile range over 1.349, the standard deviation when that is not above ``SPREAD_FLOOR``), clipped at 5: a heavy tail does not own the scale."""
+    # Intentional float64: regression sums of squares and p-values of the credit test
+    x = np.asarray(x, dtype=np.float64)
+    spread = float(np.subtract(*np.percentile(x, [75, 25]))) / 1.349
+    return np.asarray(np.clip((x - np.median(x)) / (spread if spread > SPREAD_FLOOR else max(float(x.std()), SPREAD_FLOOR)), -5.0, 5.0))
+
+
+def has_continuous_target_values(y: np.ndarray) -> bool:
+    """Whether the first ``DISTINCT_SAMPLE_ROWS`` values of ``y`` hold at least ``MIN_DISTINCT_TARGET_VALUES`` distinct ones."""
+    return int(np.unique(y[:DISTINCT_SAMPLE_ROWS]).size) >= MIN_DISTINCT_TARGET_VALUES
+
+
 def curvature_basis(x: np.ndarray, q: np.ndarray) -> np.ndarray:
     """Orthonormal basis (n, <=2) of the second and third powers of the robustly scaled column, partialled on the design ``q`` (which already holds the column itself): the generic curvature the omnibus test asks about.
 
     The scale is the median and the interquartile range (clipped at 5), so a heavy tail does not own the basis."""
-    x = np.asarray(x, dtype=np.float64)
-    spread = float(np.subtract(*np.percentile(x, [75, 25]))) / 1.349
-    u = np.clip((x - np.median(x)) / (spread if spread > 1e-12 else max(float(x.std()), 1e-12)), -5.0, 5.0)
+    u = robust_scaled(x)
     basis = np.column_stack([u**2, u**3])
     basis = basis - q @ (q.T @ basis)
     qb, rr = np.linalg.qr(basis)
@@ -148,6 +165,7 @@ class UnaryForm:
 
 def fit_form(name: str, x: np.ndarray, scale_mult: float = 1.0) -> "UnaryForm | None":
     """The form ``name`` fitted on the column ``x`` (``None`` when its domain does not hold: log / reciprocal need a positive column, sqrt a non-negative one); ``scale_mult`` multiplies the scale of the forms that have one (``tanh``, ``asinh``)."""
+    # Intentional float64: regression sums of squares and p-values of the credit test
     x = np.asarray(x, dtype=np.float64)
     finite = x[np.isfinite(x)]
     if finite.size < 8 or float(finite.std()) <= 0.0:
@@ -187,6 +205,7 @@ def candidate_forms(x: np.ndarray, names: "tuple[str, ...]" = CANDIDATES) -> "li
 
 def apply_form(form: UnaryForm, x: np.ndarray) -> np.ndarray:
     """The transformed column; non-finite results are replaced by the median of the finite ones so a replay on new rows never returns NaN."""
+    # Intentional float64: regression sums of squares and p-values of the credit test
     x = np.asarray(x, dtype=np.float64)
     name = form.name
     with np.errstate(all="ignore"):
@@ -224,6 +243,7 @@ def apply_form(form: UnaryForm, x: np.ndarray) -> np.ndarray:
 
 def _orthonormal_design(columns: "list[np.ndarray]", n: int) -> np.ndarray:
     """Orthonormal basis (n, k) of the intercept and the given columns (rank-revealing QR drops a collinear one)."""
+    # Intentional float64: regression sums of squares and p-values of the credit test
     design = np.column_stack([np.ones(n)] + [np.asarray(c, dtype=np.float64) for c in columns])
     q, r = np.linalg.qr(design)
     keep = np.abs(np.diag(r)) > 1e-9 * max(1.0, float(np.abs(r).max()))
@@ -253,6 +273,7 @@ def gate_mask(forms: "list[UnaryForm]") -> np.ndarray:
 
 def _partialled(forms: "list[UnaryForm]", x: np.ndarray, q: np.ndarray) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
     """``(candidates, norms, ok)``: the identity and the forms of ``x``, centred and partialled on the design ``q``; their squared norms and whether each one kept a non-negligible part."""
+    # Intentional float64: regression sums of squares and p-values of the credit test
     cand = np.column_stack([np.asarray(x, dtype=np.float64)] + [apply_form(f, x) for f in forms])
     cand = cand - cand.mean(axis=0)
     raw_norms = np.einsum("ij,ij->j", cand, cand)
@@ -278,7 +299,9 @@ def _test_column(
     n = x.shape[0]
     # the design holds the column ITSELF: the residual is what the identity leaves, and a candidate is scored by what it explains of that leftover (an added-variable test of curvature, far more powerful than the
     # difference of two near-collinear correlations: ``sin`` against ``x`` on [-1, 1] is detectable at 3600 rows by this and not by that)
+    # Intentional float64: regression sums of squares and p-values of the credit test
     q = _orthonormal_design([*list(others), np.asarray(x, dtype=np.float64)], n)
+    # Intentional float64: regression sums of squares and p-values of the credit test
     yc = np.asarray(y, dtype=np.float64)
     r = yc - q @ (q.T @ yc)
     s_obs = _scores(forms, x, q, r[:, None])[:, 0]
@@ -330,11 +353,14 @@ def heldout_mae_gain(
 
     def mae(v_fit: np.ndarray, v_test: np.ndarray) -> float:
         """MAE of the model with the column ``v`` on the test rows."""
+        # Intentional float64: regression sums of squares and p-values of the credit test
         design_fit = np.column_stack([np.ones(y_fit.size)] + [np.asarray(o, dtype=np.float64) for o in others_fit] + [v_fit])
+        # Intentional float64: regression sums of squares and p-values of the credit test
         design_test = np.column_stack([np.ones(y_test.size)] + [np.asarray(o, dtype=np.float64) for o in others_test] + [v_test])
         coef = np.linalg.lstsq(design_fit, y_fit, rcond=None)[0]
         return float(np.abs(y_test - design_test @ coef).mean())
 
+    # Intentional float64: regression sums of squares and p-values of the credit test
     mae_id = mae(np.asarray(x_fit, dtype=np.float64), np.asarray(x_test, dtype=np.float64))
     mae_form = mae(apply_form(form, x_fit), apply_form(form, x_test))
     return (mae_id - mae_form) / max(mae_id, 1e-300)
@@ -356,8 +382,11 @@ def oof_fold_gains(y: np.ndarray, others: "list[np.ndarray]", x: np.ndarray, for
 
     The added-variable score keeps the column in the design and so cannot see what a REPLACEMENT loses: ``cbrt`` of a column that is a sine on [-1, 1] explains some of the leftover curvature and throws the
     linear signal away (held-out MAE worse by 8 percent), ``sin`` keeps both. A form with no gain here is not a candidate."""
+    # Intentional float64: regression sums of squares and p-values of the credit test
     y = np.asarray(y, dtype=np.float64)
+    # Intentional float64: regression sums of squares and p-values of the credit test
     base = np.column_stack([np.ones(y.size), *[np.asarray(o, dtype=np.float64) for o in others]])
+    # Intentional float64: regression sums of squares and p-values of the credit test
     mae_id = fold_mae(y, np.column_stack([base, np.asarray(x, dtype=np.float64)]), folds)
     return np.asarray((mae_id - fold_mae(y, np.column_stack([base, apply_form(form, x)]), folds)) / np.maximum(mae_id, 1e-300))
 
@@ -369,7 +398,9 @@ def oof_replacement_gain(y: np.ndarray, others: "list[np.ndarray]", x: np.ndarra
 
 def oof_squared_errors(y: np.ndarray, others: "list[np.ndarray]", x: np.ndarray, form: UnaryForm, folds: int = OOF_FOLDS) -> np.ndarray:
     """Pointwise out-of-fold squared errors (one per row) of the replacement model ``[1, others, f(x)]``: the input of the paired test that tells forms apart by how well they PREDICT."""
+    # Intentional float64: regression sums of squares and p-values of the credit test
     y = np.asarray(y, dtype=np.float64)
+    # Intentional float64: regression sums of squares and p-values of the credit test
     design = np.column_stack([np.ones(y.size), *[np.asarray(o, dtype=np.float64) for o in others], apply_form(form, x)])
     fold = np.arange(y.size) % folds
     err = np.empty(y.size)
@@ -385,7 +416,7 @@ def tied_form_names(y: np.ndarray, others: "list[np.ndarray]", x: np.ndarray, fo
     usable = np.array([oof_replacement_gain(y, others, x, f) > 0.0 for f in forms])
     if not usable.any():
         return ()
-    errors = np.column_stack([oof_squared_errors(y, others, x, f) if usable[i] else np.full(np.asarray(y).size, np.inf) for i, f in enumerate(forms)])
+    errors = np.column_stack([oof_squared_errors(y, others, x, f) if usable[i] else np.full(np.size(y), np.inf) for i, f in enumerate(forms)])
     top = int(np.argmin(np.where(usable, errors.mean(axis=0), np.inf)))
     mask = indistinguishable(errors, top, usable)
     return tuple(sorted({forms[i].name for i in np.flatnonzero(mask)} - {forms[chosen].name}))
@@ -412,7 +443,9 @@ def credit_columns(
     Columns are tested one at a time against the others, which enter the design in their current form (a column credited in the first pass enters the second pass transformed, so a transform that explains
     what a partner also explains is not credited twice). ``passes`` is the number of such sweeps; the decision of the last one stands. ``y`` is a continuous target (a binary class code works).
     """
+    # Intentional float64: regression sums of squares and p-values of the credit test
     X = np.asarray(X, dtype=np.float64)
+    # Intentional float64: regression sums of squares and p-values of the credit test
     y = np.asarray(y, dtype=np.float64)
     n, m = X.shape
     rng = np.random.default_rng(seed)

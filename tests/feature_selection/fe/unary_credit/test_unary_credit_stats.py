@@ -15,7 +15,9 @@ from mlframe.feature_selection.filters._unary_credit_stats import (
     credit_columns,
     curvature_basis,
     fit_form,
+    has_continuous_target_values,
     oof_replacement_gain,
+    robust_scaled,
 )
 
 N = 5000
@@ -195,3 +197,36 @@ def test_forms_replay_on_new_rows_with_the_fitted_constants(name):
 def test_domain_restricted_forms_are_refused_outside_their_domain(name):
     """log and reciprocal need a positive column and sqrt a non-negative one; the form is not even offered otherwise."""
     assert fit_form(name, np.array([-1.0] + [1.0] * 50 + [2.0] * 50)) is None
+
+
+def test_the_robust_scale_follows_the_bulk_of_a_heavy_tailed_column_and_clips_at_five():
+    """The median and the interquartile range set the scale, not the outliers: the bulk keeps unit spread and the outliers are cut at five."""
+    rng = np.random.default_rng(3)
+    x = rng.standard_normal(20000)
+    x[:20] = 1e6
+    z = robust_scaled(x)
+    bulk = z[20:]
+    assert abs(float(np.median(bulk))) < 0.05
+    assert abs(float(np.subtract(*np.percentile(bulk, [75, 25]))) / 1.349 - 1.0) < 0.05
+    assert float(z.max()) == 5.0 and float(z.min()) >= -5.0
+
+
+def test_a_column_without_an_interquartile_range_is_scaled_by_its_standard_deviation_and_a_constant_stays_at_zero():
+    """Four fifths of the rows equal: the spread of the middle half is zero, the standard deviation takes over; a constant column has nothing to scale."""
+    x = np.concatenate([np.zeros(400), np.arange(1.0, 101.0)])
+    z = robust_scaled(x)
+    assert float(z.max()) == pytest.approx(100.0 / float(x.std()))
+    assert np.array_equal(robust_scaled(np.full(50, 7.0)), np.zeros(50))
+
+
+@pytest.mark.parametrize("distinct, expected", [(19, False), (20, True), (500, True)])
+def test_a_target_is_continuous_from_twenty_distinct_values(distinct, expected):
+    """Fewer than twenty distinct values among the first rows is a class label or a small count."""
+    y = np.tile(np.arange(float(distinct)), 40)
+    assert has_continuous_target_values(y) is expected
+
+
+def test_only_the_first_rows_decide_whether_a_target_is_continuous():
+    """Distinct values that appear after the sampled rows do not count."""
+    y = np.concatenate([np.tile([0.0, 1.0, 2.0], 2000), np.arange(1000.0)])
+    assert has_continuous_target_values(y) is False

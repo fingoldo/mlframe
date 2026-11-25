@@ -164,6 +164,20 @@ def _pack_module(cp: Any, cap: int, n_y: int, c_type: str) -> Any:
     return mod
 
 
+_TYPED_MODULES: dict = {}
+
+
+def typed_module(cp: Any, source: str, c_type: str) -> Any:
+    """The compiled kernel ``source`` with its ``{DT}`` placeholder replaced by the C type ``c_type``, built once per process for each source and type."""
+    key = (source, c_type)
+    with _LOCK:
+        mod = _TYPED_MODULES.get(key)
+        if mod is None:
+            mod = cp.RawModule(code=source.replace("{DT}", c_type))
+            _TYPED_MODULES[key] = mod
+    return mod
+
+
 _OBSERVED_LOCK = threading.Lock()
 _OBSERVED: "dict[int, tuple[Any, str, np.ndarray]]" = {}  # id(resident codes) -> (weak reference, labels key, plug-in MI of every column against the original labels)
 _OBSERVED_MAX = 8

@@ -551,6 +551,7 @@ def _build_recipe_from_meta(name: str, meta_entry: dict):
     return None
 
 def _extra_basis_peak_bytes(X: "pd.DataFrame", y: Any = None, *, cols: Any = None, subsample_n: int = 0, **_ignored: Any) -> int:
+    # Intentional float64: basis evaluation of the generated columns
     """Bytes the extra-basis family keeps alive at its peak: its legs for every scanned column on the decision rows (about 17 legs a column, float32 and float64 mixed, about 14 times a float64 column of the decision rows)."""
     n_rows = int(subsample_n) if isinstance(subsample_n, int) and 0 < subsample_n < len(X) else len(X)
     n_cols = len(cols) if cols is not None else int(X.shape[1])

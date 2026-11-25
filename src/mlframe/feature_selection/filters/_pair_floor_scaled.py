@@ -90,7 +90,7 @@ def scaled_pair_floor(
     """
     info: dict = {}
     n, n_pairs = int(factors_data.shape[0]), int(pair_a.shape[0])
-    k_y = int(np.asarray(freqs_y).shape[0])
+    k_y = int(np.shape(freqs_y)[0])
     if not scaling_enabled():
         return None, {"why": "disabled"}
     if n < MIN_ROWS or n_pairs < MIN_PAIRS:

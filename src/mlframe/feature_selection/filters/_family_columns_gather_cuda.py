@@ -14,14 +14,13 @@ number of batches.
 
 from __future__ import annotations
 
-import threading
 from typing import Any
 
 import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
-from ._batch_mi_noise_gate_bits import _C_TYPES
+from ._batch_mi_noise_gate_bits import _C_TYPES, typed_module
 
 _SRC = r"""
 // coalescing-ok: the tile read takes adjacent columns of one row per warp lane (adjacent addresses when the batches are views of one chunk, the table entries of adjacent columns are adjacent words) and the tile write takes adjacent rows of one output row, both through shared memory
@@ -62,19 +61,7 @@ extern "C" __global__ void gather_multi(const unsigned long long* __restrict__ c
 }
 """
 
-_MODULES: dict = {}
-_LOCK = threading.Lock()
 _MAX_GRID_Y = 65535
-
-
-def _module(cp: Any, c_type: str) -> Any:
-    """The compiled gather kernels for one code type, built once per process."""
-    with _LOCK:
-        mod = _MODULES.get(c_type)
-        if mod is None:
-            mod = cp.RawModule(code=_SRC.replace("{DT}", c_type))
-            _MODULES[c_type] = mod
-    return mod
 
 
 def _column_table(cp: Any, parts: "list") -> "tuple[Any, Any]":
@@ -94,7 +81,7 @@ def transposed_codes(cp: Any, parts: "list", n: int) -> Any:
     k_total = int(sum(int(d.shape[1]) for d in parts))
     colptr, colld = _column_table(cp, parts)
     out = cp.full((k_total, int(n)), np.iinfo(dtype).max, dtype=dtype)  # a sentinel, not zeros: a cell the kernel misses must not look like a code
-    kernel = _module(cp, _C_TYPES[dtype]).get_function("transpose_multi")
+    kernel = typed_module(cp, _SRC, _C_TYPES[dtype]).get_function("transpose_multi")
     grid = ((k_total + 31) // 32, max(1, min(_MAX_GRID_Y, (int(n) + 31) // 32)))
     kernel(grid, (32, 8), (colptr, colld, np.int64(n), np.int32(k_total), out))  # launch-ok: the 32 x 8 block is the geometry of the 32 x 32 shared tile (each thread moves four rows of it), not an occupancy choice
     return out
@@ -106,7 +93,7 @@ def gathered_codes(cp: Any, parts: "list", n: int, chosen: np.ndarray) -> Any:
     kd = int(chosen.shape[0])
     colptr, colld = _column_table(cp, parts)
     out = cp.full((int(n), kd), np.iinfo(dtype).max, dtype=dtype)
-    kernel = _module(cp, _C_TYPES[dtype]).get_function("gather_multi")
+    kernel = typed_module(cp, _SRC, _C_TYPES[dtype]).get_function("gather_multi")
     block = block_size_for(kernel, work_items=kd)
     grid = ((kd + block - 1) // block, max(1, min(_MAX_GRID_Y, int(n))))
     kernel(grid, (block,), (colptr, colld, np.int64(n), cp.asarray(np.ascontiguousarray(chosen, dtype=np.int32)), np.int32(kd), out))

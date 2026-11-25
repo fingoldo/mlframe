@@ -27,6 +27,7 @@ from ._unary_credit_stats import (
     apply_form,
     candidate_forms,
     gate_mask,
+    robust_scaled,
     fold_mae,
     indistinguishable,
     simplest_tied,
@@ -45,14 +46,14 @@ def partner_basis(raw: np.ndarray, current: np.ndarray, credited: bool = False) 
 
     The hats cover a partner nobody has credited yet; the standardised form is the exact coefficient once the partner's own form is found (a long-tailed form is not a piecewise-linear function of rank), and then it is
     the only degree of freedom the test needs: nine degrees of freedom less, the power of a faint product in a heavy-tailed column is much higher."""
-    current = np.asarray(current, dtype=np.float64)
-    spread = float(np.subtract(*np.percentile(current, [75, 25]))) / 1.349
-    z = np.clip((current - np.median(current)) / (spread if spread > 1e-12 else max(float(current.std()), 1e-12)), -5.0, 5.0)
+    z = robust_scaled(current)
+    # Intentional float64: regression sums of squares and p-values of the interaction credit test
     return z[:, None] if credited else np.column_stack([z, rank_hats(np.asarray(raw, dtype=np.float64), HATS)])
 
 
 def _block(values: np.ndarray, basis: np.ndarray) -> np.ndarray:
     """``[v, v * b_1, ..., v * b_K]``: the column and its product with every function of the partner."""
+    # Intentional float64: regression sums of squares and p-values of the interaction credit test
     values = np.asarray(values, dtype=np.float64)
     return np.column_stack([values, values[:, None] * basis])
 
@@ -87,6 +88,7 @@ class _PartnerDesign:
 def oof_fold_gains_interaction(y: np.ndarray, mains: "list[np.ndarray]", x: np.ndarray, basis: np.ndarray, form: UnaryForm) -> np.ndarray:
     """Out-of-fold relative MAE reduction per fold of ``[1, mains, basis, f(x) block]`` against ``[1, mains, basis, x block]``: a form that only explains part of the leftover and throws the identity's effect away is no candidate."""
     n = y.size
+    # Intentional float64: regression sums of squares and p-values of the interaction credit test
     base = np.column_stack([np.ones(n), *[np.asarray(m, dtype=np.float64) for m in mains], basis])
     mae_id = fold_mae(y, np.column_stack([base, _block(x, basis)]))
     return np.asarray((mae_id - fold_mae(y, np.column_stack([base, _block(apply_form(form, x), basis)]))) / np.maximum(mae_id, 1e-300))
@@ -99,6 +101,7 @@ def oof_replacement_gain_interaction(y: np.ndarray, mains: "list[np.ndarray]", x
 
 def oof_squared_errors_interaction(y: np.ndarray, mains: "list[np.ndarray]", x: np.ndarray, basis: np.ndarray, form: UnaryForm, folds: int = OOF_FOLDS) -> np.ndarray:
     """Pointwise out-of-fold squared errors of ``[1, mains, basis, f(x) block]``."""
+    # Intentional float64: regression sums of squares and p-values of the interaction credit test
     design = np.column_stack([np.ones(y.size), *[np.asarray(m, dtype=np.float64) for m in mains], basis, _block(apply_form(form, x), basis)])
     fold = np.arange(y.size) % folds
     err = np.empty(y.size)
@@ -114,6 +117,7 @@ def _test_column(
 ) -> "tuple[int, float, float, int]":
     """``(best form index, explained share of the leftover, p, best partner index)`` of one column: the maximum over forms and partners, decided at ``level`` with as few permutation draws as needed."""
     n = x.shape[0]
+    # Intentional float64: regression sums of squares and p-values of the interaction credit test
     x = np.asarray(x, dtype=np.float64)
     designs = [_PartnerDesign(x, y, mains, basis, forms) for basis in bases]
     observed = np.array([d.scores(d.residual[:, None])[:, 0] for d in designs])  # (partners, forms)
@@ -170,11 +174,14 @@ def heldout_mae_gain_interaction(
 
     def mae(v_fit: np.ndarray, v_test: np.ndarray) -> float:
         """MAE of the model with the block of ``v`` on the test rows."""
+        # Intentional float64: regression sums of squares and p-values of the interaction credit test
         design_fit = np.column_stack([np.ones(y_fit.size), *[np.asarray(m, dtype=np.float64) for m in mains_fit], basis_fit, _block(v_fit, basis_fit)])
+        # Intentional float64: regression sums of squares and p-values of the interaction credit test
         design_test = np.column_stack([np.ones(y_test.size), *[np.asarray(m, dtype=np.float64) for m in mains_test], basis_test, _block(v_test, basis_test)])
         coef = np.linalg.lstsq(design_fit, y_fit, rcond=None)[0]
         return float(np.abs(y_test - design_test @ coef).mean())
 
+    # Intentional float64: regression sums of squares and p-values of the interaction credit test
     mae_id = mae(np.asarray(x_fit, dtype=np.float64), np.asarray(x_test, dtype=np.float64))
     return (mae_id - mae(apply_form(form, x_fit), apply_form(form, x_test))) / max(mae_id, 1e-300)
 
@@ -194,7 +201,9 @@ def credit_interactions(
 
     ``start`` holds the forms already credited to a column by the single-column test (they enter as the partners' current forms); ``skip`` lists the columns not to test. A column is tested against at most
     ``MAX_PARTNERS`` others, in the order of ``X`` (the caller puts the likeliest partners first). The decision of the last pass stands; the family-wise level is ``LEVEL_SHARE * alpha`` over the columns tested."""
+    # Intentional float64: regression sums of squares and p-values of the interaction credit test
     X = np.asarray(X, dtype=np.float64)
+    # Intentional float64: regression sums of squares and p-values of the interaction credit test
     y = np.asarray(y, dtype=np.float64)
     n, m = X.shape
     rng = np.random.default_rng(seed)
@@ -254,9 +263,11 @@ def _product_stat(x: np.ndarray, y: np.ndarray, design: np.ndarray, rng: np.rand
     n = y.shape[0]
     q = _orthonormal_design([c for c in design.T], n)
     r = y - q @ (q.T @ y)
+    # Intentional float64: regression sums of squares and p-values of the interaction credit test
     c = np.asarray(x, dtype=np.float64) - np.asarray(x, dtype=np.float64).mean()
     c = c - q @ (q.T @ c)
     norm = float(c @ c)
+    # Intentional float64: regression sums of squares and p-values of the interaction credit test
     if norm <= 1e-10 * max(float(np.asarray(x, dtype=np.float64).var() * n), 1e-300):
         return 0.0, 1.0
     c = c / np.sqrt(norm)
@@ -280,7 +291,9 @@ def select_products(
 
     Forward selection on a discovery half: the best remaining product is tested (added variable, sign-flip null, Bonferroni over the pairs) and accepted only if it replicates on the held-out half (own test at ``alpha``
     and a lower held-out MAE of the least-squares fit); the first rejection ends the search. A product of two columns that only act additively is not accepted, however well each form fits."""
+    # Intentional float64: regression sums of squares and p-values of the interaction credit test
     X = np.asarray(X, dtype=np.float64)
+    # Intentional float64: regression sums of squares and p-values of the interaction credit test
     y = np.asarray(y, dtype=np.float64)
     n, m = X.shape
     rng = np.random.default_rng(seed)

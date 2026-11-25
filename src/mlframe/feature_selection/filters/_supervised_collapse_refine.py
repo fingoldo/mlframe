@@ -84,6 +84,7 @@ def refine_near_collapsed_supervised_edges(
                 _FALLBACK_MEMO.move_to_end(memo_key)
                 extra = hit[1]
     if extra is None:
+        # Intentional float64: class counts and MI of the collapse refinement
         extra = _fallback_edges(np.asarray(finite, dtype=np.float64), base, fallback_nbins)
         if memo_key is not None and uniq is not None:
             with _FALLBACK_MEMO_LOCK:

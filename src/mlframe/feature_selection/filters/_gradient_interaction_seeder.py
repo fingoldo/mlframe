@@ -208,6 +208,7 @@ def _oof_r2(Xs: np.ndarray, y: np.ndarray, n_components: int, gamma: float, alph
     from ._linear_probes import PlainRidge, RffSampler
 
     Phi = RffSampler(gamma=gamma, n_components=n_components, random_state=seed).fit_transform(Xs)
+    # Intentional float64: ridge solutions and mixed-partial energies of the surrogate
     target = np.asarray(y, dtype=np.float64).ravel()
     pred = np.empty(target.shape[0])
     for tr, va in KFold(n_splits, shuffle=True, random_state=seed).split(Phi):

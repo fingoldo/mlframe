@@ -156,7 +156,7 @@ _X_PLAN_LOCK = threading.Lock()
 
 
 def _x_plan(x: np.ndarray, K: int) -> "tuple[np.ndarray, np.ndarray, int] | None":
-    """``(initial_inner, xb, K_x)`` of the float64 column ``x`` (its K-quantile inner cuts, the bin index of every row, the number of bins), or ``None`` when fewer than three distinct cuts exist.
+    """``(initial_inner, xb, K_x)`` of the double column ``x`` (its K-quantile inner cuts, the bin index of every row, the number of bins), or ``None`` when fewer than three distinct cuts exist.
 
     The numbers are those ``mah_bin_edges`` derives inline; they are memoised by the content of the column."""
     import hashlib
@@ -175,6 +175,7 @@ def _x_plan(x: np.ndarray, K: int) -> "tuple[np.ndarray, np.ndarray, int] | None
     qx = np.quantile(x, np.linspace(0, 1, K + 1))
     qx_unique = np.unique(qx)
     if qx_unique.size < 3:
+        # Intentional float64: merge criterion and regret statistics of the MAH binning
         plan = (np.empty(0, dtype=np.float64), np.empty(0, dtype=np.int16), 0)
     else:
         initial_inner = qx_unique[1:-1].astype(np.float64)  # Intentional float64: initial inner edges for the MAH statistic
@@ -212,6 +213,7 @@ def _y_binning_by_multiset(y: np.ndarray, K: int) -> "tuple[np.ndarray, int] | N
     if hit is None:
         _, K_y = _compute_y_binning(y, K)
         if K_y == 0:
+            # Intentional float64: merge criterion and regret statistics of the MAH binning
             hit = (np.empty(0, dtype=np.float64), False, 0)
         else:
             uniq_y = np.unique(y)

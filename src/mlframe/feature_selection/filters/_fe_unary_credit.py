@@ -22,7 +22,7 @@ from typing import Any
 
 import numpy as np
 
-from mlframe.utils.env_flags import FALSE_VALUES, env_reader
+from mlframe.utils.env_flags import env_reader, switch_on_unless_false
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +38,7 @@ _enabled_reader = env_reader("MLFRAME_FE_UNARY_CREDIT")
 
 def unary_credit_enabled() -> bool:
     """On unless ``MLFRAME_FE_UNARY_CREDIT`` is set to a false spelling."""
-    value = _enabled_reader()
-    return value is None or value.strip().lower() not in FALSE_VALUES - {""}
+    return switch_on_unless_false(_enabled_reader)
 
 
 def credit_unary_forms(
@@ -53,7 +52,7 @@ def credit_unary_forms(
     import pandas as pd
 
     from ._unary_credit_logit import credit_columns_binary
-    from ._unary_credit_stats import credit_columns
+    from ._unary_credit_stats import credit_columns, has_continuous_target_values
     from .engineered_recipes import build_unary_credit_recipe
 
     if not unary_credit_enabled() or y_continuous is None or not isinstance(X, pd.DataFrame):
@@ -61,9 +60,10 @@ def credit_unary_forms(
     y = np.asarray(y_continuous)
     if y.ndim != 1 or y.shape[0] != len(X) or not np.issubdtype(y.dtype, np.number):
         return []
+    # Intentional float64: target and column statistics of the credit pass
     levels = np.unique(y[~np.isnan(y.astype(np.float64))]) if y.size else y
     binary = levels.size == 2
-    if not binary and np.unique(y[:5000]).size < 20:
+    if not binary and not has_continuous_target_values(y):
         return []
     names = [nm for nm in dict.fromkeys(selected_names) if nm in X.columns and pd.api.types.is_numeric_dtype(X[nm].dtype)][:MAX_COLUMNS]
     # the second call of a fit (after the late restores) sees the same columns, the same target and the same engineered recipes (the sources of the interaction stage) as the first one when nothing was restored: its
@@ -78,10 +78,13 @@ def credit_unary_forms(
     forms_seen = dict(forms_seen) if isinstance(forms_seen, dict) else {}
     single_verdicts: "dict[str, Any]" = {}
     if names:
+        # Intentional float64: target and column statistics of the credit pass
         block = np.column_stack([np.asarray(X[nm].to_numpy(), dtype=np.float64) for nm in names])
         if binary:
+            # Intentional float64: target and column statistics of the credit pass
             verdicts = credit_columns_binary(block, (y == levels[1]).astype(np.float64), seed=seed)
         else:
+            # Intentional float64: target and column statistics of the credit pass
             verdicts = credit_columns(block, np.asarray(y, dtype=np.float64), seed=seed)
         single_verdicts = {nm: v for nm, v in zip(names, verdicts) if v.form is not None}
     single_form = {nm: v.form for nm, v in single_verdicts.items()}
@@ -90,6 +93,7 @@ def credit_unary_forms(
     interaction_verdicts: "dict[str, Any]" = {}
     products: "list[tuple[Any, str]]" = []
     if not binary:
+        # Intentional float64: target and column statistics of the credit pass
         interaction_verdicts, products = _credit_products(mrmr, X, np.asarray(y, dtype=np.float64), names, single_form, taken, seed=seed, verbose=verbose)
         interaction = {nm: v.form for nm, v in interaction_verdicts.items()}
     final = {**single_form, **{nm: f for nm, f in interaction.items() if f is not None}}
@@ -156,6 +160,7 @@ def _credit_products(
     if len(candidates) < 2:
         return {}, []
     columns = (candidates + [nm for nm in selected if nm not in candidates])[: MAX_INTERACTION_COLUMNS + 4]
+    # Intentional float64: target and column statistics of the credit pass
     block = np.column_stack([np.asarray(X[nm].to_numpy(), dtype=np.float64) for nm in columns])
     skip = tuple(i for i, nm in enumerate(columns) if nm not in candidates)
     verdicts, _partner_of = credit_interactions(block, y, start=[single_form.get(nm) for nm in columns], skip=skip, seed=seed)
@@ -163,6 +168,7 @@ def _credit_products(
     found = {nm: v.form for nm, v in found_verdicts.items()}
     form_of = {nm: found.get(nm, single_form.get(nm)) for nm in candidates}
     pairs = [(i, j) for i in range(len(candidates)) for j in range(i + 1, len(candidates)) if form_of[candidates[i]] is not None or form_of[candidates[j]] is not None]
+    # Intentional float64: target and column statistics of the credit pass
     block_c = np.column_stack([np.asarray(X[nm].to_numpy(), dtype=np.float64) for nm in candidates])
     accepted = select_products(block_c, y, [form_of[nm] for nm in candidates], pairs, seed=seed)
     out = []

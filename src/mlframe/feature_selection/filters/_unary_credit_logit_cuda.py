@@ -134,13 +134,14 @@ def fits_device(cp: Any, n: int, n_rows_z: int, n_draws: int, itemsize: int) -> 
 
 
 def loglik_device(cp: Any, offset: Any, z: Any, y: Any, steps: int) -> Any:
-    """The log-likelihood of the logit ``offset + a + b * z[k]`` of every candidate row ``k`` of ``z`` on every class row ``d`` of ``y``, fitted by ``steps`` Newton steps: a ``(len(z), len(y))`` float64 device array.
+    """The log-likelihood of the logit ``offset + a + b * z[k]`` of every candidate row ``k`` of ``z`` on every class row ``d`` of ``y``, fitted by ``steps`` Newton steps: a ``(len(z), len(y))`` double device array.
 
-    ``offset`` is ``(n,)``, ``z`` ``(K, n)`` C-contiguous and ``y`` ``(D, n)`` of 0 / 1 bytes (a bool array is read as it is), ``offset`` and ``z`` of the crit dtype (float32 or float64). Row ``K - 1`` of ``z`` is
+    ``offset`` is ``(n,)``, ``z`` ``(K, n)`` C-contiguous and ``y`` ``(D, n)`` of 0 / 1 bytes (a bool array is read as it is), ``offset`` and ``z`` of the crit dtype (float32 or double). Row ``K - 1`` of ``z`` is
     expected to be zeros when the caller wants the offset-plus-intercept model (see the module docstring)."""
     real = "float" if z.dtype == np.float32 else "double"
     k_rows, n = int(z.shape[0]), int(z.shape[1])
     n_draws = int(y.shape[0])
+    # Intentional float64: log-likelihood statistic of the logit null (the float32 build is checked against it)
     out = cp.full((k_rows, n_draws), cp.nan, dtype=cp.float64)  # a sentinel: a pair the kernel misses must not look like a log-likelihood
     kernel = _module(cp, real, "double").get_function("logit_null_loglik")
     block = min(_MAX_BLOCK, block_size_for(kernel, work_items=n, max_width=_MAX_BLOCK))
@@ -166,9 +167,10 @@ def try_loglik_device(cp: Any, offset: Any, z: Any, y: Any, steps: int) -> "Any 
 @njit(cache=True, nogil=True, parallel=True)
 def _loglik_njit(offset, z, y, steps):
     """CPU kernel of the null: the log-likelihood of the logit ``offset + a + b * z[k]`` on every class row ``y[d]``, fitted by ``steps`` Newton steps (the arithmetic of ``logit_null_loglik``, in double precision
-    sums). One thread per (candidate, draw) pair, no ``(rows, candidates, draws)`` array: a ``(len(z), len(y))`` float64 result."""
+    sums). One thread per (candidate, draw) pair, no ``(rows, candidates, draws)`` array: a ``(len(z), len(y))`` double result."""
     k_rows, n = z.shape
     n_draws = y.shape[0]
+    # Intentional float64: log-likelihood statistic of the logit null (the float32 build is checked against it)
     out = np.empty((k_rows, n_draws), dtype=np.float64)
     for t in prange(k_rows * n_draws):
         k = t // n_draws
@@ -208,9 +210,11 @@ def _loglik_njit(offset, z, y, steps):
 
 
 def loglik_host(offset: np.ndarray, z: np.ndarray, y: np.ndarray, steps: int) -> np.ndarray:
+    # Intentional float64: log-likelihood statistic of the logit null (the float32 build is checked against it)
     """:func:`loglik_device` on the host: ``offset`` ``(n,)``, ``z`` ``(K, n)`` and ``y`` ``(D, n)`` of 0 / 1; the ``(K, D)`` float64 log-likelihoods."""
     with parallel_kernel_entry():
         # one compiled signature (double values, byte classes): the kernel sums in double precision whatever the input type, and every signature is a separate numba cache load of about 0.8 s per process
+        # Intentional float64: log-likelihood statistic of the logit null (the float32 build is checked against it)
         return np.asarray(_loglik_njit(np.ascontiguousarray(offset, dtype=np.float64), np.ascontiguousarray(z, dtype=np.float64), np.ascontiguousarray(y, dtype=np.uint8), int(steps)))
 
 
@@ -218,7 +222,7 @@ def loglik_host(offset: np.ndarray, z: np.ndarray, y: np.ndarray, steps: int) ->
 # The kernel needs no row block or column block streaming: its working set is bounded by ``fits_device`` (a quarter of the free device memory), and a call that does not fit is answered by the host twin.
 # The two backends cross over where the host's cores stop hiding the launch and the transfers of the offset, the candidate rows and the class bytes; the crossover is measured per host by the sweep below.
 _SWEEP_N_SAMPLES = [2000, 10000]
-_SWEEP_N_CANDIDATES = [5, 13, 25]
+_SWEEP_N_CANDIDATES = [5, 12, 24]  # the grid of the crossover sweep: a few, a dozen and two dozen candidate rows
 _SWEEP_DRAWS = 50  # the credit's draw batch (``_unary_credit_stats.BATCH``)
 _SWEEP_STEPS = 5
 _FALLBACK_MIN_CELLS = 100_000  # rows x candidates x draws from which the device kernel is the fallback choice until the host's sweep is stored (the smallest swept cell, 500000, is already 28 times faster on the device here)

@@ -220,7 +220,7 @@ MRMR_BINNING_METHODS: "dict[str, dict]" = {
     "knuth_uniform": {"binning_scheme": "uniform", "nbins_rule": "knuth"},
     "qs_gupta": {"binning_scheme": "quantile", "nbins_rule": "rice_capped"},
     "bayesian_blocks": {"binning_scheme": "bayesian_blocks"},
-    # Row labels are the historical ones (the 2026-07-21 results use them): fayyad_irani_* is ``mdlp``; "insample_validated" is the DEFAULT ``mdlp`` (mdlp_fast_mode False), "oos_validated" is ``mdlp_validated``.
+    # Row labels are the historical ones (the earlier results use them): fayyad_irani_* is ``mdlp``; "insample_validated" is the DEFAULT ``mdlp`` (mdlp_fast_mode False), "oos_validated" is ``mdlp_validated``.
     "fayyad_irani_fast": {"binning_scheme": "mdlp", "binning_kwargs": {"mdlp_fast_mode": True}},
     "fayyad_irani_insample_validated": {"binning_scheme": "mdlp", "binning_kwargs": {"mdlp_fast_mode": False}},
     "fayyad_irani_oos_validated": {"binning_scheme": "mdlp_validated"},

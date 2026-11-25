@@ -4,6 +4,10 @@ The implementations stay in their (private) home modules; code outside ``mlframe
 helper can move inside the package without breaking its users, and the private-import gate stays meaningful.
 """
 
+from ._binning_spec import (
+    BINNING_SCHEMES,
+    NBINS_RULES,
+)
 from ._boruta import (
     boruta_select,
 )
@@ -61,7 +65,9 @@ from ._modulus_perm_null import host_residue_path, perm_best_mis
 from ._y_encoding import encode_y_for_classif_mi
 
 __all__ = [
+    "BINNING_SCHEMES",
     "ContentMemo",
+    "NBINS_RULES",
     "apply_conditional_gate",
     "apply_integer_lattice",
     "apply_pairwise_modular",

@@ -666,7 +666,7 @@ def _resolve_mm_bias(mm_debias: bool, mm_bias: "np.ndarray | None", factors_data
     """
     if not mm_debias:
         return None
-    if mm_bias is not None and int(np.asarray(mm_bias).shape[0]) == int(pa.shape[0]):
+    if mm_bias is not None and int(np.shape(mm_bias)[0]) == int(pa.shape[0]):
         return np.asarray(mm_bias, dtype=np.float64)  # Intentional float64: statistic vector
     n = int(factors_data.shape[0])
     k_joint = _pairwise_occupied_joint_k(factors_data, pa, pb, nb)
@@ -674,6 +674,23 @@ def _resolve_mm_bias(mm_debias: bool, mm_bias: "np.ndarray | None", factors_data
     bias = (k_joint - 1).astype(np.float64) * float(k_y - 1) / (2.0 * n)
     bias[k_joint <= 1] = 0.0
     return bias
+
+
+def _scaled_floor_or_none(
+    factors_data: np.ndarray, nbins: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, classes_y: np.ndarray, freqs_y: np.ndarray, n_permutations: int, quantile: float, random_seed: Any, device_only: bool
+) -> "float | None":
+    """The mm-debiased floor from a row subsample (``_pair_floor_scaled``), or ``None`` when the exact floor has to be computed; the decision is logged at INFO."""
+    from ._pair_floor_scaled import scaled_pair_floor
+
+    floor_scaled, scaling = scaled_pair_floor(
+        pooled_pair_permutation_null_joint_mi_floor, factors_data, nbins, pair_a, pair_b, classes_y, freqs_y,
+        n_permutations=n_permutations, quantile=quantile, random_seed=random_seed, device_only=device_only, k_joint_of_pairs=_pairwise_occupied_joint_k,
+    )
+    if floor_scaled is not None:
+        logger.info("order-2 maxT floor %.3e from %d of %d rows (calibration rho %.3f, factor %.3f)", floor_scaled, scaling["n_sub"], int(factors_data.shape[0]), scaling["rho"], scaling["factor"])
+    elif "rho" in scaling or "n_sub" in scaling:
+        logger.info("order-2 maxT floor computed on every row: %s", scaling.get("why"))
+    return floor_scaled
 
 
 def pooled_pair_permutation_null_joint_mi_floor(
@@ -752,17 +769,9 @@ def pooled_pair_permutation_null_joint_mi_floor(
     if k_y < 2:
         return 0.0
     if mm_debias and scaled is not False:
-        from ._pair_floor_scaled import scaled_pair_floor
-
-        floor_scaled, scaling = scaled_pair_floor(
-            pooled_pair_permutation_null_joint_mi_floor, factors_data, nbins, pair_a, pair_b, classes_y, freqs_y,
-            n_permutations=n_permutations, quantile=quantile, random_seed=random_seed, device_only=device_only, k_joint_of_pairs=_pairwise_occupied_joint_k,
-        )
+        floor_scaled = _scaled_floor_or_none(factors_data, nbins, pair_a, pair_b, classes_y, freqs_y, n_permutations, quantile, random_seed, device_only)
         if floor_scaled is not None:
-            logger.info("order-2 maxT floor %.3e from %d of %d rows (calibration rho %.3f, factor %.3f)", floor_scaled, scaling["n_sub"], n, scaling["rho"], scaling["factor"])
             return floor_scaled
-        if "rho" in scaling or "n_sub" in scaling:
-            logger.info("order-2 maxT floor computed on every row: %s", scaling.get("why"))
 
     # ROW-SUBSAMPLE the floor compute (noise-floor-cap regime). The floor is a q=0.95
     # QUANTILE of the per-shuffle MAX joint-MI over the O(p^2) pool - a COARSE noise threshold, not a
@@ -796,8 +805,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
     pa = np.ascontiguousarray(pair_a, dtype=np.int64)
     pb = np.ascontiguousarray(pair_b, dtype=np.int64)
     nb = np.ascontiguousarray(nbins)
-    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
+    fy = np.ascontiguousarray(freqs_y, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
 
     mm_bias = _resolve_mm_bias(mm_debias, mm_bias, factors_data, pa, pb, nb, k_y)
 
@@ -824,8 +832,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
         # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
         with parallel_kernel_entry():
             all_mis = batch_pair_mi_perm_batched(factors_data, pa, pb, nb, y_perms, fy, joint_cardinality_cap())  # (K, n_pairs)
-    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    maxes = np.empty(K, dtype=np.float64)
+    maxes = np.empty(K, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     for k in range(K):
         mis = all_mis[k]
         if mm_bias is not None and mis.size:

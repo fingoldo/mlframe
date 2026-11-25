@@ -63,24 +63,29 @@ def test_the_scaled_floor_is_the_exact_one_within_the_noise_of_the_floor_itself(
     assert all(0.75 <= r <= 1.3 for r in ratios), ratios
 
 
-def test_a_scaling_error_outside_the_accepted_window_is_corrected_by_the_measured_ratio(monkeypatch, small_pool_allowed):
-    """Fake exact floors of a constant 1e-3 and block ratios of 1.0 (accepted as it is), 1.4 (corrected by 1.4), 0.7 (corrected) and 3.0 (the exact floor is asked for)."""
+@pytest.mark.parametrize("rho, expected_factor", [(1.0, 1.0), (1.05, 1.0), (1.4, 1.4), (0.7, 0.7)])
+def test_a_scaling_error_outside_the_accepted_window_is_corrected_by_the_measured_ratio(monkeypatch, small_pool_allowed, rho, expected_factor):
+    """Fake exact floors of a constant 1e-3: a block ratio of 1.0 or 1.05 is accepted as it is, 1.4 and 0.7 correct the floor by the ratio."""
     data, nb, ia, ib, y, fy = _pool()
-    n_sub_over_n = {}
+    rows_seen = {}
 
     def fake_exact(sub_data, *args, **kwargs):
         """A floor that does not depend on the pool."""
-        n_sub_over_n["rows"] = int(sub_data.shape[0])
+        rows_seen["rows"] = int(sub_data.shape[0])
         return 1e-3
 
-    for rho, expected_factor in ((1.0, 1.0), (1.05, 1.0), (1.4, 1.4), (0.7, 0.7), (3.0, None)):
-        monkeypatch.setattr(ps, "_ratio", lambda *a, _r=rho, **k: _r)
-        got, info = ps.scaled_pair_floor(fake_exact, data, nb, ia, ib, y, fy, n_permutations=25, quantile=0.95, random_seed=0, k_joint_of_pairs=pn._pairwise_occupied_joint_k)
-        if expected_factor is None:
-            assert got is None and "too large to correct" in info["why"], (rho, info)
-        else:
-            assert got == pytest.approx(1e-3 * (n_sub_over_n["rows"] / data.shape[0]) * expected_factor), (rho, got)
-            assert info["factor"] == pytest.approx(expected_factor)
+    monkeypatch.setattr(ps, "_ratio", lambda *a, **k: rho)
+    got, info = ps.scaled_pair_floor(fake_exact, data, nb, ia, ib, y, fy, n_permutations=25, quantile=0.95, random_seed=0, k_joint_of_pairs=pn._pairwise_occupied_joint_k)
+    assert got == pytest.approx(1e-3 * (rows_seen["rows"] / data.shape[0]) * expected_factor)
+    assert info["factor"] == pytest.approx(expected_factor)
+
+
+def test_a_scaling_error_too_large_to_correct_sends_the_caller_to_the_exact_floor(monkeypatch, small_pool_allowed):
+    """A block ratio of 3.0 is past the correctable range: no scaled floor, and the reason says why."""
+    data, nb, ia, ib, y, fy = _pool()
+    monkeypatch.setattr(ps, "_ratio", lambda *a, **k: 3.0)
+    got, info = ps.scaled_pair_floor(lambda *a, **k: 1e-3, data, nb, ia, ib, y, fy, n_permutations=25, quantile=0.95, random_seed=0, k_joint_of_pairs=pn._pairwise_occupied_joint_k)
+    assert got is None and "too large to correct" in info["why"], info
 
 
 def test_halves_of_the_block_that_disagree_send_the_caller_to_the_exact_floor(monkeypatch, small_pool_allowed):

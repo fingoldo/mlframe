@@ -19,6 +19,7 @@ def fit_ridge_closed_form(X: np.ndarray, y: np.ndarray, alpha: float) -> "tuple[
     """``(weights, intercept)`` of the ridge fit of ``y`` on ``X`` with penalty ``alpha`` (intercept unpenalised), or ``None`` when the system is singular or the result is not finite."""
     # Intentional float64: the normal equations square the conditioning of the columns, so they are formed and solved in double precision
     A = np.asarray(X, dtype=np.float64)
+    # Intentional float64: normal equations square the conditioning of the columns
     t = np.asarray(y, dtype=np.float64).ravel()
     x_mean = A.mean(axis=0)
     y_mean = float(t.mean())
@@ -49,6 +50,7 @@ def fit_ridge_closed_form_multi(X: np.ndarray, Y: np.ndarray, alpha: float) -> "
     """
     # Intentional float64: the normal equations square the conditioning of the columns, so they are formed and solved in double precision
     A = np.asarray(X, dtype=np.float64)
+    # Intentional float64: normal equations square the conditioning of the columns
     T = np.asarray(Y, dtype=np.float64)
     if T.ndim == 1:
         T = T[:, None]
@@ -67,7 +69,7 @@ def fit_ridge_closed_form_multi(X: np.ndarray, Y: np.ndarray, alpha: float) -> "
     if w is None:
         try:
             w = np.linalg.solve(gram, rhs)
-        except np.linalg.LinAlgError:
+        except np.linalg.LinAlgError:  # best-effort: None is the singular signal; the caller solves by least squares
             return None
     if not np.isfinite(w).all():
         return None

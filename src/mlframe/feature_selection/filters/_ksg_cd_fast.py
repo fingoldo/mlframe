@@ -11,6 +11,7 @@ from typing import cast
 import numpy as np
 from numba import njit, prange
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from ._numba_utils import _psi_table  # shared njit helper, re-exported for callers of this module
 from ._numba_utils_shared import radix_order_f64
 
@@ -110,7 +111,8 @@ def _mi_cd_columns_auto(X: np.ndarray, d: np.ndarray, n_classes: int, n_neighbor
         got = mi_cd_columns_device(X, d, n_classes, n_neighbors)
         if got is not None:
             return got
-    return cast(np.ndarray, _mi_cd_columns(X, d, n_classes, n_neighbors))
+    with parallel_kernel_entry():
+        return cast(np.ndarray, _mi_cd_columns(X, d, n_classes, n_neighbors))
 
 
 _COLUMNS_BLOCK_BYTES = 128 * 1024 * 1024  # host bytes of the double working copy of one block of columns in ksg_mi_discrete_target_columns
@@ -124,7 +126,7 @@ def _row_tiles(n: int, p: int) -> "list[tuple[int, int]]":
 
 
 def _column_std(X: np.ndarray) -> np.ndarray:
-    """Population std of every column of ``X``, as ``X.std(axis=0)`` but through row tiles: that call holds a temporary of the whole block (443 MB at 500000 x 110 float64) while the
+    """Population std of every column of ``X``, as ``X.std(axis=0)`` but through row tiles: that call holds a temporary of the whole block (443 MB at 500000 x 110 double) while the
     noise and the next stage's blocks are also resident."""
     n, p = X.shape
     total = np.zeros(p)

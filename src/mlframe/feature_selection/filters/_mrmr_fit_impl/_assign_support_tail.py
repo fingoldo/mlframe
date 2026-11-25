@@ -241,7 +241,7 @@ def _assign_support_tai_f_step3_unary_credit(self, X, y, verbose, selected_vars,
         _y_cont = getattr(self, "_fe_prewarp_y_continuous_", None)
         if _y_cont is None:
             _yv = y.values if hasattr(y, "values") else np.asarray(y)
-            _y_cont = np.asarray(_yv).reshape(-1) if np.ndim(_yv) <= 1 or np.asarray(_yv).shape[-1] == 1 else None
+            _y_cont = np.asarray(_yv).reshape(-1) if np.ndim(_yv) <= 1 or np.shape(_yv)[-1] == 1 else None
         _raw_names = [str(cols[int(v)]) for v in selected_vars if 0 <= int(v) < len(cols)]
         if _y_cont is not None and getattr(self, "target_transform_search", False):
             # with the target-transform search on, the forms are those a linear head needs on the LINKED target g(y) (``y = exp(sin(x1) + log(x2))`` -> ``sin(x1)``, ``log(x2)``)

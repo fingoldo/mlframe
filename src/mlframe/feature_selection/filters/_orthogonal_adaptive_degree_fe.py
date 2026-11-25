@@ -186,7 +186,7 @@ def _build_degree_candidates(X: pd.DataFrame, cols: list, y_arr: np.ndarray, deg
 def _build_degree_candidate_matrix(X: pd.DataFrame, cols: list, y_arr: np.ndarray, degree_range: tuple, basis: str, _dt: type) -> "tuple[list, np.ndarray, list]":
     """The lean twin of :func:`_build_degree_candidates` + ``np.column_stack(...).astype(criterion dtype)``: ``(cand_cols, cand_mat, cand_to_source)`` with ``cand_mat`` the ``(n, k)`` criterion-dtype matrix.
 
-    The list of float64 vectors, their float64 stack and the cast copy were about 20 bytes a cell (1.4 GB retained by this family at 500000 x 1000); here each source column's cells go to a criterion-dtype
+    The list of double vectors, their double stack and the cast copy were about 20 bytes a cell (1.4 GB retained by this family at 500000 x 1000); here each source column's cells go to a criterion-dtype
     block as they are built and the blocks are written into the matrix tile by tile, so the cost is the matrix plus one block."""
     from ._fe_usability_signal import _crit_np_dtype
     from ._numba_utils import rows_to_columns_into

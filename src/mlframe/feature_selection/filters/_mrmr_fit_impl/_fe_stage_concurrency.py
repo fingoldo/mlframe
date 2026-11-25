@@ -121,16 +121,14 @@ def _same(a: Any, b: Any) -> bool:
                 return bool(cp.array_equal(a, b))
             return bool(np.array_equal(a, b))
         except Exception as exc:  # best-effort: a comparison that raises is reported as unequal, the conservative answer
-            logger.debug("stage-state comparison raised %s: %s; reported as unequal", type(exc).__name__, exc)
+            log_throttle(logger, "fe_stage_concurrency.same", logging.WARNING, "stage-state comparison raised %s: %s; reported as unequal", type(exc).__name__, exc)
             return False
     if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
         return type(a) is type(b) and len(a) == len(b) and all(_same(x, y) for x, y in zip(a, b))
     try:
         return bool(a == b)
-    except (
-        Exception
-    ) as exc:  # best-effort: a comparison that raises is reported as unequal, the conservative answer  # audit-exempt: non_neutral_except_fallback -- unequal is the conservative answer for a comparison that raised, and the cause is on the debug line
-        logger.debug("stage-state comparison raised %s: %s; reported as unequal", type(exc).__name__, exc)
+    except Exception as exc:  # best-effort: a comparison that raises is reported as unequal, the conservative answer
+        log_throttle(logger, "fe_stage_concurrency.same", logging.WARNING, "stage-state comparison raised %s: %s; reported as unequal", type(exc).__name__, exc)
         return False
 
 
@@ -298,7 +296,7 @@ def run_stages_concurrently(
     for failed_at, err in enumerate(errors[:keep]):
         if err is not None:
             # a sequential run has the state of the stages BEFORE the failing one on the estimator when the failure surfaces (a caller that survives it keeps their engineered columns and recipes); the
-            # concurrent run merged nothing before raising, so those stages' results were lost (AUD23-06). The stages after the failing one are not merged: a sequential run never reached them.
+            # concurrent run merged nothing before raising, so those stages' results were lost. The stages after the failing one are not merged: a sequential run never reached them.
             merge_stage_state(estimator, base, copies[:failed_at])
             raise err  # the first failure in stage order among the kept stages; a dropped stage would not have run sequentially
     outcomes: "list[Any]" = [f.result() for f in futures[:keep]]

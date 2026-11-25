@@ -298,7 +298,9 @@ def _routing_scores(routing_criterion: str, y_arr: np.ndarray, cand_mat: np.ndar
             _blk = max(1, int(_STATS_BLOCK_BYTES // max(1, 8 * cand_mat.shape[0])))
             for _c0 in range(0, cand_mat.shape[1], _blk):
                 _c1 = min(cand_mat.shape[1], _c0 + _blk)
+                # Intentional float64: routing statistics (conditional MI and gains)
                 _s[_c0:_c1] = cand_mat[:, _c0:_c1].std(axis=0, dtype=np.float64)
+                # Intentional float64: routing statistics (conditional MI and gains)
                 _num[_c0:_c1] = cand_mat[:, _c0:_c1].astype(np.float64).T @ _yz
             _ok = _s > _REL_TOL * np.abs(cand_mat).max(axis=0)
             route_score = np.abs(np.where(_ok, (_num - _m * _yz.sum()) / np.where(_ok, _s, 1.0), 0.0) / _yf.size)
@@ -382,10 +384,12 @@ def _enumerate_routing_cells(
     return cand_cols, cand_values, cand_meta
 
 
+# Intentional float64: routing statistics (conditional MI and gains)
 _STATS_BLOCK_BYTES = 64 * 1024 * 1024  # float64 working copy of one column block in the routing statistics
 
 
 def _routing_block_of_column(X: pd.DataFrame, col: str, transform_variants: tuple, candidate_bases: tuple, degrees: tuple) -> tuple:
+    # Intentional float64: routing statistics (conditional MI and gains)
     """``(cand_cols, rows, cand_meta)`` of one source column with the cell vectors already at the criterion dtype as the ``(k, n)`` array ``rows`` (the float64 vectors are dropped at once; the winners are rebuilt by ``LazyRoutingValues``)."""
     c_cols, c_values, c_meta = _routing_cells_of_column(X, col, transform_variants, candidate_bases, degrees)
     rows = np.empty((len(c_values), len(X)), dtype=_crit_np_dtype())
@@ -399,7 +403,7 @@ def _enumerate_routing_blocks(
 ) -> "tuple[list, np.ndarray, list]":
     """The lean twin of ``_enumerate_routing_cells`` + ``_stack_candidates``: ``(cand_cols, cand_mat, cand_meta)`` with ``cand_mat`` the ``(n, k)`` criterion-dtype matrix, in the same cell order.
 
-    Holding every cell as a float64 vector and then stacking it cost 8 + 4 + 4 bytes a cell on the host path (the 100000 x 400 fit of 2026-11-23: 2.9 GB of vectors and 1.5 GB of staging rows); here a column's cells
+    Holding every cell as a double vector and then stacking it cost 8 + 4 + 4 bytes a cell on the host path (the 100000 x 400 fit of 2026-11-23: 2.9 GB of vectors and 1.5 GB of staging rows); here a column's cells
     go to a criterion-dtype block as they are built and the blocks are written into the final matrix tile by tile, so the peak is the blocks plus the matrix (2 x 4 bytes a cell) and falls to the matrix."""
     import numba
 

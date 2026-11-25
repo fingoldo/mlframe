@@ -39,6 +39,7 @@ def target_classes(y: np.ndarray) -> "np.ndarray | None":
     if values.size <= _MAX_DISCRETE_CLASSES:
         codes[finite] = inverse.ravel()
     else:
+        # Intentional float64: target means and counts of the fold encoding
         edges = np.unique(np.quantile(base.astype(np.float64), np.linspace(0.0, 1.0, _TARGET_CLASSES + 1)[1:-1]))
         codes[finite] = np.searchsorted(edges, base, side="right")
     return codes

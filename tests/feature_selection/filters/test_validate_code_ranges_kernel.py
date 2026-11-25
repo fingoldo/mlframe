@@ -42,5 +42,5 @@ def test_the_first_bad_column_in_index_order_is_reported():
 
 
 def test_an_empty_matrix_is_accepted():
-    """No rows: nothing to check."""
-    pn._validate_code_ranges(np.empty((0, 3), dtype=np.int8), np.array([3, 3, 3]), np.array([0, 1]))
+    """No rows: nothing to check, and a code outside the range cannot exist."""
+    assert pn._validate_code_ranges(np.empty((0, 3), dtype=np.int8), np.array([3, 3, 3]), np.array([0, 1])) is None

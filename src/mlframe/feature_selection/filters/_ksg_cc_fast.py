@@ -10,6 +10,7 @@ from __future__ import annotations
 import numpy as np
 from numba import njit, prange
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
 from ._ksg_cd_fast import _column_mean_abs, _column_std, _row_tiles
 from ._numba_utils import _psi_table
 from ._numba_utils_shared import radix_order_f64
@@ -121,6 +122,7 @@ def ksg_mi_continuous_target(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, 
     """Drop-in for ``mutual_info_regression(X, y, discrete_features=False)``: double MI per column, nats."""
     # Intentional float64: reproduces sklearn mutual_info_regression, which scales and adds the noise in double precision
     X = np.array(X, dtype=np.float64, copy=True)
+    # Intentional float64: nearest-neighbour distances and digamma terms of the KSG estimator
     y = np.array(np.asarray(y).ravel(), dtype=np.float64, copy=True)
     n = X.shape[0]
     std = _column_std(X)
@@ -136,7 +138,9 @@ def ksg_mi_continuous_target(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, 
     ystd = y.std()
     y /= ystd if ystd != 0.0 else 1.0
     y += 1e-10 * max(1.0, float(np.mean(np.abs(y)))) * rng.standard_normal(size=n)
-    return np.asarray(_mi_cc_columns(np.ascontiguousarray(X), np.ascontiguousarray(y), int(n_neighbors)), dtype=np.float64)
+    # Intentional float64: nearest-neighbour distances and digamma terms of the KSG estimator
+    with parallel_kernel_entry():
+        return np.asarray(_mi_cc_columns(np.ascontiguousarray(X), np.ascontiguousarray(y), int(n_neighbors)), dtype=np.float64)
 
 
 def ksg_mi_continuous_target_columns(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, random_state: int) -> np.ndarray:
@@ -147,6 +151,7 @@ def ksg_mi_continuous_target_columns(X: np.ndarray, y: np.ndarray, *, n_neighbor
     """
     # Intentional float64: reproduces sklearn mutual_info_regression, which scales and adds the noise in double precision
     X = np.array(X, dtype=np.float64, copy=True)
+    # Intentional float64: nearest-neighbour distances and digamma terms of the KSG estimator
     y = np.array(np.asarray(y).ravel(), dtype=np.float64, copy=True)
     n = X.shape[0]
     rng = np.random.RandomState(int(random_state))
@@ -160,7 +165,9 @@ def ksg_mi_continuous_target_columns(X: np.ndarray, y: np.ndarray, *, n_neighbor
     ystd = y.std()
     y /= ystd if ystd != 0.0 else 1.0
     y += 1e-10 * max(1.0, float(np.mean(np.abs(y)))) * draw_y
-    return np.asarray(_mi_cc_columns(np.ascontiguousarray(X), np.ascontiguousarray(y), int(n_neighbors)), dtype=np.float64)
+    # Intentional float64: nearest-neighbour distances and digamma terms of the KSG estimator
+    with parallel_kernel_entry():
+        return np.asarray(_mi_cc_columns(np.ascontiguousarray(X), np.ascontiguousarray(y), int(n_neighbors)), dtype=np.float64)
 
 
 @njit(parallel=True, cache=True, nogil=True)

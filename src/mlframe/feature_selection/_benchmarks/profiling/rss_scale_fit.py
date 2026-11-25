@@ -151,7 +151,7 @@ def _stack_snapshot() -> "tuple[str, list[str]]":
 
 
 _avail0 = float(psutil.virtual_memory().available)
-_min_avail = [_avail0]  # [lowest system-wide available RAM seen during the fit, bytes]
+min_avail = [_avail0]  # [lowest system-wide available RAM seen during the fit, bytes]
 
 
 def sampler():
@@ -161,8 +161,8 @@ def sampler():
     while not stop.wait(0.2):
         rss = proc.memory_info().rss
         _avail = psutil.virtual_memory().available
-        if _avail < _min_avail[0]:
-            _min_avail[0] = _avail  # the system-wide free RAM: what the paging risk depends on (the RSS also counts working-set pages the system can take back without a write)
+        if _avail < min_avail[0]:
+            min_avail[0] = _avail  # the system-wide free RAM: what the paging risk depends on (the RSS also counts working-set pages the system can take back without a write)
         if _avail < MIN_AVAILABLE:
             # the machine is about to page: report what is known and stop the process instead of freezing the laptop
             print(f"ABORTED at t={time.perf_counter() - t0:.1f}s: available memory under {MIN_AVAILABLE / 1e9:.1f} GB, peak RSS growth {(max(peak[0], rss) - base) / 1e6:.0f} MB = {(max(peak[0], rss) - base) / 1e6 / frame_mb:.1f} x the frame", flush=True)
@@ -477,7 +477,7 @@ try:
 except Exception as exc:  # no cupy
     print("pool stats unavailable:", exc)
 print(f"rows={rows} cols={cols} mode={mode} frame={frame_mb:.0f} MB status={status} wall={wall:.1f}s")
-print(f"system RAM: available at the start {_avail0 / 1e6:.0f} MB, lowest during the fit {_min_avail[0] / 1e6:.0f} MB, i.e. {(_avail0 - _min_avail[0]) / 1e6:.0f} MB taken ({(_avail0 - _min_avail[0]) / 1e6 / frame_mb:.2f} x the frame)")
+print(f"system RAM: available at the start {_avail0 / 1e6:.0f} MB, lowest during the fit {min_avail[0] / 1e6:.0f} MB, i.e. {(_avail0 - min_avail[0]) / 1e6:.0f} MB taken ({(_avail0 - min_avail[0]) / 1e6 / frame_mb:.2f} x the frame)")
 print(f"peak RSS growth {(peak[0] - base) / 1e6:.0f} MB = {(peak[0] - base) / 1e6 / frame_mb:.2f} x the frame; RSS before the fit {base / 1e6:.0f} MB")
 for when, mb, where in events:
     print(f"  t={when:7.1f}s +{mb:7.0f} MB  {where}")

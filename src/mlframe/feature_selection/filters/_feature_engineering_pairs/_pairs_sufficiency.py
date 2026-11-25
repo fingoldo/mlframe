@@ -28,7 +28,7 @@ FOLDS = 5
 RIDGE = 1e-3
 #: Rows used at most: a bigger frame is subsampled once (seeded), the statistics do not need more.
 MAX_ROWS = 20000
-#: A winner is an honest 1-D summary of the pair when its out-of-fold R^2 is within this share of the tensor smooth's (measured 2026-11-24: exact winners lose -0.6 to 1.5 percent, a degraded one 86 percent).
+#: A winner is an honest 1-D summary of the pair when its out-of-fold R^2 is within this share of the tensor smooth's (measured: exact winners lose -0.6 to 1.5 percent, a degraded one 86 percent).
 SUFFICIENCY_LOSS_MAX = 0.05
 #: A pair has an interaction when the tensor smooth beats the additive one by this paired t statistic of the absolute errors (about four standard errors) AND by this much MAE skill (measured on the weak F2, n = 20000:
 #: genuine pairs t 16 to 47 and skill gain 0.03 to 0.12, additive cross pairs and noise t -5 to 0 and skill gain -0.002 to 0; with R^2 the same split, t 15 to 36 against -4.4 to -1.8).
@@ -40,6 +40,7 @@ MIN_MI_RATIO_TO_TEST = 0.5
 
 def _rank01(x: np.ndarray) -> np.ndarray:
     """Average-free rank of every row mapped into (0, 1); non-finite values count as the median."""
+    # Intentional float64: R^2 and t statistics of the sufficiency test
     x = np.asarray(x, dtype=np.float64)
     x = np.where(np.isfinite(x), x, np.nanmedian(x) if np.isfinite(x).any() else 0.0)
     ranks = np.empty(x.size)
@@ -57,9 +58,12 @@ def _hats(u: np.ndarray, k: int) -> np.ndarray:
 def _oof_errors(basis: np.ndarray, y: np.ndarray, folds: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
     """Per-row out-of-fold ``(absolute error, squared error)`` of a ridge fit of ``y`` on ``basis`` (normal equations per fold, the Gram matrix built once)."""
     n, width = basis.shape
+    # Intentional float64: R^2 and t statistics of the sufficiency test
     gram = (basis.T @ basis).astype(np.float64)
+    # Intentional float64: R^2 and t statistics of the sufficiency test
     moment = (basis.T @ y).astype(np.float64)
     penalty = RIDGE * n / width * np.eye(width)
+    # Intentional float64: R^2 and t statistics of the sufficiency test
     residual = np.empty(n, dtype=np.float64)
     for fold in range(FOLDS):
         test = folds == fold
@@ -72,8 +76,9 @@ def _oof_errors(basis: np.ndarray, y: np.ndarray, folds: np.ndarray) -> "tuple[n
 def _paired_t(worse: np.ndarray, better: np.ndarray) -> float:
     """Paired t statistic of ``mean(worse - better)``; positive when ``better`` has the smaller out-of-fold error."""
     diff = worse - better
-    spread = float(diff.std())
-    return float(diff.mean() / (spread / np.sqrt(diff.size) + 1e-12))
+    standard_error = float(diff.std()) / float(np.sqrt(diff.size))
+    mean = float(diff.mean())
+    return mean / standard_error if standard_error > 1e-12 else mean * 1e12  # a constant difference is as significant as the sign says
 
 
 def pair_regression_stats(winner: np.ndarray, operand_a: np.ndarray, operand_b: np.ndarray, y: np.ndarray, *, seed: int = 0) -> dict:
@@ -81,6 +86,7 @@ def pair_regression_stats(winner: np.ndarray, operand_a: np.ndarray, operand_b: 
     R^2 of the same models (``r2_*``); ``{}`` when the inputs cannot be modelled (fewer than 200 rows, a constant target).
 
     ``winner``, ``operand_a``, ``operand_b`` and ``y`` are equally long vectors of continuous values; ``y`` is the continuous target (a class code works as a regression target for a binary problem)."""
+    # Intentional float64: R^2 and t statistics of the sufficiency test
     y = np.asarray(y, dtype=np.float64)
     n = y.size
     if n < 200 or not np.isfinite(y).all() or float(y.std()) <= 0.0:
@@ -99,7 +105,9 @@ def pair_regression_stats(winner: np.ndarray, operand_a: np.ndarray, operand_b: 
         "ten": np.einsum("ni,nj->nij", hats_a, hats_b).reshape(y.size, -1),
     }
     errors = {name: _oof_errors(basis, y, folds) for name, basis in bases.items()}
+    # Intentional float64: R^2 and t statistics of the sufficiency test
     mae_null = float(np.abs(y.astype(np.float64)).mean())
+    # Intentional float64: R^2 and t statistics of the sufficiency test
     se_null = float((y.astype(np.float64) ** 2).mean())
     out = {}
     for name, (absolute, squared) in errors.items():

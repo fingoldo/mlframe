@@ -38,6 +38,7 @@ def _apply_unary_credit(recipe: "EngineeredRecipe", X: Any) -> np.ndarray:
         raise ValueError(f"unary_credit recipe '{recipe.name}': src_names must have length 1; got {len(recipe.src_names)}")
     column = _extract_column(X, recipe.src_names[0])
     try:
+        # Intentional float64: replay of a credited form: the same double-precision arithmetic as the fit
         values = np.asarray(column, dtype=np.float64)
     except (ValueError, TypeError) as exc:
         raise ValueError(f"unary_credit recipe '{recipe.name}': source column {recipe.src_names[0]!r} has non-numeric dtype {getattr(column, 'dtype', type(column).__name__)}") from exc
@@ -73,6 +74,7 @@ def _side_values(recipe: "EngineeredRecipe", X: Any, index: int, prefix: str) ->
     extra = recipe.extra
     column = _extract_column(X, recipe.src_names[index])
     try:
+        # Intentional float64: replay of a credited form: the same double-precision arithmetic as the fit
         values = np.asarray(column, dtype=np.float64)
     except (ValueError, TypeError) as exc:
         raise ValueError(f"unary_credit_product recipe '{recipe.name}': source column {recipe.src_names[index]!r} has non-numeric dtype {getattr(column, 'dtype', type(column).__name__)}") from exc

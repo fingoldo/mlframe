@@ -273,6 +273,7 @@ def _top_column_pvalue(data, nbins, target_index, cols_index, honest_codes_fn=No
 
     try:
         obs, null_max = fallback_maxt_floor(data, nbins, int(target_index), [int(cols_index)], FAMILY_ALPHA, honest_codes_fn=honest_codes_fn)
+        # Intentional float64: gain statistics of the finalisation
         null_sorted = np.sort(np.asarray(null_max, dtype=np.float64))
         exceed = null_sorted.shape[0] - np.searchsorted(null_sorted, float(np.asarray(obs).ravel()[0]), side="left")
         return float((1.0 + exceed) / (null_sorted.shape[0] + 1.0))

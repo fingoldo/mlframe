@@ -62,6 +62,7 @@ def find_target_transform(estimator: Any, X: Any, y: Any, names: "list[str]") ->
         y_raw = np.asarray(y)
         if y_raw.dtype.kind not in "fiu":
             return None
+        # Intentional float64: held-out error statistics of the link verdict
         y_arr = y_raw.astype(np.float64).ravel()
         if np.unique(y_arr[np.isfinite(y_arr)]).size < _MIN_DISTINCT_TARGET:
             return None
@@ -71,6 +72,7 @@ def find_target_transform(estimator: Any, X: Any, y: Any, names: "list[str]") ->
         seed = int(getattr(estimator, "random_seed", 0) or 0)
         n = len(y_arr)
         idx = np.random.default_rng(seed).choice(n, size=_MAX_ROWS, replace=False) if n > _MAX_ROWS else np.arange(n)
+        # Intentional float64: held-out error statistics of the link verdict
         mat = np.column_stack([np.asarray(X[c], dtype=np.float64)[idx] for c in cols])
         from ._target_transform_ll import recommend_target_transform
 
@@ -103,7 +105,7 @@ def find_target_transform(estimator: Any, X: Any, y: Any, names: "list[str]") ->
 
 
 #: The unary credit is run on the linked target only when the forms it names there predict the ORIGINAL target at least this much better (held-out MAE of a ridge on the selected raw columns and the credited columns,
-#: the prediction inverted through the link) than the forms named on the target itself. Measured 2026-11-24: for ``y = exp(0.5 (sin(x1) + log(x2) + ..))`` the link ``log`` leaves 92 percent of the identity's
+#: the prediction inverted through the link) than the forms named on the target itself. Measured: for ``y = exp(0.5 (sin(x1) + log(x2) + ..))`` the link ``log`` leaves 92 percent of the identity's
 #: MAE and its forms (``sin``, ``log``) predict with a fraction of the error of the forms the raw target gives (``sin``, ``sqrt``), whereas for a SUM or PRODUCT of forms the link the spline head accepts (Yeo-Johnson,
 #: asinh, 91 to 93 percent) is spurious and its forms (``cbrt``, ``log`` where the inputs were ``sqrt``, ``recip``) predict no better. The MAE ratio of the link alone cannot tell the two apart; the utility of the forms can.
 LINK_CREDIT_MIN_GAIN = 0.1
@@ -113,8 +115,10 @@ def link_target(verdict: "Optional[dict]", y: Any) -> Any:
     """``g(y)`` for an accepted verdict (finite values only), else ``y`` unchanged: the CANDIDATE target of the unary credit when a link was found (see :func:`choose_credit_target`)."""
     if not verdict or not verdict.get("accepted") or verdict.get("transform") is None:
         return y
+    # Intentional float64: held-out error statistics of the link verdict
     values = np.asarray(y, dtype=np.float64).ravel()
     with np.errstate(all="ignore"):
+        # Intentional float64: held-out error statistics of the link verdict
         linked = np.asarray(verdict["transform"].forward(values), dtype=np.float64)
     return linked if linked.shape == values.shape and np.isfinite(linked).all() else y
 
@@ -122,6 +126,7 @@ def link_target(verdict: "Optional[dict]", y: Any) -> Any:
 def _replay(apply_recipe: Any, recipe: Any, frame: Any) -> "Optional[np.ndarray]":
     """The column of ``recipe`` on ``frame``, or ``None`` when it cannot be replayed (such a recipe is simply not a regressor)."""
     try:
+        # Intentional float64: held-out error statistics of the link verdict
         return np.asarray(apply_recipe(recipe, frame), dtype=np.float64).ravel()
     except Exception as exc:
         log_throttle(logger, "target_transform.forms_mae", logging.WARNING, "target_transform_search: recipe %r not replayed (%r)", getattr(recipe, "name", "?"), exc)
@@ -150,6 +155,7 @@ def _forms_mae(mrmr: Any, X: Any, y_original: np.ndarray, y_fit: np.ndarray, nam
     n = len(y_fit)
     idx = np.random.default_rng(seed).choice(n, size=_MAX_ROWS, replace=False) if n > _MAX_ROWS else np.arange(n)
     sub = X.iloc[idx] if hasattr(X, "iloc") else X[idx]
+    # Intentional float64: held-out error statistics of the link verdict
     cols = [np.asarray(sub[c], dtype=np.float64) for c in names if c in getattr(sub, "columns", [])]
     replayed = (_replay(apply_recipe, recipe, sub) for recipe, _name in extra)
     cols.extend(values for values in replayed if values is not None)
@@ -157,16 +163,18 @@ def _forms_mae(mrmr: Any, X: Any, y_original: np.ndarray, y_fit: np.ndarray, nam
         return float("inf")
     D = np.column_stack(cols)
     D = (D - D.mean(0)) / np.where(D.std(0) > 0, D.std(0), 1.0)
+    # Intentional float64: held-out error statistics of the link verdict
     z, y0 = np.asarray(y_fit, dtype=np.float64)[idx], np.asarray(y_original, dtype=np.float64)[idx]
     fold = np.arange(len(idx)) % 5
     err = 0.0
+    fallback = float(np.median(y0))
     for k in range(5):
         tr, te = fold != k, fold == k
         A = np.column_stack([np.ones(int(tr.sum())), D[tr]])
         coef = np.linalg.solve(A.T @ A + 1e-3 * np.eye(A.shape[1]), A.T @ z[tr])
         pred = np.column_stack([np.ones(int(te.sum())), D[te]]) @ coef
         pred = inverse(pred) if inverse is not None else pred
-        err += float(np.abs(y0[te] - np.where(np.isfinite(pred), pred, np.median(y0))).sum())
+        err += float(np.abs(y0[te] - np.where(np.isfinite(pred), pred, fallback)).sum())
     return err / len(idx)
 
 
@@ -180,10 +188,12 @@ def choose_credit_target(mrmr: Any, X: Any, y: Any, verdict: "Optional[dict]", n
     if verdict.get("credit_on_link") is not None:  # decided by an earlier credit pass of this fit
         return linked if verdict["credit_on_link"] else y
     try:
+        # Intentional float64: held-out error statistics of the link verdict
         y_arr = np.asarray(y, dtype=np.float64).ravel()
         transform = verdict["transform"]
         numeric = [c for c in names if c in getattr(X, "columns", []) and np.asarray(X[c]).dtype.kind in "fiu"][:_MAX_COLUMNS]
         mae_plain = _forms_mae(mrmr, X, y_arr, y_arr, numeric, None, seed)
+        # Intentional float64: held-out error statistics of the link verdict
         mae_link = _forms_mae(mrmr, X, y_arr, np.asarray(linked, dtype=np.float64).ravel(), numeric, transform.inverse, seed)
         use = bool(np.isfinite(mae_link) and mae_link <= (1.0 - LINK_CREDIT_MIN_GAIN) * mae_plain)
         verdict["credit_on_link"] = use

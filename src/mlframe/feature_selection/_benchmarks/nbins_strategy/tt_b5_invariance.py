@@ -100,7 +100,8 @@ def variant(fixture, X, y, name):
     if name == "raw":
         return X, y
     if name == "log":
-        assert y.min() > 0, "log target needs y > 0"
+        if not y.min() > 0:
+            raise ValueError("log target needs y > 0")
         return X, np.log(y)
     if name == "cbrt":
         return X, np.cbrt(y)
