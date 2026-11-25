@@ -634,7 +634,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 14-F8 | 14_feature_selection-5.md | FIXED | One-copy permutation buffer (same result). Regression: test_biz_val_shap_proxy_cluster.py (5 passed). |
 | 14-F11 | 14_feature_selection-5.md | FIXED | Stale docstrings about a nonexistent kernel_tuning_cache.get API corrected; the live wrappers are kept. Docstring-only. |
 | 08-F20 | 08_feature_engineering-1.md | FIXED | Default sentinel is None, so an explicit 50_000 is honoured. Test test_cluster08_knn_explicit_hnsw_threshold.py. |
-| 18-F19 | 18_models.md | PARTIAL | Stacking failure log names the skipped stamp and includes the traceback. No direct test (branch hard to reach). |
+| 18-F19 | 18_models.md | FIXED | A failed member test-prediction stacking is logged as a WARNING with its cause, so the missing member_test_preds has a visible reason; a successful stacking still stamps the attribute. Tests tests/models/ensembling/test_cluster18_stacking_failure_logged.py (2 passed). |
 | 08-F21 | 08_feature_engineering-1.md | FIXED | Duplicated baseline kept by design; drift-guard test pins it to the shared OOF helper. Test test_cluster08_baseline_oof_paths_agree.py. |
 | 18-F20 | 18_models.md | DEFERRED | Benchmark mirrors the chooser ranking; shipped chooser has no probe-order parameter, so calling it needs an API change. |
 | 41-F19 | 41_training-10.md | FIXED | Pipeline-cache budget no longer raised to a 2 GiB floor above the free-RAM cap. Test test_cluster41_cache_budget_respects_free_ram.py. |
