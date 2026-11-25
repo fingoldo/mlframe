@@ -28,3 +28,11 @@ Run one profile at a time and nothing else heavy beside it (tests, a second fit)
 `python -m mlframe.feature_selection._benchmarks.profiling.all_families_wall [n] [p]` is THE benchmark of the MRMR fit: every `fe_*_enable` family except the LightGBM surrogate seeder, `mdlp`, strict-resident GPU path, a 20000 x 30 warm-up fit and then the timed 100000 x 100 fit; the line `WALL <s>` is the number. Its docstring holds the definition, the history of the number (458 s CPU on 2026-10-31 to 62-69 s GPU on 2026-11-10), the target (50 s is a guide; the real goal is near-100 % CPU and GPU occupancy with every kernel conforming to CUDA.md, then the same at 100000 x 1000) and the rules for a run that means something (worktree `PYTHONPATH`, quiet machine, no cProfile on the GPU path, clear `MRMR._FIT_CACHE`, grep the log for OOM fallbacks).
 
 Companions of the same fit: `all_families_stage_sampler` (seconds per stage, GPU and CPU load per stage), `all_families_idle_frames` (who waits while CPU < 25 % and GPU < 10 %), `all_families_family_walls` (per-family ledger), `all_families_fit_ledger`, `all_families_selection_quality` (held-out AUC of the selected features, GPU against CPU), `numba_signature_counts` (recompiles inside a fit). Run one at a time.
+
+## Where the MainThread of a large fit waits, by stage (500000 x 1000)
+
+`rss_scale_fit.py ROWS COLS all` with `BENCH_LEDGER=<prefix>` writes the stage ledger (`<prefix>.ledger.jsonl`), the timeline of the main thread and the table of devices idle per stage. Beside it:
+
+- `bash dump_main_thread.sh <fit pid> dump.txt 2` - a `py-spy dump` of the MainThread every 2 s (a few milliseconds each; a recording profiler inflates the CPU stages by 20 to 30 percent);
+- `python stage_dump_profile.py <prefix>.ledger.jsonl dump.txt --stage stage:fe_step` (or `--between FROM_S TO_S`, `--whole`) - the innermost frames and the commonest call chains inside the windows of a stage, or inside a stretch with no stage open;
+- `python ledger_compare.py old.ledger.jsonl new.ledger.jsonl` - the stage walls of two runs side by side: the wall of such a fit moves about 15 s between runs of equal code, so a change is judged by the stages it touches.
