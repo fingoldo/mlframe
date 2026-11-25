@@ -513,14 +513,11 @@
 | 24-F54 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F55 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F56 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F59 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F60 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F61 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F62 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F63 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F64 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F65 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F66 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F25 | FIXED | empty support returns NaN per query point; tests/feature_engineering/test_cluster24_empty_and_alignment.py |
 | 24-F31 | FIXED | chunks that return (None, None) are skipped and an all-empty run returns (None, None); no separate test |
 | 24-F36 | FIXED | the long MA is reindexed to the short one's index before differencing; tests/feature_engineering/test_cluster24_empty_and_alignment.py |
@@ -1562,3 +1559,9 @@
 | 24-F41 | FIXED | MRMR member abstains (no mrmr key, warning logged) when MRMR selects no relevant column, instead of voting for every relevant column. Tests: tests/feature_selection/test_cluster24_hybrid_vote_fallbacks.py; stability/test_hybrid_selector_deep.py::test_use_mrmr_false_zeroes_engineering_and_still_votes updated |
 
 | 24-F42 | FIXED | No-consensus fallback keeps the clusters with the most votes (ties all kept) instead of the union of every pick. Tests: test_cluster24_hybrid_vote_fallbacks.py; stability/test_hybrid_selector_chunk48_fixes.py::test_combine_union_fallback_warns updated |
+
+| 24-F59 | FIXED | _rep_member docstring names cluster_rep='first' as the constructor default (it said sum_fi). Test tests/feature_selection/test_cluster24_p3_docs_and_dead_code.py |
+
+| 24-F61 | FIXED | Removed the features_usefulness zero array that was overwritten; the same zeros are now passed in place, so behaviour is unchanged. Existing MRMR tests cover the path |
+
+| 24-F66 | FIXED | Removed the unused classes local in prune_conditional_twins (computed and deleted). Test tests/feature_selection/test_cluster24_p3_docs_and_dead_code.py; tests/feature_selection/test_hybrid_twin_prune*.py pass (12) |

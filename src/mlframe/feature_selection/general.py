@@ -224,14 +224,12 @@ def estimate_features_relevancy(
     # Decide what features have no influence & report them.
     # ----------------------------------------------------------------------------------------------------------------------------
 
-    features_usefulness = np.zeros(bins.shape[1], dtype=np.int32)
-
     n_samples = arr.shape[0]
     # Per-column occupied-bin counts drive both the Miller-Madow bias floor and the G-test df. Computed
     # once here (not per target) since the codes are the same across targets.
     occupied_bins_per_col = np.array([_occupied_bins(arr[:, j]) for j in range(bins.shape[1])], dtype=np.int64)
 
-    features_usefulness = _aggregate_permuted_mis_per_target(target_indices, target_columns, all_permuted_mis, current_permuted_mis, verbose, occupied_bins_per_col, original_mi_results, n_samples, bins, permuted_max_mi_quantile, min_mi_prevalence, max_permuted_prevalence_percent, fdr_alpha, features_usefulness)
+    features_usefulness = _aggregate_permuted_mis_per_target(target_indices, target_columns, all_permuted_mis, current_permuted_mis, verbose, occupied_bins_per_col, original_mi_results, n_samples, bins, permuted_max_mi_quantile, min_mi_prevalence, max_permuted_prevalence_percent, fdr_alpha, np.zeros(bins.shape[1], dtype=np.int32))
 
     for feature_idx, feature_name in enumerate(bins.columns):
         if features_usefulness[feature_idx] == 0 and feature_idx not in target_indices:

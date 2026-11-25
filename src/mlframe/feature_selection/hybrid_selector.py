@@ -404,8 +404,8 @@ class HybridSelector:
 
     def _rep_member(self, members):
         """Pick the kept representative of a (correlation) cluster per ``cluster_rep``. ``members`` is already the
-        candidate subset (filtered to in-frame / relevant). "first" = the cluster's first column (legacy, arbitrary);
-        "max_fi" = highest single mean perm-FI; "sum_fi" (default) = highest summed-per-repeat perm-FI (most stable).
+        candidate subset (filtered to in-frame / relevant). "first" (the constructor default) = the cluster's first column;
+        "max_fi" = highest single mean perm-FI; "sum_fi" = highest summed-per-repeat perm-FI (most stable).
         Empty input returns None. Pure function of the shared FI - no extra compute."""
         if not members:
             return None
