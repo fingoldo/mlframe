@@ -494,7 +494,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 41-F24 | 41_training-10.md | FIXED | Ensemble NaN gate uses validation scores only; NaN test scores are floored at scoring time. Test test_cluster41_nan_gate_is_val_only.py. |
 | 41-F21 | 41_training-10.md | FIXED | XGBoost category map: unmapped string columns are dropped with WARNING, not given a per-frame Enum. Test test_cluster41_xgb_unmapped_string_column_dropped.py. |
 | 41-F17 | 41_training-10.md | FIXED | Confusion-derived metrics use the tuned threshold, same as precision/recall/F1. Test test_cluster41_confusion_block_uses_tuned_threshold.py. |
-| 41-F14 | 41_training-10.md | DEFERRED | Probability metrics from one-hot predict() when predict_proba is missing: suppressing them spans several paths, owner decision pending. |
+| 41-F14 | 41_training-10.md | DEFERRED | Probability metrics fed by one-hot predict() when predict_proba is missing. The fix needs the probabilistic report to skip ROC, PR, Brier, calibration and plots on that path. report_probabilistic_model_perf takes about 50 parameters and computes all of them in one pass, so gating each branch needs a dedicated pass with a report-level test. Plan: return a 'probabilities unavailable' marker from _predict_probs_if_missing, short-circuit the metric block, and keep label metrics. No code change in this pass. |
 | 41-F26 | 41_training-10.md | DEFERRED | Dead ranking helpers (rrf_fuse, borda_fuse, _binned_mi, _group_features_mi_njit): wire in or remove is an owner call; tests exercise them. |
 | 39-F7 | 39_training-8.md | FIXED | Cast failure logs at WARNING. No direct test. |
 | 39-F8 | 39_training-8.md | FIXED | Router val-predict failure at WARNING. Test test_cluster39_logging_levels_visible.py. |
