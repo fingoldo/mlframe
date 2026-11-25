@@ -812,7 +812,6 @@
 | 28-F76 | DEFERRED | Seven public or load-bearing functions have no test reference. Each needs a targeted test; deferred as a batch to its own change. |
 | 32-F10 | FIXED | Integer timestamps go through the same unit detector as object timestamps, so epoch seconds are no longer read as nanoseconds. Test tests/training/test_cluster32_integer_epoch_seconds_unit.py. |
 | 32-F11 | DEFERRED | The combiner is fit on all rows, so the holdout's init_score depends on holdout labels. The fix refits the combiner inside each training fold, a change to the diagnostic's method, deferred. |
-| 32-F12 | DEFERRED | Below 50 rows the metric is in-sample. Returning a skip instead changes _fit_quick_and_score's return contract for its caller, a contract decision, deferred. |
 | 32-F7 | DEFERRED | Building the class universe from train alone changes how unseen validation and test labels are encoded downstream, and that encoding is not yet checked. Deferred until the encoding path is read end to end. |
 | 32-F26 | FIXED | The smoke script exits 1 when the suite raises instead of printing a pass line and returning 0. Verified by reading; the smoke run is a manual end-to-end script, not a unit test. |
 | 33-F3 | FIXED | The conformal rank rule lives in one helper (conformal_rank), used by the split, signed and online calibrations. Two further copies in conformal_classification.py and conformal_glm.py are outside the finding and are not yet changed. Tests: tests/training/composite/test_biz_val_conformal_ood.py (16 pass). |
@@ -1503,3 +1502,5 @@
 | 35-F19 | DOCUMENTED | The three composite-refit copies (ensemble/__init__.py plain fold, ensemble/__init__.py oof holdout, ensemble/_oof_external.py) each state their group semantics at the function. Behaviour is unchanged; the copies still differ, and a fix to one must be checked in the others. Consolidating them needs the owner's group semantics. Test tests/training/composite/test_cluster35_refit_copies_documented.py (2 passed). |
 
 | 32-F9 | FIXED | CBIterationMetricsCallback.flush() captures the final round when the stride skipped it. It is now called by the fit wrapper (_train_model_with_fallback) after a successful fit; a failed fit does not flush. Tests tests/training/test_cluster32_fit_wrapper_flushes_cb.py and tests/training/callbacks/test_cluster32_cb_flush_last_round.py (5 passed). |
+
+| 32-F12 | FIXED | The baseline diagnostic skips when fewer than 50 rows remain after sampling, with a reason naming the in-sample problem, instead of scoring the training rows as its own holdout. Tests tests/training/baselines/test_cluster32_diagnostic_min_rows.py and the existing test_baseline_diagnostics.py (35 passed). |

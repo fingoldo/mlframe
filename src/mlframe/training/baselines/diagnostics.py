@@ -369,6 +369,14 @@ class BaselineDiagnostics:
             # full-train numbers are recovered by downstream training,
             # not by this routine.
             X_s, y_s, sample_n = self._sample(X, y)
+            # Below 50 rows the quick model would hold out nothing: train and validation are the same rows, so the headline metric and
+            # every ablation delta are in-sample and can recommend a feature on noise (audit 32-F12). Skip instead.
+            if len(X_s) < 50:
+                return self._skipped(
+                    target_name, target_type,
+                    f"only {len(X_s)} rows: a holdout would be empty, so the headline metric would be in-sample (need >= 50)",
+                    elapsed=timer() - t0,
+                )
 
             metric_name, higher_is_better = _select_metric(target_type)
 
