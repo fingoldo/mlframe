@@ -36,6 +36,7 @@ from mlframe.feature_selection.filters._permutation_null import (
     pooled_permutation_null_gain_floor,
 )
 from mlframe.feature_selection.filters.discretization import categorize_dataset
+from mlframe.feature_selection.filters._binning_spec import make_binning_spec
 
 N_TOTAL = 2_500
 N_NOISE = 6
@@ -94,8 +95,8 @@ def _categorize(X, y):
         n_bins=10,
         dtype=np.int32,
         missing_strategy="separate_bin",
-        nbins_strategy="mdlp",
-        nbins_strategy_kwargs=None,
+        binning=make_binning_spec("mdlp", warn=False),
+        binning_kwargs=None,
         y_for_strategy=np.asarray(y),
     )
     y_idx = cols.index("targ_y")

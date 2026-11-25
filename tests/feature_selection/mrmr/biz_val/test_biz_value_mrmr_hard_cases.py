@@ -18,6 +18,8 @@ import warnings
 import numpy as np
 import pandas as pd
 import pytest
+from tests.feature_selection.binning_cases import binning_kwargs
+from tests.feature_selection.conftest import LEGACY_FE_OFF
 
 # =============================================================================
 # Signal detection — synergy / collinearity / imbalance
@@ -118,19 +120,19 @@ class TestSignalDetection:
         assert "signal" in names, f"rare-positive signal missed; support={names}, pos_rate=1%"
 
     @pytest.mark.parametrize(
-        "nbins_strategy",
+        "binning_case",
         [
-            None,  # legacy fixed quantization (control)
-            "mdlp",  # default - supervised; iter MDLP collapse fix
+            "fixed",  # legacy fixed quantization (control)
+            "mdlp",  # supervised; iter MDLP collapse fix
             "freedman_diaconis",  # unsupervised, robust
             "sturges",  # unsupervised, simple
-            "quantile_spacing",
+            "rice_capped",  # the default
         ],
     )
-    def test_engineered_feature_only_predicts_y_xor_synergy(self, nbins_strategy):
+    def test_engineered_feature_only_predicts_y_xor_synergy(self, binning_case):
         """y = sign(x1 * x2) - PRODUCT determines y, neither x1 nor x2
         alone is informative. MRMR with order-2 interactions must
-        find {x1, x2} regardless of nbins_strategy.
+        find {x1, x2} regardless of the binning.
 
         Supervised MDLP / fayyad_irani used to collapse x1 and x2 to
         1 bin each (no individual signal) - the joint then had 1x1=1
@@ -158,7 +160,7 @@ class TestSignalDetection:
             sel = MRMR(
                 verbose=0,
                 interactions_max_order=2,
-                nbins_strategy=nbins_strategy,
+                **binning_kwargs(binning_case),
                 fe_max_steps=0,
             ).fit(X, y_s)
         names = list(sel.get_feature_names_out())
@@ -167,7 +169,7 @@ class TestSignalDetection:
         has_both = "x1" in names and "x2" in names
         has_combo = any(("x1" in n and "x2" in n) for n in names)
         assert has_both or has_combo, (
-            f"XOR-synergy missed under nbins_strategy={nbins_strategy!r}; "
+            f"XOR-synergy missed under binning={binning_case!r}; "
             f"support={names}. Both x1 and x2 must be selected since "
             f"individually they have zero MI with y and only joint predicts."
         )
@@ -234,7 +236,7 @@ class TestClusterDiscovery:
         y = pd.Series((sig > 0).astype(np.int64))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            sel = MRMR(verbose=0, dcd_enable=True, dcd_tau_cluster=0.5, dcd_cluster_size_threshold=2).fit(X, y)
+            sel = MRMR(verbose=0, dcd_enable=True, dcd_tau_cluster=0.5, dcd_cluster_size_threshold=2, **LEGACY_FE_OFF).fit(X, y)
         names = list(sel.get_feature_names_out())
         # Should select pos_sig OR neg_sig (both perfectly carry signal),
         # not both, not the noise.
@@ -427,4 +429,5 @@ class TestNaNAsSignal:
             warnings.simplefilter("ignore")
             sel = MRMR(verbose=0).fit(X, y)
         names = list(sel.get_feature_names_out())
-        assert "nan_signal" in names, f"NaN-as-signal missed; support={names}"
+        # the pattern is carried by the column or by its missingness indicator (``is_missing__nan_signal``, on by default since 2026-11-09), which is the better representation of it
+        assert any("nan_signal" in n for n in names), f"NaN-as-signal missed; support={names}"

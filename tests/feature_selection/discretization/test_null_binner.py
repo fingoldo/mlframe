@@ -11,6 +11,7 @@ import pytest
 from mlframe.feature_selection.filters import _adaptive_nbins as A
 from mlframe.feature_selection.filters.discretization import categorize_dataset
 from mlframe.feature_selection.filters.discretization._null_binner import PermutedTargetBinner
+from mlframe.feature_selection.filters._binning_spec import make_binning_spec
 
 
 def _frame(n=2500, seed=0):
@@ -35,13 +36,13 @@ def test_codes_equal_categorize_dataset_for_every_permutation(missing):
     rng = np.random.default_rng(1)
     y = (rng.random(len(frame)) < 0.4).astype(np.int64)
     kwargs = {"optimal_joint_plan_cache": A.OptimalJointPlanCache()}
-    binner = PermutedTargetBinner(frame, missing, "optimal_joint", kwargs, np.int16)
+    binner = PermutedTargetBinner(frame, missing, make_binning_spec("optimal_joint", warn=False), kwargs, np.int16)
     for s in range(6):
         yy = y if s == 0 else y[np.random.default_rng(s).permutation(y.size)]
         got = binner.codes(yy)
         assert got is not None
         want, cols, nb = categorize_dataset(
-            df=frame, method="quantile", n_bins=10, dtype=np.int16, missing_strategy=missing, nbins_strategy="optimal_joint", nbins_strategy_kwargs={}, y_for_strategy=yy, cache_dir=None
+            df=frame, method="quantile", n_bins=10, dtype=np.int16, missing_strategy=missing, binning=make_binning_spec("optimal_joint", warn=False), binning_kwargs={}, y_for_strategy=yy, cache_dir=None
         )
         assert got[1] == list(cols)
         assert np.array_equal(got[0], want.astype(np.int64)), s
@@ -55,12 +56,12 @@ def test_fixed_columns_fill_their_place_in_the_requested_order():
     dep = frame[["normal", "skew", "withnan"]]
     fixed_codes = np.arange(len(frame)) % 5
     out_cols = ["skew", "fx", "normal", "withnan"]
-    binner = PermutedTargetBinner(dep, "separate_bin", "optimal_joint", {}, np.int16, out_cols=out_cols, fixed={"fx": (fixed_codes, 5)})
+    binner = PermutedTargetBinner(dep, "separate_bin", make_binning_spec("optimal_joint", warn=False), {}, np.int16, out_cols=out_cols, fixed={"fx": (fixed_codes, 5)})
     assert binner.ok
     got = binner.codes(y)
     assert got is not None and got[1] == out_cols
     want, cols, nb = categorize_dataset(
-        df=dep, method="quantile", n_bins=10, dtype=np.int16, missing_strategy="separate_bin", nbins_strategy="optimal_joint", nbins_strategy_kwargs={}, y_for_strategy=y, cache_dir=None
+        df=dep, method="quantile", n_bins=10, dtype=np.int16, missing_strategy="separate_bin", binning=make_binning_spec("optimal_joint", warn=False), binning_kwargs={}, y_for_strategy=y, cache_dir=None
     )
     pos = {c: j for j, c in enumerate(cols)}
     for i, c in enumerate(out_cols):
@@ -68,7 +69,7 @@ def test_fixed_columns_fill_their_place_in_the_requested_order():
             assert np.array_equal(got[0][:, i], fixed_codes) and got[2][i] == 5
         else:
             assert np.array_equal(got[0][:, i], want[:, pos[c]]) and got[2][i] == nb[pos[c]]
-    assert not PermutedTargetBinner(dep, "separate_bin", "optimal_joint", {}, np.int16, out_cols=["normal", "missing"]).ok
+    assert not PermutedTargetBinner(dep, "separate_bin", make_binning_spec("optimal_joint", warn=False), {}, np.int16, out_cols=["normal", "missing"]).ok
 
 
 def test_a_fixed_column_past_the_table_budget_declines_instead_of_crashing(monkeypatch):
@@ -79,7 +80,7 @@ def test_a_fixed_column_past_the_table_budget_declines_instead_of_crashing(monke
     frame = _frame()
     y = (np.random.default_rng(2).random(len(frame)) < 0.4).astype(np.int64)
     binner = PermutedTargetBinner(
-        frame[["normal", "skew"]], "separate_bin", "optimal_joint", {}, np.int16, out_cols=["normal", "fx"], fixed={"fx": (np.arange(len(frame)) % 5, 5)}
+        frame[["normal", "skew"]], "separate_bin", make_binning_spec("optimal_joint", warn=False), {}, np.int16, out_cols=["normal", "fx"], fixed={"fx": (np.arange(len(frame)) % 5, 5)}
     )
     assert binner.codes(y) is None
 
@@ -93,7 +94,7 @@ def test_the_binner_declines_what_it_does_not_cover():
 
 
 def test_the_honest_null_hook_returns_the_same_codes_with_and_without_the_binner(monkeypatch):
-    """A fit with ``nbins_strategy='optimal_joint'``: the hook's codes for fixed permutations equal those with ``MLFRAME_OJ_NULL_BINNER=0``."""
+    """A fit with ``binning_scheme='optimal_joint'``: the hook's codes for fixed permutations equal those with ``MLFRAME_OJ_NULL_BINNER=0``."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     rng = np.random.default_rng(7)
@@ -121,7 +122,7 @@ def test_the_honest_null_hook_returns_the_same_codes_with_and_without_the_binner
             monkeypatch.delenv("MLFRAME_OJ_NULL_BINNER", raising=False)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            MRMR(verbose=0, random_seed=0, n_jobs=1, nbins_strategy="optimal_joint", fe_max_steps=0).fit(X, y)
+            MRMR(verbose=0, random_seed=0, n_jobs=1, binning_scheme="optimal_joint", fe_max_steps=0).fit(X, y)
         # The fit releases its closure once it ends (it holds a float64 copy of the frame), so the closure is taken as it is assigned.
         fn = assigned_codes[-1]
         return [fn(np.random.default_rng(s).permutation(n)) for s in range(3)]
@@ -160,7 +161,7 @@ def test_the_candidate_scoring_runs_once_per_permutation_in_one_kernel(monkeypat
     frame = _frame()
     y = (np.random.default_rng(1).random(len(frame)) < 0.4).astype(np.int64)
     kwargs = {"optimal_joint_plan_cache": A.OptimalJointPlanCache()}
-    binner = PermutedTargetBinner(frame[["normal", "skew", "withnan", "f32"]], "separate_bin", "optimal_joint", kwargs, np.int16)
+    binner = PermutedTargetBinner(frame[["normal", "skew", "withnan", "f32"]], "separate_bin", make_binning_spec("optimal_joint", warn=False), kwargs, np.int16)
     assert binner.codes(y) is not None  # builds the plans
     calls = []
     real = O._optimal_joint_best_m
@@ -178,7 +179,7 @@ def test_a_single_column_equals_its_column_of_the_matrix():
     fixed_codes = np.arange(len(frame)) % 5
     out_cols = ["skew", "fx", "normal", "withnan"]
     kwargs = {"optimal_joint_plan_cache": A.OptimalJointPlanCache()}
-    binner = PermutedTargetBinner(dep, "separate_bin", "optimal_joint", kwargs, np.int16, out_cols=out_cols, fixed={"fx": (fixed_codes, 5)})
+    binner = PermutedTargetBinner(dep, "separate_bin", make_binning_spec("optimal_joint", warn=False), kwargs, np.int16, out_cols=out_cols, fixed={"fx": (fixed_codes, 5)})
     for s in range(4):
         yy = y[np.random.default_rng(s).permutation(y.size)]
         full = binner.codes(yy)

@@ -12,6 +12,7 @@ import sys
 from types import SimpleNamespace
 
 import numpy as np
+from tests.feature_selection.binning_cases import edges_call
 
 
 def _warnings_mentioning(caplog, needle: str) -> list[logging.LogRecord]:
@@ -35,7 +36,7 @@ def test_per_feature_edges_warns_when_cache_setup_fails(monkeypatch, caplog, tmp
 
     monkeypatch.setattr(disk_cache, "hash_object", _boom)
     with caplog.at_level(logging.DEBUG):
-        edges = mod.per_feature_edges(_x(), None, method="freedman_diaconis", cache_dir=str(tmp_path), n_jobs=1)
+        edges = mod.per_feature_edges(_x(), None, **edges_call("freedman_diaconis"), cache_dir=str(tmp_path), n_jobs=1)
     assert len(edges) == 3
     assert _warnings_mentioning(caplog, "cache disabled")
 
@@ -51,7 +52,7 @@ def test_per_feature_edges_warns_when_cache_get_fails(monkeypatch, caplog, tmp_p
 
     monkeypatch.setattr(disk_cache.DiskCache, "get", _boom)
     with caplog.at_level(logging.DEBUG):
-        edges = mod.per_feature_edges(_x(), None, method="freedman_diaconis", cache_dir=str(tmp_path), n_jobs=1)
+        edges = mod.per_feature_edges(_x(), None, **edges_call("freedman_diaconis"), cache_dir=str(tmp_path), n_jobs=1)
     assert len(edges) == 3
     assert _warnings_mentioning(caplog, "cache get failed")
 
@@ -62,7 +63,7 @@ def test_per_feature_edges_warns_when_psutil_is_unavailable(monkeypatch, caplog)
 
     monkeypatch.setitem(sys.modules, "psutil", None)  # makes `import psutil` raise ImportError
     with caplog.at_level(logging.DEBUG):
-        edges = mod.per_feature_edges(_x(), None, method="freedman_diaconis", n_jobs=-1)
+        edges = mod.per_feature_edges(_x(), None, **edges_call("freedman_diaconis"), n_jobs=-1)
     assert len(edges) == 3
     assert _warnings_mentioning(caplog, "psutil.cpu_count(logical=True) failed")
 

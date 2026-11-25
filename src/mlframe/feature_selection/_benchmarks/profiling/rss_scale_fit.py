@@ -23,6 +23,7 @@ TARGET KINDS (2026-11-22, `bench_target_strategy_matrix.py 20000 20`, mdlp, one 
     and the default-on target-mix second pass fitted two child MRMRs: now `fe_target_mix_candidates=False`). `support_` lists raw columns only, so a fit that selects engineered columns can show 0 selected.
 Wall times on this machine spread by up to 50 % between runs of one code state; read differences below about 15 % as noise unless several fits per side were taken.
 """
+from mlframe.feature_selection._benchmarks.binning_label import binning_params
 from typing import Any
 import os
 import sys
@@ -47,7 +48,7 @@ if mode == "all":
     from mlframe.feature_selection._benchmarks.profiling import family_scale as F
 
     kwargs = F.all_families_kwargs()
-    kwargs["nbins_strategy"] = os.environ.get("BENCH_NBINS", "mdlp")
+    kwargs.update(binning_params(os.environ.get("BENCH_NBINS", "mdlp")))
     if os.environ.get("BENCH_QDTYPE"):  # e.g. int16 / int8: A/B of the codes-matrix width
         kwargs["quantization_dtype"] = getattr(np, os.environ["BENCH_QDTYPE"])
 else:
@@ -149,13 +150,20 @@ def _stack_snapshot() -> "tuple[str, list[str]]":
     return main_where, others
 
 
+_avail0 = float(psutil.virtual_memory().available)
+_min_avail = [_avail0]  # [lowest system-wide available RAM seen during the fit, bytes]
+
+
 def sampler():
     """Track the RSS peak and name the step at each new peak above the previous one by 50 MB."""
     t0 = time.perf_counter()
     last_logged = base
     while not stop.wait(0.2):
         rss = proc.memory_info().rss
-        if psutil.virtual_memory().available < MIN_AVAILABLE:
+        _avail = psutil.virtual_memory().available
+        if _avail < _min_avail[0]:
+            _min_avail[0] = _avail  # the system-wide free RAM: what the paging risk depends on (the RSS also counts working-set pages the system can take back without a write)
+        if _avail < MIN_AVAILABLE:
             # the machine is about to page: report what is known and stop the process instead of freezing the laptop
             print(f"ABORTED at t={time.perf_counter() - t0:.1f}s: available memory under {MIN_AVAILABLE / 1e9:.1f} GB, peak RSS growth {(max(peak[0], rss) - base) / 1e6:.0f} MB = {(max(peak[0], rss) - base) / 1e6 / frame_mb:.1f} x the frame", flush=True)
             for when, mb, where in events:
@@ -190,7 +198,15 @@ def sampler():
             if rss - last_logged > 50e6:
                 last_logged = rss
                 _main_where, _others = _stack_snapshot()
-                events.append((time.perf_counter() - t0, (rss - base) / 1e6, _main_where + ("   | threads: " + "; ".join(sorted(set(_others))[:4]) if _others else "")))
+                _cpm = sys.modules.get("cupy")
+                _pool = ""
+                if _cpm is not None:  # the driver of a WDDM card maps the device pool into the process: RSS includes it (measured 2026-11-23, rss_vs_device.py)
+                    try:
+                        _dp = _cpm.get_default_memory_pool()
+                        _pool = f"   [device pool total {_dp.total_bytes() / 1e6:.0f} MB used {_dp.used_bytes() / 1e6:.0f} MB]"
+                    except Exception:
+                        _pool = ""
+                events.append((time.perf_counter() - t0, (rss - base) / 1e6, _main_where + _pool + ("   | threads: " + "; ".join(sorted(set(_others))[:4]) if _others else "")))
 
 
 _CUSHION_CALLS: list = []
@@ -308,6 +324,14 @@ try:
     _sup = sorted(int(v) for v in np.asarray(getattr(_sel, 'support_', [])).ravel())
     print(f'selected {len(_sup)} columns, sum {sum(_sup)}: {_sup[:20]}', flush=True)
     print(f'engineered {len(getattr(_sel, "_engineered_features_", None) or [])} features', flush=True)  # support_ lists raw columns only: a fit whose raws are all covered by engineered columns has support_ == []
+    try:  # which of the five generating columns x0..x4 the output covers, as a raw output column or as a source inside an engineered name
+        import re as _re
+
+        _names = [str(c) for c in _sel.get_feature_names_out()]
+        _covered = sorted({int(m) for nm in _names for m in _re.findall(r"(?<![A-Za-z0-9])x(\d+)(?![0-9])", nm) if int(m) <= 4})
+        print(f"SOURCES covered {_covered} of [0, 1, 2, 3, 4]; {len(_names)} output columns: {_names[:12]}", flush=True)
+    except Exception as _exc:
+        print("SOURCES unavailable:", type(_exc).__name__, _exc, flush=True)
     if os.environ.get("RSS_FAMILY_WALLS", "").strip():  # the fit's own per-family wall table (summed over threads, so it exceeds the fit wall under concurrency)
         _fw = getattr(_sel, "fe_family_wall_", None) or {}
         print("FAMILY_WALLS " + "; ".join(f"{k}={v['wall_s']:.1f}s/{v['calls']}" for k, v in list(_fw.items())[:45]), flush=True)
@@ -453,6 +477,7 @@ try:
 except Exception as exc:  # no cupy
     print("pool stats unavailable:", exc)
 print(f"rows={rows} cols={cols} mode={mode} frame={frame_mb:.0f} MB status={status} wall={wall:.1f}s")
+print(f"system RAM: available at the start {_avail0 / 1e6:.0f} MB, lowest during the fit {_min_avail[0] / 1e6:.0f} MB, i.e. {(_avail0 - _min_avail[0]) / 1e6:.0f} MB taken ({(_avail0 - _min_avail[0]) / 1e6 / frame_mb:.2f} x the frame)")
 print(f"peak RSS growth {(peak[0] - base) / 1e6:.0f} MB = {(peak[0] - base) / 1e6 / frame_mb:.2f} x the frame; RSS before the fit {base / 1e6:.0f} MB")
 for when, mb, where in events:
     print(f"  t={when:7.1f}s +{mb:7.0f} MB  {where}")

@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.feature_selection.conftest import LEGACY_FE_OFF
+
 warnings.filterwarnings("ignore")
 
 
@@ -180,6 +182,7 @@ def _fit_with_distance(X, y, *, distance: str, tau: float = 0.7):
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     return MRMR(
+        **LEGACY_FE_OFF,
         dcd_enable=True,
         dcd_distance=distance,
         dcd_tau_cluster=tau,
@@ -284,6 +287,7 @@ class TestLayer46_AutoDistance:
 
         # No fit needed -- ctor validation runs on construction.
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_distance="auto",
             dcd_tau_cluster=0.5,
@@ -307,6 +311,7 @@ class TestLayer46_AutoDistance:
         X, y = _linear_dup_cluster(n=200, seed=4)
         with pytest.raises((ValueError, AssertionError)):
             MRMR(
+                **LEGACY_FE_OFF,
                 dcd_enable=True,
                 dcd_distance="bogus",
                 full_npermutations=5,
@@ -329,6 +334,7 @@ class TestLayer46_AutoDistance:
 
         X, y = _linear_dup_cluster()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_distance="auto",
             dcd_tau_cluster=0.5,
@@ -395,6 +401,7 @@ class TestLayer46_RegressionL41toL45:
         )
         y = pd.Series((2 * other + latent + 0.3 * rng.standard_normal(n) > 0).astype(int))
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_distance="su",
             dcd_tau_cluster=0.5,
@@ -437,7 +444,9 @@ class TestLayer46_RegressionL41toL45:
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
 
-        m = MRMR()
+        m = MRMR(
+            **LEGACY_FE_OFF,
+        )
         assert m.dcd_distance == "su"
 
 
@@ -537,6 +546,7 @@ class TestLayer47_ValidatorSurface:
 
         X, y = _bimodal_su_data(n=600, seed=2)
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster="auto",
             full_npermutations=5,
@@ -556,6 +566,7 @@ class TestLayer47_ValidatorSurface:
         X, y = _bimodal_su_data(n=400, seed=3)
         with pytest.raises((ValueError, AssertionError)):
             MRMR(
+                **LEGACY_FE_OFF,
                 dcd_enable=True,
                 dcd_tau_cluster="bogus",
                 full_npermutations=2,
@@ -569,6 +580,7 @@ class TestLayer47_ValidatorSurface:
 
         X, y = _bimodal_su_data(n=400, seed=4)
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster=0.5,
             full_npermutations=2,
@@ -695,6 +707,7 @@ class TestLayer47_FitIntegration:
 
         X, y = _bimodal_su_data(n=1500, seed=20)
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster="auto",
             full_npermutations=10,
@@ -717,6 +730,7 @@ class TestLayer47_FitIntegration:
 
         X, y = _bimodal_su_data(n=1000, seed=21)
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,  # default tau=0.7
             full_npermutations=10,
             verbose=0,
@@ -732,6 +746,7 @@ class TestLayer47_FitIntegration:
 
         X, y = _bimodal_su_data(n=1500, seed=22)
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster="auto",
             full_npermutations=10,
@@ -750,9 +765,11 @@ class TestLayer47_FitIntegration:
 
         X, y = _unimodal_pure_noise(n=1500, seed=23)
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster="auto",
             full_npermutations=10,
+            fe_max_steps=0,  # the pool is the independent raw columns: the engineered columns of the default families (hinge legs, directions, random features) are real functions of them and make the SU histogram bimodal on purpose
             verbose=0,
             random_seed=0,
         ).fit(X, y)
@@ -776,6 +793,7 @@ class TestLayer47_Determinism:
 
         X, y = _bimodal_su_data(n=1500, seed=30)
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster="auto",
             full_npermutations=10,
@@ -793,6 +811,7 @@ class TestLayer47_Determinism:
 
         X, y = _bimodal_su_data(n=1500, seed=31)
         m1 = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster="auto",
             full_npermutations=10,
@@ -800,6 +819,7 @@ class TestLayer47_Determinism:
             random_seed=0,
         ).fit(X, y)
         m2 = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster="auto",
             full_npermutations=10,
@@ -822,7 +842,9 @@ class TestLayer47_RegressionL41toL46:
         (Layer 47 adds 'auto' as opt-in, does not flip the default)."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
-        m = MRMR()
+        m = MRMR(
+            **LEGACY_FE_OFF,
+        )
         assert m.dcd_tau_cluster == 0.7
 
     def test_l41_cluster_anchors_names_present_with_auto_tau(self):
@@ -831,6 +853,7 @@ class TestLayer47_RegressionL41toL46:
 
         X, y = _bimodal_su_data(n=1200, seed=40)
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster="auto",
             full_npermutations=5,
@@ -845,6 +868,7 @@ class TestLayer47_RegressionL41toL46:
 
         X, y = _bimodal_su_data(n=1200, seed=41)
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_distance="auto",
             dcd_tau_cluster="auto",

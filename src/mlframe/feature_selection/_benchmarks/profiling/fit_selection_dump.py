@@ -24,7 +24,7 @@ def main(out_path: str, n_rows: int = 100000, n_cols: int = 100) -> dict:
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     kw = F.all_families_kwargs()
-    kw["nbins_strategy"] = "mdlp"
+    kw["binning_scheme"] = "mdlp"
     MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20000, 30, 1))
     data = F._make(n_rows, n_cols, 0)
     MRMR._FIT_CACHE.clear()

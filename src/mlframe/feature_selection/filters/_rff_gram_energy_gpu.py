@@ -113,3 +113,40 @@ def rff_gram_null_maxima_device(rbfs: Any, ridges: Any, Xs: np.ndarray, pairs: A
     except Exception as exc:
         log_throttle(logger, "rff_gram_null_maxima_device.failed", logging.WARNING, "device RFF Gram null maxima failed (%s: %s); the surrogates run one by one", type(exc).__name__, exc)
         return None
+
+
+def rff_gram_shared_design_maxima_device(rbf: Any, coefs: np.ndarray, Xs: np.ndarray, pairs: Any, chunk: int = 1024) -> Optional[np.ndarray]:
+    """The largest pair energy of each of the ``k`` ridge solutions in the columns of ``coefs`` (``(D, k)``) that share the design ``rbf`` (``(k,)`` host array); ``None`` when the device route does not apply or fails.
+
+    The cosine features and the ``D x D`` Gram are formed once for the shared design, and the energies of all ``k`` solutions for a chunk of pairs are one batched product, so a null of ``k`` permutation surrogates costs
+    one Gram instead of ``k`` (:func:`rff_gram_null_maxima_device` stacks ``k`` different designs).
+    """
+    pairs = list(pairs)
+    W_h = np.asarray(rbf.random_weights_)
+    if not pairs or not _device_wanted(len(pairs), int(W_h.shape[1])):
+        return None
+    try:
+        import cupy as cp
+
+        n_features = int(W_h.shape[1])
+        scale = np.sqrt(2.0 / n_features)
+        cc = cp.asarray(np.asarray(coefs, dtype=np.float64).T * scale, dtype=cp.float32)  # (k, D)  # Intentional float64: scaled in double before the float32 device store
+        W = cp.asarray(W_h, dtype=cp.float32)  # (p, D)
+        mcos = cp.cos(cp.asarray(np.ascontiguousarray(Xs), dtype=cp.float32) @ W + cp.asarray(np.asarray(rbf.random_offset_), dtype=cp.float32))  # (n, D)
+        gram = (mcos.T @ mcos) / np.float32(mcos.shape[0])  # (D, D)
+        del mcos
+        a_idx = cp.asarray(np.fromiter((q[0] for q in pairs), dtype=np.int64, count=len(pairs)))
+        b_idx = cp.asarray(np.fromiter((q[1] for q in pairs), dtype=np.int64, count=len(pairs)))
+        wt = W.T  # (D, p)
+        best = None
+        for start in range(0, len(pairs), chunk):
+            stop = min(len(pairs), start + chunk)
+            prod = wt[:, a_idx[start:stop]] * wt[:, b_idx[start:stop]]  # (D, kb)
+            coef = cc[:, :, None] * prod[None, :, :]  # (k, D, kb)
+            energy = (coef * cp.matmul(gram, coef)).sum(axis=1)  # (k, kb)
+            top = energy.max(axis=1)
+            best = top if best is None else cp.maximum(best, top)
+        return np.asarray(cp.asnumpy(best), dtype=np.float64)  # Intentional float64: the maxima are compared with a quantile on the host
+    except Exception as exc:
+        log_throttle(logger, "rff_gram_shared_design_maxima_device.failed", logging.WARNING, "device RFF Gram maxima of a shared design failed (%s: %s); the host kernel runs", type(exc).__name__, exc)
+        return None

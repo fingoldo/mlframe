@@ -3,7 +3,7 @@
 ``rss_scale_fit.py`` names the innermost frame of the MAIN thread at each new peak, but the memory of a fit with concurrent stages is held by worker threads, so that name says little. numpy registers its array
 allocations with ``tracemalloc``, so a snapshot at the peak lists the code lines that own the live bytes, whichever thread allocated them.
 
-Usage: ``python -m mlframe.feature_selection._benchmarks.profiling.memory_by_function ROWS COLS [all|default]`` (env ``MIN_STEP_MB`` the growth that triggers a snapshot, default 400; ``TOP`` default 18; ``FRAMES`` the stack depth kept per allocation, default 1: with more, each row lists the calling lines). Tracing slows the
+Usage: ``python -m mlframe.feature_selection._benchmarks.profiling.memory_by_function ROWS COLS [all|default|nofe]`` (env ``MIN_STEP_MB`` the growth that triggers a snapshot, default 400; ``TOP`` default 18; ``FRAMES`` the stack depth kept per allocation, default 1: with more, each row lists the calling lines). Tracing slows the
 fit by a factor of two to three: use a smaller frame than the one under study (the allocation sites do not change with the row count) and nothing else heavy beside it.
 """
 
@@ -37,7 +37,7 @@ def main() -> None:
     rng = np.random.default_rng(0)
     X = pd.DataFrame(rng.standard_normal((n, p), dtype=np.float32), columns=[f"x{i}" for i in range(p)])
     y = pd.Series((X["x0"].to_numpy() * X["x1"].to_numpy() + 0.7 * X["x2"].to_numpy() + 0.5 * rng.standard_normal(n, dtype=np.float32) > 0).astype(np.int8))
-    kw = F.all_families_kwargs() if mode == "all" else {}
+    kw = F.all_families_kwargs() if mode == "all" else ({"fe_max_steps": 0} if mode == "nofe" else {})  # nofe: no feature engineering, the categorisation and the screen only (the early phase of a fit)
     proc = psutil.Process()
     base = proc.memory_info().rss
     peak = {"rss": base, "snap": None, "t": 0.0}

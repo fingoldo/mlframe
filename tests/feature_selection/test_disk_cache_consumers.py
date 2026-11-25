@@ -19,6 +19,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import pytest
+from tests.feature_selection.binning_cases import edges_call
 
 # -------------------- ShapProxiedFS / compute_shap_matrix --------------------
 
@@ -329,8 +330,8 @@ def test_per_feature_edges_default_no_cache_behaviour_unchanged():
 
     rng = np.random.default_rng(0)
     X = rng.standard_normal((300, 6)).astype(np.float64)
-    e_a = per_feature_edges(X, method="freedman_diaconis")
-    e_b = per_feature_edges(X, method="freedman_diaconis", cache_dir=None)
+    e_a = per_feature_edges(X, **edges_call("freedman_diaconis"))
+    e_b = per_feature_edges(X, **edges_call("freedman_diaconis"), cache_dir=None)
     assert len(e_a) == len(e_b)
     for a, b in zip(e_a, e_b):
         np.testing.assert_array_equal(a, b)
@@ -344,12 +345,12 @@ def test_per_feature_edges_cache_hit_identical(tmp_path: Path):
     X = rng.standard_normal((500, 8)).astype(np.float64)
     cache_dir = tmp_path / "nbin_cache"
 
-    e_a = per_feature_edges(X, method="freedman_diaconis", cache_dir=cache_dir)
+    e_a = per_feature_edges(X, **edges_call("freedman_diaconis"), cache_dir=cache_dir)
     # After the first call the cache directory has one file per column.
     files = list(cache_dir.iterdir())
     assert len(files) >= 1, "cache directory should be populated after the miss-path call"
 
-    e_b = per_feature_edges(X, method="freedman_diaconis", cache_dir=cache_dir)
+    e_b = per_feature_edges(X, **edges_call("freedman_diaconis"), cache_dir=cache_dir)
     assert len(e_a) == len(e_b)
     for a, b in zip(e_a, e_b):
         np.testing.assert_array_equal(a, b)

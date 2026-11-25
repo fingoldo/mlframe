@@ -154,6 +154,27 @@ def pooled_gain_floor_perms_cupy(scaled_flat: np.ndarray, offsets: np.ndarray, j
 
 
 def gen_target_shuffles_cupy(y_codes: np.ndarray, nperm: int, dtype: type, random_seed: Optional[int]) -> object:
+    """The ``(nperm, n)`` device target shuffles: one launch of the sort-free Feistel generator (``_permutation_shuffle_cuda``), or, with ``MLFRAME_SHUFFLE_GEN=sort``, the argsort of random keys of
+    :func:`gen_target_shuffles_cupy_sorted`. The thrust argsort holds the GIL for nine tenths of its 40 to 125 ms and stalls every other lane of the fit; the kernel is asynchronous. ``None`` on a device
+    error, so the caller falls back to the host generator."""
+    import os
+
+    if os.environ.get("MLFRAME_SHUFFLE_GEN", "").strip().lower() == "sort":
+        return gen_target_shuffles_cupy_sorted(y_codes, nperm, dtype, random_seed)
+    try:
+        import cupy as cp
+
+        from ._permutation_shuffle_cuda import shuffled_rows
+
+        seed = 0x9E3779B9 if random_seed is None else (int(random_seed) & 0x7FFFFFFF)
+        d_y = cp.asarray(np.ascontiguousarray(y_codes).astype(dtype, copy=False))  # one tiny (n,) upload
+        return shuffled_rows(cp, d_y, int(nperm), seed)
+    except Exception as e:
+        log_throttle(logger, "permnull_resident.shufflegen_failed", logging.WARNING, "device-resident shuffle-gen failed (%s), using the host shuffle-gen", e)
+        return None
+
+
+def gen_target_shuffles_cupy_sorted(y_codes: np.ndarray, nperm: int, dtype: type, random_seed: Optional[int]) -> object:
     """Generate the ``(nperm, n)`` target-shuffle matrix ON the device (argsort of random keys) and return it
     as a CUPY array, fed DIRECTLY into :func:`pooled_gain_floor_perms_cupy` (whose ``cp.asarray`` is a no-op on
     an already-device array). So the permutation matrix is BORN on the GPU: no host Fisher-Yates generation and

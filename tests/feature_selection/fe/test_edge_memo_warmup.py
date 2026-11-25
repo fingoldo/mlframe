@@ -5,6 +5,7 @@ import pandas as pd
 
 from mlframe.feature_selection.filters._adaptive_nbins_columns import clear_edge_memo
 from mlframe.feature_selection.filters.mrmr import categorize_dataset
+from mlframe.feature_selection.filters._binning_spec import make_binning_spec
 
 
 def _frame(n=4000, seed=0):
@@ -18,7 +19,7 @@ def _frame(n=4000, seed=0):
 
 def _cat(df, y):
     """``categorize_dataset`` with the MDLP strategy and the label ``y``."""
-    return categorize_dataset(df=df, method="quantile", n_bins=10, dtype=np.int16, missing_strategy="separate_bin", nbins_strategy="mdlp", nbins_strategy_kwargs=None, y_for_strategy=y)
+    return categorize_dataset(df=df, method="quantile", n_bins=10, dtype=np.int16, missing_strategy="separate_bin", binning=make_binning_spec("mdlp", warn=False), binning_kwargs=None, y_for_strategy=y)
 
 
 def test_memo_hit_gives_the_cold_codes():

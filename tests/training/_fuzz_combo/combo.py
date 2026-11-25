@@ -14,6 +14,7 @@ from typing import Any
 @dataclass(frozen=True)
 class FuzzCombo:
     """Groups tests covering fuzz combo."""
+
     models: tuple[str, ...]
     input_type: str
     n_rows: int
@@ -468,7 +469,7 @@ class FuzzCombo:
     slice_stable_es_source_cfg: str = "temporal"
     slice_stable_es_pareto_best_iter_selection_cfg: bool = False
     slice_stable_es_diagnostic_only_cfg: bool = False
-    mrmr_nbins_strategy_cfg: str = "mdlp"
+    mrmr_binning_cfg: str = "mdlp"
     mrmr_mi_correction_cfg: str = "none"
     mrmr_redundancy_aggregator_cfg: "str | None" = None
     mrmr_bur_lambda_cfg: float = 0.0
@@ -1190,15 +1191,18 @@ class FuzzCombo:
             # non-regression / no-numeric-bases combos collapse to the
             # disabled variant so dedup absorbs identical-behaviour
             # combos.
-            self.composite_discovery_enabled_cfg
-            if (
-                self.target_type == "regression"
-                # require enough columns for a base candidate pool (the
-                # frame builder emits ``num_0..num_3`` for n_rows >= 300
-                # so this is always satisfied when target=regression;
-                # the gate is here for future shrinkage).
-            )
-            else False,
+            (
+                self.composite_discovery_enabled_cfg
+                if (
+                    self.target_type
+                    == "regression"
+                    # require enough columns for a base candidate pool (the
+                    # frame builder emits ``num_0..num_3`` for n_rows >= 300
+                    # so this is always satisfied when target=regression;
+                    # the gate is here for future shrinkage).
+                )
+                else False
+            ),
             # composite_transforms_mode is a no-op when discovery is off.
             self.composite_transforms_mode_cfg if (self.composite_discovery_enabled_cfg and self.target_type == "regression") else None,
             # MRMR FE knobs canonicalise to defaults when
@@ -1234,15 +1238,17 @@ class FuzzCombo:
             # prep-ext stage is on. Canonicalise to the default cap when
             # none of scaler / kbins / polynomial / dim_reducer /
             # nonlinear is active.
-            self.prep_ext_memory_safety_max_bytes_cfg
-            if (
-                self.prep_ext_scaler_cfg is not None
-                or self.prep_ext_kbins_cfg is not None
-                or self.prep_ext_polynomial_degree_cfg is not None
-                or self.prep_ext_dim_reducer_cfg is not None
-                or self.prep_ext_nonlinear_cfg is not None
-            )
-            else 500_000_000,
+            (
+                self.prep_ext_memory_safety_max_bytes_cfg
+                if (
+                    self.prep_ext_scaler_cfg is not None
+                    or self.prep_ext_kbins_cfg is not None
+                    or self.prep_ext_polynomial_degree_cfg is not None
+                    or self.prep_ext_dim_reducer_cfg is not None
+                    or self.prep_ext_nonlinear_cfg is not None
+                )
+                else 500_000_000
+            ),
             # Composite stacked-discovery knobs no-op unless composite
             # discovery is enabled AND the target is regression (the
             # discovery is regression-only). Canonicalise to False so
@@ -1268,9 +1274,11 @@ class FuzzCombo:
             # AND target_type is regression / classification head;
             # canonicalise to "ReLU" otherwise. NOTE: axis not yet
             # plumbed into the suite call (see comment in AXES dict).
-            self.mlp_activation_cfg
-            if ("mlp" in self.models and self.target_type in ("regression", "binary_classification", "multiclass_classification"))
-            else "ReLU",
+            (
+                self.mlp_activation_cfg
+                if ("mlp" in self.models and self.target_type in ("regression", "binary_classification", "multiclass_classification"))
+                else "ReLU"
+            ),
             # 2026-05-21 -- mini-HPT (target + feature distribution analyzer)
             # toggle. Axis is meaningful on every target type since both
             # detectors run unconditionally when enabled.
@@ -1283,13 +1291,15 @@ class FuzzCombo:
             # avoids spending pairwise budget on identical-behaviour combos.
             # Subsample also needs n_rows > subsample_n: canon-to-0 at
             # n_rows=1000 (always <= 50_000 budget), keep at n_rows=200_000.
-            self.fe_check_pairs_subsample_n_cfg
-            if (
-                self.use_mrmr_fs
-                and (self.mrmr_fe_npermutations_cfg > 0 or self.mrmr_fe_ntop_features_cfg > 0)
-                and self.n_rows > self.fe_check_pairs_subsample_n_cfg
-            )
-            else 0,
+            (
+                self.fe_check_pairs_subsample_n_cfg
+                if (
+                    self.use_mrmr_fs
+                    and (self.mrmr_fe_npermutations_cfg > 0 or self.mrmr_fe_ntop_features_cfg > 0)
+                    and self.n_rows > self.fe_check_pairs_subsample_n_cfg
+                )
+                else 0
+            ),
             # 2026-05-21 iter150 -- extra_targets canon:
             #  - multilabel / LTR: collapse to None (multilabel is already 2-D
             #    within ONE target; LTR has its own ranker dispatch path that
@@ -1745,7 +1755,7 @@ class FuzzCombo:
             # MRMR Wave 7/8/9 axes: all collapse to MRMR.__init__ defaults
             # when use_mrmr_fs is False so dedup absorbs identical-behaviour
             # combos that differ only on inactive MRMR knobs.
-            (self.mrmr_nbins_strategy_cfg if self.use_mrmr_fs else "mdlp"),
+            (self.mrmr_binning_cfg if self.use_mrmr_fs else "mdlp"),
             (self.mrmr_mi_correction_cfg if self.use_mrmr_fs else "none"),
             (self.mrmr_redundancy_aggregator_cfg if self.use_mrmr_fs else None),
             (self.mrmr_bur_lambda_cfg if self.use_mrmr_fs else 0.0),
@@ -1759,20 +1769,16 @@ class FuzzCombo:
             # audit-pass-7 #2: baseline_npermutations only meaningful when
             # MRMR fires (gates evaluate_candidate baseline-screen quorum).
             (self.mrmr_baseline_npermutations_cfg if self.use_mrmr_fs else 2),
-            # audit-pass-7 #3: low_card_cap threaded via nbins_strategy_kwargs
+            # audit-pass-7 #3: low_card_cap threaded via binning_kwargs
             # to per_feature_edges; only fires under MRMR.
             (self.mrmr_low_card_cap_cfg if self.use_mrmr_fs else 32),
             # audit-pass-7 #4: collapsed_fallback_nbins only fires when a
             # supervised binning method collapses a column. Compound gate:
-            # MRMR ON AND nbins_strategy in {mdlp, mdlp_validated, optimal_joint}
+            # MRMR ON AND the binning case in {mdlp, mdlp_validated, optimal_joint}
             # (all three hit the same fallback gate at _adaptive_nbins.py:679).
-            # Other methods (quantile_spacing/sturges/freedman_diaconis/...) never
+            # Other methods (rice_capped/sturges/freedman_diaconis/...) never
             # trigger the fallback so the axis is canon-only there.
-            (
-                self.mrmr_collapsed_fallback_nbins_cfg
-                if (self.use_mrmr_fs and self.mrmr_nbins_strategy_cfg in ("mdlp", "mdlp_validated", "optimal_joint"))
-                else 5
-            ),
+            (self.mrmr_collapsed_fallback_nbins_cfg if (self.use_mrmr_fs and self.mrmr_binning_cfg in ("mdlp", "mdlp_validated", "optimal_joint")) else 5),
             # CV-selector mode: only meaningful when composite discovery is
             # enabled AND target is regression (the discovery is regression-
             # only). Mirrors the existing composite_* canon pattern.
@@ -1794,7 +1800,9 @@ class FuzzCombo:
             (
                 # 2026-05-31 audit-pass-14 F14-2: source default flipped 8 -> 2
                 # in iter76 (shap_proxied_fs.py:249); fallback follows prod.
-                self.shap_proxied_shap_aware_stage1_cushion_cfg if self.use_shap_proxied_fs else 2
+                self.shap_proxied_shap_aware_stage1_cushion_cfg
+                if self.use_shap_proxied_fs
+                else 2
             ),
             (self.shap_proxied_shap_aware_stage1_floor_cfg if self.use_shap_proxied_fs else 200),
             # ShapProxiedFS Refine UCB (S9-S12): gate on use_shap_proxied_fs
@@ -2226,12 +2234,16 @@ class FuzzCombo:
             self.oof_random_seed_cfg if self.oof_n_splits_cfg >= 2 else 42,
             # Diversity thresholds only matter when the recommender itself runs, which requires BOTH the
             # top-level flag on AND OOF available (oof_n_splits>=2 -- see recommend_diversity_additions_in_leaderboard's docstring).
-            self.diversity_recommendation_correlation_threshold_cfg
-            if (self.recommend_diversity_additions_in_leaderboard_cfg and self.oof_n_splits_cfg >= 2)
-            else 0.85,
-            self.diversity_recommendation_min_improvement_cfg
-            if (self.recommend_diversity_additions_in_leaderboard_cfg and self.oof_n_splits_cfg >= 2)
-            else 0.0,
+            (
+                self.diversity_recommendation_correlation_threshold_cfg
+                if (self.recommend_diversity_additions_in_leaderboard_cfg and self.oof_n_splits_cfg >= 2)
+                else 0.85
+            ),
+            (
+                self.diversity_recommendation_min_improvement_cfg
+                if (self.recommend_diversity_additions_in_leaderboard_cfg and self.oof_n_splits_cfg >= 2)
+                else 0.0
+            ),
             self.diversity_recommendation_top_k_cfg if (self.recommend_diversity_additions_in_leaderboard_cfg and self.oof_n_splits_cfg >= 2) else None,
             # Categorical composite FE needs >=2 categorical source columns to produce anything
             # (_categorical_composite_fe.py no-ops below that); collapse to default otherwise.

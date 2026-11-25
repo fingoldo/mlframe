@@ -15,6 +15,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 
 from .._prediction_memo import memo_predict
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ def leaky_rmse_keep_mask(components: Sequence[Any], component_names: Sequence[st
                 keep_mask.append(True)
         except Exception as e:
             # WARNING once per failing component (audit 37-F16): a broken component is kept, so it must be visible.
-            logger.warning("leaky-RMSE pre-check failed for '%s' (%s: %s); keeping it unscreened", name, type(e).__name__, e)
+            log_throttle(logger, "prescreen.leaky_rmse_failed", logging.WARNING, "leaky-RMSE pre-check failed for '%s' (%s: %s); keeping it unscreened", name, type(e).__name__, e)
             keep_mask.append(True)
     return keep_mask, dropped
 

@@ -226,7 +226,9 @@ def _score_one_pair(
         verbose, vars_transformations, _transformed_operand_abs_corr, _NOISE_WRAP_MIN_OPERAND_CORR, _NOISE_WRAP_CORR_COLLAPSE_FRAC, transformed_vars,
         fe_min_engineered_mi_prevalence, num_fs_steps, cols, rejection_records, rejection_ledger_out,
     )
-    if _any_accept and apply_pair_family_gate_from_state(st, classes_y, quantization_nbins, pair_family_alpha):
+    # the emission reads the leaders within ``fe_good_to_best_feature_mi_threshold`` of the best and, with multi-emit, the forms down to ``fe_multi_emit_mi_floor``: the family gate settles those
+    _gate_window = min(float(fe_good_to_best_feature_mi_threshold), float(fe_multi_emit_mi_floor)) if int(fe_multi_emit_max_per_pair) > 1 else float(fe_good_to_best_feature_mi_threshold)
+    if _any_accept and apply_pair_family_gate_from_state(st, classes_y, quantization_nbins, pair_family_alpha, _gate_window):
         record_family_gate_rejection(st.best_config, st.best_mi, raw_vars_pair, cols, rejection_records, rejection_ledger_out)
         st._passes_joint_gate = st._prewarp_accept = st._marginal_uplift_accept = st._usability_accept = False
 

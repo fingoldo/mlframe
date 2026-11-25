@@ -169,7 +169,7 @@ def test_biz_value_include_numeric_standalone_lift_at_step_level():
         # Discretize train with the target appended (mirrors MRMR.fit's categorize call).
         Xtr_t = Xtr.copy()
         Xtr_t["__t0"] = ytr
-        data, cols, nbins = categorize_dataset(df=Xtr_t, nbins_strategy=None, n_bins=10, dtype=dtype)
+        data, cols, nbins = categorize_dataset(df=Xtr_t, n_bins=10, dtype=dtype)
         tgt_idx = np.array([cols.index("__t0")], dtype=np.int64)
         classes_y, freqs_y, _ = merge_vars(factors_data=data, vars_indices=tgt_idx, var_is_nominal=None, factors_nbins=nbins, dtype=dtype)
         num_raw = {cols.index("x0"): Xtr["x0"].to_numpy(float), cols.index("x1"): Xtr["x1"].to_numpy(float)}

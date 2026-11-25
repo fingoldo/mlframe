@@ -29,7 +29,7 @@ from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtyp
 
 from ._helpers import _pgn_raw_budget
 from ._linear_dependence_guard import exact_dependence_keep_mask
-from mlframe.feature_selection.filters._fe_family_timing import fe_timed
+from mlframe.feature_selection.filters._fe_family_timing import fe_family_timer, fe_timed
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,7 @@ def _assign_support_tail(
 
     See the module docstring for the full section this carves out.
     """
+    self._unary_credit_fired_ = False
     # A second pass that only PROPOSES engineered candidates (the feature-base target mix) does not need the linear-usability retention: it re-attaches forms for a downstream linear model, which the
     # pass that owns the selection runs on its own (1.4 s of a 10k-row fit, size independent).
     if not getattr(self, "_lean_second_pass_", False):
@@ -91,7 +92,8 @@ def _assign_support_tail(
     # (large independent residual) and a raw consumed by no surviving engineered feature are
     # KEPT (the DPI-trap filter + self-retention leg inside the helper enforce this). Off when
     # the drop sweep is disabled (shares ``fe_drop_redundant_raw_operands``).
-    selected_vars = _assign_support_tai_drop_sweep_disabled_shares(self, selected_vars, _retention_added_eng_names, cols, data, _eng_continuous_snapshot, X, y, classes_y, verbose, target_indices, nbins)
+    with fe_family_timer("stage:tail_raw_redundancy_drop"):
+        selected_vars = _assign_support_tai_drop_sweep_disabled_shares(self, selected_vars, _retention_added_eng_names, cols, data, _eng_continuous_snapshot, X, y, classes_y, verbose, target_indices, nbins)
 
     # n_features_ reports the column count produced by transform() = raw selected + engineered (replayable via _engineered_recipes_). Higher-order
     # engineered features without a replayable recipe were already warned about above and are NOT counted (they don't appear in transform output).
@@ -112,21 +114,25 @@ def _assign_support_tail(
     # RESIDUAL RESCUE runs last: every pass above that re-attaches or strips raw columns has finished, so what it prunes stays pruned and what it admits is judged against the final selection.
     from ._residual_rescue_stage import run_residual_rescue
 
-    if run_residual_rescue(self, X, selected_vars, cols, engineered_recipes or {}, _retention_added_eng_names, verbose):
+    with fe_family_timer("stage:residual_rescue"):
+        _rescued = run_residual_rescue(self, X, selected_vars, cols, engineered_recipes or {}, _retention_added_eng_names, verbose)
+    if _rescued:
         self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
 
     # FINAL SUBSUMPTION PASS runs after the residual rescue as well: it judges every survivor against the finished set of compounds, so a column
     # that an earlier stage admitted or re-admitted beside a compound carrying its information is dropped here.
     from ._final_subsumption_stage import run_final_subsumption_prune
 
-    _final_changed, selected_vars = run_final_subsumption_prune(self, X, selected_vars, classes_y, verbose)
+    with fe_family_timer("stage:final_subsumption"):
+        _final_changed, selected_vars = run_final_subsumption_prune(self, X, selected_vars, classes_y, verbose)
     if _final_changed:
         self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
 
     # PARSIMONY COMPACTION: several engineered features replaced by one candidate that carries at least the same bias-corrected joint information.
     from ._selection_compaction import run_selection_compaction
 
-    _compact_changed, selected_vars = run_selection_compaction(self, X, selected_vars, cols, data, classes_y, engineered_recipes or {}, verbose)
+    with fe_family_timer("stage:selection_compaction"):
+        _compact_changed, selected_vars = run_selection_compaction(self, X, selected_vars, cols, data, classes_y, engineered_recipes or {}, verbose)
     if _compact_changed:
         self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
         # The compaction can create a compound (the fusion of two selected halves) after every raw-redundancy and rescue verdict was given: the raw operands and the hinge legs admitted
@@ -137,18 +143,34 @@ def _assign_support_tail(
     # The raws the rescue pruned were judged against designs that the passes above shrank afterwards: the ones the finished design still needs for a private linear term come back.
     from ._pruned_raw_restore import restore_pruned_raws
 
-    if restore_pruned_raws(self, X, selected_vars, cols, engineered_recipes or {}, verbose):
+    with fe_family_timer("stage:restore_pruned_raws"):
+        _restored = restore_pruned_raws(self, X, selected_vars, cols, engineered_recipes or {}, verbose)
+    if _restored:
         self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
 
     # HIERARCHY: the main effect a joint-cell composite only modulates stays beside it, however fully the composite subsumes it.
     from ._main_effect_restore import run_main_effect_restore
 
-    _restore_changed, selected_vars = run_main_effect_restore(self, X, selected_vars, cols, data, classes_y, verbose)
+    with fe_family_timer("stage:main_effect_restore"):
+        _restore_changed, selected_vars = run_main_effect_restore(self, X, selected_vars, cols, data, classes_y, verbose)
     if _restore_changed:
         self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
 
+    # LINEAR-USABILITY CREDIT of the unary forms of the FINAL raw support (``_fe_unary_credit``), second call: the restores above bring back a raw such as ``x3`` of a ``x3 ** 2`` term that the early passes had not
+    # yet re-attached (names already credited by the first call are skipped), and the parsimony below removes what the credited forms make redundant.
+    if fe_max_steps > 0 and not getattr(self, "_lean_second_pass_", False):
+        _assign_support_tai_f_step3_unary_credit(self, X, y, verbose, selected_vars, cols, _retention_added_eng_names)
+
+    # CREDIT PARSIMONY: when a unary credit fired, the basis legs, single-index directions and chance products that only re-express what the credited form already holds are removed, together with the
+    # raw source the form replaces (``_fe_credit_parsimony``); it runs after every pass that can re-attach a column.
+    from mlframe.feature_selection.filters._fe_credit_parsimony import run_credit_parsimony
+
+    with fe_family_timer("stage:credit_parsimony"):
+        _credit_changed, selected_vars = run_credit_parsimony(self, X, selected_vars, cols, classes_y, y, verbose)
+
     # LINEAR-DEPENDENCE GUARD runs last: the passes above can re-attach raw columns that complete an exact linear combination of the kept raws.
-    _ld_changed, selected_vars = _assign_support_tai_drop_exact_linear_dependence(self, X, cols, selected_vars, verbose)
+    with fe_family_timer("stage:exact_linear_dependence"):
+        _ld_changed, selected_vars = _assign_support_tai_drop_exact_linear_dependence(self, X, cols, selected_vars, verbose)
     if _ld_changed:
         self.support_ = np.array(selected_vars, dtype=np.int64)
         self.n_features_ = len(selected_vars) + len(self._engineered_recipes_)
@@ -207,6 +229,39 @@ def _assign_support_tai_fe_max_steps(self, fe_max_steps, X, verbose, _eng_contin
         # under-ranked raws and - crucially - rejects pure-noise raws (they do not lower the average CV-MAE).
         # Re-attaches only raws NOT already in support_; purely additive (no engineered recipe touched).
         _assign_support_tai_f_step2_re_attaches_only(self, X, verbose, _retention_prep_cache, selected_vars, cols, classes_y, _eng_continuous_snapshot, data, _allowed_raw_idx)
+        # The credit runs here, so that the redundancy and rescue passes after this point see the credited forms and prune against them, and once more at the end of the tail for the raw columns the later restores bring in.
+        _assign_support_tai_f_step3_unary_credit(self, X, y, verbose, selected_vars, cols, _retention_added_eng_names)
+
+
+def _assign_support_tai_f_step3_unary_credit(self, X, y, verbose, selected_vars, cols, _retention_added_eng_names):
+    """Append the unary forms the linear-usability credit finds for the final raw support (see ``_fe_unary_credit``); never breaks a fit."""
+    try:
+        from mlframe.feature_selection.filters._fe_unary_credit import credit_unary_forms
+
+        _y_cont = getattr(self, "_fe_prewarp_y_continuous_", None)
+        if _y_cont is None:
+            _yv = y.values if hasattr(y, "values") else np.asarray(y)
+            _y_cont = np.asarray(_yv).reshape(-1) if np.ndim(_yv) <= 1 or np.asarray(_yv).shape[-1] == 1 else None
+        _raw_names = [str(cols[int(v)]) for v in selected_vars if 0 <= int(v) < len(cols)]
+        if _y_cont is not None and getattr(self, "target_transform_search", False):
+            # with the target-transform search on, the forms are those a linear head needs on the LINKED target g(y) (``y = exp(sin(x1) + log(x2))`` -> ``sin(x1)``, ``log(x2)``)
+            from mlframe.feature_selection.filters._target_transform_record import choose_credit_target, find_target_transform
+
+            _given = [str(c) for c in getattr(self, "feature_names_in_", [])]
+            _names_all = _raw_names + [c for c in _given if c not in _raw_names]
+            with fe_family_timer("stage:target_transform_search"):
+                _verdict = find_target_transform(self, X, y, _names_all)
+            with fe_family_timer("stage:credit_target_choice"):
+                _y_cont = choose_credit_target(self, X, _y_cont, _verdict, _names_all, seed=int(getattr(self, "random_seed", 0) or 0))
+        with fe_family_timer("stage:unary_credit"):
+            _extra = credit_unary_forms(self, X, _y_cont, _raw_names, seed=int(getattr(self, "random_seed", 0) or 0), verbose=verbose)
+        for _r_recipe, _r_name in _extra:
+            self._engineered_recipes_.append(_r_recipe)
+            self._engineered_features_.append(_r_name)
+            _retention_added_eng_names.add(str(_r_name))
+        self._unary_credit_fired_ = bool(_extra) or bool(getattr(self, "_unary_credit_fired_", False))  # read by the parsimony pass at the end of the tail
+    except Exception as _credit_exc:  # never let the optional credit break a fit
+        log_throttle(logger, "mrmr_unary_credit_failed", logging.WARNING, "MRMR unary credit skipped (%s: %s).", type(_credit_exc).__name__, _credit_exc)
 
 
 def _assign_support_tai_f_step1_identical_seed_iloc(self, X, verbose, _retention_prep_cache, _eng_continuous_snapshot, data, classes_y, y, _retention_added_eng_names):

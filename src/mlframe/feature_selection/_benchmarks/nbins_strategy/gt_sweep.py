@@ -203,45 +203,28 @@ def scen_wellbore100k(n_relevant: int, n_redundant: int, seed: int = 0, n: int =
     return X, y, gt
 
 
-# nbins_strategy / nbins_strategy_kwargs to feed MRMR() per binning method under test (mirrors the
-# ``method`` values used by ``run_one`` above, minus ``oos_validated`` -- the OOS-validated variant
-# is not wired into ``supervised_binning.mdlp_bin_edges`` / MRMR's ``nbins_strategy`` dispatch, it is
-# a standalone alternative function, so it has no MRMR-selectable analogue here).
-# NO ALIASES: every key here is the EXACT, resolved (alias-free) nbins_strategy name (verified
-# against _adaptive_nbins.py's _METHOD_ALIASES resolution table -- e.g. "quantile" is NOT used here
-# because it is itself an alias that resolves to "qs", not a distinct method). For every strategy
-# that has an independent count-FORMULA (sturges/freedman_diaconis/knuth/optimal_joint) crossed with
-# an independent edge-PLACEMENT choice (quantile = equi-frequency, uniform = equi-width, via the
-# `base` kwarg / `knuth_edge_type` for knuth), both combinations are listed as SEPARATE, explicitly-
-# named entries -- "formula_placement" -- rather than picking one placement silently. Strategies that
-# determine edges DIRECTLY (bayesian_blocks, fayyad_irani*, mah, qs) have no placement choice at all
-# and are listed once under their bare resolved name.
+# MRMR keywords (``binning_scheme`` / ``nbins_rule``, plus ``binning_kwargs`` for the options of one scheme) to feed MRMR() per binning method under test. Every count rule of the partition schemes (sturges,
+# freedman_diaconis, knuth) is crossed with both partitions (quantile = equal-frequency, uniform = equal-width) as SEPARATE, explicitly named entries ("rule_partition"). ``rice_capped`` is the default rule of
+# the ``quantile`` scheme (row ``qs_gupta`` keeps the historical label). ``optimal_joint`` has no MRMR-selectable partition choice (it bins by quantiles), so it is listed once. The OOS-validated variant of
+# the MDLP family is the scheme ``mdlp_validated``.
 MRMR_BINNING_METHODS: "dict[str, dict]" = {
-    # Legacy non-adaptive path: MRMR(nbins_strategy=None, quantization_nbins=N) bypasses
-    # per_feature_edges entirely (fixed-N equi-frequency binning, the pre-adaptive-binning default).
-    "legacy_fixed_quantile10": {"nbins_strategy": None, "quantization_nbins": 10},
-    # count-formula x placement, both combinations
-    "sturges_quantile": {"nbins_strategy": "sturges", "nbins_strategy_kwargs": {"base": "quantile"}},
-    "sturges_uniform": {"nbins_strategy": "sturges", "nbins_strategy_kwargs": {"base": "uniform"}},
-    "freedman_diaconis_quantile": {"nbins_strategy": "freedman_diaconis", "nbins_strategy_kwargs": {"base": "quantile"}},
-    "freedman_diaconis_uniform": {"nbins_strategy": "freedman_diaconis", "nbins_strategy_kwargs": {"base": "uniform"}},
-    "optimal_joint_quantile": {"nbins_strategy": "optimal_joint", "nbins_strategy_kwargs": {"base": "quantile"}},
-    "optimal_joint_uniform": {"nbins_strategy": "optimal_joint", "nbins_strategy_kwargs": {"base": "uniform"}},
-    # Demoted (AccuracyWarning) formula -- included (both placements) specifically because the
-    # mega-bench v3 numbers cited in its AccuracyWarning were measured in isolation, not through
-    # this ground-truth MRMR-selection harness; kept in to verify (not assume) it stays weak once
-    # real redundancy screening / MI relevance gating is in the loop too.
-    "knuth_quantile": {"nbins_strategy": "knuth", "nbins_strategy_kwargs": {"knuth_edge_type": "quantile"}},
-    "knuth_uniform": {"nbins_strategy": "knuth", "nbins_strategy_kwargs": {"knuth_edge_type": "uniform"}},
-    # direct edge-determination methods (no separate count-formula / placement split)
-    "qs_gupta": {"nbins_strategy": "quantile_spacing"},
-    # one name: "bayesian_blocks" is accepted by MRMR and by the dispatcher alike.
-    "bayesian_blocks": {"nbins_strategy": "bayesian_blocks"},
-    # row labels are the historical ones (earlier results use them): fayyad_irani_* is ``mdlp``; "insample_validated" is the DEFAULT ``mdlp`` (mdlp_fast_mode False), "oos_validated" is ``mdlp_validated``.
-    "fayyad_irani_fast": {"nbins_strategy": "mdlp", "nbins_strategy_kwargs": {"mdlp_fast_mode": True}},
-    "fayyad_irani_insample_validated": {"nbins_strategy": "mdlp", "nbins_strategy_kwargs": {"mdlp_fast_mode": False}},
-    "fayyad_irani_oos_validated": {"nbins_strategy": "mdlp_validated"},
-    "mah_sci": {"nbins_strategy": "mah"},  # demoted (AccuracyWarning), kept in for the same reason as knuth above
+    # The discretiser path (``nbins_rule='fixed'``) bypasses per_feature_edges entirely: fixed-N equal-frequency bins, the pre-adaptive-binning default.
+    "legacy_fixed_quantile10": {"binning_scheme": "quantile", "nbins_rule": "fixed", "quantization_nbins": 10},
+    "sturges_quantile": {"binning_scheme": "quantile", "nbins_rule": "sturges"},
+    "sturges_uniform": {"binning_scheme": "uniform", "nbins_rule": "sturges"},
+    "freedman_diaconis_quantile": {"binning_scheme": "quantile", "nbins_rule": "freedman_diaconis"},
+    "freedman_diaconis_uniform": {"binning_scheme": "uniform", "nbins_rule": "freedman_diaconis"},
+    "optimal_joint": {"binning_scheme": "optimal_joint"},
+    # Demoted (warns) rule, included (both partitions) because the mega-bench v3 numbers cited in its warning were measured in isolation, not through this ground-truth MRMR-selection harness.
+    "knuth_quantile": {"binning_scheme": "quantile", "nbins_rule": "knuth"},
+    "knuth_uniform": {"binning_scheme": "uniform", "nbins_rule": "knuth"},
+    "qs_gupta": {"binning_scheme": "quantile", "nbins_rule": "rice_capped"},
+    "bayesian_blocks": {"binning_scheme": "bayesian_blocks"},
+    # Row labels are the historical ones (the 2026-07-21 results use them): fayyad_irani_* is ``mdlp``; "insample_validated" is the DEFAULT ``mdlp`` (mdlp_fast_mode False), "oos_validated" is ``mdlp_validated``.
+    "fayyad_irani_fast": {"binning_scheme": "mdlp", "binning_kwargs": {"mdlp_fast_mode": True}},
+    "fayyad_irani_insample_validated": {"binning_scheme": "mdlp", "binning_kwargs": {"mdlp_fast_mode": False}},
+    "fayyad_irani_oos_validated": {"binning_scheme": "mdlp_validated"},
+    "mah_sci": {"binning_scheme": "mah"},  # demoted (AccuracyWarning), kept in for the same reason as knuth above
 }
 
 # Kept off/minimal so the harness measures the BINNING method's effect on selection, not FE/cluster-

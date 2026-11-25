@@ -10,13 +10,14 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from ._code_dtype import narrowest_code_dtype
 
-_MDLP_STRATEGIES = ("mdlp", "mdlp_validated")
+if TYPE_CHECKING:
+    from .._binning_spec import BinningSpec
 _SIGNED = (np.int8, np.int16, np.int32, np.int64)
 DEFAULT_MDLP_MAX_DEPTH = 8
 DEFAULT_MAX_ADAPTIVE_NBINS = 256
@@ -41,25 +42,27 @@ class CodeStoragePlan:
         }
 
 
-def _numeric_bound(method: str, n_bins: int, strategy: "str | None", strategy_kwargs: "Mapping[str, Any] | None", max_adaptive_nbins: int) -> tuple[int, str]:
+def _numeric_bound(method: str, n_bins: int, binning: "BinningSpec | None", binning_kwargs: "Mapping[str, Any] | None", max_adaptive_nbins: int) -> tuple[int, str]:
     """The largest code a numeric column can take (the NaN bin is one past the last interval) and why."""
-    kwargs = dict(strategy_kwargs or {})
-    if strategy is None:
-        return int(n_bins), f"{method} binner with {int(n_bins)} bins (+ NaN bin)"
-    name = str(strategy).lower()
-    if name in _MDLP_STRATEGIES:
+    kwargs = dict(binning_kwargs or {})
+    if binning is None or binning.is_fixed:
+        count = int(binning.fixed_nbins) if binning is not None else int(n_bins)
+        return count, f"{binning.scheme if binning is not None else method} binner with {count} bins (+ NaN bin)"
+    if binning.mdlp_family:
         depth = int(kwargs.get("max_depth", DEFAULT_MDLP_MAX_DEPTH))
-        return 2 ** max(1, depth), f"{name} depth {depth}: at most {2 ** max(1, depth)} intervals (+ NaN bin)"
+        return 2 ** max(1, depth), f"{binning.scheme} depth {depth}: at most {2 ** max(1, depth)} intervals (+ NaN bin)"
+    if binning.rule is not None:
+        return int(binning.cap), f"{binning.describe()}: at most {int(binning.cap)} bins (+ NaN bin)"
     ceiling = int(kwargs.get("max_nbins", max_adaptive_nbins))
-    return ceiling, f"{name}: at most {ceiling} bins (+ NaN bin)"
+    return ceiling, f"{binning.scheme}: at most {ceiling} bins (+ NaN bin)"
 
 
 def plan_code_storage(
     *,
     n_bins: int,
     method: str = "quantile",
-    nbins_strategy: "str | None" = None,
-    nbins_strategy_kwargs: "Mapping[str, Any] | None" = None,
+    binning: "BinningSpec | None" = None,
+    binning_kwargs: "Mapping[str, Any] | None" = None,
     max_adaptive_nbins: int = DEFAULT_MAX_ADAPTIVE_NBINS,
     max_categorical_cardinality: "int | None" = None,
     categorical_cardinalities: "list[int] | None" = None,
@@ -68,7 +71,7 @@ def plan_code_storage(
     """Resolve the code dtype from the binning settings; ``user_dtype`` is only widened when the bound needs it, or kept as the allocation dtype with ``MLFRAME_MRMR_COMPACT_CODES=0``.
 
     ``categorical_cardinalities`` are the distinct counts of the categorical columns when known; without them a cap alone bounds the categorical codes and no cap leaves them unbounded (the discretiser widens on the observed range)."""
-    bound, why = _numeric_bound(method, int(n_bins), nbins_strategy, nbins_strategy_kwargs, int(max_adaptive_nbins))
+    bound, why = _numeric_bound(method, int(n_bins), binning, binning_kwargs, int(max_adaptive_nbins))
     reasons = [why]
     cap = int(max_categorical_cardinality) if max_categorical_cardinality is not None else 0  # 0 means no cap, as in _fold_cap
     if categorical_cardinalities:

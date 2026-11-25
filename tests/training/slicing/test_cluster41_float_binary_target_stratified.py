@@ -17,6 +17,7 @@ def test_float_target_shards_keep_positives_in_every_shard():
     y = np.zeros(100, dtype=float)
     y[:5] = 1.0
     shards = _random_shards(100, 5, y, random_state=0)
+    assert len(shards) == 5
     assert all(y[idx].sum() >= 1 for idx in shards)
 
 

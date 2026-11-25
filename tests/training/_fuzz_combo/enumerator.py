@@ -442,7 +442,7 @@ def _build_combo(models: tuple[str, ...], axes: dict[str, Any], seed: int) -> Fu
         slice_stable_es_source_cfg=axes.get("slice_stable_es_source_cfg", "temporal"),
         slice_stable_es_pareto_best_iter_selection_cfg=axes.get("slice_stable_es_pareto_best_iter_selection_cfg", False),
         slice_stable_es_diagnostic_only_cfg=axes.get("slice_stable_es_diagnostic_only_cfg", False),
-        mrmr_nbins_strategy_cfg=axes.get("mrmr_nbins_strategy_cfg", "mdlp"),
+        mrmr_binning_cfg=axes.get("mrmr_binning_cfg", "mdlp"),
         mrmr_mi_correction_cfg=axes.get("mrmr_mi_correction_cfg", "none"),
         mrmr_redundancy_aggregator_cfg=axes.get("mrmr_redundancy_aggregator_cfg", None),
         mrmr_bur_lambda_cfg=axes.get("mrmr_bur_lambda_cfg", 0.0),

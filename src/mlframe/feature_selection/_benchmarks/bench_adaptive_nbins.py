@@ -46,6 +46,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from mlframe.feature_selection._benchmarks.binning_label import edge_params
 from mlframe.feature_selection.filters._adaptive_nbins import (
     per_feature_edges,
     _plug_in_mi,
@@ -54,7 +55,7 @@ from mlframe.feature_selection.filters._adaptive_nbins import (
 METHODS = [
     "sturges",
     "freedman_diaconis",
-    "quantile_spacing",
+    "rice_capped",
     "knuth",
     "bayesian_blocks",
     "mdlp",
@@ -161,7 +162,7 @@ def _run_one_fold(
     if method == LEGACY_BASELINE:
         edges = _legacy_quantile_edges(x_train, n_bins=10)
     else:
-        edges_list = per_feature_edges(X_train, y_train, method=method)
+        edges_list = per_feature_edges(X_train, y_train, **edge_params(method))
         edges = edges_list[0]
     t_ms = (time.perf_counter() - t0) * 1000.0
 

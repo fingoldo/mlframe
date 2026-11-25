@@ -29,6 +29,7 @@ import logging
 import threading
 
 import numpy as np
+from mlframe.utils.env_flags import TRUE_VALUES, env_reader
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe._array_buffer import array_buffer
 from ._fast_host_ops import ContentMemo
@@ -53,6 +54,28 @@ _BASELINE_CV_MEMO_MAXSIZE = 64
 # `if len(cache) > N: cache.pop(next(iter(cache)))` eviction idiom - see _unified_fe_gate.py's
 # _FE_GATE_MEMO_LOCK note for the full rationale (same race class, same fix).
 _FE_GATE_MEMO_LOCK = threading.Lock()
+
+# Probe exceptions that took the fail-open branch of ``measure_feature_uplift`` (the candidate is kept because its uplift could not be measured). The count is process-wide and only grows; a fit reads the
+# difference between its end and its start into ``fit_meta_['fe_probe_failures']``, so a probe that fails on every candidate is visible instead of looking like a gate that kept everything on merit.
+_PROBE_FAILURES = 0
+_PROBE_FAILURES_LOCK = threading.Lock()
+# ``MLFRAME_FE_PROBE_STRICT=1`` makes a probe exception propagate instead of keeping the candidate: for tests and CI, where a failing probe is a defect to see, not a case to absorb.
+_probe_strict_reader = env_reader("MLFRAME_FE_PROBE_STRICT")
+
+
+def probe_failure_count() -> int:
+    """How many probe exceptions took the fail-open branch in this process so far."""
+    with _PROBE_FAILURES_LOCK:
+        return _PROBE_FAILURES
+
+
+def _note_probe_failure(exc: BaseException) -> None:
+    """Count one fail-open probe exception, or re-raise it when ``MLFRAME_FE_PROBE_STRICT`` is on."""
+    global _PROBE_FAILURES
+    if (_probe_strict_reader() or "").strip().lower() in TRUE_VALUES:
+        raise exc
+    with _PROBE_FAILURES_LOCK:
+        _PROBE_FAILURES += 1
 
 
 def _baseline_cv_key(X_base: np.ndarray, y: np.ndarray, *, classification: bool, n_splits: int, seed: int, groups: np.ndarray | None = None):
@@ -232,8 +255,9 @@ def measure_feature_uplift(
                 _base_scores.append(base_score)
             _fold_i += 1
             deltas.append(aug_score - base_score)
-    except Exception as exc:  # pragma: no cover - the probe must never break a fit
+    except Exception as exc:  # the probe must never break a fit, unless MLFRAME_FE_PROBE_STRICT is on
         logger.warning("measure_feature_uplift: probe failed (%s); fail-open (None)", exc)
+        _note_probe_failure(exc)
         return None
     if not deltas:
         return None

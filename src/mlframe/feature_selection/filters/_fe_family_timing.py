@@ -14,13 +14,16 @@ from __future__ import annotations
 import functools
 import logging
 import threading
+import time
 from collections import defaultdict
 from contextlib import contextmanager
 from time import perf_counter
 from collections.abc import Iterator
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Optional, TypeVar
 
 from mlframe.utils.log_throttle import log_throttle
+
+from . import _stage_ledger as _ledger
 
 _F = TypeVar("_F", bound=Callable[..., Any])
 
@@ -68,17 +71,22 @@ def _process_rss() -> float:
 _RSS_POLL_INTERVAL_S = 0.05
 
 
+def _sample_active_rss() -> None:
+    """Raise the highest-seen RSS of every active entry to the current process RSS (one poll)."""
+    rss = _process_rss()
+    with _LOCK:
+        for rec in _RSS_ACTIVE.values():
+            if rss > rec[1]:
+                rec[1] = rss
+
+
 def _rss_poll_loop(interval_s: float = _RSS_POLL_INTERVAL_S) -> None:
     """Raise the highest-seen RSS of every active entry every interval_s seconds while at least one entry is active."""
     import time
 
     while True:
         time.sleep(interval_s)
-        rss = _process_rss()
-        with _LOCK:
-            for rec in _RSS_ACTIVE.values():
-                if rss > rec[1]:
-                    rec[1] = rss
+        _sample_active_rss()
 
 
 def _rss_enter() -> int:
@@ -107,19 +115,25 @@ def _rss_exit(eid: int, name: str) -> None:
 
 
 @contextmanager
-def fe_family_timer(name: str) -> Iterator[None]:
-    """Context manager that accumulates wall time and invocation count for ``name`` into the process-global ``_FE_FAMILY_WALL`` map under the lock."""
+def fe_family_timer(name: str, device: Optional[str] = None, in_gb: Optional[float] = None) -> Iterator[None]:
+    """Context manager that accumulates wall time and invocation count for ``name`` into the process-global ``_FE_FAMILY_WALL`` map under the lock.
+
+    With the stage ledger on (``MLFRAME_STAGE_LEDGER``) the interval is also an event with its epoch start and end; ``device`` and ``in_gb`` label it where the call site knows them."""
     global _INFLIGHT, _MAX_INFLIGHT
     with _LOCK:
         _INFLIGHT += 1
         if _INFLIGHT > _MAX_INFLIGHT:
             _MAX_INFLIGHT = _INFLIGHT
     _eid = _rss_enter() if _rss_tracking_enabled() else 0
+    _ledger_on = _ledger.enabled()
+    _epoch0 = time.time() if _ledger_on else 0.0
     _t0 = perf_counter()
     try:
         yield
     finally:
         _dt = perf_counter() - _t0
+        if _ledger_on:
+            _ledger.record(name, _epoch0, time.time(), device=device, in_gb=in_gb)
         if _eid:
             _rss_exit(_eid, name)
         with _LOCK:
@@ -136,6 +150,9 @@ def record_fe_family_wall(name: str, dt: float) -> None:
     reindenting a large pre-existing block; callers measure ``perf_counter()`` before/after
     themselves and pass the delta here. Equivalent to one ``fe_family_timer`` context exit
     (it does not participate in the concurrency tracking, since the caller owns the timed region)."""
+    if _ledger.enabled():  # the region just ended: its start is ``dt`` ago
+        _now = time.time()
+        _ledger.record(name, _now - float(dt), _now)
     with _LOCK:
         slot = _FE_FAMILY_WALL[name]
         slot[0] += float(dt)
@@ -190,6 +207,9 @@ class FamilyLapTimer:
         lap = self._lap()
         if lap.flag is not None:
             record_fe_family_wall("gate:" + lap.flag, perf_counter() - lap.t0)
+            if getattr(lap, "epoch0", 0.0):
+                _ledger.record("gate:" + lap.flag, lap.epoch0, time.time())
+                lap.epoch0 = 0.0
             if getattr(lap, "eid", 0):
                 _rss_exit(lap.eid, "gate:" + lap.flag)
                 lap.eid = 0
@@ -202,6 +222,7 @@ class FamilyLapTimer:
             lap = self._lap()
             lap.flag = flag
             lap.eid = _rss_enter() if _rss_tracking_enabled() else 0
+            lap.epoch0 = time.time() if _ledger.enabled() else 0.0
             lap.t0 = perf_counter()
         return is_on
 
@@ -271,6 +292,7 @@ def log_fe_family_summary(*, reset: bool = True) -> None:
     # accounting is broken; concurrent families genuinely double-count overlapping intervals.
     caveat = f"  [CONCURRENT: peak {peak} families in flight; walls overlap, shares are CPU-time not wall]" if overlapped else ""
     logger.info("MRMR FE per-family wall: %s  [total %.1fs]%s", "  ".join(parts), total, caveat)
+    _ledger.dump_if_requested()
     with _LOCK:
         mem_rows = sorted(_FE_FAMILY_RSS.items(), key=lambda kv: kv[1][0], reverse=True)  # kept after the summary (the fit's own end-of-fit summary resets the walls): ``reset_fe_family_wall`` clears it
     if mem_rows:

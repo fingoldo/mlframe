@@ -27,7 +27,7 @@ from mlframe.feature_selection._benchmarks.profiling.family_profile import _Snap
 from mlframe.feature_selection._benchmarks.profiling import family_scale as F
 from mlframe.feature_selection.filters.mrmr import MRMR
 n=int(sys.argv[1]); p=int(sys.argv[2])
-kw: dict[str, Any]={f:True for f in F._flag_names()}; kw["nbins_strategy"]="mdlp"
+kw: dict[str, Any]={f:True for f in F._flag_names()}; kw["binning_scheme"] = "mdlp"
 MRMR(verbose=0,random_seed=0,n_jobs=1,**kw).fit(*F._make(20000,30,1))
 led=_SnapshotLedger(); FT._FE_FAMILY_WALL=led; FT.reset_fe_family_wall()
 data=F._make(n,p,0)

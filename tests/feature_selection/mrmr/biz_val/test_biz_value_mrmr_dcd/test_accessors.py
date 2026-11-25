@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.feature_selection.conftest import LEGACY_FE_OFF
+
 warnings.filterwarnings("ignore")
 
 
@@ -44,6 +46,7 @@ def _strong_cluster_frame(n: int = 1500, n_members: int = 5, seed: int = 0):
 
 class TestClusterMembersAccessor:
     """Groups tests covering TestClusterMembersAccessor."""
+
     def test_C1_cluster_members_populated_when_dcd_finds_cluster(self):
         """C1: a DCD fit with at least one detected cluster exposes
         ``cluster_members_`` keyed by valid column names; the member
@@ -52,7 +55,7 @@ class TestClusterMembersAccessor:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _strong_cluster_frame()
-        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0, random_state=0).fit(X, y)
+        m = MRMR(**LEGACY_FE_OFF, dcd_enable=True, dcd_tau_cluster=0.5, verbose=0, random_state=0).fit(X, y)
         cm = m.cluster_members_
         assert cm is not None, "cluster_members_ must be a dict (not None) when DCD ran and detected at least one cluster."
         assert isinstance(cm, dict), f"cluster_members_ should be a dict; got {type(cm).__name__}"
@@ -107,7 +110,7 @@ class TestClusterMembersAccessor:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _strong_cluster_frame()
-        m = MRMR(dcd_enable=False, verbose=0, random_state=0).fit(X, y)
+        m = MRMR(**LEGACY_FE_OFF, dcd_enable=False, verbose=0, random_state=0).fit(X, y)
         assert hasattr(m, "cluster_members_"), "Even DCD-disabled fits must set cluster_members_ to None (attribute-completeness, mirrors dcd_ contract)."
         assert m.cluster_members_ is None, f"cluster_members_ must be None when DCD is disabled; got {m.cluster_members_!r}"
 
@@ -121,7 +124,7 @@ class TestClusterMembersAccessor:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _strong_cluster_frame()
-        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0, random_state=0).fit(X, y)
+        m = MRMR(**LEGACY_FE_OFF, dcd_enable=True, dcd_tau_cluster=0.5, verbose=0, random_state=0).fit(X, y)
         int_anchors = m.dcd_["cluster_anchors"]
         name_anchors = m.dcd_["cluster_anchors_names"]
         # cluster_members_ is the same content as cluster_anchors_names.
@@ -147,7 +150,7 @@ class TestClusterMembersAccessor:
 
         X, y = _strong_cluster_frame()
         tau = 0.5
-        m = MRMR(dcd_enable=True, dcd_tau_cluster=tau, verbose=0, random_state=0).fit(X, y)
+        m = MRMR(**LEGACY_FE_OFF, dcd_enable=True, dcd_tau_cluster=tau, verbose=0, random_state=0).fit(X, y)
         diag = m.dcd_.get("cluster_diagnostics", {})
         eff_tau = float(m.dcd_.get("tau_cluster", tau))
         assert diag, f"cluster_diagnostics must be populated on this fixture; got empty/missing diag={diag!r}"
@@ -176,7 +179,7 @@ class TestClusterMembersAccessor:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _strong_cluster_frame()
-        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.55, verbose=0, random_state=0).fit(X, y)
+        m = MRMR(**LEGACY_FE_OFF, dcd_enable=True, dcd_tau_cluster=0.55, verbose=0, random_state=0).fit(X, y)
         eff = m.dcd_.get("tau_cluster")
         # User-supplied non-default value bypasses the cache lookup, so
         # the surfaced tau matches the ctor argument exactly.
@@ -213,6 +216,7 @@ def _layer12_drift_frame(seed: int = 0):
 
 class TestNoRegressionLayer12Stability:
     """Groups tests covering TestNoRegressionLayer12Stability."""
+
     def test_C5_stable_outranks_flaky_with_layer41_additions(self):
         """C5: on the simplified drift fixture, the strong ``stable_x`` signal must
         outrank the weak ``flaky`` signal in the single-fit MRMR selection -- the
@@ -232,7 +236,7 @@ class TestNoRegressionLayer12Stability:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _layer12_drift_frame(seed=0)
-        m = MRMR(dcd_enable=True, verbose=0, random_state=0).fit(X, y)
+        m = MRMR(**LEGACY_FE_OFF, dcd_enable=True, verbose=0, random_state=0).fit(X, y)
         sup = list(m.get_feature_names_out())
 
         def _carries_stable(name: str) -> bool:
@@ -270,7 +274,7 @@ class TestNoRegressionLayer12Stability:
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         X, y = _strong_cluster_frame()
-        m = MRMR(dcd_enable=True, dcd_tau_cluster=0.5, verbose=0, random_state=0).fit(X, y)
+        m = MRMR(**LEGACY_FE_OFF, dcd_enable=True, dcd_tau_cluster=0.5, verbose=0, random_state=0).fit(X, y)
         # Round-trip.
         m_re = pickle.loads(pickle.dumps(m))  # nosec B301 -- round-trip of a locally-created, trusted object
         assert (
@@ -288,6 +292,7 @@ class TestNoRegressionLayer12Stability:
 
 class TestNoRegressionLayer27Adversarial:
     """Groups tests covering TestNoRegressionLayer27Adversarial."""
+
     def test_C6_layer41_additions_do_not_perturb_layer27_no_noise_cross(self):
         """C6: the Layer 27 adversarial contract is that hybrid-orth-pair
         does not select a noise-noise cross. Layer 41 only adds summary
@@ -303,6 +308,7 @@ class TestNoRegressionLayer27Adversarial:
         X = pd.DataFrame({"x_real": x_real, **noises})
         y = pd.Series((x_real**2 - 1.0 + 0.2 * rng.standard_normal(n) > 0).astype(int))
         m = MRMR(
+            **LEGACY_FE_OFF,
             verbose=0,
             random_seed=0,
             fe_hybrid_orth_pair_enable=True,
@@ -330,6 +336,7 @@ class TestNoRegressionLayer27Adversarial:
 
 class TestNoRegressionLayer35KitchenSink:
     """Groups tests covering TestNoRegressionLayer35KitchenSink."""
+
     def test_C7_layer35_fit_completes_with_layer41_additions(self):
         """C7: minimal Layer 35 spot-check. The kitchen-sink config from
         Layer 35 enables multiple FE mechanisms simultaneously; Layer 41
@@ -354,6 +361,7 @@ class TestNoRegressionLayer35KitchenSink:
         )
         y = pd.Series((x1**2 + x2 - 0.5 + 0.1 * rng.standard_normal(n) > 0).astype(int))
         m = MRMR(
+            **LEGACY_FE_OFF,
             verbose=0,
             random_seed=0,
             interactions_max_order=1,
@@ -381,6 +389,7 @@ class TestNoRegressionLayer35KitchenSink:
 
 class TestClusterDiagnosticsMonotonicity:
     """Groups tests covering TestClusterDiagnosticsMonotonicity."""
+
     def test_higher_tau_yields_higher_min_pair_su_when_clusters_form(self):
         """A natural consequence of the membership rule: raising
         ``tau_cluster`` admits only tighter clusters, so ``min_pair_su``
@@ -398,7 +407,9 @@ class TestClusterDiagnosticsMonotonicity:
         for tau in (0.4, 0.6, 0.75):
             # fe_max_steps=0: the diagnostic spans every cached pair of a cluster (members of an engineered candidate included, whose SU with a sibling can sit below tau by design), so
             # the admission-threshold invariant is checked on the raw pool this sanity test is about
-            m = MRMR(dcd_enable=True, dcd_tau_cluster=tau, fe_max_steps=0, verbose=0, random_state=0).fit(X, y)
+            m = MRMR(**LEGACY_FE_OFF, dcd_enable=True, dcd_tau_cluster=tau, dcd_cluster_size_threshold=100, fe_max_steps=0, verbose=0, random_state=0).fit(
+                X, y
+            )  # no swap: a swapped cluster is replaced by its aggregate and reports no pair SU
             diag = m.dcd_.get("cluster_diagnostics", {})
             cluster_mins = [info["min_pair_su"] for info in diag.values() if info["min_pair_su"] is not None]
             if cluster_mins:
@@ -431,9 +442,9 @@ def _three_dups_plus_strong_frame(n: int = 1500, seed: int = 0):
     X = pd.DataFrame(
         {
             "strong": other,
-            "dup_a": latent + 0.01 * rng.standard_normal(n),
-            "dup_b": latent + 0.01 * rng.standard_normal(n),
-            "dup_c": latent + 0.01 * rng.standard_normal(n),
+            "dup_a": latent + 0.3 * rng.standard_normal(n),
+            "dup_b": latent + 0.3 * rng.standard_normal(n),
+            "dup_c": latent + 0.3 * rng.standard_normal(n),
             "noise_0": rng.standard_normal(n),
         }
     )
@@ -470,6 +481,7 @@ def _weak_pair_frame(n: int = 1500, seed: int = 0):
 
 class TestDefaultThresholdPinned:
     """Groups tests covering TestDefaultThresholdPinned."""
+
     def test_default_threshold_pinned_at_4(self):
         """Layer 42 escape clause: the default stayed at 4 because
         lowering it net-shrinks ``support_`` on real data when the
@@ -481,7 +493,9 @@ class TestDefaultThresholdPinned:
         """
         from mlframe.feature_selection.filters.mrmr import MRMR
 
-        m = MRMR()
+        m = MRMR(
+            **LEGACY_FE_OFF,
+        )
         assert int(m.dcd_cluster_size_threshold) == 4, (
             "Layer 42 keeps dcd_cluster_size_threshold default at 4 "
             "pending the post-swap aggregate -> _engineered_recipes_ "
@@ -499,9 +513,10 @@ class TestDefaultThresholdPinned:
 
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             fe_max_steps=0,  # the contract is DCD's alone: with FE on, a SIR direction built from the three duplicates takes the cluster's anchor
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=0.3,
             full_npermutations=50,
             verbose=0,
             random_seed=0,
@@ -522,6 +537,7 @@ class TestDefaultThresholdPinned:
 
 class TestOptInThresholdTwoTriggersSwap:
     """Groups tests covering TestOptInThresholdTwoTriggersSwap."""
+
     def test_opt_in_threshold_2_triggers_swap_on_3_dups(self):
         """With ``dcd_cluster_size_threshold=2``, the 3-dup fixture
         forms a cluster of size 2 members (anchor + 2 dups) and the
@@ -534,9 +550,10 @@ class TestOptInThresholdTwoTriggersSwap:
 
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             fe_max_steps=0,  # the contract is DCD's alone: with FE on, a SIR direction built from the three duplicates takes the cluster's anchor
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=0.3,
             dcd_cluster_size_threshold=2,
             full_npermutations=50,
             verbose=0,
@@ -561,6 +578,7 @@ class TestOptInThresholdTwoTriggersSwap:
 
         X, y = _weak_pair_frame()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster=0.5,
             dcd_cluster_size_threshold=2,
@@ -583,15 +601,17 @@ class TestOptInThresholdTwoTriggersSwap:
 
         X, y = _three_dups_plus_strong_frame()
         m_default = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=0.3,
             full_npermutations=50,
             verbose=0,
             random_seed=0,
         ).fit(X, y)
         m_pin = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=0.3,
             dcd_cluster_size_threshold=4,
             full_npermutations=50,
             verbose=0,
@@ -609,6 +629,7 @@ class TestOptInThresholdTwoTriggersSwap:
 
 class TestValidationLowerBound:
     """Groups tests covering TestValidationLowerBound."""
+
     def test_validate_accepts_threshold_1(self):
         """The Layer 42 validate loosening admits ``=1`` without
         ValueError. Users who want to swap on a strict 2-feature
@@ -622,8 +643,9 @@ class TestValidationLowerBound:
         # No assertion that swap fires here - just that the validate
         # step accepts the value.
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=0.3,
             dcd_cluster_size_threshold=1,
             dcd_min_cluster_size=1,
             full_npermutations=20,
@@ -639,6 +661,7 @@ class TestValidationLowerBound:
         X, y = _three_dups_plus_strong_frame(n=300)
         with pytest.raises(ValueError, match="dcd_cluster_size_threshold"):
             MRMR(
+                **LEGACY_FE_OFF,
                 dcd_enable=True,
                 dcd_cluster_size_threshold=0,
                 verbose=0,
@@ -653,6 +676,7 @@ class TestValidationLowerBound:
 
 class TestSwapGainThresholdProbe:
     """Groups tests covering TestSwapGainThresholdProbe."""
+
     def test_swap_gain_threshold_0p02_not_a_win(self):
         """Investigation: does loosening ``swap_gain_threshold`` from
         0.05 to 0.02 let through more wins on perfect dups? On the
@@ -665,8 +689,9 @@ class TestSwapGainThresholdProbe:
 
         X, y = _three_dups_plus_strong_frame()
         m_005 = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=0.3,
             dcd_cluster_size_threshold=2,
             dcd_swap_gain_threshold=0.05,
             full_npermutations=50,
@@ -674,8 +699,9 @@ class TestSwapGainThresholdProbe:
             random_seed=0,
         ).fit(X, y)
         m_002 = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=0.3,
             dcd_cluster_size_threshold=2,
             dcd_swap_gain_threshold=0.02,
             full_npermutations=50,
@@ -699,6 +725,7 @@ class TestSwapGainThresholdProbe:
 
 class TestNoRegressionLayer41:
     """Groups tests covering TestNoRegressionLayer41."""
+
     def test_cluster_members_accessor_reports_correctly(self):
         """The Layer 41 ``cluster_members_`` accessor must still report
         the right cluster on the 3-dup fixture after the Layer 42
@@ -723,9 +750,10 @@ class TestNoRegressionLayer41:
 
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             fe_max_steps=0,  # the contract is DCD's alone: with FE on, a SIR direction built from the three duplicates takes the cluster's anchor
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=0.3,
             verbose=0,
             random_seed=0,
         ).fit(X, y)
@@ -749,6 +777,7 @@ class TestNoRegressionLayer41:
 
         X, y = _three_dups_plus_strong_frame(n=500)
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=False,
             verbose=0,
             random_seed=0,
@@ -766,6 +795,7 @@ class TestNoRegressionLayer41:
 
 class TestOptInEndToEnd:
     """Groups tests covering TestOptInEndToEnd."""
+
     def test_opt_in_fit_completes_and_records_swap(self):
         """End-to-end probe: the opt-in path completes fit, records
         the swap in ``dcd_['swap_log']``, and the aggregate name in
@@ -775,9 +805,10 @@ class TestOptInEndToEnd:
 
         X, y = _three_dups_plus_strong_frame()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             fe_max_steps=0,  # the contract is DCD's alone: with FE on, a SIR direction built from the three duplicates takes the cluster's anchor
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=0.3,
             dcd_cluster_size_threshold=2,
             full_npermutations=50,
             verbose=0,

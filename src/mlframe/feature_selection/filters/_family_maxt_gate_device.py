@@ -77,6 +77,51 @@ def _observed_from_noise_gate(batches: Sequence[Any], y: np.ndarray) -> "Optiona
         return None
 
 
+#: A family of fewer columns than this is scored as it is: the comparison and the gather launches would cost more than its repeats.
+DEDUPE_MIN_COLUMNS = 32
+#: The family is replaced by its distinct partitions only when they are at most this share of its columns: a smaller saving does not pay for the gather and the second layout.
+DEDUPE_MAX_SHARE = 0.9
+#: The (rows, columns) codes held for the comparison must stay under this many bytes (and an eighth of the free device memory).
+DEDUPE_MAX_BYTES = 512 << 20
+
+
+def _distinct_columns_on_device(cp: Any, devs: "list") -> "tuple[Any, np.ndarray] | None":
+    """``(compact, inverse)``: the family's columns without the repeats of a partition, as one device matrix ``(n, distinct)``, and for every original column its position in it; ``None`` when too few columns repeat, the family is small or large, or the batches do not suit.
+
+    Monotone transforms of the same operands share their code columns and a decreasing one reverses them (``_family_columns_dedupe``): such a column has the same MI under every label permutation, so
+    it can neither raise the null maximum nor add chances to exceed the observed value, and the bit sets, the pack launch and the null kernel run over the distinct partitions only (80 percent of a
+    pair family at 100000 rows: the null kernel 1.02 s -> 0.84 s). The comparison is the host one (``unique_columns``) on the family as ``(columns, rows)``; the batches are read in place by two
+    one-launch kernels (``_family_columns_gather_cuda``) when their layout allows it, else through ``cp.concatenate``.
+    """
+    from ._family_columns_dedupe import unique_columns
+    from ._family_columns_gather_cuda import gathered_codes, transposed_codes
+
+    k_total = int(sum(int(d.shape[1]) for d in devs))
+    if k_total < DEDUPE_MIN_COLUMNS or any(d.dtype != devs[0].dtype for d in devs):
+        return None
+    n = int(devs[0].shape[0])
+    dtype = devs[0].dtype
+    if n * k_total * int(dtype.itemsize) > min(DEDUPE_MAX_BYTES, int(cp.cuda.runtime.memGetInfo()[0]) // 8):
+        return None
+    layout = _multi_layout(cp, list(devs), n)
+    block: Any = None
+    if layout is not None:
+        columns_first = transposed_codes(cp, list(devs), n)
+    else:
+        block = devs[0] if len(devs) == 1 else cp.concatenate(devs, axis=1)
+        columns_first = cp.ascontiguousarray(block.T)
+    distinct = unique_columns(cp.asnumpy(columns_first))
+    del columns_first
+    if distinct is None:
+        return None
+    keep, inverse = distinct
+    if keep.shape[0] > DEDUPE_MAX_SHARE * k_total:
+        return None
+    if layout is not None:
+        return gathered_codes(cp, list(devs), n, keep), inverse
+    return cp.ascontiguousarray(block[:, cp.asarray(keep)]), inverse
+
+
 def _batch_fits_row_major(d: Any, n: int, item: int) -> bool:
     """True when ``d`` has ``n`` rows, at least one column, a unit column stride and a row stride that is a whole number of ``item``-byte elements."""
     if int(d.shape[0]) != n or int(d.shape[1]) < 1:
@@ -244,8 +289,8 @@ class _FamilyOnDevice:
         return out
 
 
-def family_pass_batches_device(batches: Sequence[Any], y_codes: np.ndarray, alpha: float, n_perm: int, seed: int) -> "Optional[list]":
-    """Family-wise pass flags of resident device batches (see ``family_pass_batches``), or ``None`` when the device path does not apply."""
+def family_pass_batches_device(batches: Sequence[Any], y_codes: np.ndarray, alpha: float, n_perm: int, seed: int, decide: "Optional[Sequence[bool]]" = None) -> "Optional[list]":
+    """Family-wise pass flags of resident device batches (see ``family_pass_batches``), or ``None`` when the device path does not apply. ``decide`` limits the exact test to the batches whose flag is read."""
     devs = _device_codes(batches)
     if devs is None:
         return None
@@ -256,23 +301,36 @@ def family_pass_batches_device(batches: Sequence[Any], y_codes: np.ndarray, alph
 
         y = np.ascontiguousarray(np.asarray(y_codes, dtype=np.int64).ravel())
         n_y = int(y.max()) + 1
-        fam = _FamilyOnDevice(cp, devs, y, n_y)
         widths = [int(d.shape[1]) for d in devs]
         starts = np.cumsum([0, *widths])
+        deduped = _distinct_columns_on_device(cp, devs)
+        inverse = None
+        if deduped is None:
+            fam = _FamilyOnDevice(cp, devs, y, n_y)
+        else:
+            compact, inverse = deduped
+            fam = _FamilyOnDevice(cp, [compact], y, n_y)  # the null runs over the distinct partitions; the observed values and the triage below still cover every column
         observed = _observed_from_noise_gate(batches, y)
         if observed is None:
             observed = fam.observed()
+            if inverse is not None:
+                observed = observed[inverse]
         n_batches = len(widths)
         # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
         observed_max = np.array([float(observed[starts[j] : starts[j + 1]].max()) if widths[j] else 0.0 for j in range(n_batches)], dtype=np.float64)
         flags = np.zeros(n_batches, dtype=np.bool_)
-        status = _analytic_triage_core(fam.n, fam.nx_occ, y, n_y, observed, starts, alpha)
+        wanted = np.ones(n_batches, dtype=np.bool_) if decide is None else np.asarray(decide, dtype=np.bool_)
+        status = _analytic_triage_core(fam.n, fam.nx_occ, y, n_y, observed, starts, alpha, inverse)
         if status is None:
-            flags[:] = _permutation_pass_flags_with(fam.null_max, observed_max, alpha, n_perm, seed)
+            flags[:] = True
+            if wanted.any():
+                flags[wanted] = _permutation_pass_flags_with(fam.null_max, observed_max[wanted], alpha, n_perm, seed)
             return [bool(f) for f in flags]
         flags[status > 0] = True
         gray = status == 0
+        flags[gray & ~wanted] = True  # not read by the caller: left as it was
+        gray &= wanted
         if gray.any():
             flags[gray] = _permutation_pass_flags_with(fam.null_max, observed_max[gray], alpha, n_perm, seed)
         return [bool(f) for f in flags]

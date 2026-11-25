@@ -3,7 +3,7 @@
 The detector's `high` hits in the current source, one row per function. The baseline (`tests/test_meta/_tiny_cupy_loops_baseline.json`) holds these keys.
 Dispositions to fill in: **FALSE POSITIVE** (the loop is a chunk, fold or fallback loop with a few trips and real work per trip), **FALLBACK** (the cupy loop runs only when a batched path is not taken, measured), **REAL** (a launch-bound loop, to restructure), **OPEN** (not yet read).
 
-Rows: 115.
+Rows: 118.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -68,6 +68,7 @@ Rows: 115.
 | feature_selection/filters/_mrmr_fe_step/_step_score_parts2.py | _escalation_admitted_pool | 482, 485 | FALLBACK: the loop runs only when the batched escalation pool is not done (the iterable is empty otherwise) |
 | feature_selection/filters/_mrmr_fe_step/_step_score_parts2.py | _fused_compound_codes | 610 | REAL, measured 2026-11-16 (100000 x 100 all-families GPU fit, cProfile, 68.7 s): 0.00 s cumulative over 1 calls (0.0 % of the fit); one device code conversion per fused feature |
 | feature_selection/filters/_mrmr_fit_impl/_fe_stage_concurrency.py | merge_stage_state | 107, 108 | FALSE POSITIVE: merges host attributes of the stage copies, with no device launch in the loop body |
+| feature_selection/filters/_mrmr_fit_impl/_fe_stage_concurrency.py | run_stages_concurrently | 297 | FALSE POSITIVE: the error walk over at most four stage outcomes; a stage without an error does nothing, the cupy comparison of merge_stage_state runs once on the failure path (an accepted exception with its reason) |
 | feature_selection/filters/_offset_product_gpu.py | scan_offset_products_device | 360, 363 | REAL but small: 0.1% of a 100000-row fit (profile 2026-11-05); restructuring not justified by the measured share |
 | feature_selection/filters/_oof_warp_gpu.py | _block_stats | 184 | FALSE POSITIVE: the loop is over the targets of one call (the observed target and the few permutation targets of the family null), one per trip, each a handful of bincounts over the whole block of columns x folds x bins; the block is the unit of work and the column block width is sized from the free device memory |
 | feature_selection/filters/_orthogonal_cmim_fe.py | _cmim_rows | 440 | FALSE POSITIVE: a host loop that assembles results from device scores computed once before it (moved out of score_features_by_cmim by the function-length split) |
@@ -92,6 +93,8 @@ Rows: 115.
 | feature_selection/filters/_resident_candidate_mi.py | _build_best_existing_op_candidates_gpu | 322, 323 | FALLBACK: the per-candidate cupy loop runs only when the batched `build_op_cands` fill kernel fails (the failure is logged at WARNING); the default path is one kernel launch for every candidate |
 | feature_selection/filters/_resident_candidate_mi.py | _build_op_cands_block_cm | 220 | FALLBACK: accepted exception, see tests/test_meta/_tiny_cupy_loops_exceptions.json: The loop runs once per distinct operand count (arity) of the operand sets in a block, which is 2 and 3 in the search. Each arity has its own candidate-row layout |
 | feature_selection/filters/_resident_candidate_mi.py | gate_grid_mi_resident | 594 | REAL but small, measured: 120 specs x 16 taus at 100000 rows is 124 ms per call, of which 98 ms is the host waiting on the scoring kernels and about 25 ms the Python side of the builder (one fused tau-grid kernel, one cast and one tau upload per spec); fusing the builder could save at most that 25 ms, so it is not restructured |
+| feature_selection/filters/_unary_credit_logit.py | _deviance | 87 | FALSE POSITIVE: the numpy reference of the logit null (a fixed 6 to 8 Newton steps, only run with xp=numpy); the device route is the fused kernel logit_null_loglik, one launch (an accepted exception with its reason) |
+| feature_selection/filters/_unary_credit_logit.py | credit_columns_binary | 200, 203 | REAL: a sequential loop over at most 30 columns whose test of a column conditions on the design the previous verdict left; one fused-kernel null per column, 0.6 s for the whole credit stage at 100000 x 100 (an accepted exception with its reason) |
 | feature_selection/filters/_unified_fe_gate.py | unified_second_pass_gate | 596 | REAL, measured 2026-11-16 (100000 x 100 all-families GPU fit, cProfile, 68.7 s): not reached in this fit (0 calls); one conditional MI per remaining candidate per greedy round |
 | feature_selection/filters/_usability_aware_selection.py | _build_usability_cand_step1_ua_codes_none | 483, 484, 485 | REAL, measured 2026-11-16 (100000 x 100 all-families GPU fit, cProfile, 68.7 s): 0.51 s cumulative over 10 calls (0.7 % of the fit); one device op per (unary, unary, binary) combination |
 | feature_selection/filters/_usability_aware_selection.py | _build_usability_cand_step2_sub_quantum_cpu | 515 | FALSE POSITIVE: a host loop that builds a recipe per kept candidate, with no device launch per trip |

@@ -1164,7 +1164,7 @@ AXES: dict[str, tuple[Any, ...]] = {
     # (pre-existing, previously unfuzzed); it hits the same collapsed-fallback
     # gate as mdlp. Every strategy has ONE name (no aliases): "quantile_spacing"
     # replaces the former "quantile" / "qs", and "cv" no longer exists.
-    "mrmr_nbins_strategy_cfg": ("mdlp", "quantile_spacing", "mdlp_validated", "optimal_joint"),
+    "mrmr_binning_cfg": ("mdlp", "rice_capped", "mdlp_validated", "optimal_joint"),
     # MRMR Wave 8 F13 -- Chao-Shen entropy bias correction. filters/mrmr.py:229.
     # 3 algorithmic branches; pair exercises default vs CS.
     "mrmr_mi_correction_cfg": ("none", "chao_shen"),
@@ -1197,7 +1197,7 @@ AXES: dict[str, tuple[Any, ...]] = {
     "mrmr_baseline_npermutations_cfg": (2, 8),
     # 2026-05-30 audit-pass-7 #3: per_feature_edges low_card_cap kwarg
     # (_adaptive_nbins.py:511, default 32). Threaded into MRMR via
-    # nbins_strategy_kwargs={"low_card_cap": ...}. pair_2 disables the
+    # binning_kwargs={"low_card_cap": ...}. pair_2 disables the
     # midpoint-bypass for all but binary columns (every ordinal/small-
     # categorical column then runs the configured method_resolved);
     # pair_32 keeps the default bypass.

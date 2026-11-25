@@ -10,6 +10,7 @@ import pandas as pd
 
 from mlframe.feature_selection.filters._orthogonal_shared import coerce_y_classif
 from mlframe.feature_selection.filters._periodic_fe import hybrid_modular_fe_with_recipes
+from tests.feature_selection.binning_cases import binning_spec
 
 
 def test_a_continuous_target_becomes_a_few_quantile_classes():
@@ -52,7 +53,7 @@ def test_columns_that_do_not_read_the_target_keep_their_codes_under_a_permuted_t
     cont[::9] = np.nan
     X = pd.DataFrame({"cont": cont, "cont2": rng.standard_normal(n), "low": rng.integers(0, 5, n), "cat": pd.Categorical(rng.choice(list("abc"), n))})
     y = (X["cont2"].to_numpy() + rng.standard_normal(n) > 0).astype(np.int64)
-    kwargs = dict(method="quantile", n_bins=10, dtype=np.int16, max_categorical_cardinality=None, missing_strategy="separate_bin", nbins_strategy="mdlp", nbins_strategy_kwargs=None, cache_dir=None)
+    kwargs = dict(method="quantile", n_bins=10, dtype=np.int16, max_categorical_cardinality=None, missing_strategy="separate_bin", binning=binning_spec("mdlp"), binning_kwargs=None, cache_dir=None)
     observed, cols, nbins = categorize_dataset(df=X, y_for_strategy=y, **kwargs)
     dependent = _target_dependent_columns(X, list(cols))
     assert dependent == {"cont", "cont2"}

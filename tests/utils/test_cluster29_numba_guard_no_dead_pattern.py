@@ -17,4 +17,4 @@ def test_unused_relative_import_pattern_is_removed():
 
 def test_module_still_imports():
     """Control: the module still loads and exposes its names (29-F28)."""
-    assert ncg is not None
+    assert callable(ncg.invalidate_stale_numba_caches)

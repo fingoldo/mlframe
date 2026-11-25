@@ -8,7 +8,7 @@ site that previously float-coerced the raw strings and raised
 ``could not convert string to float`` / ``TypeError: ufunc 'isfinite' ...`` /
 ``unsupported operand type(s) for /: 'str' and 'int'``.
 
-Also pins that ``nbins_strategy`` has no aliases (c0149 once pinned ``quantile``).
+Also pins that ``binning_scheme`` / ``nbins_rule`` have no aliases (c0149 once pinned ``quantile``).
 """
 
 from __future__ import annotations
@@ -113,7 +113,7 @@ class TestMrmrFeStepNumericGuard:
         )
         sel = MRMR(
             fe_max_steps=1,
-            nbins_strategy="quantile_spacing",
+            binning_scheme="quantile", nbins_rule="rice_capped",
         )
         # Must complete without raising on the string column.
         sel.fit(X, y)
@@ -191,40 +191,39 @@ class TestMrmrOrphanRecipeReplay:
         assert "missing_input" in str(exc_info.value)
 
 
-class TestMrmrNbinsStrategyNamesHaveNoAliases:
-    """Every ``nbins_strategy`` has ONE name: the former synonyms (``quantile`` and ``qs`` for quantile spacing, ``fd`` and ``auto``, ``fayyad_irani``, ``cv``, ``blocks``, ...) are rejected with a message that names the replacement (fuzz c0149 pinned ``quantile``)."""
+class TestMrmrBinningNamesHaveNoAliases:
+    """Every ``binning_scheme`` and ``nbins_rule`` has ONE name: the former ``nbins_strategy`` values (``quantile_spacing``, ``sturges`` as a strategy, ``fd``, ``auto``, ``qs``, ``fayyad_irani``, ``cv``, ``blocks``, ...) are rejected."""
 
-    REMOVED = {
-        "quantile": "quantile_spacing", "qs": "quantile_spacing", "gupta": "quantile_spacing", "fd": "freedman_diaconis", "auto": "freedman_diaconis", "freedman-diaconis": "freedman_diaconis",
-        "fayyad_irani": "mdlp", "fayyad_irani_validated": "mdlp_validated", "cv": "optimal_joint", "blocks": "bayesian_blocks", "bb": "bayesian_blocks",
-    }
+    REMOVED = ("quantile_spacing", "qs", "gupta", "fd", "auto", "freedman-diaconis", "fayyad_irani", "fayyad_irani_validated", "cv", "blocks", "bb", "sturges", "knuth")
 
-    def test_removed_names_are_not_valid_strategies(self):
-        """None of the former names is accepted; each canonical name is."""
-        from mlframe.feature_selection.filters.mrmr import MRMR
+    def test_removed_names_are_not_valid_schemes(self):
+        """None of the former strategy names is a scheme (a count rule such as ``sturges`` or ``knuth`` is accepted only as ``nbins_rule``)."""
+        from mlframe.feature_selection.filters._binning_spec import BINNING_SCHEMES
 
-        assert self.REMOVED, "no removed strategy name to check"
-        for old, new in self.REMOVED.items():
-            assert old not in MRMR._VALID_NBINS_STRATEGIES, old
-            assert new in MRMR._VALID_NBINS_STRATEGIES, new
+        for old in self.REMOVED:
+            assert old not in BINNING_SCHEMES, old
 
-    def test_per_feature_edges_names_the_replacement(self):
-        """The dispatcher refuses a removed name and says what to use."""
+    def test_per_feature_edges_rejects_a_removed_name(self):
+        """The dispatcher refuses a name that is not an edge method."""
         from mlframe.feature_selection.filters._adaptive_nbins import per_feature_edges
 
         X = np.random.default_rng(7).standard_normal((500, 2))
-        for old, new in self.REMOVED.items():
-            with pytest.raises(ValueError, match=f"use '{new}'"):
+        for old in self.REMOVED:
+            with pytest.raises(ValueError, match="unknown edge method"):
                 per_feature_edges(X, y=np.zeros(500, dtype=np.int64), method=old)
-        assert len(per_feature_edges(X, method="quantile_spacing")) == 2
+        assert len(per_feature_edges(X, method="partition", partition="quantile", count_rule="rice_capped", nbins_cap=48)) == 2
 
-    def test_mrmr_validate_names_the_replacement(self):
-        """The MRMR validator refuses a removed name with the replacement in the message; an unknown name lists the accepted ones."""
+    def test_mrmr_validate_rejects_a_removed_name(self):
+        """The MRMR validator refuses a removed name as a scheme and lists the accepted ones; a count rule is accepted as ``nbins_rule``."""
         from mlframe.feature_selection.filters.mrmr import MRMR
 
-        for old, new in self.REMOVED.items():
-            with pytest.raises(ValueError, match=f"use '{new}'"):
-                MRMR(nbins_strategy=old)._validate_string_params()
-        assert MRMR(nbins_strategy="quantile_spacing")._validate_string_params() is None
-        with pytest.raises(ValueError, match="unknown nbins_strategy='bogus'"):
-            MRMR(nbins_strategy="bogus")._validate_string_params()
+        for old in self.REMOVED:
+            if old in ("sturges", "knuth"):
+                continue
+            with pytest.raises(ValueError, match="unknown binning_scheme"):
+                MRMR(binning_scheme=old)._validate_string_params()
+        assert MRMR(binning_scheme="quantile", nbins_rule="rice_capped")._validate_string_params() is None
+        with pytest.raises(ValueError, match="unknown binning_scheme='bogus'"):
+            MRMR(binning_scheme="bogus")._validate_string_params()
+        with pytest.raises(ValueError, match="unknown nbins_rule='bogus'"):
+            MRMR(nbins_rule="bogus")._validate_string_params()

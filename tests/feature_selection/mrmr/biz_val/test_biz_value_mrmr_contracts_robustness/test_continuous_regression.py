@@ -21,7 +21,7 @@ The default MRMR pipeline runs the target through the SAME
 ``categorize_dataset`` discretization as the features
 (``_mrmr_fit_impl.py`` line 326-343 reads
 ``y_for_strategy=_x_for_cat[target_names[0]]`` after target injection at
-line 282; the ``nbins_strategy='mdlp'`` Wave-7 default then chooses the
+line 282; the ``binning_scheme='mdlp'`` Wave-7 default then chooses the
 target's own bin count via Fayyad-Irani MDLP). For a continuous y with
 N=2500 distinct values MDLP typically produces 8-12 bins -- enough to
 preserve the regression signal.
@@ -78,6 +78,7 @@ import pandas as pd
 import pytest
 from sklearn.linear_model import Ridge
 from sklearn.metrics import r2_score
+from mlframe.feature_selection.filters._binning_spec import make_binning_spec
 
 # ---------------------------------------------------------------------------
 # Data builders
@@ -143,7 +144,7 @@ def _build_bimodal_regression_data(seed: int):
     Two well-separated modes; quantile-binning would lump the linear
     signal inside each mode together, so MDLP supervised binning is
     the only way to keep the rank order. Useful to stress that the
-    Wave-7 nbins_strategy='mdlp' default is doing its job on
+    Wave-7 binning_scheme='mdlp' default is doing its job on
     non-Gaussian regression targets.
     """
     rng = np.random.default_rng(seed)
@@ -177,6 +178,7 @@ def _make_mrmr(**overrides):
         verbose=0,
         interactions_max_order=1,
         fe_max_steps=0,
+        binning_scheme="mdlp",  # the scheme this file is about (supervised cut points on a non-Gaussian y); the MRMR default is the quantile scheme now
     )
     kwargs.update(overrides)
     return MRMR(**kwargs)
@@ -399,8 +401,8 @@ class TestContinuousYBinning:
             n_bins=10,
             dtype=np.int32,
             missing_strategy="separate_bin",
-            nbins_strategy="mdlp",  # the default since Wave 7
-            nbins_strategy_kwargs=None,
+            binning=make_binning_spec("mdlp", warn=False),  # the default since Wave 7
+            binning_kwargs=None,
             y_for_strategy=y,
         )
         y_idx = cols.index("targ_y")

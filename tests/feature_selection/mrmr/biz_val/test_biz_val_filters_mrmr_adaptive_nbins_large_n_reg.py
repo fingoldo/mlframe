@@ -3,7 +3,7 @@
 The QUANTITATIVE win (fixed 20-bin quantile beats MDLP on reg n=100k: holdout R2 +0.116 / F1 +0.242, 15/15 seeds) is pinned by the
 committed 180-cell campaign at ``feature_selection/_benchmarks/fs_quality/_results/mrmr_largeN_campaign.jsonl`` and confirmed by
 ``qual24_adaptive_nbins_large_n_reg_confirm.py``. A full n>=50k MRMR fit is ~60s, too slow for the suite, so these tests pin the GATE
-LOGIC: it must FIRE (switch to nbins_strategy=None + quantization_nbins=20) exactly on detected-regression AND n>=threshold while the
+LOGIC: the gate applies to ``binning_scheme='mdlp'``: it must FIRE (switch to the fixed-count rule + quantization_nbins=20) exactly on detected-regression AND n>=threshold while the
 user left the quantization params at defaults, and must NOT fire on classification, on small-n, or when the user pinned a value.
 """
 
@@ -39,7 +39,7 @@ def _fast_mrmr(**kw):
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     base = dict(
-        fe_max_steps=0, interactions_max_order=1, full_npermutations=0, baseline_npermutations=0, random_seed=0, use_gpu=False, n_jobs=1, verbose=0, cv=2
+        binning_scheme="mdlp", fe_max_steps=0, interactions_max_order=1, full_npermutations=0, baseline_npermutations=0, random_seed=0, use_gpu=False, n_jobs=1, verbose=0, cv=2
     )
     base.update(kw)
     return MRMR(**base)
@@ -54,7 +54,7 @@ def test_biz_val_adaptive_nbins_gate_default_on():
 
 
 def test_biz_val_adaptive_nbins_fires_on_large_n_regression():
-    """Detected regression at n>=threshold engages the campaign-winner config (nbins_strategy=None,
+    """Detected regression at n>=threshold engages the campaign-winner config (binning_scheme='quantile', nbins_rule='fixed',
     quantization_nbins=20) for THIS fit -- but (FIT_IMPL_A-1 fix, mrmr_audit_2026-07-22) the constructor-arg
     attrs are restored to their pre-fit values afterward, exactly like every other transient fit-scoped
     override in this class (fast-search profile, default-screen-subsample, random_seed/skip-retraining alias
@@ -66,7 +66,7 @@ def test_biz_val_adaptive_nbins_fires_on_large_n_regression():
     m = _fast_mrmr()
     m.fit(X, y)
     assert getattr(m, "_adaptive_nbins_large_n_reg_fired_", False) is True
-    assert m.nbins_strategy == "mdlp", "constructor-arg state must be restored after fit(), not left mutated"
+    assert (m.binning_scheme, m.nbins_rule) == ("mdlp", None), "constructor-arg state must be restored after fit(), not left mutated"
     assert m.quantization_nbins == 10, "constructor-arg state must be restored after fit(), not left mutated"
 
 
@@ -76,7 +76,7 @@ def test_biz_val_adaptive_nbins_no_fire_on_small_n_regression():
     m = _fast_mrmr()
     m.fit(X, y)
     assert getattr(m, "_adaptive_nbins_large_n_reg_fired_", False) is False
-    assert m.nbins_strategy == "mdlp"
+    assert m.binning_scheme == "mdlp" and m.nbins_rule is None
     assert m.quantization_nbins == 10
 
 
@@ -86,7 +86,7 @@ def test_biz_val_adaptive_nbins_no_fire_on_large_n_classification():
     m = _fast_mrmr()
     m.fit(X, y)
     assert getattr(m, "_adaptive_nbins_large_n_reg_fired_", False) is False
-    assert m.nbins_strategy == "mdlp"
+    assert m.binning_scheme == "mdlp" and m.nbins_rule is None
     assert m.quantization_nbins == 10
 
 
@@ -100,12 +100,12 @@ def test_biz_val_adaptive_nbins_respects_explicit_user_nbins():
 
 
 def test_biz_val_adaptive_nbins_respects_explicit_user_strategy():
-    """An explicit non-mdlp nbins_strategy is never overridden by the gate."""
+    """An explicit non-mdlp binning scheme is never overridden by the gate."""
     X, y = _reg_xy(n=60_000)
-    m = _fast_mrmr(nbins_strategy="sturges")
+    m = _fast_mrmr(binning_scheme="quantile", nbins_rule="sturges")
     m.fit(X, y)
     assert getattr(m, "_adaptive_nbins_large_n_reg_fired_", False) is False
-    assert m.nbins_strategy == "sturges"
+    assert m.binning_scheme == "quantile" and m.nbins_rule == "sturges"
 
 
 def test_biz_val_adaptive_nbins_disabled_keeps_mdlp_at_large_n():
@@ -114,4 +114,4 @@ def test_biz_val_adaptive_nbins_disabled_keeps_mdlp_at_large_n():
     m = _fast_mrmr(adaptive_nbins_large_n_reg=False)
     m.fit(X, y)
     assert getattr(m, "_adaptive_nbins_large_n_reg_fired_", False) is False
-    assert m.nbins_strategy == "mdlp"
+    assert m.binning_scheme == "mdlp" and m.nbins_rule is None

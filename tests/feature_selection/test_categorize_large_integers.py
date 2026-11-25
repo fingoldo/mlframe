@@ -6,6 +6,7 @@ import pytest
 
 from mlframe.feature_selection.filters.discretization import categorize_dataset
 from mlframe.feature_selection.filters.discretization import _discretization_dataset as D
+from mlframe.feature_selection.filters._binning_spec import make_binning_spec
 
 pl = pytest.importorskip("polars")
 
@@ -21,7 +22,7 @@ def _epoch_frame(n=4000, seed=0):
 def test_supervised_binning_keeps_every_timestamp(make):
     """MDLP sees the five values and keeps five codes."""
     X, y = _epoch_frame()
-    data, cols, _nb = categorize_dataset(make(X), nbins_strategy="mdlp", y_for_strategy=y, dtype=np.int32)
+    data, cols, _nb = categorize_dataset(make(X), binning=make_binning_spec("mdlp", warn=False), y_for_strategy=y, dtype=np.int32)
     assert len(np.unique(data[:, cols.index("ts")])) == 5
 
 
@@ -29,8 +30,8 @@ def test_codes_equal_those_of_the_shifted_column():
     """Shifting by the minimum is exact: the codes equal those of the same column written as 0..4."""
     X, y = _epoch_frame()
     small = X.assign(ts=X["ts"] - X["ts"].min())
-    a, ca, _ = categorize_dataset(X, nbins_strategy="mdlp", y_for_strategy=y, dtype=np.int32)
-    b, cb, _ = categorize_dataset(small, nbins_strategy="mdlp", y_for_strategy=y, dtype=np.int32)
+    a, ca, _ = categorize_dataset(X, binning=make_binning_spec("mdlp", warn=False), y_for_strategy=y, dtype=np.int32)
+    b, cb, _ = categorize_dataset(small, binning=make_binning_spec("mdlp", warn=False), y_for_strategy=y, dtype=np.int32)
     np.testing.assert_array_equal(a[:, ca.index("ts")], b[:, cb.index("ts")])
 
 
@@ -51,7 +52,7 @@ def test_frames_without_large_integers_are_untouched():
 def test_integral_float64_column_keeps_its_values():
     """A float64 column holding integers above 2^24 (a densified nullable Int64) is shifted like an integer column; MDLP keeps five codes."""
     X, y = _epoch_frame()
-    data, cols, _nb = categorize_dataset(X.assign(ts=X["ts"].astype(np.float64)), nbins_strategy="mdlp", y_for_strategy=y, dtype=np.int32)
+    data, cols, _nb = categorize_dataset(X.assign(ts=X["ts"].astype(np.float64)), binning=make_binning_spec("mdlp", warn=False), y_for_strategy=y, dtype=np.int32)
     assert len(np.unique(data[:, cols.index("ts")])) == 5
 
 

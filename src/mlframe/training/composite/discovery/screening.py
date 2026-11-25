@@ -453,7 +453,7 @@ def _prebin_feature_columns_lazy(
 # MRMR feature-selection (filters/mrmr.py) and composite discovery use two INDEPENDENT MI stacks;
 # sharing a single per-suite feature-prebin cache across them would CHANGE the bins feeding MI ->
 # change MI -> change which features get selected. They are not interchangeable on four axes:
-#   1. strategy: MRMR default ``nbins_strategy='mdlp'`` is SUPERVISED Fayyad-Irani discretization
+#   1. strategy: MRMR default ``binning_scheme='mdlp'`` is SUPERVISED Fayyad-Irani discretization
 #      (target-aware, per-feature adaptive edge counts via _adaptive_nbins.per_feature_edges, also
 #      knuth/blocks/fd variants); discovery here is UNSUPERVISED fixed equi-mass quantile binning
 #      (np.quantile(col, linspace(0,1,nbins+1)[1:-1]) + searchsorted). Supervised != unsupervised

@@ -1,4 +1,4 @@
-"""MRMR-level pins of the binning reuse across targets: a target-independent ``nbins_strategy`` bins a column once for every target of a suite, a supervised one bins it again for each target.
+"""MRMR-level pins of the binning reuse across targets: a target-independent ``binning_scheme`` bins a column once for every target of a suite, a supervised one bins it again for each target.
 
 The unit-level pins live in ``tests/feature_selection/discretization/test_unsupervised_edges_reused_across_targets.py`` (``per_feature_edges``) and ``test_discretize_col_cache.py``. These run the whole MRMR fit: a second fit on the same columns with another target must compute no column edges for an unsupervised strategy, and must compute them again for a supervised one.
 """
@@ -13,6 +13,7 @@ import pytest
 
 from mlframe.feature_selection.filters import _adaptive_nbins_columns as cols
 from mlframe.feature_selection.filters.mrmr import MRMR
+from tests.feature_selection.binning_cases import binning_kwargs
 
 
 def _frame(n: int = 800, seed: int = 0):
@@ -42,10 +43,10 @@ def _fit(X, y, strategy: str):
     """One MRMR fit with the strategy and no feature engineering, so only the binning of the raw columns is counted."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return MRMR(verbose=0, random_seed=0, nbins_strategy=strategy, fe_max_steps=0).fit(X, y)
+        return MRMR(verbose=0, random_seed=0, **binning_kwargs(strategy), fe_max_steps=0).fit(X, y)
 
 
-@pytest.mark.parametrize("strategy", ["quantile_spacing", "freedman_diaconis", "sturges", "uniform"])
+@pytest.mark.parametrize("strategy", ["rice_capped", "freedman_diaconis", "sturges", "uniform"])
 def test_unsupervised_strategy_bins_each_column_once_across_targets(monkeypatch, strategy):
     """The first target bins the raw columns; the second target (another type) computes no column edge again."""
     X, y_bin, y_reg = _frame()
@@ -82,7 +83,7 @@ def test_supervised_strategy_bins_again_for_another_target(monkeypatch):
 # in that search: no change in what is selected, one +0.005 R2, at 1.1-2.8x the wall. The fix would touch the fit path (codes handed from parent to child, cache keys by row subset) to speed up a mode that
 # nobody should switch on. strict=True: the day the fix lands the test XPASSes and fails the run, which forces removing this marker.
 @pytest.mark.xfail(strict=True, reason="child fit of the target mix re-bins its row subset; fix not implemented because the candidate search showed no value (PLAN-05, MRMR-COMPOSITE-BIN-ONCE)")
-@pytest.mark.parametrize("strategy", ["quantile_spacing", "freedman_diaconis", "sturges", "uniform"])
+@pytest.mark.parametrize("strategy", ["rice_capped", "freedman_diaconis", "sturges", "uniform"])
 def test_composite_child_fit_adds_no_column_binning(monkeypatch, strategy):
     """The target-mix child fit (``fe_target_mix_candidates=True``) fits on a row subset of the parent. It should reuse the parent's codes (the same rows, the same edges), not bin the columns again.
 
@@ -118,16 +119,20 @@ def _count_fit_calls(monkeypatch) -> list:
     return calls
 
 
-def _fit_with_mix(X, y, mix: bool, strategy: str = "quantile_spacing"):
+def _fit_with_mix(X, y, mix: bool, strategy: str = "rice_capped"):
     """One MRMR fit with the target-mix second pass on or off (the child fit runs only when both candidates and enable are on)."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        return MRMR(verbose=0, random_seed=0, nbins_strategy=strategy, fe_max_steps=1, fe_target_mix_enable=mix, fe_target_mix_candidates=mix).fit(X, y)
+        return MRMR(verbose=0, random_seed=0, **binning_kwargs(strategy), fe_max_steps=1, fe_target_mix_enable=mix, fe_target_mix_candidates=mix).fit(X, y)
 
 
-def test_default_nbins_strategy_is_quantile_spacing():
+def test_default_binning_is_quantile_with_the_rice_capped_rule():
     """The default is the owner's choice of 2026-11-23: a strategy that depends on the column only (a suite of targets bins once) and whose bin count grows with N (see ``qs_nbins``)."""
-    assert MRMR().nbins_strategy == "quantile_spacing"
+    m = MRMR()
+    assert (m.binning_scheme, m.nbins_rule, m.nbins_cap) == ("quantile", None, 48)  # ``None`` resolves to rice_capped for the quantile scheme (``make_binning_spec``)
+    from mlframe.feature_selection.filters._binning_spec import spec_from_estimator
+
+    assert spec_from_estimator(m).rule == "rice_capped"
 
 
 @pytest.mark.parametrize("steps", [2, 3])

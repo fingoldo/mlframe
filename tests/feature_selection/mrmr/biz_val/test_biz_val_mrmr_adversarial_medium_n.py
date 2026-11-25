@@ -24,6 +24,7 @@ import pandas as pd
 import pytest
 
 from mlframe.feature_selection.filters.mrmr import MRMR
+from tests.feature_selection.binning_cases import binning_kwargs
 
 SEEDS = [0, 1, 2]
 
@@ -347,37 +348,36 @@ def test_exact_duplicate_keeps_one_jmim_vs_default(aggregator):
 
 # ---------------------------------------------------------------------------
 # Binning-axis robustness: MRMR selection must hold across the binning METHOD (quantization_method) and the
-# adaptive binning STRATEGY (nbins_strategy). The default nbins_strategy is "mdlp" (supervised), so the legacy
-# unsupervised path (None -> equal-frequency quantile) was previously untested; quantization_method was tested
+# adaptive binning SCHEME (binning_scheme x nbins_rule). The supervised scheme (mdlp) and the fixed-count rule (equal-frequency quantile) are both pinned; quantization_method was tested
 # on only one value. Both axes are exercised here on the two cleanest discriminating cases.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("quantization_method", ["quantile", "uniform"])
-@pytest.mark.parametrize("nbins_strategy", [None, "mdlp"])
-def test_signal_recovery_robust_across_binning(nbins_strategy, quantization_method):
-    """Across {None (legacy quantile), mdlp (supervised default)} x {quantile, uniform} cut methods: the
+@pytest.mark.parametrize("binning_case", ["fixed", "mdlp"])
+def test_signal_recovery_robust_across_binning(binning_case, quantization_method):
+    """Across {fixed (equal-frequency quantile with a fixed count), mdlp (supervised)} x {quantile, uniform} cut methods: the
     exact-duplicate pair collapses to one signal with no noise leak, and on the confounder case at least one
     genuine signal is kept. Selection must not be an artifact of one binning configuration."""
     dup = _fit_cached(
-        ("bin_dup", nbins_strategy, quantization_method),
+        ("bin_dup", binning_case, quantization_method),
         _make_exact_dup(0, n=2000),
         mode="raw",
         nbins=8,
         seed=0,
-        nbins_strategy=nbins_strategy,
+        **binning_kwargs(binning_case),
         quantization_method=quantization_method,
     )
-    assert len(_signal_cols(dup)) == 1, f"exact-dup ns={nbins_strategy} qm={quantization_method}: pair should collapse to one; got {dup}"
-    assert not [nm for nm in dup if nm.startswith("noise")], f"exact-dup ns={nbins_strategy} qm={quantization_method}: noise leaked; got {dup}"
+    assert len(_signal_cols(dup)) == 1, f"exact-dup bc={binning_case} qm={quantization_method}: pair should collapse to one; got {dup}"
+    assert not [nm for nm in dup if nm.startswith("noise")], f"exact-dup bc={binning_case} qm={quantization_method}: noise leaked; got {dup}"
 
     conf = _fit_cached(
-        ("bin_conf", nbins_strategy, quantization_method),
+        ("bin_conf", binning_case, quantization_method),
         _make_confounder(0, n=2000),
         mode="raw",
         nbins=8,
         seed=0,
-        nbins_strategy=nbins_strategy,
+        **binning_kwargs(binning_case),
         quantization_method=quantization_method,
     )
-    assert {"sig_a", "sig_b"} & set(conf), f"confounder ns={nbins_strategy} qm={quantization_method}: a genuine signal must be kept; got {conf}"
+    assert {"sig_a", "sig_b"} & set(conf), f"confounder bc={binning_case} qm={quantization_method}: a genuine signal must be kept; got {conf}"

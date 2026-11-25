@@ -41,7 +41,7 @@ def _run(scenario: str, n: int, seed: int) -> dict:
     return {
         "scenario": scenario, "n": n, "seed": seed,
         "fired": bool(getattr(m, "_adaptive_nbins_large_n_reg_fired_", False)),
-        "nbins_strategy": m.nbins_strategy, "quantization_nbins": m.quantization_nbins,
+        "binning_scheme": m.binning_scheme, "quantization_nbins": m.quantization_nbins,
         "nsel": len(sup), "precision": prec, "recall": rec, "f1": _f1(prec, rec),
     }
 
@@ -55,7 +55,7 @@ def main() -> None:
     print(f"{'scenario':<14}{'n':>8}{'seed':>5}{'fired':>7}{'strat':>7}{'nbins':>6}{'nsel':>5}{'prec':>6}{'rec':>6}{'F1':>6}")
     for scn, n, seed in cells:
         r = _run(scn, n, seed)
-        print(f"{r['scenario']:<14}{r['n']:>8}{r['seed']:>5}{r['fired']!s:>7}{r['nbins_strategy']!s:>7}"
+        print(f"{r['scenario']:<14}{r['n']:>8}{r['seed']:>5}{r['fired']!s:>7}{r['binning_scheme']!s:>7}"
               f"{r['quantization_nbins']:>6}{r['nsel']:>5}{r['precision']:>6.3f}{r['recall']:>6.3f}{r['f1']:>6.3f}")
 
 

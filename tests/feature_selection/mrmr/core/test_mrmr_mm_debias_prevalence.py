@@ -202,20 +202,20 @@ class TestMaxTFloorMMCoUpdate:
 
 
 # ---------------------------------------------------------------------------
-# biz_value / regression: the DEFAULT is OFF => byte-stable selection.
+# The DEFAULT is ON: the debias is measured to help (ridge MAE of transform() on fresh rows) and has no scenario
+# that loses beyond a small tree-head cost, so it ships on; False is the rollback to the raw prevalence ratio.
 # ---------------------------------------------------------------------------
-class TestMMDebiasDefaultOff:
-    """Groups tests covering TestMMDebiasDefaultOff."""
+class TestMMDebiasDefaultOn:
+    """Groups tests covering the default-on Miller-Madow debias of the prevalence ratio."""
+
     @pytest.mark.timeout(1800)
-    def test_default_is_off_and_byte_stable(self):
-        """The shipped DEFAULT is ``fe_mm_debias_prevalence=False`` (bench-rejected as a
-        default). Fitting with the explicit default vs the explicit False must produce an
-        IDENTICAL selection (the flag does not silently change the shipped behaviour)."""
+    def test_default_is_on_and_equals_explicit_true(self):
+        """The shipped DEFAULT is ``fe_mm_debias_prevalence=True``: fitting with the default selects exactly what the explicit True selects, and the explicit False (the rollback to the raw ratio) fits as well."""
         import inspect
         from mlframe.feature_selection.filters.mrmr import MRMR
 
         default = inspect.signature(MRMR.__init__).parameters["fe_mm_debias_prevalence"].default
-        assert default is False, "MM-debias must ship default-OFF (bench-rejected as default)"
+        assert default is True, "MM-debias ships default-ON (measured useful, see the weak-F2 downstream comparison)"
 
         rng = np.random.default_rng(7)
         n = 2000
@@ -228,7 +228,7 @@ class TestMMDebiasDefaultOff:
         ys = pd.Series(y, name="y")
 
         m_default = MRMR(verbose=0, random_state=1).fit(df, ys)
-        m_explicit_off = MRMR(verbose=0, random_state=1, fe_mm_debias_prevalence=False).fit(df, ys)
-        assert list(m_default.get_feature_names_out()) == list(
-            m_explicit_off.get_feature_names_out()
-        ), "explicit-default and explicit-False selections differ -- default is not OFF/byte-stable"
+        m_explicit_on = MRMR(verbose=0, random_state=1, fe_mm_debias_prevalence=True).fit(df, ys)
+        assert list(m_default.get_feature_names_out()) == list(m_explicit_on.get_feature_names_out()), "the default selection differs from the explicit True"
+        m_rollback = MRMR(verbose=0, random_state=1, fe_mm_debias_prevalence=False).fit(df, ys)
+        assert len(list(m_rollback.get_feature_names_out())) >= 1

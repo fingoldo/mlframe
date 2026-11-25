@@ -12,6 +12,7 @@ import pytest
 
 from mlframe.feature_selection.filters import _adaptive_nbins as A
 from mlframe.feature_selection.filters.discretization import _handle_missing, categorize_dataset
+from tests.feature_selection.binning_cases import binning_spec
 
 
 def _reference_edges(x, y, candidates=(4, 8, 16, 32), n_splits=3, base="quantile", random_state=0, max_y_classes=64):
@@ -111,12 +112,12 @@ def test_categorize_dataset_returns_the_same_codes_with_and_without_the_plan_cac
     n = 3000
     frame = pd.DataFrame({**_columns(n), "lowcard": rng.integers(0, 4, n).astype(np.float64), "n2": rng.standard_normal(n)})
     y = _targets(n)["binary"]
-    kw = dict(method="quantile", n_bins=10, dtype=np.int16, missing_strategy="separate_bin", nbins_strategy="optimal_joint", cache_dir=None)
+    kw = dict(method="quantile", n_bins=10, dtype=np.int16, missing_strategy="separate_bin", binning=binning_spec("optimal_joint"), cache_dir=None)
     cache = A.OptimalJointPlanCache()
     for s in range(4):
         yy = y[np.random.default_rng(s).permutation(n)]
-        d0, c0, nb0 = categorize_dataset(df=frame, y_for_strategy=yy, nbins_strategy_kwargs={}, **kw)
-        d1, c1, nb1 = categorize_dataset(df=frame, y_for_strategy=yy, nbins_strategy_kwargs={"optimal_joint_plan_cache": cache}, **kw)
+        d0, c0, nb0 = categorize_dataset(df=frame, y_for_strategy=yy, binning_kwargs={}, **kw)
+        d1, c1, nb1 = categorize_dataset(df=frame, y_for_strategy=yy, binning_kwargs={"optimal_joint_plan_cache": cache}, **kw)
         assert np.array_equal(d0, d1) and list(c0) == list(c1) and list(nb0) == list(nb1), s
 
 
@@ -168,7 +169,7 @@ def test_handle_missing_takes_the_median_only_of_columns_with_a_nan(monkeypatch)
 
 
 def test_the_honest_null_hook_uses_the_cache_and_returns_the_codes_of_the_uncached_search(monkeypatch, honest_hooks):
-    """A fit with ``nbins_strategy='optimal_joint'`` binds the plan cache into its honest null; the re-binned codes of a permutation equal those with ``MLFRAME_OJ_PLAN_CACHE=0``."""
+    """A fit with ``binning_scheme='optimal_joint'`` binds the plan cache into its honest null; the re-binned codes of a permutation equal those with ``MLFRAME_OJ_PLAN_CACHE=0``."""
     import warnings
 
     from mlframe.feature_selection.filters.mrmr import MRMR
@@ -189,7 +190,7 @@ def test_the_honest_null_hook_uses_the_cache_and_returns_the_codes_of_the_uncach
         MRMR.clear_fit_cache()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            model = MRMR(verbose=0, random_seed=0, n_jobs=1, nbins_strategy="optimal_joint", fe_max_steps=0).fit(X, y)
+            model = MRMR(verbose=0, random_seed=0, n_jobs=1, binning_scheme="optimal_joint", fe_max_steps=0).fit(X, y)
         fn = honest_hooks[-1]
         perms = [np.random.default_rng(s).permutation(n) for s in range(3)]
         return [fn(p) for p in perms], list(model.get_feature_names_out())

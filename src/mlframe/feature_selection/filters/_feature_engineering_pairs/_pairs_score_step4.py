@@ -8,6 +8,7 @@ import logging
 import numpy as np
 
 from ._pairs_operand_floor import _beats_the_larger_operand, operand_uplift_null_bar_for_pair
+from ._pairs_sufficiency import MIN_MI_RATIO_TO_TEST, interaction_verdict, pair_regression_stats
 from ._pairs_abs_corr_gpu import candidate_abs_corr
 from ._pairs_score_helpers import (
     logger,
@@ -17,7 +18,68 @@ from ._pairs_score_helpers import (
     _score_one_pair_uplift_fires_prewarp_config,
     _score_one_pair_warp_spec_round_trip,
 )
+from mlframe.utils.env_flags import FALSE_VALUES, env_reader
 from mlframe.utils.log_throttle import log_throttle
+
+_interaction_gate_reader = env_reader("MLFRAME_FE_PAIR_INTERACTION_GATE")
+
+
+def _pair_interaction_gate_on() -> bool:
+    """The interaction / sufficiency admission is on unless ``MLFRAME_FE_PAIR_INTERACTION_GATE`` is set to a false spelling (the rollback of the measured change)."""
+    value = _interaction_gate_reader()
+    return value is None or value.strip().lower() not in FALSE_VALUES - {""}
+
+
+def _winner_column(ci, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations):
+    """Continuous values of candidate column ``ci``: the chunk buffer when it is kept, the device re-materialisation on the deferred path, else rebuilt from its (operand, operand, binary) recipe. ``None`` when it cannot be rebuilt."""
+    if final_transformed_vals is not None:
+        return final_transformed_vals[:, ci]
+    if _this_chunk_deferred:
+        return _resolve_col(ci)
+    if _config_by_i is not None and ci in _config_by_i:
+        _ak, _bk, _bn = _config_by_i[ci]
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            values = binary_transformations[_bn](transformed_vars[:, vars_transformations[_ak]], transformed_vars[:, vars_transformations[_bk]])
+        return np.nan_to_num(np.asarray(values, dtype=np.float32), copy=False, nan=0.0, posinf=0.0, neginf=0.0)
+    return None
+
+
+def _pair_interaction_accept(
+    st, raw_vars_pair, pair_mi, _corr_y_cont, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations,
+    _operand_marginal_mi, _operand_discretized, classes_y, verbose,
+):
+    """Admit the pair's winner when it is an honest 1-D summary of a pair that carries an interaction (``_pairs_sufficiency``), after the same operand-uplift floor the joint gate uses.
+
+    The joint-prevalence ratio ``best_mi / pair_mi`` is depressed by the resolution of a 1-D partition against a 2-D one, which no debias touches, and cannot tell a genuine interaction from an additive pair
+    (weak F2, 2026-11-24: genuine 0.71, additive cross pairs 0.61-0.64; the interaction statistic: 36 against -3 to -5). Returns False whenever the continuous target, the winner or an operand column is not available."""
+    best = st.best_config
+    if best is None or _corr_y_cont is None or st.best_mi <= 0.0 or pair_mi <= 0.0 or st.best_mi / pair_mi < MIN_MI_RATIO_TO_TEST:
+        return False
+    try:
+        winner = _winner_column(best[2], final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations)
+        if winner is None:
+            return False
+        a = transformed_vars[:, vars_transformations[(raw_vars_pair[0], "identity")]]
+        b = transformed_vars[:, vars_transformations[(raw_vars_pair[1], "identity")]]
+        y = np.asarray(_corr_y_cont)
+        if not (len(winner) == len(a) == len(b) == len(y)):
+            return False
+        stats = pair_regression_stats(winner, a, b, y)
+    except Exception as e:  # the extra accept path never breaks a fit: the strict MI decision stands
+        log_throttle(logger, "pairs_score.interaction_accept", logging.WARNING, "pair interaction test failed (%s: %s); the joint-prevalence decision stands", type(e).__name__, e)
+        return False
+    ok, why = interaction_verdict(stats)
+    if not ok:
+        if verbose:
+            st.messages.append(f"pair interaction test: not admitted ({why})")
+        return False
+    floor = max(_operand_marginal_mi(raw_vars_pair[0]), _operand_marginal_mi(raw_vars_pair[1]))
+    bar = operand_uplift_null_bar_for_pair(raw_vars_pair, _operand_marginal_mi, _operand_discretized, np.asarray(classes_y).ravel(), float(floor))
+    if not _beats_the_larger_operand(st.best_mi, _operand_marginal_mi, raw_vars_pair, st.messages if verbose else None, pair_mi, bar):
+        return False
+    if verbose:
+        st.messages.append(f"pair interaction test: admitted ({why})")
+    return True
 
 
 def _config_corr(
@@ -105,6 +167,10 @@ def _score_one_pair_step4_iteration_serialization_point(  # audit-exempt: duplic
         st, times_spent, verbose, raw_vars_pair, _corr_y_cont, _PREWARP_UNARY, fe_good_to_best_feature_mi_threshold, final_transformed_vals,
         _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations, _safe_abs_corr, pair_mi,
     )
+    # the debias reads the winner's continuous column through ``_resolve_col``, which raises where the chunk buffer is not kept (the occupied-K then fell back to the nominal bin count silently); the getter rebuilds it
+    _resolve_winner = _resolve_col if (final_transformed_vals is not None or _this_chunk_deferred or not fe_mm_debias_prevalence) else (
+        lambda ci: _winner_column(ci, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations)
+    )
     st._gate_ratio = _score_one_pair_mi_threshold_ratio_fix(
         fe_mm_debias_prevalence,
         pair_mi,
@@ -113,7 +179,7 @@ def _score_one_pair_step4_iteration_serialization_point(  # audit-exempt: duplic
         freqs_y,
         quantization_nbins,
         discretize_array,
-        _resolve_col,
+        _resolve_winner,
         quantization_method,
         quantization_dtype,
         _operand_discretized,
@@ -131,6 +197,12 @@ def _score_one_pair_step4_iteration_serialization_point(  # audit-exempt: duplic
     st._passes_joint_gate = st._passes_joint_gate and _beats_the_larger_operand(
         st.best_mi, _operand_marginal_mi, raw_vars_pair, st.messages if verbose else None, pair_mi, _uplift_bar
     )
+
+    if not st._passes_joint_gate and _pair_interaction_gate_on():
+        st._passes_joint_gate = _pair_interaction_accept(
+            st, raw_vars_pair, pair_mi, _corr_y_cont, final_transformed_vals, _this_chunk_deferred, _resolve_col, _config_by_i, transformed_vars, vars_transformations, binary_transformations,
+            _operand_marginal_mi, _operand_discretized, classes_y, verbose,
+        )
 
     # Alternative pre-warp acceptance: the joint-prevalence gate
     # structurally rejects a 1-D summary of a 2-D pair on a non-monotone inner

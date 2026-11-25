@@ -27,13 +27,13 @@ import numpy as np
 import pytest
 
 from mlframe.feature_selection.filters._adaptive_nbins import (
-    edges_sturges,
     edges_freedman_diaconis,
     edges_knuth,
     sturges_nbins,
     freedman_diaconis_nbins,
     per_feature_edges,
 )
+from tests.feature_selection.binning_cases import edges_sturges
 
 ALL_EDGE_FNS = {
     "sturges": edges_sturges,
@@ -116,8 +116,8 @@ def test_sturges_fd_near_constant_raw_fn_documented_contract(name, fn):
     assert np.all(np.isfinite(edges)), f"{name}: near-constant column produced non-finite edges"
 
 
-@pytest.mark.parametrize("name,method", [("sturges", "sturges"), ("freedman_diaconis", "freedman_diaconis"), ("knuth", "knuth")])
-def test_per_feature_edges_near_constant_dispatcher_guardrail_engages(name, method):
+@pytest.mark.parametrize("name,rule", [("sturges", "sturges"), ("freedman_diaconis", "freedman_diaconis"), ("knuth", "knuth")])
+def test_per_feature_edges_near_constant_dispatcher_guardrail_engages(name, rule):
     """Integration-level check of the ACTUAL production path (``per_feature_edges``), which every
     real caller goes through (raw ``edges_*`` functions are only called directly from benchmarks).
     The near-constant-with-5-outliers column has 6 distinct values <= ``low_card_cap`` (32 by
@@ -130,7 +130,7 @@ def test_per_feature_edges_near_constant_dispatcher_guardrail_engages(name, meth
     x[:5] = rng.random(5) * 1000.0
     X = x.reshape(-1, 1)
     y = (rng.random(100_000) > 0.5).astype(np.int64)
-    edges = per_feature_edges(X, method=method, y=y, n_jobs=1)[0]
+    edges = per_feature_edges(X, method="partition", partition="uniform" if rule == "knuth" else "quantile", count_rule=rule, nbins_cap=48, y=y, n_jobs=1)[0]
     assert edges.size > 0, f"{name}: per_feature_edges silently produced ZERO edges for a 6-distinct-value column"
     Kx = int(np.searchsorted(edges, x, side="right").max()) + 1
     assert Kx > 1, f"{name}: per_feature_edges collapsed a real 6-distinct-value column to K_x=1"

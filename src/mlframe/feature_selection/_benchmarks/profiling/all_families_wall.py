@@ -1,7 +1,7 @@
 """THE MRMR wall-time benchmark: 100000 rows x 100 columns, EVERY feature-engineering family on (except the LightGBM surrogate seeder), strict-resident GPU path.
 
 What is measured. ``family_scale.all_families_kwargs()``: every ``fe_*_enable`` family switched on except ``fe_gbm_seeder_enable`` (the LightGBM surrogate seeder costs about 10 s of a GPU fit and adds
-no selected feature the other seeders do not find), ``nbins_strategy="mdlp"``, ``random_seed=0``, ``n_jobs=1``, the GPU flags ``MLFRAME_FE_GPU_STRICT / MLFRAME_CMI_GPU / MLFRAME_FE_VRAM_F32 /
+no selected feature the other seeders do not find), ``binning_scheme`` = the MRMR default ``quantile`` (env ``BENCH_NBINS`` overrides; every number of the history below up to 2026-11-23 was taken with ``mdlp``), ``random_seed=0``, ``n_jobs=1``, the GPU flags ``MLFRAME_FE_GPU_STRICT / MLFRAME_CMI_GPU / MLFRAME_FE_VRAM_F32 /
 MLFRAME_FE_GPU_DISCRETIZE / MLFRAME_FE_GPU_BINNING = 1``. One warm-up fit on a 20000 x 30 frame comes first (numba / cupy / kernel-tuning warm-up), then the 100000 x 100 fit is timed: the line
 ``WALL <seconds>`` is the number. The scheduler's stage walls are printed on the way.
 
@@ -46,9 +46,11 @@ Companions (all in this package, same protocol: a warm-up fit first, then the me
 - ``all_families_family_walls``    per-family wall ledger (``fe_family_wall``) of the same fit, longest first, plus the selected features.
 - ``all_families_fit_ledger``      the ledger the fitted estimator carries (``fe_family_wall_``, 30000 x 40), a quick sanity probe.
 - ``all_families_selection_quality``  held-out AUC (LightGBM, logistic regression, all raw columns) of the selected features: judge a GPU / CPU selection difference by this, not by names.
+- ``stage_idle_report``             (with ``BENCH_LEDGER=<prefix>`` on this file) the stage ledger and the hardware timeline of the measured fit, and per stage the load while it ran, the devices that stood idle with enough free memory before it, and the stage it followed.
 - ``numba_signature_counts``       numba dispatchers with more than one compiled signature after two fits (recompiles inside a fit).
 - ``env_sampled_fit``, ``stack_timeline``, ``utilization``, ``tick_utilization``, ``family_profile``, ``family_scale``: older siblings of the same fit (system sampler, 6 s buckets, idle share, one family at a time).
 """
+from mlframe.feature_selection._benchmarks.binning_label import binning_params
 import logging
 import os
 import sys
@@ -64,7 +66,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 N_ROWS = int(sys.argv[1]) if len(sys.argv) > 1 else 100000
 N_COLS = int(sys.argv[2]) if len(sys.argv) > 2 else 100
 kw = F.all_families_kwargs()
-kw["nbins_strategy"] = "mdlp"
+kw.update(binning_params(os.environ.get("BENCH_NBINS", "quantile")))  # the default of MRMR; BENCH_NBINS=mdlp reproduces the numbers of the history below (they were taken with mdlp)
 MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20000, 30, 1))  # warm-up fit
 data = F._make(N_ROWS, N_COLS, 0)
 
@@ -91,6 +93,26 @@ if os.environ.get("MLFRAME_BENCH_WAIT_COOL_C"):
 print("hardware before: " + hardware_state.line(), flush=True)
 H.t0 = time.time()
 MRMR._FIT_CACHE.clear()
+ledger_prefix = os.environ.get("BENCH_LEDGER")  # BENCH_LEDGER=<prefix>: the stage ledger and the hardware timeline of the measured fit go to <prefix>.ledger.jsonl / <prefix>.timeline.jsonl and the idle-device report is printed
+sampler = None
+if ledger_prefix:
+    from mlframe.feature_selection._benchmarks.profiling.hardware_timeline import TimelineSampler
+    from mlframe.feature_selection.filters import _stage_ledger
+
+    for suffix in (".ledger.jsonl", ".timeline.jsonl"):
+        if os.path.exists(ledger_prefix + suffix):
+            os.remove(ledger_prefix + suffix)
+    os.environ[_stage_ledger.ENV] = ledger_prefix + ".ledger.jsonl"
+    _stage_ledger.reset()
+    sampler = TimelineSampler(ledger_prefix + ".timeline.jsonl", interval=0.5)
+    sampler.__enter__()
+H.t0 = time.time()
 MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*data)
 print("WALL %.1f" % (time.time() - H.t0))
 print("hardware after:  " + hardware_state.line(), flush=True)
+if sampler is not None:
+    sampler.__exit__(None, None, None)
+    from mlframe.feature_selection._benchmarks.profiling import stage_idle_report
+
+    assert ledger_prefix is not None
+    stage_idle_report.main([ledger_prefix + ".ledger.jsonl", ledger_prefix + ".timeline.jsonl"])

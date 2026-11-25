@@ -1,6 +1,6 @@
 """Proposer and held-out gate of the target-transform search (PLAN_target_transform_in_mrmr, step 2; the functions are not wired into MRMR yet).
 
-The cases are the ones of ``_benchmarks/nbins_strategy/target_transform_mi_ext.py``: a cubic target that cbrt linearises, a lognormal target that log linearises, and a plain linear target on which the proposer is known
+The cases are the ones of ``_benchmarks/binning_scheme/target_transform_mi_ext.py``: a cubic target that cbrt linearises, a lognormal target that log linearises, and a plain linear target on which the proposer is known
 to rank ``signed_sqrt`` first (a false positive the gate must reject).
 """
 

@@ -12,12 +12,17 @@ FE / escalation ran and the output carried NO (a,b) feature -- downstream R^2 ca
 pairs (that DID clear the order-2 maxT null) to the escalation, where a leak-safe held-out
 rank-1 ALS pair-vs-single |corr| margin re-decides and the full admission gates gate.
 
+CURRENT STATE OF THE FIXTURE (2026-11-24): with the default prevalence bars the (a,b) pair of F2 no longer fails the prevalence gate (its joint MI is 13 times the sum of its marginals; no bar below 13 rejects it),
+so the rescue has nothing to rescue there and the pair reaches the escalation as an ordinary zero-admission pair. The rescue tests therefore make the pair fail the gate with a high ``fe_min_pair_mi_prevalence`` and
+route it with ``fe_prevalence_rescue_all_pairs`` (the same ``_route_to_rescue`` branch the synergy pairs take): the ledger shows the (a,b) rejection and the rescue switch alone decides whether the escalation sees the pair.
+A separate test pins the other finding of the same investigation: the escalation budget (8 pairs) was filled in order of raw joint MI, with the additive cross pairs of the strong operands ahead of the weak-marginal
+interaction; the pairs now compete on the MI beyond their operands' marginals.
+
 Covers:
-* UNIT: a weak-marginal smooth interaction (a**2/b) is rescued -- the escalation eligible
-  set contains (a,b) and an ``esc_poly_*`` candidate is proposed+admitted, while the rescue
-  is correctly INERT on a pure-noise pair (no admission).
-* biz_value WIN: on F2 the fitted MRMR output now contains a genuine (a,b) engineered
-  feature and downstream 5-fold Ridge R^2 improves materially vs the rescue-OFF baseline.
+* UNIT: a prevalence-failed weak-marginal smooth interaction (a**2/b) is rescued -- the escalation eligible
+  set contains (a,b) and an ``esc_poly_*`` candidate is proposed+admitted; with the rescue off nothing is escalated.
+* UNIT: the budget ranking puts the interaction pair first and keeps the joint-MI order without marginals.
+* biz_value: the interaction-ranked budget surfaces the (a,b) feature on F2 without harming the downstream R^2 of a tree or a linear consumer.
 """
 
 from __future__ import annotations
@@ -27,6 +32,7 @@ import warnings
 
 import numpy as np
 import pandas as pd
+import pytest
 
 warnings.filterwarnings("ignore")
 
@@ -51,6 +57,24 @@ _LEAN = dict(
     fe_modular_enable=False,
     fe_hybrid_orth_triplet_enable=False,
 )
+
+
+# Every pair of the fixture fails a prevalence bar of 40 (the (a,b) ratio is 13), so the verdict of the prevalence gate no longer depends on the data: the rescue switch alone decides which pairs reach the escalation.
+_PREVALENCE_FAILED = dict(fe_min_pair_mi_prevalence=40.0, fe_prevalence_rescue_all_pairs=True)
+
+
+def _prescreen_rejected_pairs(sel) -> set:
+    """Operand-name tuples the marginal-pair-MI prescreen rejected (read from the rejection ledger)."""
+    led = sel.fe_rejection_ledger_
+    rows = led[led["gate"] == "marginal_pair_mi_prescreen"]
+    return {tuple(sorted(str(n).strip() for n in str(nm).strip("()").split(","))) for nm in rows["operand_names"]}
+
+
+@pytest.fixture(autouse=True)
+def _unary_credit_off(monkeypatch):
+    """Keep the unary-credit pass out of these fits, like the families of ``_LEAN``: it credits the closed form ``mul(sq0(a),recip(b))`` for the same a**2/b signal on its own, and the escalation's (a,b) column
+    is then pruned as redundant to it, so with it on the output carries the signal but not the rescue's column."""
+    monkeypatch.setenv("MLFRAME_FE_UNARY_CREDIT", "0")
 
 
 def _make_f2(seed: int = 11, n: int = 12000):
@@ -107,9 +131,10 @@ def test_unit_rescue_fires_for_weak_smooth_interaction_inert_on_noise():
 
     df, y = _make_f2(seed=11, n=12000)
     MRMR.clear_fit_cache()
-    sel = MRMR(verbose=0, n_jobs=1, random_state=0, **_LEAN)
+    sel = MRMR(verbose=0, n_jobs=1, random_state=0, **_PREVALENCE_FAILED, **_LEAN)
     sel.fit(df, y)
 
+    assert ("a", "b") in _prescreen_rejected_pairs(sel), "premise: the (a,b) pair must fail the prevalence gate for the rescue to have something to rescue"
     hist = getattr(sel, "fe_escalation_history_", []) or []
     eligible_pairs = set()
     for h in hist:
@@ -159,50 +184,90 @@ def test_unit_rescue_can_be_disabled():
 
     df, y = _make_f2(seed=11, n=12000)
     MRMR.clear_fit_cache()
-    sel = MRMR(verbose=0, n_jobs=1, random_state=0, fe_synergy_prevalence_rescue_enable=False, **_LEAN)
+    sel = MRMR(verbose=0, n_jobs=1, random_state=0, fe_synergy_prevalence_rescue_enable=False, **_PREVALENCE_FAILED, **_LEAN)
     sel.fit(df, y)
+    assert ("a", "b") in _prescreen_rejected_pairs(sel), "premise: the (a,b) pair fails the prevalence gate here exactly as in the rescue-ON test"
     assert not _ab_from_recipes(sel), "rescue OFF must NOT produce an (a,b) feature (true-negative control)"
+    escalated = {tuple(p) for h in (getattr(sel, "fe_escalation_history_", []) or []) for p in (h.get("eligible_pairs") or [])}
+    assert ("a", "b") not in escalated and ("b", "a") not in escalated, f"rescue OFF must not hand the prevalence-failed pair to the escalation: {escalated}"
 
 
-def test_biz_value_rescue_improves_f2_downstream_r2():
-    """biz_value WIN: on F2 the rescue makes a CLEAN standalone (a,b) escalation feature
-    appear in the output, and the downstream R^2 of a tree model (HistGBR -- the right
-    consumer of MRMR's discretised engineered codes) improves materially vs the rescue-OFF
-    baseline.
-
-    REFRAMED: the HistGBR consumer now recovers the modest ``0.2*a**2/b`` term from raw
-    (a,b) splits on its own, so the rescue-OFF baseline is already near-ceiling (R^2 ~0.994)
-    and there is no downstream headroom for the engineered (a,b) feature to add. The original
-    "must improve +0.02" premise is stale on this fixture. Assert instead the discriminating
-    contract that survives the high baseline: the rescue still SURFACES the clean standalone
-    (a,b) escalation feature (the capability, attributable -- the OFF control has none) AND
-    does NOT HARM the near-ceiling downstream R^2 beyond noise (on >= off - 0.01, both >=0.95).
-    The escalation must stay TERMINAL in the composite feed-forward
-    (``fe_escalation_feedforward_enable=False``, the default): feeding it back as an operand
-    fuses it into a ratio composite that drops the clean raw predictors (measured F2 regression)."""
-    from sklearn.ensemble import HistGradientBoostingRegressor
-    from sklearn.model_selection import cross_val_score, KFold
+def test_unit_weak_marginal_interaction_is_not_starved_of_the_escalation_budget():
+    """With the default bars (nothing to rescue) the (a,b) pair is an ordinary zero-admission pair and must still reach the escalation: it is ninth of the nine candidate pairs by joint MI (the additive cross pairs
+    of the strong operands d, f, c lead), and the budget holds eight."""
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     df, y = _make_f2(seed=11, n=12000)
+    MRMR.clear_fit_cache()
+    sel = MRMR(verbose=0, n_jobs=1, random_state=0, **_LEAN)
+    sel.fit(df, y)
+    hist = getattr(sel, "fe_escalation_history_", []) or []
+    escalated = {tuple(p) for h in hist for p in (h.get("eligible_pairs") or [])}
+    assert ("a", "b") in escalated or ("b", "a") in escalated, f"the weak-marginal interaction pair must be escalated; eligible={escalated}"
+    assert any(name.startswith("esc_") and "mul(a,b)" in name for h in hist for name in (h.get("admitted") or [])), f"an (a,b) richer-basis candidate must be admitted; admitted={[h.get('admitted') for h in hist]}"
 
-    def _r2(sel):
-        """Transform df through the fitted selector and return the held-out CV R^2 of a gradient-boosted model on its output."""
+
+def test_unit_escalation_budget_ranks_pairs_by_interaction_content():
+    """``_select_eligible_pairs`` fills the budget with the pairs whose joint MI most exceeds their operands' marginals: an additive cross pair (joint MI = the sum of its marginals, the largest joint MI of all) loses to
+    a weak-marginal interaction pair, and without marginals the order is the joint MI as before. Rescue pairs keep their reserved half of the budget."""
+    from mlframe.feature_selection.filters._fe_auto_escalation import _select_eligible_pairs
+
+    cols = ["strong", "other", "weak1", "weak2", "rescued1", "rescued2"]
+    raw = set(cols)
+    marginals = {(0,): 0.6, (1,): 0.1, (2,): 0.03, (3,): 0.03, (4,): 0.02, (5,): 0.02}
+    failed = [((0, 1), 1.30), ((2, 3), 0.85), ((4, 5), 0.20)]
+
+    def picked(max_pairs, marginal_mi, rescue=None):
+        """Operand-name pairs the budget picked, in order."""
+        _, eligible = _select_eligible_pairs(failed, cols, raw, rescue, max_pairs, {}, marginal_mi)
+        return [(na, nb) for _, _, na, nb in eligible]
+
+    assert picked(1, marginals) == [("weak1", "weak2")], "the interaction pair must take the single slot"
+    assert picked(1, None) == [("strong", "other")], "without marginals the joint-MI order stays"
+    assert picked(3, marginals) == [("weak1", "weak2"), ("strong", "other"), ("rescued1", "rescued2")], "interaction content, not joint MI, orders the budget"
+    assert picked(2, marginals, rescue={(4, 5)})[0] == ("rescued1", "rescued2"), "a rescue pair is listed ahead of the others"
+    assert ("rescued1", "rescued2") in picked(2, marginals, rescue={(4, 5)}), "a rescue pair keeps its reserved share of the budget"
+
+
+def test_biz_value_interaction_pair_escalation_surfaces_the_ab_feature_without_harming_f2_r2(monkeypatch):
+    """biz_value: on F2 the budget ranking by interaction content escalates the (a,b) pair, a CLEAN (a,b) escalation feature reaches the output, and the downstream R^2 does not fall behind the joint-MI ranking that left
+    the pair out of the budget (the old ranking is reinstated through ``_pair_rank_key``).
+
+    Measured on the three fixtures tried (2026-11-24), new against old ranking: ridge R^2 0.9405 against 0.9389 (seed 11, 12000 rows), equal where the escalation admitted nothing (seed 3), 0.9476 against 0.9404 (seed 5,
+    20000 rows); HistGBR R^2 0.9844 against 0.9878, 0.9876 against 0.9876, 0.9886 against 0.9885. The tree consumer recovers the modest ``0.2*a**2/b`` term from the raw (a,b) splits on its own, so the contract that survives
+    its near-ceiling baseline is no harm beyond noise (both >= 0.95, new >= old - 0.01) for the tree and for the linear consumer the engineered feature is made for. The escalation stays TERMINAL in the composite
+    feed-forward (``fe_escalation_feedforward_enable=False``, the default): feeding it back as an operand fuses it into a ratio composite that drops the clean raw predictors (measured F2 regression)."""
+    from sklearn.ensemble import HistGradientBoostingRegressor
+    from sklearn.linear_model import RidgeCV
+    from sklearn.model_selection import cross_val_score, KFold
+    from mlframe.feature_selection.filters import _fe_auto_escalation
+    from mlframe.feature_selection.filters.mrmr import MRMR
+
+    df, y = _make_f2(seed=11, n=12000)
+    cv = KFold(5, shuffle=True, random_state=0)
+
+    def _r2s(sel):
+        """Held-out CV R^2 of a gradient-boosted tree and of a ridge regression on the selector's output: ``(tree, linear)``."""
         Xt = sel.transform(df)
         X = np.column_stack([np.nan_to_num(np.asarray(Xt[c], dtype=np.float64)) for c in Xt.columns])
-        m = HistGradientBoostingRegressor(random_state=0, max_iter=150)
-        return cross_val_score(m, X, y.values, cv=KFold(5, shuffle=True, random_state=0), scoring="r2").mean()
+        tree = cross_val_score(HistGradientBoostingRegressor(random_state=0, max_iter=150), X, y.values, cv=cv, scoring="r2").mean()
+        linear = cross_val_score(RidgeCV(alphas=np.logspace(-3, 3, 7)), (X - X.mean(0)) / (X.std(0) + 1e-12), y.values, cv=cv, scoring="r2").mean()
+        return tree, linear
+
+    with monkeypatch.context() as old_ranking:
+        old_ranking.setattr(_fe_auto_escalation, "_pair_rank_key", lambda pair, pair_mi, marginal_mi: float(pair_mi))
+        MRMR.clear_fit_cache()
+        old = MRMR(verbose=0, n_jobs=1, random_state=0, **_LEAN)
+        old.fit(df, y)
+        tree_old, linear_old = _r2s(old)
 
     MRMR.clear_fit_cache()
-    off = MRMR(verbose=0, n_jobs=1, random_state=0, fe_synergy_prevalence_rescue_enable=False, **_LEAN)
-    off.fit(df, y)
-    r2_off = _r2(off)
+    new = MRMR(verbose=0, n_jobs=1, random_state=0, **_LEAN)
+    new.fit(df, y)
+    tree_new, linear_new = _r2s(new)
 
-    MRMR.clear_fit_cache()
-    on = MRMR(verbose=0, n_jobs=1, random_state=0, **_LEAN)
-    on.fit(df, y)
-    r2_on = _r2(on)
-
-    assert _ab_from_recipes(on), "rescue ON must surface an (a,b) feature on F2"
-    assert r2_on >= 0.95 and r2_off >= 0.95, f"F2 signal must be recovered on both paths: off={r2_off:.4f} on={r2_on:.4f}"
-    assert r2_on >= r2_off - 0.01, f"rescue must not harm F2 downstream R^2 beyond noise on the near-ceiling baseline: off={r2_off:.4f} on={r2_on:.4f}"
+    assert not _ab_from_recipes(old), "the joint-MI ranking leaves the (a,b) pair out of the budget on F2 (the control of this comparison)"
+    assert _ab_from_recipes(new), "the interaction ranking must surface an (a,b) feature on F2"
+    assert min(tree_new, tree_old, linear_new, linear_old) >= 0.9, f"F2 signal must be recovered on both rankings: tree old={tree_old:.4f} new={tree_new:.4f}, linear old={linear_old:.4f} new={linear_new:.4f}"
+    assert tree_new >= tree_old - 0.01, f"the ranking must not harm the tree consumer beyond noise: old={tree_old:.4f} new={tree_new:.4f}"
+    assert linear_new >= linear_old - 0.005, f"the ranking must not harm the linear consumer beyond noise: old={linear_old:.4f} new={linear_new:.4f}"

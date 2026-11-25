@@ -12,6 +12,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.feature_selection.conftest import LEGACY_FE_OFF
+
 from py_ci_shared.pytest_known_gap import known_gap
 
 warnings.filterwarnings("ignore")
@@ -113,9 +115,9 @@ def _scenario_C_aggregate_best(n: int = 1500, seed: int = 0):
     X = pd.DataFrame(
         {
             "strong": other,
-            "dup_a": latent + 0.05 * rng.standard_normal(n),
-            "dup_b": latent + 0.05 * rng.standard_normal(n),
-            "dup_c": latent + 0.05 * rng.standard_normal(n),
+            "dup_a": latent + 0.3 * rng.standard_normal(n),
+            "dup_b": latent + 0.3 * rng.standard_normal(n),
+            "dup_c": latent + 0.3 * rng.standard_normal(n),
             "noise_0": rng.standard_normal(n),
         }
     )
@@ -166,8 +168,9 @@ def _fit_mrmr(X, y, *, swap_method="auto"):
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     return MRMR(
+        **LEGACY_FE_OFF,
         dcd_enable=True,
-        dcd_tau_cluster=0.5,
+        dcd_tau_cluster=0.3,  # SU of noisy reflections at the adaptive default binning (``quantile_spacing``, 2026-11-23) sits near 0.3; at 0.5 no cluster forms
         dcd_cluster_size_threshold=2,
         dcd_swap_method=swap_method,
         full_npermutations=20,
@@ -201,8 +204,9 @@ def _scenario_C_default_npermutations20_fit():
 
     X, y = _scenario_C_aggregate_best()
     m = MRMR(
+        **LEGACY_FE_OFF,
         dcd_enable=True,
-        dcd_tau_cluster=0.5,
+        dcd_tau_cluster=0.3,
         dcd_cluster_size_threshold=2,
         full_npermutations=20,
         verbose=0,
@@ -640,8 +644,9 @@ class TestLayer45_Regression:
 
         X, y = _scenario_C_aggregate_best()
         m = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
-            dcd_tau_cluster=0.5,
+            dcd_tau_cluster=0.3,
             dcd_cluster_size_threshold=2,
             full_npermutations=50,
             verbose=0,

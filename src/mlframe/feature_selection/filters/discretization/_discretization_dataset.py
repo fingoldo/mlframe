@@ -26,6 +26,8 @@ from mlframe.utils.env_flags import env_int
 if TYPE_CHECKING:
     import polars as pl
 
+    from .._binning_spec import BinningSpec
+
 logger = logging.getLogger(__name__)
 
 _xxh3_128: Optional[Callable] = None
@@ -61,13 +63,13 @@ def _discretize_input_dtype():
 # ---------------------------------------------------------------------------
 # Cross-instance per-column code cache for the UNSUPERVISED numeric path.
 # ---------------------------------------------------------------------------
-# Unsupervised binning (``nbins_strategy=None`` -> ``discretize_2d_array``) bins each numeric column
+# Unsupervised fixed-count binning (``binning=None`` or ``nbins_rule='fixed'`` -> ``discretize_2d_array``) bins each numeric column
 # INDEPENDENTLY of every other column AND of the target, so a column's ordinal codes are a pure function of
 # (its values, n_bins, method, min_ncats, dtype). Across a suite that trains MANY targets on the SAME feature
 # frame, every feature column recurs byte-identically while only the (injected) target column is new, so
 # caching per-column codes lets the 2nd..Nth target reuse the feature codes and rebin only the target. The
 # cache is process-wide + LRU-bounded; keyed on a content hash so a hit is bit-identical BY CONSTRUCTION.
-# NOTE: deliberately NOT used on the supervised ``nbins_strategy`` path (mdlp/optimal_joint/...), where bins
+# NOTE: deliberately NOT used on the supervised ``binning`` path (mdlp/optimal_joint/...), where bins
 # depend on y -> a feature's codes differ per target and sharing would be WRONG. Disable via env if needed.
 from collections import OrderedDict as _OrderedDict
 from mlframe._array_buffer import array_buffer
@@ -268,12 +270,12 @@ def _is_polars_categorical_dtype(dt) -> bool:
 
 
 def _assign_nan_bin_codes(
-    data: np.ndarray, _nan_mask: np.ndarray, nbins_strategy: Optional[str], per_col_bins: Optional[list], n_bins: int, arr: np.ndarray,
+    data: np.ndarray, _nan_mask: np.ndarray, per_col_bins: Optional[list], n_bins: int, arr: np.ndarray,
 ) -> None:
     """Overwrite the NaN positions of ``data`` in place with each column's dedicated NaN bin code (one past the column's highest regular code)."""
     # per-COLUMN NaN bin code.
     # Pre-fix used the constructor ``n_bins`` as the dedicated NaN code
-    # for every column, but the adaptive ``nbins_strategy`` branch
+    # for every column, but the per-column-edges ``binning`` branch
     # produces per-column bin counts that often exceed ``n_bins``
     # (e.g. FD gives ~22 for n=600 N(0,1), while ctor n_bins=4). So the
     # NaN code 4 silently collided with regular real-data bin 4 - NaN
@@ -283,7 +285,7 @@ def _assign_nan_bin_codes(
     # highest regular code. Per-column scheme works because downstream
     # MI estimators treat each column independently and
     # ``data.max(axis=0) + 1`` (line 1151) recomputes ``nbins`` per col.
-    if nbins_strategy is not None:
+    if per_col_bins is not None:
         nan_codes_per_col = np.asarray(per_col_bins, dtype=np.int64)
     else:
         # Legacy unsupervised path: discretize_2d_array can emit a real code == n_bins for some columns
@@ -329,21 +331,20 @@ def _narrow_code_dtype(dtype: type, max_bins: int) -> type:
     return dtype
 
 
-def _discretize_with_nbins_strategy(
-    arr: np.ndarray, numerical_cols: list, nbins_strategy: str, nbins_strategy_kwargs: Optional[dict], y_for_strategy: "np.ndarray | pd.Series | None",
+def _discretize_with_binning(
+    arr: np.ndarray, numerical_cols: list, binning: "BinningSpec", binning_kwargs: Optional[dict], y_for_strategy: "np.ndarray | pd.Series | None",
     cache_dir: Optional[str], dtype: type,
 ) -> tuple[np.ndarray, list]:
-    """Per-column adaptive-bin discretisation (``nbins_strategy``): edges per column, one batched searchsorted, padded to the global max bin count; returns ``(data, per_col_bins)``."""
+    """Per-column adaptive-bin discretisation (``binning``): edges per column, one batched searchsorted, padded to the global max bin count; returns ``(data, per_col_bins)``."""
     from .._adaptive_nbins import per_feature_edges
-    from .._nbins_strategy_names import SUPERVISED_NBINS_STRATEGIES
-    _strategy_kwargs = dict(nbins_strategy_kwargs or {})
-    # Pass y if the strategy is supervised.
-    _needs_y = str(nbins_strategy) in SUPERVISED_NBINS_STRATEGIES
+    _strategy_kwargs = {**binning.edge_kwargs(), **dict(binning_kwargs or {})}
+    # Pass y if the scheme is supervised.
+    _needs_y = binning.supervised
     _y_arr = None
     if _needs_y and y_for_strategy is not None:
         _y_arr = np.asarray(y_for_strategy).ravel()
     edges_per_col = per_feature_edges(
-        arr, y=_y_arr, method=nbins_strategy, cache_dir=cache_dir, **_strategy_kwargs,
+        arr, y=_y_arr, method=binning.edge_method, cache_dir=cache_dir, **_strategy_kwargs,
     )
     # Dispatcher-level silent-degenerate-fallback guardrail: ``per_feature_edges`` already
     # logs a per-column WARNING when a strategy returns empty edges for a column with real variance (see
@@ -363,10 +364,10 @@ def _discretize_with_nbins_strategy(
                 _degenerate_col_names.append(numerical_cols[_j] if _j < len(numerical_cols) else _j)
     if _degenerate_col_names:
         logger.warning(
-            "categorize_dataset: nbins_strategy=%r produced EMPTY bin edges for %d column(s) with real "
+            "categorize_dataset: binning=%s produced EMPTY bin edges for %d column(s) with real "
             "variance -- each collapses to a single degenerate bin (all rows share one code), silently "
             "destroying that column's MI signal for the rest of this fit: %s",
-            nbins_strategy, len(_degenerate_col_names), _degenerate_col_names[:20],
+            binning.describe(), len(_degenerate_col_names), _degenerate_col_names[:20],
         )
     # Per-column searchsorted; pad to global max nbins.
     n_rows = arr.shape[0]
@@ -377,7 +378,7 @@ def _discretize_with_nbins_strategy(
     # post-discretize NaN-bin overflow check below).
     if max_bins > np.iinfo(dtype).max:
         raise ValueError(
-            f"nbins_strategy={nbins_strategy!r} produced {max_bins} bins which "
+            f"binning={binning.describe()} produced {max_bins} bins which "
             f"exceeds dtype {dtype} max {np.iinfo(dtype).max}. "
             f"Use a wider dtype or constrain the strategy (e.g. knuth_m_max_cap=64)."
         )
@@ -502,8 +503,8 @@ def categorize_dataset(
     min_ncats: int = 50,
     dtype: type = np.int16,
     missing_strategy: str = "fillna_zero",
-    nbins_strategy: Optional[str] = None,
-    nbins_strategy_kwargs: Optional[dict] = None,
+    binning: "Optional[BinningSpec]" = None,
+    binning_kwargs: Optional[dict] = None,
     y_for_strategy: np.ndarray | pd.Series | None = None,
     cache_dir: Optional[str] = None,
     max_categorical_cardinality: Optional[int] = None,
@@ -519,6 +520,8 @@ def categorize_dataset(
     )
 
     df = _maybe_collect_lazy(df)
+    if binning is not None and binning.is_fixed:
+        method, n_bins = binning.scheme, binning.fixed_nbins  # ``nbins_rule='fixed'``: the fixed-count discretiser with the scheme as its partition
 
     data: np.ndarray | None = None
     numerical_cols = []
@@ -574,20 +577,21 @@ def categorize_dataset(
             arr = _handle_missing(arr, strategy=missing_strategy, nan_mask=_nan_mask)
 
         # per-column adaptive bin chooser.
-        # When ``nbins_strategy`` is provided, compute per-column edges via the
+        # When ``binning`` is a per-column spec (not ``None`` and not ``nbins_rule='fixed'``), compute per-column edges via the
         # _adaptive_nbins dispatcher, apply them with np.searchsorted, and pad to
         # the global max nbins so downstream MRMR sees a uniform-nbins matrix.
         #
         # PERF NOTE: the unsupervised path below
-        # (nbins_strategy is None -> _discretize_2d_array_col_cached -> discretize_2d_array) ALREADY routes to the
+        # (``binning`` None or fixed -> _discretize_2d_array_col_cached -> discretize_2d_array) ALREADY routes to the
         # CUDA quantile kernel where it wins (measured 2.89x: 1276ms->442ms on the (20000,2000) discretize op;
         # size-gated via _DISCRETIZE_SPEC). The SUPERVISED path here (mdlp/optimal_joint/...) has NO GPU kernel -
         # measured ~10.5s at (20000,2000) (~52s extrapolated to 100k) vs ~3.4s for the CUDA-eligible quantile path.
         # A CUDA MDLP would be a large NEW recursive-supervised kernel; it is DEFERRED behind the dominant Fleuret
         # CMI redundancy loop (~290s at 100k) which the batched-CUDA CMI kernel attacks first. A cheaper interim
         # lever (column-parallelising per_feature_edges) is a candidate if MDLP discretization becomes the wall.
-        if nbins_strategy is not None:
-            data, per_col_bins = _discretize_with_nbins_strategy(arr, cols, nbins_strategy, nbins_strategy_kwargs, y_for_strategy, cache_dir, dtype)
+        per_column_edges = binning is not None and not binning.is_fixed
+        if per_column_edges and binning is not None:
+            data, per_col_bins = _discretize_with_binning(arr, cols, binning, binning_kwargs, y_for_strategy, cache_dir, dtype)
         else:
             # Unsupervised numeric path: each column binned independently of others AND of the target, so per-column
             # codes are cached cross-instance (huge win across a suite's many targets on one feature frame). Bit-identical.
@@ -597,16 +601,26 @@ def categorize_dataset(
             )
 
         if _nan_mask is not None and _nan_mask.any():
-            _assign_nan_bin_codes(data, _nan_mask, nbins_strategy, per_col_bins if nbins_strategy is not None else None, n_bins, arr)
+            _assign_nan_bin_codes(data, _nan_mask, per_col_bins if per_column_edges else None, n_bins, arr)
         return data
 
     block_cols = max(1, int(_NUMERIC_BLOCK_BYTES // max(1, _row_count(df) * np.dtype(_dt).itemsize)))
     if len(numerical_cols) <= block_cols:
         data = _codes_of(numerical_cols)
     else:
-        blocks = [_codes_of(numerical_cols[c0 : c0 + block_cols]) for c0 in range(0, len(numerical_cols), block_cols)]
-        data = np.concatenate(blocks, axis=1, dtype=np.result_type(*[b.dtype for b in blocks]))  # the widest code type any block needed, the one a single pass would have chosen
-        del blocks
+        # each block is written into the final matrix as it is made (``np.concatenate`` of the list held the blocks AND the result, 2 x 477 MB of int8 codes at 500000 x 1000); the matrix takes the widest
+        # code type any block needed, the one a single pass would have chosen, and is widened in place of a copy only when a later block needs more than the first
+        data = None
+        at = 0
+        for c0 in range(0, len(numerical_cols), block_cols):
+            part = _codes_of(numerical_cols[c0 : c0 + block_cols])
+            if data is None:
+                data = np.empty((part.shape[0], len(numerical_cols)), dtype=part.dtype)
+            elif np.result_type(data.dtype, part.dtype) != data.dtype:
+                data = data.astype(np.result_type(data.dtype, part.dtype))
+            data[:, at : at + part.shape[1]] = part
+            at += part.shape[1]
+            del part
 
     categorical_cols, new_vals = _factorize_categorical_columns(_is_polars, categorical_cols_detected, df, pl, max_categorical_cardinality, categorical_fold_min_support, categorical_fold_target)
     data, dtype = _encode_categorical_block(categorical_cols, new_vals, missing_strategy, dtype, data)

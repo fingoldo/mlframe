@@ -1,4 +1,5 @@
 """Callers of the radix select's row-to-column-major transpose in one warm GPU fit, with the shapes and the wall of each call."""
+from mlframe.feature_selection._benchmarks.binning_label import binning_params
 from typing import Any, cast
 import collections, inspect, os, time, warnings
 warnings.simplefilter("ignore")
@@ -10,7 +11,7 @@ from mlframe.feature_selection.filters.mrmr import MRMR
 from mlframe.feature_selection.filters import _gpu_resident_select as S
 
 kw = F.all_families_kwargs()
-kw["nbins_strategy"] = os.environ.get("BENCH_NBINS", "mdlp")
+kw.update(binning_params(os.environ.get("BENCH_NBINS", "mdlp")))
 MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20000, 30, 1))
 
 stats: Any = collections.defaultdict(lambda: [0, 0.0, 0])

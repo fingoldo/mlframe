@@ -83,7 +83,7 @@ def main(n: int = 100000, p: int = 100) -> int:
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     kwargs = scale.all_families_kwargs()
-    kwargs["nbins_strategy"] = "mdlp"
+    kwargs["binning_scheme"] = "mdlp"
     MRMR(verbose=0, random_seed=0, n_jobs=1, **kwargs).fit(*scale._make(20000, 30, 1))
     cnt.clear()
     where.clear()

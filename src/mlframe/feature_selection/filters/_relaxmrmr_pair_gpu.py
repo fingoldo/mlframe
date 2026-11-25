@@ -131,7 +131,12 @@ def _kernel(cp: Any, narrow: bool) -> Any:
         return _KERNELS[narrow]
 
 
-kernel = code_width_kernel(_kernel)  # the registry compiles through this kernel(cp, real) factory
+_kernel_factory = code_width_kernel(_kernel)
+
+
+def kernel(cp: Any, real: Any) -> Any:  # audit-exempt: duplicate_function_body -- the register-pressure registry needs an enumerable def kernel(cp, real) per module; the identical wrapper in _synergy_combo_gpu is required by that same scan
+    """``relaxmrmr_pair`` for byte or 32-bit codes (``real`` is the code dtype); the register-pressure registry compiles it through this ``kernel(cp, real)`` factory."""
+    return _kernel_factory(cp, real)
 
 
 def _cells(k_x: int, k_y: int, k_sel: np.ndarray, pi: np.ndarray, pj: np.ndarray) -> np.ndarray:

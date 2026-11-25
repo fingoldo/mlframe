@@ -16,10 +16,12 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from collections.abc import Iterator
+from typing import Any, Optional
 
 from pyutilz.performance.kernel_tuning.cache import KernelTuningCache
 from pyutilz.performance.kernel_tuning.code_versioning import compute_code_version
+from mlframe.utils.log_throttle import log_throttle
 
 __all__ = ["cmd_ensure", "spec_code_version", "spec_status", "survey"]
 
@@ -117,10 +119,16 @@ def _pid_start_token(pid: int) -> str:
     """A token that changes when a pid is reused: the process creation time, or '' when it cannot be read."""
     try:
         import psutil
-
+    except ImportError as exc:
+        logger.warning("kernel tuning cache: psutil unavailable, pid %s gets no start token (%s)", pid, exc)
+        return ""
+    try:
         return f"{psutil.Process(pid).create_time():.3f}"
-    except Exception as exc:  # no psutil or the process is gone: no token, so the pid alone decides (the old behaviour)
-        logger.debug("kernel tuning cache: no process start token for pid %s: %s", pid, exc)
+    except psutil.NoSuchProcess:
+        log_throttle(logger, "kernel_tuning_cache.pid_exited", logging.WARNING, "kernel tuning cache: pid %s has exited; its start token is empty and the pid alone decides", pid)
+        return ""
+    except Exception as exc:
+        logger.warning("kernel tuning cache: no process start token for pid %s (%s: %s)", pid, type(exc).__name__, exc)
         return ""
 
 

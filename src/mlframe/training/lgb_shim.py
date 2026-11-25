@@ -73,6 +73,7 @@ import sys as _sys
 from typing import Any
 
 import numpy as np
+from mlframe.utils.log_throttle import log_throttle
 
 _VAL_CACHE_LOCK = threading.Lock()  # one step for the test and the write of an estimator's val-Dataset cache (a lock on the estimator would break clone / pickle)
 
@@ -615,7 +616,7 @@ class _DatasetReuseMixin:
                     if X_val[_c].dtype != _dt:
                         _realign[_c] = X_val[_c].astype(_dt)
                 except Exception as e:  # nosec B110 - non-fatal, but LightGBM will then reject the mismatched categories: say so (28-F57)
-                    logger.warning("categorical cast of val column %r failed; LightGBM may reject the category mismatch: %s", _c, e)
+                    log_throttle(logger, "lgb_shim.val_categorical_cast_failed", logging.WARNING, "categorical cast of val column %r failed; LightGBM may reject the category mismatch: %s", _c, e)
                     pass
             if _realign:
                 X_val = X_val.assign(**_realign)
@@ -692,7 +693,7 @@ class _DatasetReuseMixin:
                 if X[_c].dtype != _dt:
                     _realign[_c] = X[_c].astype(_dt)
             except Exception as e:  # nosec B110 - non-fatal, but LightGBM will then reject the mismatched categories: say so (28-F57)
-                logger.warning("categorical cast of predict column %r failed; LightGBM may reject the category mismatch: %s", _c, e)
+                log_throttle(logger, "lgb_shim.predict_categorical_cast_failed", logging.WARNING, "categorical cast of predict column %r failed; LightGBM may reject the category mismatch: %s", _c, e)
                 pass
         return X.assign(**_realign) if _realign else X
 

@@ -481,6 +481,34 @@ def _pairwise_occupied_joint_k_njit(factors_data, pair_a, pair_b, nbins):
     return out
 
 
+@numba.njit(cache=True, nogil=True, parallel=True)
+def _occupied_joint_k_cm_njit(columns_cm, slot_a, slot_b, nb_a, nb_b):
+    """Occupied joint-bin count of every pair, ``prange``-parallel over pairs, from the pair columns stored column-major (``columns_cm[slot]`` is one contiguous column).
+
+    The same distinct-code count as :func:`_pairwise_occupied_joint_k_njit` (bit-identical: integer counts), made fast by two exact changes: the two columns of a pair are read as
+    contiguous rows instead of a stride-``n_columns`` walk through the row-major matrix, and the scan of a pair stops the moment every cell of its ``nb_a * nb_b`` table is occupied
+    (a pair of dense columns fills its table within a few thousand rows of the 100000)."""
+    n = columns_cm.shape[1]
+    n_pairs = slot_a.shape[0]
+    out = np.empty(n_pairs, dtype=np.int64)
+    for p in prange(n_pairs):
+        col_a = columns_cm[slot_a[p]]
+        col_b = columns_cm[slot_b[p]]
+        width = nb_b[p]
+        cells = nb_a[p] * width
+        seen = np.zeros(cells, dtype=np.uint8)
+        cnt = 0
+        for i in range(n):
+            code = np.int64(col_a[i]) * width + np.int64(col_b[i])
+            if seen[code] == 0:
+                seen[code] = 1
+                cnt += 1
+                if cnt == cells:
+                    break
+        out[p] = cnt
+    return out
+
+
 def _pairwise_occupied_joint_k(
     factors_data: np.ndarray,
     pair_a: np.ndarray,
@@ -503,18 +531,63 @@ def _pairwise_occupied_joint_k(
     pa = np.ascontiguousarray(pair_a, dtype=np.int64)
     pb = np.ascontiguousarray(pair_b, dtype=np.int64)
     nb = np.ascontiguousarray(nbins, dtype=np.int64)
-    return np.asarray(_pairwise_occupied_joint_k_njit(factors_data, pa, pb, nb))
+    if pa.size == 0:
+        return np.empty(0, dtype=np.int64)
+    used, inverse = np.unique(np.concatenate([pa, pb]), return_inverse=True)
+    columns_cm = np.ascontiguousarray(np.asarray(factors_data)[:, used].T)  # only the columns the pairs touch, one contiguous row each
+    n_pairs = int(pa.shape[0])
+    with parallel_kernel_entry():
+        return np.asarray(_occupied_joint_k_cm_njit(columns_cm, inverse[:n_pairs].astype(np.int64), inverse[n_pairs:].astype(np.int64), nb[pa], nb[pb]))
+
+
+@numba.njit(cache=True, nogil=True, parallel=True)
+def _column_min_max_njit(data, cols, n_blocks):
+    """Minimum and maximum of the columns ``cols`` of ``data`` in one pass over contiguous blocks of rows (``prange`` over the blocks; the partial results are folded at the end)."""
+    n = data.shape[0]
+    m = cols.shape[0]
+    lo_b = np.empty((n_blocks, m), dtype=np.int64)
+    hi_b = np.empty((n_blocks, m), dtype=np.int64)
+    step = (n + n_blocks - 1) // n_blocks
+    for b in prange(n_blocks):
+        r0 = b * step
+        r1 = min(n, r0 + step)
+        for j in range(m):
+            lo_b[b, j] = 9223372036854775807
+            hi_b[b, j] = -9223372036854775807
+        for i in range(r0, r1):
+            for j in range(m):
+                v = np.int64(data[i, cols[j]])
+                if v < lo_b[b, j]:
+                    lo_b[b, j] = v
+                if v > hi_b[b, j]:
+                    hi_b[b, j] = v
+    lo = lo_b[0].copy()
+    hi = hi_b[0].copy()
+    for b in range(1, n_blocks):
+        for j in range(m):
+            if lo_b[b, j] < lo[j]:
+                lo[j] = lo_b[b, j]
+            if hi_b[b, j] > hi[j]:
+                hi[j] = hi_b[b, j]
+    return lo, hi
 
 
 def _validate_code_ranges(data: np.ndarray, nbins: np.ndarray, columns: np.ndarray) -> None:
-    """Reject a used column holding a code outside ``[0, nbins[col])``: the joint-count kernels index their tables by the codes without bounds checks."""
+    """Reject a used column holding a code outside ``[0, nbins[col])``: the joint-count kernels index their tables by the codes without bounds checks.
+
+    One parallel pass over blocks of rows finds the minimum and maximum of every used column (a numpy reduction per strided column was 104 ms for 108 columns of 100000 rows, a block-wise numpy
+    reduction 57 to 65 ms: int8 reductions along an axis are slow)."""
     if data.shape[0] == 0:
         return
-    for c in np.unique(columns):
-        col = data[:, int(c)]
-        lo, hi = int(col.min()), int(col.max())
-        if lo < 0 or hi >= int(nbins[int(c)]):
-            raise ValueError(f"column {int(c)} holds codes in [{lo}, {hi}] outside [0, {int(nbins[int(c)])}) of its nbins entry: the joint-count kernel indexes its table by them")
+    used = np.unique(columns).astype(np.int64)
+    arr = data if isinstance(data, np.ndarray) and data.dtype.kind in "iu" else np.asarray(data)
+    n_blocks = int(max(1, min(64, arr.shape[0] // 2048)))
+    with parallel_kernel_entry():
+        lo, hi = _column_min_max_njit(arr, used, n_blocks)
+    bad = np.flatnonzero((lo < 0) | (hi >= np.asarray(nbins, dtype=np.int64)[used]))
+    if bad.size:
+        c, low, high = int(used[bad[0]]), int(lo[bad[0]]), int(hi[bad[0]])
+        raise ValueError(f"column {c} holds codes in [{low}, {high}] outside [0, {int(nbins[c])}) of its nbins entry: the joint-count kernel indexes its table by them")
 
 
 def _validate_pair_columns(factors_data, nbins, pair_a, pair_b) -> None:
@@ -585,6 +658,24 @@ def _sequential_label_shuffles(classes_y: np.ndarray, k: int, random_seed: Any) 
     return y_perms
 
 
+def _resolve_mm_bias(mm_debias: bool, mm_bias: "np.ndarray | None", factors_data: np.ndarray, pa: np.ndarray, pb: np.ndarray, nb: np.ndarray, k_y: int) -> "np.ndarray | None":
+    """The per-pair Miller-Madow bias vector (occupied joint-K), permutation-invariant, or ``None`` without ``mm_debias``.
+
+    ``mm_bias`` is the vector a caller already computed on these rows (``pairwise_mm_joint_bias``; the row cap is off in this mode, so its rows are the ones scored here): used as given instead of counting
+    the occupied joint cells of every pair a second time.
+    """
+    if not mm_debias:
+        return None
+    if mm_bias is not None and int(np.asarray(mm_bias).shape[0]) == int(pa.shape[0]):
+        return np.asarray(mm_bias, dtype=np.float64)  # Intentional float64: statistic vector
+    n = int(factors_data.shape[0])
+    k_joint = _pairwise_occupied_joint_k(factors_data, pa, pb, nb)
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    bias = (k_joint - 1).astype(np.float64) * float(k_y - 1) / (2.0 * n)
+    bias[k_joint <= 1] = 0.0
+    return bias
+
+
 def pooled_pair_permutation_null_joint_mi_floor(
     factors_data: np.ndarray,
     nbins: np.ndarray,
@@ -598,6 +689,8 @@ def pooled_pair_permutation_null_joint_mi_floor(
     random_seed: int | None = None,
     mm_debias: bool = False,
     device_only: bool = False,
+    mm_bias: "np.ndarray | None" = None,
+    scaled: "bool | None" = None,
 ) -> float:
     """Return the ORDER-2 maxT permutation-null floor for a prospective-pair pool.
 
@@ -646,6 +739,9 @@ def pooled_pair_permutation_null_joint_mi_floor(
     and applied to every shuffle, and the caller subtracts the IDENTICAL per-pair
     term from the observed ``pair_mi`` before the ``>= floor`` comparison (consistent
     debias on both sides). ``->`` the raw floor as ``n -> inf``.
+
+    ``scaled``: with ``mm_debias`` and a pool large enough to matter (``_pair_floor_scaled``) the floor comes from a row subsample times ``n_sub / n`` after the scaling error was measured on a block of the pairs
+    (``None``, the default, tries it; ``False`` computes the exact floor, as ``MLFRAME_FE_PAIR_FLOOR_SCALED=0`` does for every call).
     """
     n = int(factors_data.shape[0])
     _validate_pair_floor_inputs(factors_data, nbins, pair_a, pair_b, classes_y, freqs_y)
@@ -655,6 +751,18 @@ def pooled_pair_permutation_null_joint_mi_floor(
     k_y = int(shape_of(freqs_y)[0])
     if k_y < 2:
         return 0.0
+    if mm_debias and scaled is not False:
+        from ._pair_floor_scaled import scaled_pair_floor
+
+        floor_scaled, scaling = scaled_pair_floor(
+            pooled_pair_permutation_null_joint_mi_floor, factors_data, nbins, pair_a, pair_b, classes_y, freqs_y,
+            n_permutations=n_permutations, quantile=quantile, random_seed=random_seed, device_only=device_only, k_joint_of_pairs=_pairwise_occupied_joint_k,
+        )
+        if floor_scaled is not None:
+            logger.info("order-2 maxT floor %.3e from %d of %d rows (calibration rho %.3f, factor %.3f)", floor_scaled, scaling["n_sub"], n, scaling["rho"], scaling["factor"])
+            return floor_scaled
+        if "rho" in scaling or "n_sub" in scaling:
+            logger.info("order-2 maxT floor computed on every row: %s", scaling.get("why"))
 
     # ROW-SUBSAMPLE the floor compute (noise-floor-cap regime). The floor is a q=0.95
     # QUANTILE of the per-shuffle MAX joint-MI over the O(p^2) pool - a COARSE noise threshold, not a
@@ -691,13 +799,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
     # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
     fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
 
-    # Per-pair Miller-Madow bias vector (occupied joint-K), permutation-invariant.
-    mm_bias = None
-    if mm_debias:
-        k_joint = _pairwise_occupied_joint_k(factors_data, pa, pb, nb)
-        # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-        mm_bias = (k_joint - 1).astype(np.float64) * float(k_y - 1) / (2.0 * n)
-        mm_bias[k_joint <= 1] = 0.0
+    mm_bias = _resolve_mm_bias(mm_debias, mm_bias, factors_data, pa, pb, nb, k_y)
 
     K = int(n_permutations)
     # The retry of an FE step asks for the same floor over the same pool: remember the K per-shuffle maxima by the content of the inputs (the quantile is taken from them).

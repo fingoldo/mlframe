@@ -5,7 +5,7 @@ realistic dataset sizes (1M rows x 1 feature pair). Reports wall-time, peak
 RAM, and accuracy vs Monte-Carlo truth.
 
 Tested estimators (mega-bench v3 honest leaders):
-  * plug_in (FD nbins_strategy + Miller-Madow) -- speed champion
+  * plug_in (FD count rule + Miller-Madow) -- speed champion
   * Mixed-KSG -- honest non-aggregator non-neural
   * KSG-LNC -- with low-entropy-skip; falls back to Mixed-KSG on binary y
   * GENIE aggregator -- honest leader on noisy continuous
@@ -103,14 +103,14 @@ def _est_genie(x, y):
     from mlframe.feature_selection.filters._mi_aggregator import genie_mi_panel
     from mlframe.feature_selection.filters._ksg import mixed_ksg_mi
     from mlframe.feature_selection.filters._adaptive_nbins import (
-        edges_freedman_diaconis, edges_qs, _plug_in_mi,
+        edges_freedman_diaconis, edges_partition, _plug_in_mi,
     )
     def _fd(a, b):
         e = edges_freedman_diaconis(a)
         bb = np.searchsorted(e, a, side="right")
         return _plug_in_mi(bb, np.asarray(b).astype(np.int64), miller_madow=True)
     def _qs(a, b):
-        e = edges_qs(a)
+        e = edges_partition(a, "quantile", "rice_capped")
         bb = np.searchsorted(e, a, side="right")
         return _plug_in_mi(bb, np.asarray(b).astype(np.int64), miller_madow=True)
     def _ksg(a, b):

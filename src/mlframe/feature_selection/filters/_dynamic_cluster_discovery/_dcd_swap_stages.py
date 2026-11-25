@@ -92,10 +92,13 @@ def stage_fit_aggregate(st: Any, state: Any, anchor: int, X_raw: Any, target_y: 
             if st.weights is None:
                 return SwapDecision(accept=False)
             st.rep_continuous = (Z @ st.weights).astype(float)
-        # Bin the rep via quantile/uniform to integer codes.
+        # Bin the rep via quantile/uniform to integer codes, with as many bins as the ANCHOR's own codes have: the swap compares the aggregate's conditional MI with the anchor's, and a plug-in MI grows with
+        # the number of bins, so a rep binned at the global ``quantization_nbins`` against an anchor binned by the adaptive default strategy (``quantile_spacing``, 2026-11-23) was judged at another resolution
+        # (relevance 0.238 against 0.266 on three near-duplicates) and never won. The global count stays the fallback when the anchor's is unknown.
+        _anchor_bins = int(np.asarray(state.factors_nbins)[int(anchor)]) if state.factors_nbins is not None and 0 <= int(anchor) < len(state.factors_nbins) else 0
         st.rep_binned = _binarize_aggregate(
             st.rep_continuous, method=state.quantization_method,
-            n_bins=state.quantization_nbins, dtype=state.quantization_dtype,
+            n_bins=_anchor_bins if _anchor_bins >= 2 else state.quantization_nbins, dtype=state.quantization_dtype,
         )
     except Exception as exc:
         logger.warning("DCD swap: PC1 fit failed: %r", exc)

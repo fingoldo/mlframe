@@ -32,6 +32,7 @@ def test_split_columns_match_host_fold(monkeypatch):
     folds = M._stratified_fold_indices(y, 3, 0)
     dev = M._folds_on_device(raw, eng, y, folds, n, 10)
     assert dev is not None
+    assert len(dev) == len(folds)
     for test_idx, got in zip(folds, dev):
         want = M._kfold_one_fold(test_idx, n, y, raw, eng, raw.shape[1], eng.shape[1], 10)
         np.testing.assert_allclose(got[0], want[0], atol=1e-6)

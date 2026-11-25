@@ -9,7 +9,7 @@ import pytest
 def _cupy():
     """cupy with a usable device, or skip."""
     cp = pytest.importorskip("cupy")
-    try:
+    try:  # audit-exempt: except_skip_masks_call_under_test -- optional CUDA device guard: the probe decides whether the module can run, it is not the code under test
         cp.cuda.runtime.getDeviceCount()
     except Exception:
         pytest.skip("no CUDA device")

@@ -26,7 +26,7 @@ def fit_and_frame():
         for k, v in env.items():
             mp.setenv(k, v)
         kw = F.all_families_kwargs()
-        kw["nbins_strategy"] = "mdlp"
+        kw["binning_scheme"] = "mdlp"
         X, y = F._make(20000, 40, 0)[:2]
         yield MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(X, y), X
 

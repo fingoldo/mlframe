@@ -104,12 +104,17 @@ from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 PAIR_FAMILY_PERMUTATIONS = 9999  # resolution for alpha down to 1e-4 at the per-pair level
 
 
-def _apply_pair_family_gate(pair_batches, valid_pairs_perf, classes_y, n_bins, alpha=0.01):
+def _apply_pair_family_gate(pair_batches, valid_pairs_perf, classes_y, n_bins, alpha=0.01, window_ratio=None):
     """Family-wise gate over EVERY configuration scored for one admitted pair (the winner is the maximum over all of them).
 
     Cascade: the null-MI table floor for the whole family (K = all configurations) rejects the pair cheaply when even its best configuration sits
     below it. Otherwise the exact family-wise permutation test runs, and each configuration whose batch does not clear the family maximum is
     zeroed. Batches are gated together, never one at a time, so a small batch cannot pass against a threshold built from itself alone.
+
+    ``window_ratio`` limits the exact test to the configurations whose MI is at least that share of the best one's: the emission reads only those (the leaders within
+    ``fe_good_to_best_feature_mi_threshold`` of the best and, with multi-emit, the forms down to ``fe_multi_emit_mi_floor``). The pass test is a threshold on the MI against the
+    family-wide null maximum, so the decisions inside the window are the ones the full test gives, reached without waiting for the columns far below it that sit near that threshold;
+    a configuration below the window keeps its value unless the analytic triage certified it failing.
     """
     if not pair_batches:
         return
@@ -124,7 +129,10 @@ def _apply_pair_family_gate(pair_batches, valid_pairs_perf, classes_y, n_bins, a
         for cfg, _ in pair_batches:
             valid_pairs_perf[cfg] = 0.0
         return
-    passed = family_pass_batches([codes for _, codes in pair_batches], np.asarray(classes_y).ravel(), alpha=alpha, n_perm=PAIR_FAMILY_PERMUTATIONS)
+    decide = None
+    if window_ratio is not None and 0.0 < float(window_ratio) <= 1.0:
+        decide = [float(valid_pairs_perf.get(cfg, 0.0)) >= float(window_ratio) * best for cfg, _ in pair_batches]
+    passed = family_pass_batches([codes for _, codes in pair_batches], np.asarray(classes_y).ravel(), alpha=alpha, n_perm=PAIR_FAMILY_PERMUTATIONS, decide=decide)
     for (cfg, _), ok in zip(pair_batches, passed):
         if not ok:
             valid_pairs_perf[cfg] = 0.0
@@ -146,7 +154,7 @@ def _apply_pair_family_floor(valid_pairs_perf, classes_y, n_bins, n_rows, k_tota
 
 
 @fe_timed("stage:pair_family_gate")
-def apply_pair_family_gate_from_state(st: _SimpleNamespace, classes_y: np.ndarray, n_bins: int, alpha: float = 0.01) -> bool:
+def apply_pair_family_gate_from_state(st: _SimpleNamespace, classes_y: np.ndarray, n_bins: int, alpha: float = 0.01, window_ratio: "float | None" = None) -> bool:
     """Family-wise gate over every configuration of the current pair, read from the pair state. Returns True when the gate rejected the winner
     (the caller must then emit nothing for this pair)."""
     codes = st.__dict__.get("var_pairs_codes") or {}
@@ -154,7 +162,7 @@ def apply_pair_family_gate_from_state(st: _SimpleNamespace, classes_y: np.ndarra
         return False
     old_best = st.best_config
     batches = [(cfg, codes[cfg]) for cfg in st.var_pairs_perf if cfg in codes]
-    _apply_pair_family_gate(batches, st.var_pairs_perf, classes_y, int(n_bins), alpha)
+    _apply_pair_family_gate(batches, st.var_pairs_perf, classes_y, int(n_bins), alpha, window_ratio)
     return bool(old_best is not None and old_best in st.var_pairs_perf and st.var_pairs_perf[old_best] == 0.0 and float(st.best_mi) > 0.0)
 
 

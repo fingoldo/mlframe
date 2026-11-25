@@ -79,7 +79,7 @@ def _mode_a_nested(
             col_names = list(Q2_va.columns)
         parts.append((va, Q2_va.to_numpy()))
     width = len(col_names)
-    out = np.empty((n, width), dtype=np.dtype(dtype))
+    out: np.ndarray = np.empty((n, width), dtype=np.dtype(dtype))
     for va, block in parts:
         out[va] = block
     return pl.DataFrame({name: out[:, j] for j, name in enumerate(col_names)})

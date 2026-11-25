@@ -21,6 +21,7 @@ from typing import Any, Dict
 import numpy as np
 
 from ._matrix_keyed_cache import MatrixKeyedCache
+from ._row_digest import rows_digest as _rows_digest
 
 _MAX_ENTRIES = 64
 """Datasets kept across all threads; the oldest go first. Each holds one fold's binned rows only (about 1.3 MB at the defaults)."""
@@ -67,13 +68,6 @@ def lgb_params(*, num_leaves: int, learning_rate: float, random_state: int, dete
 def prune_dead() -> None:
     """Drop the entries whose matrix has been freed, so a finished phase leaves nothing of its folds resident."""
     _CACHE.prune_dead()
-
-
-def _rows_digest(rows: np.ndarray) -> bytes:
-    """Collision-safe cache-key digest of a row-index array (a 64-bit ``hash()`` could return another fold's entry; audit 34-F27)."""
-    import hashlib
-
-    return hashlib.blake2b(np.ascontiguousarray(rows).view(np.uint8).data, digest_size=16).digest()
 
 
 def _fold_dataset(x: np.ndarray, rows: np.ndarray, params: Dict[str, Any]) -> Any:

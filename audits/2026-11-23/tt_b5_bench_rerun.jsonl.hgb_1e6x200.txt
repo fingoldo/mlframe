@@ -1,0 +1,1 @@
+{"kind": "hgb", "n": 1000000, "p": 200, "variant": "100", "K": 9, "B": 40, "mode": "memory", "compute_s": 373.509, "wall_s": 373.509, "gen_s": 0.0, "cpu_user_s": 174.56, "peak_wset_MB": 3620.5, "input_MB": 770.6, "rss_before_MB": 836.1, "peak_minus_input_MB": 2849.9, "stages": {}, "load": 100.0, "max_iter": 100}

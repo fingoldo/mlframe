@@ -49,7 +49,7 @@ def _direct_cv_loss(x: np.ndarray, y: np.ndarray, y_enc: Any, classification: bo
     return float(np.mean(losses))
 
 
-class _DeviceFitFallbackError(Exception):
+class _DeviceFitFallbackError(Exception):  # audit-exempt: unraised_exception_class -- raised as fallback_error() by _usability_greedy_clf_batched through a parameter; the scanner cannot follow it
     """Raised by the batched device fit when a Newton fit does not converge: the per-column scorer decides instead."""
 
 

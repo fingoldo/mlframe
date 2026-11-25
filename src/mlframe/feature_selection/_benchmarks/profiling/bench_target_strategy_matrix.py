@@ -1,7 +1,7 @@
-"""Grid of one MRMR fit per (target kind x nbins_strategy), each in a fresh process, sequentially, with the wall, the peak RSS growth and the selected columns of every cell.
+"""Grid of one MRMR fit per (target kind x binning label), each in a fresh process, sequentially, with the wall, the peak RSS growth and the selected columns of every cell.
 
 Usage: ``python bench_target_strategy_matrix.py ROWS COLS [--targets a,b] [--strategies x,y] [--out FILE.tsv]``. Every cell runs ``rss_scale_fit.py ROWS COLS all`` with ``BENCH_TARGET`` and ``BENCH_NBINS`` set, so
-the numbers are those of the scale benchmark. The default grid is every target kind of the benchmark against every production ``nbins_strategy`` (``knuth`` and ``blocks`` are research-only and left out).
+the numbers are those of the scale benchmark. The default grid is every target kind of the benchmark against every production binning label (``knuth`` and ``blocks`` are research-only and left out).
 Nothing else may run on the machine while it does; one cell is one measurement, so read differences below ~15 % as noise unless a cell is repeated.
 """
 
@@ -15,7 +15,7 @@ import sys
 import time
 
 TARGETS = ("binary", "multiclass", "regression", "count", "multilabel", "multitarget", "heavy_tail", "zero_inflated")
-STRATEGIES = ("mdlp", "mdlp_validated", "optimal_joint", "mah", "sturges", "freedman_diaconis", "quantile_spacing", "uniform")
+STRATEGIES = ("mdlp", "mdlp_validated", "optimal_joint", "mah", "sturges", "freedman_diaconis", "quantile", "uniform")
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 

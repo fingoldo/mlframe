@@ -7,7 +7,7 @@ import pytest
 
 
 def test_regression_adaptive_nbins_gate_restores_ctor_state_after_fit():
-    """Pre-fix: MRMR.nbins_strategy/quantization_nbins stayed permanently mutated (None/20) after a fit
+    """Pre-fix: MRMR.binning_scheme/nbins_rule/quantization_nbins stayed permanently mutated (quantile/fixed/20) after a fit
     that triggers the gate. Post-fix: restored to the constructor's original values, so get_params()/clone()
     round-trip correctly and a second .fit() re-evaluates the gate instead of being stuck.
     """
@@ -21,7 +21,7 @@ def test_regression_adaptive_nbins_gate_restores_ctor_state_after_fit():
     y = pd.Series(1.5 * X["x0"] - X["x1"] + 0.1 * rng.standard_normal(n))
 
     m = MRMR(
-        nbins_strategy="mdlp",
+        binning_scheme="mdlp",
         quantization_nbins=10,
         adaptive_nbins_large_n_reg=True,
         adaptive_nbins_large_n_reg_threshold=50,  # cheap trigger instead of the real 50_000 default
@@ -35,14 +35,14 @@ def test_regression_adaptive_nbins_gate_restores_ctor_state_after_fit():
     )
     m.fit(X, y)
     assert getattr(m, "_adaptive_nbins_large_n_reg_fired_", False) is True, "gate must have engaged for this fit (n=300 >= threshold=50, detected regression)"
-    assert m.nbins_strategy == "mdlp", "ctor state must be restored after fit(), not left mutated to None"
+    assert (m.binning_scheme, m.nbins_rule) == ("mdlp", None), "ctor state must be restored after fit(), not left mutated to quantile/fixed"
     assert m.quantization_nbins == 10, "ctor state must be restored after fit(), not left mutated to 20"
 
     # sklearn round-trip contract: get_params()/clone() must reproduce the constructor's own values.
-    assert m.get_params()["nbins_strategy"] == "mdlp"
+    assert m.get_params()["binning_scheme"] == "mdlp" and m.get_params()["nbins_rule"] is None
     assert m.get_params()["quantization_nbins"] == 10
     c = clone(m)  # must not raise, and must not silently inherit the gate's internal override
-    assert c.nbins_strategy == "mdlp"
+    assert c.binning_scheme == "mdlp" and c.nbins_rule is None
     assert c.quantization_nbins == 10
 
     # A second .fit() on the SAME instance must re-evaluate the gate (not be permanently stuck at
@@ -50,7 +50,7 @@ def test_regression_adaptive_nbins_gate_restores_ctor_state_after_fit():
     # campaign data says loses at smaller n).
     m.fit(X, y)
     assert getattr(m, "_adaptive_nbins_large_n_reg_fired_", False) is True
-    assert m.nbins_strategy == "mdlp"
+    assert m.binning_scheme == "mdlp" and m.nbins_rule is None
     assert m.quantization_nbins == 10
 
 

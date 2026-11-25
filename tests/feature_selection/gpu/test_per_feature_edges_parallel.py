@@ -22,6 +22,7 @@ from mlframe.feature_selection.filters._adaptive_nbins import (
     _PARALLEL_EDGES_MIN_COLS,
 )
 from tests.conftest import skip_under_numba_disabled_jit
+from tests.feature_selection.binning_cases import edges_call
 
 
 def _make_X(n, p, seed=0):
@@ -69,8 +70,8 @@ def test_parallel_edges_bit_identical(method, needs_y, seed):
     """Parallel edges bit identical."""
     X = _make_X(2000, 200, seed=seed)
     y = _make_y(X, seed=seed) if needs_y else None
-    serial = per_feature_edges(X, y=y, method=method, n_jobs=1)
-    parallel = per_feature_edges(X, y=y, method=method, n_jobs=4)
+    serial = per_feature_edges(X, y=y, **edges_call(method), n_jobs=1)
+    parallel = per_feature_edges(X, y=y, **edges_call(method), n_jobs=4)
     _assert_edges_identical(serial, parallel, f"{method}/seed={seed}")
 
 

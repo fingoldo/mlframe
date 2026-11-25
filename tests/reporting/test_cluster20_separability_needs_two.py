@@ -29,4 +29,4 @@ def test_two_features_still_build_a_panel():
     """Control: two features build the panel as before (20-F36)."""
     X, y = _frame()
     panel = es.separability_panel(X, y, ["a", "b"], sample=200)
-    assert panel is not None
+    assert len(panel.x) == len(panel.y) == 200

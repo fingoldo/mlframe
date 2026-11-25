@@ -1,0 +1,170 @@
+== oracle: top transform by mean ratio to identity (rmse_smear), per fixture x model; [mae_clip winner]
+bounded01         ridge        rmse_smear logit=0.937 yeo_johnson=1.000 identity=1.000
+bounded01         ridge        mae_clip   logit=0.872 box_cox=0.996 yeo_johnson=1.000
+bounded01         hgb          rmse_smear logit=0.996 box_cox=0.998 signed_sqrt=0.998
+bounded01         hgb          mae_clip   logit=0.990 box_cox=0.997 signed_sqrt=0.998
+bounded01         ridge_spline rmse_smear logit=0.945 yeo_johnson=1.000 box_cox=1.000
+bounded01         ridge_spline mae_clip   logit=0.888 box_cox=0.992 yeo_johnson=1.000
+bounded01         lgbm         rmse_smear logit=0.995 log1p=1.000 identity=1.000
+bounded01         lgbm         mae_clip   logit=0.988 identity=1.000 yeo_johnson=1.001
+counts            ridge        rmse_smear log1p=0.948 cbrt=0.949 yeo_johnson=0.954
+counts            ridge        mae_clip   log1p=0.949 yeo_johnson=0.950 sqrt=0.951
+counts            hgb          rmse_smear asinh=0.997 yeo_johnson=0.999 sqrt=0.999
+counts            hgb          mae_clip   asinh=0.988 yeo_johnson=0.990 log1p=0.994
+counts            ridge_spline rmse_smear log1p=0.974 yeo_johnson=0.976 asinh=0.979
+counts            ridge_spline mae_clip   yeo_johnson=0.975 log1p=0.976 asinh=0.977
+counts            lgbm         rmse_smear identity=1.000 sqrt=1.000 signed_sqrt=1.000
+counts            lgbm         mae_clip   asinh=0.990 yeo_johnson=0.991 log1p=0.996
+cube              ridge        rmse_smear cbrt=0.454 signed_sqrt=0.743 asinh=0.950
+cube              ridge        mae_clip   cbrt=0.368 signed_sqrt=0.495 asinh=0.772
+cube              hgb          rmse_smear cbrt=0.951 signed_sqrt=0.966 asinh=0.989
+cube              hgb          mae_clip   cbrt=0.914 signed_sqrt=0.923 asinh=0.961
+cube              ridge_spline rmse_smear cbrt=0.575 signed_sqrt=0.770 asinh=0.929
+cube              ridge_spline mae_clip   cbrt=0.461 signed_sqrt=0.564 asinh=0.820
+cube              lgbm         rmse_smear cbrt=0.941 signed_sqrt=0.967 asinh=0.985
+cube              lgbm         mae_clip   cbrt=0.907 signed_sqrt=0.920 asinh=0.963
+exp_linear        ridge        rmse_smear yeo_johnson=0.585 cbrt=0.648 asinh=0.664
+exp_linear        ridge        mae_clip   yeo_johnson=0.689 cbrt=0.703 asinh=0.733
+exp_linear        hgb          rmse_smear asinh=0.993 yeo_johnson=0.996 signed_sqrt=1.000
+exp_linear        hgb          mae_clip   asinh=1.000 identity=1.000 yeo_johnson=1.005
+exp_linear        ridge_spline rmse_smear yeo_johnson=0.737 asinh=0.769 cbrt=0.788
+exp_linear        ridge_spline mae_clip   yeo_johnson=0.799 cbrt=0.821 asinh=0.821
+exp_linear        lgbm         rmse_smear asinh=0.992 yeo_johnson=0.993 signed_sqrt=0.998
+exp_linear        lgbm         mae_clip   identity=1.000 asinh=1.001 yeo_johnson=1.005
+heavy_tail        ridge        rmse_smear identity=1.000 yeo_johnson=1.001 asinh=1.116
+heavy_tail        ridge        mae_clip   identity=1.000 yeo_johnson=1.002 asinh=1.115
+heavy_tail        hgb          rmse_smear asinh=0.996 identity=1.000 yeo_johnson=1.001
+heavy_tail        hgb          mae_clip   asinh=0.992 yeo_johnson=0.999 identity=1.000
+heavy_tail        ridge_spline rmse_smear identity=1.000 yeo_johnson=1.001 asinh=1.051
+heavy_tail        ridge_spline mae_clip   identity=1.000 yeo_johnson=1.001 asinh=1.072
+heavy_tail        lgbm         rmse_smear asinh=0.993 yeo_johnson=0.998 identity=1.000
+heavy_tail        lgbm         mae_clip   asinh=0.985 yeo_johnson=0.998 identity=1.000
+hetero_linear     ridge        rmse_smear identity=1.000 yeo_johnson=1.000 asinh=1.092
+hetero_linear     ridge        mae_clip   identity=1.000 yeo_johnson=1.000 asinh=1.064
+hetero_linear     hgb          rmse_smear yeo_johnson=0.999 identity=1.000 asinh=1.001
+hetero_linear     hgb          mae_clip   yeo_johnson=0.999 identity=1.000 asinh=1.005
+hetero_linear     ridge_spline rmse_smear yeo_johnson=1.000 identity=1.000 asinh=1.049
+hetero_linear     ridge_spline mae_clip   yeo_johnson=1.000 identity=1.000 asinh=1.041
+hetero_linear     lgbm         rmse_smear identity=1.000 yeo_johnson=1.006 asinh=1.008
+hetero_linear     lgbm         mae_clip   identity=1.000 yeo_johnson=1.006 asinh=1.009
+hetero_lognormal  ridge        rmse_smear box_cox=0.860 log=0.862 cbrt=0.915
+hetero_lognormal  ridge        mae_clip   box_cox=0.450 log=0.451 cbrt=0.467
+hetero_lognormal  hgb          rmse_smear box_cox=0.808 log=0.810 log1p=0.821
+hetero_lognormal  hgb          mae_clip   box_cox=0.706 log=0.710 yeo_johnson=0.714
+hetero_lognormal  ridge_spline rmse_smear box_cox=0.786 log=0.786 cbrt=0.796
+hetero_lognormal  ridge_spline mae_clip   box_cox=0.519 log=0.519 log1p=0.530
+hetero_lognormal  lgbm         rmse_smear log=0.794 box_cox=0.796 cbrt=0.811
+hetero_lognormal  lgbm         mae_clip   box_cox=0.693 log=0.695 log1p=0.708
+linear            ridge        rmse_smear identity=1.000 yeo_johnson=1.001 asinh=1.298
+linear            ridge        mae_clip   identity=1.000 yeo_johnson=1.000 asinh=1.206
+linear            hgb          rmse_smear identity=1.000 yeo_johnson=1.001 asinh=1.006
+linear            hgb          mae_clip   identity=1.000 yeo_johnson=1.002 asinh=1.007
+linear            ridge_spline rmse_smear identity=1.000 yeo_johnson=1.000 asinh=1.193
+linear            ridge_spline mae_clip   identity=1.000 yeo_johnson=1.000 asinh=1.150
+linear            lgbm         rmse_smear yeo_johnson=0.999 identity=1.000 asinh=1.003
+linear            lgbm         mae_clip   yeo_johnson=0.999 identity=1.000 asinh=1.003
+lognormal         ridge        rmse_smear log=0.566 box_cox=0.567 cbrt=0.836
+lognormal         ridge        mae_clip   box_cox=0.487 log=0.488 cbrt=0.580
+lognormal         hgb          rmse_smear box_cox=0.956 log=0.957 cbrt=0.972
+lognormal         hgb          mae_clip   box_cox=0.941 log=0.941 log1p=0.951
+lognormal         ridge_spline rmse_smear log=0.702 box_cox=0.704 log1p=0.840
+lognormal         ridge_spline mae_clip   log=0.630 box_cox=0.630 cbrt=0.688
+lognormal         lgbm         rmse_smear box_cox=0.946 log=0.948 log1p=0.980
+lognormal         lgbm         mae_clip   log=0.937 box_cox=0.938 log1p=0.952
+neg_skew          ridge        rmse_smear asinh=0.985 cbrt=0.994 identity=1.000
+neg_skew          ridge        mae_clip   yeo_johnson=0.694 asinh=0.974 identity=1.000
+neg_skew          hgb          rmse_smear asinh=0.989 signed_sqrt=0.992 identity=1.000
+neg_skew          hgb          mae_clip   yeo_johnson=0.979 asinh=0.991 identity=1.000
+neg_skew          ridge_spline rmse_smear asinh=0.946 signed_sqrt=0.976 identity=1.000
+neg_skew          ridge_spline mae_clip   yeo_johnson=0.827 asinh=0.995 identity=1.000
+neg_skew          lgbm         rmse_smear asinh=0.981 identity=1.000 signed_sqrt=1.003
+neg_skew          lgbm         mae_clip   yeo_johnson=0.979 asinh=0.989 identity=1.000
+zero_inflated     ridge        rmse_smear yeo_johnson=0.962 asinh=1.000 identity=1.000
+zero_inflated     ridge        mae_clip   log1p=0.922 asinh=0.926 sqrt=0.937
+zero_inflated     hgb          rmse_smear identity=1.000 asinh=1.000 signed_sqrt=1.007
+zero_inflated     hgb          mae_clip   asinh=0.990 identity=1.000 log1p=1.006
+zero_inflated     ridge_spline rmse_smear yeo_johnson=0.994 identity=1.000 asinh=1.006
+zero_inflated     ridge_spline mae_clip   asinh=0.965 log1p=0.971 sqrt=0.992
+zero_inflated     lgbm         rmse_smear identity=1.000 asinh=1.012 signed_sqrt=1.019
+zero_inflated     lgbm         mae_clip   asinh=0.997 identity=1.000 log1p=1.006
+
+== proposer (MI equal-width) vs safe judge, rmse_smear, among its own 5 candidates
+fixture model: picked-is-best(own set)/n ; picked-is-within-2%-of-best ; mean ratio picked/identity ; mean regret picked/best(all cands)
+bounded01         ridge        4/7 7/7 ratio 1.000 regret 1.067 picks {'yeo_johnson': 3, 'identity': 4}
+bounded01         hgb          1/7 7/7 ratio 0.999 regret 1.004 picks {'yeo_johnson': 3, 'identity': 4}
+bounded01         ridge_spline 4/7 7/7 ratio 1.000 regret 1.058 picks {'yeo_johnson': 3, 'identity': 4}
+bounded01         lgbm         1/7 7/7 ratio 1.001 regret 1.006 picks {'yeo_johnson': 3, 'identity': 4}
+counts            ridge        0/7 7/7 ratio 0.955 regret 1.008 picks {'signed_sqrt': 1, 'yeo_johnson': 6}
+counts            hgb          2/7 7/7 ratio 0.999 regret 1.004 picks {'signed_sqrt': 1, 'yeo_johnson': 6}
+counts            ridge_spline 6/7 7/7 ratio 0.977 regret 1.002 picks {'signed_sqrt': 1, 'yeo_johnson': 6}
+counts            lgbm         1/7 7/7 ratio 1.002 regret 1.006 picks {'signed_sqrt': 1, 'yeo_johnson': 6}
+cube              ridge        7/7 7/7 ratio 0.454 regret 1.000 picks {'cbrt': 7}
+cube              hgb          6/7 7/7 ratio 0.951 regret 1.001 picks {'cbrt': 7}
+cube              ridge_spline 7/7 7/7 ratio 0.575 regret 1.000 picks {'cbrt': 7}
+cube              lgbm         7/7 7/7 ratio 0.941 regret 1.000 picks {'cbrt': 7}
+exp_linear        ridge        7/7 7/7 ratio 0.585 regret 1.000 picks {'yeo_johnson': 7}
+exp_linear        hgb          3/7 7/7 ratio 0.996 regret 1.007 picks {'yeo_johnson': 7}
+exp_linear        ridge_spline 7/7 7/7 ratio 0.737 regret 1.000 picks {'yeo_johnson': 7}
+exp_linear        lgbm         4/7 7/7 ratio 0.993 regret 1.005 picks {'yeo_johnson': 7}
+heavy_tail        ridge        0/7 0/7 ratio 2.528 regret 2.528 picks {'cbrt': 6, 'signed_sqrt': 1}
+heavy_tail        hgb          0/7 1/7 ratio 1.176 regret 1.182 picks {'cbrt': 6, 'signed_sqrt': 1}
+heavy_tail        ridge_spline 0/7 0/7 ratio 2.069 regret 2.069 picks {'cbrt': 6, 'signed_sqrt': 1}
+heavy_tail        lgbm         0/7 1/7 ratio 1.199 regret 1.208 picks {'cbrt': 6, 'signed_sqrt': 1}
+hetero_linear     ridge        0/7 0/7 ratio 1.311 regret 1.311 picks {'signed_sqrt': 7}
+hetero_linear     hgb          0/7 3/7 ratio 1.019 regret 1.022 picks {'signed_sqrt': 7}
+hetero_linear     ridge_spline 0/7 0/7 ratio 1.216 regret 1.217 picks {'signed_sqrt': 7}
+hetero_linear     lgbm         0/7 0/7 ratio 1.031 regret 1.031 picks {'signed_sqrt': 7}
+hetero_lognormal  ridge        0/7 0/7 ratio 12.473 regret 17.225 picks {'yeo_johnson': 7}
+hetero_lognormal  hgb          0/7 0/7 ratio 5.779 regret 9.932 picks {'yeo_johnson': 7}
+hetero_lognormal  ridge_spline 0/7 0/7 ratio 6.981 regret 14.818 picks {'yeo_johnson': 7}
+hetero_lognormal  lgbm         0/7 0/7 ratio 6.021 regret 10.877 picks {'yeo_johnson': 7}
+linear            ridge        0/7 0/7 ratio 1.816 regret 1.816 picks {'signed_sqrt': 7}
+linear            hgb          0/7 0/7 ratio 1.033 regret 1.033 picks {'signed_sqrt': 7}
+linear            ridge_spline 0/7 0/7 ratio 1.675 regret 1.675 picks {'signed_sqrt': 7}
+linear            lgbm         0/7 0/7 ratio 1.044 regret 1.046 picks {'signed_sqrt': 7}
+lognormal         ridge        0/7 0/7 ratio 2.409 regret 4.346 picks {'yeo_johnson': 7}
+lognormal         hgb          0/7 0/7 ratio 1.499 regret 1.586 picks {'yeo_johnson': 7}
+lognormal         ridge_spline 0/7 0/7 ratio 2.551 regret 3.745 picks {'yeo_johnson': 7}
+lognormal         lgbm         0/7 0/7 ratio 1.566 regret 1.664 picks {'yeo_johnson': 7}
+neg_skew          ridge        3/7 3/7 ratio 1.137 regret 1.181 picks {'yeo_johnson': 7}
+neg_skew          hgb          2/7 3/7 ratio 1.010 regret 1.034 picks {'yeo_johnson': 7}
+neg_skew          ridge_spline 0/7 0/7 ratio 1.173 regret 1.243 picks {'yeo_johnson': 7}
+neg_skew          lgbm         2/7 3/7 ratio 1.022 regret 1.049 picks {'yeo_johnson': 7}
+zero_inflated     ridge        7/7 7/7 ratio 0.962 regret 1.000 picks {'yeo_johnson': 7}
+zero_inflated     hgb          0/7 0/7 ratio 1.183 regret 1.197 picks {'yeo_johnson': 7}
+zero_inflated     ridge_spline 3/7 7/7 ratio 0.994 regret 1.007 picks {'yeo_johnson': 7}
+zero_inflated     lgbm         0/7 0/7 ratio 1.313 regret 1.322 picks {'yeo_johnson': 7}
+
+== totals per model
+ridge        best 28/77 within2% 38/77 ratio mean 2.330 median 1.000 worst 37.535 share worse-than-identity(>1.02) 0.49
+hgb          best 14/77 within2% 35/77 ratio mean 1.513 median 1.022 worst 14.795 share worse-than-identity(>1.02) 0.52
+ridge_spline best 27/77 within2% 35/77 ratio mean 1.814 median 1.160 worst 10.518 share worse-than-identity(>1.02) 0.55
+lgbm         best 15/77 within2% 32/77 ratio mean 1.558 median 1.031 worst 14.956 share worse-than-identity(>1.02) 0.57
+
+== unsafe-inverse distortion for the proposer's pick (old judge vs safe judge)
+ridge        unsafe non-finite for pick 14/77; unsafe-best differs from safe-best 22/77
+hgb          unsafe non-finite for pick 0/77; unsafe-best differs from safe-best 18/77
+ridge_spline unsafe non-finite for pick 12/77; unsafe-best differs from safe-best 20/77
+lgbm         unsafe non-finite for pick 1/77; unsafe-best differs from safe-best 16/77
+
+== mean retransformation effect: rmse_clip / rmse_smear of log on lognormal-type fixtures (>1 means smearing helps RMSE)
+lognormal         ridge        log    1.023
+lognormal         ridge        log1p  1.024
+lognormal         hgb          log    1.026
+lognormal         hgb          log1p  1.009
+lognormal         ridge_spline log    1.036
+lognormal         ridge_spline log1p  1.022
+lognormal         lgbm         log    1.022
+lognormal         lgbm         log1p  1.008
+hetero_lognormal  ridge        log    1.026
+hetero_lognormal  ridge        log1p  1.012
+hetero_lognormal  hgb          log    1.006
+hetero_lognormal  hgb          log1p  1.002
+hetero_lognormal  ridge_spline log    1.027
+hetero_lognormal  ridge_spline log1p  1.012
+hetero_lognormal  lgbm         log    1.014
+hetero_lognormal  lgbm         log1p  1.001
+counts            ridge        log1p  1.037
+counts            hgb          log1p  1.017
+counts            ridge_spline log1p  1.029
+counts            lgbm         log1p  1.011

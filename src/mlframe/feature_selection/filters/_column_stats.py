@@ -41,6 +41,36 @@ __all__ = ["record_column_stats", "join_provenance"]
 _PROVENANCE_FIELDS = ("origin", "in_output", "support_rank", "mrmr_gain", "dropped_by")
 
 
+def _binning_meta(self) -> dict:
+    """The resolved binning of this fit for ``fit_meta_``: scheme, count rule (the scheme's own when none was given), cap."""
+    from ._binning_spec import spec_as_dict, spec_from_estimator
+
+    try:
+        return dict(spec_as_dict(spec_from_estimator(self)))
+    except ValueError:
+        return {"binning_scheme": getattr(self, "binning_scheme", None), "nbins_rule": getattr(self, "nbins_rule", None), "nbins_cap": getattr(self, "nbins_cap", None)}
+
+
+def _confidence_meta(self) -> dict:
+    """What ``mi_confidence`` (``column_stats_``) is in this fit. The serial confirmation (one worker, or a budget no larger than ``NMAX_NONPARALLEL_ITERS``) reports ``1 - nfailed / nchecked``, the raw rate of
+    failed permutation re-checks of a tiny budget: ``1.0`` after a clean run of three, and not a p-value. The multi-worker confirmation reports one minus the add-one p-value of the full budget. The selection is
+    the same either way; the flag only tells a reader which of the two numbers a ``mi_confidence`` is."""
+    from ._internals import NMAX_NONPARALLEL_ITERS
+
+    n_workers = getattr(self, "n_workers", 1)
+    budget = getattr(self, "full_npermutations", 0)
+    segmented = bool(n_workers and n_workers > 1 and budget and budget > NMAX_NONPARALLEL_ITERS)
+    return {"mi_confidence_kind": "one_minus_add_one_pvalue" if segmented else "one_minus_permutation_failure_rate", "mi_confidence_is_pvalue": segmented}
+
+
+def _probe_failures_this_fit(self) -> int:
+    """How many accuracy-gate probes raised during this fit and kept their candidate (fail-open); -1 when the fit start was not marked."""
+    from ._fe_accuracy_gate import probe_failure_count
+
+    start = getattr(self, "_fe_probe_failures_at_start", None)
+    return max(0, probe_failure_count() - int(start)) if start is not None else -1
+
+
 def _entropy_of(entropy_cache: Any, position: int) -> float:
     """H(codes of column ``position``) from the screen's entropy cache (keyed by the underscore-joined variable indices), NaN when the screen never needed it."""
     if not entropy_cache:
@@ -95,10 +125,12 @@ def record_column_stats(self: Any, cols: Any, nbins: Any, cached_MIs: Any, scree
             "n_classes_y": len(freqs_y) if freqs_y is not None else -1,
             "target_entropy": h_y,
             "class_frequencies": [float(v) for v in np.asarray(freqs_y).ravel()] if freqs_y is not None else [],
-            "nbins_strategy": getattr(self, "nbins_strategy", None),
+            **_binning_meta(self),
+            **_confidence_meta(self),
+            "fe_probe_failures": _probe_failures_this_fit(self),
             "quantization_nbins": getattr(self, "quantization_nbins", None),
             "effective_min_relevance_gain": float(effective_min_relevance_gain) if effective_min_relevance_gain is not None else float("nan"),
-            "fe_interaction_ii_floor": float(getattr(self, "fe_interaction_ii_floor_", None) or float("nan")),
+            "fe_interaction_ii_floor": float(_ii_floor) if (_ii_floor := getattr(self, "fe_interaction_ii_floor_", None)) is not None else float("nan"),
         }
     except Exception as exc:  # metadata only
         self.column_stats_ = None

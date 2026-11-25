@@ -58,6 +58,7 @@ from ._rejection_ledger import gate_error_reject as _gate_error_reject
 from ._rejection_ledger import spec_inverse
 from mlframe.training.composite.transforms.shared import call_transform
 from mlframe.utils.array_shape import size_of
+from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
 
@@ -350,7 +351,7 @@ def _gate_specs(self: Any, df: Any, kept_specs: list, ctx: tuple, raw_pred: np.n
         valid = _spec_fit_mask(transform, y_fit, base_fit, params, spec.name)
         if int(valid.sum()) < 50:
             # The RMSE gate does not run on this spec, so it passes unscored. Say so, instead of letting it through silently (audit 34-F7).
-            logger.warning("composite_discovery: %s has %d valid rows (< 50); the honest RMSE gate is not applied and it passes unscored", spec.name, int(valid.sum()))
+            log_throttle(logger, "composite_discovery.honest_gate_unscored", logging.WARNING, "composite_discovery: %s has %d valid rows (< 50); the honest RMSE gate is not applied and it passes unscored", spec.name, int(valid.sum()))
             if record_only:  # too few valid rows to score on these rows either: no honest number, not the gate's one
                 _move_rmse_stamps_to_selection(spec)
             survivors.append(spec)

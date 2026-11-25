@@ -114,6 +114,7 @@ def _run_fe_step_impl_part6(
         prospective_additions=st.prospective_additions,
         prospective_pairs=st.prospective_pairs,
         _prevalence_failed_synergy=st._prevalence_failed_synergy,
+        _screen_marginal_mi=cached_MIs,  # the escalation ranks its candidate pairs by joint MI beyond the operands' marginal MIs
         _pair_maxt_floor=st._pair_maxt_floor,
         _polynom_engineered_indices=st._polynom_engineered_indices,
         data=data, cols=cols, nbins=nbins, X=X,

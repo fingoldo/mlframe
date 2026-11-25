@@ -56,7 +56,10 @@ def _plain(key: object) -> bool:
     if isinstance(key, _FORBIDDEN_KEY_TYPES):
         return False
     if isinstance(key, tuple):
-        return all(_plain(k) for k in key)
+        for k in key:
+            if not _plain(k):
+                return False
+        return True
     return True
 
 
@@ -65,7 +68,8 @@ def test_cache_keys_are_never_fit_data(module_name: str, name: str):
     """Every key currently held by the cache is a plain scalar or a tuple of them."""
     obj = getattr(importlib.import_module(module_name), name)
     keys = list(obj.keys()) if hasattr(obj, "keys") else list(obj) if isinstance(obj, (list, set, tuple)) else []
-    assert all(_plain(k) for k in keys), (module_name, name)
+    bad = [k for k in keys if not _plain(k)]
+    assert not bad, (module_name, name, bad)
 
 
 @pytest.mark.parametrize("module_name,name", CACHES)
@@ -73,7 +77,7 @@ def test_cache_can_be_reset_by_rebinding(monkeypatch, module_name: str, name: st
     """``monkeypatch.setattr(module, NAME, empty)`` gives a test a cold cache and puts the original back afterwards."""
     module = importlib.import_module(module_name)
     original = getattr(module, name)
-    try:
+    try:  # audit-exempt: except_skip_masks_call_under_test -- optional CUDA device guard: the probe decides whether the module can run, it is not the code under test
         empty = type(original)()
     except TypeError:
         pytest.skip(f"{name} is not an empty-constructible container")

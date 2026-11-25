@@ -93,7 +93,13 @@ def _resident_codes(cp: Any, fd: np.ndarray) -> "Any | None":
                 return dev
     if int(fd.min()) < 0 or int(fd.max()) > 32767:
         return None
-    dev = cp.asarray(np.ascontiguousarray(fd, dtype=np.int16))
+    # uploaded in column blocks and widened to int16 on the device: ``ascontiguousarray(fd, dtype=int16)`` of the whole matrix was a second host copy of it (1.1 GB at 500000 x 1100 int8 codes), the
+    # largest step of the last minutes of the 500000 x 1000 fit; a block holds a few tens of MB
+    dev = cp.empty(fd.shape, dtype=cp.int16)
+    step = max(1, int((32 * 1024 * 1024) // max(1, int(fd.shape[0]) * int(fd.dtype.itemsize))))
+    for c0 in range(0, int(fd.shape[1]), step):
+        c1 = min(int(fd.shape[1]), c0 + step)
+        dev[:, c0:c1] = cp.asarray(np.ascontiguousarray(fd[:, c0:c1])).astype(cp.int16)
     with _RESIDENT_FD_LOCK:
         _RESIDENT_FD.append((weakref.ref(fd), key, dev))
         del _RESIDENT_FD[:-_RESIDENT_FD_MAX]

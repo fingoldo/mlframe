@@ -1,4 +1,4 @@
-"""Unsupervised ``nbins_strategy`` edges depend on the column alone, so a second target (a second MRMR fit of a multi-target suite, a refit on another label) must not compute them again.
+"""Unsupervised ``binning_scheme`` edges depend on the column alone, so a second target (a second MRMR fit of a multi-target suite, a refit on another label) must not compute them again.
 
 The edge memo is content-keyed and leaves the target out of the key for a method that does not use it; these tests pin that, for every unsupervised strategy and for the whole path
 (``per_feature_edges``), and pin the contrast: a SUPERVISED strategy does depend on the target and recomputes.
@@ -11,8 +11,9 @@ import pytest
 
 from mlframe.feature_selection.filters import _adaptive_nbins_columns as cols
 from mlframe.feature_selection.filters._adaptive_nbins import per_feature_edges
+from tests.feature_selection.binning_cases import edges_call
 
-UNSUPERVISED = ["quantile_spacing", "uniform", "freedman_diaconis", "sturges"]
+UNSUPERVISED = ["rice_capped", "uniform", "freedman_diaconis", "sturges"]
 
 
 @pytest.fixture()
@@ -46,9 +47,9 @@ def test_a_second_target_reuses_the_edges_of_an_unsupervised_strategy(frame, mon
     """The first call computes every column; the second, with another target, computes none and returns equal edges."""
     X, y1, y2 = frame
     calls = _count_uncached(monkeypatch)
-    first = per_feature_edges(X, y1, method=method, n_jobs=1)
+    first = per_feature_edges(X, y1, **edges_call(method), n_jobs=1)
     assert len(calls) == X.shape[1]
-    second = per_feature_edges(X, y2, method=method, n_jobs=1)
+    second = per_feature_edges(X, y2, **edges_call(method), n_jobs=1)
     assert len(calls) == X.shape[1], "the edges were computed again for a second target"
     for a, b in zip(first, second):
         np.testing.assert_array_equal(np.asarray(a), np.asarray(b))

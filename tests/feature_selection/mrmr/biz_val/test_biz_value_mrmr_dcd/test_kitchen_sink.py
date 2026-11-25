@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from tests.feature_selection.conftest import LEGACY_FE_OFF
+
 from tests.conftest import is_fast_mode
 
 warnings.filterwarnings("ignore")
@@ -176,12 +178,14 @@ def _fit_three_modes(X, y, on_tau: float):
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     m_off = MRMR(
+        **LEGACY_FE_OFF,
         dcd_enable=False,
         full_npermutations=3,
         verbose=0,
         random_seed=0,
     ).fit(X, y)
     m_on = MRMR(
+        **LEGACY_FE_OFF,
         dcd_enable=True,
         dcd_tau_cluster=on_tau,
         full_npermutations=3,
@@ -189,6 +193,7 @@ def _fit_three_modes(X, y, on_tau: float):
         random_seed=0,
     ).fit(X, y)
     m_auto = MRMR(
+        **LEGACY_FE_OFF,
         dcd_enable=True,
         dcd_tau_cluster="auto",
         dcd_distance="auto",
@@ -290,6 +295,7 @@ class TestLayer49_ScenarioA_SensorMesh:
 
         X, y = _scenario_A_sensor_mesh(n=1500, seed=49)
         m_auto = MRMR(
+            **LEGACY_FE_OFF,
             dcd_enable=True,
             dcd_tau_cluster="auto",
             dcd_distance="auto",
@@ -342,6 +348,7 @@ class TestLayer49_ScenarioA_SensorMesh:
 
 class TestLayer49_ScenarioB_Financial:
     """Groups tests covering TestLayer49_ScenarioB_Financial."""
+
     @pytest.fixture(scope="class")
     def fits(self):
         """Helper that fits."""
@@ -490,6 +497,7 @@ class TestLayer49_ScenarioC_Embedding:
 
 class TestLayer49_ScenarioD_MixedCatNum:
     """Groups tests covering TestLayer49_ScenarioD_MixedCatNum."""
+
     @pytest.fixture(scope="class")
     def fits(self):
         """Helper that fits."""
@@ -599,6 +607,7 @@ class TestLayer49_CumulativeSummary:
         ):
             X, y = sc(n=n_rows, seed=49)
             m_auto = MRMR(
+                **LEGACY_FE_OFF,
                 dcd_enable=True,
                 dcd_tau_cluster="auto",
                 dcd_distance="auto",

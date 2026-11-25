@@ -4,7 +4,7 @@ The main-thread sampler (``all_families_stage_sampler``) and cProfile see one th
 of every thread every ``SAMPLE_S`` seconds and records, per thread, the innermost frame that lies in an mlframe module (``where``) and whether the thread is blocked (the innermost frame of any module is a lock / event /
 queue wait: the thread is idle, not working).
 
-Usage: ``python -m mlframe.feature_selection._benchmarks.profiling.all_thread_sampler N P`` (env ``SS_NBINS`` default quantile_spacing, ``SAMPLE_S`` default 0.02, ``TOP`` default 30). A warm-up fit comes first.
+Usage: ``python -m mlframe.feature_selection._benchmarks.profiling.all_thread_sampler N P`` (env ``SS_NBINS`` default quantile, ``SAMPLE_S`` default 0.02, ``TOP`` default 30). A warm-up fit comes first.
 Output: the wall, the thread-seconds by innermost mlframe function split into working and blocked, and the mean number of working threads. Thread-seconds above the wall mean the threads overlapped; a function with
 many working thread-seconds and a low CPU / GPU load in the tick timeline is a host loop that holds a worker (the lever for the near-100 % occupancy goal).
 """
@@ -17,6 +17,7 @@ import sys
 import threading
 import time
 import warnings
+from mlframe.feature_selection._benchmarks.binning_label import binning_params
 
 warnings.simplefilter("ignore")
 for _k, _v in {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_VRAM_F32": "1", "MLFRAME_FE_GPU_DISCRETIZE": "1", "MLFRAME_FE_GPU_BINNING": "1"}.items():
@@ -51,7 +52,7 @@ def main() -> None:
     sample_s = float(os.environ.get("SAMPLE_S", "0.02"))
     top = int(os.environ.get("TOP", "30"))
     kw = F.all_families_kwargs()
-    kw["nbins_strategy"] = os.environ.get("SS_NBINS", "quantile_spacing")
+    kw.update(binning_params(os.environ.get("SS_NBINS", "quantile")))
     MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*F._make(20000, 30, 1))
     data = F._make(n, p, 2)
     working: "collections.Counter[str]" = collections.Counter()

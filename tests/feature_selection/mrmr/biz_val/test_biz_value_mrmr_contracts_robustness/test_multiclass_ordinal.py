@@ -64,7 +64,7 @@ CONTRACTS PINNED
 
 DEFAULT-CONFIG SURFACE
 ----------------------
-DCD ON, relative-gain stop ON, Miller-Madow ON, MDLP nbins_strategy ON
+DCD ON, relative-gain stop ON, Miller-Madow ON, MDLP binning_scheme ON
 (Wave 9 flip 2026-05-30). Layer 16 respects those defaults; only
 ``fe_max_steps=0`` and ``interactions_max_order=1`` are pinned to keep
 wall-time bounded. They do NOT interact with multiclass/ordinal

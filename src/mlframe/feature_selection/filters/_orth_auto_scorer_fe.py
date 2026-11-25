@@ -374,7 +374,7 @@ def _batched_bootstrap_values(columns: list, y_arr: np.ndarray, boot_idx: list, 
 
 
 #: Host bytes of one column block of a resample (the ``(n, k)`` block of its columns in the criterion dtype); the batched scorers see at most this many columns at a time.
-_BOOTSTRAP_BLOCK_BYTES = 256 * 1024 * 1024
+_BOOTSTRAP_BLOCK_BYTES = 64 * 1024 * 1024
 
 
 def _batched_bootstrap_values_in_column_blocks(columns: list, y_arr: np.ndarray, boot_idx: list, random_state: int, hyper: dict) -> "dict | None":
