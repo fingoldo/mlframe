@@ -986,7 +986,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 20-F44 | 20_reporting-1.md | FIXED | __all__ moved to the end of _error_analysis_shared; blank-line gap added before _frame_rows in _drift_shared. Test tests/training/test_cluster20_shared_module_layout.py. |
 | 20-F45 | 20_reporting-1.md | FIXED | Calibration chart subsample indexes s and t directly with the drawn indices instead of a one-off lambda; same values. Test tests/training/test_cluster20_calibration_subsample_direct_index.py. |
 | 21-F5 | 21_reporting-2.md | FIXED | an all-missing slice column takes the missingness code; tests/reporting/test_cluster21_slice_missing_and_metric_direction.py |
-| 21-F6 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
+| 21-F6 | 21_reporting-2.md | FIXED | Multiclass SHAP interactions rank each pair by the class it moves most (largest mean /interaction/), as the main-effects panel does; binary keeps the positive-class convention. Tests tests/reporting/test_cluster21_multiclass_interaction_best_class.py (2 passed). |
 | 21-F7 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F8 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F9 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |

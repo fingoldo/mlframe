@@ -457,7 +457,6 @@
 | 20-F27 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 21-F5 | FIXED | an all-missing slice column takes the missingness code; tests/reporting/test_cluster21_slice_missing_and_metric_direction.py |
 | 21-F16 | FIXED | metric direction uses the family name before any @k cutoff; same test file |
-| 21-F6 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F7 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F8 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F9 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
@@ -1512,3 +1511,5 @@
 | 15-F5 | FIXED | The RFECV checkpoint now saves and restores the signed importances onto the estimator, so dispatched linear aggregation sees the same scale after a resume. Test tests/feature_selection/test_cluster15_checkpoint_round_trip.py. The heavy test_biz_val_wrappers_rfecv.py file was not confirmed in this pass. |
 
 | 15-F7 | FIXED | Stability selection passes the bootstrap's fitted rows as train_data, so the coefficient scale comes from the rows the model was fit on rather than its out-of-bag rows. Test tests/feature_selection/test_cluster15_coef_scale_uses_fit_rows.py (2 passed). |
+
+| 21-F6 | FIXED | Multiclass SHAP interactions rank each pair by the class it moves most (largest mean /interaction/), as the main-effects panel does; binary keeps the positive-class convention. Tests tests/reporting/test_cluster21_multiclass_interaction_best_class.py (2 passed). |

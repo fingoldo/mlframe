@@ -65,7 +65,6 @@ Name-reference counts are a grep of `tests/` for each public or load-bearing nam
 - 21-F3: RESOLVED. Per-instance and interaction SHAP builders skip a multi-output CatBoost model before shap's TreeExplainer, as shap_panels already does. Test tests/reporting/test_shap_multioutput_catboost_is_skipped.py (monkeypatched; it would not catch a renamed explainer call); 91 existing SHAP tests pass. Commit below.
 - 21-F5: FIXED. an all-missing slice column takes the missingness code; tests/reporting/test_cluster21_slice_missing_and_metric_direction.py
 - 21-F16: FIXED. metric direction uses the family name before any @k cutoff; same test file
-- 21-F6: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F7: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F8: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F9: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
@@ -87,3 +86,5 @@ Name-reference counts are a grep of `tests/` for each public or load-bearing nam
 - 21-F22: FIXED. Unknown-colormap warning throttled per name with max_count=1 (was unthrottled, per trace). Test tests/reporting/test_cluster21_unknown_colormap_once.py.
 - 21-F21: FIXED. Timing chart-type grouper strips a hex disambiguator only when the token contains a digit (lookahead), so decade/accede/facade keep their names. Test tests/reporting/test_cluster21_timings_hex_suffix.py (6 pass).
 - 21-F26: PARTIAL. SHAP per-instance result docstring now says the figure is closed on return (the finally closes it) and that n_background counts explained rows. Not changed: the same closed-figure pattern in shap_panels.py:811-812 named in the finding, and the field itself is not renamed (API). Test tests/reporting/test_cluster21_shap_result_docs.py (docstring pins).
+
+- 21-F6: FIXED. Multiclass SHAP interactions rank each pair by the class it moves most (largest mean /interaction/), as the main-effects panel does; binary keeps the positive-class convention. Tests tests/reporting/test_cluster21_multiclass_interaction_best_class.py (2 passed).
