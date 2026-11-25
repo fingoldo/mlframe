@@ -8,6 +8,7 @@ Users compose variants themselves (no implicit sweep over hyperparameters).
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, Tuple, Union
 
 from mlframe.utils.log_throttle import log_throttle
@@ -27,6 +28,19 @@ def _label_for(entry: GridEntry, idx: int) -> tuple[str, dict[str, Any]]:
     if isinstance(entry, dict):
         return f"variant_{idx}", entry
     raise TypeError(f"grid entry {idx} must be dict or (label, dict); got {type(entry).__name__}")
+
+
+@dataclass(frozen=True)
+class GridVariantError:
+    """Typed result for a grid variant that raised with ``stop_on_error=False`` (audit 28-F70).
+
+    Replaces the earlier plain ``{"error": repr(exc)}`` dict, so callers can test ``isinstance(result, GridVariantError)`` and read
+    ``label``, ``exc_type`` and ``message`` by attribute.
+    """
+
+    label: str
+    exc_type: str
+    message: str
 
 
 def run_grid(
@@ -50,7 +64,7 @@ def run_grid(
         a stub for testing.
     stop_on_error : bool
         If False (default), exceptions from a variant are logged and the result
-        is stored as ``{"error": repr(exc)}``; other variants keep running.
+        is stored as a :class:`GridVariantError`; other variants keep running.
     """
     if suite_fn is None:
         from .core import train_mlframe_models_suite
@@ -76,9 +90,9 @@ def run_grid(
             log_throttle(logger, "run_grid_variant_failed", logging.ERROR, "[run_grid] variant %s raised %s", label, type(exc).__name__, exc_info=True)
             if stop_on_error:
                 raise
-            results[label] = {"error": repr(exc)}
+            results[label] = GridVariantError(label=label, exc_type=type(exc).__name__, message=repr(exc))
     logger.info("[run_grid] completed %d variants: %s", len(labels), labels)
     return results
 
 
-__all__ = ["run_grid"]
+__all__ = ["GridVariantError", "run_grid"]

@@ -208,6 +208,67 @@ def _scatter_per_row(per_row, sort_idx, n):
     return out
 
 
+#: Candidate lookback windows the automatic selection tries, shortest first (audit 24-F17).
+LOOKBACK_CANDIDATES = (64, 128, 256, 512, 1024, 2048)
+#: Probe rows per call used to check a lookback against the exact causal mode.
+_LOOKBACK_PROBES = 16
+
+
+def _lookback_prefix_bounds(starts, ends, lookback: int):
+    """Causal prefix windows clipped to the last ``lookback`` rows of each prefix (audit 24-F17)."""
+    p_starts, p_ends = _prefix_bounds(starts, ends)
+    return np.maximum(p_starts, p_ends - int(lookback)), p_ends
+
+
+@njit(fastmath=False, cache=True)
+def _lookback_mean_gap(v_sorted, probe_rows, probe_starts, lookback, scheme_code, param, bandwidth, n_grid, span):
+    """Mean relative gap between the lookback-clipped and the exact causal mode over the probe rows, and how many probes were tested.
+
+    The mean, not the maximum: the grid argmax can jump to another density peak on a single row (a large gap on a few rows), which the
+    maximum would let veto every candidate, while the mean tracks the typical agreement (audit 24-F17).
+    """
+    total = 0.0
+    tested = 0
+    for i in range(probe_rows.shape[0]):
+        e = probe_rows[i] + 1  # causal prefix [s, row+1)
+        s = probe_starts[i]
+        if e - s <= lookback:
+            continue
+        exact, _ = _kde_one_group(v_sorted, s, e, scheme_code, param, bandwidth, n_grid, 0.0)
+        clipped, _ = _kde_one_group(v_sorted, e - lookback, e, scheme_code, param, bandwidth, n_grid, 0.0)
+        total += abs(clipped - exact) / span
+        tested += 1
+    if tested == 0:
+        return 0.0, 0
+    return total / tested, tested
+
+
+def _select_lookback(v_sorted, starts, ends, scheme_code, param, bandwidth, n_grid, tol):
+    """Smallest candidate lookback whose causal modes match the exact ones on probe rows, or None if none does.
+
+    The criterion is the MEAN over probe rows of ``|mode_L - mode_exact| / span``, where ``span`` is the value range of the whole input,
+    so the tolerance is relative to the data scale and robust to the rare row where the argmax flips to another peak. Probes are spread
+    evenly over the rows; only prefixes longer than a candidate are tested against it, because a shorter prefix is identical under every
+    lookback.
+    """
+    n = v_sorted.shape[0]
+    finite = v_sorted[~np.isnan(v_sorted)]
+    if finite.size < 2:
+        return None
+    span = float(finite.max() - finite.min())
+    if span <= 0.0:
+        return None
+    probe_rows = np.unique(np.linspace(0, n - 1, min(_LOOKBACK_PROBES, n)).astype(np.int64))
+    probe_starts = np.asarray(starts, dtype=np.int64)[np.searchsorted(starts, probe_rows, side="right") - 1]
+    for L in LOOKBACK_CANDIDATES:
+        mean_gap, tested = _lookback_mean_gap(
+            v_sorted, probe_rows, probe_starts, np.int64(L), np.int64(scheme_code), float(param), float(bandwidth), np.int64(n_grid), float(span)
+        )
+        if tested and mean_gap <= tol:
+            return L
+    return None
+
+
 def per_group_recency_weighted_mode(
     values: np.ndarray,
     group_ids: np.ndarray,
@@ -219,11 +280,18 @@ def per_group_recency_weighted_mode(
     n_grid: int = 64,
     broadcast: bool = True,
     causal: bool = True,
+    lookback: int | str | None = None,
+    lookback_tol: float = 1e-2,
 ) -> np.ndarray:
     """Per-entity mode of the recency-weighted Gaussian Parzen density of ``values``.
 
     ``bandwidth <= 0`` picks a per-group Silverman rule. Returns shape ``(n,)`` if broadcast else one per entity.
     With ``broadcast`` and ``causal`` (default) each row gets the mode of its entity's rows up to and including itself; ``causal=False`` broadcasts the whole-history mode.
+
+    ``lookback`` bounds the causal window (audit 24-F17): ``None`` keeps the exact full-prefix mode; an int ``L`` uses only the last ``L`` rows
+    of each prefix; ``"auto"`` picks the smallest candidate in ``LOOKBACK_CANDIDATES`` whose mean probe-row gap to the exact modes is within ``lookback_tol``
+    (relative to the input's value range), falling back to exact when none does. A bounded window changes each estimate, so the
+    result is an approximation; it applies only to the causal broadcast path and is refused elsewhere rather than ignored.
     """
     if scheme not in SCHEMES:
         raise ValueError(f"scheme must be one of {SCHEMES}, got {scheme!r}.")
@@ -231,11 +299,20 @@ def per_group_recency_weighted_mode(
         # the KDE grid-point spacing divides by (n_grid - 1); n_grid=1 would silently divide by zero
         # inside the njit kernel, producing inf/NaN grid points instead of a clear error.
         raise ValueError(f"n_grid must be >= 2, got {n_grid}")
+    if lookback is not None and not (causal and broadcast):
+        raise ValueError("lookback applies only to the causal broadcast path (causal=True, broadcast=True).")
     v_sorted, sort_idx, starts, ends, n = _sort_into_groups(values, group_ids, order)
     if n == 0:
         return np.empty(0, dtype=np.float64)
     if causal and broadcast:
-        starts, ends = _prefix_bounds(starts, ends)
+        if lookback is None:
+            starts, ends = _prefix_bounds(starts, ends)
+        else:
+            L = _select_lookback(v_sorted, starts, ends, SCHEMES.index(scheme), float(param), float(bandwidth), int(n_grid), float(lookback_tol)) if lookback == "auto" else int(lookback)
+            if L is None:
+                starts, ends = _prefix_bounds(starts, ends)
+            else:
+                starts, ends = _lookback_prefix_bounds(starts, ends, L)
     modes, _ = _dispatch_kde(v_sorted, starts, ends, SCHEMES.index(scheme), float(param), float(bandwidth), int(n_grid), 0.0)
     if causal and broadcast:
         return np.asarray(_scatter_per_row(modes, sort_idx, n))

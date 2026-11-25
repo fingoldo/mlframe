@@ -146,6 +146,8 @@ def compute_y_quintile_baseline_knn_features(
                 # regression targets: adjacent edges are distinct but no y value falls strictly between
                 # them) falls back to the whole train fold's pool rather than degrading to a silent
                 # (mean=0, std=0) feature pair.
+                # The stratum features then describe the whole fold, not the stratum: say so, so it is not read as a local statistic (09-F45).
+                logger.warning("y_quintile_baseline_knn: stratum %d is empty; its features fall back to the whole train fold", q)
                 X_q = Xt_s
                 pred_q = pred_train
             m, s = _knn_pred_stats(X_q, pred_q, Xq_s, k=_K_NEIGHBOURS)

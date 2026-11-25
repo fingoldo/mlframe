@@ -21,9 +21,10 @@ Beds: synth + hard_synth (both have engineered redundant clusters: red_0_*, red_
   clusters + same augmented frame (the combine rule is cheap).
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings; warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 import numpy as np, pandas as pd
 from collections import defaultdict
 from sklearn.model_selection import train_test_split
@@ -34,7 +35,7 @@ from hard_synth import make_hard_dataset
 from hybrid_selector import HybridSelector
 from _downstream_shared import make_ckpt_writer
 
-CK = "D:/Temp/queue_ideas_progress.txt"
+CK = bench_out("queue_ideas_progress.txt")
 ck = make_ckpt_writer(CK)
 
 
@@ -133,7 +134,7 @@ def main():
         d = round(float(b.loc["conf_rep(A5-5)", "auc_mean"]) - float(b.loc["fi_rep(prod)", "auc_mean"]), 4)
         nd = int(b.loc["conf_rep(A5-5)", "reps_changed"])
         print(f"  {bed:12s} reps_changed_by_A5-5={nd}  d_auc_mean={d:+}", flush=True)
-    df.to_csv("D:/Temp/round4_conf_rep_rows.csv", index=False)
+    df.to_csv(bench_out("round4_conf_rep_rows.csv"), index=False)
     ck("A5-5 DONE")
 
 

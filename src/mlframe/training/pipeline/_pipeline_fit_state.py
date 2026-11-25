@@ -250,7 +250,7 @@ def _accepts_kwarg(fn, name: str) -> bool:
 
     try:
         params = inspect.signature(fn).parameters
-    except (TypeError, ValueError):
+    except (TypeError, ValueError):  # best-effort: an uninspectable callable is assumed to accept the keyword, as the docstring states
         return True
     return name in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())
 

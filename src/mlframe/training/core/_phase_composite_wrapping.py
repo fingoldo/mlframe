@@ -558,6 +558,7 @@ def _score_one_entry_per_split(
     _entry: Any, _wrapper_for_score: Any, _y_arr_metric: np.ndarray, *, _spec: dict, _composite_name: str, _orig_tname: str,
     filtered_train_idx: Any, filtered_train_df: Any, filtered_val_idx: Any, filtered_val_df: Any, test_idx: Any, test_df_pd: Any,
     _train_frame_key: tuple, _train_pred_cache: dict, enable_watchdog: bool, target_name: "str | None", plot_file: "str | None",
+    y_train_mean: "float | None" = None,
     reporting_config: Any,
 ) -> dict:
     """Wrapped (post-clip) and raw (pre-clip) y-scale RMSE/MAE/R2 for one entry, per split; charts + watchdog + train-pred cache write-back."""
@@ -657,11 +658,7 @@ def _score_one_entry_per_split(
                         reporting_config=reporting_config,
                         rmse_y=_rmse_wrapped, mae_y=_mae_wrapped, r2_y=_r2,
                         split_name=_split_name,
-                        y_train_mean=(
-                            float(np.nanmean(_y_arr_metric[filtered_train_idx].astype(np.float64)))
-                            if filtered_train_idx is not None and len(filtered_train_idx)
-                            else None
-                        ),
+                        y_train_mean=y_train_mean,
                     )
                 except Exception as _chart_err:
                     log_throttle(
@@ -702,6 +699,8 @@ def _score_composite_y_scale_metrics(
     if _y_full_metric is None:
         return
     _y_arr_metric = np.asarray(_y_full_metric)
+    # The train mean is the same for every entry of this composite; compute it once rather than per entry and per split (37-F28).
+    _y_train_mean = float(np.nanmean(_y_arr_metric[filtered_train_idx].astype(np.float64))) if filtered_train_idx is not None and len(filtered_train_idx) else None
     for _entry in _entries:
         _wrapper_for_score = getattr(_entry, "model", None) or _entry
         if not callable(getattr(_wrapper_for_score, "predict", None)):
@@ -711,7 +710,7 @@ def _score_composite_y_scale_metrics(
             filtered_train_idx=filtered_train_idx, filtered_train_df=filtered_train_df, filtered_val_idx=filtered_val_idx,
             filtered_val_df=filtered_val_df, test_idx=test_idx, test_df_pd=test_df_pd, _train_frame_key=_train_frame_key,
             _train_pred_cache=_train_pred_cache, enable_watchdog=enable_watchdog, target_name=target_name,
-            plot_file=plot_file, reporting_config=reporting_config,
+            plot_file=plot_file, reporting_config=reporting_config, y_train_mean=_y_train_mean,
         )
         _metrics_dict.append({
             "model_name": getattr(_entry, "model_name", None),

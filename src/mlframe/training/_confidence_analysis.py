@@ -386,6 +386,10 @@ def _set_confidence_cat_features(cat_features, fit_params_copy, test_df):
 
 def _shap_confidence_plot(use_shap, test_df, confidence_model, max_features, cmap, alpha, ylabel, title, plot_file, figsize):
     """Plot the SHAP summary of the confidence model."""
+    if plt is None:
+        # The import guard leaves plt None when matplotlib is absent; skip the plot visibly instead of raising on plt.get_fignums (26-F36).
+        logger.warning("SHAP confidence plot skipped: matplotlib is not installed.")
+        return
     if use_shap:
         try:
             import shap
@@ -428,7 +432,7 @@ def _shap_confidence_plot(use_shap, test_df, confidence_model, max_features, cma
             # loose beside it.
             from mlframe.reporting.renderers.save import resolve_output_path
 
-            _path = plot_file if _ext else resolve_output_path(plot_file, "matplotlib", "png", multi_output=False)
+            _path = plot_file if _ext else resolve_output_path(plot_file, "matplotlib", "png")
             try:
                 fig.savefig(ensure_parent_dir(_path), bbox_inches="tight")
             except Exception as _save_err:

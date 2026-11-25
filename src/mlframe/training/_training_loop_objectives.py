@@ -54,7 +54,7 @@ def _ensure_xgb_classification_objective(model, train_target) -> None:
         _first = arr[0]
         if hasattr(_first, "shape") or (hasattr(_first, "__len__") and not isinstance(_first, (str, bytes))):
             try:
-                arr = np.stack([np.asarray(c) for c in arr], axis=0)
+                arr = np.stack(arr.tolist(), axis=0)  # np.stack converts each element itself; tolist avoids the per-row loop (28-F53)
             except Exception as _stack_exc:
                 logger.warning("_ensure_xgb_classification_objective: object-dtype stack raised %s; skipping.", _stack_exc)
                 return

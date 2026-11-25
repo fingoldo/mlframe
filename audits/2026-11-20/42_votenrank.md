@@ -58,3 +58,6 @@ Verification: two behaviours were reproduced with a read-only Python probe (`PYT
 - 42-F11: FIXED. Votenrank bench imports sigmoid from the family's _bench_shared module; the package-root copy stays for the other benches. Test test_cluster42_bench_sigmoid_shared.py.
 - 42-F10: FIXED. Minimax benchmark times and checks the shipped Leaderboard.minimax_ranking; the duplicate _new_minimax copy is removed; the old formulation stays as a fixture. Test test_cluster42_minimax_bench_uses_shipped.py.
 - 42-F12: DEFERRED. Repeated cProfile/perf_counter boilerplate across about a dozen bench scripts: a cross-file cleanup with no behaviour impact; deferred so the benches are not churned in this pass.
+- 42-F13: FIXED. Tie count uses nunique(dropna=False) at both sites, so NaN ranks count as one shared value. Test tests/votenrank/test_cluster42_tie_count_nan.py.
+- 42-F14: FIXED. Optimality-gap ranking drops the redundant DataFrame rebuild; np.minimum already returns a DataFrame with the same index and columns (verified equal). Covered by the existing gamma/optimality tests in tests/votenrank/test_cluster42_gamma_and_solver_status.py (4 pass).
+- 42-F15: FIXED. Dated timing numbers and the 2026-07-10 claim removed from the confidence-gated bench docstring; the run command and dispatch pointer are kept. Test tests/votenrank/test_cluster42_bench_docstring_no_numbers.py.

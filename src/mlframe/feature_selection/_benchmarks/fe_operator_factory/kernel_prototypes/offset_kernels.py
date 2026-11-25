@@ -106,7 +106,6 @@ def _edges_partition(u, v, t, buf, nbins, edges, los, his, fracs):
     n = u.shape[0]
     for i in range(n):
         buf[i] = _cand(u[i], v[i], t)
-    nbins + 1
     kths = np.empty(2 * (nbins - 1), dtype=np.int64)
     m = 0
     for k in range(1, nbins):
@@ -138,6 +137,12 @@ def _edges_hist_refine(u, v, t, nbins, NB, hist, mark, gbuf, edges, los, his, fr
             edges[k] = cmin
         return True
     scale = NB / (cmax - cmin)
+    if not (scale < 1.0e308):
+        # A subnormal-width range overflows NB / width to inf, and 0 * inf then makes NaN bins. Such a range carries no spread, so take the flat
+        # branch above rather than binning with a non-finite scale (11-F12).
+        for k in range(1, nbins):
+            edges[k] = cmin
+        return True
     hist[:] = 0
     for i in range(n):
         c = _cand(u[i], v[i], t)

@@ -25,7 +25,7 @@ import os, sys, time, json, cProfile, pstats, io
 import pandas as pd
 
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings; warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 MODE = os.environ.get("MODE", "baseline").lower()
@@ -72,8 +72,12 @@ def _fingerprint(h) -> dict:
     we pin the selected SET+ORDER (the hard gate) plus the FI-derived RANK ORDER of the selected columns."""
     sel = list(h.raw_selected_)
     fi = h.fi_
+    # A selected column with no FI score cannot be ranked; defaulting it to 0.0 hid that and let the gate pass on a wrong ranking (12-F89).
+    missing = [c for c in sel if c not in fi]
+    if missing:
+        raise ValueError(f"selected columns have no FI score: {missing}")
     # combined ranking = selected cols sorted by shared FI desc (ties broken by name) -- the glue's emitted ranking
-    ranking = sorted(sel, key=lambda c: (-float(fi.get(c, 0.0)), c))
+    ranking = sorted(sel, key=lambda c: (-float(fi[c]), c))
     return {
         "selected_set_ordered": sel,
         "combined_ranking": ranking,
@@ -93,6 +97,9 @@ def run_baseline() -> float:
     fp = _fingerprint(h)
     print(f"FIT {dt:.2f}s; n_selected={fp['n_selected']} n_eng={fp['n_engineered']} "
           f"n_clusters={fp['n_clusters']} members={ {k: len(v) for k, v in fp['member_selections'].items()} }", flush=True)
+    # Re-baselining overwrites the hard gate; refuse unless the operator opts in explicitly (12-F89).
+    if os.path.exists(GOLDEN) and os.environ.get("ALLOW_REBASELINE") != "1":
+        raise SystemExit(f"golden already exists at {GOLDEN}; set ALLOW_REBASELINE=1 to overwrite it")
     os.makedirs(os.path.dirname(GOLDEN), exist_ok=True)
     payload = dict(wall=dt, n_rows=N_ROWS, seed=SEED, shape=list(X.shape), **fp)
     with open(GOLDEN, "w", encoding="utf-8") as f:

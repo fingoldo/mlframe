@@ -207,7 +207,7 @@ def categorical_highcard(seed: int = 0, n: int = 8000, p: int = 70):
 
 # --------------------------------------------------------------------------- D5
 def synth_pgg_n(seed: int = 0, n: int = 300, p: int = 2000):
-    """n=300, p=2000 (p >> n): 15 sparse linear + 5 redundant clusters + 1980 noise. KNOWN truth.
+    """n=300, p=2000 (p >> n): 15 sparse linear + 5 redundant clusters (15 columns) + 1970 noise. KNOWN truth.
 
     DEFEATS: RFECV -- with p>>n, recursive elimination is both prohibitively costly (thousands of features to
              rank with tiny n) and unstable (importance ranks are near-random at n=300, p=2000), so it prunes

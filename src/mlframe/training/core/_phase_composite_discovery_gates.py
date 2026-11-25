@@ -354,7 +354,9 @@ def _drop_below_honest_gain_floor(pending: list[dict], composite_target_discover
             f"{d['name']}({d['gain']:+.4f} vs floor {_floor_for(d):.4f}" + (f", se={d['gain_se']:.4f}" if d.get("gain_se") else "") + ")" for d in _below
         ),
     )
-    return [p for p in pending if p not in _below]
+    # Identity, not dict equality: specs carry ndarray values, and ``in`` compares dicts by value, which raises on array truth (37-F30).
+    _below_ids = {id(p) for p in _below}
+    return [p for p in pending if id(p) not in _below_ids]
 
 
 def select_composites_to_train(pending: list[dict], cfg: Any, metadata: dict) -> list[dict]:

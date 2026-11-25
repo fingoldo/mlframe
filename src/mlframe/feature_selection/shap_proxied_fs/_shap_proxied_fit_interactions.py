@@ -198,7 +198,8 @@ def _augment_proxy_mode_interaction(
                     n_int_cands += 1
             candidates = sorted(((lo, c) for c, lo in merged.items()), key=lambda t: t[0])
             applied = True
-        except Exception as exc:  # unsupported model / tensor failure -> additive fallback
+        # Only the expected unsupported-model / numerical failures fall back; programmer errors (NameError, shape bugs) must surface (13-F26).
+        except (ValueError, TypeError, RuntimeError, np.linalg.LinAlgError) as exc:  # unsupported model / tensor failure -> additive fallback
             logger.warning("proxy_mode=interaction fell back to additive: %s", exc)
         report["proxy_mode_interaction"] = dict(
             applied=applied, n_proxy=int(phi.shape[1]), interaction_top_k=int(self.interaction_proxy_top_k), n_added=int(n_int_cands)
@@ -345,7 +346,8 @@ def _augment_faith_interaction(
                 r2_of_fit = float(finfo.get("r2_of_fit", float("nan")))
                 phi_idx_to_name = {i: str(c) for i, c in enumerate(X_proxy_kept.columns)}
                 top_pairs = [(phi_idx_to_name.get(i, i), phi_idx_to_name.get(j, j)) for i, j in candidate_pairs[:10]]
-            except Exception as exc:  # numerically ill-conditioned design / unsupported metric -> additive fallback
+            # Narrowed as at the other fallback: programmer errors must not silently degrade the selection (13-F26).
+            except (ValueError, TypeError, RuntimeError, np.linalg.LinAlgError) as exc:  # numerically ill-conditioned design / unsupported metric -> additive fallback
                 logger.warning("proxy_mode=faith_interaction fell back to additive: %s", exc)
         report["faith_interaction"] = dict(
             applied=applied, n_pairs=len(candidate_pairs), n_coalitions=int(self.faith_n_coalitions),

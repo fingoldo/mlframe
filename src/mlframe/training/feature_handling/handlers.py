@@ -133,7 +133,9 @@ class CustomParams(BaseModel):
     ``transformer`` is required; the validator rejects non-callable
     ``fit`` / ``transform``.
     """
-    model_config = ConfigDict(extra="allow")  # transformer object is opaque
+    # Undeclared keys are rejected like every other params model, so a misspelled field (e.g. outptu_kind) fails loudly (39-F47).
+    # The transformer object itself is opaque (arbitrary type), which is handled by the Any field, not by extra="allow".
+    model_config = ConfigDict(extra="forbid")
     kind: Literal["custom"] = "custom"
     transformer: Any
     output_kind: Literal["dense", "sparse", "embedding"] = "dense"

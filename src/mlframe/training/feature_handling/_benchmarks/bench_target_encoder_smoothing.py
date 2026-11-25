@@ -17,13 +17,11 @@ smoothing matters most. 5 synthetic generators x 3 seeds = 15 cells per
 candidate. A challenger flips the default only if it wins the MAJORITY of
 cells on the headline metric (mean held-out AUC).
 
-VERDICT (deferred, NOT flipped): smoothing=3.0 beats the default 10.0 on held-out
-log-loss (17/25) and posterior-MSE (17/25) but only ties on AUC (14/25). The default
-is NOT flipped because ``smoothing`` is a single field shared by target_mean /
-m_estimate / james_stein / loo and only target_mean is benched here, and the suite
-passes ``smoothing`` explicitly so an estimator-default flip would be a no-op. A real
-flip needs a per-method bench + a coherent TargetEncodeParams default. Bench kept for
-that follow-up (REJECTED != DELETED).
+VERDICT (historical, 39-F51): at bench time the incumbent default was 10.0. smoothing=3.0
+beat it on held-out log-loss (17/25) and posterior-MSE (17/25) but only tied on AUC
+(14/25). The live default in ``handlers.py`` (``TargetEncodeParams.smoothing``) is now
+3.0, so this bench compares the challenger against the former incumbent, not the current
+code default. The bench is kept as the record of that comparison.
 
 Run:  python bench_target_encoder_smoothing.py
 """

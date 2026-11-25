@@ -660,13 +660,26 @@ def _resolve_chosen_flavour(metadata: dict, target_type: Any = None, target_name
     return _single_flavour_across_map(_ec)
 
 
+def _resolve_persisted_dtype(name: str) -> Any:
+    """Map a persisted numpy dtype name to a dtype; refuse unknown names rather than guessing int8 (39-F9).
+
+    Silently casting e.g. a float16 cyclical column to int8 collapses sin/cos values to 0 and +-1 at predict time.
+    """
+    try:
+        dt = np.dtype(name)
+    except TypeError as exc:
+        raise ValueError(f"unknown persisted datetime dtype {name!r}") from exc
+    if dt.kind not in "iuf":
+        raise ValueError(f"persisted datetime dtype {name!r} is not an integer or float dtype")
+    return dt.type
+
+
 def _replay_suite_datetime_decomposition(df, metadata, verbose: int = 0):
     """Replay the training-side ``create_date_features`` calls that the SUITE owns and drop any FTE-owned datetime source columns (FTE-handled cols are re-derived by the FTE's own ``transform`` on predict input, but FTE leaves the raw source via ``delete_original_cols=False`` -- the suite-side decomposition phase dropped those at training time, so predict must too or the raw datetime64 col will reach LGB / XGB / sklearn and fail dtype promotion).
 
     The suite persists ``metadata["datetime_methods"] = {src_col: {accessor: dtype_name}}``; this helper re-applies the same expansion to the predict-time frame so derived columns are byte-identical to training. When a source col is missing (already FTE-derived or absent), the corresponding entry is skipped.
     """
     from mlframe.feature_engineering.basic import create_date_features
-    import numpy as _np
 
     _fte_emitted_map = metadata.get("ftextractor_emitted_columns") or {}
     if _fte_emitted_map and hasattr(df, "columns"):
@@ -681,9 +694,6 @@ def _replay_suite_datetime_decomposition(df, metadata, verbose: int = 0):
     if not _methods_map:
         return df
 
-    _dtype_resolvers = {"int8": _np.int8, "int16": _np.int16, "int32": _np.int32, "int64": _np.int64,
-                        "uint8": _np.uint8, "uint16": _np.uint16, "uint32": _np.uint32, "uint64": _np.uint64,
-                        "float32": _np.float32, "float64": _np.float64}
     _present_sources = [c for c in _methods_map.keys() if c in df.columns]
     if not _present_sources:
         return df
@@ -700,7 +710,7 @@ def _replay_suite_datetime_decomposition(df, metadata, verbose: int = 0):
     for _methods_key, _srcs in _by_methods.items():
         _resolved_methods: dict[str, type] = {}
         for _accessor, _dtype_name in _methods_key:
-            _resolved_methods[_accessor] = _dtype_resolvers.get(_dtype_name, _np.int8)
+            _resolved_methods[_accessor] = _resolve_persisted_dtype(_dtype_name)
         if verbose:
             logger.info("Replaying datetime decomposition (%s) on %d source col(s): %s", "/".join(sorted(_resolved_methods.keys())), len(_srcs), _srcs)
         df = create_date_features(df, cols=_srcs, delete_original_cols=True, methods=_resolved_methods, cyclical_version=_cyclical_version)

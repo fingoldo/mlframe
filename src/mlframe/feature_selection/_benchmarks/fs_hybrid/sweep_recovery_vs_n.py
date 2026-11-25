@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import logging
 from mlframe.utils.log_throttle import log_throttle
 import os
@@ -161,6 +162,16 @@ def summarize(rows: Sequence[Dict[str, Any]]) -> List[str]:
     return lines
 
 
+def _strict_json(obj):
+    """Replace non-finite floats with None so the output is strict JSON (NaN is not valid JSON, 12-F101)."""
+    if isinstance(obj, dict):
+        return {k: _strict_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_strict_json(v) for v in obj]
+    if isinstance(obj, float) and not math.isfinite(obj):
+        return None
+    return obj
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the sweep and print the curve."""
     parser = argparse.ArgumentParser(description="Recovery as a function of sample size, for binned versus parametric statistics")
@@ -188,7 +199,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     out = args.out if args.out else os.path.join(RESULTS_DIR, f"sweep_recovery_vs_n_{args.bed}.json")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w", encoding="utf-8") as handle:
-        json.dump(rows, handle, indent=2, sort_keys=True)
+        json.dump(_strict_json(rows), handle, indent=2, sort_keys=True, allow_nan=False)
 
     for line in summarize(rows):
         print(line)

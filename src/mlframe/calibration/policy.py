@@ -714,7 +714,7 @@ def _emit_reliability_plot(
     # where it actually went.
     from mlframe.reporting.renderers.save import resolve_output_path
 
-    return os.path.abspath(resolve_output_path(root, "matplotlib", fmt, multi_output=False))
+    return os.path.abspath(resolve_output_path(root, "matplotlib", fmt))
 
 
 def _validate_pick_params(alpha: Any, n_bootstrap: Any, n_bins: Any, inner_cv_splits: Any) -> None:
@@ -828,8 +828,7 @@ def pick_best_calibrator(
     # Secondary diagnostic: if a held-out ``probs``/``y`` pair is supplied, score the CHOSEN calibrator's ECE on it.
     # This never influences the selection above (which stays OOF-only for honesty); it is a side report so a caller can
     # see whether the OOF-picked calibrator generalises to a separate held-out slice.
-    secondary_ece: Optional[float] = None
-    secondary_ece = _score_calibrators_on_holdout(probs, y, chosen_name, oof_p_pos, oof_y_arr, n_bins, secondary_ece)
+    secondary_ece = _score_calibrators_on_holdout(probs, y, chosen_name, oof_p_pos, oof_y_arr, n_bins, None)  # None unless probs/y given (22-F28)
 
     plot_out: Optional[str] = None
     if emit_plot:

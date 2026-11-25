@@ -34,3 +34,6 @@ Read fully: all five manifest files. Verified by grep/partial read (outside mani
 - 30-F1: FIXED. The DTW bench prints measured pool bytes; the analytic float32 overwrite is removed. Bench output; verified by reading, not by a unit test (needs a GPU).
 - 30-F2: FIXED. The analytic overwrite of the measured memory is removed; the printed values are the measured pool numbers. Bench output; verified by reading.
 - 30-F4: FIXED. The GP bench builds its dataset before the timer, so the wall time covers smoothing only. Bench output; verified by compiling and reading.
+- 30-F5: FIXED. Changepoint benchmark builds its series outside the timers; _run accepts a prebuilt y. Test test_cluster30_changepoint_bench_prebuilt_series.py.
+- 30-F6: FIXED. Unverified speed claims in the changepoint benchmark comments replaced with neutral wording. Comment-only; no behaviour change.
+- 30-F3: FIXED. Unused logger and logging import removed from the DTW GPU banded benchmark. Import check passes; no behaviour change.

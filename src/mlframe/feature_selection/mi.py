@@ -153,7 +153,7 @@ def grok_compute_mutual_information(
 
     Parameters
     ----------
-    data            : int8 ndarray, shape (n_samples, n_cols), already binned 0-14
+    data            : int8 ndarray, shape (n_samples, n_cols), already binned into [0, n_bins) (validated against [0, 127], 25-F55)
     target_indices  : iterable of int column indices
     n_bins          : number of discrete bins (default 15)
 
@@ -238,7 +238,7 @@ def chatgpt_compute_mutual_information(
 
     Parameters
     ----------
-    data            : int8 ndarray, shape (n_samples, n_cols), already binned 0-14
+    data            : int8 ndarray, shape (n_samples, n_cols), already binned into [0, n_bins) (validated against [0, 127], 25-F55)
     target_indices  : iterable of int column indices
     n_bins          : number of discrete bins (default 15)
 
@@ -278,8 +278,7 @@ def _deepseek_compute_mutual_information_kernel(
     if n_samples == 0:
         return np.zeros((n_targets, n_columns), dtype=out_dtype)
 
-    # Precompute marginals and sum_N_log_N for each column
-    marginals = np.zeros((n_columns, n_bins), dtype=hist_dtype)
+    # Precompute sum_N_log_N for each column (the per-column marginal counts were filled and never read, so they are not kept; 25-F56)
     sum_N_log_N = np.zeros(n_columns, dtype=out_dtype)
 
     for col in prange(n_columns):
@@ -287,7 +286,6 @@ def _deepseek_compute_mutual_information_kernel(
         for i in range(n_samples):
             val = data[i, col]
             counts[val] += 1
-        marginals[col] = counts
         s = 0.0
         for b in range(n_bins):
             c = counts[b]
@@ -337,7 +335,7 @@ def deepseek_compute_mutual_information(
 
     Parameters
     ----------
-    data            : int8 ndarray, shape (n_samples, n_cols), already binned 0-14
+    data            : int8 ndarray, shape (n_samples, n_cols), already binned into [0, n_bins) (validated against [0, 127], 25-F55)
     target_indices  : iterable of int column indices
     n_bins          : number of discrete bins (default 15)
 

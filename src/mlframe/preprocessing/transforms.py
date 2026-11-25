@@ -385,7 +385,12 @@ def prepare_df_for_xgboost(
 
 
 def pack_val_set_into_fit_params(model: Any, X_val: pd.DataFrame, y_val: pd.DataFrame, early_stopping_rounds: int, cat_features: Optional[list] = None) -> dict:
-    """Crafts fir params with early stopping tailored to particular model type."""
+    """Crafts fit params with early stopping tailored to particular model type.
+
+    Side effect (documented, 26-F19): for XGBoost models this calls ``model.set_params(early_stopping_rounds=...)`` on the
+    model passed in, because XGBoost takes early stopping as a constructor parameter, not a fit argument. A model reused
+    elsewhere therefore keeps that early-stopping setting. Pass a fresh estimator if that matters.
+    """
 
     model_type_name = type(model).__name__
     fit_params: dict = {}

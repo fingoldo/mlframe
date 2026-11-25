@@ -151,6 +151,7 @@ def _bitident_check(seeds=(0, 1, 7)):
     ok = True
     for seed in seeds:
         kw = _build_call(n=2000, n_clusters=5, k=4, seed=seed)
+        seed_ok = True  # per seed, so one seed's result is not reported as another's (13-F36)
         er: dict = {}
         kw2 = dict(kw); kw2["engineered_recipes"] = er
         out = run_cluster_aggregate_step(**kw2)
@@ -164,9 +165,10 @@ def _bitident_check(seeds=(0, 1, 7)):
             replay = apply_recipe(recipe, Xf).astype(added.dtype)
             col = added[:, j]
             if not np.array_equal(col, replay):
-                ok = False
+                seed_ok = False
                 print(f"  MISMATCH seed={seed} recipe={name}: {(col != replay).sum()} of {col.size} cells differ")
-        print(f"  seed={seed}: n_added={n_added}, all accepted cols bit-identical to apply_recipe replay: " f"{'YES' if ok else 'NO'}")
+        ok = ok and seed_ok
+        print(f"  seed={seed}: n_added={n_added}, all accepted cols bit-identical to apply_recipe replay: " f"{'YES' if seed_ok else 'NO'}")
     print(f"BIT-IDENTITY: {'PASS' if ok else 'FAIL'}")
     return ok
 

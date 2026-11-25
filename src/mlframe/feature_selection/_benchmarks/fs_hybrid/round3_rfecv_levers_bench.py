@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 import os, sys
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings; warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 import numpy as np, pandas as pd
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.inspection import permutation_importance
@@ -57,7 +57,6 @@ def corr_clusters(X, thr=0.92):
 def noise_floor(Xtr, ytr, survivors):
     """R3-3: drop a survivor whose held-out permutation importance <= max importance of its shuffled shadow."""
     Xa, Xv, ya, yv = train_test_split(Xtr[survivors], ytr, test_size=0.3, random_state=0, stratify=ytr)
-    lgb.LGBMClassifier(n_estimators=200, verbose=-1).fit(Xa, ya)
     rng = np.random.default_rng(0)
     shadow = Xv.apply(lambda col: rng.permutation(col.values))
     Xv_sh = pd.concat([Xv, shadow.add_prefix("sh_")], axis=1)

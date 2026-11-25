@@ -358,9 +358,9 @@ def _scaled_coef(res: Any, data: Any, train_data: Any, multiclass_coef_aggregati
             _stds = np.where(_stds > 1e-12, _stds, 1.0)
             if len(_stds) == len(res):
                 res = res * _stds
-        except (TypeError, ValueError):
-            # Non-numeric data (object cols, mixed pl frames): skip scaling.
-            pass
+        except (TypeError, ValueError) as exc:
+            # Non-numeric data (object cols, mixed pl frames): skip scaling, and say so as the signed twin does (15-F14).
+            log_throttle(logger, "scaled_coef_std_failed", logging.WARNING, "scaled coef: the train stds could not be computed (%r); the coefficients are left unscaled", exc)
     return res
 
 

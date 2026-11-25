@@ -83,7 +83,7 @@ def test_beeswarm_saved_to_plot_file_and_figure_closed(tmp_path):
     # before it in the same worker. The contract here is "the beeswarm reached its plot_file", not the directory.
     from mlframe.reporting.renderers.save import resolve_output_path
 
-    _expected = resolve_output_path(out, "matplotlib", "png", multi_output=False)
+    _expected = resolve_output_path(out, "matplotlib", "png")
     assert os.path.exists(_expected), f"confidence beeswarm was not saved to plot_file (looked for {_expected})"
     assert len(plt.get_fignums()) <= n_open_before, (
         "confidence beeswarm figure leaked: every figure it opened must be closed after save "

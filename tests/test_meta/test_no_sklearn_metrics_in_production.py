@@ -90,10 +90,6 @@ _ALLOWLIST: dict[tuple[str, str], str] = {
     ("preprocessing/auto_transform_select.py", "roc_auc_score"): "multiclass probe score: one-vs-rest macro AUC over proba(n,C>2); binary already goes through fast_roc_auc, and there is no fast multiclass AUC.",
     ("preprocessing/auto_transform_select.py", "log_loss"): "multiclass fallback when a fold lacks a class and the OVR AUC is undefined; fast_log_loss is binary-only.",
     (
-        "feature_selection/filters/_usability_aware_selection.py",
-        "log_loss",
-    ): "multiclass CV log-loss: log_loss(proba(n,C>2), labels=arange(n_classes)); fast_log_loss is binary-only.",
-    (
         "feature_selection/shap_proxied_fs/_shap_proxy_revalidate/_shap_proxy_loss.py",
         "log_loss",
     ): "multiclass honest-loss path: log_loss(proba(n,C), labels=range(C)); fast_log_loss is binary-only (binary path already swapped).",

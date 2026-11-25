@@ -278,7 +278,7 @@ def _fi_png_path(base: str) -> str:
     """
     from mlframe.reporting.renderers.save import resolve_output_path
 
-    return resolve_output_path(base + "_fiplot", "matplotlib", "png", multi_output=False)
+    return resolve_output_path(base + "_fiplot", "matplotlib", "png")
 
 
 def _account_panel_render(metrics: Any, target_type: Any, rendered_tag: Any, panel_failures: list, plot_file: Any) -> None:

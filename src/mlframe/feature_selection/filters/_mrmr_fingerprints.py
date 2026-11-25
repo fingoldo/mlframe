@@ -84,7 +84,7 @@ import threading as _threading
 
 _MRMR_IDENTITY_FP_CACHE: dict[str, bool] = {}
 _MRMR_IDENTITY_FP_LOCK = _threading.Lock()
-#: Most entries the process-wide identity cache keeps; the oldest are dropped first (it was unbounded: one entry per distinct (X, y, params) of a long-lived process, AUD23-49).
+#: Most entries the process-wide identity cache keeps; the oldest are dropped first (it was unbounded: one entry per distinct (X, y, params) of a long-lived process).
 _MRMR_IDENTITY_FP_CACHE_MAX = 4096
 
 
@@ -566,7 +566,7 @@ def _mrmr_identity_cache_key(estimator, X, y, sample_weight=None) -> str:
         # The weights change the relevance of every column, so an identity verdict reached under other weights (or none) must not license this fit to skip (AUD23-49).
         # Full content, not the strided sample used for y: a weight vector that differs only between sampled rows must still change the key (8 bytes a row, far below one fit).
         _w = np.ascontiguousarray(np.asarray(sample_weight, dtype=np.float64).reshape(-1))  # Intentional float64: fingerprint payload bytes of a cache key
-        key = key + "_wfp_" + hashlib.blake2b(_w.tobytes(), digest_size=10).hexdigest()
+        key = key + "_wfp_" + hashlib.blake2b(_w.view(np.uint8).data, digest_size=10).hexdigest()
     # Without the params, a permissive config that legitimately returned identity on this X licensed a stricter one (fewer features, different
     # binning, other FE flags) to skip its fit and "select" every column it never scored. The in-object signature and ``_FIT_CACHE`` layers
     # already fold the same params signature.

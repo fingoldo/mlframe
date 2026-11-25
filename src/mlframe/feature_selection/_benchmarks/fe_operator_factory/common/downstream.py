@@ -6,11 +6,15 @@ verdict (see the README, section "Metrics"). Positive relative improvement means
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.linear_model import Ridge
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
+
+logger = logging.getLogger(__name__)
 
 METRICS = ("mae", "rmse")
 REFERENCE_METRICS = ("r2",)
@@ -39,7 +43,11 @@ def fit_errors(model, Xtr, ytr, Xte, yte) -> dict:
 
 def rel_improvement(err: float, base_err: float) -> float:
     """Relative error reduction versus the baseline error: ``(base - err) / base`` (positive = better than the baseline)."""
-    return float((base_err - err) / base_err) if base_err > 0 else float("nan")
+    if base_err > 0:
+        return float((base_err - err) / base_err)
+    # NaN is kept as the contract, but the reason is logged: a perfect baseline makes every relative improvement undefined (11-F18).
+    logger.warning("rel_improvement: baseline error %r is not positive; relative improvement is undefined (NaN)", base_err)
+    return float("nan")
 
 
 def errors_by_feature_set(feature_sets: dict, ytr, yte, models: dict | None = None) -> dict:

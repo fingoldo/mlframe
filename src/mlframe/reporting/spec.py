@@ -118,6 +118,19 @@ class ScatterPanelSpec:
     # let the panel fill its cell width and align with the population histogram below it.
     equal_aspect: bool = True
 
+    def __post_init__(self) -> None:
+        """Reject per-point arrays whose length does not match the points (26-F27).
+
+        A mismatched point_color, point_size or y_err used to build and fail only inside the renderer, far from the builder.
+        """
+        n = len(np.asarray(self.x))
+        if len(np.asarray(self.y)) != n:
+            raise ValueError(f"ScatterPanelSpec: y has {len(np.asarray(self.y))} entries but x has {n}.")
+        if isinstance(self.point_color, np.ndarray) and self.point_color.shape[0] != n:
+            raise ValueError(f"ScatterPanelSpec: point_color has {self.point_color.shape[0]} entries but there are {n} points.")
+        if isinstance(self.point_size, np.ndarray) and self.point_size.shape[0] != n:
+            raise ValueError(f"ScatterPanelSpec: point_size has {self.point_size.shape[0]} entries but there are {n} points.")
+
 
 @dataclass(frozen=True)
 class HistogramPanelSpec:

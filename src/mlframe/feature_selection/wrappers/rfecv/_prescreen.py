@@ -73,7 +73,8 @@ def _prescreen_univariate_ht(self, X, y, candidate_features):
     except Exception as exc:
         log_throttle(logger, "rfecv_prescreen_univariate_failed", logging.WARNING, "univariate_ht prescreen failed (%s); skipping.", exc)
         return candidate_features
-    if _topk is not None and len(_kept) > _topk:
+    # Falsy means no cap, matching the mRMR prescreen; 0 used to keep nothing here while it meant no cap there (15-F18).
+    if _topk and len(_kept) > int(_topk):
         _kept = _kept[: int(_topk)]
     _kept_set = set(_kept)
     return [c for c in candidate_features if c in _kept_set]

@@ -646,6 +646,11 @@ def explain(self) -> None:
         ValueError:
             if no model type has been specified tree as default
     """
+    # release_large_working_frames() drops the fitted frames for a large fit; without them the explainer would fail deep inside, so say so first (13-F19).
+    if getattr(self, "X_boruta_", None) is None and getattr(self, "X_boruta_train_", None) is None:
+        raise RuntimeError(
+            "explain() needs the fitted working frames, which were released for a large fit; explain before the release or refit with the frames kept."
+        )
     est_name = type(self.model_).__name__
     if est_name == "TransformedTargetRegressor":
         explainer_base = self.model_.regressor

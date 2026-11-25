@@ -83,7 +83,7 @@ elif TARGET_KIND == "heavy_tail":  # a continuous target with Cauchy-like tails
 elif TARGET_KIND == "zero_inflated":  # most rows zero, the rest a positive function of the signal
     y = pd.Series(np.where(rng.random(rows) < 0.7, 0.0, np.exp(0.5 * np.clip(_noisy, -4.0, 4.0))).astype(np.float32), name="y")
 else:
-    raise SystemExit(f"unknown BENCH_TARGET {TARGET_KIND!r}")
+    raise ValueError(f"unknown BENCH_TARGET {TARGET_KIND!r}")
 del _noisy
 frame_mb = X.memory_usage(deep=False).sum() / 1e6
 

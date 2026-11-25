@@ -10,6 +10,7 @@ Mirror the historical local class semantics exactly:
 """
 from __future__ import annotations
 
+import inspect
 import logging
 
 import numpy as np
@@ -18,6 +19,23 @@ from sklearn.compose import TransformedTargetRegressor
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger(__name__)
+
+
+def _predict_accepts(predict, predict_params) -> bool:
+    """Whether ``predict`` can be called with ``predict_params`` as keywords, decided by its signature (41-F43).
+
+    With no params there is nothing to pass, so it is trivially accepted. A callable without an introspectable signature is treated as
+    accepting them, so its own errors surface rather than being masked.
+    """
+    if not predict_params:
+        return True
+    try:
+        inspect.signature(predict).bind(None, **predict_params)
+    except TypeError:
+        return False
+    except ValueError:  # no signature available: let the call decide
+        return True
+    return True
 
 
 class _TTRWithEvalSetScaling(TransformedTargetRegressor):
@@ -159,11 +177,9 @@ class _TTRWithEvalSetScaling(TransformedTargetRegressor):
         # doubling predict wall time. c0115 profile attributed 1.222s to TTR
         # predict over 2 calls (611ms each on 200k rows). Saving the second
         # invocation drops to ~611ms across both, ~600ms saved.
-        try:
-            t_hat = self.regressor_.predict(X, **predict_params)
-        except TypeError:
-            # Some regressors (sklearn linear models) reject **predict_params.
-            t_hat = self.regressor_.predict(X)
+        # Drop predict_params only when the regressor's predict cannot accept them (sklearn linear models). A TypeError raised inside a
+        # regressor that does accept them is a real error and propagates (41-F43); it used to be retried without the kwargs.
+        t_hat = self.regressor_.predict(X, **predict_params) if _predict_accepts(self.regressor_.predict, predict_params) else self.regressor_.predict(X)
         try:
             t_hat_arr = np.asarray(t_hat, dtype=np.float64).reshape(-1)
             if t_hat_arr.size:

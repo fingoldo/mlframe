@@ -181,9 +181,6 @@ from .trainer import (
     train_and_evaluate_model,
 )
 
-logger = logging.getLogger(__name__)
-
-
 # =============================================================================
 # Storage Optimization
 # =============================================================================
@@ -253,7 +250,7 @@ def optimize_model_for_storage(
             model.columns = None
 
 
-# select_target carved to ``_train_eval_select_target``; re-exported below.
+# select_target now lives in ``.targets``; this import re-exports it so existing ``train_eval`` callers keep working (28-F63).
 from .targets import select_target
 
 

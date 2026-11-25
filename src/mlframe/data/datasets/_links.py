@@ -114,19 +114,24 @@ def tail_gate_term(operands: Sequence[np.ndarray], quantile: float, direction: s
     third of the gate's own mutual information, because the extreme bins are enriched even after the
     directions cancel. Attenuated, not blind, and the bed is described that way.
     """
+    if direction not in ("both", "lower", "upper"):
+        raise ValueError(f"unsupported tail gate direction {direction!r}; expected 'both', 'lower' or 'upper'")
+    # Only the masks the direction needs are built; the unused quantile pass was pure cost (04-F29).
+    want_upper = direction in ("upper", "both")
+    want_lower = direction in ("lower", "both")
     upper = np.ones(operands[0].shape[0], dtype=bool)
     lower = np.ones(operands[0].shape[0], dtype=bool)
     for values in operands:
-        upper &= values >= float(np.quantile(values, quantile))
-        lower &= values <= float(np.quantile(values, 1.0 - quantile))
+        if want_upper:
+            upper &= values >= float(np.quantile(values, quantile))
+        if want_lower:
+            lower &= values <= float(np.quantile(values, 1.0 - quantile))
     if direction == "upper":
         fires: np.ndarray = upper.astype(np.float64)
     elif direction == "lower":
         fires = lower.astype(np.float64)
-    elif direction == "both":
-        fires = (upper | lower).astype(np.float64)
     else:
-        raise ValueError(f"unsupported tail gate direction {direction!r}; expected 'both', 'lower' or 'upper'")
+        fires = (upper | lower).astype(np.float64)
     return fires
 
 

@@ -62,7 +62,7 @@ def _extract_column(X: Any, name: str, col_cache: "dict[str, np.ndarray] | None"
 
 _NAN_CODE_KEY = "__MLFRAME_CAT_NAN__"
 # Present (value 1) in a code map whose keys are TYPED (``"int:1"``, ``"str:1"``): a column that holds both the integer 1 and the string "1" has two codes at fit time, and the plain
-# ``str(value)`` key would merge them into one entry (AUD23-07). Maps without the flag keep the plain keys, so every existing recipe replays unchanged.
+# ``str(value)`` key would merge them into one entry . Maps without the flag keep the plain keys, so every existing recipe replays unchanged.
 _TYPED_KEYS_FLAG = "__MLFRAME_CAT_TYPED__"
 
 
@@ -267,7 +267,7 @@ def _coerce_to_int_with_nan_handling(
                 f"coerced. Pass ordinal-encoded ints or set "
                 f"unknown_strategy='clip'."
             ) from e
-        # Clip-equivalent fallback: all to 0. A string source with no stored code map is a recipe written before the map existed; its engineered column is CONSTANT at serving time, which must be said (AUD23-09).
+        # Clip-equivalent fallback: all to 0. A string source with no stored code map is a recipe written before the map existed; its engineered column is CONSTANT at serving time, which must be said.
         log_throttle(
             logger, f"recipe_extract.string_source_no_map.{recipe_name}.{col_name}", logging.WARNING,
             "Recipe %r: column %r is %s with no stored cat_code_map (a recipe from before the map existed); under unknown_strategy=%r every value maps to code 0 and the engineered column is constant. Refit the selector to rebuild the map.",

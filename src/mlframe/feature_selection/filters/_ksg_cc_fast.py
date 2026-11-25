@@ -10,7 +10,8 @@ from __future__ import annotations
 import numpy as np
 from numba import njit, prange
 
-from ._ksg_cd_fast import _column_mean_abs, _column_std, _psi_table, _row_tiles
+from ._ksg_cd_fast import _column_mean_abs, _column_std, _row_tiles
+from ._numba_utils import _psi_table
 from ._numba_utils_shared import radix_order_f64
 
 

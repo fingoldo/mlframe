@@ -13,6 +13,8 @@ from mlframe.training.neural._recurrent_config import RecurrentConfig
         ({"ema_decay": 0.0}, "ema_decay"),
         ({"ema_decay": 1.5}, "ema_decay"),
         ({"num_classes": 0}, "num_classes"),
+        ({"mixup_alpha": -0.1}, "mixup_alpha"),
+        ({"mixup_alpha": float("nan")}, "mixup_alpha"),
     ],
 )
 def test_bad_value_is_refused_at_construction(kwargs, match):

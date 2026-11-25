@@ -31,7 +31,7 @@ data=F._make(n,p,0)
 main=threading.get_ident(); stop=threading.Event(); hist: Any=collections.Counter(); leaf: Any=collections.Counter(); both: Any=collections.Counter()
 PRE=("_stage_","hybrid_","screen_predictors","_run_fe_step","check_prospective_fe_pairs","_fe_stage_cascade_","_gate_engineered_accuracy","_second_pass","_emit_pair","_score_one_pair","family_pass","compute_pair_mis","build_fe_operand_pool","apply_surrogate","propose_gradient","mrmr_fit_post","_fit_body","_finalise","populate_fe","_apply_pair_family_gate","_adaptive_relax","_materialise_and_fina","filter_inert","honest_","_cross_stage","_temporal","generate_","score_","fit_binned")
 def stage(fr):
-    best=None
+    best = None
     while fr is not None:
         nm=fr.f_code.co_name
         if nm.startswith(PRE) and best is None: best=nm
@@ -57,16 +57,26 @@ def sampler():
         fr=sys._current_frames().get(main)
         st_=stage(fr); hist[st_]+=0.2; lf_=inner(fr); leaf[lf_]+=0.2; both[(st_,lf_)]+=0.2
         stop.wait(0.2)
-threading.Thread(target=sampler,daemon=True).start()
-t=time.perf_counter(); m=MRMR(verbose=0,random_seed=0,n_jobs=1,**kw).fit(*data); wall=time.perf_counter()-t; stop.set()
-print("WALL",round(wall,1),mode)
-print("--- seconds by innermost stage frame"); [print(f"{v:7.1f}  {k}") for k,v in hist.most_common(26)]
-print("--- seconds by innermost python frame (where the main thread is waiting/working)"); [print(f"{v:7.1f}  {k}") for k,v in leaf.most_common(26)]
 
-FOCUS=os.environ.get("SS_FOCUS","").split(",")
+
+threading.Thread(target=sampler, daemon=True).start()
+t = time.perf_counter()
+m = MRMR(verbose=0, random_seed=0, n_jobs=1, **kw).fit(*data)
+wall = time.perf_counter() - t
+stop.set()
+print("WALL", round(wall, 1), mode)
+print("--- seconds by innermost stage frame")
+[print(f"{v:7.1f}  {k}") for k, v in hist.most_common(26)]
+print("--- seconds by innermost python frame (where the main thread is waiting/working)")
+[print(f"{v:7.1f}  {k}") for k, v in leaf.most_common(26)]
+
+FOCUS = os.environ.get("SS_FOCUS", "").split(",")
 for f in FOCUS:
     if not f: continue
-    print("--- leaves in stage",f); [print(f"{v:7.1f}  {k[1]}") for k,v in both.most_common() if k[0]==f][:12]
+    print("--- leaves in stage",f)
+    # Slice before printing: the comprehension printed every matching leaf and only then cut to 12 (13-F35).
+    for k, v in [item for item in both.most_common() if item[0][0] == f][:12]:
+        print(f"{v:7.1f}  {k[1]}")
 
 if util:
     import numpy as _np

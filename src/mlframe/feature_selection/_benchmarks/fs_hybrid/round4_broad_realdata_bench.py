@@ -19,10 +19,11 @@ verdict that explicitly flags any dataset where the hybrid REGRESSES vs mrmr_fe 
 READ + BENCH ONLY: no production file is edited; this is a new bench file. Memory-frugal for wide data
 (gisette = 5000 feats): rows subsampled to <= ROW_BUDGET and features capped to <= FEAT_BUDGET (noted in the
 report). On OOM / paging / "Unable to allocate" / LightGBM "model format" the dataset is retried ONCE after a
-90s sleep with halved row/feature budgets. stdout -> D:/Temp/broad_val_bench_stdout.txt, checkpoints ->
-D:/Temp/broad_val_progress.txt, results table -> D:/Temp/broad_val_results.md.
+90s sleep with halved row/feature budgets. stdout -> <bench out>/broad_val_bench_stdout.txt, checkpoints ->
+<bench out>/broad_val_progress.txt, results table -> <bench out>/broad_val_results.md.
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import logging
 
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 import os, sys, time, gc, traceback
 
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings; warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 import numpy as np, pandas as pd
 from sklearn.model_selection import train_test_split
 
@@ -43,8 +44,8 @@ import re
 from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 _SAFE = re.compile(r"^[A-Za-z0-9_]+$")
 
-PROGRESS = r"D:/Temp/broad_val_progress.txt"
-RESULTS = r"D:/Temp/broad_val_results.md"
+PROGRESS = bench_out("broad_val_progress.txt")
+RESULTS = bench_out("broad_val_results.md")
 
 # Wide-data budgets (memory frugality). gisette has 5000 feats; the hybrid runs n_jobs=-1 internally and the
 # permutation-FI pass + boruta are O(rows*feats), so cap both. Halved on the retry path.

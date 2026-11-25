@@ -53,3 +53,15 @@ def test_the_cache_drops_the_oldest_entries_beyond_its_bound():
         identity_cache_put(cache, f"k{i}", (True, None))
     assert len(cache) == _MRMR_IDENTITY_FP_CACHE_MAX
     assert "k0" not in cache and f"k{_MRMR_IDENTITY_FP_CACHE_MAX + 49}" in cache
+
+
+def test_weight_key_digest_is_the_full_content_digest():
+    """The weights part of the key hashes the full weight buffer, byte for byte as tobytes would (no second copy is made)."""
+    import hashlib
+
+    X, y = _frame()
+    m = MRMR(verbose=0, random_seed=0, fe_max_steps=0)
+    w = np.where(X["a"].to_numpy() > 0, 1.0, 0.0)
+    _w = np.ascontiguousarray(np.asarray(w, dtype=np.float64).reshape(-1))
+    expected = hashlib.blake2b(_w.tobytes(), digest_size=10).hexdigest()
+    assert f"_wfp_{expected}" in _mrmr_identity_cache_key(m, X, y, sample_weight=w)

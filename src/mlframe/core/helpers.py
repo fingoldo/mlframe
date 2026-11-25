@@ -286,6 +286,8 @@ def ensure_no_infinity_pd(df: pd.DataFrame, num_cols_only: bool = True, nans_fil
                 )
 
     if inf_cols:
+        # Work on a copy so the caller's frame is not mutated in place; the polars sibling never mutated its input (22-F39).
+        df = df.copy()
         for col in inf_cols:
             # Masked, not ``np.nan_to_num``: that helper's ``nan`` argument defaults to 0.0, so passing only
             # ``posinf``/``neginf`` ALSO rewrote every NaN in the column to zero. A missing value is a signal a

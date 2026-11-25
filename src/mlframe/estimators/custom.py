@@ -219,7 +219,8 @@ class PdOrdinalEncoder(OrdinalEncoder):
         # if caller overrode encoded_missing_value=np.nan,
         # surface NaN explicitly instead of producing platform-dependent INT_MIN
         # via astype(int32). NaN-in-int32 is undefined behaviour.
-        if np.any(np.isnan(np.asarray(X, dtype=np.float64))):
+        # pd.isna reads the native dtype; the old float64 cast copied the whole output just to test for NaN (22-F36).
+        if np.any(pd.isna(np.asarray(X))):
             raise ValueError(
                 "PdOrdinalEncoder.transform: NaN codes in output -- caller set "
                 "encoded_missing_value=np.nan but transform unconditionally casts to int32. "

@@ -1,27 +1,12 @@
-"""Additional classification metrics (binary + multiclass).
+"""Numba block kernels for the classification metric suite (17-F23).
 
-Numba-accelerated, dispatcher-gated kernels that complement
-``_core_auc_brier.py`` / ``_log_loss_and_separation.py`` /
-``_core_precision_mape.py``.
+This module holds the fused, dispatcher-gated block kernels:
+  * ``fast_binary_confusion_metrics_block``      - binary confusion-derived metrics in one pass
+  * ``fast_binary_probability_metrics_block``    - binary probability-derived metrics in one pass
+  * ``fast_multiclass_confusion_metrics_block``  - multiclass confusion-derived metrics in one pass
 
-Public API (re-exported from ``mlframe.metrics.core``):
-  Binary:
-    * ``ks_statistic``                  - Kolmogorov-Smirnov
-    * ``matthews_corrcoef_binary``      - MCC
-    * ``cohen_kappa_binary``            - Cohen's kappa
-    * ``balanced_accuracy_binary``      - (TPR+TNR)/2
-    * ``g_mean_binary``                 - sqrt(TPR*TNR)
-    * ``brier_skill_score``             - BSS vs marginal baseline
-    * ``gini_from_auc``                 - 2*AUC - 1
-    * ``specificity_npv_fpr_fnr``       - (Specificity, NPV, FPR, FNR) tuple
-    * ``f_beta_score``                  - F-beta for arbitrary beta
-    * ``spiegelhalter_z``               - Spiegelhalter Z-test for calibration
-    * ``lift_at_k``                     - Lift @ top-k%
-
-  Multiclass:
-    * ``top_k_accuracy``                - top-k accuracy (k=1,3,5,...)
-    * ``matthews_corrcoef_multiclass``  - Gorodkin multiclass MCC
-    * ``ranked_probability_score``      - RPS (ordinal CRPS-analog)
+The individual public metrics (KS, MCC, kappa, top-k accuracy, RPS, ...) live in
+``_classification_extras.py`` and are re-exported from ``mlframe.metrics.core``.
 """
 
 from __future__ import annotations

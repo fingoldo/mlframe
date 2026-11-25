@@ -74,12 +74,12 @@ def _composite_mi_with_target(values: pd.Series, y: np.ndarray, random_state: in
     if _is_continuous_target(y):
         # a discrete feature against a continuous target: scikit-learn's ``_compute_mi_cd`` (Ross), which is the discrete-target KSG of the repository with the roles swapped (the target is the
         # one noisy continuous column, the codes are the class labels); same scaling, noise stream and radius, so the value equals ``mutual_info_regression(..., discrete_features=True)``
-        from mlframe.feature_selection.filters._ksg_cd_fast import ksg_mi_discrete_target
+        from mlframe.feature_selection.filters.shared import ksg_mi_discrete_target
 
         target = np.asarray(y, dtype=np.float64).reshape(-1, 1)  # Intentional float64: the estimator scales and adds its noise in double, as scikit-learn does
         return float(ksg_mi_discrete_target(target, codes, n_neighbors=3, random_state=int(random_state))[0])
     # two label vectors: scikit-learn returns ``mutual_info_score`` (the plug-in MI of their contingency table)
-    from mlframe.feature_selection.filters._orthogonal_univariate_fe._orth_mi_backends import contingency_mi_nats
+    from mlframe.feature_selection.filters.shared import contingency_mi_nats
 
     return float(contingency_mi_nats(codes, np.asarray(y).ravel()))
 

@@ -29,6 +29,23 @@ from .._composite_utils import is_polars_df as _is_polars_df
 
 
 from ._corr_numba import safe_abs_corr_all_dispatch as _safe_abs_corr_all_dispatch
+# Re-exports of the sibling leaf modules ``_screening_mi_pair`` and ``_screening_tiny`` (moved to the top, audit 35-F46).
+from ._screening_mi_pair import (  # noqa: F401
+    _mi_from_binned_pair,
+    _mi_from_binned_pair_njit_kernel,
+    _mi_from_binned_pair_numpy,
+)
+from ._screening_tiny import (  # noqa: F401
+    _silence_tiny_model_output,
+    _build_tiny_model,
+    _tiny_cv_rmse_raw_y,
+    _tiny_cv_rmse_y_scale_multiseed,
+    _tiny_cv_rmse_raw_y_multiseed,
+    _per_bin_rmse,
+    _per_bin_from_fold_preds,
+    _tiny_cv_rmse_y_scale,
+)
+from mlframe.utils.array_shape import shape_of
 
 logger = logging.getLogger(__name__)
 
@@ -581,7 +598,7 @@ def _mi_per_feature_prebinned(
 def _knn_mi_column(col: np.ndarray, target: np.ndarray, *, n_neighbors: int, random_state: int) -> float:
     """Kraskov kNN ``MI(col, target)`` of one finite column (nats): the repository's ``ksg_mi_columns``, equal to scikit-learn's ``mutual_info_regression`` on a single column (same scaling, noise stream
     and radius; pinned in ``tests/feature_selection/fe/test_ksg_dispatch_matches_sklearn.py``), 10-100x faster. One column per call: the noise stream of a call depends on its width."""
-    from mlframe.feature_selection.filters._ksg_dispatch import ksg_mi_columns
+    from mlframe.feature_selection.filters.shared import ksg_mi_columns
 
     return float(ksg_mi_columns(col.reshape(-1, 1), target, discrete_target=False, n_neighbors=int(n_neighbors), random_state=int(random_state))[0])
 
@@ -672,14 +689,6 @@ def _mi_to_target_prebinned(
         feature_binned, target, nbins=nbins, exclude_col=exclude_col,
     )
     return _aggregate_mi_per_feature(per_feat, aggregation)
-
-
-# Pair-MI kernel lives in sibling ``_screening_mi_pair``; re-exported here.
-from ._screening_mi_pair import (  # noqa: F401
-    _mi_from_binned_pair,
-    _mi_from_binned_pair_njit_kernel,
-    _mi_from_binned_pair_numpy,
-)
 
 
 def _mi_per_feature_y_fixed(
@@ -871,20 +880,6 @@ def _mi_to_target(
         return float(np.sum(per_feat))
     # Default: mean.
     return float(np.mean(per_feat))
-
-
-# Tiny-model RMSE / CV helpers live in sibling ``_screening_tiny``; re-exported here.
-from ._screening_tiny import (  # noqa: F401
-    _silence_tiny_model_output,
-    _build_tiny_model,
-    _tiny_cv_rmse_raw_y,
-    _tiny_cv_rmse_y_scale_multiseed,
-    _tiny_cv_rmse_raw_y_multiseed,
-    _per_bin_rmse,
-    _per_bin_from_fold_preds,
-    _tiny_cv_rmse_y_scale,
-)
-from mlframe.utils.array_shape import shape_of
 
 
 def _sample_indices(

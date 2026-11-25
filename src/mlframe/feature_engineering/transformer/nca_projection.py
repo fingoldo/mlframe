@@ -43,6 +43,7 @@ import warnings
 from typing import Any, Literal, Optional
 
 import numpy as np
+from sklearn.exceptions import ConvergenceWarning
 import polars as pl
 
 from ._utils import require_seed, validate_numeric_input
@@ -69,9 +70,12 @@ def _fit_nca(X: np.ndarray, y_binary: np.ndarray, *, n_components: int, max_iter
         random_state=seed,
         warm_start=False,
     )
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
         nca.fit(X_s, y_binary.astype(int))
+    # Other warnings stay suppressed as before; a ConvergenceWarning is surfaced, since an unconverged projection looks like a valid one (09-F18).
+    if any(issubclass(w.category, ConvergenceWarning) for w in caught):
+        logger.warning("NCA did not converge within max_iter=%d; the projection comes from an unconverged fit.", max_iter)
     return nca, scaler
 
 

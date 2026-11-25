@@ -20,6 +20,19 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _skipped_profile_result(status: str) -> tuple:
+    """Result for a target this harness skips: the same 16-field tuple the caller unpacks, with zeros and empty profiles (32-F28)."""
+    return (
+        0.0, False, status, "",
+        0.0, "",
+        0.0, "",
+        0, 0,
+        0.0, "", 0,
+        0.0, "",
+        "",
+    )
+
+
 def _run_suite_profiled(
     target_type: str,
     n_rows: int,
@@ -228,9 +241,9 @@ def _run_suite_profiled(
         # Multilabel needs a different FTE setup; out of scope for
         # SimpleFeaturesAndTargetsExtractor's defaults — skip from
         # this profile harness for now (TODO: extend when needed).
-        return 0.0, False, "MULTILABEL_FTE_SETUP_OOS", "", 0.0, ""
+        return _skipped_profile_result("MULTILABEL_FTE_SETUP_OOS")
     else:
-        return 0.0, False, "UNSUPPORTED_TARGET_TYPE", "", 0.0, ""
+        return _skipped_profile_result("UNSUPPORTED_TARGET_TYPE")
 
     # Weight-schema knobs: SimpleFeaturesAndTargetsExtractor.get_sample_weights returns the
     # subset of {"uniform", "recency"} controlled by use_uniform_weighting / use_recency_weighting.

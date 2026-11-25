@@ -118,7 +118,7 @@ def compute_gradient_direction_agreement_features(
         if m3 is not None:
             g3 = _gradient(m3, Xq_s, is_binary, eps)
         else:
-            g3 = np.zeros_like(g1)
+            g3 = None  # a failed member has no gradient: its cosines are NaN, not 0 (orthogonal) (09-F22)
 
         def _cos(a, b):
             """Row-wise cosine similarity between two (n, d) gradient matrices; epsilon-padded norms avoid div-by-zero on flat gradients."""
@@ -127,10 +127,15 @@ def compute_gradient_direction_agreement_features(
             return ((a * b).sum(axis=1) / (na * nb)).astype(np.float32)
 
         cos12 = _cos(g1, g2)
-        cos23 = _cos(g2, g3)
-        cos13 = _cos(g1, g3)
-        mean_cos = ((cos12 + cos23 + cos13) / 3.0).astype(np.float32)
-        min_cos = np.minimum(cos12, np.minimum(cos23, cos13)).astype(np.float32)
+        if g3 is None:
+            cos23 = np.full(cos12.shape, np.nan, dtype=np.float32)
+            cos13 = np.full(cos12.shape, np.nan, dtype=np.float32)
+        else:
+            cos23 = _cos(g2, g3)
+            cos13 = _cos(g1, g3)
+        stacked = np.stack([cos12, cos23, cos13])
+        mean_cos = np.nanmean(stacked, axis=0).astype(np.float32)
+        min_cos = np.nanmin(stacked, axis=0).astype(np.float32)
         return np.column_stack([cos12, cos23, cos13, mean_cos, min_cos])
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:

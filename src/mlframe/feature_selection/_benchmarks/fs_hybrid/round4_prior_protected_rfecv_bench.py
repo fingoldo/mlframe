@@ -23,13 +23,14 @@ Beds: hard_synth (split signal; RFECV's known regime) + synth. Core = Boruta-acc
 PASS: protected_rfecv beats plain_rfecv AUC by >= +0.005 on a bed without regressing the other > 0.005.
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import logging
 
 logger = logging.getLogger(__name__)
 
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings; warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -41,7 +42,7 @@ from synth import make_dataset
 import fs_selectors as S
 from _downstream_shared import make_ckpt_writer
 
-CK = "D:/Temp/queue_ideas_progress.txt"
+CK = bench_out("queue_ideas_progress.txt")
 ck = make_ckpt_writer(CK)
 
 
@@ -135,7 +136,7 @@ def main():
         print(f"  {bed:12s} d_auc_vs_plain={d:+}  (plain n={int(b.loc['plain_rfecv','n'])} "
               f"protected n={int(b.loc['protected_rfecv','n'])} core n={int(b.loc['core_only','n'])}; "
               f"protected-vs-core_only d_auc={d_core:+})", flush=True)
-    df.to_csv("D:/Temp/round4_prior_protected_rfecv_rows.csv", index=False)
+    df.to_csv(bench_out("round4_prior_protected_rfecv_rows.csv"), index=False)
     ck("A2-4 DONE")
 
 

@@ -220,8 +220,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     for line in summarize(rows):
         print(line)
     print(f"\nwritten: {out}")
-    return len(rows)
+    # Failed runs are recorded as rows with an error; the return value is their count, so a run where every configuration failed exits non-zero (12-F85).
+    return sum(1 for row in rows if "error" in row)
 
 
 if __name__ == "__main__":
-    raise SystemExit(0 if main() >= 0 else 1)
+    raise SystemExit(0 if main() == 0 else 1)

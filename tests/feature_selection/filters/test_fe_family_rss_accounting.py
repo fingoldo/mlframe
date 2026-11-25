@@ -6,8 +6,17 @@ import logging
 import time
 
 import numpy as np
+import pytest
 
 from mlframe.feature_selection.filters import _fe_family_timing as T
+
+
+@pytest.fixture(autouse=True)
+def _reset_active_rss_entries():
+    """Clear the RSS poller's active-entry table so a leaked entry from one test cannot raise another test's peak."""
+    T._RSS_ACTIVE.clear()
+    yield
+    T._RSS_ACTIVE.clear()
 
 
 def test_the_peak_over_entry_sees_a_transient_allocation(monkeypatch, caplog):

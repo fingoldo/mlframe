@@ -28,7 +28,8 @@ _LOCK = threading.Lock()
 _TIMINGS: Dict[str, Dict[str, float]] = {}
 
 # A trailing ``.matplotlib``/``.plotly`` backend tag, and a numeric or hex disambiguator some call sites append.
-_SUFFIX_RE = re.compile(r"\.(matplotlib|plotly)$|_[0-9a-f]{6,}$|_\d+$")
+# The hex disambiguator must contain a digit: a bare hex-letter word such as "_decade" or "_accede" is part of the chart name (21-F21).
+_SUFFIX_RE = re.compile(r"\.(matplotlib|plotly)$|_(?=[0-9a-f]*\d)[0-9a-f]{6,}$|_\d+$")
 
 
 def chart_type_of(base_path: str) -> str:

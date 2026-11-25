@@ -89,7 +89,7 @@ def _eval(X, y, task, relevant, unique, kw, seed):
         Xte_s = sel.transform(Xte)
         chosen = list(Xtr_s.columns)
     except Exception as exc:
-        logger.debug("_eval: MRMR fit/transform failed for this scenario/config, recording NaN metrics with the error in 'err': %s", exc)
+        logger.warning("_eval: MRMR fit/transform failed for this scenario/config, recording NaN metrics with the error in 'err': %s", exc)  # WARNING: NaN rows must not look like data (10-F6)
         return {"prec": float("nan"), "rec": float("nan"), "urec": float("nan"), "metric": float("nan"), "err": repr(exc)}
     chosen_raw = {int(c[1:]) for c in chosen if c.startswith("f") and c[1:].isdigit()}
     tp = len(chosen_raw & relevant)
@@ -111,7 +111,7 @@ def _downstream(Xtr_s, Xte_s, ytr, yte, task):
         try:
             return float(roc_auc_score(yte, m.predict_proba(Xte_s)[:, 1]))
         except Exception as exc:
-            logger.debug("_downstream: AUC scoring failed: %s", exc)
+            logger.warning("_downstream: AUC scoring failed: %s", exc)  # WARNING: a NaN AUC needs a visible reason (10-F6)
             return float("nan")
     from sklearn.linear_model import Ridge
     from sklearn.metrics import r2_score

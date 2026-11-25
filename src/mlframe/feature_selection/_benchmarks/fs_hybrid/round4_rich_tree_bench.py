@@ -8,9 +8,10 @@ prototype (subclass, NO production edit) folds rich operators of the SAME co-occ
 PASS: madelon/hard_synth >= +0.01 mean WITHOUT regressing synth > 0.005.
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings; warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 import numpy as np, pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sklearn.model_selection import train_test_split
@@ -72,8 +73,9 @@ def run(name, X, y, seeds=(0, 1, 2)):
         for tag, cls in (("baseline", HybridSelector), ("richtree", RichTreeHybrid)):
             t0 = time.time()
             h = cls(vote=1, use_fe=True, random_state=sd).fit(Xtr, ytr)
-            a = downstream(h.transform(Xtr), h.transform(Xte), ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)
-            rows.append(dict(bed=name, seed=sd, variant=tag, n=int(h.transform(Xte).shape[1]), fit_s=round(time.time()-t0,1), auc_mean=am, **a))
+            Xte_t = h.transform(Xte)  # transformed once, reused for the AUC and the width (12-F93)
+            a = downstream(h.transform(Xtr), Xte_t, ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)
+            rows.append(dict(bed=name, seed=sd, variant=tag, n=int(Xte_t.shape[1]), fit_s=round(time.time()-t0,1), auc_mean=am, **a))
             print(f"  [{name}] sd{sd} {tag:9s} n={rows[-1]['n']:3d} {rows[-1]['fit_s']:6.1f}s mean={am} {a}", flush=True)
     return rows
 
@@ -94,7 +96,7 @@ def main():
         b0 = df[(df.bed == bed) & (df.variant == "baseline")]["auc_mean"].mean()
         b1 = df[(df.bed == bed) & (df.variant == "richtree")]["auc_mean"].mean()
         print(f"  {bed:12s} richtree {round(b1,4)} vs baseline {round(b0,4)}  d={round(b1-b0,4):+}")
-    df.to_csv("D:/Temp/round4_rich_tree_rows.csv", index=False)
+    df.to_csv(bench_out("round4_rich_tree_rows.csv"), index=False)
 
 
 if __name__ == "__main__":

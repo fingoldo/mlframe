@@ -5,19 +5,13 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from sklearn.utils import check_random_state, check_X_y
 from sklearn.base import TransformerMixin, BaseEstimator
 from mlframe.feature_selection.boruta_shap._estimator_protocol import BorutaShapProtocolMixin
-from mlframe.utils.misc import get_pipeline_last_element
-from pyutilz.system import tqdmu
 
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor, IsolationForest
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.model_selection import train_test_split
 
 from mlframe.feature_selection.cv_policy import get_cv_policy, holdout_indices
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.cluster import KMeans
-from scipy.sparse import issparse
 from mlframe.feature_selection.boruta_shap._binom_test_shim import binom_test
 
 import functools as _functools
@@ -35,7 +29,6 @@ def _binom_test_cached(x_int: int, n: int, p: float, alternative: str = "two-sid
     return binom_test(x_int, n=n, p=p, alternative=alternative)
 
 
-from scipy.stats import ks_2samp
 import random
 import pandas as pd
 import numpy as np
@@ -557,7 +550,11 @@ class BorutaShap(BorutaShapProtocolMixin, TransformerMixin, BaseEstimator):
             try:
                 self.model_.fit(X, y, verbose=False, **(self.fit_params or {}))
 
-            except TypeError:
+            except TypeError as exc:
+                # Retry without ``verbose`` only when the estimator rejects that keyword; a TypeError raised inside fit
+                # is a real failure and must surface, not be retried and hidden (13-F17).
+                if "verbose" not in str(exc):
+                    raise
                 self.model_.fit(X, y, **(self.fit_params or {}))
 
     def transform(

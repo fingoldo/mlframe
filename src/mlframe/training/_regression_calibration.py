@@ -203,7 +203,10 @@ class DistributionalRecalibrator:
     def recalibrate(self, pit: np.ndarray) -> np.ndarray:
         """Map PIT (or a nominal level) through R toward a calibrated/uniform scale."""
         p = np.asarray(pit, dtype=np.float64).reshape(-1)
-        if getattr(self, "_identity", True):
+        # An unfitted recalibrator has no fitted state; it used to return the identity silently, indistinguishable from a fitted no-op (27-F21).
+        if not hasattr(self, "_identity"):
+            raise RuntimeError("DistributionalRecalibrator.recalibrate called before fit(); there is no fitted mapping to apply.")
+        if self._identity:
             return p
         return np.asarray(self._iso.predict(p), dtype=np.float64)
 

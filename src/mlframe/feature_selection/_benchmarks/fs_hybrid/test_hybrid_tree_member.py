@@ -11,7 +11,6 @@ columns into the shared augmented frame, gated by the shared honest FI so it sel
 from __future__ import annotations
 import os, sys
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
 import numpy as np, pandas as pd
 import pytest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -205,8 +204,8 @@ def test_mrmr_synergy_cap_does_not_regress_on_wide_interaction_frame():
     hard_synth; here the safety property: raising the cap never meaningfully hurts)."""
     from sklearn.model_selection import train_test_split
     from sklearn.metrics import roc_auc_score
-    import lightgbm as lgb
-    X, y = _interaction_frame(n=2500, seed=2, p_noise=75)   # 78 cols > 60 -> default would skip the bootstrap
+    lgb = pytest.importorskip("lightgbm")  # skip, not error, when the optional dependency is absent (12-F102)
+    X, y = _interaction_frame(n=2500, seed=2, p_noise=75)  # 78 cols > 60 -> default would skip the bootstrap
     Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.4, random_state=2, stratify=y)
 
     def auc(cap):

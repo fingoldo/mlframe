@@ -7,7 +7,7 @@ seed noise (so the member can default ON without a real regression). PASS to shi
 from __future__ import annotations
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings; warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 import numpy as np, pandas as pd
 from sklearn.model_selection import train_test_split
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -24,8 +24,9 @@ def run(name, X, y, seeds=(0, 1, 2)):
         for tag, kw in (("notree", dict(use_tree_member=False)), ("tree", dict(use_tree_member=True))):
             t0 = time.time()
             h = HybridSelector(vote=1, use_fe=True, random_state=sd, **kw); h.fit(Xtr, ytr)
-            a = downstream(h.transform(Xtr), h.transform(Xte), ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)
-            rows.append(dict(bed=name, seed=sd, variant=tag, n=int(h.transform(Xte).shape[1]), auc_mean=am))
+            Xte_t = h.transform(Xte)  # transformed once for the AUC and the width (12-F96)
+            a = downstream(h.transform(Xtr), Xte_t, ytr, yte); am = round(float(np.nanmean(list(a.values()))), 4)
+            rows.append(dict(bed=name, seed=sd, variant=tag, n=int(Xte_t.shape[1]), auc_mean=am))
             print(f"  [{name}] sd{sd} {tag:7s} n={rows[-1]['n']:3d} {time.time()-t0:6.1f}s mean={am}", flush=True)
     return rows
 
@@ -52,7 +53,9 @@ def main():
         thr = 0.03 if bed == rname else -0.005
         good = d >= thr
         ok = ok and good
-        print(f"  {bed:12s} tree {round(t,4)} vs notree {round(nt,4)}  d={d:+}  ({'OK' if good else 'FAIL'})")
+        # The non-regression bar is one-sided: it fails only when d is below -0.005, so it is printed as a floor, not as a +/-band (12-F96).
+        bar = f"d >= {thr:+}" if bed == rname else f"d >= {thr:+} (one-sided floor)"
+        print(f"  {bed:12s} tree {round(t,4)} vs notree {round(nt,4)}  d={d:+}  [{bar}]  ({'OK' if good else 'FAIL'})")
     print("\nSHIP default-ON:", "YES" if ok else "NO -- needs regime gate")
 
 

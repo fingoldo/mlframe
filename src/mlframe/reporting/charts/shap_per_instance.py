@@ -58,7 +58,8 @@ _TOP_FEATURES_PER_INSTANCE: int = 8
 class ShapPerInstanceResult:
     """Outcome of :func:`shap_worst_errors_explanation`.
 
-    ``figure`` is the (still-open unless closed) small-multiples figure. ``paths`` are files written.
+    ``figure`` is the small-multiples figure, already CLOSED on return (the render's ``finally`` closes every figure it opened, so
+    it is for inspection only; add a report from ``paths``, not from ``figure``) (21-F26). ``paths`` are files written.
     ``worst_idx`` are the original-row indices of the explained instances (worst error first).
     ``severities`` parallels ``worst_idx``. ``contributions`` is a list of (feature_name, signed_shap)
     lists per instance (sorted by |shap| desc). ``skipped`` is a reason string when nothing ran.
@@ -69,6 +70,7 @@ class ShapPerInstanceResult:
     worst_idx: np.ndarray
     severities: np.ndarray
     contributions: List[List[Tuple[str, float]]] = field(default_factory=list)
+    # Despite the name, this is the number of EXPLAINED rows (the worst-K), not a background size (21-F26).
     n_background: int = 0
     skipped: Optional[str] = None
 

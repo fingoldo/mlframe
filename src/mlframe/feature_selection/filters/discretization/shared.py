@@ -19,14 +19,26 @@ from ._discretization_edges import (
 from ._null_binner import PermutedTargetBinner
 from ._quantile_radix import sort_xy, sorted_quantiles, unique_with_counts
 
+from ._quantile_radix import quantiles_of_sorted, sorted_unique_with_counts
+from ._code_dtype import append_code_columns, narrowest_code_dtype
+from ._code_storage_plan import code_alloc_dtype, plan_code_storage
+from ._categorical_target_fold import target_classes
+
 __all__ = [
     "PermutedTargetBinner",
+    "append_code_columns",
     "bayesian_blocks_bin_edges",
+    "code_alloc_dtype",
     "discretize_array_impl",
     "knuth_bin_edges",
     "multiselect_inplace",
+    "narrowest_code_dtype",
+    "plan_code_storage",
+    "quantiles_of_sorted",
     "safe_code_dtype",
     "sort_xy",
     "sorted_quantiles",
+    "sorted_unique_with_counts",
+    "target_classes",
     "unique_with_counts",
 ]

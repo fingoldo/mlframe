@@ -49,17 +49,6 @@ from .callbacks import (  # noqa: F401
 logger = logging.getLogger(__name__)
 
 
-# Per-library GPU support gating. ``CUDA_IS_AVAILABLE`` (numba probe)
-# tells us only whether the system has a usable CUDA device; it does NOT
-# tell us whether the installed XGBoost / LightGBM binaries were COMPILED
-# with GPU support. On Windows the default ``pip install xgboost`` ships
-# the CPU-only wheel, so passing ``device='cuda'`` triggers ``WARNING:
-# Device is changed from GPU to CPU as we couldn't find any available GPU
-# on the system`` per-fit (custom 3rdParty XGB build can also report
-# ``xgb.build_info() == {... 'USE_CUDA': False ...}`` despite CUDA being
-# available for CatBoost). Probe each binary's actual GPU support ONCE at
-# module-import so the helpers never set device='cuda'
-
 def parse_catboost_devices(devices: str, all_gpus: list | None = None) -> List[Dict]:
     """
     Parses a GPU devices string and returns a list of GPU info dicts
@@ -112,9 +101,16 @@ def parse_catboost_devices(devices: str, all_gpus: list | None = None) -> List[D
     if invalid:
         raise ValueError(f"Invalid GPU indices {invalid}. Available range: 0-{max_index}")
 
-    # Filter GPU list
-    filtered_gpus = [gpu for gpu in all_gpus if gpu["index"] in device_indices]
-    return filtered_gpus
+    # Return the GPUs in the order the caller requested, each once (first occurrence wins). Filtering all_gpus returned them in
+    # device order, so "1:0" came back as [gpu0, gpu1] (28-F67).
+    by_index = {gpu["index"]: gpu for gpu in all_gpus}
+    seen: set = set()
+    ordered = []
+    for idx in device_indices:
+        if idx not in seen:
+            seen.add(idx)
+            ordered.append(by_index[idx])
+    return ordered
 
 
 # -----------------------------------------------------------------------------------------------------------------------------------------------------

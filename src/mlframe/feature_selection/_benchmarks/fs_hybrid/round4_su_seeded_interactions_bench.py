@@ -32,13 +32,14 @@ PASS end-to-end: ShapSel + SU-top-K product cols beats plain ShapSel recall by >
   WITHOUT the O(P^2) cost (screen is O(P) univariate SU + O(K) pair SU).
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import logging
 
 logger = logging.getLogger(__name__)
 
 import os, sys, time, itertools
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings; warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 import numpy as np, pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
@@ -49,7 +50,7 @@ from hard_synth import make_hard_dataset
 import fs_selectors as S
 from _downstream_shared import entropy as _entropy
 
-CK = "D:/Temp/queue_ideas_progress.txt"
+CK = bench_out("queue_ideas_progress.txt")
 def ck(msg):
     with open(CK, "a", encoding="utf-8") as f:
         f.write(msg + "\n")
@@ -231,7 +232,7 @@ def main():
               f"{'MISS' if rk is None else '#'+str(rk):5s}  "
               f"proto[d_recall={d_rec:+d} d_auc={d_auc:+}]  "
               f"inclass[d_recall={d_rec_ic:+d} d_auc={d_auc_ic:+}]", flush=True)
-    df.to_csv("D:/Temp/round4_su_seeded_rows.csv", index=False)
+    df.to_csv(bench_out("round4_su_seeded_rows.csv"), index=False)
     ck("A4-4 DONE")
 
 

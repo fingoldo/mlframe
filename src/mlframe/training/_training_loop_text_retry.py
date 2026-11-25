@@ -66,7 +66,7 @@ def retry_params_after_empty_text_dictionary(model: Any, train_df: Any, train_ta
                 "CatBoost raised 'Dictionary size is 0'. Probing each text feature individually against the "
                 "installed CatBoost identified %d unusable of %d: %s. Retrying with the remaining %d text "
                 "feature(s) %s instead of dropping them all.",
-                len(_bad), len(text_feat), "(none)" if _bad_desc == "" else _bad_desc,
+                len(_bad), len(text_feat), _bad_desc,  # _bad_desc is only built inside `if _bad:`, so it is never empty here (28-F60)
                 len(_keep), "(none)" if len(_keep) == 0 else _keep,
             )
             # A dropped text column is rerouted to cat_features so CB's categorical handling still sees it;

@@ -237,7 +237,12 @@ def pinball_loss(y_true: ArrayLike, y_pred: ArrayLike, alpha: float) -> float:
 def pinball_loss_per_alpha(
     y_true: ArrayLike, preds_NK: ArrayLike, alphas: Sequence[float],
 ) -> Dict[float, float]:
-    """Per-alpha pinball loss; key = alpha (float), value = mean loss."""
+    """Per-alpha pinball loss; key = alpha (float), value = mean loss.
+
+    Duplicate alphas are refused: each column has its own predictions, and the alpha-keyed result would silently drop one of them (25-F70).
+    """
+    if len({float(a) for a in alphas}) != len(alphas):
+        raise ValueError("pinball_loss_per_alpha: alphas must be distinct; the result is keyed by alpha and duplicates would overwrite each other.")
     y = np.ascontiguousarray(np.asarray(y_true, dtype=np.float64).ravel())
     P = np.ascontiguousarray(np.asarray(preds_NK, dtype=np.float64))
     if P.ndim != 2:

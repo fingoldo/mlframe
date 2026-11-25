@@ -142,8 +142,10 @@ class SuiteKeyBuilder:
             "random_seed": "None" if random_seed is None else int(random_seed),
         }
         if mlframe_models is not None:
+            # A bare string is one model name, not a sequence of characters: iterating it made "cb" collide with {"b", "c"} (28-F73).
+            _models = [mlframe_models] if isinstance(mlframe_models, str) else mlframe_models
             try:
-                payload["models"] = sorted(str(m) for m in mlframe_models)
+                payload["models"] = sorted(str(m) for m in _models)
             except TypeError:
                 payload["models"] = repr(mlframe_models)
         if lib_versions:
@@ -292,9 +294,10 @@ class SuiteArtefactCache:
             if key in self._lru or not _SAFE_KEY.fullmatch(key) or ".." in key:
                 continue
             try:
-                unknown.append((os.path.getmtime(os.path.join(self.cache_dir, name)), key))
-            except OSError:
+                mtime = os.path.getmtime(os.path.join(self.cache_dir, name))
+            except OSError:  # the entry vanished between listdir and stat: another process evicted it
                 continue
+            unknown.append((mtime, key))
         for mtime, key in sorted(unknown, reverse=True):
             self._lru[key] = mtime
             self._lru.move_to_end(key, last=False)

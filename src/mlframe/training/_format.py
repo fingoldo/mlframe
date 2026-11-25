@@ -116,7 +116,7 @@ def format_metric(value: Any, ndigits: int = 2) -> str:
     - 13.93           -> "13.93"
     - 0.4655          -> "0.47"           (no widening; 2 sig figs)
     - 0.0034          -> "0.0034"         (widened by 2 leading zeros)
-    - 1.23e-05        -> "0.0000123"      (widened by 4 leading zeros)
+    - 1.23e-05        -> "0.000012"       (six decimals: ndigits + 4; 27-F20)
     - 0.0             -> "0.00"
     - float('nan')    -> "nan"
 

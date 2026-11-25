@@ -519,7 +519,8 @@ def _col_to_numpy(df: Any, col: str) -> Optional[np.ndarray]:
             series = df[col]
             try:
                 return np.asarray(series.to_numpy(dtype=np.float64, na_value=np.nan))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError) as exc:
+                log_throttle(logger, "feature_drift_report._col_to_numpy_object", logging.WARNING, "drift: column %r has no float view, falling back to an object array: %s", col, exc)
                 return np.asarray(series.to_numpy())
         if hasattr(df, "to_numpy") and hasattr(df, "columns"):
             # polars frame
@@ -675,7 +676,8 @@ def _compute_drift_invariant(
     # as categorical (value_counts on floats), which compute_categorical_drift_psi's own default
     # (_categorical_columns) never does.
     if feature_names is not None:
-        _cat_feature_names = [c for c in feature_names if c in set(_categorical_columns(train_df))]
+        _cat_set = set(_categorical_columns(train_df))  # built once, not once per feature (28-F71)
+        _cat_feature_names = [c for c in feature_names if c in _cat_set]
         if _cat_feature_names:
             categorical_psi = compute_categorical_drift_psi(train_df, val_df, test_df, feature_names=_cat_feature_names)
         else:

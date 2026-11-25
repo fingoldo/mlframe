@@ -35,7 +35,7 @@ from typing import Any, Dict, List, Optional, Sequence
 import numpy as np
 import pandas as pd
 
-from ._arms import BaseArm, MRMRArm, _feature_names, _integer_bins, _mask_from_names
+from ._arms import BaseArm, MRMRArm, _feature_names, _integer_bins, _mask_from_names, bare_mrmr_kwargs
 
 __all__ = [
     "IT_SCORERS",
@@ -166,7 +166,7 @@ class MRMRVariantArm(MRMRArm):
         from mlframe.feature_selection.filters._mrmr_tree_rescue import MRMRTreeRescued
 
         cls = MRMRTreeRescued if self.tree_rescued else MRMR
-        kwargs: Dict[str, Any] = {"verbose": 0, "fe_max_steps": 0, "n_jobs": -1, "random_seed": self.random_seed, "max_runtime_mins": self.max_runtime_mins}
+        kwargs: Dict[str, Any] = bare_mrmr_kwargs(self.max_runtime_mins, self.random_seed)
         kwargs.update(self.extra)
         return cls(**kwargs)
 
@@ -175,7 +175,7 @@ def _bare_mrmr(max_runtime_mins: float, random_seed: int) -> Any:
     """The same bare MRMR the `mrmr` arm fits, to be wrapped -- so a wrapper arm differs only by its wrapper."""
     from mlframe.feature_selection.filters import MRMR
 
-    return MRMR(verbose=0, fe_max_steps=0, n_jobs=-1, random_seed=random_seed, max_runtime_mins=max_runtime_mins)
+    return MRMR(**bare_mrmr_kwargs(max_runtime_mins, random_seed))
 
 
 class CorrelatedFeaturesSelectorArm(BaseArm):

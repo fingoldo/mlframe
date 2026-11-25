@@ -55,8 +55,12 @@ def catboost_available() -> bool:
         import catboost  # noqa: F401  # presence is the whole question
 
         return True
+    except ImportError as exc:
+        logger.info("catboost is not installed here, so its arms are unavailable: %s", exc)
+        return False
     except Exception as exc:
-        logger.info("catboost is not importable here, so its arms are unavailable: %s", exc)
+        # Installed but broken: indistinguishable from "not installed" at INFO, so surface it as a WARNING (11-F8).
+        logger.warning("catboost is installed but fails to import, so its arms are unavailable: %s", exc)
         return False
 
 

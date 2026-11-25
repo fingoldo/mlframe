@@ -79,7 +79,7 @@ def _png_path(base: str) -> str:
     """``base`` resolved to its .png destination under the active per-format layout."""
     from mlframe.reporting.renderers.save import resolve_output_path
 
-    return resolve_output_path(base, "matplotlib", "png", multi_output=False)
+    return resolve_output_path(base, "matplotlib", "png")
 
 
 def _save_figure(fig, plot_outputs: str, base_path: str) -> Optional[bool]:
@@ -107,7 +107,7 @@ def _save_figure(fig, plot_outputs: str, base_path: str) -> Optional[bool]:
             from mlframe.reporting.async_render_hooks import active_render_queue, submit_figure_save
             from mlframe.reporting.renderers.save import resolve_output_path
 
-            _path = resolve_output_path(base_path, "matplotlib", "png", multi_output=False)
+            _path = resolve_output_path(base_path, "matplotlib", "png")
             _queue = active_render_queue()
             if _queue is not None and submit_figure_save(_queue, fig, _path):
                 deferred = True  # the worker owns the figure now and closes it after saving
@@ -260,7 +260,8 @@ def _render_split_error_diagnostics(
     surface the worst-K table in its metrics dict and (where the scatter supports it) highlight those points.
 
     Large-n: the feature-frame-consuming builders are fed a bounded, worst-error-preserving row subsample; worst-K is
-    computed on the FULL arrays (O(n) argpartition) so the returned highlight indices map onto the caller's full data.
+    computed on the bounded subsample (``sub_df`` / ``yt[sample_idx]``) for n above DIAG_ROW_CAP, so the highlight indices are
+    positions in that subsample. The subsample keeps the top-loss rows, so the worst-K set is the same in practice (26-F25).
     """
     out: Dict[str, Any] = {"worst_k_indices": np.empty(0, dtype=np.int64), "worst_k_table": None}
     charts = metrics_dict.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics_dict, dict) else None

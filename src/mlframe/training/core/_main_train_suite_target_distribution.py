@@ -20,7 +20,7 @@ import numpy as np
 
 from ._leakage_by_name import target_named_features
 
-logger = logging.getLogger("mlframe.training.core._main_train_suite")
+logger = logging.getLogger(__name__)  # this module's own name, so per-module log levels apply (37-F44)
 
 
 # Model keys whose fitted learner takes NaN as a first-class value rather than needing it imputed away: the
@@ -336,12 +336,19 @@ def _pick_representative_target(target_by_type: Any) -> tuple[Any, Any, Any]:
             _picked_type_name = "regression" if _tt_key == TargetTypes.REGRESSION else "classification"
             break
     if _picked_target is None:
-        # Fallback: walk all keys, take the first non-empty target.
+        # Fallback: take the first non-empty target of a supervised type this pass understands. Any other key (e.g. LEARNING_TO_RANK)
+        # used to be labelled "classification" by default; it is now skipped rather than misclassified (37-F46).
         for _tt_key, _bag in target_by_type.items():
-            if isinstance(_bag, dict) and _bag:
-                _picked_target_name, _picked_target = next(iter(_bag.items()))
-                _picked_type_name = "regression" if str(_tt_key).endswith("REGRESSION") else "classification"
-                break
+            if not (isinstance(_bag, dict) and _bag):
+                continue
+            if _tt_key == TargetTypes.REGRESSION:
+                _picked_type_name = "regression"
+            elif _tt_key in (TargetTypes.BINARY_CLASSIFICATION, TargetTypes.MULTICLASS_CLASSIFICATION):
+                _picked_type_name = "classification"
+            else:
+                continue
+            _picked_target_name, _picked_target = next(iter(_bag.items()))
+            break
     return _picked_target, _picked_type_name, _picked_target_name
 
 
@@ -668,9 +675,8 @@ def _record_knob_provenance(metadata, hyperparams_config, _td_report):
                     _slot_store[_knob_name] = {"value": _user_slot[_knob_name.split(".")[0]], "source": "user"}
                 else:
                     _slot_store[_knob_name] = dict(_stamp)
-    except Exception as e:  # nosec B110 - swallow converted to debug-log, non-fatal by design
-        logger.debug("suppressed: %s", e)
-        pass
+    except Exception as e:  # nosec B110 - non-fatal by design; surfaced at WARNING so missing provenance is visible (37-F45)
+        logger.warning("knob provenance not recorded (training continues): %s", e)
 
 
 def _apply_knob_overrides(_td_report, hyperparams_config, ctx):

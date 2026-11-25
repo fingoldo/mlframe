@@ -293,7 +293,7 @@ extern "C" __global__ void binagg_oof_gather_multi(const unsigned long long* __r
 _OOF_GATHER_MULTI_KERNELS: dict = {}
 
 
-def kernel_oof_gather_multi(cp, real):
+def kernel_oof_gather_multi(cp: Any, real: Any) -> Any:
     """``binagg_oof_gather_multi`` for the output type ``real`` (float32 or double): every column of the OOF block in one launch, each column reading its own stat table through its own row index
     (compile point of the launch and of the register-pressure registry)."""
     key = cp.dtype(real).name

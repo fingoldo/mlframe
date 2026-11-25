@@ -119,7 +119,8 @@ def _pid_start_token(pid: int) -> str:
         import psutil
 
         return f"{psutil.Process(pid).create_time():.3f}"
-    except Exception:  # no psutil or the process is gone: no token, so the pid alone decides (the old behaviour)
+    except Exception as exc:  # no psutil or the process is gone: no token, so the pid alone decides (the old behaviour)
+        logger.debug("kernel tuning cache: no process start token for pid %s: %s", pid, exc)
         return ""
 
 
@@ -248,13 +249,14 @@ def _run_sweep(spec: Any, timeout_s: float) -> tuple:
     # of another checkout would tune a kernel that the code being pushed does not have.
     env = dict(os.environ)
     mlframe_file = sys.modules["mlframe"].__file__
-    assert mlframe_file is not None  # a package imported from its source tree always has a file
+    if mlframe_file is None:  # an explicit check: an assert is stripped under python -O (31-F11)
+        raise RuntimeError("mlframe imported without a __file__ (namespace package?); cannot locate its source root for the sweep child")
     src_root = os.path.dirname(os.path.dirname(os.path.abspath(mlframe_file)))
     env["PYTHONPATH"] = os.pathsep.join(p for p in (src_root, env.get("PYTHONPATH", "")) if p)
     try:
         proc = subprocess.run(cmd, timeout=timeout_s, check=False, env=env)  # nosec B603 - fixed argv: this interpreter, this package, a registered kernel name
     except subprocess.TimeoutExpired as _exc:
-        logger.warning("_run_sweep fell back to its default after %s", type(_exc).__name__)
+        logger.warning("_run_sweep timed out (%s): the kernel sweep is recorded as timed out, not retried (31-F10)", type(_exc).__name__)
         return "timeout", f"exceeded the {timeout_s / 60:.0f} min per-kernel limit"
     if proc.returncode != 0:
         return "failed", f"the sweep process exited with code {proc.returncode}"

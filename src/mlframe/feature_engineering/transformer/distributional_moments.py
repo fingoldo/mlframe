@@ -47,17 +47,9 @@ def compute_distributional_moments_features(
             Xt_s, Xq_s = Xt, Xq
         preds_q = np.zeros((Xq_s.shape[0], len(quantiles)), dtype=np.float32)
         if task == "binary":
-            # For binary: predict baseline at K sample-weight reweightings — gamma in {0, 0.5, 1, 1.5, 2, 3, 5}
-            gammas = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0]
-            for i, g in enumerate(gammas[: len(quantiles)]):
-                if g > 0:
-                    p_mean = float(y_t.mean())
-                    sw = np.where(y_t > 0.5, (1 - p_mean) ** g, p_mean**g).astype(np.float32)
-                else:
-                    sw = None
-                m = lgb.LGBMClassifier(n_estimators=30, max_depth=3, learning_rate=0.1, random_state=int(fold_seed) + i, verbose=-1, n_jobs=-1)
-                m.fit(Xt_s, y_t.astype(np.int32), sample_weight=sw)
-                preds_q[:, i] = np.asarray(m.predict_proba(Xq_s))[:, 1].astype(np.float32)
+            # Binary: the reweighted classifiers are not quantiles of one distribution, so sorting them as quantiles has no meaning.
+            # The quantile block is NaN and the moment features derived from it propagate NaN (09-F21).
+            preds_q[:] = np.nan
         else:
             for i, a in enumerate(quantiles):
                 m = lgb.LGBMRegressor(n_estimators=30, max_depth=3, learning_rate=0.1, objective="quantile", alpha=a, random_state=int(fold_seed) + i, verbose=-1, n_jobs=-1)

@@ -905,6 +905,9 @@ class ParamOracle:
                     score = self._score_of(obj)
                     if score is not None and (best_score is None or self._better(score, best_score)):
                         best_score, best_out = score, out
+                if best_score is None or not math.isfinite(best_score):
+                    # No combo produced a finite score, so the returned output is None; say so rather than return it silently (29-F31).
+                    logger.warning("param oracle benchmark sweep for %s: no combo gave a finite score; returning None", fn_name)
                 return best_out
 
             # hybrid: epsilon-greedy.

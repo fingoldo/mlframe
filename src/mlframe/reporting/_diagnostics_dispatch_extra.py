@@ -1,20 +1,9 @@
-"""Suite wiring for the error-analysis + drift diagnostic charts.
+"""Extra suite diagnostic renderers, complementing ``diagnostics_dispatch``.
 
-The chart builders in ``charts.error_analysis`` / ``charts.drift`` are task-agnostic and take explicit data; this module is
-the glue that the training suite calls from its per-split / per-target hot path. It selects the right builders for the
-data on hand, renders them through the active backend(s), and records every rendered grid in a ``charts`` accounting
-dict (``{"saved": [...], "failed": [...]}``) so a run can assert chart presence while keeping the no-crash contract.
-
-RAM safety is the governing constraint: the suite runs on 100GB+ frames. Every entry point pulls column views (never a
-whole-frame copy), and the feature-frame-consuming builders (weak-segment tree, error-bias tagging, worst-K) are fed a
-bounded row subsample that preserves the largest-error rows so the weak region is never sampled away. The drift /
-adversarial builders already cap their own work (per-feature O(n) histograms, 200k/side adversarial fit).
-
-cProfile (n=1.5M, matplotlib backend): split-error path ~2.9s render + ~2.7s weak-segment (tree fit already capped at
-50k by the builder); drift path's compute floors live in the builders (adversarial 200k/side LightGBM fit is the lever,
-PSI/residual are O(n) bincount/histogram). The bulk of a cold-process drift profile is the one-time import of
-``training.evaluation`` (pulled by ``metric_over_time`` -> ``compute_ml_perf_by_time``), which is already loaded inside a
-real suite run -- no actionable speedup in this wiring layer; the orchestration itself is O(builders).
+Each ``render_*`` entry point draws one diagnostic (model comparison, decile table, model card, prediction stability, split
+comparison, target-distribution overlay) through the active backend(s), and ``build_combined_html_report`` assembles the
+rendered charts into one page. Every render records its outputs in a ``charts`` accounting dict
+(``{"saved": [...], "failed": [...]}``) so a run can assert chart presence without failing the suite.
 """
 
 from __future__ import annotations
@@ -319,7 +308,7 @@ def _combined_html_sync(*, base_path: str, chart_paths: Sequence[str], title: st
             # with subfolders on, the flat name never exists and the entry silently fell back to the fragment.
             from mlframe.reporting.renderers.save import resolve_output_path
 
-            _fallback_png = resolve_output_path(p, "matplotlib", "png", multi_output=False)
+            _fallback_png = resolve_output_path(p, "matplotlib", "png")
             png = next((c for c in _candidate_paths(p, "png", BACKEND_FORMATS) if os.path.exists(c)), _fallback_png)
         if not os.path.exists(png):
             # No PNG (e.g. a plotly[html]-only run): fall back to the interactive fragment so the entry
@@ -337,7 +326,7 @@ def _combined_html_sync(*, base_path: str, chart_paths: Sequence[str], title: st
     # than loose beside it.
     from mlframe.reporting.renderers.save import resolve_output_path
 
-    out_path = resolve_output_path(base_path + "_report", "plotly", "html", multi_output=False)
+    out_path = resolve_output_path(base_path + "_report", "plotly", "html")
     build_combined_report(entries, title=title, out_path=out_path)
     return out_path
 
@@ -385,7 +374,7 @@ def build_combined_html_report(
 
         queue = active_render_queue()
         if queue is not None:
-            out_path = resolve_output_path(base_path + "_report", "plotly", "html", multi_output=False)
+            out_path = resolve_output_path(base_path + "_report", "plotly", "html")
 
             def _reconcile(fut) -> None:
                 """Runs on the joining thread: a stitch that failed or found nothing to stitch flips the optimistic record."""
@@ -475,7 +464,7 @@ def render_decile_table_diagnostic(
                 return False  # png not requested; nothing rendered, nothing to record either way
             from mlframe.reporting.renderers.save import resolve_output_path
 
-            path = resolve_output_path(out, "matplotlib", "png", multi_output=False)
+            path = resolve_output_path(out, "matplotlib", "png")
             queue.submit(_decile_table_task, yt[:m], ys[:m], n_deciles, path, name=os.path.basename(out))
             _record(charts, "decile_table", True)
             _record_path(charts, out)

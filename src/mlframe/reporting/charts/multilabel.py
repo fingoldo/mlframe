@@ -50,6 +50,13 @@ _OVERLAY_MAX_LABELS: int = 12
 _OVERLAY_TOP_N: int = 8
 
 
+def _legend_name(label: object) -> str:
+    """Shorten a class label for a legend entry, as the multiclass charts do (20-F34)."""
+    from .multiclass import _legend_class_name
+
+    return _legend_class_name(label)
+
+
 def _per_label_auc(y_true: np.ndarray, y_proba: np.ndarray) -> np.ndarray:
     """Per-label one-vs-rest AUC via the rank (Mann-Whitney) identity -- one argsort per column, ties averaged.
 
@@ -151,19 +158,19 @@ def _roc_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePanelSpec:
         # roc_curve rejects non-finite scores; a single class or all-NaN proba column has no defined curve.
         if bin_y.sum() == 0 or bin_y.sum() == len(bin_y) or not finite.any():
             series.append(np.full_like(x_grid, np.nan))
-            series_labels.append(f"{labels[k]} (n/a)")
+            series_labels.append(f"{_legend_name(labels[k])} (n/a)")
             continue
         bin_yf, colf = bin_y[finite], col[finite]
         if bin_yf.sum() == 0 or bin_yf.sum() == len(bin_yf):
             series.append(np.full_like(x_grid, np.nan))
-            series_labels.append(f"{labels[k]} (n/a)")
+            series_labels.append(f"{_legend_name(labels[k])} (n/a)")
             continue
         fpr, tpr, _ = fast_roc_curve(bin_yf, colf)
         roc_auc = auc(fpr, tpr)
         curve = np.interp(x_grid, fpr, tpr)
         series.append(curve)
         valid_curves.append(curve)
-        series_labels.append(f"{labels[k]} (AUC={roc_auc:.3f})")
+        series_labels.append(f"{_legend_name(labels[k])} (AUC={roc_auc:.3f})")
     chance = x_grid.copy()
     all_series = [chance, *series]
     all_labels = ["chance", *series_labels]
@@ -232,7 +239,7 @@ def _calib_grid_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePane
         # diagonal AND how many rows drew it.
         _n_k = float(counts.sum())
         _ece_k = float(np.sum(counts[nz] * np.abs(observed[nz] - x_grid[nz])) / _n_k) if _n_k else float("nan")
-        series_labels.append(f"{labels[k]} (ECE={_ece_k:.3f}, n={int(_n_k):,})")
+        series_labels.append(f"{_legend_name(labels[k])} (ECE={_ece_k:.3f}, n={int(_n_k):,})")
         colors.append(line_color(k))
     diag = x_grid.copy()
     all_series = [diag, *series]

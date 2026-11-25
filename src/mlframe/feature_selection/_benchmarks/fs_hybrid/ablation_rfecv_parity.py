@@ -110,7 +110,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         subset = [row for row in rows if row["estimator"] == kind]
         recalls = np.asarray([row["recall"] for row in subset], dtype=np.float64)
         sizes = np.asarray([row["n_selected"] for row in subset], dtype=np.float64)
-        print(f"{kind:<10} mean recall={recalls.mean():.3f} (min {recalls.min():.3f}, max {recalls.max():.3f})  mean |S|={sizes.mean():.1f}  n={len(subset)}")
+        if subset:
+            print(f"{kind:<10} mean recall={recalls.mean():.3f} (min {recalls.min():.3f}, max {recalls.max():.3f})  mean |S|={sizes.mean():.1f}  n={len(subset)}")
+        else:
+            # --seeds 0 leaves no rows for this estimator; min/max of an empty array would raise (12-F86).
+            print(f"{kind:<10} no runs (n=0)")
     print(f"\nwritten: {out}")
     return len(rows)
 

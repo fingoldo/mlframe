@@ -389,7 +389,8 @@ def _append_split_rate_suffix(model_name: str, *, split_name: str, target) -> st
     if bttr_match:
         if arr.ndim != 1:
             return model_name
-        rate = float((arr == 1).sum()) / arr.size
+        # Positive class = the larger label, as in _honest_decision_threshold (27-F22); labels {1, 2} no longer read as 0% positive.
+        rate = float((arr == np.nanmax(arr)).sum()) / arr.size
         train_pct = bttr_match.group(1)
         return _BTTR_RE.sub(f"BTTR/BT{short}={train_pct}/{rate*100:.0f}%", model_name, count=1)
     mttr_match = _MTTR_RE.search(model_name)

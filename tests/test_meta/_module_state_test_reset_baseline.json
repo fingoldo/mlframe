@@ -1,5 +1,78 @@
 {
-  "entries": {},
-  "gate": "module_state_test_reset",
-  "schema": 1
+ "schema": 1,
+ "gate": "module_state_test_reset",
+ "entries": {
+  "module-state-no-test-reset::feature_selection/_benchmarks/profiling/rss_scale_fit.py::module-level `_CALL_NONE` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "benchmark-only diagnostic capture, filled only when its RSS_* environment switch is set; no test runs that path"
+  },
+  "module-state-no-test-reset::feature_selection/_benchmarks/profiling/rss_scale_fit.py::module-level `_CALL_STATS` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "benchmark-only diagnostic capture, filled only when its RSS_* environment switch is set; no test runs that path"
+  },
+  "module-state-no-test-reset::feature_selection/_benchmarks/profiling/rss_scale_fit.py::module-level `_CUSHION_CALLS` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "benchmark-only diagnostic capture, filled only when its RSS_* environment switch is set; no test runs that path"
+  },
+  "module-state-no-test-reset::feature_selection/_benchmarks/profiling/rss_scale_fit.py::module-level `_FE_STEP_CAPTURE` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "benchmark-only diagnostic capture, filled only when its RSS_* environment switch is set; no test runs that path"
+  },
+  "module-state-no-test-reset::feature_selection/_benchmarks/profiling/rss_scale_fit.py::module-level `_PAIR_CAPTURE` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "benchmark-only diagnostic capture, filled only when its RSS_* environment switch is set; no test runs that path"
+  },
+  "module-state-no-test-reset::feature_selection/filters/_adaptive_nbins_columns.py::module-level `_FALLBACK_EDGES` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "bounded memo of a pure computation keyed by the column identity and settings; a hit returns the value computed for that key"
+  },
+  "module-state-no-test-reset::feature_selection/filters/_binned_numeric_agg_resident.py::module-level `_OOF_GATHER_MULTI_KERNELS` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "compiled-kernel registry keyed by kernel source and dtype; a kernel is a pure function of its key"
+  },
+  "module-state-no-test-reset::feature_selection/filters/_cmi_null_strata_gpu.py::module-level `_STRATA_RUNS_CACHE` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "bounded (4) cache of derived device arrays; each entry is checked against its inputs before reuse"
+  },
+  "module-state-no-test-reset::feature_selection/filters/_cmi_null_strata_gpu.py::module-level `_ZY_TERMS_CACHE` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "bounded (4) cache of derived device arrays; each entry is checked against its inputs before reuse"
+  },
+  "module-state-no-test-reset::feature_selection/filters/_dcd_pair_su_gpu.py::module-level `_RESIDENT_FD` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "bounded (2) cache of device matrices keyed by the content key; entries drop when their source is collected"
+  },
+  "module-state-no-test-reset::feature_selection/filters/_device_sort_safe.py::module-level `_EXCLUSIVE_LOCKS` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "registry of one lock per device pool; holds no results"
+  },
+  "module-state-no-test-reset::feature_selection/filters/_fe_cmi_fused_backend.py::module-level `_FORCE_STATE` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "depth-counted save and restore of an environment switch; the switch is restored when the depth returns to zero"
+  },
+  "module-state-no-test-reset::feature_selection/filters/_gpu_batched.py::module-level `_MI_COUNTS_REDUCTIONS` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "compiled-kernel registry keyed by the reduction's shape and dtype; a kernel is a pure function of its key"
+  },
+  "module-state-no-test-reset::feature_selection/filters/_gpu_resident_basis.py::module-level `_CLENSHAW_FWD_KERNELS` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "compiled-kernel registry keyed by kernel source and dtype; a kernel is a pure function of its key"
+  },
+  "module-state-no-test-reset::feature_selection/filters/_gpu_resident_rank_bin.py::module-level `_RANK_CODES_KERNELS` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "compiled-kernel registry keyed by kernel source and dtype; a kernel is a pure function of its key"
+  },
+  "module-state-no-test-reset::feature_selection/filters/_resident_candidate_mi.py::module-level `_BUILD_OPCANDS_SETS_KERNELS` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "compiled-kernel registry keyed by kernel source and dtype; a kernel is a pure function of its key"
+  },
+  "module-state-no-test-reset::feature_selection/filters/_resident_candidate_mi.py::module-level `_PAIR_INDEX_CACHE` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "memo keyed by (device, pairs) holding two tiny index arrays, cleared at capacity"
+  },
+  "module-state-no-test-reset::feature_selection/filters/_supervised_collapse_refine.py::module-level `_FALLBACK_MEMO` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "bounded (256) memo keyed by the call's inputs; a hit returns the value computed for that key"
+  }
+ }
 }

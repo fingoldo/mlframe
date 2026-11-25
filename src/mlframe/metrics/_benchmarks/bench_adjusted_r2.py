@@ -26,16 +26,19 @@ from typing import Any
 import numpy as np
 from sklearn.linear_model import LinearRegression
 
+from mlframe.metrics.regression._regression_extras import fast_adjusted_r2_score
+from mlframe.metrics.regression._regression_metrics import fast_r2_score
+
 TRUE_R2 = 0.5  # y = x0 + noise, both N(0,1)
 
 
 def _r2(yt: np.ndarray, yp: np.ndarray) -> Any:
-    return 1.0 - ((yt - yp) ** 2).sum() / ((yt - yt.mean()) ** 2).sum()
+    # The shipped function, so a fix to it is what gets benchmarked (17-F28).
+    return fast_r2_score(yt, yp)
 
 
 def _adj_r2(yt: np.ndarray, yp: np.ndarray, p: int) -> Any:
-    n = len(yt)
-    return 1.0 - (1.0 - _r2(yt, yp)) * (n - 1) / (n - p - 1)
+    return fast_adjusted_r2_score(yt, yp, p)
 
 
 def _fit(n: int, p: int, seed: int):

@@ -107,8 +107,8 @@ def choose_confidence_blend_backend(n: int, *, fallback: str) -> str:
         bc = result if isinstance(result, str) else str((result or {}).get("backend_choice", ""))
         if bc in _VALID_BACKENDS:
             return bc
-    except Exception as exc:  # any cache hiccup -> hardcoded fallback, never raise.
-        logger.debug("confidence_gated_blend KTC lookup failed: %s", exc)
+    except Exception as exc:  # any cache hiccup -> hardcoded fallback, never raise; a broken lookup is visible at WARNING (29-F38).
+        logger.warning("confidence_gated_blend KTC lookup failed; using the fallback backend %r: %s", fallback, exc)
     return fallback
 
 

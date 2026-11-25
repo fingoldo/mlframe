@@ -20,7 +20,7 @@ import threading
 from typing import Any, Optional
 
 import numpy as np
-from mlframe.feature_selection.filters.info_theory._reject_count import reject_count
+from mlframe.feature_selection.filters.info_theory.shared import reject_count
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 

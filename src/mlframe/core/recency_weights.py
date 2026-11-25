@@ -3,8 +3,8 @@
 Generalizes the exponential special case in :mod:`mlframe.core.ewma` to the
 three monotone-decaying weight families used by Dyakonov's weighted-scheme
 estimators (dunnhumby Shopper Challenge winner): given an ordered history of
-length ``d`` where index ``i`` (1-based) counts back from the OLDEST toward the
-most recent observation, assign more weight to fresher observations.
+length ``d`` where index ``i`` (1-based) counts back from the MOST RECENT observation (``i = 1``) to the
+oldest (``i = d``), assign more weight to fresher observations (22-F31).
 
     w_i^N = ((d - i + 1) / d) ** delta      # 'poly'   delta in [0, +inf)
     w_i^N = lam ** i                         # 'exp'    lam   in (0, 1]

@@ -5,6 +5,7 @@ keeps working unchanged.
 """
 from __future__ import annotations
 
+import dataclasses
 from typing import Any, Callable
 
 import numpy as np
@@ -92,23 +93,8 @@ def _configure_recurrent_params(
         rnn_type = rnn_type_map[model_name_lower]
 
         # RecurrentConfig field names are exact: n_heads (not num_heads) and mlp_hidden_sizes (not mlp_hidden_dims); seq/features dims are inferred at fit-time.
-        config = RecurrentConfig(
-            input_mode=input_mode,
-            rnn_type=rnn_type,
-            hidden_size=recurrent_config.hidden_size,
-            num_layers=recurrent_config.num_layers,
-            dropout=recurrent_config.dropout,
-            bidirectional=recurrent_config.bidirectional,
-            n_heads=recurrent_config.n_heads,
-            use_attention=recurrent_config.use_attention,
-            mlp_hidden_sizes=recurrent_config.mlp_hidden_sizes,
-            num_classes=recurrent_config.num_classes,
-            learning_rate=recurrent_config.learning_rate,
-            weight_decay=recurrent_config.weight_decay,
-            max_epochs=recurrent_config.max_epochs,
-            batch_size=recurrent_config.batch_size,
-            early_stopping_patience=recurrent_config.early_stopping_patience,
-        )
+        # dataclasses.replace carries every field of the caller's config, so a new field can no longer be silently dropped (28-F59).
+        config = dataclasses.replace(recurrent_config, input_mode=input_mode, rnn_type=rnn_type)
 
         # Select wrapper class based on task type
         WrapperClass = RecurrentRegressorWrapper if use_regression else RecurrentClassifierWrapper

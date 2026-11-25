@@ -18,7 +18,6 @@ from pathlib import Path
 
 _STAMP_DIR_NAME = "__pycache__"
 _STAMP_FILE = "mlframe_numba_dependency_stamps.txt"
-_RELATIVE_IMPORT = re.compile(r"^\s*from\s+\.+(\w+)?\s+import\s+([^\n(]+|\([^)]*\))", re.MULTILINE)
 _RELATIVE_MODULE_IMPORT = re.compile(r"^\s*from\s+\.+(\w+)\s+import", re.MULTILINE)
 # ``from . import b, c`` imports sibling modules as names; the module-form pattern above missed it (audit 29-F17).
 _RELATIVE_NAME_IMPORT = re.compile(r"^\s*from\s+\.+\s*import\s+([^\n(]+|\([^)]*\))", re.MULTILINE)

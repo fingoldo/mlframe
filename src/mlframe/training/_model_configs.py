@@ -133,6 +133,7 @@ class LinearModelConfig(ModelConfig):
     def map_iterations_to_max_iter(cls, data: Any) -> Any:
         """Map 'iterations' to 'max_iter' for consistency with tree models."""
         if isinstance(data, dict) and "iterations" in data:
+            data = dict(data)  # never pop/write into the caller's dict (27-F17)
             # Only set max_iter from iterations if max_iter wasn't explicitly provided
             if "max_iter" not in data:
                 data["max_iter"] = data.pop("iterations")

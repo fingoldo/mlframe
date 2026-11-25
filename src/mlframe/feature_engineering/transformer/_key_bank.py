@@ -105,6 +105,7 @@ def _key_bank_fingerprint(
     projection: str,
     dtype: Any,
     y_train: Any = None,
+    ann_backend: str = "pynndescent",
 ) -> str:
     """Produce a deterministic content-addressed cache key for the (projections, k_proj, ann_indices) artefacts.
 
@@ -148,6 +149,9 @@ def _key_bank_fingerprint(
     h.update(str(projection).encode())
     h.update(b"|build_dtype|")
     h.update(str(np.dtype(dtype)).encode())
+    # The ANN backend is part of the key: indices built by another backend are not valid for this one (08-F8).
+    h.update(b"|ann_backend|")
+    h.update(str(ann_backend).encode())
     if y_train is not None:
         y_arr = np.ascontiguousarray(y_train)
         h.update(b"|y_train|")

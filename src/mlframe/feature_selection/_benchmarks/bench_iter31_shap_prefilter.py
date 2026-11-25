@@ -79,6 +79,7 @@ def run_one(
     return dict(seed=seed, total=total, stage_timings=stage_timings, recall=(rec_hit, rec_total), profile=pr, selected=list(sel.selected_features_))
 
 
+# Intentional divergence from _bench_shared.print_stage_table (audit 10-F4): this bench adds the 'shap_prefilter' stage to its order.
 def print_stage_table(timings: dict, total: float):
     order = ("prefilter", "shap_prefilter", "clustering", "oof_shap", "prescreen",
              "search", "trust_guard", "revalidation", "importance_ablation",

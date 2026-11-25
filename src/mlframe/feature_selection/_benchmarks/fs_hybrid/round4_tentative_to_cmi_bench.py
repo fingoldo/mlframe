@@ -26,9 +26,10 @@ PASS: CMI-gate raises weak-block recall by >= +2 over plain boruta WITHOUT admit
   control's noise, AND lifts downstream LGBM AUC on hard_synth.
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings; warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 import numpy as np, pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
@@ -38,7 +39,7 @@ from hard_synth import make_hard_dataset
 import fs_selectors as S
 from _downstream_shared import make_ckpt_writer, entropy as _entropy
 
-CK = "D:/Temp/queue_ideas_progress.txt"
+CK = bench_out("queue_ideas_progress.txt")
 ck = make_ckpt_writer(CK)
 
 
@@ -163,7 +164,7 @@ def main():
         print(f"  {bed:12s} cmi_admit vs boruta: d_weak_recall={d_weak:+d} d_noise={d_noise:+d} d_auc={d_auc:+}", flush=True)
         print(f"           (gate admitted noise={int(gate.n_noise)} vs ALL-tentative ctrl noise={int(ctrl.n_noise)}; "
               f"ctrl auc={ctrl.auc} vs gate auc={gate.auc})", flush=True)
-    df.to_csv("D:/Temp/round4_tentative_cmi_rows.csv", index=False)
+    df.to_csv(bench_out("round4_tentative_cmi_rows.csv"), index=False)
     ck("A2-7 DONE")
 
 

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Sequence, Tuple
 
+import logging
+
 import numpy as np
 
 # Codes above this need a wider dtype; below it numpy can radix-sort them, which is the whole point.
@@ -38,6 +40,10 @@ def group_indices_by_label(labels: Sequence[Any]) -> Tuple[np.ndarray, np.ndarra
     """
     labels_arr = np.asarray(labels)
     codes, uniq = _codes_and_labels(labels_arr)
+    _n_missing = int(np.count_nonzero(codes < 0))
+    if _n_missing:
+        # pd.factorize codes a missing label -1, and those rows belong to no group: say how many were left out (20-F41).
+        logging.getLogger(__name__).warning("group_indices_by_label: %d of %d rows have a missing label and belong to no group", _n_missing, codes.size)
     if codes.size and int(codes.max()) <= _MAX_NARROW_CODE:
         codes = codes.astype(np.int16, copy=False)
     order = np.argsort(codes, kind="stable")

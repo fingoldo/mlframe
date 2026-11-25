@@ -318,7 +318,7 @@ def _phase_fit_pipeline_post_fit_transform_pipeline(preprocessing_extensions):
     return preprocessing_extensions
 
 
-def _align_pysr_target_to_train(_y_train_for_ext, train_idx, train_df, verbose):
+def _align_pysr_target_to_train(_y_train_for_ext, train_idx, train_df):
     """Slice the PySR target to the training rows; a target that still disagrees in length with the training frame is dropped (None), so symbolic FE is skipped rather than fitted on misaligned rows."""
     # target_by_type carries the PRE-split full target; slice to train_idx
     # so PySR's symbolic FE only sees train-set y. Without this we hit a
@@ -384,7 +384,7 @@ def _phase_fit_pipeline_back_none_function_logs(preprocessing_extensions, target
                             _first_name,
                         )
                     _y_train_for_ext = _y_train_for_ext[:, 0]
-                _y_train_for_ext = _align_pysr_target_to_train(_y_train_for_ext, train_idx, train_df, verbose)
+                _y_train_for_ext = _align_pysr_target_to_train(_y_train_for_ext, train_idx, train_df)
         except Exception as _exc:
             if verbose:
                 _diag = "n/a"

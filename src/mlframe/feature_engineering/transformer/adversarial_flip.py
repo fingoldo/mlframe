@@ -5,7 +5,7 @@ Iter 79 mechanism. Adversarial agent's #1 ranked.
 For each query row, for each feature j: coarse line search ε ∈ {0.5σ, 1σ, 2σ} in both ±directions
 to find smallest |Δx_j| that:
 - Binary: flips class prediction (crosses 0.5).
-- Regression: moves prediction across one residual-decile boundary on train.
+- Regression: moves the prediction by more than the 10th percentile of the train absolute residuals (|Δpred| > that threshold) (08-F6).
 
 Emit per row:
 - min_flip_dist — smallest |Δ| across features (∞ if no flip within 2σ)

@@ -18,8 +18,9 @@ def import_optional(module: str, extra: str, purpose: str = "") -> ModuleType:
 
 
 def module_available(module: str) -> bool:
-    """Whether ``module`` can be found, without importing it. A finder that refuses the name (an import blocker raises instead of returning None) and a module whose
-    ``__spec__`` is unset (``ValueError``) both count as not available."""
+    """Whether ``module`` can be found. A top-level name is not imported; a dotted name imports its parent package to locate the
+    child, since ``importlib.util.find_spec`` requires that (22-F38). A finder that refuses the name (an import blocker raises instead
+    of returning None) and a module whose ``__spec__`` is unset (``ValueError``) both count as not available."""
     import importlib.util
 
     try:

@@ -39,15 +39,17 @@ def tfidf_only(
             default_cat=[CatHandlerSpec(method="ordinal", params=NoParams(kind="ordinal"))],
         )
     """
-    return FeatureHandlingConfig(
-        default_text=[
-            TextHandlerSpec(
-                method="tfidf",
-                params=TfidfParams(max_features=max_features, ngram_range=ngram_range),
-            )
-        ],
-        default_cat=[CatHandlerSpec(method="ordinal", params=NoParams(kind="ordinal"))],
-        **fhc_kwargs,
+    return _build_config(
+        {
+            "default_text": [
+                TextHandlerSpec(
+                    method="tfidf",
+                    params=TfidfParams(max_features=max_features, ngram_range=ngram_range),
+                )
+            ],
+            "default_cat": [CatHandlerSpec(method="ordinal", params=NoParams(kind="ordinal"))],
+        },
+        fhc_kwargs,
     )
 
 
@@ -67,19 +69,21 @@ def cb_native_only(**fhc_kwargs: Any) -> FeatureHandlingConfig:
     """
     from mlframe.training.feature_handling.config import ModelHandlingOverride
 
-    return FeatureHandlingConfig(
-        default_text=[TextHandlerSpec(method="drop", params=NoParams(kind="drop"))],
-        default_cat=[CatHandlerSpec(method="ordinal", params=NoParams(kind="ordinal"))],
-        per_model={
-            # cb needs its OWN cat override too, not just text -- without it every model (including cb)
-            # fell through to the ordinal default_cat above, silently defeating this preset's entire
-            # stated purpose (CatBoost native categorical handling).
-            "cb": ModelHandlingOverride(
-                cat=[CatHandlerSpec(method="native", params=NoParams(kind="native"))],
-                text=[TextHandlerSpec(method="native", params=NoParams(kind="native"))],
-            ),
+    return _build_config(
+        {
+            "default_text": [TextHandlerSpec(method="drop", params=NoParams(kind="drop"))],
+            "default_cat": [CatHandlerSpec(method="ordinal", params=NoParams(kind="ordinal"))],
+            "per_model": {
+                # cb needs its OWN cat override too, not just text -- without it every model (including cb)
+                # fell through to the ordinal default_cat above, silently defeating this preset's entire
+                # stated purpose (CatBoost native categorical handling).
+                "cb": ModelHandlingOverride(
+                    cat=[CatHandlerSpec(method="native", params=NoParams(kind="native"))],
+                    text=[TextHandlerSpec(method="native", params=NoParams(kind="native"))],
+                ),
+            },
         },
-        **fhc_kwargs,
+        fhc_kwargs,
     )
 
 
@@ -93,16 +97,27 @@ def embedding_only(
     Default provider is ``intfloat/multilingual-e5-small``; pass an
     explicit ``EmbeddingProvider`` to override.
     """
-    return FeatureHandlingConfig(
-        default_text=[
-            TextHandlerSpec(
-                method="frozen_text_embedding",
-                params=FrozenEmbeddingParams(provider=provider, pool=pool),  # type: ignore[arg-type]
-            )
-        ],
-        default_cat=[CatHandlerSpec(method="ordinal", params=NoParams(kind="ordinal"))],
-        **fhc_kwargs,
+    return _build_config(
+        {
+            "default_text": [
+                TextHandlerSpec(
+                    method="frozen_text_embedding",
+                    params=FrozenEmbeddingParams(provider=provider, pool=pool),  # type: ignore[arg-type]
+                )
+            ],
+            "default_cat": [CatHandlerSpec(method="ordinal", params=NoParams(kind="ordinal"))],
+        },
+        fhc_kwargs,
     )
+
+
+def _build_config(defaults: dict[str, Any], overrides: dict[str, Any]) -> FeatureHandlingConfig:
+    """Build a config from a preset's defaults, letting caller-supplied keywords override them.
+
+    Passing ``default_cat=...`` or ``per_model=...`` to a preset used to be a duplicate-keyword TypeError
+    (the preset set the same key explicitly). The caller's value now replaces the preset's default (39-F46).
+    """
+    return FeatureHandlingConfig(**{**defaults, **overrides})
 
 
 __all__ = ["tfidf_only", "cb_native_only", "embedding_only"]

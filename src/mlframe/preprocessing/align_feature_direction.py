@@ -101,7 +101,10 @@ def batch_univariate_auc(X: np.ndarray, y_arr: np.ndarray) -> np.ndarray:
     """
     y_arr = np.asarray(y_arr)
     classes = np.unique(y_arr)
-    is_pos = y_arr == (classes[-1] if classes.size == 2 else 1)  # the larger of two labels is positive (as in sklearn); 1 stays the positive label otherwise
+    # Binary only: a multi-class y silently scored label 1 one-vs-rest (26-F14). Refuse it instead of returning a wrong direction.
+    if classes.size > 2:
+        raise ValueError(f"batch_univariate_auc: y has {classes.size} classes; this helper is binary-only.")
+    is_pos = y_arr == (classes[-1] if classes.size == 2 else 1)  # the larger of two labels is positive (as in sklearn)
     n_pos = int(is_pos.sum())
     n_neg = len(y_arr) - n_pos
     if n_pos == 0 or n_neg == 0:
@@ -155,7 +158,7 @@ def batch_mutual_information(X: np.ndarray, y_arr: np.ndarray, random_state: int
     including non-monotonic ones (U-shaped, inverted-U, multi-modal) where AUC sits near 0.5 despite the column
     carrying real signal.
     """
-    from mlframe.feature_selection.filters._ksg_dispatch import ksg_mi_columns
+    from mlframe.feature_selection.filters.shared import ksg_mi_columns
 
     # the repository's own kernels give ``mutual_info_classif(discrete_features=False)``'s estimate (default n_neighbors=3, same noise stream), 80-125x faster
     return np.asarray(ksg_mi_columns(X, y_arr, discrete_target=True, n_neighbors=3, random_state=random_state))

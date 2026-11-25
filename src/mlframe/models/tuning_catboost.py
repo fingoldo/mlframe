@@ -52,7 +52,7 @@ def _catboost_default_params(GPU_ENABLED: bool, groups: bool) -> dict:
         # ----------------------------------------------------------------------------------------------------------------------------
         # Int params
         # ----------------------------------------------------------------------------------------------------------------------------
-        "depth": randint(1, 16),  # Maximum tree depth is 16
+        "depth": randint(1, 17),  # scipy randint excludes the high bound; 17 makes depth 16 reachable (25-F61)
         "max_leaves": randint(2, 70),
         "l2_leaf_reg": randint(1, 10),  # Any positive value is allowed.
         "border_count": [None, randint(30, 300)],

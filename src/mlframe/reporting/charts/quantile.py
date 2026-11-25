@@ -184,8 +184,6 @@ def _interval_band_panel(y_true, preds_NK, alphas) -> PanelSpec:
     P = np.asarray(preds_NK, dtype=np.float64)
     if P.shape[0] == 0 or not np.any(_finite_rows(np.asarray(y_true, dtype=np.float64).ravel(), P)):
         return _no_rows_annotation("Prediction intervals", int(P.shape[0]))
-    if P.shape[0] == 0 or not np.any(_finite_rows(np.asarray(y_true, dtype=np.float64).ravel(), P)):
-        return _no_rows_annotation("Pinball loss by alpha", int(P.shape[0]))
     a_arr = list(alphas)
     K = len(a_arr)
 

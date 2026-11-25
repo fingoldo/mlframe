@@ -87,23 +87,48 @@ Scope: the 72 files in `audits/2026-11-20/manifests/09_feature_engineering-2.txt
 - 09-F12: RESOLVED. Empty correct-subset distances are the package far sentinel (1e6) for both mean and nearest, in a module-level _nn_dist_to_subset. Test tests/feature_engineering/transformer/test_trust_empty_subset_is_far.py. Commit below.
 - 09-F13: RESOLVED. Local PCA centres each neighbour matrix on the neighbour mean instead of the query row. Test tests/feature_engineering/transformer/test_lid_centres_on_the_neighbour_mean.py. Commit below.
 - 09-F10: RESOLVED. Top-k proximity selects the largest k directly instead of partitioning a negated copy of the dense block. The dense block itself stays: the measured note in the code shows every pair shares a leaf. Test tests/feature_engineering/transformer/test_rf_topk_matches_full_sort.py; existing proximity tests pass. Commit below.
-- 09-F7: DEFERRED. Layer 2 in Mode A consumes layer-1 OOF features of training rows that were produced by folds sharing those rows, so the stacking is optimistic. A fix re-folds layer 1 inside each layer-2 fold (nested OOF), which changes the cost and output of stacked_qnn and stacked_attention. Needs a design decision; the docstring claim at stacked_attention.py:15-16 must be corrected with it.
 - 09-F15: DEFERRED. tried an early return in the underdetermined branch; it broke the contract that the linear column stays finite. The real defect is the per-row exception path zeroing whole rows; needs a column-aware fix
 - 09-F24: FIXED. binary local-lift labels are normalised to {0,1} for both the global mean and the neighbour sums; tests/feature_engineering/transformer/test_cluster09_edges.py covers the KMeans path only, lift path covered by existing lift tests
 - 09-F26: FIXED. anchor count is capped by the row count, so a one-row fold yields one anchor; tests/feature_engineering/transformer/test_cluster09_edges.py
-- 09-F14: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
-- 09-F16: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
-- 09-F17: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
-- 09-F18: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
-- 09-F19: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
-- 09-F20: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
-- 09-F21: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
-- 09-F22: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
-- 09-F23: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
-- 09-F25: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F27: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F28: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F29: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F30: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F31: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F1: RESOLVED. Random directions are unscaled; the d^{-1/4} scale moved to the inputs so the kernel is exp(q.k/sqrt(d)) as documented. Tests tests/feature_engineering/transformer/test_performer_kernel_identity.py; reference in test_performer_attention_key_side_stabilization.py updated.
+- 09-F42: FIXED. Rebrand now replaces only the leading attn_ prefix; regression test tests/feature_engineering/transformer/test_cluster09_row_attention_prefix_only.py.
+- 09-F39: FIXED. Scale tag uses round(ns*100) so 0.29 is n29 (int truncation gave n28). Test tests/feature_engineering/transformer/test_cluster09_diffusion_scale_tag.py.
+- 09-F45: FIXED. Empty quintile stratum logs a WARNING naming the stratum before its features fall back to the whole fold. Test tests/feature_engineering/transformer/test_cluster09_empty_stratum_warns.py (source pin).
+- 09-F44: FIXED. Local logistic solver penalises only the slopes (intercept index 0 unpenalised); gradient and Hessian use the same penalty vector. Behaviour change: outputs of the local classifier move for any ridge>0. Tests tests/feature_engineering/transformer/test_cluster09_local_logreg_intercept_unpenalised.py; 9 existing local-classifier tests pass (397 skipped by their gates).
+- 09-F32: PARTIAL. Binary branch of _fit_3baselines_with_sigma no longer predicts on the train frame (the output uses only query predictions). Test counts LogisticRegression predict_proba calls only; the two LightGBM members are not spied, so the LGBM train predicts are removed by inspection, not by the test. Test tests/feature_engineering/transformer/test_cluster09_binary_no_train_predicts.py.
+- 09-F33: DEFERRED. Accepted-but-unused task/standardize/dists parameters in six transformer modules. Removing or wiring them changes public signatures and every caller that passes them; owner decision (remove vs wire through). Not changed.
+- 09-F38: FIXED. Silverman bandwidth uses the multivariate rule (4/(d+2))^(1/(d+4)) n^(-1/(d+4)); equals the 1-D rule at d=1, changes d>1 outputs. Tests tests/feature_engineering/transformer/test_cluster09_silverman_multivariate.py; 8 existing density-ratio tests pass (397 skipped by gates).
+- 09-F40: PARTIAL. Density-weighted SMOTE excludes self by index in both the mean-distance and candidate selection. Same column-0 assumption remains in pure_pos_smote.py and smote_distance.py, not yet changed. Test tests/feature_engineering/transformer/test_cluster09_smote_self_by_index.py (stubbed neighbours with self at column 1); 115 existing density-weighted and related tests pass.
+- 09-F41: DEFERRED. Empty-band convention differs across band-attention modules. Masking empty bands (the suggested fix) changes attention outputs in residual_band, signed_residual_band and prediction_band; the convention needs owner confirmation first. Not changed.
+- 09-F37: PARTIAL. Removed the stale comment about the removed _GPU_AUTO_CACHE in random_features.py. Not changed: the unreachable padding branches in denoising_autoencoder, hard_row_attention and related modules named in the finding. Test tests/feature_engineering/transformer/test_cluster09_no_stale_cache_comment.py (source pin).
+- 09-F35: PARTIAL. quantile_neighbours docstring corrected from cosine to Euclidean (the sklearn default metric). Not changed: the target_quantile, geodesic_kgraph, persistence_diagram, y_quintile_baseline_knn and quantile_spread_fan docstring corrections named in the finding. Test tests/feature_engineering/transformer/test_cluster09_quantile_neighbours_metric_doc.py.
+- 09-F36: DEFERRED. Mode A RobustScaler is fitted on the whole X_train passed in. A per-fold refit needs the OOF caller restructured; the finding itself rates the unsupervised leakage negligible. Not changed; owner to decide whether the discipline change is worth the restructure.
+- 09-F34: DEFERRED. Stub parameters (n_bits, top_k_pairs) and per-module Literal/dtype gates differ across siblings. Each stub needs an implement-or-remove decision, and widening a Literal without implementing the value would only defer the error. Owner decision. Not changed.
+- 09-F43: DEFERRED. Pseudo-SMOTE regression confidence threshold is an in-sample quantile. Using out-of-fold predictions changes the aux model cost and the threshold semantics, which needs an ML design decision. No code change.
+
+- 09-F7: PARTIAL. stacked_qnn Mode A is nested: each outer fold rebuilds layer 1 on its training part only, so a row's label never shapes its own layer-2 feature. Behaviour change: Mode A values change. Not done: stacked_attention.py (same leak, and its docstring still claims leak-free) is unchanged. Test tests/feature_engineering/test_cluster09_stacked_mode_a_nested_no_self_label.py; 100 shortlist tests pass.
+
+- 09-F16: FIXED. FCA lattice-construction failure logs at WARNING (was INFO): the zero features are no longer indistinguishable from a real no-match. Test tests/feature_engineering/test_cluster09_fca_fallback_warns.py.
+
+- 09-F18: FIXED. NCA fit records warnings and logs a ConvergenceWarning at WARNING naming max_iter; other warnings stay suppressed as before. Test tests/feature_engineering/test_cluster09_nca_convergence_surfaced.py.
+
+- 09-F17: FIXED. Tree path extraction failure now yields NaN for the path and match-count columns and logs a WARNING; it used to emit constant-1.0 columns, which made every path look matched. Behaviour change: failed folds produce NaN. Test tests/feature_engineering/test_cluster09_tree_path_failure_nan.py.
+
+- 09-F14: FIXED. H0 mean_birth was constant zero; replaced by std_lifespan (std of bar lifespans), which varies. Schema change: the column is renamed pd_mean_birth -> pd_std_lifespan. Test tests/feature_engineering/test_cluster09_persistence_no_constant_birth.py.
+
+- 09-F22: FIXED. A failed gradient member's cosines are NaN (were 0, which read as orthogonal disagreement); mean and min use the cosines that exist. Behaviour change: those rows change. Test tests/feature_engineering/test_cluster09_failed_member_cos_nan.py.
+
+- 09-F23: FIXED. Degenerate folds in the LDA projection and the per-class spectral attention return NaN instead of zeros, so they cannot be confused with real rows at the origin. Behaviour change: degenerate folds yield NaN. Test tests/feature_engineering/test_cluster09_degenerate_fold_is_nan.py.
+
+- 09-F25: DEFERRED. The MDL binning is a single top-level split by design: its docstring pins it bit-identical to a reference in tests/feature_engineering/transformer/test_mdl_binning_split_kernel.py. Recursive Fayyad-Irani splitting changes the bins of every feature and breaks that pin, so it needs an owner decision on the reference before code changes. No code change.
+
+- 09-F19: FIXED. For binary targets the sign-residual baseline emits NaN bias columns: with y in {0,1} the sign target y > mu_hat is the label itself, so the second model only re-learned y. The OOF baseline column is kept. Behaviour change: binary output changes. Test tests/feature_engineering/test_cluster09_sign_residual_binary_nan.py.
+
+- 09-F20: FIXED. The ordinal monotonicity count (n_violations) is NaN for binary targets: their sub-population thresholds are not nested, so counting adjacent increases has no ordinal meaning. Behaviour change: binary n_violations is NaN. Regression and other targets are unchanged. Test tests/feature_engineering/test_cluster09_ordinal_violations_binary_nan.py.
+
+- 09-F21: FIXED. Distributional moments are NaN for binary targets: the reweighted classifiers' outputs are not quantiles of one distribution, so sorting them as quantiles had no meaning. The binary quantile block is NaN and the moment features propagate it; those classifiers are no longer trained. Behaviour change: binary output is NaN. Test tests/feature_engineering/test_cluster09_distributional_binary_nan.py.

@@ -72,7 +72,7 @@ __all__ = [
     "hybrid_orth_mi_elasticnet_fe_with_recipes",
 ]
 
-def _fit_elasticnet_abs_coefs(
+def _fit_elasticnet_abs_coefs(  # unused-ok: the coordinate-descent solver is deterministic, so the argument has no effect; kept so keyword callers do not break
     X_stack: np.ndarray,
     y: np.ndarray,
     *,

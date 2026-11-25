@@ -45,6 +45,8 @@ def _train_mlframe_rank_pandas_dataframes_arrow_backed(df_features):
             # because the mask targets the columns explicitly.
             _inf_mask = df_features[_num_cols].isin([np.inf, -np.inf])
             if _inf_mask.any().any():
+                # Copy before writing: assigning into the caller's frame mutated their data (41-F37). Only copies when infinities exist.
+                df_features = df_features.copy()
                 df_features[_num_cols] = df_features[_num_cols].mask(
                     _inf_mask, np.nan,
                 )

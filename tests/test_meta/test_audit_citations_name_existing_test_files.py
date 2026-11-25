@@ -7,6 +7,8 @@ slipped past it: a disposition cited a test file that was never on master. This 
 import re
 from pathlib import Path
 
+from tests.test_meta._scan_guard import assert_scanned_enough
+
 _REPO = Path(__file__).resolve().parents[2]
 _AUDIT = _REPO / "audits" / "2026-11-20"
 _CITED = re.compile(r"(?<![\w/])(test_\w+\.py)(?!\w)")
@@ -15,6 +17,7 @@ _CITED = re.compile(r"(?<![\w/])(test_\w+\.py)(?!\w)")
 def test_bare_test_file_names_in_the_2026_11_20_audit_exist():
     """A tracker or disposition row naming ``test_x.py`` must have that file under tests/ (catches the 35-F38 class of error)."""
     names = {p.name for p in (_REPO / "tests").rglob("test_*.py")}
+    assert_scanned_enough(len(names), "tests")
     missing = []
     for doc in (_AUDIT / "TRACKER.md", _AUDIT / "DISPOSITIONS.md"):
         for lineno, line in enumerate(doc.read_text(encoding="utf-8").split("\n"), 1):

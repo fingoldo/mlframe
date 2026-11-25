@@ -173,7 +173,11 @@ class RankAggregationArm(BaseArm):
         table = base_score_table(X, y, random_state=self.random_state)
         scores, used_rule = aggregate_ranks(table, self.rule)
 
-        aligned = np.asarray([float(scores.get(name, float(scores.min()))) for name in names], dtype=np.float64)
+        # A feature missing from the aggregate is refused, not padded with the minimum score: the arm contract forbids synthesised scores (11-F16).
+        missing = [name for name in names if name not in scores]
+        if missing:
+            raise KeyError(f"rank aggregate has no score for {missing!r}")
+        aligned = np.asarray([float(scores[name]) for name in names], dtype=np.float64)
         budget = max(1, min(self.k, len(names)))
         keep = np.argsort(-aligned)[:budget]
         support = np.zeros(len(names), dtype=bool)

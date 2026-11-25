@@ -311,8 +311,15 @@ def analyze_feature_distribution(
             continue
         mu = float(np.mean(finite))
         sd = float(np.std(finite))
-        rel = abs(sd) / abs(mu) if abs(mu) > 1e-9 else (sd if sd > 0 else 0.0)
-        if sd <= 0.0 or rel < low_variance_rel_std:
+        # Relative std needs a mean to divide by. At a zero mean the absolute std is not a relative measure (it flagged a
+        # non-constant feature at std 2e-4 as low-variance, 41-F32); only an exactly constant column is low-variance there.
+        if abs(mu) > 1e-9:
+            rel = abs(sd) / abs(mu)
+            low_var = sd <= 0.0 or rel < low_variance_rel_std
+        else:
+            rel = 0.0 if sd <= 0.0 else float("inf")
+            low_var = sd <= 0.0
+        if low_var:
             low_var_features.append(c)
             _add_warning(c, f"low_variance(rel_std={rel:.2e})")
             drop_candidates.append(c)

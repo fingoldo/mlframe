@@ -190,7 +190,8 @@ def audit_binned_target_maturity(
     warnings: list[str] = []
     if not np.isfinite(trend) or trend > -trend_threshold:
         verdict = "stable"
-    elif np.isfinite(ratio) and ratio <= origin_ratio_threshold:
+    # A negative zero-window level is not what accrual from zero produces, so only a non-negative level near zero counts as censoring (41-F31).
+    elif np.isfinite(ratio) and 0.0 <= ratio <= origin_ratio_threshold:
         verdict = "censoring_likely"
         warnings.append(
             f"target{label} declines monotonically toward the present (Spearman(bin, stat)={trend:+.2f}) and "

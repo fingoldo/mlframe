@@ -93,6 +93,7 @@ def get_signed_linear_coef(
     train_data: pd.DataFrame | np.ndarray | None = None,
     multiclass_coef_aggregation: str = "max",
     coef_scale_source: str = "train",
+    data: pd.DataFrame | np.ndarray | None = None,
 ) -> Union[dict, None]:
     """Extract SIGNED, scale-corrected linear coef for sign-harmony aggregation.
 
@@ -127,7 +128,8 @@ def get_signed_linear_coef(
     coef = np.ravel(coef)
     # Scale correction with train stds (sign-preserving multiply by a positive std).
     if coef_scale_source != "none":
-        src = train_data
+        # Fall back to ``data`` when no train frame is given, as the legacy path does, so both scale the same way (15-F15).
+        src = train_data if train_data is not None else data
         if src is not None:
             try:
                 arr = src.values if hasattr(src, "values") else np.asarray(src)

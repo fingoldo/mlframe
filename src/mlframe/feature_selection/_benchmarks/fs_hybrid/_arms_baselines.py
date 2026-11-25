@@ -52,7 +52,8 @@ class OracleInformativeArm(BaseArm):
     def _compute(self, X: pd.DataFrame, y: np.ndarray) -> Dict[str, Any]:
         """Select the declared relevant columns that are present in this frame."""
         names = _feature_names(X)
-        present = [c for c in self.relevant if c in set(names)]
+        _names_set = set(names)  # built once per statement, not per comprehension item (11-F15)
+        present = [c for c in self.relevant if c in _names_set]
         return {"support": _mask_from_names(names, present), "n_model_fits": 0, "provenance": {"n_declared": len(self.relevant), "n_present": len(present)}}
 
 

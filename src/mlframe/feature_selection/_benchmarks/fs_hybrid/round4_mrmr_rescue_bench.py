@@ -23,6 +23,7 @@ VERDICT goal: which (if any) lifts madelon >3 feats toward ~0.84 WITHOUT regress
 raising fe_synergy_screen_max_features a safe default-raise or does O(p^2)/synth forbid it?
 """
 from __future__ import annotations
+from mlframe.feature_selection._benchmarks.fs_hybrid._bench_out import bench_out
 from typing import Any
 import logging
 
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 import os, sys, time
 os.environ.setdefault("TQDM_DISABLE", "1")
-import warnings; warnings.filterwarnings("ignore")
+import warnings; warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 import numpy as np, pandas as pd
 import re
 from itertools import combinations
@@ -45,7 +46,7 @@ from hard_synth import make_hard_dataset
 from _downstream_shared import mrmr_sel_transform
 
 _SAFE = re.compile(r"^[A-Za-z0-9_]+$")
-PROGRESS = r"D:\Temp\mrmr_fix_progress.txt"
+PROGRESS = bench_out("mrmr_fix_progress.txt")
 N_JOBS = 4  # cap -- machine under concurrent load
 
 
@@ -217,7 +218,7 @@ def main():
             flag = "RECOVERS" if (int(r.n) > base_n and d > 0.02) else ("up" if d > 0 else "")
             print(f"     {v:28s} n={int(r.n):4d} auc={r.auc_mean} (d vs base {d:+.4f}) {flag}")
 
-    out_csv = r"D:\Temp\mrmr_fix_results.csv"
+    out_csv = bench_out("mrmr_fix_results.csv")
     df.to_csv(out_csv, index=False)
     print(f"\nwrote {out_csv}", flush=True)
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from enum import Enum
@@ -195,3 +196,6 @@ class RecurrentConfig:
             raise ValueError(f"ema_decay must be in (0, 1], got {self.ema_decay}")
         if self.num_classes < 1:
             raise ValueError(f"num_classes must be at least 1, got {self.num_classes}")
+        # 0 disables mixup; a negative or non-finite concentration is not a Beta parameter (audit 40-F29).
+        if not (math.isfinite(self.mixup_alpha) and self.mixup_alpha >= 0.0):
+            raise ValueError(f"mixup_alpha must be finite and >= 0 (0 disables mixup), got {self.mixup_alpha}")

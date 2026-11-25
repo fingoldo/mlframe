@@ -21,6 +21,7 @@ Bundles three small but load-bearing utilities:
 from __future__ import annotations
 
 import logging
+import math
 import os
 import sys
 from enum import Enum
@@ -91,12 +92,16 @@ def detect_memory_limit_bytes() -> int:
     env = os.environ.get("MLFRAME_MEMORY_BUDGET_GB")
     if env:
         try:
-            return int(float(env) * 1e9)
+            gb = float(env)
         except (TypeError, ValueError):
-            logger.warning(
-                "Invalid MLFRAME_MEMORY_BUDGET_GB=%r; ignoring and falling back to psutil/cgroup",
-                env,
-            )
+            gb = float("nan")
+        # A zero, negative or non-finite budget would reach downstream sizing as 0 bytes (39-F52): reject it.
+        if math.isfinite(gb) and gb > 0:
+            return int(gb * 1e9)
+        logger.warning(
+            "Invalid MLFRAME_MEMORY_BUDGET_GB=%r (must be a positive number of GB); ignoring and falling back to psutil/cgroup",
+            env,
+        )
 
     try:
         psutil_total = psutil.virtual_memory().total

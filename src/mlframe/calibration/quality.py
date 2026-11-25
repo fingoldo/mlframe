@@ -66,7 +66,7 @@ def mutual_information_score(y: np.ndarray, y_preds: np.ndarray) -> float:
         # sklearn's KNN MI estimator requires n_samples > n_neighbors (=2); return NaN on a degenerate tiny
         # input instead of raising a cryptic ValueError from deep inside sklearn.
         return float("nan")
-    from mlframe.feature_selection.filters._ksg_dispatch import ksg_mi_columns
+    from mlframe.feature_selection.filters.shared import ksg_mi_columns
 
     # the repository's own kernels give sklearn's estimate (scaling, Kraskov noise stream, radius); the seed is fixed, so the score is the same on every call
     return float(ksg_mi_columns(y.reshape(-1, 1), np.asarray(y_preds).ravel(), discrete_target=False, n_neighbors=2, random_state=0)[0])

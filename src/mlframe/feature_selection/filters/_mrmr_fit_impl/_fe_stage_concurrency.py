@@ -52,7 +52,7 @@ def concurrency_enabled() -> bool:
     return os.environ.get("MLFRAME_FE_STAGE_CONCURRENCY", "1").strip() != "0"
 
 
-#: The concurrent cascades hold about this many frames of working set together (measured 2026-11-23, 100000 x 1000 every family: 14 frames of growth concurrent against 9.6 serial, 500000 x 1000: 2.4).
+#: The concurrent cascades hold about this many frames of working set together (measured at 100000 x 1000 with every family: 14 frames of growth concurrent against 9.6 serial, 500000 x 1000: 2.4).
 _CONCURRENT_FRAME_FACTOR = 4.0
 
 

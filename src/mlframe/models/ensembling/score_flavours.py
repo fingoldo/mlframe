@@ -12,6 +12,7 @@ from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from mlframe.utils.array_shape import ndim_of, shape_of
 from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.models.ensembling")
@@ -90,10 +91,8 @@ def apply_diversity_drop(
     if _drop_floor is not None and _high_corr_pairs:
         _to_drop_tags: set[str] = set()
         _gate_per_mae = None
-        try:
-            _gate_per_mae = _gate_stats.get("per_member_mae") if isinstance(_gate_stats, dict) else None
-        except NameError:
-            _gate_per_mae = None
+        # ``_gate_stats`` is a parameter, always bound, so the lookup needs no NameError guard (18-F17).
+        _gate_per_mae = _gate_stats.get("per_member_mae") if isinstance(_gate_stats, dict) else None
         # Map tag -> MAE on the pre-gate-drop member list. ``_ensemble_member_tags`` is the
         # POST-gate tag list (sliced if the gate dropped members), so realign by looking up the
         # member's current position in the sliced list and using that index into per_member_mae
@@ -340,7 +339,7 @@ def run_stacking_aware_gate(
             _ordered_tags.append(_tag)
             _saw_preds[_tag] = _p_arr.astype(np.float64)
         if not _saw_preds:
-            _multiclass_members = any(np.asarray(p).ndim == 2 and np.asarray(p).shape[1] > 2 for p in _gate_preds_for_check)
+            _multiclass_members = any(ndim_of(p) == 2 and shape_of(p)[1] > 2 for p in _gate_preds_for_check)
             if _multiclass_members:
                 # (N, K>2) member probabilities are not weighted here: the gate fit is 1-D on the positive class. Say so
                 # explicitly instead of blaming the row count (audit 18-F2).

@@ -121,7 +121,6 @@ from ._trainer_train_and_evaluate_parts import (  # noqa: F401  -- carved helper
     _train_and_evaluate_run_test_df_none,
     _train_and_evaluate_was_trained_instead_silently,
 )
-from types import SimpleNamespace as _SimpleNamespace
 
 
 def _copy_reporting_display_fields(st, reporting) -> None:
@@ -324,8 +323,8 @@ def _tae_run_pre_pipeline(st: SimpleNamespace, model: object, train_df: Any, cur
     # and grouped MRMR receive the same sample-grouping signal the suite-level
     # callers already pass into trainer.fit. Only forwarded on train+val sample
     # range (no test). fix audit row FS-P1-1.
-    st._pre_pipeline_groups = None
-    st._pre_pipeline_groups = _train_and_evaluate_range_no_test_fix(st.group_ids, st.train_idx, train_df, st._pre_pipeline_groups)
+    # The prior value is None at this point; passing None directly replaces the reset-then-read pair (28-F50).
+    st._pre_pipeline_groups = _train_and_evaluate_range_no_test_fix(st.group_ids, st.train_idx, train_df, None)
 
     # Extract train-subset sample_weight BEFORE FS runs so weight-aware MRMR / RFECV (when stamped with the
     # _mlframe_use_sample_weights_in_fs_ marker by _build_pre_pipelines) can receive it via fit_params.
@@ -677,7 +676,7 @@ def train_and_evaluate_model(
     """
     # Lazy import of parent-resident helpers: ``.trainer`` re-imports this sibling at its bottom, so a top-level ``from .trainer
     # import ...`` would create a hard cycle the meta-test flags.
-    st = _SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
+    st = SimpleNamespace()  # long-lived locals of this function (see the stage helpers below)
     st._mono_patience_cfg = None
     st.t0_metrics = None
     from .trainer import ConfidenceAnalysisConfig, PredictionsContainer

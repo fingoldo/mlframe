@@ -133,6 +133,7 @@ def run_one(name: str, cfg: dict, *, do_cprofile: bool = False, run_preflight: b
     return out
 
 
+# Intentional divergence from _bench_shared.print_stage_table (audit 10-F4): iterates this module's own _STAGE_ORDER.
 def print_stage_table(timings: dict, total: float):
     print(f"  total={total:.2f}s  stages:")
     for k in _STAGE_ORDER:

@@ -104,7 +104,7 @@ def cv_loss_columns_device(columns: "list[np.ndarray]", y: np.ndarray, classific
         for j, i in enumerate(usable):
             out[i] = float(np.mean(loss[j]))
         return out
-    except _DeviceFitFallbackError:
+    except _DeviceFitFallbackError:  # best-effort: the device fit's own fallback signal; the caller uses the per-column scorer, which gives the same verdicts
         return None
     except Exception as exc:  # best-effort: the per-column scorer gives the same verdicts
         import logging

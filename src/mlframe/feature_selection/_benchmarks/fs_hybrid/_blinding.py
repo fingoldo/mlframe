@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import logging
 import os
 import string
@@ -111,7 +112,12 @@ def load_mapping(results_path: str) -> Optional[Dict[str, str]]:
     path = f"{results_path}{MAPPING_SUFFIX}"
     try:
         with open(path, encoding="utf-8") as handle:
-            return {str(key): str(value) for key, value in json.load(handle).items()}
+            payload = json.load(handle)
+        if not isinstance(payload, dict):
+            # Non-object JSON (a list, a bare string) is not a mapping: treat it as no mapping, not a crash (12-F16).
+            logger.info("blinding mapping at %s is not a JSON object; ignoring", path)
+            return None
+        return {str(key): str(value) for key, value in payload.items()}
     except (OSError, ValueError) as exc:
         logger.info("no blinding mapping at %s: %s", path, exc)
         return None
@@ -124,6 +130,9 @@ def unblind_text(text: str, mapping: Dict[str, str]) -> str:
     ``arm_a`` cannot consume the prefix of ``arm_aa``.
     """
     reverse = {label: name for name, label in mapping.items() if label != name}
-    for label in sorted(reverse, key=len, reverse=True):
-        text = text.replace(label, reverse[label])
-    return text
+    if not reverse:
+        return text
+    # One boundary-aware pass, longest label first: a bare substring replace let ``arm_b`` rewrite inside ``arm_bx`` (12-F16).
+    labels = sorted(reverse, key=len, reverse=True)
+    pattern = re.compile(r"(?<![A-Za-z0-9_])(" + "|".join(re.escape(label) for label in labels) + r")(?![A-Za-z0-9_])")
+    return pattern.sub(lambda match: reverse[match.group(1)], text)

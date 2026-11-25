@@ -8,9 +8,10 @@ minimiser of the same multinomial objective for more. The objectives are convex,
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
+from mlframe.utils.array_shape import shape_of
 from numba import njit
 
 
@@ -223,7 +224,7 @@ class RffSampler:
     def fit(self, X: np.ndarray, y: object = None) -> "RffSampler":
         """Draw the weights and offsets for the number of columns of ``X``; returns ``self``."""
         rs = np.random.RandomState(self.random_state)
-        n_features = np.asarray(X).shape[1]
+        n_features = shape_of(X)[1]
         self.random_weights_ = (2.0 * self.gamma) ** 0.5 * rs.normal(size=(n_features, self.n_components))
         self.random_offset_ = rs.uniform(0, 2 * np.pi, size=self.n_components)
         if np.asarray(X).dtype == np.float32:
@@ -244,7 +245,7 @@ class RffSampler:
         return self.fit(X).transform(X)
 
 
-def cross_val_r2(make_model, X: np.ndarray, y: np.ndarray, splits: "list[tuple[np.ndarray, np.ndarray]]") -> "Optional[float]":
+def cross_val_r2(make_model: Callable[[], Any], X: np.ndarray, y: np.ndarray, splits: "list[tuple[np.ndarray, np.ndarray]]") -> "Optional[float]":
     """Mean R^2 of ``make_model().fit(train).score(validation)`` over ``splits`` (a list of ``(train_idx, validation_idx)``); ``None`` without splits."""
     if not splits:
         return None

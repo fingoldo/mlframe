@@ -392,7 +392,7 @@ from ._numerical_numba import (  # noqa: F401
 
 def compute_mutual_info_regression(arr: np.ndarray, xvals: np.ndarray = _EMPTY_FLOAT32) -> float:
     """KNN-based mutual information between ``arr`` and ``xvals`` (or ``arr``'s row index when ``xvals`` is empty)."""
-    from mlframe.feature_selection.filters._ksg_dispatch import ksg_mi_columns
+    from mlframe.feature_selection.filters.shared import ksg_mi_columns
 
     # the repository's own kernels give sklearn's estimate; the seed is fixed, so the value is the same on every call
     feature = xvals.reshape(-1, 1) if len(xvals) else np.arange(len(arr)).reshape(-1, 1)

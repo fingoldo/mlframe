@@ -47,24 +47,21 @@ def _fit_3baselines_with_sigma(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, 
     from sklearn.linear_model import Ridge, LogisticRegression
 
     sigmas = [1.0, 1.0, 1.0]
+    # The binary output uses only the query predictions, so no train-set predictions are made here (09-F32).
     if task == "binary":
         m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
         m1.fit(Xt, y_t.astype(np.int32))
-        p1_train = np.asarray(m1.predict_proba(Xt))[:, 1].astype(np.float32)
         p1_query = np.asarray(m1.predict_proba(Xq))[:, 1].astype(np.float32)
         m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1)
         m2.fit(Xt, y_t.astype(np.int32))
-        p2_train = np.asarray(m2.predict_proba(Xt))[:, 1].astype(np.float32)
         p2_query = np.asarray(m2.predict_proba(Xq))[:, 1].astype(np.float32)
         try:
             m3 = LogisticRegression(max_iter=200, solver="liblinear", random_state=int(seed) + 2)
             m3.fit(Xt, y_t.astype(np.int32))
-            p3_train = m3.predict_proba(Xt)[:, 1].astype(np.float32)
             p3_query = m3.predict_proba(Xq)[:, 1].astype(np.float32)
         except Exception as e:
             logger.info("pairwise_kl_divergence: LogisticRegression member fit/predict failed (%s); falling back to constant class prior.", e)
             prior = float(y_t.mean())
-            p3_train = np.full(Xt.shape[0], prior, dtype=np.float32)
             p3_query = np.full(Xq.shape[0], prior, dtype=np.float32)
     else:
         m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1)
