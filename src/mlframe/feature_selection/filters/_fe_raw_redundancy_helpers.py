@@ -449,28 +449,16 @@ def raw_is_tail_concentrated_subsumed(
         return False
 
 
-def _heldout_ridge_r2(X: np.ndarray, y: np.ndarray, frac: float = 0.7) -> Optional[float]:
-    """Held-out StandardScaler+Ridge R^2 - the SAME linear probe the I4b downstream no-harm contract measures
-    with (first ``frac`` rows train, remainder score; no shuffle, matching the endtoend uplift split). Returns
-    None on any degenerate/estimator fault so the caller leaves its decision unchanged."""
+def _heldout_ridge_r2(columns: "Sequence[np.ndarray]", y: np.ndarray, frac: float = 0.7) -> Optional[float]:
+    """Held-out StandardScaler+Ridge R^2 of a list of 1-D columns - the SAME linear probe the I4b downstream no-harm contract measures with (first ``frac`` rows train, remainder score; no shuffle, matching the
+    endtoend uplift split). The columns are read in row chunks: the dense design is never formed. ``None`` on any degenerate / estimator fault (with a warning for a fault), so the caller leaves its decision unchanged."""
     try:
-        from mlframe.metrics.core import fast_r2_score
-
-        from ._linear_probes import ScaledRidge
+        from ._streaming_ridge_probe import heldout_ridge_r2_of_columns
     except ImportError as e:
-        log_throttle(logger, "_fe_raw_redundancy_helpers.ridge_import", logging.WARNING, "sklearn/mlframe metric imports failed, the held-out Ridge probe is skipped: %s", e)
-        return None
-    X = np.nan_to_num(np.asarray(X, dtype=_crit_np_dtype()), nan=0.0, posinf=0.0, neginf=0.0)
-    y = np.nan_to_num(np.asarray(y, dtype=_crit_np_dtype()).ravel(), nan=0.0, posinf=0.0, neginf=0.0)
-    if X.ndim != 2 or X.shape[0] != y.shape[0]:
-        return None
-    n = X.shape[0]
-    sp = int(n * frac)
-    if sp < 50 or (n - sp) < 50 or float(np.std(y[:sp])) < 1e-12:
+        log_throttle(logger, "_fe_raw_redundancy_helpers.ridge_import", logging.WARNING, "the imports of the held-out Ridge probe failed, the held-out Ridge probe is skipped: %s", e)
         return None
     try:
-        model = ScaledRidge(alpha=1.0).fit(X[:sp], y[:sp])
-        return float(fast_r2_score(y[sp:], model.predict(X[sp:])))
+        return heldout_ridge_r2_of_columns(columns, y, frac=frac, dtype=_crit_np_dtype())
     except Exception as e:
         logger.warning("_heldout_ridge_r2: Ridge fit/score failed, caller leaves its decision unchanged: %s", e)
         return None

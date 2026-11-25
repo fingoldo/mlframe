@@ -13,10 +13,8 @@ import pytest
 
 pytest.importorskip("pandas")
 
-from mlframe.feature_selection.filters._fe_raw_redundancy_drop import (
-    _heldout_ridge_r2,
-    raw_retains_linear_signal_given_children,
-)
+from mlframe.feature_selection.filters._fe_raw_redundancy_drop import raw_retains_linear_signal_given_children
+from mlframe.feature_selection.filters._fe_raw_redundancy_helpers import _heldout_ridge_r2
 
 
 def _legacy_null(rx: np.ndarray, ry: np.ndarray, nperm: int, seed: int) -> np.ndarray:
@@ -87,13 +85,13 @@ def test_heldout_ridge_r2_separates_good_from_lossy_feature_set() -> None:
     b = rng.standard_normal(n)
     a = rng.standard_normal(n)
     y = 2.0 * b + 0.3 * a  # linear in b (and a)
-    r_raw = _heldout_ridge_r2(np.column_stack([a, b]), y)  # raw-only baseline: recovers y
-    r_lossy = _heldout_ridge_r2(np.column_stack([a, b**3]), y)  # linearly-lossy replacement of b
+    r_raw = _heldout_ridge_r2([a, b], y)  # raw-only baseline: recovers y
+    r_lossy = _heldout_ridge_r2([a, b**3], y)  # linearly-lossy replacement of b
     assert r_raw is not None and r_lossy is not None
     assert r_raw > 0.9
     # The lossy set is materially worse -> a drop that replaced raw b with b**3 would fall below raw-only by
     # more than the guard's epsilon and be reverted.
     assert r_lossy < r_raw - 0.05
     # Degenerate inputs return None (guard leaves the drop unchanged): too few rows, constant y.
-    assert _heldout_ridge_r2(np.column_stack([a[:10], b[:10]]), y[:10]) is None
-    assert _heldout_ridge_r2(np.column_stack([a, b]), np.zeros(n)) is None
+    assert _heldout_ridge_r2([a[:10], b[:10]], y[:10]) is None
+    assert _heldout_ridge_r2([a, b], np.zeros(n)) is None

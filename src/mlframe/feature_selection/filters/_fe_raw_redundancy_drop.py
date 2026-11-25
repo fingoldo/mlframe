@@ -318,17 +318,15 @@ def _no_harm_guard_result(
             def _cont_of(i):
                 """Continuous (unbinned) values for kept column ``i``, for the downstream no-harm Ridge R2
                 probe: raw columns read from ``raw_X``, engineered survivors from the continuous fit-time
-                snapshot, and anything else falls back to the (lossy, but only-available) binned ``data`` codes."""
+                snapshot, and anything else falls back to the (lossy, but only-available) binned ``data`` codes.
+                The column is returned as it is stored (no widening, no copy of a float column): the probe reads it in row chunks."""
                 nm = cols[i]
                 if nm in raw_name_set and raw_X is not None and hasattr(raw_X, "columns") and nm in raw_X.columns:
-                    # Intentional float64: continuous values for the informativeness guard and the held-out linear fit, kept in double
-                    return np.asarray(raw_X[nm], dtype=np.float64).ravel()
+                    return np.asarray(raw_X[nm]).ravel()
                 if engineered_continuous and nm in engineered_continuous:
-                    # A lazy device column is read once in the criterion dtype, shared with the other readers of it, and widened for the probe's own float64 solve.
-                    # Intentional float64: continuous values for the informativeness guard and the held-out linear fit, kept in double
-                    return host_as(engineered_continuous[nm], _crit_np_dtype()).astype(np.float64, copy=False).ravel()
-                # Intentional float64: continuous values for the informativeness guard and the held-out linear fit, kept in double
-                return np.asarray(data[:, i], dtype=np.float64).ravel()
+                    # A lazy device column is read once in the criterion dtype, shared with the other readers of it.
+                    return host_as(engineered_continuous[nm], _crit_np_dtype()).ravel()
+                return np.asarray(data[:, i]).ravel()
 
             _kept_idx = [i for i in st.sel if i not in st.drop_idx_set]
             # The raw-only baseline EXCLUDES group-aware leak names: a leak's inflated global correlation
@@ -336,11 +334,9 @@ def _no_harm_guard_result(
             # comparison (or vice versa), and it must never be the reference that revert-restores it.
             _raw_names = [c for c in raw_X.columns if c in raw_name_set and c not in st._group_leak_names] if (raw_X is not None and hasattr(raw_X, "columns")) else []
             if _kept_idx and _raw_names and st._yv.shape[0] == st.n_rows:
-                _X_kept = np.column_stack([_cont_of(i) for i in _kept_idx])
-                # Intentional float64: continuous values for the informativeness guard and the held-out linear fit, kept in double
-                _X_rawonly = np.column_stack([np.asarray(raw_X[c], dtype=np.float64).ravel() for c in _raw_names])
-                _r_kept = _heldout_ridge_r2(_X_kept, st._yv)
-                _r_rawonly = _heldout_ridge_r2(_X_rawonly, st._yv)
+                # the probe reads the columns in row chunks: neither the kept set nor the raw-only set is stacked into one dense float64 matrix (4 GB at 500000 rows and 1000 raw columns)
+                _r_kept = _heldout_ridge_r2([_cont_of(i) for i in _kept_idx], st._yv)
+                _r_rawonly = _heldout_ridge_r2([np.asarray(raw_X[c]).ravel() for c in _raw_names], st._yv)
                 if _r_kept is not None and _r_rawonly is not None and _r_kept < _r_rawonly - _RAW_DROP_NO_HARM_EPS:
                     # Partial revert: restore every dropped raw EXCEPT the group-aware leaks, which stay
                     # dropped regardless of the linear outcome (see the leak-exemption comment above).

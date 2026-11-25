@@ -651,6 +651,25 @@ def _assign_support_tai_g_step1_try(self, _retention_added_eng_names, selected_v
     return selected_vars
 
 
+def _codes_with_extra_columns(data: np.ndarray, extra_cols: "list[np.ndarray]") -> np.ndarray:
+    """``data`` with the 1-D code vectors of ``extra_cols`` appended on the right, kept in the dtype of ``data``.
+
+    ``np.column_stack([data, *extras])`` promotes the result to the widest dtype among its parts: the extras are int64 code vectors, so an int8 code matrix of 500000 x 1700 (850 MB) came out as an
+    int64 matrix of 6.8 GB, the peak of the whole fit. The extras hold the few-bin codes of the engineered survivors (at most ``nbins`` of the binning call), which any integer dtype of ``data`` holds; a
+    value that does not fit, or a float ``data``, takes the promoted result as before."""
+    n, width = data.shape
+    out_dtype = data.dtype
+    if np.issubdtype(out_dtype, np.integer):
+        limit = np.iinfo(out_dtype).max
+        if any(int(np.max(c)) > limit or int(np.min(c)) < np.iinfo(out_dtype).min for c in extra_cols if np.asarray(c).size):
+            out_dtype = np.result_type(out_dtype, *[np.asarray(c).dtype for c in extra_cols])
+    out = np.empty((n, width + len(extra_cols)), dtype=out_dtype)
+    out[:, :width] = data
+    for j, col in enumerate(extra_cols):
+        out[:, width + j] = np.asarray(col).reshape(-1)
+    return out
+
+
 def _replay_engineered_continuous(_post_recipes, _post_eng_cont, _post_cols, _post_extra_cols, X, _post_apply, _post_qbin, n_rows_post):
     """Give each engineered survivor a cols-space column and a continuous snapshot, replaying any retained pure form the FE-step matrix does not already carry."""
     for _enm, _erec in _post_recipes.items():
@@ -682,7 +701,7 @@ def _assign_support_tai_g_step1_map_each_surviving(self, _post_recipes, _post_se
         _n_rows_post = int(data.shape[0])
         _replay_engineered_continuous(_post_recipes, _post_eng_cont, _post_cols, _post_extra_cols, X, _post_apply, _post_qbin, _n_rows_post)
         if _post_extra_cols:
-            _post_data = np.column_stack([data] + [np.asarray(c).reshape(-1, 1) for c in _post_extra_cols])
+            _post_data = _codes_with_extra_columns(data, _post_extra_cols)
         _post_name_to_idx = {nm: i for i, nm in enumerate(_post_cols)}
         _post_sel_idx = []
         for _rn in _post_sel_raw_names:

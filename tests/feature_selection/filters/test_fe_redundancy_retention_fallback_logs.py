@@ -71,12 +71,12 @@ def test_tail_concentrated_probe_failure_warns(caplog):
 
 
 def test_ridge_import_failure_warns(monkeypatch, caplog):
-    """A missing sklearn skips the held-out Ridge probe and warns."""
+    """A probe module that cannot be imported skips the held-out Ridge probe and warns."""
     from mlframe.feature_selection.filters import _fe_raw_redundancy_helpers as mod
 
-    monkeypatch.setitem(sys.modules, "sklearn.linear_model", None)
+    monkeypatch.setitem(sys.modules, "mlframe.feature_selection.filters._streaming_ridge_probe", None)
     with caplog.at_level(logging.WARNING):
-        assert mod._heldout_ridge_r2(np.zeros((10, 2)), np.zeros(10)) is None
+        assert mod._heldout_ridge_r2([np.zeros(10), np.zeros(10)], np.zeros(10)) is None
     assert _warned(caplog, "the held-out Ridge probe is skipped")
 
 

@@ -138,8 +138,8 @@ def ksg_mi_continuous_target(X: np.ndarray, y: np.ndarray, *, n_neighbors: int, 
     ystd = y.std()
     y /= ystd if ystd != 0.0 else 1.0
     y += 1e-10 * max(1.0, float(np.mean(np.abs(y)))) * rng.standard_normal(size=n)
-    # Intentional float64: nearest-neighbour distances and digamma terms of the KSG estimator
     with parallel_kernel_entry():
+        # Intentional float64: nearest-neighbour distances and digamma terms of the KSG estimator
         return np.asarray(_mi_cc_columns(np.ascontiguousarray(X), np.ascontiguousarray(y), int(n_neighbors)), dtype=np.float64)
 
 
@@ -165,8 +165,8 @@ def ksg_mi_continuous_target_columns(X: np.ndarray, y: np.ndarray, *, n_neighbor
     ystd = y.std()
     y /= ystd if ystd != 0.0 else 1.0
     y += 1e-10 * max(1.0, float(np.mean(np.abs(y)))) * draw_y
-    # Intentional float64: nearest-neighbour distances and digamma terms of the KSG estimator
     with parallel_kernel_entry():
+        # Intentional float64: nearest-neighbour distances and digamma terms of the KSG estimator
         return np.asarray(_mi_cc_columns(np.ascontiguousarray(X), np.ascontiguousarray(y), int(n_neighbors)), dtype=np.float64)
 
 
