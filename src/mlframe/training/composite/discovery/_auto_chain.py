@@ -200,7 +200,6 @@ def build_chain_transform(residual_name: str, unary_name: str) -> Transform:
     u_fit, u_fwd, u_inv = _TAIL_UNARIES[unary_name]
     return _make_chain_transform(
         name=f"chain_{residual_name}_{unary_name}",
-        short_name=_short(residual_name, unary_name),
         chain_stages=(residual_name, unary_name),
         bivariate_fit=biv.fit,
         bivariate_forward=biv.forward,

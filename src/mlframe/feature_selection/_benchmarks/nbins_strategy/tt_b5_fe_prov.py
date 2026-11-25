@@ -1,7 +1,7 @@
 """Does MRMR's fe_max_steps=1 even PROPOSE log(x0) / sqrt(x0) for a feature with a log / sqrt link, and what happens to the proposal?  Prints the provenance rows whose name
 carries a unary op of x0, with in_output, mrmr_gain and dropped_by.   python tt_b5_fe_prov.py FIXTURE [scheme]    (waits until no tt_b5 queue / invariance job is alive)"""
 import os, sys, time, warnings
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 import psutil
 
 

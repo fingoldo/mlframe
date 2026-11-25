@@ -87,7 +87,7 @@ def _run_knockoffs(method_name, X, y, informative_idx, seed, fdr_q: float = 0.5)
     from mlframe.feature_selection.wrappers import knockoff_importance
     t0 = time.perf_counter()
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
         W = knockoff_importance(
             model_factory=lambda: LogisticRegression(max_iter=400, random_state=seed),
             X=X, y=y, random_state=seed,
@@ -110,7 +110,7 @@ def _run_one(method_name: str, factory, X, y, informative_idx, seed) -> BenchRes
     rfecv = factory(seed)
     t0 = time.perf_counter()
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
         rfecv.fit(X, y)
     elapsed = time.perf_counter() - t0
     sel = _selected_idx(rfecv, X)

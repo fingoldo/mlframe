@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 import time
 import warnings
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 # Canonical configs from the iter33 task spec. Edit ONLY here; everything else reads from this dict.

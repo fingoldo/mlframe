@@ -12,7 +12,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 sys.path.insert(0, os.getcwd())
 from tests.feature_selection.mrmr.biz_val.test_biz_value_mrmr_xor3_noise import _make_frame
 from mlframe.feature_selection.filters._surrogate_interaction_seeder import surrogate_gbm_interaction_seeds

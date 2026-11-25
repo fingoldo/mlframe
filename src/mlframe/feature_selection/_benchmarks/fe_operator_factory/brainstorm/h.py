@@ -10,7 +10,7 @@ import warnings
 import numba as nb
 import numpy as np
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 from ..common.downstream import METRICS, REFERENCE_METRICS, errors_by_feature_set, make_models, relative_table
 
 NB = 10

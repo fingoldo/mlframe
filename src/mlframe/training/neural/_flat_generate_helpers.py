@@ -298,7 +298,7 @@ def _generate_mlp_weights_init_fcn(weights_init_fcn, model):
         logger.info("Applied %s initialization to Linear weights; normal_/constant_ for BatchNorm weights/biases and Linear biases", init_name)
 
 
-def _generate_mlp_every_fit_bench_profiling(model):
+def _generate_mlp_every_fit_init_probe(model):
     """Block of generate_mlp starting at ``try:``."""
     # Degenerate-init probe (audit Agent A round-2 P1, landed).
     # The Identity-activation guard above catches the "stack of Linear

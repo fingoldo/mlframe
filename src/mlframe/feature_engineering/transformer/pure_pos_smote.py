@@ -55,7 +55,9 @@ def _pure_pos_smote_synthesize(X_minority: np.ndarray, neg_centroid: np.ndarray,
     out = np.zeros((n_synthetic, X_minority.shape[1]), dtype=np.float32)
     for i in range(n_synthetic):
         src_idx = src_indices[i]
-        candidates = ids[src_idx, 1:k_used]
+        # Exclude self by index, not by column 0: with duplicate points another copy can sort first (audit 09-F40).
+        _row = ids[src_idx]
+        candidates = _row[_row != src_idx][: k_used - 1]
         if candidates.size == 0:
             out[i] = X_minority[src_idx]
             continue

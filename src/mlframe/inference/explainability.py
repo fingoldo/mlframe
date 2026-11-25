@@ -159,6 +159,8 @@ def compute_shap_on_cv(
 
     values: list = []
     base_values: list = []
+    # Reserved (audit 25-F60): interaction_values is filled only on the CatBoost native branch, and interaction_base_values is never filled.
+    # Both stay in the returned tuple so the public return shape is unchanged.
     interaction_values: list = []
     interaction_base_values: list = []
     predictions: list = []

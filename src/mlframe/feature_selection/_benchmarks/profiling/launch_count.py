@@ -74,7 +74,7 @@ def _install(cnt: "collections.Counter", where: "collections.Counter") -> None:
 
 def main(n: int = 100000, p: int = 100) -> int:
     """Run the counted fit and print the totals; returns a process exit code."""
-    warnings.simplefilter("ignore")
+    warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
     os.environ.update(_STRICT_ENV)
     cnt: collections.Counter = collections.Counter()
     where: collections.Counter = collections.Counter()

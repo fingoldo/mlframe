@@ -83,8 +83,15 @@ from ._calibration_models import (  # noqa: F401
 def _train_model_with_fallback(model, model_obj, model_type_name, train_df, train_target, fit_params, verbose=False):
     """Fit under ``CatBoostGpuFitGuard`` (GPU CatBoost: no callbacks, progress monitor, time budget / runaway stop that keeps the model; else a no-op)."""
     from mlframe.training.cb.shared import fit_with_cb_gpu_guard
+    from mlframe.training.callbacks.iteration_metrics import CBIterationMetricsCallback
+
     fit_params = dict(fit_params)
-    return fit_with_cb_gpu_guard(_train_model_with_fallback_unguarded, model, model_obj, model_type_name, train_df, train_target, fit_params, verbose)
+    result = fit_with_cb_gpu_guard(_train_model_with_fallback_unguarded, model, model_obj, model_type_name, train_df, train_target, fit_params, verbose)
+    # CatBoost has no after-training hook, so the iteration-metrics callback captures the final round here, once fit has returned (audit 32-F9).
+    for _cb in fit_params.get("callbacks") or []:
+        if isinstance(_cb, CBIterationMetricsCallback):
+            _cb.flush()
+    return result
 
 
 def _train_model_with_fallback_unguarded(

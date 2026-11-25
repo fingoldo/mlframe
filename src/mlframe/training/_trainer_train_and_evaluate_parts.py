@@ -70,7 +70,7 @@ def _oof_train_timestamps(timestamps: Any, train_idx: Any) -> Any:
 def _train_envelope_stats(train_target: Any, mase_seasonality: int) -> Any:
     """Train-target envelope stats (with the naive MAE at ``mase_seasonality``), or None when ``train_target`` is None or they cannot be computed.
 
-    A failure is logged at DEBUG: the per-split eval-fallback envelope still applies in the reporter.
+    A failure is logged at WARNING (audit 28-F56): the reporter then falls back to the per-split eval envelope, which changes the report.
     """
     if train_target is None:
         return None
@@ -82,7 +82,7 @@ def _train_envelope_stats(train_target: Any, mase_seasonality: int) -> Any:
             stats = stats._replace(naive_mae=train_naive_mae(train_target, mase_seasonality))
         return stats
     except Exception as err:
-        logger.debug("Could not compute train envelope stats: %s. Per-split eval-fallback envelope still applies in the reporter.", err)
+        logger.warning("Could not compute train envelope stats: %s. The reporter falls back to the per-split eval-fallback envelope.", err)
         return None
 
 

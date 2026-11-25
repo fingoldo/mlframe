@@ -316,6 +316,8 @@ def _build_outer_loop_state(
         "best_score": state.best_score,
         "dummy_scores": state.dummy_scores,
         "Optimizer": state.Optimizer,
+        "nofeatures_score": state.nofeatures_score,
+        "per_fold_scores": state.per_fold_scores,
     })
     state.nsteps = _ckpt_state["nsteps"]
     state.evaluated_scores_mean = _ckpt_state["evaluated_scores_mean"]
@@ -330,6 +332,8 @@ def _build_outer_loop_state(
     state.best_score = _ckpt_state["best_score"]
     state.dummy_scores = _ckpt_state["dummy_scores"]
     state.Optimizer = _ckpt_state["Optimizer"]
+    state.nofeatures_score = _ckpt_state["nofeatures_score"]
+    state.per_fold_scores = _ckpt_state["per_fold_scores"]
 
     # Baseline RSS + best-effort frame footprint so the RAM-aware ``maybe_clean_ram_and_gpu`` short-circuit can decide whether a ``gc.collect()`` is justified each iter. The old "every 5th iter" trigger ran a ~290ms gc.collect even when nothing had accumulated, dominating wall on small problems; the helper only fires when RSS actually grew past a threshold or free RAM gets tight relative to frame size.
     from mlframe.training import estimate_df_size_mb as _estimate_df_size_mb, get_process_rss_mb as _get_process_rss_mb

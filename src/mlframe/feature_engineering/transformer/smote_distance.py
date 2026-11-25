@@ -57,7 +57,8 @@ def _smote_synthesize(X_minority: np.ndarray, n_synthetic: int, k_neighbors: int
     out = np.zeros((n_synthetic, X_minority.shape[1]), dtype=np.float32)
     for i in range(n_synthetic):
         src_idx = rng.integers(0, n_min)
-        neighbor_candidates = ids[src_idx, 1:k_used]  # exclude self
+        _row = ids[src_idx]  # exclude self by index, not by column 0 (audit 09-F40)
+        neighbor_candidates = _row[_row != src_idx][: k_used - 1]
         if neighbor_candidates.size == 0:
             out[i] = X_minority[src_idx]
             continue

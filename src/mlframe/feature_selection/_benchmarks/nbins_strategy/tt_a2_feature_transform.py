@@ -15,7 +15,7 @@ import warnings
 import numpy as np
 from scipy import stats
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 
 def make(kind, n, seed):

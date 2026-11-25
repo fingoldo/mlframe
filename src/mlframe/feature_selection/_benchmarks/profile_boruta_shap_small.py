@@ -67,7 +67,7 @@ from mlframe.feature_selection._benchmarks._bench_shared import build_classifica
 if TYPE_CHECKING:
     from mlframe.feature_selection.boruta_shap import BorutaShap
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 def make_selector(n_estimators: int, n_trials: int) -> BorutaShap:

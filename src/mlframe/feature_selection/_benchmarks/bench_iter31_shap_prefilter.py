@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 import time
 import warnings
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 def _make_dataset(*, n_features=1000, n_rows=5000, n_inf=12, snr=8.0, seed=0):

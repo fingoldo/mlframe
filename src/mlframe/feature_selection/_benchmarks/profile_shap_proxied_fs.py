@@ -20,7 +20,7 @@ import warnings
 
 from mlframe.feature_selection._benchmarks._bench_shared import make_shap_proxy_fit_data as make_data
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 def bench_proxy_vs_honest(X, y):

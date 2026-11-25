@@ -13,6 +13,17 @@ from mlframe.utils.log_throttle import log_throttle
 
 logger = logging.getLogger("mlframe.training.neural.flat")
 
+#: The all-zero-weight check costs a host-device sync (``.item()``); it runs on every ``_ZERO_WEIGHT_CHECK_EVERY``-th batch (audit 39-F68).
+_ZERO_WEIGHT_CHECK_EVERY = 50
+
+
+def _zero_weight_check_due(batch_idx: int) -> bool:
+    """Whether this batch is one of the sampled batches where the all-zero-weight warning is checked (audit 39-F68).
+
+    A zero-weight batch between two checks is reported at the next check, not on the batch itself.
+    """
+    return batch_idx % _ZERO_WEIGHT_CHECK_EVERY == 0
+
 # Mixed into MLPTorchModel(_PredictAccelMixin, _LossMixin, L.LightningModule) -- .log() is a
 # LightningModule method the mixin only gets through that sibling base at runtime.
 if TYPE_CHECKING:
@@ -138,7 +149,8 @@ class _LossMixin(_LossBase):
         # GPU->CPU sync (weight_sum.item()) per training_step UNTIL the warning
         # fires, after which the flag short-circuits everything. The sync is
         # only paid when sample_weight is not None (opt-in path).
-        if not getattr(self, "_warned_zero_weight_batch", False):
+        # Sampled every _ZERO_WEIGHT_CHECK_EVERY batches to cut the per-step sync (audit 39-F68).
+        if not getattr(self, "_warned_zero_weight_batch", False) and _zero_weight_check_due(self._current_batch_idx):
             if float(weight_sum.detach().item()) < 1e-12:
                 logger.warning(
                     "All-zero sample_weight batch in MLP training_step "

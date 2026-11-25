@@ -22,7 +22,7 @@ import os
 import warnings
 
 os.environ.setdefault("TQDM_DISABLE", "1")
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 import numpy as np
 import pandas as pd

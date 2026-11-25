@@ -99,19 +99,32 @@ class H34(HybridSelector):  # add RFECV as a 4th member
         return self
 
 
-class H35(HybridSelector):  # auto-pick (vote, expand) by internal OOF-AUC
+class H35(HybridSelector):  # auto-pick (vote, expand) by a HELD-OUT AUC (audit 12-F34)
     def fit(self, X, y):
-        super().fit(X, y)
-        Xa, y_ = self._Xaug_, self._y_
+        # Nested selection: members are fit on a training part only, the config is chosen by AUC on the held-out part (its features built by
+        # the same augment path as transform), and the final members are refit on all rows with the chosen config.
+        X_df = X if isinstance(X, pd.DataFrame) else pd.DataFrame(X)
+        y_arr = np.asarray(y)
+        n = len(y_arr)
+        perm = np.random.default_rng(0).permutation(n)
+        cut = int(0.75 * n)
+        tr, ho = np.sort(perm[:cut]), np.sort(perm[cut:])
+        super().fit(X_df.iloc[tr], y_arr[tr])
+        Xa_tr = self._Xaug_
+        Xho_aug = self._augment(X_df.iloc[ho])
+        y_ho = y_arr[ho]
         best, best_auc = (getattr(self, "vote"), getattr(self, "expand_clusters")), -1.0
         for vote in (1, 2):
             for expand in (False, True):
                 self.vote, self.expand_clusters = vote, expand
-                sel = self._combine(self.member_selections_, list(Xa.columns))
-                au = _oof_auc(Xa, y_, sel)
+                sel = self._combine(self.member_selections_, list(Xa_tr.columns))
+                cols = list(dict.fromkeys(c for c in sel if c in Xho_aug.columns))  # de-duplicated: LightGBM rejects repeated names
+                au = _oof_auc(Xho_aug, y_ho, cols)
                 if au > best_auc:
                     best_auc, best = au, (vote, expand)
+        super().fit(X_df, y_arr)
         self.vote, self.expand_clusters = best
+        Xa = self._Xaug_
         selected = self._combine(self.member_selections_, list(Xa.columns))
         _picked = [c for c in Xa.columns if c in set(selected)]
         self.raw_selected_ = _picked if _picked else list(Xa.columns[:1])

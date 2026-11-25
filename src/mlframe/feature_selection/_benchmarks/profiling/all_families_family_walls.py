@@ -17,7 +17,7 @@ Companions (all in this package, same protocol: a warm-up fit first, then the me
 """
 from typing import Any
 import os,sys,warnings,time
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 mode=sys.argv[3] if len(sys.argv)>3 else "gpu"
 if mode=="gpu":
     for k,v in {"MLFRAME_FE_GPU_STRICT":"1","MLFRAME_CMI_GPU":"1","MLFRAME_FE_VRAM_F32":"1","MLFRAME_FE_GPU_DISCRETIZE":"1","MLFRAME_FE_GPU_BINNING":"1"}.items(): os.environ.setdefault(k,v)

@@ -6,7 +6,7 @@ import os, sys, time, threading, warnings, importlib, functools
 import psutil
 _me = psutil.Process()
 os.environ['MLFRAME_FE_STAGE_CONCURRENCY'] = '0'  # serial stages: the process-wide fault counter then belongs to the running family
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 for k, v in {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_VRAM_F32": "1", "MLFRAME_FE_GPU_DISCRETIZE": "1", "MLFRAME_FE_GPU_BINNING": "1"}.items():
     os.environ.setdefault(k, v)
 from mlframe.feature_selection._benchmarks.profiling import family_scale as F

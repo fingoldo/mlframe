@@ -3,7 +3,7 @@
 Needs the experimental RELEASE_ENDED_STAGES flag of _edge_pool (not in the tree: the experiment was reverted, see stage_sample_100k_gpu_2026_11_05.md)."""
 from typing import Any, cast
 import os, sys, time, logging, warnings
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 for k, v in {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_VRAM_F32": "1", "MLFRAME_FE_GPU_DISCRETIZE": "1", "MLFRAME_FE_GPU_BINNING": "1"}.items():
     os.environ.setdefault(k, v)
 from mlframe.feature_selection._benchmarks.profiling import family_scale as F

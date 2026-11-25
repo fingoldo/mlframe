@@ -9,7 +9,7 @@ import warnings
 
 import numpy as np
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 from mlframe.feature_selection.filters import _fe_batched_mi as B
 from mlframe.feature_selection.filters import _orthogonal_cmim_fe as C
 

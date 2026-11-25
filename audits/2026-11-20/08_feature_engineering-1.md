@@ -58,7 +58,6 @@ Not verified: possible `fastmath=True` interaction with the `np.isfinite` guards
 
 - 08-F17: FIXED. Removed the unused chunk parameter from _median_pairwise_chunked and its caller argument; the median is unchanged. Test tests/feature_engineering/test_cluster08_median_pairwise_no_chunk.py.
 
-- 08-F4: PARTIAL. BGM fallback to bootstrap now logs at WARNING (was INFO), so a degraded sample is visible in normal runs. Not done: the return value still does not tell callers a bootstrap was used; that needs an API change. Test tests/feature_engineering/test_cluster08_bgmm_fallback_warns.py.
 
 - 08-F9: FIXED. The per-fold float32 cast of the training target is computed once before the head loop, not once per head. Values unchanged. Test tests/feature_engineering/test_cluster08_oof_cast_hoisted.py; 9 OOF tests pass.
 
@@ -75,3 +74,5 @@ Not verified: possible `fastmath=True` interaction with the `np.isfinite` guards
 - 08-F15: DEFERRED. Four near-identical SMOTE loops remain despite the module header. Consolidating them changes the kernel call contract across the synthesis paths; deferred to a refactor pass with call-site tests. No code change.
 
 - 08-F16: DEFERRED. The package eagerly imports about 130 transformer modules. Lazy imports change the package's public import surface and the import-time behaviour of every caller; deferred as a design decision. No code change.
+
+- 08-F4: FIXED. The BGM sampler gained an opt-in return_source flag: (samples, 'bgmm') for a mixture sample and (samples, 'bootstrap') for any resample, including a too-small minority set. The default return is unchanged, so current callers are unaffected. The fallback is logged at WARNING (earlier change). Its inner warning filter is narrowed to Future/Deprecation. Tests tests/feature_engineering/test_cluster08_bgmm_source_flag.py (3 passed).

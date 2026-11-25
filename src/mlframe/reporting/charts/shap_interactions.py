@@ -84,12 +84,20 @@ def _mean_abs_interaction(model: Any, X_sample: Any) -> np.ndarray:
     from mlframe.inference.tree_shap import TreeExplainer as _TreeExplainer
 
     iv = _TreeExplainer(model).shap_interaction_values(X_sample)  # our kernel for LightGBM, XGBoost's native predict for XGBoost, the public library otherwise
-    if isinstance(iv, list):  # legacy list-of-(rows,F,F) per class
-        arr = np.asarray(iv[-1], dtype=np.float64)
+    if isinstance(iv, list):  # legacy list-of-(rows,F,F) per class: stack to (rows, F, F, classes)
+        arr = np.stack([np.asarray(v, dtype=np.float64) for v in iv], axis=-1) if len(iv) > 1 else np.asarray(iv[0], dtype=np.float64)[..., None]
     else:
         arr = np.asarray(getattr(iv, "values", iv), dtype=np.float64)
-        if arr.ndim == 4:  # (rows, F, F, classes) under the new API for a multiclass/binary model
+        if arr.ndim == 3:
+            arr = arr[..., None]
+    if arr.ndim == 4:
+        if arr.shape[3] <= 2:
             arr = arr[..., -1]
+        else:
+            # More than two classes: the last class alone ranks a pair that only separates the other classes at ~0. Each pair takes the class
+            # it moves most (largest mean |interaction|), as the main-effects panel does (audit 21-F6).
+            best = np.abs(arr).mean(axis=0).argmax(axis=-1)
+            arr = np.take_along_axis(arr, best[None, :, :, None], axis=-1)[..., 0]
     return np.asarray(np.abs(arr).mean(axis=0))
 
 

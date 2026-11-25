@@ -10,10 +10,11 @@ import warnings
 import numpy as np
 from mlframe.feature_engineering._safe_ratio import safe_div
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 from mlframe.feature_selection.filters.feature_engineering import create_binary_transformations, create_unary_transformations
 
 from ..common.binning import mi, mi_b, qbin
+from mlframe.utils.log_throttle import log_throttle
 from .core import clean, interior_quantile_edges
 import logging
 
@@ -37,7 +38,8 @@ def preset(x, z, rows):
             try:
                 val = clean(fb(u, v))
             except Exception as exc:
-                logger.debug("operator %s failed on the study inputs: %s", bn, exc)
+                # WARNING, once per operator (audit 11-F5): a failing operator silently drops out of the study otherwise.
+                log_throttle(logger, f"stat_study_op_failed:{bn}", logging.WARNING, "operator %s failed on the study inputs: %s", bn, exc, max_count=1)
                 continue
             if val[rows].std() > 0:
                 out[f"{bn}({n1}(x),{n2}(z))"] = val

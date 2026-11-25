@@ -518,7 +518,9 @@ def _dispatch_baselines(
             cat_features, config, target_type=target_type,
         )
     elif target_type in ("binary_classification", "multiclass_classification"):
-        # Determine n_classes from train + val + test union
+        # Determine n_classes from train + val + test union. Documented choice (audit 32-F7): the union keeps every eval label representable
+        # in 0..K-1, so a class seen only at eval still encodes. The priors below come from TRAIN only, so such a class gets zero prior mass
+        # and no eval split informs the baseline's probabilities; only the width of the (N, K) matrices depends on the union.
         all_y = np.concatenate([
             train_y_arr,
             val_y_arr if val_y_arr is not None else np.array([], dtype=train_y_arr.dtype),

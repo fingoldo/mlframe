@@ -5,7 +5,7 @@ issue_slot_utilization,stall_sync`` with the CUPTI directory on PATH; this host 
 """
 
 import sys,time,warnings
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 import numpy as np, cupy as cp
 from mlframe.feature_selection.filters._honest_null_accept import _continuous_accept_block
 from mlframe.feature_selection.filters._family_maxt_null_v2_njit import xlogx_table

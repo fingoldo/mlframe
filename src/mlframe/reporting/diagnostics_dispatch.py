@@ -109,6 +109,8 @@ def _save_figure(fig, plot_outputs: str, base_path: str) -> Optional[bool]:
 
             _path = resolve_output_path(base_path, "matplotlib", "png")
             _queue = active_render_queue()
+            # Recorded as saved at submit (audit 26-F26, documented choice): the worker owns the figure from here, and a later worker failure is
+            # counted in the queue summary, not reconciled into charts['failed'] as combined_html does. Reconciling needs a worker-to-dict update.
             if _queue is not None and submit_figure_save(_queue, fig, _path):
                 deferred = True  # the worker owns the figure now and closes it after saving
                 return True
@@ -581,13 +583,15 @@ def _psi_heatmap_cached(test_frame: Any, ts: np.ndarray, names: Any) -> Any:
     from mlframe.reporting.charts.drift import psi_heatmap
 
     key = _psi_cache_key(test_frame, ts, names)
-    with _PSI_CACHE_LOCK:
-        if key is not None:
+    # The lock guards the cache only; the heatmap is built outside it so targets do not queue behind one another's build (audit 26-F22).
+    if key is not None:
+        with _PSI_CACHE_LOCK:
             spec = _PSI_CACHE.get(key)
-            if spec is not None:
-                return spec
-        spec = psi_heatmap(test_frame, ts[: _row_count(test_frame)], feature_names=names)
-        if key is not None:
+        if spec is not None:
+            return spec
+    spec = psi_heatmap(test_frame, ts[: _row_count(test_frame)], feature_names=names)
+    if key is not None:
+        with _PSI_CACHE_LOCK:
             while len(_PSI_CACHE) >= 8:
                 # evict-ok: memo; a miss recomputes the value
                 _PSI_CACHE.pop(next(iter(_PSI_CACHE)))

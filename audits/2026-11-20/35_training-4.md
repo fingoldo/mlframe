@@ -113,7 +113,6 @@ Coverage and method:
 - 35-F16: FIXED. Group counts from one np.unique pass via _group_counts; equivalence test (test_cluster35_group_counts_one_pass)
 - 35-F17: FIXED. predict logs a WARNING naming the component and the count of non-finite rows; blend still NaN on those rows (test_cluster35_predict_nonfinite_component_warns)
 - 35-F18: FIXED. GPU probe failures (xgboost, catboost) and the refit-groups fallback now log at WARNING; xgboost probe path tested (test_cluster35_gpu_probe_failure_warns); refit-groups path not separately tested
-- 35-F19: DEFERRED. Composite refit is implemented three times with different group handling (kfold, single-split, external OOF). Consolidating changes behaviour; needs an owner decision on the correct group semantics first.
 - 35-F20: FIXED. GBM stacker honours group_ids and time_ordered: row-random early stopping is off when either is set; dispatcher forwards both (test_cluster35_gbm_stacker_group_aware, 3 pass)
 - 35-F21: FIXED. OOF cache key now includes a full digest of sample_weight and of the component specs (arrays digested in full, nested dicts walked); tests test_cluster35_oof_cache_key_weights_and_specs.py; 48 existing cache-key tests pass
 - 35-F22: FIXED. Auto gate measures residual correlation (y - prediction), as its protocol defines; test test_cluster35_auto_gate_measures_residuals.py; 4 existing auto-aware gate tests pass
@@ -121,7 +120,6 @@ Coverage and method:
 - 35-F24: FIXED. Failed lag-column extraction logged at WARNING via log_throttle, naming the column and exception (test_cluster35_lag_extraction_failure_warns; 27 existing soft-shrink tests pass)
 - 35-F25: FIXED. A base fit range stamped on the spec is kept; capture runs only when the key is absent (test_cluster35_from_fitted_keeps_stamped_range; 48 related tests pass)
 - 35-F27: FIXED. predict_quantile resolves the causal lag once per batch and passes it to apply_smart_fallback; default path unchanged (test_cluster35_smart_fallback_resolves_lag_once; 22 soft-shrink and parity tests pass)
-- 35-F28: DEFERRED. The grid spans 0.05 to 0.95, so sample() flattens tails and crps() omits the 0-0.05 and 0.95-1 mass. Fixing it means adding tail levels (0.001/0.999) or a GPD tail, a modelling choice the owner should make; the truncation is not hidden by a code change here.
 - 35-F29: FIXED. Mixture decides sample_weight support from the fit signature; unrelated TypeError propagates; unweighted regressors logged at WARNING (test_cluster35_mixture_sample_weight_support; 44 existing mixture tests pass)
 - 35-F30: FIXED. discover_and_wrap coerces a dict config before reading the seed, so the seed and report use the dict's random_state (test_cluster35_highlevel_dict_config_seed; 201 existing highlevel tests pass)
 - 35-F31: FIXED. Group broadcast is one vectorised reindex; NaN group ids are counted and logged at WARNING (test_cluster35_group_broadcast_vectorised; 6 existing group-aggregate tests pass)
@@ -156,3 +154,7 @@ Coverage and method:
 - 35-F33: FIXED. TailCompositeEstimator.fit cross-fits the body by default (residual_oof_folds=5), so the tail threshold and GPD are fitted on out-of-fold residuals. Costs residual_oof_folds extra body fits. residual_oof_folds below 2 keeps the in-sample path with its WARNING. Behaviour change for default callers. Tests test_cluster35_tail_oof_default.py and test_cluster35_tail_in_sample_residuals_warn.py.
 
 - 35-F26: WON'T FIX. Discovery fits its tiny models without sample weights (model.fit(x_fit[valid], t_fit) in every call path), so passing weights into smearing would describe a weighted residual distribution that the fitted model never saw. smeared_prediction already accepts sample_weight for when a weighted fit is introduced. Existing test test_cluster35_smeared_prediction_matches_fit.py covers the unweighted match. No code change.
+
+- 35-F28: DOCUMENTED. The default quantile grid (0.05..0.95) truncates the tails: sample() holds draws flat outside Q(0.05)..Q(0.95) and crps() omits the outer 5% per side. Documented at the grid; extending it with 0.001/0.999 costs two inner fits and is noisy on small samples, so the default is kept and an explicit tail grid is the way out. Test tests/training/composite/test_cluster35_grid_truncation_documented.py (2 passed).
+
+- 35-F19: DOCUMENTED. The three composite-refit copies (ensemble/__init__.py plain fold, ensemble/__init__.py oof holdout, ensemble/_oof_external.py) each state their group semantics at the function. Behaviour is unchanged; the copies still differ, and a fix to one must be checked in the others. Consolidating them needs the owner's group semantics. Test tests/training/composite/test_cluster35_refit_copies_documented.py (2 passed).

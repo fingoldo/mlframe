@@ -87,7 +87,7 @@ def summarise(times: np.ndarray, cpu: np.ndarray, gpu: np.ndarray, window: float
 
 def main() -> None:
     """Fit once under the sampler and print the summary."""
-    warnings.simplefilter("ignore")
+    warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
     n = int(sys.argv[1]) if len(sys.argv) > 1 else 100_000
     p = int(sys.argv[2]) if len(sys.argv) > 2 else 100
     for k, v in {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_VRAM_F32": "1", "MLFRAME_FE_GPU_DISCRETIZE": "1", "MLFRAME_FE_GPU_BINNING": "1"}.items():

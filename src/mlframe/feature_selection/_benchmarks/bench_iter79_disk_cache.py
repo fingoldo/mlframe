@@ -17,7 +17,7 @@ import warnings
 import numpy as np
 import pandas as pd
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 def _make_data(n=4000, width=2000, n_inf=8, seed=0):

@@ -22,7 +22,7 @@ import warnings
 import numpy as np
 from mlframe.utils.gpu_sync import synchronize_gpu_if_available
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 SIZES = (10_000, 30_000, 100_000, 500_000, 1_000_000)
 BASIS = "hermite"

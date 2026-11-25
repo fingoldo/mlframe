@@ -78,7 +78,7 @@ def _fit_gains(df, y, seed):
 
     sel = MRMR(verbose=0, interactions_max_order=1, fe_max_steps=0, random_seed=seed)
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
         sel.fit(df.copy(), y)
     names = list(sel.get_feature_names_out())
     gains = np.asarray(getattr(sel, "mrmr_gains_", []), dtype=np.float64)

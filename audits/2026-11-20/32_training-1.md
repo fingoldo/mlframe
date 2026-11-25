@@ -74,13 +74,9 @@ Grep and Read used for caller checks: `core/_phase_dummy_baselines.py` (the try/
 - 32-F5: FIXED. nanmedian and nanquantile for the quantile baselines; no separate test
 - 32-F6: FIXED. nanstd for the cross-output scale, non-finite scales skipped, non-finite normalized means excluded before the pick; no separate test
 - 32-F10: FIXED. Integer timestamps go through the same unit detector as object timestamps, so epoch seconds are no longer read as nanoseconds. Test tests/training/test_cluster32_integer_epoch_seconds_unit.py.
-- 32-F11: DEFERRED. The combiner is fit on all rows, so the holdout's init_score depends on holdout labels. The fix refits the combiner inside each training fold, a change to the diagnostic's method, deferred.
-- 32-F12: DEFERRED. Below 50 rows the metric is in-sample. Returning a skip instead changes _fit_quick_and_score's return contract for its caller, a contract decision, deferred.
-- 32-F7: DEFERRED. Building the class universe from train alone changes how unseen validation and test labels are encoded downstream, and that encoding is not yet checked. Deferred until the encoding path is read end to end.
 - 32-F26: FIXED. The smoke script exits 1 when the suite raises instead of printing a pass line and returning 0. Verified by reading; the smoke run is a manual end-to-end script, not a unit test.
 - 32-F8: FIXED. Polars group-mean join matches null keys (nulls_equal=True), as the pandas path does. Test test_cluster32_polars_null_group_matches_pandas.py.
 - 32-F17: FIXED. Threshold benchmark seed uses zlib.crc32 (was already in code); pinned by test_cluster32_bench_seed_is_stable.py.
-- 32-F9: DEFERRED. CatBoost callbacks have no after-training hook, so the final round cannot be captured inside the callback when stride > 1. A fix needs the caller to capture the final round after fit (design). Owner decision.
 - 32-F14: DEFERRED. Per-drop X.loc copy is held per concurrent worker. Removing it needs _fit_quick_and_score to accept a column mask instead of a frame (API change across the baseline diagnostics). Owner to schedule.
 - 32-F13: FIXED. Baseline numba kernels use the NaN-safe fastmath flag set (no nnan/ninf), so NaN predictions propagate. Test test_cluster32_kernels_nan_propagates.py.
 - 32-F27: DEFERRED. Perf-only: the first full-size frame is built before the extra-target and ts knobs are known, then rebuilt. Avoiding it means reordering the benchmark's setup, which needs checking every use of df in between. Deferred.
@@ -96,3 +92,13 @@ Grep and Read used for caller checks: `core/_phase_dummy_baselines.py` (the try/
 - 32-F15: FIXED. Config sufficiency test uses the signed delta, so a negative delta (init_score better than raw) counts as sufficient, as the module note says; the abs() had made it high_potential. Test tests/training/test_cluster32_init_score_sign_consistent.py; 55 baseline diagnostics tests pass.
 - 32-F28: FIXED. Skipped-target results in the profile harness return the same 16-field tuple the caller unpacks (one helper, _skipped_profile_result); the six-field early returns would have raised on unpack. Test tests/training/test_cluster32_profile_skip_arity.py.
 - 32-F28: FIXED. x
+
+
+- 32-F9: FIXED. CBIterationMetricsCallback.flush() captures the final round when the stride skipped it. It is now called by the fit wrapper (_train_model_with_fallback) after a successful fit; a failed fit does not flush. Tests tests/training/test_cluster32_fit_wrapper_flushes_cb.py and tests/training/callbacks/test_cluster32_cb_flush_last_round.py (5 passed).
+
+- 32-F12: FIXED. The baseline diagnostic skips when fewer than 50 rows remain after sampling, with a reason naming the in-sample problem, instead of scoring the training rows as its own holdout. Tests tests/training/baselines/test_cluster32_diagnostic_min_rows.py and the existing test_baseline_diagnostics.py (35 passed).
+
+
+- 32-F7: DOCUMENTED. The class universe is the union of train, val and test labels, so eval-only labels stay encodable in 0..K-1. The priors are train-only, so an eval-only class gets zero prior mass and no eval split informs the baseline probabilities; only the (N, K) width depends on the union. Documented at the union in dummy.py; behaviour unchanged.
+
+- 32-F11: FIXED. The init_score combiner is fit on the quick model's training rows only (the same 80/20 split, via _quick_train_mask) and scores every row, so the holdout labels no longer shape the holdout init_score. Tests tests/training/baselines/test_cluster32_init_score_combiner_train_only.py and the existing test_baseline_diagnostics.py (36 passed).

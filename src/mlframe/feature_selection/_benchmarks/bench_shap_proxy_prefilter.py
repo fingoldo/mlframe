@@ -30,7 +30,7 @@ import warnings
 
 import numpy as np
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 def make_wide(n_features, *, n_rows, n_informative=8, n_redundant=12, seed=0):

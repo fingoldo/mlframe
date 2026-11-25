@@ -1,6 +1,6 @@
 """Compare the per-column relevance MRMR records for raw vs a monotone variant (norescue, fe_max_steps=0): is the MI itself invariant and only the borderline decision flipped?"""
 import sys, warnings
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 import pandas as pd
 import tt_b5_invariance as I
 from mlframe.feature_selection.filters import MRMR

@@ -505,13 +505,15 @@ def _collect_train_predictions(is_regression, level_models_and_predictions, _fal
     """Collect the train-time predictions of the ensemble members."""
     if not is_regression:
         train_predictions = [_oof_or_train(el, "oof_probs", "train_probs", _i, _fallback_used, _prefer_calibrated=_use_cal) for _i, el in enumerate(level_models_and_predictions)]
-    elif _oof_or_train(level_models_and_predictions[0], "oof_preds", "train_preds", 0, _fallback_used) is not None:
-        # Re-walk so every member's fallback decision is recorded (probe call above counts index 0 only if it fell back; clear and re-probe symmetrically across all members).
-        _fallback_used.clear()
-        train_predictions = [_oof_or_train(el, "oof_preds", "train_preds", _i, _fallback_used) for _i, el in enumerate(level_models_and_predictions)]
-        train_predictions = [el.reshape(el.shape[0], -1) if (el is not None) else el for el in train_predictions]  # preserve row axis for multi-target (see val-branch note)
     else:
-        train_predictions = []
+        # Probe every member once and take the regression path when ANY member has predictions. Deciding on member 0 alone dropped the
+        # whole train-split ensemble when member 0 had neither OOF nor train predictions (audit 18-F10).
+        _fallback_used.clear()
+        _probed = [_oof_or_train(el, "oof_preds", "train_preds", _i, _fallback_used) for _i, el in enumerate(level_models_and_predictions)]
+        if any(el is not None for el in _probed):
+            train_predictions = [el.reshape(el.shape[0], -1) if (el is not None) else el for el in _probed]  # preserve row axis for multi-target (see val-branch note)
+        else:
+            train_predictions = []
     return train_predictions
 
 
@@ -563,10 +565,14 @@ def _flag_degenerate_confident_subset(flag_degenerate_conf_subset, is_regression
             # Count positives via boolean comparison so float / bool / int
             # targets all behave the same. Ratio is min/max regardless of
             # which class is the minority.
-            _n_pos = int((_ct == 1).sum())
-            _n_neg = int(_ct.shape[0] - _n_pos)
-            _hi = max(_n_pos, _n_neg)
-            _lo = min(_n_pos, _n_neg)
-            if _hi > 0 and (_lo / _hi) < degenerate_class_ratio:
+            # Count the ACTUAL label values, not a hard-wired 1 vs the rest: labels {0, 2} used to read as one-class and every subset was tagged (audit 18-F7).
+            # A single label is degenerate; two labels are judged by their ratio; a multiclass subset is not a degenerate binary case and is left alone.
+            _classes = np.unique(_ct)
+            if _classes.shape[0] == 1:
                 _degenerate_marker = "[DEGENERATE] "
+            elif _classes.shape[0] == 2:
+                _counts = [int((_ct == c).sum()) for c in _classes]
+                _hi, _lo = max(_counts), min(_counts)
+                if _hi > 0 and (_lo / _hi) < degenerate_class_ratio:
+                    _degenerate_marker = "[DEGENERATE] "
     return _degenerate_marker

@@ -399,5 +399,5 @@ def main():
 
 
 if __name__ == "__main__":
-    warnings.filterwarnings("ignore")  # sklearn convergence + optuna experimental noise
+    warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)  # sklearn convergence + optuna experimental noise
     main()

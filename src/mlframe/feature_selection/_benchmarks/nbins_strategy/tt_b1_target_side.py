@@ -25,7 +25,7 @@ import numpy as np
 
 import tt_b1_cls_feature_transform as T
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 G = {
     "id": lambda s: s,

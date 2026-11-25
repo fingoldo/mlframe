@@ -260,6 +260,8 @@ def incremental_discovery_check(
     prior_specs = list(prior_specs)
     eps = float(config.eps_mi_gain if eps_mi_gain is None else eps_mi_gain)
 
+    # Documented choice (audit 34-F20): the signature is computed on the FULL frame, not a sample. A sampled signature can match a frame
+    # whose rows changed outside the sample and reuse stale specs, which costs more than the signature itself; the cost is paid per call.
     # No prior specs -> nothing to warm-start from; force a full discovery.
     if not prior_specs:
         new_sig = data_signature(df, target_col, feature_cols)

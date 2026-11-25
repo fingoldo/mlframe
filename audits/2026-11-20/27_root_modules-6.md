@@ -76,9 +76,7 @@ Scope: 88 files listed in `audits/2026-11-20/manifests/27_root_modules-6.txt`, a
 - 27-F9: FIXED. The pandas NaN fill works on a shallow copy, so the caller's frame keeps its NaNs, as the polars branch already did. Test tests/training/test_cluster27_nan_fill_leaves_caller_frame.py.
 - 27-F7: FIXED. A weighted fit's permutation importances skip the unweighted CUDA kernel and use the weighted CPU path. Test tests/training/test_cluster27_weighted_fi_skips_cuda.py.
 - 27-F8: DEFERRED. Owner decision: signed or magnitude coef_ importances. The two branches disagree today; choosing either changes the reported numbers for one of them.
-- 27-F12: DEFERRED. Owner decision: raise when trainset_aging_limit is set without timestamps, or define positional order as the age. Raising could break existing configs.
 - 27-F13: DEFERRED. Owner decision: refit on the full train, or correct the documented contract. The dichotomic path keeps the 90 percent model today, and history has mixed types.
-- 27-F14: DEFERRED. Owner decision: rename the pooled-residual band to a label with no proven bound, or implement the fold-specific CV+ construction. The current label claims a guarantee the construction does not give.
 - 27-F22: FIXED. Title positive rate counts the larger label as positive, matching the decision-threshold block (labels {1, 2} no longer read as 0%). Test test_cluster27_title_rate_positive_larger_label.py.
 - 27-F21: FIXED. recalibrate on an unfitted DistributionalRecalibrator raises RuntimeError instead of returning the identity. Test test_cluster27_unfitted_recalibrator_raises.py; 19 existing calibration tests pass.
 - 27-F18: FIXED. select_from_pareto logs a WARNING when no frontier point is scored and the first iteration is returned by default. Test test_cluster27_pareto_default_warns.py; 45 existing Pareto/aggregation tests pass.
@@ -89,3 +87,7 @@ Scope: 88 files listed in `audits/2026-11-20/manifests/27_root_modules-6.txt`, a
 - 27-F25: FIXED. Backend selection uses the same absolute-PATH nvidia-smi lookup as the probe, not a plain shutil.which on the full PATH. Test test_cluster27_gpu_backend_absolute_path.py; 7 existing GPU probe tests pass.
 - 27-F20: FIXED. format_metric docstring example corrected to the actual output (0.000012); test pins every documented example. Test test_cluster27_format_metric_docstring_examples.py.
 - 27-F19: DEFERRED. Two suffix-stripping implementations differ (only one strips WithFastpath). Unifying them changes which names are stripped in one path, so it needs a decision. No code change.
+
+- 27-F12: FIXED. Trainset aging without timestamps is refused with a ValueError in the no-timestamp row-based split, instead of slicing a shuffled split by position. Without the limit the split is unchanged. Test tests/training/test_cluster27_aging_needs_timestamps.py (2 passed).
+
+- 27-F14: DOCUMENTED. cv_plus_intervals is a pooled symmetric band from out-of-fold absolute residuals, not the CV+ or Jackknife+ construction of Barber et al. 2021; its docstring now states that no coverage guarantee is proven. The name is kept for API compatibility. A real CV+ needs per-fold models and is not built. No behaviour change.

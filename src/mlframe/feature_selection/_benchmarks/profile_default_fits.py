@@ -77,7 +77,7 @@ def _run(mode: str) -> None:
 
 def main(mode: str) -> None:
     """Profile ``mode`` and save the .prof file plus the cumtime top-25 text."""
-    warnings.filterwarnings("ignore")
+    warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
     os.makedirs(_OUT, exist_ok=True)
     pr = cProfile.Profile()
     t0 = time.perf_counter()

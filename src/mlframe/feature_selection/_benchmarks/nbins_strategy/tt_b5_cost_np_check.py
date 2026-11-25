@@ -1,7 +1,7 @@
 """tt_b5_cost_np against the numba kernels of tt_b5_cost (same data, same permutations): max abs difference of s and of the null maxima, and the seconds of both at n=100000, p=64, K=9."""
 import time, warnings
 import numpy as np
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 import tt_b5_cost as C, tt_b5_cost_np as N
 
 prov = C.GenProvider(20000, 12, seed=3, chunk_rows=2000)

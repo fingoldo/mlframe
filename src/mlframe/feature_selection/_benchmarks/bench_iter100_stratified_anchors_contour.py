@@ -49,7 +49,7 @@ WORKER_SRC = """\
 from __future__ import annotations
 import json, os, sys, time, warnings
 os.environ.setdefault("OMP_NUM_THREADS", "1")
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 width = int(sys.argv[1])
 n_red = int(sys.argv[2])

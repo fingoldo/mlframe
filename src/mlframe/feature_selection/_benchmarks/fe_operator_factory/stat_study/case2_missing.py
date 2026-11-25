@@ -4,7 +4,7 @@ Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.stat_
 import itertools
 import warnings
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 import numpy as np
 
 from mlframe.feature_selection.filters.feature_engineering import create_binary_transformations, create_unary_transformations

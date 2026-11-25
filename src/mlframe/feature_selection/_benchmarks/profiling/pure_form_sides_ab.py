@@ -3,7 +3,7 @@ from typing import Any, cast
 import os, time, warnings
 from types import SimpleNamespace
 import numpy as np, pandas as pd
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 from mlframe.feature_selection.filters import _fe_pure_form_sides as S
 
 rng = np.random.default_rng(0)

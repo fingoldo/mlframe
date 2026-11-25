@@ -14,7 +14,7 @@ import warnings
 from typing import Tuple
 
 os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 import numpy as np
 import pandas as pd

@@ -2,7 +2,7 @@
 Run: python tt_b5_cost_check.py   (prints max abs differences; small n so the explicit refit loop is cheap)."""
 import math, time, warnings
 import numpy as np
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 import tt_b5_cost as C
 
 

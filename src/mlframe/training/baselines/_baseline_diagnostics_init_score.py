@@ -93,7 +93,7 @@ def _single_feature_base(X: pd.DataFrame, feat: str) -> "np.ndarray | None":
     return base_values
 
 
-def _combined_features_base(X: pd.DataFrame, y: np.ndarray, chosen: list, target_type: str) -> "tuple[np.ndarray, str] | None":
+def _combined_features_base(X: pd.DataFrame, y: np.ndarray, chosen: list, target_type: str, fit_rows: "np.ndarray | None" = None) -> "tuple[np.ndarray, str] | None":
     """OLS (regression) / logistic (binary) combination of the chosen features: ``(base_values, feature_used)``, ``None`` if all columns are unusable."""
     _feats_for_combiner = [e.feature for e in chosen]
     if hasattr(X, "loc"):
@@ -115,17 +115,20 @@ def _combined_features_base(X: pd.DataFrame, y: np.ndarray, chosen: list, target
     if keep_cols.sum() == 0:
         return None
     B = B[:, keep_cols]
+    # The combiner is fit on the TRAINING rows only (``fit_rows``), so the holdout rows' base values are scored by a model that never saw their
+    # labels (audit 32-F11). With no mask it is fit on every row, as before.
+    _fit_mask = np.ones(len(B), dtype=bool) if fit_rows is None else np.asarray(fit_rows, dtype=bool)
     if target_type == "binary_classification":
         # Logistic regression -> probability scale, then converted to
         # logit by the binary branch below.
         from sklearn.linear_model import LogisticRegression
         lr = LogisticRegression(max_iter=200, C=1.0)
-        lr.fit(B, y)
+        lr.fit(B[_fit_mask], y[_fit_mask])
         base_values = lr.predict_proba(B)[:, 1]
     else:
         B_aug = np.column_stack([B, np.ones(len(B))])
         coef, *_ = np.linalg.lstsq(
-            B_aug, y.astype(np.float64), rcond=None,
+            B_aug[_fit_mask], y[_fit_mask].astype(np.float64), rcond=None,
         )
         base_values = B_aug @ coef
     kept_feats = [e.feature for e, k in zip(chosen, keep_cols) if k]
@@ -223,7 +226,8 @@ def _fit_init_score_baseline(
     else:
         # Linear combiner: OLS for regression, LR for binary.
         try:
-            _combined = _combined_features_base(X, y, chosen, target_type)
+            from ._baseline_diagnostics_quick_model import _quick_train_mask
+            _combined = _combined_features_base(X, y, chosen, target_type, fit_rows=_quick_train_mask(self.config, y, target_type))
             if _combined is None:
                 return None
             base_values, feature_used = _combined

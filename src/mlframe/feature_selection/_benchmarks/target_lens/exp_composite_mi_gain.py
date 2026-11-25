@@ -24,7 +24,7 @@ from sklearn.preprocessing import StandardScaler
 
 from mlframe._bench_rmse_shared import rmse as _rmse
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 N_BINS = 16
 MODELS = {

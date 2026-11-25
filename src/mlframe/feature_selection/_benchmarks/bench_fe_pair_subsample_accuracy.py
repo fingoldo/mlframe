@@ -42,7 +42,7 @@ import numpy as np
 from mlframe.feature_engineering._safe_ratio import safe_div
 import pandas as pd
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 sys.path.insert(0, "src")
 
 from mlframe.feature_selection.filters.feature_engineering import (

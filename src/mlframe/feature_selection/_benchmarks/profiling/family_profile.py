@@ -100,7 +100,7 @@ def main() -> None:
         import faulthandler
 
         faulthandler.dump_traceback_later(a.dump_every, repeat=True)
-    warnings.simplefilter("ignore")
+    warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
     _set_mode(a.mode)
 
     data = F._make(a.n, a.p, 0)

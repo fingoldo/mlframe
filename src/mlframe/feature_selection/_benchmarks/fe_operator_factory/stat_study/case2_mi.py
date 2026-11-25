@@ -3,7 +3,7 @@ Run: ``python -m mlframe.feature_selection._benchmarks.fe_operator_factory.stat_
 
 import warnings
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 import numpy as np
 
 n = 30000

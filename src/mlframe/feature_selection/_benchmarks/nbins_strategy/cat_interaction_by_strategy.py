@@ -14,7 +14,7 @@ import sys
 import warnings
 from mlframe.feature_selection._benchmarks.binning_label import binning_params
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 
 def main() -> None:

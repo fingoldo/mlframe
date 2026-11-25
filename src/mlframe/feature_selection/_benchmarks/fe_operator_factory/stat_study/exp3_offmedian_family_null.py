@@ -9,7 +9,7 @@ import numpy as np
 from ..common.binning import mi, mi_b, qbin
 from .exp2_general import als_rank1, best, centered, preset, shift_out, zerocross
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 which = sys.argv[1]
 if which == "off":
     n = 30000

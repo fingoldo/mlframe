@@ -133,6 +133,12 @@ def _score_blend(
     if metric is None:
         from mlframe.metrics.core import fast_roc_auc
 
+        # Rows with a NaN label are dropped before scoring (audit 18-F8): otherwise they count as negatives in the AUC the greedy walk optimises.
+        if np.asarray(y).dtype.kind == "f":
+            _keep = np.isfinite(np.asarray(y))
+            if not _keep.all():
+                blend = blend[_keep]
+                y = np.asarray(y)[_keep]
         # fast_roc_auc wants the positive-class score. For (N, K) take class-1 column (binary convention).
         score = blend[:, 1] if blend.ndim == 2 and blend.shape[1] >= 2 else np.ravel(blend)
         # Binarised against the LARGER label, not merely cast. The kernel accumulates ``tps += y_true[i]``, so it

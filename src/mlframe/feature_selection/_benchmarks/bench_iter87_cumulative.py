@@ -26,7 +26,7 @@ import time
 import warnings
 from pathlib import Path
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # C2 / C3 / C4 regime knobs. n_red=0 at C2 keeps the no-redundancy regime; C3/C4 add 20 redundant cols.
 REGIMES = {
@@ -41,7 +41,7 @@ PER_CONFIG_TIMEOUT_S = 240
 
 WORKER = r"""
 import json, os, sys, time, warnings
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("MKL_NUM_THREADS", "1")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")

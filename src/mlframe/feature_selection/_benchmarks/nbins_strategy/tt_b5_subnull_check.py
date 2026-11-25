@@ -2,7 +2,7 @@
 not dominated by 40-draw noise).  TARGET: tau(full) vs tau(sub 50000 rows, scaled).  FEATURE: median over columns of tau(full) vs tau(sub), and agreement of the accepted columns."""
 import warnings
 import numpy as np
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 import tt_b5_cost as C, tt_b5_cost_np as N
 
 n, p = 100000, 24
