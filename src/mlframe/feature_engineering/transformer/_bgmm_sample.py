@@ -16,12 +16,15 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
-def fit_bgmm_and_sample(X_minority: np.ndarray, n_synthetic: int, n_components: int, seed: int, *, caller: str) -> np.ndarray:
+def fit_bgmm_and_sample(X_minority: np.ndarray, n_synthetic: int, n_components: int, seed: int, *, caller: str, return_source: bool = False):
     """Fit a BayesianGaussianMixture on the minority rows and draw ``n_synthetic`` virtual samples.
 
     Bootstraps instead when there are too few minority rows to fit ``n_components``, and again if the fit
     itself raises -- a mixture that will not converge must degrade to resampling rather than fail the
     transform. ``caller`` only names the module in that fallback's log line.
+
+    With ``return_source=True`` the result is ``(samples, source)`` where ``source`` is ``"bgmm"`` for a real mixture sample and ``"bootstrap"``
+    for a resample, so a caller can tell them apart (audit 08-F4). The default keeps the array-only return.
     """
     from sklearn.mixture import BayesianGaussianMixture
 
@@ -29,7 +32,8 @@ def fit_bgmm_and_sample(X_minority: np.ndarray, n_synthetic: int, n_components: 
     if n_min == 0:  # nothing to bootstrap from: name the cause rather than fail inside numpy's integers(0, 0) (08-F18)
         raise ValueError(f"fit_bgmm_and_sample ({caller}): no minority rows to sample from.")
     if n_min < n_components + 1:
-        return np.asarray(X_minority[np.random.default_rng(seed).integers(0, n_min, size=n_synthetic)].copy().astype(np.float32))
+        boot = np.asarray(X_minority[np.random.default_rng(seed).integers(0, n_min, size=n_synthetic)].copy().astype(np.float32))
+        return (boot, "bootstrap") if return_source else boot
     bgm = BayesianGaussianMixture(
         n_components=n_components,
         covariance_type="full",
@@ -38,8 +42,10 @@ def fit_bgmm_and_sample(X_minority: np.ndarray, n_synthetic: int, n_components: 
         reg_covar=1e-4,
         weight_concentration_prior_type="dirichlet_process",
     )
+    source = "bgmm"
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        warnings.simplefilter("ignore", category=FutureWarning)
+        warnings.simplefilter("ignore", category=DeprecationWarning)
         try:
             bgm.fit(X_minority)
             samples, _ = bgm.sample(n_synthetic)
@@ -48,4 +54,6 @@ def fit_bgmm_and_sample(X_minority: np.ndarray, n_synthetic: int, n_components: 
             logger.warning("%s: BGM fit failed at K=%d (%s); falling back to bootstrap.", caller, n_components, exc)
             rng = np.random.default_rng(seed)
             samples = X_minority[rng.integers(0, n_min, size=n_synthetic)]
-    return np.asarray(samples.astype(np.float32))
+            source = "bootstrap"
+    out = np.asarray(samples.astype(np.float32))
+    return (out, source) if return_source else out
