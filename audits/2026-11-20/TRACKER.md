@@ -1081,8 +1081,8 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 24-F59 | 24_root_modules-3.md | FIXED | _rep_member docstring names cluster_rep='first' as the constructor default (it said sum_fi). Test tests/feature_selection/test_cluster24_p3_docs_and_dead_code.py |
 | 24-F60 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F61 | 24_root_modules-3.md | FIXED | Removed the features_usefulness zero array that was overwritten; the same zeros are now passed in place, so behaviour is unchanged. Existing MRMR tests cover the path |
-| 24-F62 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F63 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F62 | 24_root_modules-3.md | FIXED | run_efs refuses duplicate target names before binning or any MI work, instead of after the full permutation loop. Test tests/feature_selection/test_cluster24_p3_guard_order_and_type.py |
+| 24-F63 | 24_root_modules-3.md | FIXED | ForwardSelectSelector raises TypeError naming the returned type instead of a bare AssertionError. Test tests/feature_selection/test_cluster24_p3_guard_order_and_type.py |
 | 24-F64 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F65 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F66 | 24_root_modules-3.md | FIXED | Removed the unused classes local in prune_conditional_twins (computed and deleted). Test tests/feature_selection/test_cluster24_p3_docs_and_dead_code.py; tests/feature_selection/test_hybrid_twin_prune*.py pass (12) |

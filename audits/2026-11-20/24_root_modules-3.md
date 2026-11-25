@@ -139,8 +139,6 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F55: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F56: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F60: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F62: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F63: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F64: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F65: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F25: FIXED. empty support returns NaN per query point; tests/feature_engineering/test_cluster24_empty_and_alignment.py
@@ -202,3 +200,7 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F61: FIXED. Removed the features_usefulness zero array that was overwritten; the same zeros are now passed in place, so behaviour is unchanged. Existing MRMR tests cover the path
 
 - 24-F66: FIXED. Removed the unused classes local in prune_conditional_twins (computed and deleted). Test tests/feature_selection/test_cluster24_p3_docs_and_dead_code.py; tests/feature_selection/test_hybrid_twin_prune*.py pass (12)
+
+- 24-F62: FIXED. run_efs refuses duplicate target names before binning or any MI work, instead of after the full permutation loop. Test tests/feature_selection/test_cluster24_p3_guard_order_and_type.py
+
+- 24-F63: FIXED. ForwardSelectSelector raises TypeError naming the returned type instead of a bare AssertionError. Test tests/feature_selection/test_cluster24_p3_guard_order_and_type.py
