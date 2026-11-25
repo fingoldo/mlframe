@@ -22,7 +22,7 @@ from scipy import stats
 
 import tt_b1_cls_feature_transform as T
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 
 def lrt_steps(F, Y, L0, ll0, iters):

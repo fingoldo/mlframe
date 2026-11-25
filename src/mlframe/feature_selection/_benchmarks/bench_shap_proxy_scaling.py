@@ -40,7 +40,7 @@ import statistics
 import time
 import warnings
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 # Stage order for the breakdown table (matches the pipeline order in ShapProxiedFS.fit).
 _STAGE_ORDER = (

@@ -8,7 +8,7 @@ import warnings
 
 import numpy as np
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 from mlframe.feature_selection.filters import batch_pair_usability_corr_gpu as G
 
 rng = np.random.default_rng(0)

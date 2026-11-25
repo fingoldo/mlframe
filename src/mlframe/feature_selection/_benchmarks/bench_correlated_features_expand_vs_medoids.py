@@ -26,7 +26,7 @@ from sklearn.preprocessing import StandardScaler
 from mlframe.feature_selection._benchmarks.bench_cross_selector_diverse import _risk_case
 from mlframe.feature_selection.filters.correlated_features import _cluster_medoids, cluster_features_by_correlation
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 def _auc(Xtr, ytr, Xte, yte, cols) -> float:

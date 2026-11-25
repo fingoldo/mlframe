@@ -6,7 +6,7 @@ Measured 2026-11-09 at 400000 rows, best of 3: 61.8 s before the pairs with NaN 
 
 from typing import Any
 import sys,time,warnings,json
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 import numpy as np,pandas as pd
 from mlframe.feature_selection.filters._mrmr_fit_impl._eng_dedup_scan import scan_engineered_duplicates
 n=int(sys.argv[1]); r=np.random.default_rng(0)

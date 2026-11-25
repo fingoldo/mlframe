@@ -37,6 +37,23 @@ def _make_quick_model(self, target_type: str, init_score: np.ndarray | None = No
     raise ValueError(f"Unsupported target_type for quick model: {target_type}")
 
 
+def _quick_train_mask(config, y: np.ndarray, target_type: str) -> "np.ndarray | None":
+    """Boolean mask of the TRAINING rows the quick model uses, from the same 80/20 split ``_fit_quick_and_score`` makes (audit 32-F11).
+
+    Returns None when the quick model does not hold out (fewer than 50 rows), since then there is no holdout to protect.
+    """
+    from sklearn.model_selection import train_test_split
+
+    n = len(y)
+    if n < 50:
+        return None
+    stratify_arg = y if target_type == "binary_classification" and len(np.unique(y)) > 1 else None
+    train_idx, _ = train_test_split(np.arange(n), test_size=0.2, random_state=config.random_state, stratify=stratify_arg)
+    mask = np.zeros(n, dtype=bool)
+    mask[train_idx] = True
+    return mask
+
+
 def _fit_quick_and_score(
     self,
     X: pd.DataFrame,

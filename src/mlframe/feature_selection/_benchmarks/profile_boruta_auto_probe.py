@@ -32,7 +32,7 @@ import warnings
 import pandas as pd
 from sklearn.datasets import make_classification
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 def main():

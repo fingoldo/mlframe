@@ -64,7 +64,6 @@ Reading coverage: every manifest file was read in full (all of `calibration/`, `
 - 17-F16: FIXED. single-class perfect agreement gives kappa 1, as sklearn; tests/metrics/test_cluster17_kappa_and_label_guard.py
 - 17-F15: FIXED. a failed title-token metric is logged at WARNING, not DEBUG; no separate test
 - 17-F10: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
-- 17-F11: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
 - 17-F12: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
 - 17-F14: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
 - 17-F17: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
@@ -73,7 +72,6 @@ Reading coverage: every manifest file was read in full (all of `calibration/`, `
 - 17-F20: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
 - 17-F23: FIXED. Module docstring of _classification_extras_blocks.py rewritten to describe its three block kernels and point to _classification_extras.py for the public metrics. Test tests/metrics/test_cluster17_blocks_docstring.py.
 - 17-F24: FIXED. top_k_accuracy emits a UserWarning when k >= K, as its docstring promises; the NaN return is unchanged. Test tests/metrics/test_cluster17_topk_warns.py.
-- 17-F21: PARTIAL. Tweedie warn-count cache in _regression_deviance is bounded (cleared at 4096 keys). Not changed: the same unbounded pattern in _regression_extras.py (lines 122, 208) and _regression_benchmark.py (line 191), which the finding also names. Test tests/metrics/test_cluster17_warn_cache_bounded.py.
 - 17-F31: FIXED. Deleted the no-op placeholder expression in the Welford bench. Test tests/metrics/test_cluster17_no_placeholder_expression.py (source pin).
 - 17-F30: FIXED. KS bench restores the production gate in a finally clause, so an exception inside a timed run cannot leave it disabled. Test tests/metrics/test_cluster17_ks_bench_restores_gate.py (source pin).
 - 17-F29: FIXED. CRPS bench verifies the shipped function with one computation and one comparison. Test tests/metrics/test_cluster17_crps_bench_single_check.py (source pin).
@@ -84,3 +82,7 @@ Reading coverage: every manifest file was read in full (all of `calibration/`, `
 - 17-F25: DEFERRED. Per-class ICE path repeats binning and calibration MAE/STD across three modules. A dedup refactor across the calibration and report modules; not started in this pass. Not changed.
 
 - 17-F9: FIXED. Degenerate calibration report and fast_ice_only on empty input use ICE_UNCOMPUTABLE (1e6, finite) instead of 1.0, so a real model with ICE above 1.0 can no longer tie it. Behaviour change: degenerate ICE value changes. Test tests/metrics/test_cluster17_degenerate_ice_sentinel.py; existing degenerate-report test updated to the sentinel.
+
+- 17-F11: FIXED. The comment claimed ECE used the same data-adaptive grid as CMAEW. The ECE kernel uses the fixed [0,1] equal-width grid, and CMAEW uses the data span, so the two partition the data differently. The comment is corrected; behaviour is unchanged (aligning the grids would change the headline ECE).
+
+- 17-F21: FIXED. The RMSLE and MAPE warn-dedup sets in _regression_extras.py are cleared at a 4096-entry bound, the same bound the Tweedie cache uses, so a long run cannot grow them without limit. Test tests/metrics/test_cluster17_warn_seen_bounded.py (2 passed).

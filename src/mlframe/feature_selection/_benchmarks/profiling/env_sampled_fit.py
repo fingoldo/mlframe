@@ -1,7 +1,7 @@
 """One 100000 x 100 every-family GPU fit (gpu_walls protocol) with a system sampler: own vs other CPU, free memory, page faults, GPU utilisation, every 2 s."""
 from typing import Any
 import os, time, threading, subprocess, warnings
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 import psutil
 for k, v in {"MLFRAME_FE_GPU_STRICT": "1", "MLFRAME_CMI_GPU": "1", "MLFRAME_FE_VRAM_F32": "1", "MLFRAME_FE_GPU_DISCRETIZE": "1", "MLFRAME_FE_GPU_BINNING": "1"}.items():
     os.environ.setdefault(k, v)

@@ -643,7 +643,6 @@ def _delegate_domain_check(bivariate_domain):
 def _make_chain_transform(
     *,
     name: str,
-    short_name: str,
     bivariate_fit,
     bivariate_forward,
     bivariate_inverse,
@@ -713,7 +712,6 @@ def _make_chain_transform(
 def _make_multi_chain_transform(
     *,
     name: str,
-    short_name: str,
     bivariate_fit,
     bivariate_forward,
     bivariate_inverse,

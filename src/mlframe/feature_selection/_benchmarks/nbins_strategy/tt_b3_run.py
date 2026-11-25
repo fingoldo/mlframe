@@ -24,7 +24,7 @@ import tt_b3_ext as X3
 import tt_b3_judge as J
 import tt_b3_reference as R
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 
 def _pick_record(ch) -> dict:

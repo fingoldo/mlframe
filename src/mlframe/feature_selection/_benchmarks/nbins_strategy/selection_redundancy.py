@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import sys, re, warnings, numpy as np
 from mlframe.feature_selection._benchmarks.binning_label import binning_params
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 from sklearn.ensemble import HistGradientBoostingClassifier as H
 from sklearn.model_selection import StratifiedKFold
 from mlframe.feature_selection._benchmarks.nbins_strategy.linear_oof import make_data

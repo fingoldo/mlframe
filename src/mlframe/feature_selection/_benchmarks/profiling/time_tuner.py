@@ -1,6 +1,6 @@
 """Run one registered kernel tuner and report how long its sweep takes, dumping every thread's stack if it exceeds a limit. Usage: ``python time_tuner.py <kernel_name> <seconds>``."""
 import sys, time, faulthandler, warnings
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[4]))  # this checkout, not an installed copy

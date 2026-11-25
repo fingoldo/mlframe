@@ -15,7 +15,7 @@ from collections import Counter
 import numpy as np
 from scipy.stats import rankdata, skew
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 
 def rcodes(v, k):

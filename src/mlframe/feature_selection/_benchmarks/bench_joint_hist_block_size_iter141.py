@@ -25,7 +25,7 @@ import warnings
 
 import numpy as np
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 def _median_ms(kernel, grid_x, bs, args, smem, iters=20, warmup=3):

@@ -42,22 +42,12 @@ logger = logging.getLogger(__name__)
 # ----------------------------------------------------------------------------------------------------------------------------
 
 import warnings
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import Any, Literal, cast
 
 import lightning as L
 import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-
-try:
-    import xxhash as _xxhash  # noqa: F401  module-top for hot cache-key path
-    _HAS_XXHASH = True
-except ImportError:
-    _HAS_XXHASH = False
-
-if TYPE_CHECKING:
-    pass
-
 
 # Default number of channels per timestep when callers don't supply
 # sequences (FEATURES_ONLY mode keeps the RNN branch dormant). Kept as a

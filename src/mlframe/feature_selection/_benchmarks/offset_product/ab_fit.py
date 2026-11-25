@@ -23,7 +23,7 @@ for _k, _v in {
     "MLFRAME_FE_GPU_BINNING": "1",
 }.items():
     os.environ.setdefault(_k, _v)
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 import numpy as np
 import pandas as pd

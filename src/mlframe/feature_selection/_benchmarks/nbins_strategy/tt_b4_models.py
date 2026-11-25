@@ -9,7 +9,7 @@ import numpy as np
 
 from tt_b4_reference import CAND_DEFAULT, ColParams, _col_params_j, design_column, rg_grid, valid_mask
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 
 def r2_rmse(y, pred):

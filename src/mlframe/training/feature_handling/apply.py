@@ -104,6 +104,9 @@ class FeatureHandlingResult:
 # =====================================================================
 
 
+# The SVD width used when a handler sets none (audit 39-F31): one named constant instead of a repeated literal. There is no config field for it.
+_SVD_DEFAULT_DIM = 256
+
 def _resolve_cat_columns(train_df: Any, candidate_cat_columns: Optional[List[str]], text_cols: List[str]) -> List[str]:
     """Return the explicit cat columns, or auto-detect them by dtype excluding the columns already claimed as text."""
     if candidate_cat_columns is None:
@@ -320,7 +323,7 @@ def _assemble_held_out(df: Any, blocks: Any, model_kind: Any, numeric_block: Any
         blocks, model_kind=model_kind,
         numeric_block=numeric_block,
         numeric_feature_names=numeric_feature_names,
-        svd_default_dim=256,
+        svd_default_dim=_SVD_DEFAULT_DIM,
         fitted_svds=train_asm.fitted_svds,
     )
 
@@ -347,30 +350,31 @@ def feature_handling_apply(
 
     Parameters
     ----------
-    train_df : polars.DataFrame | pandas.DataFrame
+    train_df
         The training data. Required.
-    val_df, test_df : optional held-out frames; transformed via the
+    val_df
         train-fitted handlers (no leak).
-    train_target : optional 1-D target vector. Required when any
+    test_df
+    train_target
         cat handler in the resolved chain is a ``target_*`` method
         (target_mean / m_estimate / james_stein / loo / woe).
-    fhc : :class:`FeatureHandlingConfig`
+    fhc
         The user's config. The helper reads ``per_model[model_kind]``,
         the defaults, and the sub-configs.
-    model_kind : str
+    model_kind
         Routing target. Determines:
           * which handler-method validations run;
           * sparse-aware vs dense-only assembly path;
           * auto-SVD trigger for >512 sparse cols.
-    cache : optional :class:`FeatureCache` instance
+    cache
         When supplied, fitted-handler outputs are looked up / stored
         keyed on (session_id, df_id, train_idx, column, params, provider).
         Cache survives across multiple model fits within one
         ``train_mlframe_models_suite`` call.
-    candidate_text_columns : optional explicit list to skip the text
+    candidate_text_columns
         auto-detector. When ``None``, the helper auto-detects via
         :func:`detect_text_columns`.
-    candidate_cat_columns : explicit list of cat columns. When ``None``,
+    candidate_cat_columns
         NO cat detection happens and the cat handler chain runs over zero
         columns (silently dropping any ``target_mean`` / WoE / etc handlers
         the FHC configured). Pre-2026-05-20 the docstring claimed symmetric
@@ -382,13 +386,16 @@ def feature_handling_apply(
         ``select_dtypes(['category','object']).columns`` snapshot) to enable
         cat handlers; a symmetric ``detect_cat_columns`` analog is a
         follow-up item.
-    numeric_block_* : optional pre-built numeric matrices (post-imputer
-        / scaler from the legacy pipeline). Concatenated to the
-        assembled matrix as the "numeric" block.
-    sample_weight : optional 1-D per-train-row weights, aligned to ``train_target``. Threaded into the
+    numeric_block_train
+    numeric_block_val
+    numeric_block_test
+    numeric_feature_names
+
+    sample_weight
         target-encoder handlers only (``LeakageSafeEncoder.fit_transform`` already supports weighted
         per-category means/OOF folds); other handler kinds (text, cat-onehot/ordinal, custom) do not
         consume it. ``None`` (default) is bit-identical to the unweighted path.
+
 
     Returns
     -------
@@ -447,7 +454,7 @@ def feature_handling_apply(
         train_blocks, model_kind=model_kind,
         numeric_block=numeric_block_train,
         numeric_feature_names=numeric_feature_names,
-        svd_default_dim=256,
+        svd_default_dim=_SVD_DEFAULT_DIM,
     )
     val_asm = _assemble_held_out(val_df, val_blocks, model_kind, numeric_block_val, numeric_feature_names, train_asm)
     test_asm = _assemble_held_out(test_df, test_blocks, model_kind, numeric_block_test, numeric_feature_names, train_asm)

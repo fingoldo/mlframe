@@ -3,7 +3,7 @@
 The numbers (30-140 us per op on the dev box, ``std`` ~280 us, ``bincount`` ~500 us) are the reason a stage with thousands of tiny operations is launch-bound whatever its GPU time.
 """
 import time, warnings
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 import cupy as cp
 n = 30000
 a = cp.random.rand(n); b = cp.random.rand(n); m = a > 0.5; f32 = a.astype(cp.float32); idx = cp.arange(n)[::-1].copy()

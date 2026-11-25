@@ -11,7 +11,7 @@ import cupy as cp
 import numpy as np
 import pandas as pd
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 from mlframe.feature_selection.filters import _binned_numeric_agg_resident as res
 from mlframe.feature_selection.filters._fe_resident_operands import resident_operand
 

@@ -16,7 +16,7 @@ from typing import Optional
 
 import numpy as np
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 CUTS = (0.1, 0.25, 0.5, 0.75, 0.9)
 

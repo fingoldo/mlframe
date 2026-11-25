@@ -356,7 +356,7 @@ def _run_composite_targ_auto_skip_use_hint(_auto_skip, _use_hint, _existing_diag
     return _diag
 
 
-def _run_composite_targ_source_truth_did_skip(group_ids, filtered_train_idx, _grp_train):
+def _group_train_slice(group_ids, filtered_train_idx, _grp_train):
     """Block of run_composite_target_discovery starting at ``if group_ids is not None:``."""
     if group_ids is not None:
         try:

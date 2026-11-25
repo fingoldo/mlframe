@@ -14,7 +14,7 @@ import warnings
 
 import numpy as np
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 sys.path.insert(0, __file__.replace("\\", "/").rsplit("/", 1)[0])
 from tt_b4_models import replacement_table
 from tt_b4_panel import make_panel

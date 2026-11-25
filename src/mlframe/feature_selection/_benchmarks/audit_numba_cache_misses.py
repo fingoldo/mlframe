@@ -13,7 +13,7 @@ import pandas as pd
 
 def main() -> None:
     """Fit, recording every real numba compile (a cache miss or an uncacheable kernel) with its qualified name and compile seconds."""
-    warnings.simplefilter("ignore")
+    warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
     from numba.core import event
 
     rec = event.RecordingListener()

@@ -74,7 +74,7 @@ def main() -> None:
         # cat_fe_config not passed -> uses default CatFEConfig() which is enabled
     )
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
         mrmr_default.fit(df_train, y_train)
     state = mrmr_default._cat_fe_state_
     print(f"  cat_fe_state.recipes: {len(state.recipes) if state else 0}")
@@ -110,7 +110,7 @@ def main() -> None:
         verbose=0, n_jobs=1, cat_fe_config=cfg_custom,
     )
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
         mrmr_custom.fit(df_train, y_train)
     state_c = mrmr_custom._cat_fe_state_
     if state_c:
@@ -131,7 +131,7 @@ def main() -> None:
         cat_fe_config=CatFEConfig(enable=False),
     )
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
         mrmr_legacy.fit(df_train, y_train)
     print(f"  legacy support_: {list(mrmr_legacy.support_)} " f"(no engineered recipes)")
     print(f"  legacy _engineered_recipes_: {mrmr_legacy._engineered_recipes_}")

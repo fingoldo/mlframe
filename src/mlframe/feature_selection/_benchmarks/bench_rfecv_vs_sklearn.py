@@ -168,14 +168,14 @@ def run_one(problem: Problem, estimator_name: str, estimator_factory: Callable, 
         verbose=0,
     )
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
         ours.fit(X, y)
     ours_t = time.perf_counter() - ours_t0
     ours_idx = _selected_idx_from_ours(ours, X)
     cols_ours = [X.columns[i] for i in ours_idx]
     if cols_ours:
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+            warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
             ours_score = float(np.mean(cross_val_score(estimator_factory(), X[cols_ours], y, cv=cv_scoring)))
     else:
         ours_score = float("nan")
@@ -191,13 +191,13 @@ def run_one(problem: Problem, estimator_name: str, estimator_factory: Callable, 
             min_features_to_select=1,
         )
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+            warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
             sk.fit(X, y)
         sk_t = time.perf_counter() - sk_t0
         sk_idx = [i for i, s in enumerate(sk.support_) if s]
         cols_sk = [X.columns[i] for i in sk_idx]
         with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
+            warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
             sk_score = float(np.mean(cross_val_score(estimator_factory(), X[cols_sk], y, cv=cv_scoring))) if cols_sk else float("nan")
         sk_recall = len(set(sk_idx) & informative) / max(1, len(informative))
     except Exception as exc:

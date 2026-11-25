@@ -34,7 +34,7 @@ import statistics
 import time
 import warnings
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 def _agg(values):

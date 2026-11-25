@@ -299,9 +299,9 @@ def _drop_nonfinite_probs(y_true: np.ndarray, y_pred: np.ndarray) -> Optional[Tu
 
 def _ece_brier_decomposition(y_true: np.ndarray, y_pred: np.ndarray, nbins: int, ece_debiased: bool, brier_debiased: bool) -> Tuple[float, float, float, float]:
     """ECE plus Brier reliability/resolution/uncertainty, bias-corrected per the two flags; returns ``(ece, reliability, resolution, uncertainty)``."""
-    # Always compute ECE + Brier decomposition. Same data-adaptive bin grid as
-    # CMAEW (kernel re-bins internally so it can capture per-bin pred_means,
-    # which fast_calibration_binning doesn't expose). Cost is one short pass.
+    # Always compute ECE + Brier decomposition. The ECE here re-bins on the FIXED [0, 1] equal-width grid (the kernel re-bins internally so it
+    # can capture per-bin pred_means, which fast_calibration_binning doesn't expose). CMAEW uses the data-span grid, so this ECE and CMAEW
+    # partition the data differently; the two are not on the same bin grid (audit 17-F11, corrected comment). Cost is one short pass.
     #
     # Headline ECE/Brier default to the bias-corrected estimators (ece_debiased / brier_debiased): the plug-in
     # binned ECE/REL positively overstate miscalibration by the per-bin Bernoulli sampling noise (a perfectly

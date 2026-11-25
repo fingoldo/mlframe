@@ -19,7 +19,7 @@ from sklearn.preprocessing import StandardScaler
 
 from mlframe.feature_selection._benchmarks.target_lens.exp_target_mix import N_TEST, PROCESSES, _models, _rmse
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 
 def _union_output(selectors, X: pd.DataFrame) -> pd.DataFrame:

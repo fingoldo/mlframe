@@ -15,7 +15,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 
 Transform = tuple[Callable[[np.ndarray], np.ndarray], Callable[[np.ndarray], np.ndarray], bool]
 

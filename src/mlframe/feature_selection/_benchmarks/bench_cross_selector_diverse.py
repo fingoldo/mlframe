@@ -37,7 +37,7 @@ from mlframe.feature_selection.filters.correlated_features import (
     _cluster_medoids, cluster_features_by_correlation,
 )
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings("ignore", category=FutureWarning); warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 
 def _rfecv_full(Xtr, ytr):

@@ -120,24 +120,24 @@ def per_group_recency_weighted_mean(
 
     Parameters
     ----------
-    values : np.ndarray
+    values
         1-D value column (binary event indicator or continuous amount).
-    group_ids : np.ndarray
+    group_ids
         1-D entity id per row, aligned with ``values``.
-    order : np.ndarray, optional
-        1-D sort key giving within-entity chronological order (e.g. timestamp). Rows are ordered
+    order
+        Optional. 1-D sort key giving within-entity chronological order (e.g. timestamp). Rows are ordered
         ASCENDING (oldest first) within each entity. If None, the existing row order within each
         entity is treated as chronological (stable).
-    scheme : {'poly', 'exp', 'power'}
-        Recency weight family (see :func:`mlframe.core.recency_weights.recency_weights`).
-    param : float
+    scheme
+        Recency weight family, one of 'poly', 'exp', 'power' (see :func:`mlframe.core.recency_weights.recency_weights`).
+    param
         Weight-family parameter. Identity (poly 0 / exp 1 / power 0) -> plain unweighted mean.
-    broadcast : bool
+    broadcast
         If True (default) the per-entity value is scattered back to every original row (a feature column,
         length ``n``). If False, returns one value per unique entity in first-appearance order.
-    fill_value : float
+    fill_value
         Value used for empty groups (only reachable via broadcast=False bookkeeping; empty groups don't occur otherwise).
-    causal : bool
+    causal
         With ``broadcast=True`` (default True) each row gets the aggregate over its entity's rows up to and including itself,
         so a training row never sees later observations. False broadcasts the whole-history value to every row (one-shot per entity).
         Ignored when ``broadcast=False``.
@@ -182,6 +182,8 @@ def per_group_recency_weighted_mean(
             # One recurrence pass per group instead of a prefix re-walk (24-F16); identical values for this scheme.
             out[sort_idx] = _causal_exp_prefix_mean(v_sorted, starts, ends, param)
             return out
+        # The poly scheme keeps the prefix re-walk (O(m^2) per group): its weights depend on the window length, so prefix sums cannot be updated
+        # exactly as the exp recurrence is (audit 24-F16, documented choice). The exp scheme above is the one-pass form.
         p_starts, p_ends = _prefix_bounds(starts, ends)
         out[sort_idx] = _group_recency_weighted_mean_sorted(v_sorted, p_starts, p_ends, scheme_code, param)
         return out
@@ -396,12 +398,21 @@ def per_group_recency_weighted_agg(
 
     Parameters
     ----------
-    values, group_ids, order, scheme, param, broadcast, fill_value, causal
+    values
         See :func:`per_group_recency_weighted_mean`.
-    agg : {'mean', 'sum', 'min', 'max', 'std', 'var'}
+    group_ids
+        See :func:`per_group_recency_weighted_mean`.
+    agg
+        One of 'mean', 'sum', 'min', 'max', 'std', 'var'.
         Aggregation applied to the weighted values (std/var use raw values weighted around the recency-weighted
         mean; groups with fewer than 2 observations yield NaN, matching pandas' ddof=0-adjacent "undefined" convention).
-    params : Sequence[float], optional
+    order
+        See :func:`per_group_recency_weighted_mean`.
+    scheme
+        See :func:`per_group_recency_weighted_mean`.
+    param
+        See :func:`per_group_recency_weighted_mean`.
+    params
         Opt-in multi-decay mode: when given (non-empty), computes the SAME aggregation at every decay strength in
         ``params`` in one call, reusing the single group sort/boundary pass (the O(n log n) part) instead of
         re-sorting per decay value the way calling this function once per ``param`` would. Typical use: a fast
@@ -410,6 +421,13 @@ def per_group_recency_weighted_agg(
         a trailing axis of length ``len(params)`` (shape ``(n, len(params))`` broadcast, ``(n_groups, len(params))``
         otherwise) ordered exactly as ``params``. Leaving ``params`` as None reproduces the prior single-``param``
         behavior bit-for-bit.
+
+    broadcast
+        See :func:`per_group_recency_weighted_mean`.
+    fill_value
+        See :func:`per_group_recency_weighted_mean`.
+    causal
+        See :func:`per_group_recency_weighted_mean`.
 
     Returns
     -------

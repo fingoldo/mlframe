@@ -583,13 +583,15 @@ def _psi_heatmap_cached(test_frame: Any, ts: np.ndarray, names: Any) -> Any:
     from mlframe.reporting.charts.drift import psi_heatmap
 
     key = _psi_cache_key(test_frame, ts, names)
-    with _PSI_CACHE_LOCK:
-        if key is not None:
+    # The lock guards the cache only; the heatmap is built outside it so targets do not queue behind one another's build (audit 26-F22).
+    if key is not None:
+        with _PSI_CACHE_LOCK:
             spec = _PSI_CACHE.get(key)
-            if spec is not None:
-                return spec
-        spec = psi_heatmap(test_frame, ts[: _row_count(test_frame)], feature_names=names)
-        if key is not None:
+        if spec is not None:
+            return spec
+    spec = psi_heatmap(test_frame, ts[: _row_count(test_frame)], feature_names=names)
+    if key is not None:
+        with _PSI_CACHE_LOCK:
             while len(_PSI_CACHE) >= 8:
                 # evict-ok: memo; a miss recomputes the value
                 _PSI_CACHE.pop(next(iter(_PSI_CACHE)))

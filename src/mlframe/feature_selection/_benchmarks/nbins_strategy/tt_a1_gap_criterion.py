@@ -20,7 +20,7 @@ from collections import Counter
 import numpy as np
 from scipy import stats
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 EPS = 1e-9
 
 

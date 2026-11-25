@@ -1,6 +1,6 @@
 """Reproducibility of fe_max_steps=1: the SAME fit (fixture, data seed, random_state=0, quantile) repeated in one process.   python tt_b5_repeat.py FIXTURE [repeats]"""
 import sys, warnings
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 import tt_b5_invariance as I
 fx = sys.argv[1]
 reps = int(sys.argv[2]) if len(sys.argv) > 2 else 3

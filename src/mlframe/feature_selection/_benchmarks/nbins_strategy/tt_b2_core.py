@@ -16,7 +16,7 @@ import numpy as np
 from scipy import stats
 from scipy.special import gamma as _G, expit
 
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 np.seterr(all="ignore")
 
 LOG3 = float(np.log(3.0))

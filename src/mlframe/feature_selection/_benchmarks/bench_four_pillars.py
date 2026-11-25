@@ -40,7 +40,7 @@ def _fit(X, y, **kw):
     from mlframe.feature_selection.filters.mrmr import MRMR
 
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
         t = time.perf_counter()
         sel = MRMR(verbose=0, **kw).fit(X, y)
         return sel, time.perf_counter() - t
@@ -120,7 +120,7 @@ def _extra_row(case, seed: int):
     out = case.gen(seed, **kwargs)
     X, y = out[0], out[1]
     with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
+        warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
         t = time.perf_counter()
         sel = MRMR(verbose=0, random_state=seed, n_workers=1).fit(X, y)
         dt = time.perf_counter() - t

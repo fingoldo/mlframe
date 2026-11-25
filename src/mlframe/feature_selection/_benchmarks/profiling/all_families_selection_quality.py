@@ -15,7 +15,7 @@ Companions (all in this package, same protocol: a warm-up fit first, then the me
 - ``numba_signature_counts``       numba dispatchers with more than one compiled signature after two fits (recompiles inside a fit).
 - ``env_sampled_fit``, ``stack_timeline``, ``utilization``, ``tick_utilization``, ``family_profile``, ``family_scale``: older siblings of the same fit (system sampler, 6 s buckets, idle share, one family at a time).
 """
-import os,sys,time,warnings; warnings.simplefilter("ignore")
+import os,sys,time,warnings; warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 mode=sys.argv[1]
 if mode=="cpu": os.environ["CUDA_VISIBLE_DEVICES"]="-1"
 else:

@@ -3,7 +3,7 @@ Feature: p=12 columns, n=20000, y = log(x3) + 0.7 sqrt(x5) + 0.5 x7 + 0.3 e with
 residual of y on a linear fit of ALL raw columns (so a raw column that explains y linearly is credited by the OLS, the transform gain is what is left)."""
 import warnings
 import numpy as np
-warnings.simplefilter("ignore")
+warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 import tt_b5_cost as C
 
 

@@ -14,7 +14,7 @@ Companions (all in this package, same protocol: a warm-up fit first, then the me
 - ``numba_signature_counts``       numba dispatchers with more than one compiled signature after two fits (recompiles inside a fit).
 - ``env_sampled_fit``, ``stack_timeline``, ``utilization``, ``tick_utilization``, ``family_profile``, ``family_scale``: older siblings of the same fit (system sampler, 6 s buckets, idle share, one family at a time).
 """
-import os,gc,warnings; warnings.simplefilter("ignore")
+import os,gc,warnings; warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 for k,v in {"MLFRAME_FE_GPU_STRICT":"1","MLFRAME_CMI_GPU":"1","MLFRAME_FE_VRAM_F32":"1","MLFRAME_FE_GPU_DISCRETIZE":"1","MLFRAME_FE_GPU_BINNING":"1"}.items(): os.environ.setdefault(k,v)
 from numba.core.registry import CPUDispatcher
 from mlframe.feature_selection._benchmarks.profiling import family_scale as Fm

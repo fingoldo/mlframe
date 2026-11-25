@@ -53,7 +53,7 @@ def _fit_bgmm_and_sample(X_minority: np.ndarray, n_synthetic: int, n_components:
     """Fit BayesianGaussianMixture and sample virtuals (shared implementation)."""
     from ._bgmm_sample import fit_bgmm_and_sample
 
-    return fit_bgmm_and_sample(X_minority, n_synthetic, n_components, seed, caller="bgmm_virtual")
+    return np.asarray(fit_bgmm_and_sample(X_minority, n_synthetic, n_components, seed, caller="bgmm_virtual"))
 
 
 def compute_bgmm_virtual_features(

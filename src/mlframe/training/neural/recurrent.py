@@ -34,18 +34,6 @@ logger = logging.getLogger(__name__)
 # Imports
 # ----------------------------------------------------------------------------------------------------------------------------
 
-from typing import TYPE_CHECKING
-
-try:
-    import xxhash as _xxhash  # noqa: F401  module-top for hot cache-key path
-    _HAS_XXHASH = True
-except ImportError:
-    _HAS_XXHASH = False
-
-if TYPE_CHECKING:
-    pass
-
-
 __all__ = [
     # Enums
     "RNNType",
