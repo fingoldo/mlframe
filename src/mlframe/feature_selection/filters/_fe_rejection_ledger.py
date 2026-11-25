@@ -51,11 +51,13 @@ ones, keep the full ledger; raise it further via the constructor param if needed
 from __future__ import annotations
 
 import logging as _logging
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
 import pandas as pd
 import logging
+from mlframe.feature_selection.filters._fe_family_timing import fe_timed
 from mlframe.utils.log_throttle import log_throttle
 
 logger = _logging.getLogger("mlframe.feature_selection.filters.mrmr")
@@ -318,6 +320,59 @@ def compute_fe_rejection_ledger(mrmr_self: Any) -> pd.DataFrame:
     return df
 
 
+def _operand_renderer(names: "list[str]") -> "Callable[[Any], str]":
+    """A function that renders the operands of one record as ``(name, name, ...)``: positions are named from ``names`` (a position past the raw columns is marked engineered), names are kept."""
+    # the position -> name table keyed by the text of the position: the records store "(0, 1)" and a piece of it is looked up as it is, with no int() and no call (4.2 s for 500000 distinct tuples)
+    by_text = {str(i): n for i, n in enumerate(names)}
+
+    def _name(v: Any) -> str:
+        """One operand: a raw name, an engineered marker, or the value unchanged if it is not a position."""
+        if isinstance(v, str):
+            return v
+        try:
+            i = int(v)
+        except (TypeError, ValueError) as _exc:
+            logger.debug("_name fell back to its default after %s", type(_exc).__name__)
+            return str(v)
+        return names[i] if 0 <= i < len(names) else f"<engineered#{i}>"
+
+    def _piece(p: str) -> str:
+        """One piece of a stored operand text: a position (named, or marked engineered when it is past the raw columns) or a name that is kept."""
+        hit = by_text.get(p)
+        return hit if hit is not None else _name(int(p) if p.isdigit() else p)
+
+    def _row(ops: Any) -> str:
+        """The whole operand tuple, rendered."""
+        if ops is None:
+            return ""
+        if isinstance(ops, str) and ops.startswith("(") and ops.endswith(")"):
+            # the records store ``_operands_str`` text, "(0, 1)"; resolve each piece
+            pieces = [p for p in ops[1:-1].split(", ") if p]
+            return "(" + ", ".join([_piece(p) for p in pieces]) + ")" if pieces else ""
+        if isinstance(ops, np.ndarray):
+            ops = ops.tolist()
+        if isinstance(ops, (list, tuple)):
+            return "(" + ", ".join(_name(o) for o in ops) + ")" if len(ops) else ""
+        return _name(ops)
+
+    return _row
+
+
+def _render_distinct(operands: Any, row: "Callable[[Any], str]") -> "list[str]":
+    """``row(o)`` for every ``o`` of ``operands``, each DISTINCT operand tuple rendered once (a pair is recorded once per operator and gate: 500000 records, 25000 to 500000 distinct tuples)."""
+    rendered: dict = {}
+    out: list = []
+    for o in operands:
+        try:
+            text = rendered.get(o)
+            if text is None:  # ``row`` always returns a string, so None means "not seen yet"
+                text = rendered[o] = row(o)
+        except TypeError:  # an unhashable operand (an array) is rendered where it is met; a NaN is a new key at every lookup, so it is too
+            text = row(o)
+        out.append(text)
+    return out
+
+
 def _resolve_index_columns(mrmr_self: Any, df: pd.DataFrame) -> None:
     """Add readable ``operand_names`` beside the raw positional ``operands``, in place.
 
@@ -333,37 +388,9 @@ def _resolve_index_columns(mrmr_self: Any, df: pd.DataFrame) -> None:
         names = [] if _fni is None else [str(n) for n in _fni]
         if not names or "operands" not in df.columns:
             return
-
-        def _name(v: Any) -> str:
-            """One operand: a raw name, an engineered marker, or the value unchanged if it is not a position."""
-            if isinstance(v, str):
-                return v
-            try:
-                i = int(v)
-            except (TypeError, ValueError) as _exc:
-                logger.debug("_name fell back to its default after %s", type(_exc).__name__)
-                return str(v)
-            return names[i] if 0 <= i < len(names) else f"<engineered#{i}>"
-
-        def _row(ops: Any) -> str:
-            """The whole operand tuple, rendered."""
-            if ops is None:
-                return ""
-            if isinstance(ops, str) and ops.startswith("(") and ops.endswith(")"):
-                # the records store ``_operands_str`` text, "(0, 1)"; resolve each piece
-                ops = [int(p) if p.isdigit() else p for p in ops[1:-1].split(", ") if p]
-            if isinstance(ops, np.ndarray):
-                ops = ops.tolist()
-            if isinstance(ops, (list, tuple)):
-                return "(" + ", ".join(_name(o) for o in ops) + ")" if len(ops) else ""
-            return _name(ops)
-
-        # a pair is recorded once per operator and gate: render each DISTINCT operand tuple once (500000 records, about 25000 distinct tuples at 1000 columns)
-        _distinct = pd.unique(df["operands"])
-        _rendered = {o: _row(o) for o in _distinct}
-        _resolved = [_rendered[o] if o in _rendered else _row(o) for o in df["operands"]]  # a NaN is a new key at every lookup: rendered where it is met
-        if any(_rendered.values()):
-            df["operand_names"] = _resolved
+        resolved = _render_distinct(df["operands"], _operand_renderer(names))
+        if any(resolved):
+            df["operand_names"] = resolved
     except Exception as exc:  # nosec B110 - a readability aid must never break the ledger
         logger.debug("fe_rejection_ledger_: operand-name resolution failed: %s", exc)
 
@@ -380,6 +407,7 @@ def populate_fe_admission_ledger(mrmr_self: Any) -> None:
         mrmr_self.fe_admission_ledger_ = pd.DataFrame({c: pd.Series([], dtype=object) for c in _ADMISSION_COLUMNS}, copy=False)
 
 
+@fe_timed("stage:fe_rejection_ledger")
 def populate_fe_rejection_ledger(mrmr_self: Any) -> None:
     """Run ``compute_fe_rejection_ledger`` and stash the result on the estimator.
 
@@ -387,8 +415,7 @@ def populate_fe_rejection_ledger(mrmr_self: Any) -> None:
     budget and the fallback schema is centralised. Never raises.
     """
     try:
-        _led = compute_fe_rejection_ledger(mrmr_self)
-        _resolve_index_columns(mrmr_self, _led)
+        _led = compute_fe_rejection_ledger(mrmr_self)  # resolves the operand names itself: a second pass over the 500000 records of a large fit was 4 s
         mrmr_self.fe_rejection_ledger_ = _led
         populate_fe_admission_ledger(mrmr_self)
     except Exception as exc:
