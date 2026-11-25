@@ -737,7 +737,6 @@
 | 27-F7 | FIXED | A weighted fit's permutation importances skip the unweighted CUDA kernel and use the weighted CPU path. Test tests/training/test_cluster27_weighted_fi_skips_cuda.py. |
 | 27-F8 | DEFERRED | Owner decision: signed or magnitude coef_ importances. The two branches disagree today; choosing either changes the reported numbers for one of them. |
 | 27-F13 | DEFERRED | Owner decision: refit on the full train, or correct the documented contract. The dichotomic path keeps the 90 percent model today, and history has mixed types. |
-| 27-F14 | DEFERRED | Owner decision: rename the pooled-residual band to a label with no proven bound, or implement the fold-specific CV+ construction. The current label claims a guarantee the construction does not give. |
 | 28-F42 | FIXED | A failed text-feature probe logs at WARNING with its traceback. Test tests/training/test_cluster28_probe_and_names_warn.py (covers the names path; the probe path shares the same change). |
 | 28-F49 | FIXED | An unreadable feature-name list logs at WARNING, and the attribute read itself is inside the guard. Test tests/training/test_cluster28_probe_and_names_warn.py. |
 | 28-F40 | FIXED | The logging proxy raises AttributeError for its unset _inner slot instead of recursing. Test tests/training/test_cluster28_logging_proxy_and_rss.py. |
@@ -1516,3 +1515,5 @@
 | 26-F12 | FIXED | The changepoint penalty is dimensionless: it multiplies a robust variance of y (squared 1.4826*MAD), so rescaling the series keeps the breakpoints. For unit-variance y this reproduces the former absolute penalty. Tests tests/signal/test_cluster26_changepoint_scale_free.py (2 passed); existing changepoint tests pass. Note: the uncalled-functions meta-test fails on eight filters/ functions that come from the merged origin tree, not from this change. |
 
 | 27-F12 | FIXED | Trainset aging without timestamps is refused with a ValueError in the no-timestamp row-based split, instead of slicing a shuffled split by position. Without the limit the split is unchanged. Test tests/training/test_cluster27_aging_needs_timestamps.py (2 passed). |
+
+| 27-F14 | DOCUMENTED | cv_plus_intervals is a pooled symmetric band from out-of-fold absolute residuals, not the CV+ or Jackknife+ construction of Barber et al. 2021; its docstring now states that no coverage guarantee is proven. The name is kept for API compatibility. A real CV+ needs per-fold models and is not built. No behaviour change. |

@@ -114,12 +114,11 @@ def cv_plus_intervals(
     oof_residuals: np.ndarray,
     alphas: Iterable[float],
 ) -> dict[float, tuple[np.ndarray, np.ndarray]]:
-    """CV+/Jackknife+ symmetric-score intervals from out-of-fold residuals (no held-out slice spent).
+    """Symmetric intervals ``pred +- Q`` from POOLED out-of-fold absolute residuals (no held-out slice spent).
 
-    Honest guarantee is the weaker ``>= 1-2alpha`` (Barber et al. 2021), NOT split-conformal's
-    ``1-alpha`` -- the OOF residuals come from K fold-models, not the shipped model, so this is the
-    correct label for the no-data-spent path. Symmetric construction: ``pred +- Q`` with ``Q`` the
-    finite-sample radius of the pooled OOF absolute residuals.
+    This is NOT the CV+ / Jackknife+ construction of Barber et al. (2021): CV+ uses fold-specific residuals and predictions, and its
+    ``>= 1-2alpha`` coverage proof does not cover this pooled band. No coverage guarantee is proven here; treat the intervals as a
+    heuristic, and use per-fold models for a CV+ guarantee (audit 27-F14, documented choice). The name is kept for API compatibility.
     """
     from .composite.conformal import conformal_quantile
 
