@@ -151,7 +151,6 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F57: FIXED. Negative and NaN categorical codes map to the reserved row instead of category 0. Tests updated in test_categorical_embeddings.py.
 - 39-F21: FIXED. Object-column fingerprints hash by value (hash_pandas_object), not PyObject pointers. Test test_cluster39_object_column_hash_by_value.py.
 - 39-F22: FIXED. fit() retries without y only for a y-signature mismatch, the same narrowing fit_transform uses; genuine TypeErrors surface. Test test_cluster39_custom_fit_narrow_retry.py.
-- 39-F68: DEFERRED. The per-step sync detects an all-zero batch at runtime; moving the check to prep time means validating sample_weight before the epoch, a design change to the weight pipeline. Owner to confirm the approach.
 - 39-F39: FIXED. CUDA runtime failure in keep-n auto sizing falls back to 2 with a WARNING instead of breaking every acquire. Test test_cluster39_keep_n_cuda_failure.py.
 - 39-F45: FIXED. Character entropy counts with a single Counter over chained characters. Test test_cluster39_char_entropy_counter.py.
 - 39-F55: FIXED. set_params raises ValueError for unknown keys and method names instead of warning or overwriting. Test test_cluster39_set_params_unknown_raises.py.
@@ -194,3 +193,5 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 - 39-F41: FIXED. Stale-lock reclaim is documented as intentionally absent: a PID-check removal races with a holder whose PID was reused, so a SIGKILLed holder still blocks until timeout and the .locks directory must be cleared by hand. StaleLockReclaimed is kept as a reserved public name and never raised; hf_provider comment corrected. Test tests/training/feature_handling/test_cluster39_no_lock_reclaim_documented.py (2 passed).
 
 - 39-F26: FIXED. The CUDA-lost CPU fallback stays float32 (fp16 on CPU is slow or unsupported). The fallback warning now states that the precision changes mid-run and that earlier batches were fp16, and the comment no longer claims identical embeddings. Test tests/training/feature_handling/test_cluster39_cpu_fallback_precision_documented.py (2 passed).
+
+- 39-F68: FIXED. The all-zero-weight check in the weighted MLP loss runs on every 50th batch (_ZERO_WEIGHT_CHECK_EVERY), not on every step, so the host-device sync is paid 1/50 as often. A zero-weight batch is reported at the next sampled batch rather than on the batch itself; the loss value is unchanged. Test tests/training/neural/test_cluster39_zero_weight_check_sampled.py (2 passed).
