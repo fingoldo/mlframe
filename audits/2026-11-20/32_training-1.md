@@ -98,6 +98,7 @@ Grep and Read used for caller checks: `core/_phase_dummy_baselines.py` (the try/
 
 - 32-F12: FIXED. The baseline diagnostic skips when fewer than 50 rows remain after sampling, with a reason naming the in-sample problem, instead of scoring the training rows as its own holdout. Tests tests/training/baselines/test_cluster32_diagnostic_min_rows.py and the existing test_baseline_diagnostics.py (35 passed).
 
-- 32-F11: DEFERRED. The init_score linear combiner is fit on all rows, while the quick model holds out 20% of them, so the holdout init_score depends on holdout labels and the delta is optimistic. Plan: draw the 80/20 split once in the diagnostic, fit the combiner (LR for binary, OLS for regression) on the training rows only, apply its fitted coefficients to the holdout rows, and pass the two arrays to _fit_quick_and_score. Needs a test that a holdout-label change does not move the training init_score, and a check that the combined top-K recommendation stays stable. No code change in this pass.
 
 - 32-F7: DOCUMENTED. The class universe is the union of train, val and test labels, so eval-only labels stay encodable in 0..K-1. The priors are train-only, so an eval-only class gets zero prior mass and no eval split informs the baseline probabilities; only the (N, K) width depends on the union. Documented at the union in dummy.py; behaviour unchanged.
+
+- 32-F11: FIXED. The init_score combiner is fit on the quick model's training rows only (the same 80/20 split, via _quick_train_mask) and scores every row, so the holdout labels no longer shape the holdout init_score. Tests tests/training/baselines/test_cluster32_init_score_combiner_train_only.py and the existing test_baseline_diagnostics.py (36 passed).

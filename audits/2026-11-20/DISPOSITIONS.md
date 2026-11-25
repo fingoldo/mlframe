@@ -1486,7 +1486,6 @@
 
 | 32-F12 | FIXED | The baseline diagnostic skips when fewer than 50 rows remain after sampling, with a reason naming the in-sample problem, instead of scoring the training rows as its own holdout. Tests tests/training/baselines/test_cluster32_diagnostic_min_rows.py and the existing test_baseline_diagnostics.py (35 passed). |
 
-| 32-F11 | DEFERRED | The init_score linear combiner is fit on all rows, while the quick model holds out 20% of them, so the holdout init_score depends on holdout labels and the delta is optimistic. Plan: draw the 80/20 split once in the diagnostic, fit the combiner (LR for binary, OLS for regression) on the training rows only, apply its fitted coefficients to the holdout rows, and pass the two arrays to _fit_quick_and_score. Needs a test that a holdout-label change does not move the training init_score, and a check that the combined top-K recommendation stays stable. No code change in this pass. |
 
 | 18-F10 | FIXED | The regression train-split path is chosen by any member instead of member 0: each member is probed once, and members without predictions are None in the list, as the classification path already does. Before, a member-0 miss dropped the whole train-split ensemble. Tests tests/models/ensembling/test_cluster18_train_path_any_member.py (2 passed); related ensembling tests 17 passed. |
 
@@ -1524,3 +1523,5 @@
 | 11-F3 | DOCUMENTED | The searched arms in exp6_tables (preset_best and each mode) report the max over many in-sample candidates, while truth and als are single candidates, so the searched numbers are inflated even on noise. Documented at the comparison as an upper bound, not a like-for-like result. A null run (permuted y) would be the follow-up if a conclusion depends on it; no code or numbers changed. |
 
 | 18-F6 | FIXED | The outlier gate keeps a row when any member is finite (the quality_gate rule), and uses nanmedian with NaN-aware MAE/STD when cells are missing, so disjoint NaN rows no longer switch the gate off. The finite path and the numba kernel are unchanged. Tests tests/models/ensembling/test_cluster18_gate_disjoint_nan.py (2 passed). Note: tests/models/test_ensemble_gate_does_not_freeze_caller_arrays.py::test_the_cache_does_not_retain_the_arrays already fails on HEAD without this change; not caused here. |
+
+| 32-F11 | FIXED | The init_score combiner is fit on the quick model's training rows only (the same 80/20 split, via _quick_train_mask) and scores every row, so the holdout labels no longer shape the holdout init_score. Tests tests/training/baselines/test_cluster32_init_score_combiner_train_only.py and the existing test_baseline_diagnostics.py (36 passed). |
