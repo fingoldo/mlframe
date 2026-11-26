@@ -392,7 +392,6 @@
 | 14-F5 | FIXED | note: tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_core_refine.py::test_biz_val_auto_matches_core_on_non_saturated_bed fails on the exact pre-change file too (pre-existing, verified) |
 | 15-F8 | FIXED | a callable prescreen's result is filtered to the candidate names the search offered; no direct test (the prescreen path needs a full RFECV fixture) |
 | 15-F9 | FIXED | the importance callable is called with target only when its signature accepts it, so a TypeError inside it runs once; tests/feature_selection/test_cluster15_importance_getter_and_prescreen.py |
-| 15-F6 | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
 | 15-F10 | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
 | 15-F11 | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
 | 16-F1 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
@@ -1607,3 +1606,5 @@
 | 23-F13 | FIXED | Dropped the unused name parameter of _merge_parallel_chunks and its call argument. |
 
 | 23-F14 | DOCUMENTED | Docstring now states the sign of cv_delta is ignored, so a loss on a shifted subgroup is flagged too; behaviour unchanged. |
+
+| 15-F6 | FIXED | Stability selection counts failed estimator fits and importance computations and logs one WARNING when at least half failed (with an explicit note when none succeeded), regardless of verbose. Test tests/feature_selection/test_cluster15_stability_failed_fits_warn.py. |
