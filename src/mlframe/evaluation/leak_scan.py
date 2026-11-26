@@ -109,7 +109,7 @@ def _build_derived_matrix(
         else:
             with np.errstate(invalid="ignore", divide="ignore"):
                 ratio = col_a / col_b
-            derived[:, i] = np.where(np.isfinite(ratio), ratio, 0.0)
+            derived[:, i] = np.where(np.isfinite(ratio), ratio, np.nan)  # keep missingness visible to the finite mask (23-F6)
     return derived, columns_out
 
 

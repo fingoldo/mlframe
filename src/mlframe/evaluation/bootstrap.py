@@ -421,7 +421,7 @@ def _run_parallel_resamples(
     samples_lists: dict[str, list] = {name: [] for name in _all_active}
     failures = {name: 0 for name in _all_active}
     first_err: Dict[str, Optional[str]] = {name: None for name in _all_active}
-    _merge_parallel_chunks(_parts, _all_active, samples_lists, failures, first_err, _all_active[0])
+    _merge_parallel_chunks(_parts, _all_active, samples_lists, failures, first_err)
     samples = {name: np.asarray(samples_lists[name], dtype=np.float64) for name in _all_active}
     valid = {name: samples[name].shape[0] for name in _all_active}
     return samples, valid, failures, first_err
@@ -473,7 +473,7 @@ def _run_serial_resamples(
     return samples, valid, failures, first_err
 
 
-def _merge_parallel_chunks(_parts, _all_active, samples_lists, failures, first_err, name):
+def _merge_parallel_chunks(_parts, _all_active, samples_lists, failures, first_err):
     """Merge the sample lists of the parallel bootstrap chunks."""
     for _ls, _fl, _fe in _parts:
         for name in _all_active:

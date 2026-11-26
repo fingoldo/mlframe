@@ -48,12 +48,18 @@ Counts: P0 0, P1 4, P2 4, P3 6.
 - 23-F1: RESOLVED. When more than a quarter of resamples fail, the bootstrap CI spans the surviving range (as the docstring documents) and the result carries degraded=True. Test tests/evaluation/test_bootstrap_degraded_ci_spans_survivors.py; 73 existing bootstrap tests pass. Commit below.
 - 23-F5: FIXED. the leakage p-value is computed whether or not a tolerance decided the verdict; tests/evaluation/test_cluster23_leak_pvalue_and_event_days.py
 - 23-F8: FIXED. event distances use fractional days (total seconds / 86400) instead of the floored .dt.days; same test file; 95 related tests pass
-- 23-F6: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
 - 23-F7: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
-- 23-F9: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
-- 23-F10: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
-- 23-F11: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
 - 23-F12: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
-- 23-F13: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
-- 23-F14: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
 - 23-F2: FIXED. Explicit leak_tolerance decides the verdict (no fixed default). Test tests/evaluation/test_cluster23_leak_verdict_uses_caller_tolerance.py.
+
+- 23-F6: FIXED. Derived ratio keeps NaN for missing or zero denominators (inf mapped to NaN) so the finite mask and missing_correlation see it. Test tests/evaluation/test_cluster23_leak_scan_ratio_nan.py.
+
+- 23-F9: FIXED. Docstring now says best_scheme is the smallest mean per-fold gap.
+
+- 23-F10: DEFERRED. Docstring and code differ on the z-score reference set; choosing leave-one-out or fixing the text changes which variants are flagged, an owner call.
+
+- 23-F11: RESOLVED. Not dead code: the next call takes jackknife as an argument, so the None initial value is used. Removing it raises UnboundLocalError (18 existing tests failed). Left as is.
+
+- 23-F13: FIXED. Dropped the unused name parameter of _merge_parallel_chunks and its call argument.
+
+- 23-F14: DOCUMENTED. Docstring now states the sign of cv_delta is ignored, so a loss on a shifted subgroup is flagged too; behaviour unchanged.

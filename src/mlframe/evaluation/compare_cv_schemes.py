@@ -58,8 +58,9 @@ def compare_cv_schemes(
     -------
     dict
         ``ooo_time_score`` (the ground-truth out-of-time score), ``scheme_scores`` (``{name: {"cv_score",
-        "gap_to_ooo_time"}}``), ``best_scheme`` (the name whose ``cv_score`` is closest to
-        ``ooo_time_score``, i.e. the most trustworthy CV proxy for this dataset). When ``significance_alpha``
+        "gap_to_ooo_time"}}``), ``best_scheme`` (the name with the smallest mean per-fold
+        gap to ``ooo_time_score``, i.e. the most trustworthy CV proxy for this dataset; a scheme whose folds over- and undershoot can lose to one whose
+        mean score is further from the target but whose folds each sit close to it). When ``significance_alpha``
         is given, also: ``significance`` (``{other_name: triage_cv_delta_result}`` for every non-winning
         scheme, comparing its fold-level gap against the point-estimate winner's) and
         ``best_scheme_significant`` (``True`` only if the point-estimate winner's gap advantage clears the

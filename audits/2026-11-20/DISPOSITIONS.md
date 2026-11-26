@@ -460,14 +460,8 @@
 | 22-F26 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 23-F5 | FIXED | the leakage p-value is computed whether or not a tolerance decided the verdict; tests/evaluation/test_cluster23_leak_pvalue_and_event_days.py |
 | 23-F8 | FIXED | event distances use fractional days (total seconds / 86400) instead of the floored .dt.days; same test file; 95 related tests pass |
-| 23-F6 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
 | 23-F7 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
-| 23-F9 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
-| 23-F10 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
-| 23-F11 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
 | 23-F12 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
-| 23-F13 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
-| 23-F14 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
 | 24-F48 | FIXED | validation-only class labels get the probability floor instead of a neighbouring class's column; tests/feature_selection/test_cluster24_unseen_validation_label.py |
 | 24-F23 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F24 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
@@ -1601,3 +1595,15 @@
 | 17-F12 | FIXED | Quantile binning kernel locates each pocket by binary search (O(log nbins)); NaN scores stay in pocket 0 as before. Regression test compares with the old linear scan, including ties and edge values. |
 
 | 09-F27 | FIXED | Pairwise distances are built once per query chunk and class and reused for all bandwidths (_gaussian_kde_log_multi); results are bit-identical to the single-bandwidth calls. Test tests/feature_engineering/transformer/test_cluster09_kde_shared_distances.py. |
+
+| 23-F6 | FIXED | Derived ratio keeps NaN for missing or zero denominators (inf mapped to NaN) so the finite mask and missing_correlation see it. Test tests/evaluation/test_cluster23_leak_scan_ratio_nan.py. |
+
+| 23-F9 | FIXED | Docstring now says best_scheme is the smallest mean per-fold gap. |
+
+| 23-F10 | DEFERRED | Docstring and code differ on the z-score reference set; choosing leave-one-out or fixing the text changes which variants are flagged, an owner call. |
+
+| 23-F11 | RESOLVED | Not dead code: the next call takes jackknife as an argument, so the None initial value is used. Removing it raises UnboundLocalError (18 existing tests failed). Left as is. |
+
+| 23-F13 | FIXED | Dropped the unused name parameter of _merge_parallel_chunks and its call argument. |
+
+| 23-F14 | DOCUMENTED | Docstring now states the sign of cv_delta is ignored, so a loss on a shifted subgroup is flagged too; behaviour unchanged. |

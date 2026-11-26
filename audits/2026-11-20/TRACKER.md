@@ -1033,15 +1033,15 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 22-F30 | 22_root_modules-1.md | DEFERRED | Lazy resolution cannot be limited to __all__: 50 public names exported by the submodules (for example generate_similar_probs, fast_roc_auc) are not in __all__ but are reachable as attributes. Fixing the perf needs an owner decision on the public surface. Not changed. |
 | 22-F31 | 22_root_modules-1.md | FIXED | Recency-weight module docstring corrected: i counts back from the most recent (i = 1), matching the code, where the newest observation carries the largest weight. Test tests/core/test_cluster22_recency_index_convention.py. |
 | 23-F5 | 23_root_modules-2.md | FIXED | the leakage p-value is computed whether or not a tolerance decided the verdict; tests/evaluation/test_cluster23_leak_pvalue_and_event_days.py |
-| 23-F6 | 23_root_modules-2.md | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
+| 23-F6 | 23_root_modules-2.md | FIXED | Derived ratio keeps NaN for missing or zero denominators (inf mapped to NaN) so the finite mask and missing_correlation see it. Test tests/evaluation/test_cluster23_leak_scan_ratio_nan.py. |
 | 23-F7 | 23_root_modules-2.md | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
 | 23-F8 | 23_root_modules-2.md | FIXED | event distances use fractional days (total seconds / 86400) instead of the floored .dt.days; same test file; 95 related tests pass |
-| 23-F9 | 23_root_modules-2.md | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
-| 23-F10 | 23_root_modules-2.md | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
-| 23-F11 | 23_root_modules-2.md | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
+| 23-F9 | 23_root_modules-2.md | FIXED | Docstring now says best_scheme is the smallest mean per-fold gap. |
+| 23-F10 | 23_root_modules-2.md | DEFERRED | Docstring and code differ on the z-score reference set; choosing leave-one-out or fixing the text changes which variants are flagged, an owner call. |
+| 23-F11 | 23_root_modules-2.md | RESOLVED | Not dead code: the next call takes jackknife as an argument, so the None initial value is used. Removing it raises UnboundLocalError (18 existing tests failed). Left as is. |
 | 23-F12 | 23_root_modules-2.md | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
-| 23-F13 | 23_root_modules-2.md | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
-| 23-F14 | 23_root_modules-2.md | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
+| 23-F13 | 23_root_modules-2.md | FIXED | Dropped the unused name parameter of _merge_parallel_chunks and its call argument. |
+| 23-F14 | 23_root_modules-2.md | DOCUMENTED | Docstring now states the sign of cv_delta is ignored, so a loss on a shifted subgroup is flagged too; behaviour unchanged. |
 | 24-F23 | 24_root_modules-3.md | FIXED | local density drops the self-match when the query is the reference, so dist_to_kth is the k-th other point; tests/feature_engineering/test_cluster24_min_periods_and_self_match.py; 57 related tests pass |
 | 24-F24 | 24_root_modules-3.md | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
 | 24-F25 | 24_root_modules-3.md | FIXED | empty support returns NaN per query point; tests/feature_engineering/test_cluster24_empty_and_alignment.py |

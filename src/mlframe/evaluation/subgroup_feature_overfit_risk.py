@@ -47,7 +47,7 @@ def flag_subgroup_only_feature_overfit_risk(
         ``subgroup_report_row`` (the matching row of the full drift report, or ``None`` if the subgroup
         value doesn't appear in either split), ``prevalence_ratio``, ``subgroup_shifted`` (bool),
         ``cv_delta``, ``overfit_risk_flag`` (bool -- ``True`` when the subgroup is shifted AND ``cv_delta``
-        is nonzero, i.e. there IS a CV gain riding on a shifted-mix subgroup).
+        is nonzero -- the sign is ignored, so a CV loss on a shifted-mix subgroup is flagged as well as a gain).
     """
     report = subpopulation_ratio_drift_check(train_df, test_df, subgroup_col, ratio_threshold=ratio_threshold)
     matching = report[report["subgroup_value"] == feature_subgroup_value]
