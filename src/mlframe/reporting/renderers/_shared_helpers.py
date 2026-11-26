@@ -357,6 +357,17 @@ def low_evidence_mask(indices: Any, n: int) -> np.ndarray:
     return mask
 
 
+def remap_low_evidence_indices(indices: Any, keep: Any, n_full: int) -> Any:
+    """Positions, within a downsampled point set, of the points a builder flagged as low-evidence.
+
+    ``indices`` refer to the full ``n_full`` points and ``keep`` is the downsample selection (``None`` when nothing was dropped). Without this the flag was
+    discarded on every downsampled scatter and weak points were drawn as confident ones (21-F10).
+    """
+    if indices is None or keep is None:
+        return indices
+    return np.flatnonzero(low_evidence_mask(indices, n_full)[np.asarray(keep)])
+
+
 def _per_series_flags(flag, n: int):
     """Normalize a per-series bool flag (single bool / tuple / None) into a length-n bool list."""
     if flag is None:

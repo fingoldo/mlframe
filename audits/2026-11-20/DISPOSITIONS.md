@@ -442,7 +442,6 @@
 | 21-F16 | FIXED | metric direction uses the family name before any @k cutoff; same test file |
 | 21-F8 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F9 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
-| 21-F10 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F12 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F14 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 22-F13 | FIXED | the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass |
@@ -1612,3 +1611,5 @@
 | 21-F7 | FIXED | Risk-coverage logs a WARNING naming the labels outside {0,1} that it drops, and the empty-figure annotation mentions the 0/1 requirement. Test tests/reporting/test_cluster21_risk_coverage_labels_and_shap_proxy_warn.py. |
 
 | 21-F15 | FIXED | A failing decision_function/predict_proba/predict in the SHAP score proxy now logs a throttled WARNING stating that tail preservation is lost. Same test file. |
+
+| 21-F10 | FIXED | Low-evidence indices are mapped through the downsample selection (remap_low_evidence_indices) in both the matplotlib and plotly scatter, so weak points stay hollow after capping. Test tests/reporting/test_cluster21_low_evidence_survives_downsample.py. |

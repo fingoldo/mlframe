@@ -990,7 +990,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 21-F7 | 21_reporting-2.md | FIXED | Risk-coverage logs a WARNING naming the labels outside {0,1} that it drops, and the empty-figure annotation mentions the 0/1 requirement. Test tests/reporting/test_cluster21_risk_coverage_labels_and_shap_proxy_warn.py. |
 | 21-F8 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F9 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
-| 21-F10 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
+| 21-F10 | 21_reporting-2.md | FIXED | Low-evidence indices are mapped through the downsample selection (remap_low_evidence_indices) in both the matplotlib and plotly scatter, so weak points stay hollow after capping. Test tests/reporting/test_cluster21_low_evidence_survives_downsample.py. |
 | 21-F11 | 21_reporting-2.md | FIXED | Split metrics take n_rows, n_pos and n_neg from the full split before subsampling, so the legend and the AUC noise bar use the true counts. Test tests/reporting/test_cluster21_split_comparison_true_counts.py. |
 | 21-F12 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F13 | 21_reporting-2.md | FIXED | The trend fit cache stores a blake2b digest of each array's contents and checks it on every hit, so an in-place refill of the same buffer is refitted rather than served stale. Tests tests/reporting/test_cluster21_trend_cache_content.py (2 passed). |
