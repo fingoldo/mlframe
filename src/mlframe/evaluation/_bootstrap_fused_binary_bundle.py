@@ -250,6 +250,10 @@ def bootstrap_auc_brier_ll_ece_batch(
     n = p_pos.shape[0]
     if n < 2:
         return None
+    # The fused AUC counts y as 0/1 (``ones += y``), so any other encoding ({-1, +1}, {1, 2}, NaN, ...) would give a meaningless value with no error.
+    # Not applicable: return None and the caller falls back to ``bootstrap_metrics`` (audit 22-F25).
+    if not bool(np.all((y_true == 0) | (y_true == 1))):
+        return None
 
     asc_order = np.argsort(p_pos)
     sorted_score = p_pos[asc_order]

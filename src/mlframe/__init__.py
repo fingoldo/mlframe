@@ -94,6 +94,7 @@ def _autoconfigure_cuda_home() -> None:
     proper CUDA toolkit is left untouched. Cheap filesystem probe only (no numba/cupy import); never
     raises. Opt-out: ``MLFRAME_NO_CUDA_AUTOCONFIG=1``.
     """
+    import logging
     import os
     from mlframe.utils.env_flags import env_flag
     if env_flag("MLFRAME_NO_CUDA_AUTOCONFIG"):
@@ -135,7 +136,6 @@ def _autoconfigure_cuda_home() -> None:
         if _complete:
             os.environ["CUDA_HOME"] = _complete
             os.environ["CUDA_PATH"] = _complete
-            import logging
             logging.getLogger(__name__).info(
                 "mlframe: redirected CUDA_HOME/CUDA_PATH from an nvvm-only dir (%s, no cudart) to the "
                 "complete CUDA toolkit %s so numba.cuda kernels compile; set MLFRAME_NO_CUDA_AUTOCONFIG=1 to skip.",
@@ -161,8 +161,6 @@ def _autoconfigure_cuda_home() -> None:
                 cuda_nvcc = str(nvvm.parent)
                 os.environ["CUDA_HOME"] = cuda_nvcc
                 os.environ.setdefault("CUDA_PATH", cuda_nvcc)
-                import logging
-
                 logging.getLogger(__name__).info(
                     "mlframe: set CUDA_HOME/CUDA_PATH to the pip-installed nvidia NVVM (%s) so numba.cuda "
                     "GPU kernels are enabled; set MLFRAME_NO_CUDA_AUTOCONFIG=1 to skip.", cuda_nvcc,

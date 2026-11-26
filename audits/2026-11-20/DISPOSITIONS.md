@@ -435,7 +435,6 @@
 | 20-F17 | FIXED | the per-alpha pinball panel drops non-finite rows first, as its sibling panels do; tests/reporting/test_cluster20_pinball_panel_nan.py |
 | 20-F7 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F8 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F11 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F12 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F13 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F14 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
@@ -457,10 +456,8 @@
 | 21-F15 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 22-F13 | FIXED | the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass |
 | 22-F20 | FIXED | the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test |
-| 22-F9 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F10 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F11 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
-| 22-F12 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F14 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F15 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F16 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
@@ -471,7 +468,6 @@
 | 22-F22 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F23 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F24 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
-| 22-F25 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F26 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 23-F5 | FIXED | the leakage p-value is computed whether or not a tolerance decided the verdict; tests/evaluation/test_cluster23_leak_pvalue_and_event_days.py |
 | 23-F8 | FIXED | event distances use fractional days (total seconds / 86400) instead of the floored .dt.days; same test file; 95 related tests pass |
@@ -1585,3 +1581,11 @@
 | 20-F26 | FIXED | metric_over_time marks the axis as time only for a datetime index; otherwise x_is_time is False and the label is bucket. Test test_cluster20_axis_contracts_and_probes.py |
 
 | 20-F27 | FIXED | A failed SHAP pair choice in the 2-D PDP is logged at WARNING (was DEBUG), naming the exception. Test test_cluster20_nan_prevalence_bench_and_pdp_warn.py. tests/reporting/test_cluster20_nan_prevalence_bench_and_pdp_warn.py, tests/reporting/test_cluster20_axis_contracts_and_probes.py; existing chart tests 992 passed, one unrelated xgb dmatrix shim failure not checked on HEAD |
+
+| 22-F9 | FIXED | _autoconfigure_cuda_home imports logging once at the top of the function; the two inner imports made logging a local name for the whole function, so the except handler raised UnboundLocalError when the probe failed first. Test tests/test_cluster22_cuda_autoconfig_logging.py |
+
+| 22-F12 | FIXED | show_classifier_calibration cuts a full-length ranking down to each interval's rows (positions inside [lo, r), shifted by lo, order kept) before binning, instead of passing it unchanged to the unchecked njit kernel. Test tests/calibration/test_cluster22_interval_ranking_slices.py; existing calibration tests 170 passed, 2 unrelated fast_r2 numba-typing failures in test_audit_divide_by_zero.py (metrics.regression, not touched) |
+
+| 20-F11 | FIXED | calibration_drift base rate is the mean of the finite labels, and the usable-window note counts windows with a finite ECE. Test tests/reporting/test_cluster20_drift_nan_label_base_rate.py |
+
+| 22-F25 | FIXED | The fused bootstrap AUC/Brier/log-loss/ECE bundle returns None (not applicable) unless y is exactly 0/1, so a {1,2}, {-1,+1} or NaN-bearing encoding falls back to bootstrap_metrics instead of giving a meaningless AUC. Test tests/evaluation/test_cluster22_fused_bootstrap_binary_labels.py |

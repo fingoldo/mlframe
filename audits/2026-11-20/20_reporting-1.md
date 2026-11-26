@@ -94,7 +94,6 @@ Counts below are the number of files under `tests/` whose text names the functio
 - 20-F17: FIXED. the per-alpha pinball panel drops non-finite rows first, as its sibling panels do; tests/reporting/test_cluster20_pinball_panel_nan.py
 - 20-F7: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F8: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
-- 20-F11: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F12: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F13: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F14: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
@@ -137,3 +136,5 @@ Counts below are the number of files under `tests/` whose text names the functio
 - 20-F26: FIXED. metric_over_time marks the axis as time only for a datetime index; otherwise x_is_time is False and the label is bucket. Test test_cluster20_axis_contracts_and_probes.py
 
 - 20-F27: FIXED. A failed SHAP pair choice in the 2-D PDP is logged at WARNING (was DEBUG), naming the exception. Test test_cluster20_nan_prevalence_bench_and_pdp_warn.py. tests/reporting/test_cluster20_nan_prevalence_bench_and_pdp_warn.py, tests/reporting/test_cluster20_axis_contracts_and_probes.py; existing chart tests 992 passed, one unrelated xgb dmatrix shim failure not checked on HEAD
+
+- 20-F11: FIXED. calibration_drift base rate is the mean of the finite labels, and the usable-window note counts windows with a finite ECE. Test tests/reporting/test_cluster20_drift_nan_label_base_rate.py
