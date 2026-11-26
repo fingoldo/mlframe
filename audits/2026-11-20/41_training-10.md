@@ -115,7 +115,8 @@ None. All 63 manifest files were read in full. Grep was used for callers and def
 - 41-F36: DEFERRED. Split label is inferred from the last underscore token of plot_file. Fixing it means passing the split explicitly through the chart call, an API change across the diagnostics callers. No code change.
 - 41-F44: DEFERRED. The DSL render branch ignores show and save_path. Honouring them needs a decision on the DSL's display contract across callers. No code change.
 - 41-F40: DEFERRED. Per-object-column next() scan in the ranker suite is a perf nit on wide frames; a sampled-value approach changes which value is probed, so it needs a perf and behaviour check. No code change.
-- 41-F41: DEFERRED. Pairwise redundancy is an O(F^2) Python double loop; vectorising it needs an equivalence check on the redundancy score, deferred to a perf pass. No code change.
 - 41-F42: DEFERRED. Duplicated helper and import nits span several ranking and reporting files; consolidating them is a cross-file refactor for its own pass. No code change.
 
 - 41-F14: DEFERRED. Probability metrics fed by one-hot predict() when predict_proba is missing. The fix needs the probabilistic report to skip ROC, PR, Brier, calibration and plots on that path. report_probabilistic_model_perf takes about 50 parameters and computes all of them in one pass, so gating each branch needs a dedicated pass with a report-level test. Plan: return a 'probabilities unavailable' marker from _predict_probs_if_missing, short-circuit the metric block, and keep label metrics. No code change in this pass.
+
+- 41-F41: FIXED. The pairwise redundancy scan selects the upper-triangle pairs with np.triu_indices and one mask; output order and values are identical to the nested loop (test compares both, including a constant column). Test tests/training/test_cluster41_pairwise_redundancy_vectorised.py.

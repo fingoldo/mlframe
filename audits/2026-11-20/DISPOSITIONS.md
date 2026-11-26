@@ -1224,7 +1224,6 @@
 | 37-F36 | DEFERRED | The unary transforms logger name differs from the composite_transforms name used elsewhere; changing it affects log filters configured by users, so it needs a naming decision. No code change. |
 | 39-F72 | DEFERRED | The torch from_numpy benchmark's Strategy C measures a path the code does not produce, and the 0.014 ms figure needs re-measurement on the real path before the doc can be corrected. Deferred to a benchmark re-run. No code change. |
 | 41-F40 | DEFERRED | Per-object-column next() scan in the ranker suite is a perf nit on wide frames; a sampled-value approach changes which value is probed, so it needs a perf and behaviour check. No code change. |
-| 41-F41 | DEFERRED | Pairwise redundancy is an O(F^2) Python double loop; vectorising it needs an equivalence check on the redundancy score, deferred to a perf pass. No code change. |
 | 41-F42 | DEFERRED | Duplicated helper and import nits span several ranking and reporting files; consolidating them is a cross-file refactor for its own pass. No code change. |
 | 15-F13 | DEFERRED | Three near-identical unwrap-to-inner-estimator loops with different attribute sets across the wrappers files. Consolidating them needs one attribute-set contract across the three call sites, deferred to a refactor pass. No code change. |
 
@@ -1618,3 +1617,5 @@
 | 22-F24 | FIXED | cluster_resample_indices builds the resample with one np.repeat gather instead of a Python slice per drawn group; output and rng consumption are identical (test compares with the old form over 20 seeds). Test tests/evaluation/test_cluster22_cluster_resample_vectorised.py. |
 
 | 22-F16 | RESOLVED | Not a defect: in the inner_cv path the full-OOF fit (cal_oof) is still used, for the non-finite check and as the returned calibrated_probs, so it cannot move into the same_oof branch. No change. |
+
+| 41-F41 | FIXED | The pairwise redundancy scan selects the upper-triangle pairs with np.triu_indices and one mask; output order and values are identical to the nested loop (test compares both, including a constant column). Test tests/training/test_cluster41_pairwise_redundancy_vectorised.py. |

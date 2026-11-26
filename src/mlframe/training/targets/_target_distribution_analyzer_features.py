@@ -13,7 +13,6 @@ resolves transparently.
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
@@ -76,15 +75,11 @@ def _pairwise_redundant_features(
     # corrcoef along rows -> transpose so each row is a feature.
     with np.errstate(invalid="ignore", divide="ignore"):
         C = np.corrcoef(X_numeric, rowvar=False)
-    pairs: list[tuple[str, str, float]] = []
-    n_feats = X_numeric.shape[1]
-    for i in range(n_feats):
-        for j in range(i + 1, n_feats):
-            corr = float(C[i, j])
-            if not math.isfinite(corr):
-                continue
-            if abs(corr) >= threshold:
-                pairs.append((feature_names[i], feature_names[j], abs(corr)))
+    # Upper-triangle pairs in the same row-major order the nested loop visited, selected by one mask instead of a Python double loop (41-F41).
+    rows, cols = np.triu_indices(X_numeric.shape[1], k=1)
+    vals = np.abs(C[rows, cols])
+    keep = np.isfinite(vals) & (vals >= threshold)
+    pairs: list[tuple[str, str, float]] = [(feature_names[i], feature_names[j], float(v)) for i, j, v in zip(rows[keep], cols[keep], vals[keep])]
     pairs.sort(key=lambda t: -t[2])
     return pairs
 
