@@ -440,11 +440,9 @@
 | 21-F14 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 22-F13 | FIXED | the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass |
 | 22-F20 | FIXED | the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test |
-| 22-F16 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F17 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F18 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F23 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
-| 22-F24 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F26 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 23-F5 | FIXED | the leakage p-value is computed whether or not a tolerance decided the verdict; tests/evaluation/test_cluster23_leak_pvalue_and_event_days.py |
 | 23-F8 | FIXED | event distances use fractional days (total seconds / 86400) instead of the floored .dt.days; same test file; 95 related tests pass |
@@ -1616,3 +1614,7 @@
 | 24-F29 | FIXED | Windowed targets use at least float64 (np.promote_types(dtype, float64)); features keep the requested dtype. Test tests/feature_engineering/test_cluster24_dtype_docs_and_nan_pairs.py. |
 
 | 24-F27 | FIXED | variance_gated_pairwise_diff logs a WARNING naming the columns whose NaN/inf values drop every pair involving them. Same test file. |
+
+| 22-F24 | FIXED | cluster_resample_indices builds the resample with one np.repeat gather instead of a Python slice per drawn group; output and rng consumption are identical (test compares with the old form over 20 seeds). Test tests/evaluation/test_cluster22_cluster_resample_vectorised.py. |
+
+| 22-F16 | RESOLVED | Not a defect: in the inner_cv path the full-OOF fit (cal_oof) is still used, for the non-finite check and as the returned calibrated_probs, so it cannot move into the same_oof branch. No change. |

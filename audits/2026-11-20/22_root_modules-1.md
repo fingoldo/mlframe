@@ -87,11 +87,9 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F3: DEFERRED. get_postcalibrators imports netcal, pycalib, ml_insights, betacal and venn_abers unguarded, and the calibrator list references their attributes directly. Making each optional means restructuring the whole zoo list per library. The change is mechanical but touches every entry; deferred to a dedicated pass with a test that blocks each module in turn.
 - 22-F13: FIXED. the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass
 - 22-F20: FIXED. the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test
-- 22-F16: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F17: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F18: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F23: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
-- 22-F24: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F26: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F3: DEFERRED. Still deferred: get_postcalibrators imports six optional libraries unguarded and builds each calibrator inline. Guarding each entry means restructuring the zoo list per library; deferred to a dedicated pass with a test that blocks each module in turn.
 - 22-F3: FIXED. Each optional calibration library is imported separately; an absent one skips only its candidates (calibration/post.py get_postcalibrators); tests/calibration/test_cluster22_missing_calibrator_library_skipped.py
@@ -136,3 +134,7 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F22: FIXED. get_best_dummy_score retries the scorer unweighted only when the TypeError mentions sample_weight; any other TypeError propagates. Test test_cluster22_estimator_contracts.py; existing estimator tests 334 passed
 
 - 22-F10: DEFERRED. Tried the direct fix (walk every module that defines a callee name): the gate then reports 21 new paths on the real tree, 14 of them through the closure name _kernel that many modules define, so they are same-name collisions, not real calls. The gate resolves callees by bare name; a correct fix has to resolve them through the caller's imports (qualified names), which is a larger change to the scanner. Left as is so the CI gate stays meaningful
+
+- 22-F24: FIXED. cluster_resample_indices builds the resample with one np.repeat gather instead of a Python slice per drawn group; output and rng consumption are identical (test compares with the old form over 20 seeds). Test tests/evaluation/test_cluster22_cluster_resample_vectorised.py.
+
+- 22-F16: RESOLVED. Not a defect: in the inner_cv path the full-OOF fit (cal_oof) is still used, for the non-finite check and as the returned calibrated_probs, so it cannot move into the same_oof branch. No change.
