@@ -809,7 +809,8 @@ def hybrid_orth_mi_triplet_fe(
         X_aug_uni, uni_scores = _stage_one(X, y, cols, degrees, basis, top_k, min_uplift, min_abs_mi_frac, nbins)
 
     seed_sources, explicit_triplets = _triplet_seed_sources(X, y, cols, uni_scores, explicit_triplets, top_triplet_seed_k, nbins)
-    return _triplet_stage(X, y, X_aug_uni, uni_scores, seed_sources, explicit_triplets, top_triplet_count, triplet_max_degree, basis, nbins)
+    out: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] = _triplet_stage(X, y, X_aug_uni, uni_scores, seed_sources, explicit_triplets, top_triplet_count, triplet_max_degree, basis, nbins)
+    return out
 
 
 def _stage_one(X, y, cols, degrees, basis, top_k, min_uplift, min_abs_mi_frac, nbins):
