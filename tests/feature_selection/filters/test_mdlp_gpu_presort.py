@@ -46,6 +46,20 @@ def _host(col, labels):
     return xs, ys, uniq.astype(col.dtype, copy=False), counts, xd, yd, (xd is xs and yd is ys)
 
 
+def _reference(col, labels):
+    """The arrays of the host passes for a column of any length (``sort_xy`` itself only takes long columns): a stable sort on the order-preserving bits, runs by a float compare, ``_dedupe_xy`` of the pair."""
+    bits = np.ascontiguousarray(col.astype(np.float32)).view(np.uint32)
+    ordered = bits ^ np.where((bits >> 31) == 1, np.uint32(0xFFFFFFFF), np.uint32(0x80000000))
+    order = np.lexsort((np.arange(col.shape[0]), ordered))
+    xs = col[order].astype(np.float64)
+    ys = labels[order]
+    start = np.ones(xs.shape[0], dtype=bool)
+    start[1:] = xs[1:] != xs[:-1]
+    first = np.flatnonzero(start)
+    xd, yd = _dedupe_xy(xs, ys)
+    return xs, ys, xs[first].astype(col.dtype), np.diff(np.append(first, xs.shape[0])), xd, yd, (xd is xs and yd is ys)
+
+
 @pytest.mark.parametrize("classes", [2, 5])
 def test_the_block_equals_the_host_passes_bit_for_bit(classes):
     """Sorted values (zeros of both signs included), labels, distinct values, counts and the deduplicated pairs equal the host's for every kind of column."""
@@ -64,6 +78,21 @@ def test_the_block_equals_the_host_passes_bit_for_bit(classes):
             assert g.dedup is not None and np.array_equal(g.dedup[0], xd) and np.array_equal(g.dedup[1], yd) and g.dedup[1].dtype == yd.dtype
 
 
+@pytest.mark.parametrize("label_dtype", [np.int8, np.uint8, np.int16, np.int32, np.int64])
+@pytest.mark.parametrize("n", [2, 3, 4, 5, 255, 256, 257, 4097])
+def test_every_label_type_and_the_row_counts_around_the_key_bit_boundaries_equal_the_host(label_dtype, n):
+    """The unpack kernel is built per label type and the key packs the row into ``bit_length(n - 1)`` bits: the arrays equal the host's at the counts where that width changes, for every integer label type."""
+    labels = _labels(n, 5).astype(label_dtype)
+    cols = _columns(n, seed=n)
+    got = G.presort_block(cols, labels)
+    for col, g in zip(cols, got):
+        assert g is not None
+        xs, ys, uniq, counts, xd, yd, same = _reference(col, labels)
+        assert np.array_equal(g.xs.view(np.int64), xs.view(np.int64)) and g.ys.dtype == ys.dtype and np.array_equal(g.ys, ys)
+        assert np.array_equal(g.uniq, uniq) and np.array_equal(g.counts, counts)
+        assert (g.dedup is None) == same and (same or (np.array_equal(g.dedup[0], xd) and np.array_equal(g.dedup[1], yd)))
+
+
 def test_a_column_the_device_does_not_take_is_none():
     """A column with NaN or infinity, a double that is not a float32 value, an integer column and a column of another length give ``None``; the rest of the block is still sorted."""
     n = 6000
@@ -78,20 +107,21 @@ def test_a_column_the_device_does_not_take_is_none():
     assert [g is None for g in got] == [True, False, True, True, True, True]
 
 
-def test_applicable_needs_keyable_labels_enough_rows_and_a_device(monkeypatch):
-    """The device presort is off by default; ``auto`` takes it from the row floor, ``1`` drops the floor, and negative, float and huge labels are declined in every mode."""
-    labels = _labels(200_000, 2)
+def test_applicable_needs_keyable_labels_enough_rows_for_the_workers_and_a_device(monkeypatch):
+    """The device presort is off by default (it lost 146 s in a paired whole fit); ``auto`` takes a block from ``MIN_ROWS_PER_WORKER`` rows for each worker (more workers, a later crossover), ``1`` drops the floor, ``0`` switches it off, and negative, float and huge labels are declined in every mode."""
+    labels = _labels(300_000, 2)
     monkeypatch.delenv("MLFRAME_MDLP_GPU_PRESORT", raising=False)
-    assert G.mode() == "0" and not G.applicable(200_000, labels)
+    assert G.mode() == "0" and not G.applicable(300_000, labels)
     monkeypatch.setenv("MLFRAME_MDLP_GPU_PRESORT", "auto")
-    assert G.applicable(200_000, labels)
-    assert not G.applicable(50_000, labels[:50_000])
+    assert G.applicable(300_000, labels) and not G.applicable(200_000, labels[:200_000])  # 8 workers: 250000 rows
+    assert G.applicable(100_000, labels[:100_000], workers=2) and not G.applicable(100_000, labels[:100_000], workers=4)
+    assert not G.applicable(300_000, labels, workers=64)
     monkeypatch.setenv("MLFRAME_MDLP_GPU_PRESORT", "1")
-    assert G.applicable(50_000, labels[:50_000])
+    assert G.applicable(50_000, labels[:50_000], workers=64)
     assert not G.applicable(1000, np.array([0, -1, 2]) * np.ones(1000, dtype=np.int64)[:3]) and not G.applicable(1000, labels[:1000].astype(float))
     assert not G.applicable(1000, np.full(1000, 1 << 21, dtype=np.int64))
     monkeypatch.setenv("MLFRAME_MDLP_GPU_PRESORT", "0")
-    assert not G.applicable(200_000, labels)
+    assert not G.applicable(300_000, labels)
 
 
 def test_the_supply_is_seen_by_its_own_column_and_thread_only():
@@ -152,3 +182,29 @@ def test_a_column_whose_edges_the_memo_holds_is_not_sorted_again(monkeypatch):
     monkeypatch.setattr(G, "presort_block", lambda c, l: (sent.append(len(c)), real(c, l))[1])
     second = per_feature_edges(frame, y, method="mdlp", n_jobs=4)
     assert sent == [] and all(np.array_equal(a, b) for a, b in zip(first, second))
+
+
+def test_the_edge_memory_budget_counts_the_blocks_the_workers_hold(monkeypatch):
+    """A worker that takes its columns from the device in blocks of 8 holds their sorted arrays until the block is done: the worker count is capped with that many more bytes a row, and with the host figure when the device is off."""
+    from mlframe.feature_selection.filters import _adaptive_nbins as A
+
+    seen = []
+    real = A._cap_jobs_by_memory
+
+    def spy(jobs, n_rows, bytes_per_row=A._EDGE_BYTES_PER_ROW):
+        """Remember the figure the call site passes, then cap as usual."""
+        seen.append(bytes_per_row)
+        return real(jobs, n_rows, bytes_per_row)
+
+    monkeypatch.setattr(A, "_cap_jobs_by_memory", spy)
+    rng = np.random.default_rng(3)
+    n = 300_000
+    X = rng.standard_normal((n, 48)).astype(np.float32)
+    y = (rng.random(n) < 0.4).astype(np.int8)
+    monkeypatch.setenv("MLFRAME_MDLP_GPU_PRESORT", "1")
+    per_feature_edges(X, y, method="mdlp", n_jobs=4)
+    assert seen[-1] == A._EDGE_BYTES_PER_ROW + A._PRESORT_BYTES_PER_ROW
+    monkeypatch.setenv("MLFRAME_MDLP_GPU_PRESORT", "0")
+    columns_module.clear_edge_memo()
+    per_feature_edges(X, y, method="mdlp", n_jobs=4)
+    assert seen[-1] == A._EDGE_BYTES_PER_ROW

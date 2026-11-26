@@ -556,7 +556,7 @@ def per_feature_edges(
 
     from ._adaptive_nbins_columns import compute_col_edges, edge_presort_for
 
-    _device_presort = edge_presort_for(method_resolved, base, kwargs, y, int(X.shape[0]), _low_card_cap)
+    _device_presort = edge_presort_for(method_resolved, base, kwargs, y, int(X.shape[0]), _low_card_cap, _resolve_edge_jobs(n_jobs, int(X.shape[1])))
 
     def _compute_col_edges(col: np.ndarray):
         """Per-column edge computation for the cache loop below; touches no shared state, so it is safe under the thread pool."""
@@ -623,6 +623,8 @@ def _edge_pool(workers: int) -> Any:
 
 #: Host bytes one in-flight column costs per row in the supervised edge kernels (sorted copy, order, labels and the cut search state; 13 MB per column at 200000 rows measured).
 _EDGE_BYTES_PER_ROW = 80
+#: Bytes per row a worker holds more when its columns are presorted on the device in blocks: the block's sorted values (8), labels (1), distinct values (4) and counts (8) for each of its 8 columns.
+_PRESORT_BYTES_PER_ROW = 8 * (8 + 1 + 4 + 8)
 #: Default cap on the memory the edge workers may hold together, and the share of the free RAM it may take (``MLFRAME_EDGE_RAM_GB`` overrides the cap).
 _EDGE_RAM_CAP_BYTES = 2 * 1024**3
 _EDGE_RAM_FREE_FRACTION = 0.25
@@ -772,7 +774,7 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
     #   p=2000: serial 10.10s -> parallel 3.20s (3.16x)
     #   p=50  : serial 0.28s -> parallel 0.22s  (gated to serial, no regression)
     # (see test_per_feature_edges_parallel.py; numbers refreshed if hardware changes.)
-    _resolved_jobs = _cap_jobs_by_memory(_resolve_edge_jobs(n_jobs, len(_miss_cols)), int(X.shape[0]))
+    _resolved_jobs = _cap_jobs_by_memory(_resolve_edge_jobs(n_jobs, len(_miss_cols)), int(X.shape[0]), _EDGE_BYTES_PER_ROW + (_PRESORT_BYTES_PER_ROW if _device_presort is not None else 0))
 
     # Bit-identity above assumes njit(nogil=True) kernels: numba's nopython-mode functions get their
     # own thread-isolated internal RNG state, so concurrent threads never see each other's draws even

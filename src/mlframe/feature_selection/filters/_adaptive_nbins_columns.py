@@ -374,14 +374,14 @@ class EdgePresort:
         return out
 
 
-def edge_presort_for(method_resolved: str, base: str, kwargs: dict, y: Optional[np.ndarray], n_rows: int, low_card_cap: int) -> "EdgePresort | None":
-    """The device presort of the edge search of this call, or ``None`` when the host path serves it: the MDLP search of a supervised target on a frame the device takes."""
+def edge_presort_for(method_resolved: str, base: str, kwargs: dict, y: Optional[np.ndarray], n_rows: int, low_card_cap: int, workers: int = 8) -> "EdgePresort | None":
+    """The device presort of the edge search of this call, or ``None`` when the host path serves it: the MDLP search of a supervised target on a frame the device takes (``workers`` edge-search workers share the host passes)."""
     if method_resolved != "mdlp" or y is None:
         return None
     from ._mdlp_gpu_presort import applicable
 
     labels = _mdlp_labels(y, kwargs)
-    if labels.shape[0] != n_rows or not applicable(n_rows, labels):
+    if labels.shape[0] != n_rows or not applicable(n_rows, labels, workers):
         return None
     return EdgePresort(labels, method_resolved, base, kwargs, y, low_card_cap)
 
