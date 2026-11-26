@@ -330,6 +330,7 @@ def _nat_spline(x: np.ndarray, t: np.ndarray) -> np.ndarray:
 
     def p3(v: np.ndarray) -> np.ndarray:
         """Truncated cube."""
+        # Intentional float64: the basis of the link search's spline fit is built in double
         return np.asarray(np.maximum(v, 0.0) ** 3, dtype=np.float64)
 
     for j in range(k - 2):

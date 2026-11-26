@@ -37,7 +37,7 @@ def read_windows(ledger: str, stage: "str | None") -> "list[tuple[float, float]]
 def ledger_start(ledger: str) -> float:
     """The epoch second of the first ledger row (the origin of the ``--between`` seconds)."""
     with open(ledger, encoding="utf-8") as handle:
-        return min(json.loads(line)["t0"] for line in handle if line.strip())
+        return float(min(json.loads(line)["t0"] for line in handle if line.strip()))
 
 
 def read_dumps(path: str) -> "list[tuple[float, list[str]]]":

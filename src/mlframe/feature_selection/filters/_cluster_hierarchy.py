@@ -136,7 +136,8 @@ def _su_codes_into(columns: list, n_bins: int, factors_data: np.ndarray, nbins: 
         scatter_columns_rm(factors_data, j0 + ok, codes)
     left = np.ones(len(columns), dtype=bool)
     left[ok] = False
-    return np.flatnonzero(left).tolist()
+    pending: list = np.flatnonzero(left).tolist()
+    return pending
 
 
 def _su_code_column(col: np.ndarray, n_bins: int) -> tuple:

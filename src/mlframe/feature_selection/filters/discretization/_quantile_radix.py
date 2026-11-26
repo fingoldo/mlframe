@@ -436,7 +436,7 @@ def _f64_as_f32_njit(x: np.ndarray):
 
 
 @njit(nogil=True, cache=True)
-def _edge_of_sorted(s: np.ndarray, q: float) -> float:
+def _edge_of_sorted(s: np.ndarray, q: float) -> np.float64:  # Intentional float64: the edge is a double
     """``np.quantile(s, q)`` (method ``linear``) of the ascending vector ``s``, in numpy's arithmetic order (the interpolation of ``_edge_value``)."""
     n = s.shape[0]
     virtual = (n - 1) * q

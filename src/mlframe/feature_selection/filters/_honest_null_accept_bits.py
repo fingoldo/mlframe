@@ -559,7 +559,7 @@ def _transposed_label_bits_kernel(cp: Any, yb: Any, n: int, pw: int) -> Any:
     """:func:`_transposed_label_bits` by one bit-transpose kernel (a warp per 32 rows x 32 permutations) instead of unpack, byte transpose and pack: 0.2 ms against 18.5 ms at 500000 rows x 128 permutations."""
     nb, yw = int(yb.shape[0]), int(yb.shape[1])
     out = cp.zeros((n, pw), dtype=cp.uint32)
-    _MODULE_LABEL_TRANSPOSE.get(cp).get_function("label_bits_transpose")((yw, pw), (32,), (cp.ascontiguousarray(yb), out, np.int64(n), np.int32(yw), np.int32(nb), np.int32(pw)))
+    _MODULE_LABEL_TRANSPOSE.get(cp).get_function("label_bits_transpose")((yw, pw), (32,), (cp.ascontiguousarray(yb), out, np.int64(n), np.int32(yw), np.int32(nb), np.int32(pw)))  # launch-ok: one warp per block by design, a warp transposes a 32 x 32 bit tile with shuffles
     return out
 
 

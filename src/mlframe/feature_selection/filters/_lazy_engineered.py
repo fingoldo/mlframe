@@ -14,6 +14,7 @@ Used only for pandas frames of at least ``MLFRAME_FE_LAZY_REPLAY_MIN_ROWS`` rows
 
 from __future__ import annotations
 
+import builtins
 import functools
 import itertools
 import logging
@@ -241,7 +242,7 @@ class LazyEngineeredDtype(ExtensionDtype):
     na_value = np.nan
 
     @classmethod
-    def construct_array_type(cls) -> "type[LazyEngineeredColumn]":
+    def construct_array_type(cls) -> "builtins.type[LazyEngineeredColumn]":
         """The array class of this dtype."""
         return LazyEngineeredColumn
 
@@ -382,7 +383,8 @@ class LazyEngineeredColumn(ExtensionArray):
 
     def isna(self) -> np.ndarray:
         """The NaN mask of the values."""
-        return np.isnan(self.materialize())
+        mask: np.ndarray = np.isnan(self.materialize())
+        return mask
 
     def take(self, indices: Any, *, allow_fill: bool = False, fill_value: Any = None) -> "LazyEngineeredColumn":
         """The rows at ``indices`` as a held column (``-1`` is filled with ``fill_value`` or NaN when ``allow_fill``)."""
@@ -435,7 +437,8 @@ class LazyEngineeredColumn(ExtensionArray):
         return self.materialize(), np.nan
 
     def _formatter(self, boxed: bool = False) -> Callable[[Any], str]:
-        """How a value prints."""
+        """How a value prints (the same inside a Series and outside, so ``boxed`` changes nothing)."""
+        del boxed
         return lambda x: f"{x:.6g}"
 
     def __reduce__(self) -> "tuple[Any, ...]":

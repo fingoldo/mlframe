@@ -578,7 +578,8 @@ def column_code_bounds(data: np.ndarray, columns: np.ndarray) -> "tuple[np.ndarr
     arr = data if isinstance(data, np.ndarray) and data.dtype.kind in "iu" else np.asarray(data)
     n_blocks = int(max(1, min(64, arr.shape[0] // 2048)))
     with parallel_kernel_entry():
-        return _column_min_max_njit(arr, np.ascontiguousarray(columns, dtype=np.int64), n_blocks)
+        lo, hi = _column_min_max_njit(arr, np.ascontiguousarray(columns, dtype=np.int64), n_blocks)
+    return lo, hi
 
 
 def _validate_code_ranges(data: np.ndarray, nbins: np.ndarray, columns: np.ndarray) -> None:

@@ -69,7 +69,8 @@ def _extended_coef(Q: Any, R: Any, qty: Any, y_tr: np.ndarray, e_tr: np.ndarray)
         return None
     beta_e = sla.solve_triangular(r2_blk, q2.T @ y_tr)
     beta_b = sla.solve_triangular(R, qty - r_blk @ beta_e)
-    return np.concatenate((beta_b, beta_e))
+    beta: np.ndarray = np.concatenate((beta_b, beta_e))
+    return beta
 
 
 class _TrainBlock:

@@ -223,7 +223,7 @@ def _spec_column(spec: dict, c: int, dtype: Any) -> np.ndarray:
     """Column ``c`` of the spec's raw matrix in ``dtype`` (a frame-backed matrix reads it from the frame in that dtype)."""
     raw = spec["raw"]
     if hasattr(raw, "column"):
-        return raw.column(int(c), dtype)
+        return np.asarray(raw.column(int(c), dtype))
     return np.asarray(raw[:, c], dtype=dtype)
 
 
