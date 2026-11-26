@@ -184,6 +184,7 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
     triplet_min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
     explicit_triplets: Optional[Sequence[tuple]] = None,
+    skip_univariate_stage: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, list[EngineeredRecipe]]:
     """Same as :func:`_otf.hybrid_orth_mi_triplet_fe` but additionally returns
     a flat list of recipes (univariate + triplet, in append order) so
@@ -191,7 +192,7 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
     alone (no y). ``explicit_triplets`` (GBM seeder) forces the
     triplet stage to enumerate EXACTLY the given column-name triples (the
     order-3-floored proposer survivors) instead of the C(seed_k, 3) over the
-    univariate-MI seed pool.
+    univariate-MI seed pool. ``skip_univariate_stage``: see the function it wraps.
     """
     X_aug, uni_scores, triplet_scores = _hybrid_orth_mi_triplet_fe(
         X,
@@ -209,6 +210,7 @@ def hybrid_orth_mi_triplet_fe_with_recipes(
         triplet_min_abs_mi_frac=triplet_min_abs_mi_frac,
         nbins=nbins,
         explicit_triplets=explicit_triplets,
+        skip_univariate_stage=skip_univariate_stage,
     )
     appended = [c for c in X_aug.columns if c not in X.columns]
 
