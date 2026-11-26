@@ -47,16 +47,16 @@ def solve_cpsat(instance: Instance, *, time_limit_s: float, hint: "Plan | None" 
     starts, ends, presence, intervals = _declare(model, instance, horizon_u)
     _add_precedences(model, instance, starts, ends, presence)
     _add_resources(model, instance, intervals)
-    makespan = model.NewIntVar(0, horizon_u, "makespan")
+    makespan = model.new_int_var(0, horizon_u, "makespan")
     for name in starts:
-        model.Add(makespan >= ends[name])
-    model.Minimize(makespan)
+        model.add(makespan >= ends[name])
+    model.minimize(makespan)
     if hint is not None:
         _add_hint(model, instance, hint, starts, presence)
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max(0.05, float(time_limit_s))
     solver.parameters.num_workers = int(workers if workers is not None else min(8, os.cpu_count() or 1))
-    status = solver.Solve(model)
+    status = solver.solve(model)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         return None
     return _extract(instance, solver, status == cp_model.OPTIMAL, starts, presence)
@@ -69,17 +69,17 @@ def _declare(model: Any, instance: Instance, horizon_u: int) -> tuple:
     presence: dict[tuple[str, int], Any] = {}
     intervals: dict[tuple[str, int], Any] = {}
     for t in instance.tasks:
-        starts[t.name] = model.NewIntVar(0, horizon_u, f"s_{t.name}")
-        ends[t.name] = model.NewIntVar(0, horizon_u, f"e_{t.name}")
+        starts[t.name] = model.new_int_var(0, horizon_u, f"s_{t.name}")
+        ends[t.name] = model.new_int_var(0, horizon_u, f"e_{t.name}")
         literals = []
         for i in instance.feasible_modes(t):
-            lit = model.NewBoolVar(f"p_{t.name}_{i}")
+            lit = model.new_bool_var(f"p_{t.name}_{i}")
             d = _ceil_units(t.modes[i].duration, _TIME_SCALE)
             presence[(t.name, i)] = lit
-            intervals[(t.name, i)] = model.NewOptionalIntervalVar(starts[t.name], d, ends[t.name], lit, f"i_{t.name}_{i}")
-            model.Add(ends[t.name] == starts[t.name] + d).OnlyEnforceIf(lit)
+            intervals[(t.name, i)] = model.new_optional_interval_var(starts[t.name], d, ends[t.name], lit, f"i_{t.name}_{i}")
+            model.add(ends[t.name] == starts[t.name] + d).only_enforce_if(lit)
             literals.append(lit)
-        model.AddExactlyOne(literals)
+        model.add_exactly_one(literals)
     return starts, ends, presence, intervals
 
 
@@ -88,12 +88,12 @@ def _add_precedences(model: Any, instance: Instance, starts: dict, ends: dict, p
     tasks = instance.by_name()
     for t in instance.tasks:
         for a in t.after:
-            model.Add(starts[t.name] >= ends[a])
+            model.add(starts[t.name] >= ends[a])
             for i in instance.feasible_modes(tasks[a]):
                 for j in instance.feasible_modes(t):
                     delay = instance.delay(tasks[a].modes[i].machine, t.modes[j].machine)
                     if delay > 0.0:
-                        model.Add(starts[t.name] >= ends[a] + _ceil_units(delay, _TIME_SCALE)).OnlyEnforceIf([presence[(a, i)], presence[(t.name, j)]])
+                        model.add(starts[t.name] >= ends[a] + _ceil_units(delay, _TIME_SCALE)).only_enforce_if([presence[(a, i)], presence[(t.name, j)]])
 
 
 def _add_resources(model: Any, instance: Instance, intervals: dict) -> None:
@@ -109,24 +109,24 @@ def _add_resources(model: Any, instance: Instance, intervals: dict) -> None:
                 shown.append(interval)
                 demands.append(min(_ceil_units(amount, _DEMAND_SCALE), cap_units))
         if shown:
-            model.AddCumulative(shown, demands, cap_units)
+            model.add_cumulative(shown, demands, cap_units)
 
 
 def _add_hint(model: Any, instance: Instance, hint: Plan, starts: dict, presence: dict) -> None:
     """Start the search from a known schedule (modes and start times)."""
     for name, p in hint.placements.items():
-        model.AddHint(starts[name], _ceil_units(p.start, _TIME_SCALE))
+        model.add_hint(starts[name], _ceil_units(p.start, _TIME_SCALE))
         for i in instance.feasible_modes(instance.by_name()[name]):
-            model.AddHint(presence[(name, i)], 1 if i == p.mode else 0)
+            model.add_hint(presence[(name, i)], 1 if i == p.mode else 0)
 
 
 def _extract(instance: Instance, solver: Any, optimal: bool, starts: dict, presence: dict) -> Plan:
     """The plan of a solved model, with the lower bound the solver proved (never below the instance's own)."""
     placements: dict[str, Placement] = {}
     for t in instance.tasks:
-        mode = next(i for i in instance.feasible_modes(t) if solver.Value(presence[(t.name, i)]))
-        s = solver.Value(starts[t.name]) / _TIME_SCALE
+        mode = next(i for i in instance.feasible_modes(t) if solver.value(presence[(t.name, i)]))
+        s = solver.value(starts[t.name]) / _TIME_SCALE
         placements[t.name] = Placement(task=t.name, mode=mode, machine=t.modes[mode].machine, start=s, end=s + t.modes[mode].duration)
     span = max((p.end for p in placements.values()), default=0.0)
-    bound = max(lower_bound(instance), float(solver.BestObjectiveBound()) / _TIME_SCALE)
+    bound = max(lower_bound(instance), float(solver.best_objective_bound) / _TIME_SCALE)
     return Plan(placements=placements, makespan=span, lower_bound=min(bound, span), status="optimal" if optimal else "feasible", solver="cp-sat")

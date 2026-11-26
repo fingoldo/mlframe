@@ -451,7 +451,7 @@ def _edge_of_sorted(s: np.ndarray, q: float) -> np.float64:  # Intentional float
     out = a + diff * gamma
     if gamma >= 0.5:
         out = b - diff * (1.0 - gamma)
-    return out
+    return np.float64(out)  # Intentional float64: the edge is a double
 
 
 @njit(parallel=True, nogil=True, cache=True)
