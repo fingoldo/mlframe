@@ -58,7 +58,6 @@ class TimeBin:
 
 
 @dataclass
-@dataclass
 class TemporalAuditResult:
     """Structured outcome of a temporal target audit."""
 

@@ -114,10 +114,11 @@ None. All 63 manifest files were read in full. Grep was used for callers and def
 - 41-F35: DEFERRED. interaction_strength keeps its own 20 s cap, against the shared diagnostics budget design. Making it budget-driven changes how the cap is set for every diagnostic, so it needs a design decision. No code change.
 - 41-F36: DEFERRED. Split label is inferred from the last underscore token of plot_file. Fixing it means passing the split explicitly through the chart call, an API change across the diagnostics callers. No code change.
 - 41-F44: DEFERRED. The DSL render branch ignores show and save_path. Honouring them needs a decision on the DSL's display contract across callers. No code change.
-- 41-F42: DEFERRED. Duplicated helper and import nits span several ranking and reporting files; consolidating them is a cross-file refactor for its own pass. No code change.
 
 - 41-F14: DEFERRED. Probability metrics fed by one-hot predict() when predict_proba is missing. The fix needs the probabilistic report to skip ROC, PR, Brier, calibration and plots on that path. report_probabilistic_model_perf takes about 50 parameters and computes all of them in one pass, so gating each branch needs a dedicated pass with a report-level test. Plan: return a 'probabilities unavailable' marker from _predict_probs_if_missing, short-circuit the metric block, and keep label metrics. No code change in this pass.
 
 - 41-F41: FIXED. The pairwise redundancy scan selects the upper-triangle pairs with np.triu_indices and one mask; output order and values are identical to the nested loop (test compares both, including a constant column). Test tests/training/test_cluster41_pairwise_redundancy_vectorised.py.
 
 - 41-F40: FIXED. The sample probe now takes the first non-null element via dropna().iloc[0]. Re-reading the loop found a worse defect: the branch tested 'dt is object', which is never true for a pandas dtype instance, so no object column was categorised or checked for nested embeddings. It now uses dt == object. Test tests/training/test_cluster41_ranker_object_columns_swept.py.
+
+- 41-F42: PARTIAL. Removed the duplicate logger and _NOT_AGGREGATABLE definitions, the doubled @dataclass on TemporalAuditResult, the unused importlib.util import and the unused second _SLUG_PATTERN in strategies/base.py. Not done: the truncated comment at the regression __init__ and the shared MTRESID helper (two call sites with different inputs, a small refactor left for the regression-report owner). Test tests/training/test_cluster41_duplicate_definitions_removed.py.

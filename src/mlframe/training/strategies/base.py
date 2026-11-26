@@ -9,7 +9,6 @@ from __future__ import annotations
 
 
 import logging
-import re
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, List, Any, FrozenSet, TYPE_CHECKING
 from sklearn.pipeline import Pipeline
@@ -260,10 +259,6 @@ class _NumericOnlyTransformer(TransformerMixin, BaseEstimator):
 
     get_feature_names_out = _get_feature_names_out_shared
 
-
-# Pre-compiled slug pattern (MEMORY.md: pre-compile regex at module level).
-# Only allow alnum, dash, underscore; everything else collapses to a single "_".
-_SLUG_PATTERN = re.compile(r"[^A-Za-z0-9_-]+")
 
 if TYPE_CHECKING:
     import polars as pl

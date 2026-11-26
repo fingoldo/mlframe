@@ -1223,7 +1223,6 @@
 | 37-F42 | DEFERRED | _apply_plot_style_overrides changes process-wide matplotlib and plotly state and is not restored on failure. Restoring it needs a context-manager design across the setup path; deferred. No code change. |
 | 37-F36 | DEFERRED | The unary transforms logger name differs from the composite_transforms name used elsewhere; changing it affects log filters configured by users, so it needs a naming decision. No code change. |
 | 39-F72 | DEFERRED | The torch from_numpy benchmark's Strategy C measures a path the code does not produce, and the 0.014 ms figure needs re-measurement on the real path before the doc can be corrected. Deferred to a benchmark re-run. No code change. |
-| 41-F42 | DEFERRED | Duplicated helper and import nits span several ranking and reporting files; consolidating them is a cross-file refactor for its own pass. No code change. |
 | 15-F13 | DEFERRED | Three near-identical unwrap-to-inner-estimator loops with different attribute sets across the wrappers files. Consolidating them needs one attribute-set contract across the three call sites, deferred to a refactor pass. No code change. |
 
 | 39-F38 | FIXED | HGB TF-IDF cap is now applied on the feature-handling path: TF-IDF max_features is capped for hgb via _tfidf_params_for_model (was exported but never called). Test tests/training/test_cluster39_hgb_tfidf_cap_wired.py; 38 feature-handling tests pass. |
@@ -1620,3 +1619,5 @@
 | 41-F41 | FIXED | The pairwise redundancy scan selects the upper-triangle pairs with np.triu_indices and one mask; output order and values are identical to the nested loop (test compares both, including a constant column). Test tests/training/test_cluster41_pairwise_redundancy_vectorised.py. |
 
 | 41-F40 | FIXED | The sample probe now takes the first non-null element via dropna().iloc[0]. Re-reading the loop found a worse defect: the branch tested 'dt is object', which is never true for a pandas dtype instance, so no object column was categorised or checked for nested embeddings. It now uses dt == object. Test tests/training/test_cluster41_ranker_object_columns_swept.py. |
+
+| 41-F42 | PARTIAL | Removed the duplicate logger and _NOT_AGGREGATABLE definitions, the doubled @dataclass on TemporalAuditResult, the unused importlib.util import and the unused second _SLUG_PATTERN in strategies/base.py. Not done: the truncated comment at the regression __init__ and the shared MTRESID helper (two call sites with different inputs, a small refactor left for the regression-report owner). Test tests/training/test_cluster41_duplicate_definitions_removed.py. |

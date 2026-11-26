@@ -9,7 +9,6 @@ from __future__ import annotations
 
 
 import copy
-import importlib.util
 import logging
 import re
 from typing import Any, Dict, Optional, Tuple, TYPE_CHECKING

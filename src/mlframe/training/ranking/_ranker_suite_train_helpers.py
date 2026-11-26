@@ -14,9 +14,6 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
-logger = logging.getLogger(__name__)
-
-
 def _train_mlframe_rank_pandas_dataframes_arrow_backed(df_features):
     """Block of train_mlframe_ranker_suite starting at ``if isinstance(df_features, _pl.DataFrame):``."""
     import polars as _pl
