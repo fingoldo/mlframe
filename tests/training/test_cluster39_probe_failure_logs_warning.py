@@ -6,6 +6,10 @@ its failure branch and checks the record it emits.
 
 import logging
 
+import pytest
+
+pytest.importorskip("lightning")  # the neural package subclasses Lightning classes: shards without the neural extras skip this module
+
 import torch
 
 from mlframe.training.neural import _flat_generate_helpers as fg
@@ -22,7 +26,7 @@ class _BrokenModel:
 def test_probe_failure_is_logged_at_warning_and_names_the_skipped_check(caplog):
     """The probe's failure is logged at WARNING, names the skipped check and carries the cause (39-F62)."""
     with caplog.at_level(logging.DEBUG, logger=fg.logger.name):
-        fg._generate_mlp_every_fit_bench_profiling(_BrokenModel())
+        fg._generate_mlp_every_fit_init_probe(_BrokenModel())
 
     records = [r for r in caplog.records if "degenerate-init probe failed" in r.getMessage()]
     assert len(records) == 1
@@ -36,6 +40,6 @@ def test_healthy_model_logs_no_probe_failure(caplog):
     torch.manual_seed(0)
     model = torch.nn.Sequential(torch.nn.Linear(4, 4))
     with caplog.at_level(logging.WARNING, logger=fg.logger.name):
-        fg._generate_mlp_every_fit_bench_profiling(model)
+        fg._generate_mlp_every_fit_init_probe(model)
 
     assert not [r for r in caplog.records if "degenerate-init probe failed" in r.getMessage()]

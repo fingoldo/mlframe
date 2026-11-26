@@ -7,6 +7,10 @@ that the old copy list did not name survives. Source-level pin on the rebuild, p
 import dataclasses
 from pathlib import Path
 
+import pytest
+
+pytest.importorskip("lightning")  # the neural package subclasses Lightning classes: shards without the neural extras skip this module
+
 from mlframe.training import _trainer_configure_recurrent as tcr
 from mlframe.training.neural._recurrent_config import RecurrentConfig
 
