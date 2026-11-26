@@ -188,9 +188,10 @@ def compute_hurst_exponent(
 
 @njit(cache=True, fastmath=True)  # fastmath-nan-ok: callers pass finite windows, the rolling wrappers zero non-finite values (module docstring)
 def _hurst_rs_single(x: np.ndarray) -> float:
-    """R/S statistic on a single window. Same definition as
-    ``compute_hurst_rs`` but inlined for the rolling-kernel hot path
-    to avoid per-call dispatch overhead.
+    """Per-window Hurst estimate ``log(R/S) / log(n)``, inlined for the rolling-kernel hot path (no per-call dispatch).
+
+    ``compute_hurst_rs`` returns the raw R/S ratio; this function returns its log-scaled exponent estimate, so the two agree only after the same
+    ``log(R/S) / log(n)`` transform (audit 24-F51). The standard deviation uses ``ddof=1``, as ``compute_hurst_rs`` does.
     """
     n = x.size
     if n < 20:

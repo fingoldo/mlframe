@@ -1070,7 +1070,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 24-F48 | 24_root_modules-3.md | FIXED | validation-only class labels get the probability floor instead of a neighbouring class's column; tests/feature_selection/test_cluster24_unseen_validation_label.py |
 | 24-F49 | 24_root_modules-3.md | FIXED | append_columns raises ValueError when new_cols does not share X's index, instead of appending NaN columns silently; all three callers already pass index=X.index. Test tests/feature_selection/test_cluster24_unparsed_time_and_append_index.py |
 | 24-F50 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F51 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F51 | 24_root_modules-3.md | FIXED | The per-window Hurst docstring states that it returns log(R/S)/log(n), and that compute_hurst_rs returns the raw R/S ratio, so the two agree only after the same transform. Test tests/feature_selection/test_cluster24_p3_exports.py |
 | 24-F52 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F53 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F54 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
@@ -1083,7 +1083,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 24-F61 | 24_root_modules-3.md | FIXED | Removed the features_usefulness zero array that was overwritten; the same zeros are now passed in place, so behaviour is unchanged. Existing MRMR tests cover the path |
 | 24-F62 | 24_root_modules-3.md | FIXED | run_efs refuses duplicate target names before binning or any MI work, instead of after the full permutation loop. Test tests/feature_selection/test_cluster24_p3_guard_order_and_type.py |
 | 24-F63 | 24_root_modules-3.md | FIXED | ForwardSelectSelector raises TypeError naming the returned type instead of a bare AssertionError. Test tests/feature_selection/test_cluster24_p3_guard_order_and_type.py |
-| 24-F64 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
+| 24-F64 | 24_root_modules-3.md | FIXED | ACESelector and the four functional adapters (ForwardSelect, GreedyBackwardElimination, ZeroImportancePruning, CascadeSelect) are exported from the package and listed in __all__. Test tests/feature_selection/test_cluster24_p3_exports.py; the existing public-name tests pass (20) |
 | 24-F65 | 24_root_modules-3.md | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F66 | 24_root_modules-3.md | FIXED | Removed the unused classes local in prune_conditional_twins (computed and deleted). Test tests/feature_selection/test_cluster24_p3_docs_and_dead_code.py; tests/feature_selection/test_hybrid_twin_prune*.py pass (12) |
 | 25-F20 | 25_root_modules-4.md | FIXED | The three remaining cache=True numba kernels in mi.py are cache=False, as the module comment requires. Test tests/feature_selection/test_cluster25_structure_op_symbols.py. |

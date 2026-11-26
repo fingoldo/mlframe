@@ -131,12 +131,10 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F39: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F47: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F50: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F51: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F52: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F53: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F54: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F60: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F64: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F65: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F25: FIXED. empty support returns NaN per query point; tests/feature_engineering/test_cluster24_empty_and_alignment.py
 - 24-F31: FIXED. chunks that return (None, None) are skipped and an all-empty run returns (None, None); no separate test
@@ -207,3 +205,7 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F55: FIXED. Feature std is the unbiased sample std (ddof=1) everywhere in the feature path: compute_numaggs and the moments kernel emit n-1 (NaN under two values), row_wise_summary_polars and the numpy reference row_wise_summary use ddof=1. Skew and kurt keep the population std they standardise with. Left as is on purpose: the weighted std (no single unbiased definition for weights), Welford in _numerical_stable (shared with metrics and ensembling). Tests: test_numerical.py, test_row_wise_summary_polars.py, test_row_wise_polars_fastpath.py, test_biz_val_row_wise_summary.py, feature_engineering changed-kernel set (426 passed, 10 skipped)
 
 - 24-F45: PARTIAL. Stability vote folds are forward-chained under a temporal policy (forward_chain_folds): no fold trains on a later row, the first block is never tested, the quorum adapts to the folds evaluated. SHAP OOF explainer keeps its partition: its phi, residual pass, mean-abs and prescreen need a value for every row, so forward chaining there would need row subsetting across the whole fit. Left open as a separate change. Tests: tests/feature_selection/test_cluster24_forward_chain_folds.py (4 passed); cv_policy wiring test updated. Pre-existing failures on untouched HEAD: fe_rejection_ledger floors, mrmr fast_search [1][2]
+
+- 24-F64: FIXED. ACESelector and the four functional adapters (ForwardSelect, GreedyBackwardElimination, ZeroImportancePruning, CascadeSelect) are exported from the package and listed in __all__. Test tests/feature_selection/test_cluster24_p3_exports.py; the existing public-name tests pass (20)
+
+- 24-F51: FIXED. The per-window Hurst docstring states that it returns log(R/S)/log(n), and that compute_hurst_rs returns the raw R/S ratio, so the two agree only after the same transform. Test tests/feature_selection/test_cluster24_p3_exports.py
