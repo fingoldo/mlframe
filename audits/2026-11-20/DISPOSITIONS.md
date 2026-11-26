@@ -413,7 +413,6 @@
 | 17-F19 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 17-F20 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 18-F9 | FIXED | gate weighted means return NaN when every weight is zero instead of raising; tests/models/test_cluster18_zero_weight_gate.py; existing quality-gate and ensembling tests: 231 passed |
-| 18-F11 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 18-F12 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 18-F13 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 18-F14 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
@@ -1608,3 +1607,5 @@
 | 23-F14 | DOCUMENTED | Docstring now states the sign of cv_delta is ignored, so a loss on a shifted subgroup is flagged too; behaviour unchanged. |
 
 | 15-F6 | FIXED | Stability selection counts failed estimator fits and importance computations and logs one WARNING when at least half failed (with an explicit note when none succeeded), regardless of verbose. Test tests/feature_selection/test_cluster15_stability_failed_fits_warn.py. |
+
+| 18-F11 | FIXED | Streaming ensemble keeps the member shape for ndim>=2, so (N,K,C) members work as in the materialised path; uncertainty is the per-row mean of the std over all other axes; 0-d members raise a clear ValueError. Test tests/models/test_cluster18_streaming_ensemble_three_dim.py. |

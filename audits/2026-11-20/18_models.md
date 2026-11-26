@@ -60,7 +60,6 @@ No P0 found on the default path. Findings below were verified by reading the cit
 - 18-F5: RESOLVED. batch_numaggs passes whiten_means=False as the serial path does. Test tests/models/test_batch_numaggs_matches_serial_whitening.py is a source-level guard (weak: it checks the call text, not the output); 74 existing numagg tests pass. Commit below.
 - 18-F3: RESOLVED. Target-MAE gate reads a binary (n, 2) predict_proba as its positive column (_as_gate_vector), not as 2n flattened values, so the MAE is no longer NaN and the block is no longer skipped. Test tests/models/test_gate_vector_uses_positive_column.py; 82 existing gate/stacking tests pass. Commit below.
 - 18-F9: FIXED. gate weighted means return NaN when every weight is zero instead of raising; tests/models/test_cluster18_zero_weight_gate.py; existing quality-gate and ensembling tests: 231 passed
-- 18-F11: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F12: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F13: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F14: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
@@ -83,3 +82,5 @@ No P0 found on the default path. Findings below were verified by reading the cit
 - 18-F6: FIXED. The outlier gate keeps a row when any member is finite (the quality_gate rule), and uses nanmedian with NaN-aware MAE/STD when cells are missing, so disjoint NaN rows no longer switch the gate off. The finite path and the numba kernel are unchanged. Tests tests/models/ensembling/test_cluster18_gate_disjoint_nan.py (2 passed). Note: tests/models/test_ensemble_gate_does_not_freeze_caller_arrays.py::test_the_cache_does_not_retain_the_arrays already fails on HEAD without this change; not caused here.
 
 - 18-F19: FIXED. A failed member test-prediction stacking is logged as a WARNING with its cause, so the missing member_test_preds has a visible reason; a successful stacking still stamps the attribute. Tests tests/models/ensembling/test_cluster18_stacking_failure_logged.py (2 passed).
+
+- 18-F11: FIXED. Streaming ensemble keeps the member shape for ndim>=2, so (N,K,C) members work as in the materialised path; uncertainty is the per-row mean of the std over all other axes; 0-d members raise a clear ValueError. Test tests/models/test_cluster18_streaming_ensemble_three_dim.py.
