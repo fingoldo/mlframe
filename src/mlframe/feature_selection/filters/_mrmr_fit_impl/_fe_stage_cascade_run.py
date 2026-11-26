@@ -13,6 +13,7 @@ pressure (5 GB free virtual memory): back to back in one process, sequential 125
 
 from __future__ import annotations
 
+import logging
 import os
 
 from ._fe_stage_cascade_early_a import _fe_stage_cascade_early_a
@@ -154,9 +155,20 @@ def _run_fe_stage_cascades(self, X, y, verbose, fe_max_steps, _y_np, _fe_family_
     # One column that already carries nearly all of y leaves nothing for the remaining families to add.
     if dominant_candidate(X, _y_np) is not None:
         return X, _raw_input_cols_pre_fe
-    if concurrency_enabled() and memory_allows_concurrency(len(_X_step_input), _X_step_input.shape[1]):
-        # no device plan for four stages: the three later cascades together, as before
-        outs = run_stages_concurrently(self, [_stage_early_b, _stage_mid_a, _stage_mid_b], n_rows=len(_X_step_input))
+    if concurrency_enabled():
+        _later = [_stage_early_b, _stage_mid_a, _stage_mid_b]
+        if memory_allows_concurrency(len(_X_step_input), _X_step_input.shape[1]):
+            # no device plan for four stages: the three later cascades together, as before
+            outs = run_stages_concurrently(self, _later, n_rows=len(_X_step_input))
+        else:
+            # the three do not fit the RAM together: the fastest order-keeping split into waves that do (``_fe_stage_waves``), or one after the other when none has two stages
+            from ._fe_stage_waves import plan_stage_waves, run_stage_waves
+
+            _waves = plan_stage_waves(len(_X_step_input), _X_step_input.shape[1])
+            outs = None
+            if _waves is not None:
+                logging.getLogger(__name__).info("FE stage concurrency: the cascades run in waves %s (early_b, mid_a, mid_b = 0, 1, 2)", _waves)
+                outs = run_stage_waves(self, _later, _waves, n_rows=len(_X_step_input))
         if outs is not None:
             for out in outs:
                 X = _fe_merge_new_columns(X, out, _X_step_input)

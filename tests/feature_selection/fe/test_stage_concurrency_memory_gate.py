@@ -25,13 +25,13 @@ def test_a_frame_that_fits_keeps_the_concurrent_order(monkeypatch):
     assert C.memory_allows_concurrency(100_000, 1000) is True
 
 
-def test_a_frame_that_does_not_fit_runs_the_cascades_one_after_the_other(monkeypatch, caplog):
-    """1M x 1000 (4 GB, 16 GB of working set) on 9.6 GB free: serial, and the decision is logged with the numbers."""
+def test_a_frame_that_does_not_fit_does_not_run_the_three_cascades_together(monkeypatch, caplog):
+    """1M x 1000 (4 GB, 16 GB of working set) on 9.6 GB free: not the three together (the waves that fit take over, ``_fe_stage_waves``), and the decision is logged with the numbers."""
     monkeypatch.delenv("MLFRAME_FE_STAGE_CONCURRENCY_MEM_FACTOR", raising=False)
     _free(monkeypatch, 9.6)
     with caplog.at_level(logging.INFO):
         assert C.memory_allows_concurrency(1_000_000, 1000) is False
-    assert any("stage concurrency off" in r.getMessage() and "1000000 x 1000" in r.getMessage() for r in caplog.records)
+    assert any("three cascades together" in r.getMessage() and "waves that fit" in r.getMessage() and "1000000 x 1000" in r.getMessage() for r in caplog.records)
 
 
 def test_the_boundary_follows_the_factor(monkeypatch):
