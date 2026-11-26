@@ -951,7 +951,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 20-F9 | 20_reporting-1.md | FIXED | the DeLong warning now says labels outside {0, 1} are excluded from both classes, matching the code; no separate test |
 | 20-F10 | 20_reporting-1.md | FIXED | Heterogeneity noise floor uses the prevalence of the finite labels, so one NaN label no longer makes it NaN. Test test_cluster20_nan_prevalence_bench_and_pdp_warn.py |
 | 20-F11 | 20_reporting-1.md | FIXED | calibration_drift base rate is the mean of the finite labels, and the usable-window note counts windows with a finite ECE. Test tests/reporting/test_cluster20_drift_nan_label_base_rate.py |
-| 20-F12 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
+| 20-F12 | 20_reporting-1.md | FIXED | bootstrap_ap_ci returns the distinct-threshold AP (sklearn definition, same as the PR panel) and shifts the interval by the gap to the per-row step sum, so the interval is centred on the AP the title shows under tied scores. Test tests/reporting/test_cluster20_ap_ci_matches_displayed_ap.py. |
 | 20-F13 | 20_reporting-1.md | FIXED | Model-card heteroscedasticity Spearman uses the shared average-rank implementation, so tied predictions no longer make it depend on row order; local rank helper import removed. Test tests/reporting/test_cluster20_model_card_spearman_ties.py. |
 | 20-F14 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F15 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |

@@ -256,7 +256,12 @@ def bootstrap_ap_ci(
         labels_desc = np.diff(np.concatenate(([0], sort.cum_tp)))
     else:
         labels_desc = yt[np.argsort(ys, kind="stable")[::-1]]
-    full_ap = _ap_from_labels_desc(labels_desc)
+    row_ap = _ap_from_labels_desc(labels_desc)
+    # The panel reports the distinct-threshold AP (sklearn's definition). With tied scores the per-row step sum above differs from it, so the point
+    # estimate and the interval centre are brought onto the same definition (20-F12): the point is the distinct-threshold value and the interval is
+    # shifted by the gap between the two definitions.
+    full_ap = _distinct_threshold_ap(yt, ys, sort)
+    tie_shift = full_ap - row_ap
     if n < _AP_BOOTSTRAP_MIN_N:
         return full_ap, float("nan"), float("nan")
     rng = np.random.default_rng(seed)
@@ -300,18 +305,27 @@ def bootstrap_ap_ci(
     boot_ap = boot_ap[~np.isnan(boot_ap)]
     if boot_ap.size == 0:
         return full_ap, float("nan"), float("nan")
-    lo = float(np.percentile(boot_ap, 100.0 * alpha / 2.0))
-    hi = float(np.percentile(boot_ap, 100.0 * (1.0 - alpha / 2.0)))
+    lo = float(np.percentile(boot_ap, 100.0 * alpha / 2.0)) + tie_shift
+    hi = float(np.percentile(boot_ap, 100.0 * (1.0 - alpha / 2.0))) + tie_shift
     if m < n:
         # The point estimate is computed on all n rows but the interval was bootstrapped from m of them, so the
         # title paired a full-n AP with the uncertainty of an m-row study -- about 6x too wide at n=2M against
         # the 50k cap. A bootstrap standard error scales as 1/sqrt(rows), so rescale the half-width back onto
         # the real row count. The interval stays centred on the point estimate the title actually reports.
         shrink = float(np.sqrt(m / n))
-        centre = float(np.median(boot_ap))
+        centre = float(np.median(boot_ap)) + tie_shift
         lo = full_ap + (lo - centre) * shrink
         hi = full_ap + (hi - centre) * shrink
     return full_ap, lo, hi
+
+
+def _distinct_threshold_ap(yt: np.ndarray, ys: np.ndarray, sort: Optional[_ScoreSort]) -> float:
+    """Average precision over the distinct score thresholds (``sklearn.average_precision_score``); tied scores are one step, as in the PR panel."""
+    local = sort if (sort is not None and sort.n == yt.size) else _ScoreSort(yt, ys)
+    tps, fps, _ = local.distinct_threshold_counts()
+    precision = tps / np.maximum(tps + fps, 1.0)
+    recall = tps / local.n_pos
+    return float(np.sum(np.diff(np.concatenate(([0.0], recall))) * precision))
 
 
 def _ap_from_labels_desc(labels_desc: np.ndarray) -> float:
