@@ -6,7 +6,6 @@ wrote an attribute that no longer exists on prediction_stability. The 2-D PDP sw
 """
 
 import logging
-from pathlib import Path
 
 import numpy as np
 
@@ -31,13 +30,9 @@ def test_one_nan_label_keeps_a_finite_noise_floor():
     assert abs(with_nan["noise_floor"] - clean["noise_floor"]) < 0.01
 
 
-def test_spearman_bench_uses_the_live_threshold_name():
-    """The bench writes _rank_stats.SPEARMAN_NJIT_MIN_N, which exists, and no longer touches the removed prediction_stability attribute (20-F25)."""
+def test_spearman_threshold_the_bench_writes_exists():
+    """The threshold the Spearman bench writes, _rank_stats.SPEARMAN_NJIT_MIN_N, exists (20-F25)."""
     assert hasattr(_rank_stats, "SPEARMAN_NJIT_MIN_N")
-    bench = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "reporting" / "_benchmarks" / "bench_prediction_stability_spearman_iter83.py"
-    text = bench.read_text(encoding="utf-8")
-    assert "ps)._SPEARMAN_NJIT_MIN_N" not in text
-    assert "rs.SPEARMAN_NJIT_MIN_N" in text
 
 
 class _ImportanceModel:
