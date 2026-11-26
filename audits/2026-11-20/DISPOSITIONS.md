@@ -427,10 +427,8 @@
 | 19-F9 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 20-F9 | FIXED | the DeLong warning now says labels outside {0, 1} are excluded from both classes, matching the code; no separate test |
 | 20-F17 | FIXED | the per-alpha pinball panel drops non-finite rows first, as its sibling panels do; tests/reporting/test_cluster20_pinball_panel_nan.py |
-| 20-F7 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F8 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F12 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F13 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F14 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F15 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F18 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
@@ -1614,3 +1612,7 @@
 | 21-F10 | FIXED | Low-evidence indices are mapped through the downsample selection (remap_low_evidence_indices) in both the matplotlib and plotly scatter, so weak points stay hollow after capping. Test tests/reporting/test_cluster21_low_evidence_survives_downsample.py. |
 
 | 21-F12 | FIXED | A static image replaced by an HTML file (burned kaleido or failing oneshot) or lost entirely is now counted in get_render_failure_stats(); the HTML file is still written and the figure handle kept. Test tests/reporting/test_cluster21_kaleido_html_fallback_is_counted.py. |
+
+| 20-F13 | FIXED | Model-card heteroscedasticity Spearman uses the shared average-rank implementation, so tied predictions no longer make it depend on row order; local rank helper import removed. Test tests/reporting/test_cluster20_model_card_spearman_ties.py. |
+
+| 20-F7 | FIXED | Non-finite values get a split-gain bin code of their own above every finite bin, so missing rows no longer dilute the top finite bin and a missingness-driven column is ranked. Test tests/reporting/test_cluster20_split_gain_missing_bin.py. |

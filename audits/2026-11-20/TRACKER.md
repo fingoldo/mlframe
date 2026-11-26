@@ -946,13 +946,13 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 19-F7 | 19_preprocessing.md | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 19-F8 | 19_preprocessing.md | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 19-F9 | 19_preprocessing.md | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
-| 20-F7 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
+| 20-F7 | 20_reporting-1.md | FIXED | Non-finite values get a split-gain bin code of their own above every finite bin, so missing rows no longer dilute the top finite bin and a missingness-driven column is ranked. Test tests/reporting/test_cluster20_split_gain_missing_bin.py. |
 | 20-F8 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F9 | 20_reporting-1.md | FIXED | the DeLong warning now says labels outside {0, 1} are excluded from both classes, matching the code; no separate test |
 | 20-F10 | 20_reporting-1.md | FIXED | Heterogeneity noise floor uses the prevalence of the finite labels, so one NaN label no longer makes it NaN. Test test_cluster20_nan_prevalence_bench_and_pdp_warn.py |
 | 20-F11 | 20_reporting-1.md | FIXED | calibration_drift base rate is the mean of the finite labels, and the usable-window note counts windows with a finite ECE. Test tests/reporting/test_cluster20_drift_nan_label_base_rate.py |
 | 20-F12 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F13 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
+| 20-F13 | 20_reporting-1.md | FIXED | Model-card heteroscedasticity Spearman uses the shared average-rank implementation, so tied predictions no longer make it depend on row order; local rank helper import removed. Test tests/reporting/test_cluster20_model_card_spearman_ties.py. |
 | 20-F14 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F15 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F16 | 20_reporting-1.md | FIXED | The ndarray path of _resolve_feature_matrix refuses feature_names whose length differs from the column count, as the DataFrame path does. Test test_cluster20_axis_contracts_and_probes.py |

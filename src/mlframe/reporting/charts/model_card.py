@@ -23,7 +23,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-from mlframe._ranks_shared import ordinal_ranks_float as _ranks
+from mlframe.reporting.charts._rank_stats import spearman as _rank_spearman
 from mlframe.reporting.charts._layout import figsize_for_grid
 from mlframe.reporting.charts.binary import _ScoreSort, _decimate, _finite_binary
 from mlframe.reporting.charts.regression import _finite_pair
@@ -139,16 +139,14 @@ def _regression_metrics(yt: np.ndarray, yp: np.ndarray) -> Dict[str, float]:
 
 
 def _spearman(a: np.ndarray, b: np.ndarray) -> float:
-    """Spearman rank correlation; NaN-safe, returns 0.0 on degenerate (constant) input."""
-    n = a.size
-    if n < 3:
+    """Spearman rank correlation with average ranks for ties; 0.0 on fewer than 3 rows or a constant input.
+
+    Ties used to be ranked by row position, so quantised predictions gave a correlation that changed when the rows were shuffled and could flip the
+    heteroscedasticity flag (20-F13); the shared ``_rank_stats.spearman`` ranks ties by their average.
+    """
+    if a.size < 3:
         return 0.0
-    ra = _ranks(a)
-    rb = _ranks(b)
-    ra -= ra.mean()
-    rb -= rb.mean()
-    denom = np.sqrt(np.sum(ra * ra) * np.sum(rb * rb))
-    return float(np.sum(ra * rb) / denom) if denom > 0 else 0.0
+    return _rank_spearman(a, b, degenerate=0.0)
 
 
 def _regression_verdict(m: Dict[str, float], y_std: float) -> ModelCardVerdict:

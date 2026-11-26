@@ -44,10 +44,11 @@ def _column_codes(col: np.ndarray, nbins: int) -> Optional[np.ndarray]:
     edges = np.unique(np.quantile(edge_src, np.linspace(0.0, 1.0, nbins + 1)))
     if edges.size < 3:  # fewer than two bins: nothing to split on
         return None
-    # ``searchsorted`` already sends every non-finite value past the last edge, so the missing rows land in
-    # a bin of their own above all the finite ones -- which is what lets a column whose MISSINGNESS carries
-    # the error be found at all. The median split this replaces dropped those rows and scored the column 0.
-    return np.searchsorted(edges[1:-1], col, side="right").astype(np.int64)
+    # ``searchsorted`` sends NaN past the last edge, into the same bin as the highest finite values, so the missing rows are given a code of their own
+    # (one above every finite bin). A column whose MISSINGNESS carries the error is then found, and the missing rows do not dilute the top finite bin (20-F7).
+    codes = np.searchsorted(edges[1:-1], col, side="right").astype(np.int64)
+    codes[~finite_mask] = edges.size - 1
+    return codes
 
 
 def split_gain_per_feature(mat: np.ndarray, err: np.ndarray, *, nbins: int = DEFAULT_RANKING_BINS) -> np.ndarray:
