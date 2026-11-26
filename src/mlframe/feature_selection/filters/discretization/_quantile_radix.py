@@ -308,10 +308,21 @@ def quantiles_of_sorted(xs: np.ndarray, quantiles: np.ndarray) -> np.ndarray:
 
 
 def sorted_quantiles(values: np.ndarray, quantiles: np.ndarray) -> "np.ndarray | None":
-    """Float64 quantiles (fractions in ``[0, 1]``) of a large NaN-free float32 vector by the radix route, or ``None`` when it does not apply (another dtype, a small vector): the caller then uses numpy."""
-    if values.dtype == np.float32 and values.ndim == 1 and values.size >= _UNIQUE_COUNTS_MIN_SIZE:
-        found: np.ndarray = _sorted_quantiles_f32_njit(np.ascontiguousarray(values), np.ascontiguousarray(quantiles, dtype=np.float64))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
+    """Float64 quantiles (fractions in ``[0, 1]``) of a large NaN-free float32 vector by the radix route, or ``None`` when it does not apply (another dtype, a small vector): the caller then uses numpy.
+
+    A double-precision vector whose values are all exactly float32 (a float32 column widened, the form the edge search reads its columns in) takes the same route on its narrowed copy: the order statistics
+    and their interpolation are those of the widened values, so the edges are the ones ``np.percentile`` gives (about 15 ms of partition for 300000 values against 3 ms of radix sort)."""
+    if values.ndim != 1 or values.size < _UNIQUE_COUNTS_MIN_SIZE:
+        return None
+    q64 = np.ascontiguousarray(quantiles, dtype=np.float64)  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
+    if values.dtype == np.float32:
+        found: np.ndarray = _sorted_quantiles_f32_njit(np.ascontiguousarray(values), q64)
         return found
+    if values.dtype == np.float64:  # Intentional float64: the test of the incoming vector's dtype, no double array is made
+        exact, narrow = _f64_as_f32_njit(np.ascontiguousarray(values))
+        if exact:
+            widened: np.ndarray = _sorted_quantiles_f32_njit(narrow, q64)
+            return widened
     return None
 
 
