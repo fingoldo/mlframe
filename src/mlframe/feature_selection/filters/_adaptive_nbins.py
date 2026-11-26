@@ -48,7 +48,7 @@ from numba import njit, prange
 
 from mlframe.utils.log_throttle import log_throttle
 from ._binning_spec import BINNING_SCHEMES, DEFAULT_NBINS_CAP, MIN_NBINS, PARTITION_SCHEMES, SUPERVISED_SCHEMES
-from mlframe.feature_selection.filters.discretization.shared import sorted_quantiles
+from mlframe.feature_selection.filters.discretization.shared import quantiles_from_runs, sorted_quantiles
 from mlframe.feature_selection.filters.discretization.shared import (
     knuth_bin_edges as _knuth_bin_edges, bayesian_blocks_bin_edges as _bayesian_blocks_bin_edges,
 )
@@ -150,8 +150,10 @@ def freedman_diaconis_nbins(x: np.ndarray, max_bins: int = MAX_ADAPTIVE_NBINS) -
 # -----------------------------------------------------------------------------
 
 
-def _edges_from_quantiles(x: np.ndarray, n_bins: int) -> np.ndarray:
+def _edges_from_quantiles(x: np.ndarray, n_bins: int, facts: "tuple[np.ndarray, np.ndarray] | None" = None) -> np.ndarray:
     """Quantile binning helper. Returns INNER edges only (n_bins - 1 values).
+
+    ``facts`` are the ascending distinct values of the finite part of ``x`` with their counts, when the caller has them: the quantiles are then read off the counts and ``x`` is not sorted again.
 
     de-duplicate via ``np.unique``
     before returning. ``np.nanpercentile`` on a constant column emits
@@ -174,7 +176,9 @@ def _edges_from_quantiles(x: np.ndarray, n_bins: int) -> np.ndarray:
         return np.array([], dtype=np.float64)  # Intentional float64: empty edge vector keeps the float64 edge contract
     quantiles = np.linspace(0.0, 100.0, n_bins + 1)
     # A large float32 column takes the radix sort of a copy and numpy's interpolation in float64 (the same edges bit for bit as the percentile of the widened array, 4.4 ms of partition at 100000 values against 1 ms)
-    full_edges = sorted_quantiles(x, quantiles / 100.0)
+    full_edges = quantiles_from_runs(facts[0], facts[1], quantiles / 100.0) if facts is not None and int(facts[1].sum()) == int(x.size) else None
+    if full_edges is None:
+        full_edges = sorted_quantiles(x, quantiles / 100.0)
     if full_edges is None:
         full_edges = np.percentile(x.astype(np.float64, copy=False), quantiles)  # Intentional float64: bin-edge computation input; edges compared at full precision
     full_edges = np.unique(full_edges)
@@ -214,9 +218,13 @@ def rice_capped_nbins(n: int, alpha: float = 0.30, cap: int = DEFAULT_NBINS_CAP)
     return int(max(MIN_NBINS, min(int(cap), raw, rice)))
 
 
-def edges_partition(x: np.ndarray, partition: str, rule: str, cap: int = DEFAULT_NBINS_CAP, fixed_nbins: int = 10, alpha: float = 0.30) -> np.ndarray:
+def edges_partition(
+    x: np.ndarray, partition: str, rule: str, cap: int = DEFAULT_NBINS_CAP, fixed_nbins: int = 10, alpha: float = 0.30, facts: "tuple[np.ndarray, np.ndarray] | None" = None
+) -> np.ndarray:
     """Inner bin edges of one column: the ``partition`` (``quantile`` equal-frequency or ``uniform`` equal-width) with the bin count of ``rule`` (``rice_capped`` | ``sturges`` | ``freedman_diaconis`` |
     ``knuth`` | ``fixed``), the count capped at ``cap`` (``fixed`` is not capped).
+
+    ``facts``: the distinct finite values of ``x`` with their counts, when known (the quantile scheme then reads its edges off them instead of sorting ``x`` again).
 
     Returns a 1-D double array of ``n_bins - 1`` inner edges, empty when fewer than two distinct bins result."""
     if partition not in PARTITION_SCHEMES:
@@ -234,7 +242,7 @@ def edges_partition(x: np.ndarray, partition: str, rule: str, cap: int = DEFAULT
         n_bins = int(fixed_nbins)
     else:
         raise ValueError(f"edges_partition: unknown rule {rule!r}")
-    return _edges_from_quantiles(x, n_bins) if partition == "quantile" else _edges_from_uniform(x, n_bins)
+    return _edges_from_quantiles(x, n_bins, facts) if partition == "quantile" else _edges_from_uniform(x, n_bins)
 
 
 def edges_quantile(x: np.ndarray, n_bins: int) -> np.ndarray:

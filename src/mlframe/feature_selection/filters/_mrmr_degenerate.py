@@ -297,7 +297,7 @@ def _unit_projections_njit(block, basis, good, proj):
         total = 0.0
         count = 0
         for i in range(n):
-            x = float(block[j, i])  # the sums of a column are accumulated in double whatever the data dtype (float() widens exactly)
+            x = float(block[j, i])  # the sums of a column are accumulated in double whatever the data dtype: under numba float() keeps a float32, but it only ever meets the double accumulators, which widen it exactly
             if np.isfinite(x):
                 total += x
                 count += 1
@@ -307,7 +307,7 @@ def _unit_projections_njit(block, basis, good, proj):
         p1 = 0.0
         p2 = 0.0
         for i in range(n):
-            x = float(block[j, i])  # the centred sums and the projections are accumulated in double (float() widens exactly)
+            x = float(block[j, i])  # the centred sums and the projections are accumulated in double: the float32 value only ever meets double operands, which widen it exactly
             d = (x - mean) if np.isfinite(x) else 0.0
             ss += d * d
             p0 += d * basis[i, 0]
