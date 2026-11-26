@@ -89,6 +89,8 @@ def _unique_counts_f32_njit(x: np.ndarray):
     return vals, counts
 
 
+# From this size a double-precision vector that is exactly float32 is sorted on its float32 copy (measured, 500000 values: 30.0 against 18.8 ms; 100000 values: 5.8 against 6.5 ms, the narrowing pass does not pay yet).
+_NARROW_UNIQUE_MIN_SIZE = 250_000
 # Below this size ``np.unique`` is as fast as the sort-and-scan (and the JIT dispatch is not worth it): measured 6.8 against 1.1 ms for 100000 continuous float32 values.
 _UNIQUE_COUNTS_MIN_SIZE = 4096
 
@@ -227,7 +229,13 @@ def unique_with_counts(values: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
         radix: "tuple[np.ndarray, np.ndarray]" = _unique_counts_f32_njit(np.ascontiguousarray(values))
         return radix
     if values.dtype == np.float64 and values.ndim == 1 and values.size >= _UNIQUE_COUNTS_MIN_SIZE and not np.isnan(values).any():  # Intentional float64: the engineered-column dtype
-        radix64: "tuple[np.ndarray, np.ndarray]" = _unique_counts_f64_njit(np.ascontiguousarray(values))
+        x64 = np.ascontiguousarray(values)
+        if x64.size >= _NARROW_UNIQUE_MIN_SIZE:
+            exact, narrow = _f64_as_f32_njit(x64)  # a float32 column held in double precision sorts on 4-byte keys: half the radix passes, the same values, counts and zero signs
+            if exact:
+                vals32, counts32 = _unique_counts_f32_njit(narrow)
+                return vals32.astype(np.float64), counts32  # Intentional float64: the distinct values in the dtype of the input
+        radix64: "tuple[np.ndarray, np.ndarray]" = _unique_counts_f64_njit(x64)
         return radix64
     return np.unique(values, return_counts=True)
 
