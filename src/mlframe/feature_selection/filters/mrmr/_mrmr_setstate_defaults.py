@@ -20,6 +20,10 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_fallback_to_all": True,  # legacy default
     "_engineered_features_": [],
     "_fe_escalation_nominal_target_": False,  # old fits never skipped escalation for a nominal target
+    "_unary_credit_done_key_": None,  # fingerprint of the last unary-credit pass of a fit: None on an estimator fitted before the skip of an identical second pass
+    "_unary_credit_fired_": False,  # whether the credit added a column: read by the parsimony pass; False on an estimator fitted before it
+    "_target_transform_cache_": None,  # the target-transform verdict of the last fit: None means "not searched yet", so a refit searches
+    "emit_both_added_": [],  # raw columns kept only by redundancy_policy='emit_both'; empty on an estimator fitted before they were recorded
     # Recipes-based replay so transform() can recompute engineered features on test data. Old pickles
     # have no recipes (their engineered cols were never replayable); empty list reproduces the legacy
     # "engineered cols dropped from transform output" behaviour bit-exact.
@@ -373,7 +377,7 @@ _SETSTATE_LEGACY_DEFAULTS = {
     "fe_univariate_fourier_chirp": True,
     "fe_univariate_fourier_chirp_min_val_corr": 0.15,
     "_adaptive_fourier_features_": [],
-    # MILLER-MADOW DEBIAS of the joint-prevalence ratio gate (+ #4). Live default ON since 2026-11-24 (see ``MRMR.__init__``); pickles without the attribute re-fit with it ON too.
+    # MILLER-MADOW DEBIAS of the joint-prevalence ratio gate (+ #4). Live default ON (see ``MRMR.__init__``); pickles without the attribute re-fit with it ON too.
     "fe_mm_debias_prevalence": True,
     # SURROGATE-GBM SPLIT-CO-OCCURRENCE SEEDER (#6) + ORDER-3 maxT floor (#7),
     # . Seeder is OPT-IN; the order-3 floor mirrors the order-2 knobs.

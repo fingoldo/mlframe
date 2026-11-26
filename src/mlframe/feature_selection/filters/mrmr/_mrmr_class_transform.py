@@ -201,7 +201,7 @@ class _MRMRTransformMixin:
         import pandas as pd
         from .._usability_lists import materialize_usability_features
 
-        # the container type of the output follows the input (AUD23-11): a pure-MI transform of an ndarray is an ndarray, so the union must not turn it into a DataFrame
+        # the container type of the output follows the input: a pure-MI transform of an ndarray is an ndarray, so the union must not turn it into a DataFrame
         # (a Pipeline / ColumnTransformer that expects arrays, or set_output=default, saw the type change with the flag); the names are in ``get_feature_names_out``
         _was_frame = isinstance(base_out, pd.DataFrame)
         if not _was_frame:

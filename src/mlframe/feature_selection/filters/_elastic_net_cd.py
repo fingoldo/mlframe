@@ -118,6 +118,7 @@ def _cd_gram_kernel(G, q, alpha, l1_ratio, n, max_iter, tol, w):
 
 
 _GRAM_MAX_COLUMNS = 4000
+# Intentional float64: coordinate-descent coefficients and residual sums of squares
 """Widest design that takes the Gram form (a (p, p) float64 matrix: 128 MB at 4000); wider ones keep the residual form."""
 
 
@@ -125,6 +126,7 @@ def elastic_net_coef(X: np.ndarray, y: np.ndarray, alpha: float, l1_ratio: float
     """``(coefficients, converged)`` of the elastic net (``l1_ratio=1``: the lasso) of ``y`` on the columns of ``X``, with an unpenalised intercept; the columns are NOT rescaled here."""
     # Intentional float64: the coordinate updates accumulate sums over all rows, so the design is held in double precision
     A = np.asarray(X, dtype=np.float64)
+    # Intentional float64: coordinate-descent coefficients and residual sums of squares
     t = np.asarray(y, dtype=np.float64).ravel()
     Xc = np.ascontiguousarray(A - A.mean(axis=0))
     yc = t - t.mean()

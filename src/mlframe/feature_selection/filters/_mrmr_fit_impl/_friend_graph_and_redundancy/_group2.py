@@ -9,6 +9,7 @@ section this fans out from and the ``(selected_vars, cols, data, nbins)`` thread
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import numpy as np
@@ -299,6 +300,45 @@ def _friend_graph_and_redundancy_passes_group2_part1(
     return selected_vars
 
 
+def _orth_protection_sources(_rec_o: Any) -> "tuple | None":
+    """The source names of the recipe of an orth-basis column that the held-out protection considers: one source, or the two of a binned numeric aggregate (it reads a group and an aggregated column); ``None`` for
+    any other arity and for a hinge leg (the hinge block above has made its keep/drop decision)."""
+    if getattr(_rec_o, "kind", None) == "hinge_basis":
+        return None
+    _src_o = tuple(getattr(_rec_o, "src_names", ()) or ())
+    _is_binagg = getattr(_rec_o, "kind", None) == "binned_numeric_agg"
+    if len(_src_o) != 1 and not (_is_binagg and len(_src_o) == 2):
+        return None
+    return _src_o
+
+
+#: From this many sources the significance probes of the protection pass run on a pool (a probe is one O(n) pass; 500 of them at 500000 rows were 6 s on one thread).
+_PARALLEL_PROBE_MIN_SOURCES = 4
+
+
+def _probe_orth_sources_in_parallel(_orth_feats, _cols_index_o, _sv_set_o, _sel_names_o, _hybrid_orth_pre_recipes, _orth_source_is_signal) -> None:
+    """Run the significance probe of every source the protection pass below will ask about, on a thread pool, so the pass finds each answer in the probe's own per-source memo.
+
+    The sources are the ones of the candidates that reach the probe (not already in the selection); a probe depends only on its source, the frame and the target, so the order it runs in changes no answer. The
+    pass asks lazily and stops at the first source of a candidate that is significant, so a source the pass would never have asked about may be probed here; its answer is never read."""
+    _sources: dict = {}
+    for _on in _orth_feats:
+        _oidx = _cols_index_o.get(_on)
+        if _oidx is None or _oidx in _sv_set_o:
+            continue
+        _src_o = _orth_protection_sources(_hybrid_orth_pre_recipes.get(_on))
+        if _src_o is None or any(_s in _sel_names_o for _s in _src_o):
+            continue
+        for _s in _src_o:
+            _sources[_s] = None
+    if len(_sources) < _PARALLEL_PROBE_MIN_SOURCES:
+        return
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=min(8, len(_sources), os.cpu_count() or 2), thread_name_prefix="orth_probe") as pool:
+        list(pool.map(_orth_source_is_signal, _sources))
+
+
 def _orth_feature_heldout_gate_pass(
     _orth_feats,
     selected_vars,
@@ -327,6 +367,7 @@ def _orth_feature_heldout_gate_pass(
             """Significance of the raw source column, with the captured frame, target and cache passed explicitly."""
             return _orth_source_is_signal_impl(_src_name, _cols_index_o, data, target_indices, nbins, _orth_sig_cache)
 
+        _probe_orth_sources_in_parallel(_orth_feats, _cols_index_o, _sv_set_o, _sel_names_o, _hybrid_orth_pre_recipes, _orth_source_is_signal)
         _readd_orth = []
         for _on in _orth_feats:
             _oidx = _cols_index_o.get(_on)
@@ -341,7 +382,7 @@ def _orth_feature_heldout_gate_pass(
             # Hinge block already made the correct keep/drop decision (guards a past regression).
             if getattr(_rec_o, "kind", None) == "hinge_basis":
                 continue
-            _src_o = tuple(getattr(_rec_o, "src_names", ()) or ())
+            _src_o = _orth_protection_sources(_rec_o)
             # Self-limit #1: single-source basis whose raw source EITHER (a) already survived the screen
             # (the cheap, common-case fast path -- most bases' sources are already selected, so this never
             # pays the permutation-test cost below), OR (b) independently clears its own marginal-
@@ -358,8 +399,7 @@ def _orth_feature_heldout_gate_pass(
             # for the source-not-yet-selected case, not for every candidate.
             # A binned numeric aggregate reads two columns (group, aggregated); each cell statistic is a function of the group's bins, so the MI screen
             # drops it behind the selected group column although the statistic (a V-shaped spread, a skew) is what a linear model needs.
-            _is_binagg = getattr(_rec_o, "kind", None) == "binned_numeric_agg"
-            if len(_src_o) != 1 and not (_is_binagg and len(_src_o) == 2):
+            if _src_o is None:
                 continue
             if not any(_s in _sel_names_o for _s in _src_o) and not any(_orth_source_is_signal(_s) for _s in _src_o):
                 continue

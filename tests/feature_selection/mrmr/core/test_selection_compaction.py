@@ -100,9 +100,14 @@ def test_joint_cache_equals_the_plain_score_of_every_ordered_tuple_even_when_it_
     cols = {f"c{i}": rng.integers(0, 5, n).astype(np.int8) for i in range(7)}
     y = rng.integers(0, 3, n)
     cache = JointCache(cols, y, max_entries=4)
+    compared = 0
     for k in range(0, 5):
-        for names in itertools.islice(itertools.permutations(cols, k), 0, 80, 3):
+        combos = list(itertools.islice(itertools.permutations(cols, k), 0, 80, 3))
+        assert combos
+        for names in combos:
             assert cache.corrected(names) == corrected_joint_mi([cols[nm] for nm in names], y), names
+            compared += 1
+    assert compared > 50, "the loop must have compared the cache with the plain score"
 
 
 def test_candidates_sharing_a_kept_prefix_extend_one_cached_joint_instead_of_rebuilding_it(monkeypatch):

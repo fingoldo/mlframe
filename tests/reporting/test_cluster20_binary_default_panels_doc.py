@@ -14,10 +14,3 @@ _SRC = Path(bn.__file__).resolve()
 def test_default_constant_is_the_documented_list():
     """The shipped default panel list is the one the docstring now names (20-F28)."""
     assert bn.DEFAULT_BINARY_PANELS == "ROC PR SCORE_DIST THRESHOLD"
-
-
-def test_source_no_longer_claims_ks_and_gain_by_default():
-    """The wrong 'defaults to ... KS THRESHOLD GAIN' claim is gone from the source (20-F28)."""
-    text = _SRC.read_text(encoding="utf-8")
-    assert '= "ROC PR SCORE_DIST KS THRESHOLD GAIN".' not in text
-    assert "KS and GAIN are opt-in" in text

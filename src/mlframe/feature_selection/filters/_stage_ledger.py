@@ -11,12 +11,11 @@ then classifies the stage by the load measured while it ran)."""
 
 from __future__ import annotations
 
-import json
 import os
 import threading
-import time
-from contextlib import contextmanager
-from typing import Any, Iterator, Optional
+from typing import Any, Optional
+
+import orjson
 
 ENV = "MLFRAME_STAGE_LEDGER"
 _FALSE = {"", "0", "false", "no", "off"}
@@ -48,19 +47,6 @@ def record(name: str, t0: float, t1: float, *, device: Optional[str] = None, in_
         _EVENTS.append(event)
 
 
-@contextmanager
-def stage(name: str, *, device: Optional[str] = None, in_gb: Optional[float] = None) -> Iterator[None]:
-    """Record the wall of the enclosed block as one stage event (a no-op when the ledger is off)."""
-    if not enabled():
-        yield
-        return
-    t0 = time.time()
-    try:
-        yield
-    finally:
-        record(name, t0, time.time(), device=device, in_gb=in_gb)
-
-
 def snapshot() -> "list[dict[str, Any]]":
     """A copy of the events recorded so far, in the order they ended."""
     with _LOCK:
@@ -79,7 +65,7 @@ def dump(path: str) -> int:
     if events:
         with open(path, "a", encoding="utf-8") as fh:
             for e in events:
-                fh.write(json.dumps(e) + "\n")
+                fh.write(orjson.dumps(e).decode() + "\n")
     return len(events)
 
 

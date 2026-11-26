@@ -48,7 +48,7 @@ if mode == "all":
     from mlframe.feature_selection._benchmarks.profiling import family_scale as F
 
     kwargs = F.all_families_kwargs()
-    kwargs.update(binning_params(os.environ.get("BENCH_NBINS", "mdlp")))
+    kwargs.update(binning_params(os.environ.get("BENCH_NBINS", "quantile")))  # the MRMR default; BENCH_NBINS=mdlp reproduces every number above (all taken with mdlp up to 2026-11-25)
     if os.environ.get("BENCH_QDTYPE"):  # e.g. int16 / int8: A/B of the codes-matrix width
         kwargs["quantization_dtype"] = getattr(np, os.environ["BENCH_QDTYPE"])
 else:
@@ -151,7 +151,7 @@ def _stack_snapshot() -> "tuple[str, list[str]]":
 
 
 _avail0 = float(psutil.virtual_memory().available)
-_min_avail = [_avail0]  # [lowest system-wide available RAM seen during the fit, bytes]
+min_avail = [_avail0]  # [lowest system-wide available RAM seen during the fit, bytes]
 
 
 def sampler():
@@ -161,8 +161,8 @@ def sampler():
     while not stop.wait(0.2):
         rss = proc.memory_info().rss
         _avail = psutil.virtual_memory().available
-        if _avail < _min_avail[0]:
-            _min_avail[0] = _avail  # the system-wide free RAM: what the paging risk depends on (the RSS also counts working-set pages the system can take back without a write)
+        if _avail < min_avail[0]:
+            min_avail[0] = _avail  # the system-wide free RAM: what the paging risk depends on (the RSS also counts working-set pages the system can take back without a write)
         if _avail < MIN_AVAILABLE:
             # the machine is about to page: report what is known and stop the process instead of freezing the laptop
             print(f"ABORTED at t={time.perf_counter() - t0:.1f}s: available memory under {MIN_AVAILABLE / 1e9:.1f} GB, peak RSS growth {(max(peak[0], rss) - base) / 1e6:.0f} MB = {(max(peak[0], rss) - base) / 1e6 / frame_mb:.1f} x the frame", flush=True)
@@ -317,10 +317,23 @@ for _spec in [x for x in os.environ.get("RSS_TRACE_CALLS", "").split(",") if x.s
 
 th = threading.Thread(target=sampler, daemon=True)
 th.start()
+_ledger_prefix = os.environ.get("BENCH_LEDGER", "").strip()  # BENCH_LEDGER=<prefix>: the stage ledger and the hardware timeline of the fit go to <prefix>.ledger.jsonl / <prefix>.timeline.jsonl, the idle-device report is printed
+_timeline = None
+if _ledger_prefix:
+    from mlframe.feature_selection._benchmarks.profiling.hardware_timeline import TimelineSampler
+    from mlframe.feature_selection.filters import _stage_ledger
+
+    for _suffix in (".ledger.jsonl", ".timeline.jsonl"):
+        if os.path.exists(_ledger_prefix + _suffix):
+            os.remove(_ledger_prefix + _suffix)
+    os.environ[_stage_ledger.ENV] = _ledger_prefix + ".ledger.jsonl"
+    _stage_ledger.reset()
+    _timeline = TimelineSampler(_ledger_prefix + ".timeline.jsonl", interval=float(os.environ.get("BENCH_LEDGER_INTERVAL_S", "1.0")))
+    _timeline.__enter__()
 t = time.perf_counter()
 status = "ok"
 try:
-    _sel = MRMR(verbose=0, random_seed=0, n_jobs=1, **kwargs).fit(X, y)
+    _sel = MRMR(verbose=0, random_seed=0, n_jobs=int(os.environ.get("BENCH_NJOBS", "1")), **kwargs).fit(X, y)  # BENCH_NJOBS=-1: the product default (all physical cores)
     _sup = sorted(int(v) for v in np.asarray(getattr(_sel, 'support_', [])).ravel())
     print(f'selected {len(_sup)} columns, sum {sum(_sup)}: {_sup[:20]}', flush=True)
     print(f'engineered {len(getattr(_sel, "_engineered_features_", None) or [])} features', flush=True)  # support_ lists raw columns only: a fit whose raws are all covered by engineered columns has support_ == []
@@ -340,6 +353,12 @@ try:
 
         _rows = sorted(_fft._FE_FAMILY_RSS.items(), key=lambda kv: kv[1][0], reverse=True)
         print("FAMILY_RSS " + "; ".join(f"{k}=+{v[0] / 2**20:.0f}/+{v[1] / 2**20:.0f}" for k, v in _rows[:45]), flush=True)
+    try:  # how often the lazy engineered columns were computed, read from the cache and replayed on their first rows alone
+        from mlframe.feature_selection.filters import _lazy_engineered as _lazy
+
+        print("LAZY_STATS " + "; ".join(f"{k}={v}" for k, v in _lazy.STATS.items()), flush=True)
+    except Exception as _exc:
+        print("LAZY_STATS unavailable:", type(_exc).__name__, _exc, flush=True)
     if _CALL_STATS:
         print("CALLS " + "; ".join(f"{k}: n={v[0]} wall={v[1]:.1f}s none={_CALL_NONE.get(k, 0)}" for k, v in _CALL_STATS.items()), flush=True)
         for _k, _v in _CALL_STATS.items():
@@ -380,6 +399,11 @@ except BaseException as exc:  # reported with the peak: a MemoryError at scale i
     status = f"{type(exc).__name__}: {str(exc)[:120]}"
 wall = time.perf_counter() - t
 stop.set()
+if _timeline is not None:
+    _timeline.__exit__(None, None, None)
+    from mlframe.feature_selection._benchmarks.profiling import stage_idle_report
+
+    stage_idle_report.main([_ledger_prefix + ".ledger.jsonl", _ledger_prefix + ".timeline.jsonl"])
 def _rss_growth_mb():
     """The process RSS growth over the start of the script, in MB."""
     return (proc.memory_info().rss - base) / 1e6
@@ -477,7 +501,7 @@ try:
 except Exception as exc:  # no cupy
     print("pool stats unavailable:", exc)
 print(f"rows={rows} cols={cols} mode={mode} frame={frame_mb:.0f} MB status={status} wall={wall:.1f}s")
-print(f"system RAM: available at the start {_avail0 / 1e6:.0f} MB, lowest during the fit {_min_avail[0] / 1e6:.0f} MB, i.e. {(_avail0 - _min_avail[0]) / 1e6:.0f} MB taken ({(_avail0 - _min_avail[0]) / 1e6 / frame_mb:.2f} x the frame)")
+print(f"system RAM: available at the start {_avail0 / 1e6:.0f} MB, lowest during the fit {min_avail[0] / 1e6:.0f} MB, i.e. {(_avail0 - min_avail[0]) / 1e6:.0f} MB taken ({(_avail0 - min_avail[0]) / 1e6 / frame_mb:.2f} x the frame)")
 print(f"peak RSS growth {(peak[0] - base) / 1e6:.0f} MB = {(peak[0] - base) / 1e6 / frame_mb:.2f} x the frame; RSS before the fit {base / 1e6:.0f} MB")
 for when, mb, where in events:
     print(f"  t={when:7.1f}s +{mb:7.0f} MB  {where}")

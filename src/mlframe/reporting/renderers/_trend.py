@@ -51,7 +51,7 @@ _Endpoints = Optional[Tuple[Tuple[float, float], Tuple[float, float]]]
 
 def _content_digest(arr: np.ndarray) -> bytes:
     """Digest of the array's full contents. An in-place refill keeps the id and the weakref, so identity alone cannot see new data (audit 21-F13)."""
-    return hashlib.blake2b(np.ascontiguousarray(arr).tobytes(), digest_size=16).digest()
+    return hashlib.blake2b(np.ascontiguousarray(arr).view(np.uint8).data, digest_size=16).digest()
 
 
 def _cached_fit(x: np.ndarray, y: np.ndarray, method: str) -> Union[_Endpoints, "_Miss"]:

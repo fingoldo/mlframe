@@ -128,7 +128,7 @@ def _engineered_mi_scores(X: Any, _eng_cols_appended: list, _y_np: Any) -> dict[
 def _dedup_scan_view(self, X: Any, cols: list, y: Any) -> "tuple[Any, Any]":
     """``(frame, y)`` the dedup scores on: the candidate columns at the fit's shared decision subsample when it has one, else ``X`` and ``y`` as they are.
 
-    The Spearman scan keeps one float64 rank row per candidate and the MI score a dense float matrix of them, both at the frame's row count: at 1M rows x 715 candidates that is several GB and
+    The Spearman scan keeps one double rank row per candidate and the MI score a dense float matrix of them, both at the frame's row count: at 1M rows x 715 candidates that is several GB and
     most of a minute, for a verdict (near-duplicate at rank correlation 0.99, higher plug-in MI) that a few ten thousand rows give. The drop names found there are applied to the full frame.
     """
     if not isinstance(X, pd.DataFrame) or len(cols) < 2:

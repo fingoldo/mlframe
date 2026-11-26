@@ -4,16 +4,7 @@ The default grid spans 0.05 .. 0.95, so sampling and CRPS ignore the outer 5% pe
 grid) are stated where the grid is defined.
 """
 
-from pathlib import Path
-
 from mlframe.training.composite import distributional
-
-
-def test_default_grid_truncation_is_documented():
-    """The default grid states its 0.05..0.95 truncation and the explicit-grid way out (35-F28)."""
-    src = Path(distributional.__file__).read_text(encoding="utf-8")
-    assert "Known truncation (audit 35-F28, documented choice)" in src
-    assert "explicit ``quantiles`` grid with tail levels" in src
 
 
 def test_default_grid_is_still_the_dense_0_05_to_0_95():

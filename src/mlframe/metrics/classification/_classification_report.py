@@ -24,7 +24,7 @@ import pandas as pd
 import numba
 
 from .._numba_params import NUMBA_NJIT_PARAMS, _PARALLEL_REDUCTION_THRESHOLD
-from mlframe.metrics.calibration._calibration_metrics import ICE_UNCOMPUTABLE
+from mlframe.metrics.calibration import ICE_UNCOMPUTABLE
 from mlframe.metrics.calibration.shared import DEFAULT_TITLE_METRICS_TOKENS, calibration_binning, render_title_metric_token, show_calibration_plot
 from .._auc_per_group import (
     fast_aucs_per_group_optimized,

@@ -14,12 +14,14 @@ and it agrees with the CPU kernel to the last bits of a double (about 1e-17 abso
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from typing import Any, Optional
 
 import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
+from ._column_gather import gather_columns_cm
 from ._kernel_types import render
 from ._pair_operand_blocks import pair_chunks_by_operand_block
 from mlframe.utils.log_throttle import log_throttle
@@ -154,6 +156,11 @@ def _kernel(cp: Any, kb: int = 1) -> Any:
         return kern
 
 
+def binary_kernel_enabled() -> bool:
+    """Whether a binary target is counted by the outcome-code kernel (``_pair_mi_perm_cuda_bin``), read on every call: ``MLFRAME_PAIR_PERM_BIN=0`` runs the general kernel."""
+    return os.environ.get("MLFRAME_PAIR_PERM_BIN", "1").strip() != "0"
+
+
 def _launch_pairs(
     cp: Any,
     factors_data: np.ndarray,
@@ -165,13 +172,19 @@ def _launch_pairs(
     cap: int,
     n_pairs: int,
     max_joint: int,
+    columns: "np.ndarray | None" = None,
 ) -> np.ndarray:
-    """Upload the byte columns, the pair index vectors and the targets of one set of pairs and run the kernel once: the ``(K, n_pairs)`` MI matrix."""
+    """Upload the byte columns, the pair index vectors and the targets of one set of pairs and run the kernel once: the ``(K, n_pairs)`` MI matrix.
+
+    ``columns``: the columns of ``factors_data`` that ``a`` and ``b`` index into (positions in ``columns``); ``None`` is every column. They are gathered and transposed on the host on every core, already padded."""
     n = int(factors_data.shape[0])
     K, ky = int(y_perms.shape[0]), int(freqs_y.shape[0])
+    if ky == 2 and binary_kernel_enabled():
+        from ._pair_mi_perm_cuda_bin import launch_pairs_binary
+
+        return launch_pairs_binary(cp, factors_data, a, b, nb, y_perms, freqs_y, cap, columns)
     stride = (n + 3) & ~3  # rows padded to 4 bytes for the 4-byte loads of the kernel; the pad is never read as a row
-    cols = cp.zeros((int(factors_data.shape[1]), stride), dtype=cp.uint8)
-    cols[:, :n] = cp.asarray(np.ascontiguousarray(factors_data.T, dtype=np.uint8))
+    cols = cp.asarray(gather_columns_cm(factors_data, np.arange(factors_data.shape[1]) if columns is None else columns, pad_to=4))
     d_a, d_b = cp.asarray(a), cp.asarray(b)
     d_nb = cp.asarray(nb.astype(np.int32))
     d_y = cp.zeros((K, stride), dtype=cp.uint8)
@@ -243,17 +256,20 @@ def pair_mi_perm_matrix_cuda(
     max_joint = int((nb[a][valid] * nb[b][valid]).max())
     if (max_joint * ky + max_joint) * 4 > _SHARED_BUDGET_BYTES:
         return None
-    if int(factors_data.min()) < 0 or int(factors_data.max()) > 255 or int(y_perms.min()) < 0 or int(y_perms.max()) >= ky:
+    if int(y_perms.min()) < 0 or int(y_perms.max()) >= ky:
         return None
+    from ._permutation_null import column_code_bounds
+
     used = np.unique(np.concatenate([a[valid], b[valid]]))
-    col_max = factors_data[:, used].max(axis=0).astype(np.int64)
-    if bool((col_max >= nb[used]).any()):
+    lowest, highest = column_code_bounds(factors_data, used)  # one parallel pass over the columns the valid pairs read
+    if int(lowest.min()) < 0 or int(highest.max()) > 255 or bool((highest >= nb[used]).any()):
         return None
     need = n_features * n + K * n + K * n_pairs * 8 + n_pairs * 16 + n_features * 4 + ky * 8
     try:
         free = int(cp.cuda.runtime.memGetInfo()[0])
         if need * 2 <= free:
-            return _launch_pairs(cp, factors_data, a, b, nb, y_perms, freqs_y, cap, n_pairs, max_joint)
+            every, slot = np.unique(np.concatenate([a, b]), return_inverse=True)  # only the columns some pair reads go up
+            return _launch_pairs(cp, factors_data, slot[:n_pairs].astype(np.int64), slot[n_pairs:].astype(np.int64), nb[every], y_perms, freqs_y, cap, n_pairs, max_joint, columns=every)
         # the whole pool does not fit: stream it in column blocks. A chunk of pairs touches a bounded set of byte columns; only those are gathered and uploaded, so the card holds
         # ``chunk_columns * n + K * n`` bytes of data and ``chunk_pairs * K * 8`` of output at a time (one pair block per launch, each launch the full kernel).
         budget = free // 4 - K * n
@@ -267,7 +283,7 @@ def pair_mi_perm_matrix_cuda(
             cols_used, inverse = np.unique(np.concatenate([a[chunk], b[chunk]]), return_inverse=True)
             k = chunk.shape[0]
             sub = _launch_pairs(
-                cp, factors_data[:, cols_used], inverse[:k].astype(np.int64), inverse[k:].astype(np.int64), nb[cols_used], y_perms, freqs_y, cap, k, max_joint
+                cp, factors_data, inverse[:k].astype(np.int64), inverse[k:].astype(np.int64), nb[cols_used], y_perms, freqs_y, cap, k, max_joint, columns=cols_used
             )
             if sub is None:
                 return None

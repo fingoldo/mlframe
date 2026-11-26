@@ -112,8 +112,9 @@ def _grid_block_one_call(cp, cg, mods_dev, groups, n_mods, n, yd, y_min, n_class
         sel = cp.asarray(np.asarray(idxs, dtype=np.int64))
         residues = (cg[:, None, :] % mods_dev[sel][None, :, None]).astype(cp.float64).reshape(C * len(idxs), n)  # Intentional float64: GPU residue operand; kernel contract is float64
         Xc, xc_is_cm, xc_cm, interior = _resident_mi_candidates(residues, int(eff_nbins), keep_dtype=False, relax_binning=True, x_is_cm=True)
-        if not xc_is_cm:  # the percentile fallback (a group of 29 or more bins is past the radix kernel's cap) hands the matrix back as (rows, columns): the fused scorer reads every group as (columns, rows)
-            Xc = xc_cm if xc_cm is not None and tuple(xc_cm.shape) == (residues.shape[0], residues.shape[1]) else cp.ascontiguousarray(Xc.T)
+        # The percentile fallback (a group of 29 or more bins is past the radix kernel's cap) hands the matrix back as (rows, columns): the fused scorer reads every group as (columns, rows).
+        xc_cm_matching = xc_cm if xc_cm is not None and tuple(xc_cm.shape) == (residues.shape[0], residues.shape[1]) else None
+        Xc = Xc if xc_is_cm else (xc_cm_matching if xc_cm_matching is not None else cp.ascontiguousarray(Xc.T))
         xs.append(Xc)
         dtypes.add((str(Xc.dtype), str(interior.dtype)))
         pad_rows = maxB - int(eff_nbins)

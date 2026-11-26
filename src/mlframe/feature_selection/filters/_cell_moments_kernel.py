@@ -245,7 +245,7 @@ def fold_cell_moments(cp: ModuleType, codes_g: Any, v_safe: Any, finite_f: Any, 
 # the per-segment partial tables are then summed over the segments by ``cupy.sum`` (a fixed-order reduction). The per-row terms are the expressions of the atomic kernels, so the tables
 # are the same moments up to the order of the additions, and every call returns the same bits.
 _DET_PASS1_SRC = r"""
-extern "C" __global__ void det_cell_sums(const long long* codes, const double* v, const double* w, const long long* fold, int has_fold, long long n, long long seg_len, int nc, int nf,  // dtype-ok: deterministic form (opt-in, not the default): the caller allocates every buffer float64 and the per-segment partial sums must add in one fixed order at double precision
+extern "C" __global__ void det_cell_sums(const long long* codes, const double* v, const double* w, const long long* fold, int has_fold, long long n, long long seg_len, int nc, int nf,  // dtype-ok: deterministic form (opt-in, not the default): the caller allocates every buffer double and the per-segment partial sums must add in one fixed order at double precision
                                           double* part_cnt, double* part_sum) {
     int j = blockIdx.x * blockDim.x + threadIdx.x;
     int ncell = nf * nc;
@@ -270,7 +270,7 @@ extern "C" __global__ void det_cell_sums(const long long* codes, const double* v
 """
 
 _DET_PASS2_SRC = r"""
-extern "C" __global__ void det_cell_centred(const long long* codes, const double* v, const double* w, const long long* fold, int has_fold, const double* mean, long long n, long long seg_len,  // dtype-ok: deterministic form (opt-in, not the default): the caller allocates every buffer float64 and the per-segment partial sums must add in one fixed order at double precision
+extern "C" __global__ void det_cell_centred(const long long* codes, const double* v, const double* w, const long long* fold, int has_fold, const double* mean, long long n, long long seg_len,  // dtype-ok: deterministic form (opt-in, not the default): the caller allocates every buffer double and the per-segment partial sums must add in one fixed order at double precision
                                              int nc, int nf, double* part2, double* part3, double* part4) {
     int j = blockIdx.x * blockDim.x + threadIdx.x;
     int ncell = nf * nc;

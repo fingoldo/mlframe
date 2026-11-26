@@ -1,6 +1,6 @@
 """Device target shuffles without a sort: ``out[k, i] = y[pi_k(i)]`` where ``pi_k`` is a keyed Feistel permutation of ``0 .. n - 1``, one launch for all ``nperm`` rows.
 
-The order-1 maxT floor needs ``nperm`` shuffles of the target. The device generator argsorted a ``(nperm, n)`` float64 key matrix (``_permutation_null_resident.gen_target_shuffles_cupy_sorted``): 43.5, 80.9 and 33.6 ms at
+The order-1 maxT floor needs ``nperm`` shuffles of the target. The device generator argsorted a ``(nperm, n)`` double key matrix (``_permutation_null_resident.gen_target_shuffles_cupy_sorted``): 43.5, 80.9 and 33.6 ms at
 ``(25, 100000)``, ``(50, 100000)`` and ``(100, 30000)`` on the development host, thrust's segmented sort being synchronous (a bare 2-D ``cp.argsort`` keeps a counter thread at 9 to 34 percent of its free pace, against
 94 percent while a thread sleeps: it holds the GIL for most of its run) and the safe wrapper falling back to one sort per vector, whose GIL round trips each cost a switch interval while the other lanes of the fit are busy. A Feistel network is a bijection on ``[0, 2^(2h))`` for any round function; cycle-walking (apply it again while the image is ``>= n``) restricts it to a bijection on ``[0, n)``. Every thread computes its own
 image: no sort, no scratch memory, an asynchronous launch.
@@ -14,14 +14,13 @@ Win axis: any ``n`` and ``nperm``; the walk length is ``2^(2h) / n`` on average 
 
 from __future__ import annotations
 
-import threading
 from typing import Any
 
 import numpy as np
 
 from pyutilz.performance.gpu_hw_launch import block_size_for
 
-from ._batch_mi_noise_gate_bits import _C_TYPES
+from ._batch_mi_noise_gate_bits import _C_TYPES, typed_module
 
 ROUNDS = 8
 
@@ -54,19 +53,6 @@ extern "C" __global__ void feistel_shuffle(const {DT}* __restrict__ y, const uns
 }
 """
 
-_MODULES: dict = {}
-_LOCK = threading.Lock()
-
-
-def _module(cp: Any, c_type: str) -> Any:
-    """The compiled kernel for one label type, built once per process."""
-    with _LOCK:
-        mod = _MODULES.get(c_type)
-        if mod is None:
-            mod = cp.RawModule(code=_SRC.replace("{DT}", c_type))
-            _MODULES[c_type] = mod
-    return mod
-
 
 def _round_keys(nperm: int, seed: int) -> np.ndarray:
     """``(nperm, ROUNDS)`` uint32 keys: the low 32 bits of the splitmix64 output at the counters ``1 .. nperm * ROUNDS`` of ``seed``."""
@@ -92,7 +78,7 @@ def shuffled_rows(cp: Any, d_y: Any, nperm: int, seed: int) -> Any:
     if n == 0 or nperm == 0:
         return out
     keys = cp.asarray(_round_keys(nperm, seed))
-    kernel = _module(cp, _C_TYPES[d_y.dtype]).get_function("feistel_shuffle")
+    kernel = typed_module(cp, _SRC, _C_TYPES[d_y.dtype]).get_function("feistel_shuffle")
     block = block_size_for(kernel, work_items=n)
     kernel(((n + block - 1) // block, int(nperm)), (block,), (d_y, keys, np.uint32(n), np.uint32(half_bits_for(n)), np.int32(ROUNDS), np.int32(nperm), out))
     return out

@@ -123,6 +123,82 @@ def _presort_by_two_sorts(cp, raw_cont: np.ndarray) -> "tuple[np.ndarray, np.nda
     return order, tie
 
 
+_EXACT_GROUPS_BYTES_PER_COLUMN_ROW = _TWO_SORT_BYTES_PER_COLUMN_ROW + 8  # the two-sort peak next to the double-precision copy of the block
+
+
+def _keys_sort_block(cp, cm, rows, row_bits: int) -> "tuple[np.ndarray, np.ndarray]":
+    """``(order (kc, n) int32, tie (kc, n) uint8)`` of the float32 block ``cm`` ``(kc, n)`` on the device from ONE sort of composite keys (the body of the block loop of :func:`_presort_by_keys`)."""
+    kc, n = int(cm.shape[0]), int(cm.shape[1])
+    bits = (cm + np.float32(0.0)).view(cp.uint32)  # -0.0 becomes +0.0
+    ordered = bits ^ ((bits >> 31) * np.uint32(0xFFFFFFFF) | np.uint32(0x80000000))
+    key = (cp.arange(kc, dtype=cp.uint64)[:, None] << np.uint64(32 + row_bits)) | (ordered.astype(cp.uint64) << np.uint64(row_bits)) | rows
+    del bits, ordered
+    sk = device_sort(key.ravel())
+    del key
+    order = cp.asnumpy((sk & np.uint64((1 << row_bits) - 1)).astype(cp.int32).reshape(kc, n))
+    prefix = sk >> np.uint64(row_bits)
+    flags = cp.zeros(kc * n, dtype=cp.uint8)
+    flags[:-1] = prefix[:-1] == prefix[1:]  # the column is part of the prefix, so a column's last row never ties with the next column's first
+    return order, cp.asnumpy(flags.reshape(kc, n))
+
+
+def _two_sorts_block(cp, cm) -> "tuple[np.ndarray, np.ndarray]":
+    """``(order, tie)`` of the float32 or double-precision block ``cm`` ``(kc, n)`` on the device in two stable 1-D sorts (the body of the block loop of :func:`_presort_by_two_sorts`)."""
+    kc, n = int(cm.shape[0]), int(cm.shape[1])
+    wide = cm.dtype == np.float64  # Intentional float64: the 64-bit ordered key
+    uint_t, shift, sign = (cp.uint64, 63, np.uint64(0x8000000000000000)) if wide else (cp.uint32, 31, np.uint32(0x80000000))
+    full = uint_t(np.iinfo(np.uint64 if wide else np.uint32).max)
+    bits = (cm + cm.dtype.type(0.0)).view(uint_t)  # -0.0 becomes +0.0
+    ordered = (bits ^ ((bits >> uint_t(shift)) * full | sign)).ravel()
+    del bits
+    first = device_argsort(ordered)  # stable: equal values keep the element order (column, row)
+    col_of = (first // n).astype(cp.uint16)
+    second = device_argsort(col_of)  # stable: each column's elements, still in value order, ties in row order
+    del col_of
+    final = first[second]
+    del first, second
+    order = cp.asnumpy((final % n).astype(cp.int32).reshape(kc, n))
+    sv = ordered[final]
+    col_sorted = final // n
+    flags = cp.zeros(kc * n, dtype=cp.uint8)
+    flags[:-1] = (sv[:-1] == sv[1:]) & (col_sorted[:-1] == col_sorted[1:])
+    return order, cp.asnumpy(flags.reshape(kc, n))
+
+
+def _presort_by_exact_groups(cp, raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray] | None":
+    """The order and tie flags of :func:`presort_and_ties_gpu` for a double-precision block whose columns are mostly float32 in value: the columns that survive the round trip through float32 unchanged go
+    through the one-sort composite-key path on 4-byte values, the others (a median-filled column, a column computed in double) through two sorts on 8-byte values.
+
+    A float32 value widened to double is exact and the widening is monotone, so the stable sort order and the ties of the float32 column are those of its double copy, and an FE frame holds almost
+    only such columns (the raw ones, the lazy engineered ones, the target) next to a handful of others: one such column made every sort of the block run on double-precision keys (233 ms against 98 ms for
+    24 columns x 500000 rows). ``None`` for any other dtype."""
+    n, k = int(raw_cont.shape[0]), int(raw_cont.shape[1])
+    if raw_cont.dtype != np.float64:  # Intentional float64: only a double-precision block has columns to narrow
+        return None
+    row_bits = max(1, int(n - 1).bit_length())
+    block = max(1, min(65535, _presort_column_block_bytes(cp, n, _EXACT_GROUPS_BYTES_PER_COLUMN_ROW)))
+    order = np.empty((k, n), dtype=np.int32)
+    tie = np.zeros((k, n), dtype=np.uint8)
+    rows = cp.arange(n, dtype=cp.uint64)[None, :]
+    for c0 in range(0, k, block):
+        c1 = min(k, c0 + block)
+        cm = _transpose_to_cm(cp.asarray(np.ascontiguousarray(raw_cont[:, c0:c1])))  # (kc, n) double precision, one row per column
+        exact = cp.asnumpy((cm.astype(cp.float32).astype(cp.float64) == cm).all(axis=1))  # Intentional float64: the comparison is against the widened copy
+        for group, narrow in ((np.flatnonzero(exact), True), (np.flatnonzero(~exact), False)):
+            if group.size == 0:
+                continue
+            sub = cm[cp.asarray(group)]
+            if narrow and max(1, int(group.size - 1).bit_length()) + 32 + row_bits <= 64:
+                got_order, got_tie = _keys_sort_block(cp, sub.astype(cp.float32), rows, row_bits)
+            else:
+                got_order, got_tie = _two_sorts_block(cp, sub)
+            order[c0 + group] = got_order
+            tie[c0 + group] = got_tie
+            del sub
+        del cm
+    return order, tie
+
+
 def _presort_column_block_bytes(cp, n_rows: int, bytes_per_column_row: int) -> int:
     """Columns per launch within ``_BUDGET_FRACTION`` of what the memory pool can still hand out, for ``bytes_per_column_row`` bytes a column row."""
     return pool_column_block(cp, n_rows, bytes_per_column_row=bytes_per_column_row, budget_fraction=_BUDGET_FRACTION, min_block=4, fallback=8, what="device presort")
@@ -142,7 +218,9 @@ def presort_and_ties_gpu(raw_cont: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
         log_throttle(logger, "_honest_null_presort_gpu.cupy_unavailable", logging.WARNING, "device presort unavailable (%s: %s); sorting on the host", type(exc).__name__, exc)
         return None
     try:
-        got = _presort_by_keys(cp, raw_cont)
+        got = _presort_by_exact_groups(cp, raw_cont)
+        if got is None:
+            got = _presort_by_keys(cp, raw_cont)
         if got is None:
             got = _presort_by_two_sorts(cp, raw_cont)  # double-precision columns (a column with NaN is median-filled in double): two sorts a block instead of one per column
         if got is not None:

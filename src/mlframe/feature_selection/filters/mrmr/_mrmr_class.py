@@ -382,7 +382,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # Default: equal-frequency bins (``quantile``) with the ``rice_capped`` count, ``min(round(0.3 n), round(2 n^(1/3)), nbins_cap)`` (20 at 1000 rows, 36 at 6000, 48 from about 13800). A target-independent
         # scheme bins each column once per frame, so a suite of targets re-uses the codes. ``nbins_rule=None`` takes the scheme's own rule (``rice_capped`` for ``quantile``, ``freedman_diaconis`` for ``uniform``);
         # the supervised schemes (``mdlp``, ``mdlp_validated``, ``optimal_joint``, ``mah``) and ``bayesian_blocks`` pick their own count and reject a rule. ``nbins_rule='fixed'`` bins every column into exactly
-        # ``quantization_nbins`` bins (the discretiser of the FE operands). Measured 2026-11-23 on the default rule: 100000 x 100 with every family, wall 50.3 s at ``nbins_cap=64`` against 37.1 s at 48; out-of-fold
+        # ``quantization_nbins`` bins (the discretiser of the FE operands). Measured on the default rule: 100000 x 100 with every family, wall 50.3 s at ``nbins_cap=64`` against 37.1 s at 48; out-of-fold
         # 80000 x 50 binary AUC 0.9491 at 64, 0.9507 at 48, 0.9305 at 32 (one fold failed); ``mdlp`` has the best ground-truth F1 (0.73) at about twice the wall. The MRMR hot path stays exclusively on the plug-in
         # MI njit kernel chain (mi_direct / fleuret / permutation); alternative MI estimator families live in their own modules and are NOT wired into MRMR.fit().
         binning_scheme: str = "quantile",
@@ -955,7 +955,7 @@ class MRMR(_MRMRTransformMixin, SelectorMixin, TransformerMixin, BaseEstimator, 
         # bin counts, #4) with a denominator-positivity guard, and the order-2 maxT floor is
         # MM-debiased CONSISTENTLY (IRON RULE, see ``_permutation_null`` / ``compute_pair_maxt_floor``).
         #
-        # Default ON since 2026-11-24. It was bench-rejected as a default on 2026-06-09 by the count of "cross-mix" columns on the weak F2 (a proxy, not a loss) and by a debias path that
+        # Default ON. It was bench-rejected as a default earlier by the count of "cross-mix" columns on the weak F2 (a proxy, not a loss) and by a debias path that
         # read the winning column through ``_resolve_col``, which raised where the chunk buffer is not kept (the occupied-K of the winner then silently fell back to the nominal bin count;
         # fixed). Re-measured by the error of ``transform()`` on 20000 fresh rows of the weak F2 (``0.2*a**2/b + log(c*2)*sin(d/3)``, eight common seeds, MAE first): ridge 0.0828 against 0.1151
         # with the flag off (-0.0322 +- 0.0048, better in 7 of 8 seeds), HistGradientBoosting 0.0539 against 0.0535 (+0.0004 +- 0.0002, the raw columns give 0.0546), zero cross-mix columns

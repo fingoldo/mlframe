@@ -4,6 +4,10 @@
 on the first call, and a replaced network is recomputed.
 """
 
+import pytest
+
+pytest.importorskip("lightning")  # the neural package subclasses Lightning classes: shards without the neural extras skip this module
+
 import torch.nn as nn
 
 from mlframe.training.neural._categorical_embeddings import CategoricalEmbedding

@@ -7,6 +7,10 @@ expected parameters are slow + alpha * (fast - slow) with slow equal to the init
 
 import copy
 
+import pytest
+
+pytest.importorskip("lightning")  # the neural package subclasses Lightning classes: shards without the neural extras skip this module
+
 import torch
 
 from mlframe.training.neural._lookahead_optimizer import Lookahead

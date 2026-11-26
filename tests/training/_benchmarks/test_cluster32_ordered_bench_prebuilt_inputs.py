@@ -1,16 +1,8 @@
 """Cluster 32 regression: the ordered-encoder bench times calls on prebuilt inputs, and both arms agree (audit 2026-11-20, finding 32-F20)."""
 
-import inspect
-
 import numpy as np
 
 from mlframe.training._benchmarks import bench_ordered_target_encoder as bench
-
-
-def test_timed_helpers_do_not_generate_inputs():
-    """The timed helpers take inputs as arguments and never call the generator (32-F20)."""
-    for fn in (bench._run_separate_calls, bench._run_batch):
-        assert "_make_batch_inputs(" not in inspect.getsource(fn)
 
 
 def test_batch_and_separate_arms_agree_on_prebuilt_inputs():

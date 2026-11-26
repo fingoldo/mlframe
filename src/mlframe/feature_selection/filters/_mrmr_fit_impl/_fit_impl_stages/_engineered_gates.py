@@ -115,6 +115,10 @@ _BATCH_PROBE_ROWS = 5000
 """Rows of the accuracy gate's probe draw (the ``max_probe_n`` default of ``keep_engineered_over_source``)."""
 
 
+#: Engineered candidates replayed together by the prefetch pool before the gate reads them.
+_PREFETCH_CHUNK = 32
+
+
 def _gate_col_arr(X, _name):
     """Fetch column ``_name`` from ``X`` as a 1-D array for the held-out linear-probe accuracy gate (unwraps a duplicate-label DataFrame slice to its first column)."""
     _v = X[_name]
@@ -168,6 +172,7 @@ def _gate_base_columns(X, gate_cols, y, seed):
         _n_rows = len(X)
         _draw = np.random.default_rng(seed).choice(_n_rows, _probe_n, replace=False) if _n_rows > _probe_n else None
         _cut: dict[str, tuple] = {}
+        from mlframe.feature_selection.filters._lazy_engineered import prefetch_columns
 
         def _cut_column(name: str) -> tuple:
             """``(rows of the draw, share of non-finite entries over all rows)`` of one column, memoised by name (a source feeds many candidates)."""
@@ -176,6 +181,18 @@ def _gate_base_columns(X, gate_cols, y, seed):
                 _cut[name] = (_full if _draw is None else _full[_draw], float(np.mean(~np.isfinite(_full))))
             return _cut[name]
 
+        from concurrent.futures import ThreadPoolExecutor
+
+        from mlframe.feature_selection.filters._adaptive_nbins import _resolve_edge_jobs
+
+        # the engineered candidates are replayed by a pool a chunk ahead of their reading (800 columns one by one were 12 s of one core), and each chunk is cut to the draw on the same number of threads (a pass over the
+        # full column for its non-finite share and a gather of the draw: numpy releases the GIL in both, and a source met twice is cut twice at worst, to the same values)
+        _cut_jobs = _resolve_edge_jobs(None, len(base_cols))
+        with ThreadPoolExecutor(max_workers=max(1, _cut_jobs), thread_name_prefix="gate_cut") as _cut_pool:
+            for _start in range(0, len(base_cols), _PREFETCH_CHUNK):
+                _chunk = base_cols[_start : _start + _PREFETCH_CHUNK]
+                prefetch_columns(X, [_gc for _gc, _src in _chunk])
+                list(_cut_pool.map(_cut_column, [_name for _pair in _chunk for _name in _pair]))
         _srcs = [_cut_column(_src)[0] for _gc, _src in base_cols]
         _engs = [_cut_column(_gc)[0] for _gc, _src in base_cols]
         _mnar = [_cut_column(_src)[1] > 0.02 for _gc, _src in base_cols]  # the gate's missingness fail-closed rule decides these without a probe

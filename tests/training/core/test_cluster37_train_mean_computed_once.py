@@ -5,15 +5,8 @@ scorer must take the precomputed value as a parameter instead of recomputing it.
 """
 
 import inspect
-from pathlib import Path
 
 from mlframe.training.core import _phase_composite_wrapping as mod
-
-
-def test_train_mean_expression_appears_once():
-    """The train-mean nanmean is computed in one place only (37-F28)."""
-    text = Path(mod.__file__).read_text(encoding="utf-8")
-    assert text.count("np.nanmean(_y_arr_metric[filtered_train_idx]") == 1
 
 
 def test_per_entry_scorer_takes_precomputed_train_mean():

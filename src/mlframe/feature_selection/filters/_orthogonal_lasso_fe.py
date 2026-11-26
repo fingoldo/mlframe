@@ -195,6 +195,7 @@ def _fit_lasso_abs_coefs_scaled(  # unused-ok: the coordinate-descent solver is 
             logger, "orth_lasso_fe_not_converged", logging.WARNING,
             "Lasso did not converge in max_iter=5000 (alpha=%s); |coef| feature scores may be unreliable.", alpha,
         )
+    # Intentional float64: lasso coefficients and residual statistics
     return np.abs(np.asarray(coef, dtype=np.float64)).ravel()
 
 def score_features_by_lasso_coef(

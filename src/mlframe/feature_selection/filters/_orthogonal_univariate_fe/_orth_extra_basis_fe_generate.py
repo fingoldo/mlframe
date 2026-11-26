@@ -272,24 +272,32 @@ def _adaptive_cols_by_relevance(X, cols, y, max_adaptive_cols):
     rows = np.arange(n) if n <= 50_000 else np.random.default_rng(0).choice(n, 50_000, replace=False)
     yy = np.asarray(y, dtype=_crit_np_dtype())[rows]
     yy = yy - yy.mean()
-    scores = {}
-    for c in cols:
-        if c not in X.columns or not pd.api.types.is_numeric_dtype(X[c]):
-            continue
-        x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows]
-        if not np.isfinite(x).all():
-            continue
-        from ._orth_extra_basis_fe_helpers import cached_stable_argsort
+    from .._edge_pool import map_on_edge_pool
 
-        order = cached_stable_argsort(x)  # shared with the held-out smoothness gate, which sorts the same column
-        rank = np.empty(len(x), dtype=np.int64)
-        rank[order] = np.arange(len(x))  # the inverse permutation is the rank vector (what a second argsort would return), in O(n)
-        bins = np.minimum(rank * 64 // len(x), 63)
-        cnt = np.bincount(bins, minlength=64)
-        sm = np.bincount(bins, weights=yy, minlength=64)
-        scores[c] = float(np.sum(np.where(cnt > 0, sm * sm / np.maximum(cnt, 1), 0.0)))
+    # the columns are independent (a sort of 50k rows each: 5 s for 1000 columns on one thread), so they are scored on the edge-jobs pool and folded in column order
+    scored = map_on_edge_pool(lambda c: _relevance_score(X, c, rows, yy), list(cols))
+    scores = {c: score for c, score in zip(cols, scored) if score is not None}
     ranked = sorted(scores, key=lambda c: -scores[c])
     return set(ranked[: int(max_adaptive_cols)])
+
+
+def _relevance_score(X, c, rows, yy) -> "float | None":
+    """The dependence score of column ``c`` for :func:`_adaptive_cols_by_relevance` (between-bin variance of ``yy`` over 64 quantile bins of the column at ``rows``), ``None`` for a column that is
+    absent, not numeric or not finite on the sample."""
+    if c not in X.columns or not pd.api.types.is_numeric_dtype(X[c]):
+        return None
+    x = np.asarray(X[c].to_numpy(), dtype=_crit_np_dtype())[rows]
+    if not np.isfinite(x).all():
+        return None
+    from ._orth_extra_basis_fe_helpers import cached_stable_argsort
+
+    order = cached_stable_argsort(x)  # shared with the held-out smoothness gate, which sorts the same column
+    rank = np.empty(len(x), dtype=np.int64)
+    rank[order] = np.arange(len(x))  # the inverse permutation is the rank vector (what a second argsort would return), in O(n)
+    bins = np.minimum(rank * 64 // len(x), 63)
+    cnt = np.bincount(bins, minlength=64)
+    sm = np.bincount(bins, weights=yy, minlength=64)
+    return float(np.sum(np.where(cnt > 0, sm * sm / np.maximum(cnt, 1), 0.0)))
 
 
 def _prefetch_chirp_fourier(X, cols, extra_bases, y_adapt, gate_cache, fourier_chirp, chirp_f_grid, min_val_corr) -> dict:
@@ -551,6 +559,7 @@ def _build_recipe_from_meta(name: str, meta_entry: dict):
     return None
 
 def _extra_basis_peak_bytes(X: "pd.DataFrame", y: Any = None, *, cols: Any = None, subsample_n: int = 0, **_ignored: Any) -> int:
+    # Intentional float64: basis evaluation of the generated columns
     """Bytes the extra-basis family keeps alive at its peak: its legs for every scanned column on the decision rows (about 17 legs a column, float32 and float64 mixed, about 14 times a float64 column of the decision rows)."""
     n_rows = int(subsample_n) if isinstance(subsample_n, int) and 0 < subsample_n < len(X) else len(X)
     n_cols = len(cols) if cols is not None else int(X.shape[1])

@@ -23,6 +23,7 @@ def _standardise_fit(X: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
     mean = A.mean(axis=0)
     var = A.var(axis=0)
     # a column indistinguishable from a constant (its variance within the rounding bounds of the two-pass variance, Chan, Golub and LeVeque) keeps a spread of 1, as StandardScaler decides
+    # Intentional float64: closed-form solves and class probabilities of the probes: normal equations square the conditioning of the columns
     eps = np.finfo(np.float64).eps
     constant = var <= n * eps * var + (n * mean * eps) ** 2
     return mean, np.where(constant, 1.0, np.sqrt(var))
@@ -31,6 +32,7 @@ def _standardise_fit(X: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
 def standardised(X: np.ndarray) -> np.ndarray:
     """``StandardScaler().fit_transform(X)``: the columns minus their mean over their population standard deviation (a constant column keeps a spread of 1, so it comes out as zeros)."""
     mean, scale = _standardise_fit(X)
+    # Intentional float64: closed-form solves and class probabilities of the probes: normal equations square the conditioning of the columns
     return np.asarray((np.asarray(X, dtype=np.float64) - mean) / scale)
 
 
@@ -40,18 +42,22 @@ class ScaledOLS:
     def fit(self, X: np.ndarray, y: np.ndarray) -> "ScaledOLS":
         """Fit on the rows of ``X``; returns ``self``."""
         self.mean_, self.scale_ = _standardise_fit(X)
+        # Intentional float64: closed-form solves and class probabilities of the probes: normal equations square the conditioning of the columns
         A = (np.asarray(X, dtype=np.float64) - self.mean_) / self.scale_
         design = np.concatenate([A, np.ones((A.shape[0], 1))], axis=1)
+        # Intentional float64: closed-form solves and class probabilities of the probes: normal equations square the conditioning of the columns
         coef = np.linalg.lstsq(design, np.asarray(y, dtype=np.float64).ravel(), rcond=None)[0]
         self.coef_, self.intercept_ = coef[:-1], float(coef[-1])
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predictions for the rows of ``X``."""
+        # Intentional float64: closed-form solves and class probabilities of the probes: normal equations square the conditioning of the columns
         return np.asarray(((np.asarray(X, dtype=np.float64) - self.mean_) / self.scale_) @ self.coef_ + self.intercept_)
 
     def score(self, X: np.ndarray, y: np.ndarray) -> float:
         """Coefficient of determination of the predictions for ``X`` against ``y`` (``1 - SSE / SST``; 1.0 for a constant ``y`` fitted exactly and 0.0 otherwise, as scikit-learn returns)."""
+        # Intentional float64: closed-form solves and class probabilities of the probes: normal equations square the conditioning of the columns
         t = np.asarray(y, dtype=np.float64).ravel()
         sst = float(((t - t.mean()) ** 2).sum())
         sse = float(((t - self.predict(X)) ** 2).sum())
@@ -71,7 +77,9 @@ class ScaledRidge(ScaledOLS):
         from ._fe_probe_ridge import fit_ridge_closed_form
 
         self.mean_, self.scale_ = _standardise_fit(X)
+        # Intentional float64: closed-form solves and class probabilities of the probes: normal equations square the conditioning of the columns
         A = (np.asarray(X, dtype=np.float64) - self.mean_) / self.scale_
+        # Intentional float64: closed-form solves and class probabilities of the probes: normal equations square the conditioning of the columns
         t = np.asarray(y, dtype=np.float64).ravel()
         solved = fit_ridge_closed_form(A, t, self.alpha)
         if solved is None:  # singular or non-finite normal equations: least squares on the centred design stacked with sqrt(alpha) * I
@@ -113,15 +121,18 @@ class ScaledLogistic:
     def fit(self, X: np.ndarray, y: np.ndarray) -> "ScaledLogistic":
         """Fit on the rows of ``X``; returns ``self``."""
         self.mean_, self.scale_ = _standardise_fit(X)
+        # Intentional float64: closed-form solves and class probabilities of the probes: normal equations square the conditioning of the columns
         A = (np.asarray(X, dtype=np.float64) - self.mean_) / self.scale_
         self.classes_, codes = np.unique(np.asarray(y).ravel(), return_inverse=True)
         k = self.classes_.size
         if k == 2 and float(A.shape[0]) * float(A.shape[1]) ** 2 < _LBFGS_MIN_WORK:
             from ._fe_accuracy_gate_newton import fit_logistic_ridge_newton
 
+            # Intentional float64: closed-form solves and class probabilities of the probes: normal equations square the conditioning of the columns
             fit = fit_logistic_ridge_newton(A, codes.astype(np.float64), self.C)
             if fit is not None:
                 w, b = fit
+                # Intentional float64: closed-form solves and class probabilities of the probes: normal equations square the conditioning of the columns
                 self.coef_, self.intercept_ = np.asarray(w, dtype=np.float64).reshape(1, -1), np.asarray([b], dtype=np.float64)
                 return self
         self.coef_, self.intercept_ = self._minimise(A, codes, k)
@@ -165,6 +176,7 @@ class ScaledLogistic:
 
     def decision_function(self, X: np.ndarray) -> np.ndarray:
         """Scores of the rows of ``X``: a vector for two classes, a ``(n, k)`` table for more."""
+        # Intentional float64: closed-form solves and class probabilities of the probes: normal equations square the conditioning of the columns
         z = ((np.asarray(X, dtype=np.float64) - self.mean_) / self.scale_) @ self.coef_.T + self.intercept_
         return np.asarray(z.ravel() if self.coef_.shape[0] == 1 else z)
 
@@ -193,7 +205,9 @@ class PlainRidge:
         """Fit on the rows of ``X``; returns ``self``."""
         from ._fe_probe_ridge import fit_ridge_closed_form
 
+        # Intentional float64: closed-form solves and class probabilities of the probes: normal equations square the conditioning of the columns
         A = np.asarray(X, dtype=np.float64)
+        # Intentional float64: closed-form solves and class probabilities of the probes: normal equations square the conditioning of the columns
         t = np.asarray(y, dtype=np.float64).ravel()
         solved = fit_ridge_closed_form(A, t, self.alpha)
         if solved is None:  # singular or non-finite normal equations: least squares on the centred design stacked with sqrt(alpha) * I
@@ -207,6 +221,7 @@ class PlainRidge:
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """Predictions for the rows of ``X``."""
+        # Intentional float64: closed-form solves and class probabilities of the probes: normal equations square the conditioning of the columns
         return np.asarray(np.asarray(X, dtype=np.float64) @ self.coef_ + self.intercept_)
 
 
@@ -214,7 +229,7 @@ class RffSampler:
     """Random Fourier features of the RBF kernel, the draws and the map of scikit-learn's ``RBFSampler(gamma, n_components, random_state)``.
 
     ``random_weights_`` (``(n_features, n_components)``) and ``random_offset_`` come from ``RandomState(random_state)`` in the estimator's order (normal weights scaled by ``sqrt(2 gamma)``, then the uniform
-    offsets); the map is ``sqrt(2 / n_components) cos(X W + b)`` in the dtype of ``X`` for float32 and float64."""
+    offsets); the map is ``sqrt(2 / n_components) cos(X W + b)`` in the dtype of ``X`` for float32 and double."""
 
     def __init__(self, gamma: float = 1.0, n_components: int = 100, random_state: int = 0) -> None:
         self.gamma = float(gamma)

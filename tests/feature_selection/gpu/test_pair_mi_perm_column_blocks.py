@@ -32,7 +32,7 @@ def test_blocked_matrix_equals_the_whole_pool_matrix(monkeypatch):
     tight = 2 * need - 1  # one byte short of the whole-pool admission: the pool streams, about 18 columns at a time
     calls = []
     real = P._launch_pairs
-    monkeypatch.setattr(P, "_launch_pairs", lambda *args: calls.append(args[1].shape[1]) or real(*args))
+    monkeypatch.setattr(P, "_launch_pairs", lambda *args, **kw: calls.append(len(kw["columns"])) or real(*args, **kw))
     monkeypatch.setattr(cp.cuda.runtime, "memGetInfo", lambda: (tight, 4 << 30))
     blocked = P.pair_mi_perm_matrix_cuda(x, a, b, nb, perms, freqs, 10_000)
     assert blocked is not None and len(calls) > 1
@@ -56,8 +56,9 @@ def test_targets_per_pass_follow_the_shared_budget():
     assert P._targets_per_pass(500, 8, 25) == 2
 
 
-def test_every_targets_per_pass_gives_the_same_matrix():
-    """Forcing each of 1, 2, 4, 8 targets per pass gives the same MI matrix (the counts are exact integers and the sums add in a fixed order)."""
+def test_every_targets_per_pass_gives_the_same_matrix(monkeypatch):
+    """Forcing each of 1, 2, 4, 8 targets per pass of the general kernel gives the same MI matrix (the counts are exact integers and the sums add in a fixed order)."""
+    monkeypatch.setenv("MLFRAME_PAIR_PERM_BIN", "0")  # the binary target would take the outcome-code kernel, which has no targets-per-pass setting
     x, a, b, nb, perms, freqs = _case(k=9)
     n = x.shape[0]
     results = []

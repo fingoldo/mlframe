@@ -94,7 +94,7 @@ def _su_codes_of_finite_columns(columns: list, n_bins: int) -> list:
     """``(int32 codes, bin count)`` for every all-finite column of ``columns`` (``None`` for the others), binned together in parallel blocks.
 
     The rule is the quantiser's own: ``np.unique`` of the ``n_bins + 1`` quantile edges, fewer than three distinct edges -> one class, else ``searchsorted(edges[1:-1], x, "right")``."""
-    from ._numba_utils import quantile_bin_block
+    from .discretization._quantile_radix import quantile_bin_block_fast as quantile_bin_block
 
     out: list = [None] * len(columns)
     if not columns:
@@ -116,6 +116,28 @@ def _su_codes_of_finite_columns(columns: list, n_bins: int) -> list:
                 out[j0 + j] = (binned, int(binned.max()) + 1 if n else 1)
                 r += 1
     return out
+
+
+def _su_codes_into(columns: list, n_bins: int, factors_data: np.ndarray, nbins: np.ndarray, j0: int) -> list:
+    """Quantise the all-finite columns of a block straight into columns ``j0 + k`` of the code matrix and their bin counts into ``nbins``; the positions it left to the per-column rule (a non-finite column).
+
+    The same codes as :func:`_su_codes_of_finite_columns` (the quantiser's own rule), written as one tiled block instead of a column at a time: a column assignment into a row-major byte matrix is
+    one write every ``p`` bytes (7.7 s of the 500000 x 1800 quantisation), and the per-column ``astype`` and ``max`` were two more passes."""
+    from ._column_gather import scatter_columns_rm
+    from .discretization._quantile_radix import quantile_bin_block_fast as quantile_bin_block
+
+    n = int(columns[0].shape[0])
+    v = np.ascontiguousarray(np.stack([np.asarray(c, dtype=_crit_np_dtype()) for c in columns]))
+    ok = np.flatnonzero(np.isfinite(v).all(axis=1))
+    if ok.size:
+        codes = np.empty((ok.size, n), dtype=np.int16)
+        quantile_bin_block(v if ok.size == v.shape[0] else np.ascontiguousarray(v[ok]), int(n_bins), codes, False)  # a block of all-finite columns is binned where it is (the fancy index copied it)
+        nbins[j0 + ok] = (codes.max(axis=1).astype(np.int64) + 1) if n else 1
+        scatter_columns_rm(factors_data, j0 + ok, codes)
+    left = np.ones(len(columns), dtype=bool)
+    left[ok] = False
+    pending: list = np.flatnonzero(left).tolist()
+    return pending
 
 
 def _su_code_column(col: np.ndarray, n_bins: int) -> tuple:
@@ -217,9 +239,8 @@ def _quantize_for_su(X) -> tuple:
                 continue
             except Exception:
                 log_throttle(logger, "su_quantise_device", logging.WARNING, "SU quantiser: device binning failed, quantising on the CPU", exc_info=True)
-        pre = _su_codes_of_finite_columns(cols_block, n_bins)
-        for k, col in enumerate(cols_block):
-            binned, nb = pre[k] if pre[k] is not None else _su_code_column(col, n_bins)
+        for k in _su_codes_into(cols_block, n_bins, factors_data, nbins, j0):
+            binned, nb = _su_code_column(cols_block[k], n_bins)
             factors_data[:, j0 + k] = binned
             nbins[j0 + k] = nb
     return factors_data, nbins, names

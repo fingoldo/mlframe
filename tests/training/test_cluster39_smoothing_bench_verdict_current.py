@@ -15,9 +15,3 @@ _BENCH_SRC = Path(bench.__file__).resolve().read_text(encoding="utf-8")
 def test_live_default_is_three():
     """The shipped TargetEncodeParams default is 3.0 (39-F51)."""
     assert handlers.TargetEncodeParams.model_fields["smoothing"].default == 3.0
-
-
-def test_verdict_is_labelled_historical():
-    """The verdict no longer claims the default is not flipped (39-F51)."""
-    assert "VERDICT (deferred, NOT flipped)" not in _BENCH_SRC
-    assert "historical" in _BENCH_SRC

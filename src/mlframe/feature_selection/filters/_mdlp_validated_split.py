@@ -170,6 +170,11 @@ def _dedupe_xy(x: np.ndarray, y_i: np.ndarray) -> "tuple[np.ndarray, np.ndarray]
     unique ``(x, y)`` pair a first-occurrence-only sample would have produced, so this is lossless
     for the recursion's actual inputs, not a tolerance loosening.
     """
+    from ._mdlp_gpu_presort import supplied_dedupe
+
+    supplied = supplied_dedupe(x, y_i)  # the device already collapsed the pairs of this very sorted column
+    if supplied is not None:
+        return supplied
     if x.size > 1:
         step = x[1:] > x[:-1]
         if step.all():

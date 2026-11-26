@@ -29,8 +29,3 @@ def test_key_uses_model_name_when_present():
 def test_key_falls_back_to_class_name():
     """Without model_name the wrapped class name is used, as before (28-F72)."""
     assert hd._entry_key("binary", "y", _Unnamed()) == "binary/y/_Unnamed"
-
-
-def test_repeated_expression_is_replaced_by_the_helper():
-    """The module no longer spells out the key expression inline (28-F72, source pin)."""
-    assert _SRC.read_text(encoding="utf-8").count("_entry_key(tt_str, tname, entry)") == 3

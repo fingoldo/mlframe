@@ -21,8 +21,10 @@ from typing import Any
 
 import numpy as np
 
-from mlframe.utils.env_flags import FALSE_VALUES, env_reader
+from mlframe.utils.env_flags import env_reader, switch_on_unless_false
 from mlframe.utils.log_throttle import log_throttle
+
+from ._unary_credit_stats import has_continuous_target_values
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +41,7 @@ _enabled_reader = env_reader("MLFRAME_FE_CREDIT_PARSIMONY")
 
 def credit_parsimony_enabled() -> bool:
     """On unless ``MLFRAME_FE_CREDIT_PARSIMONY`` is set to a false spelling."""
-    value = _enabled_reader()
-    return value is None or value.strip().lower() not in FALSE_VALUES - {""}
+    return switch_on_unless_false(_enabled_reader)
 
 
 def _standardise(matrix: np.ndarray) -> np.ndarray:
@@ -121,7 +122,7 @@ def run_credit_parsimony(self: Any, X: Any, selected_vars: list, cols: Any, clas
         if y_cont is None:
             y_cont = np.asarray(y.values if hasattr(y, "values") else y).reshape(-1)
         y_cont = np.asarray(y_cont)
-        if y_cont.shape[0] != len(X) or not np.issubdtype(y_cont.dtype, np.number) or np.unique(y_cont[:5000]).size < 20:
+        if y_cont.shape[0] != len(X) or not np.issubdtype(y_cont.dtype, np.number) or not has_continuous_target_values(y_cont):
             return False, selected_vars
         raw_names = [str(cols[int(v)]) for v in selected_vars if 0 <= int(v) < len(cols)]
         recipes = list(self._engineered_recipes_ or [])
@@ -135,10 +136,12 @@ def run_credit_parsimony(self: Any, X: Any, selected_vars: list, cols: Any, clas
             if nm in X.columns and pd.api.types.is_numeric_dtype(X[nm].dtype):
                 if nm in credited_sources:
                     removable.append(len(columns))
+                # Intentional float64: held-out error statistics of the parsimony pass
                 columns.append(np.asarray(X[nm].to_numpy(), dtype=np.float64))
                 labels.append(("raw", nm))
         for recipe in recipes:
             try:
+                # Intentional float64: held-out error statistics of the parsimony pass
                 values = np.asarray(replay_candidate_continuous(recipe, X, apply_recipe), dtype=np.float64).ravel()
             except Exception as exc:  # an unreplayable column stays, untouched
                 log_throttle(
@@ -156,6 +159,7 @@ def run_credit_parsimony(self: Any, X: Any, selected_vars: list, cols: Any, clas
         n = len(X)
         rng = np.random.default_rng(int(getattr(self, "random_seed", 0) or 0))
         rows = np.sort(rng.choice(n, MAX_ROWS, replace=False)) if n > MAX_ROWS else np.arange(n)
+        # Intentional float64: held-out error statistics of the parsimony pass
         target = y_cont[rows].astype(np.float64)
         logger.debug("credit parsimony design: %s; removable: %s", [lab[1] for lab in labels], [labels[j][1] for j in removable])
         dropped = eliminate(np.column_stack([c[rows] for c in columns]), target, removable, seed=int(getattr(self, "random_seed", 0) or 0))

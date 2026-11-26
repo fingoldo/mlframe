@@ -34,19 +34,10 @@ Why this lives outside of polynom_pair_fe:
   back into MRMR's standard relevance/redundancy gates as ordinary numeric
   columns.
 
-This docstring used to describe the entry point as reachable only by an explicit direct call, which is FALSE for ``hybrid_orth_mi_fe_with_recipes``,
-which IS the default-on production entry point (``fe_univariate_basis_enable`` defaults to ``True``;
-see ``_mrmr_fit_impl/_fit_impl_core.py``'s "UNIVARIATE-BASIS FE - DEFAULT ON" call site). This stale
-claim plausibly caused this whole 13-file subpackage to be skipped by every per-file audit cluster in
-the 2026-07-22 wave, since a docstring confidently declaring "opt-in only, not production" is exactly
-the signal that makes an auditor reasonably deprioritize claiming it as in-scope. The standalone
-``hybrid_orth_mi_fe`` function (without the ``_with_recipes``/transform-replay machinery) remains a
-genuinely separate, directly-callable opt-in utility for ad hoc use outside MRMR.fit.
+``hybrid_orth_mi_fe_with_recipes`` is the default-on production entry point (``fe_univariate_basis_enable`` defaults to ``True``; see the "UNIVARIATE-BASIS FE - DEFAULT ON" call site in
+``_mrmr_fit_impl/_fit_impl_core.py``); the standalone ``hybrid_orth_mi_fe`` (without the ``_with_recipes`` / transform-replay machinery) is a separate, directly callable utility for use outside MRMR.fit.
 """
 from __future__ import annotations
-
-from mlframe.feature_selection.filters._fe_frame_ops import fe_column_is_numeric
-from .._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name
 
 import logging
 import os
@@ -55,11 +46,13 @@ from collections.abc import Sequence
 from typing import Any, Callable, Optional
 
 import numpy as np
+import pandas as pd
+
+from mlframe.feature_selection.filters._fe_frame_ops import fe_column_is_numeric
+from .._basis_name_codes import BASIS_NAME_CODES, CODE_TO_BASIS, source_of_engineered_name
 from .._fe_frame_ops import fe_frame_from_columns
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
-
 from mlframe.feature_selection.filters._relative_uplift import relative_uplift
-import pandas as pd
 
 from ..hermite_fe import basis_route_by_moments, polyeval_dispatch
 from ..hermite_fe.shared import eval_basis_cell, is_nonpoly

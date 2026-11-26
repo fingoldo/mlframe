@@ -15,6 +15,8 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 import polars as pl
 
+from mlframe._numba_parallel_guard import parallel_kernel_entry
+
 from ._numba_params import NUMBA_NJIT_PARAMS, _check_equal_length
 
 
@@ -111,7 +113,8 @@ def _argsort_desc_par_bucket(y_score: np.ndarray) -> np.ndarray:
         return np.asarray(np.argsort(y64)[::-1].copy())
     nbuckets = max(64, min(8192, n // 256))
     inv_w = nbuckets / (hi - lo)
-    counts = _bucket_hist(y64, lo, inv_w, nbuckets, numba.get_num_threads())
+    with parallel_kernel_entry():  # a metric can be computed from several pool threads (the FE lanes score columns concurrently); two threads must not be inside one prange region
+        counts = _bucket_hist(y64, lo, inv_w, nbuckets, numba.get_num_threads())
     bnd = np.empty(nbuckets + 1, dtype=np.int64)
     bnd[0] = 0
     acc = 0
@@ -120,7 +123,8 @@ def _argsort_desc_par_bucket(y_score: np.ndarray) -> np.ndarray:
         bnd[b + 1] = acc
     idx = _bucket_scatter(y64, lo, inv_w, nbuckets, bnd[:nbuckets].copy(), n)
     res = np.empty(n, dtype=np.int64)
-    _bucket_sort_within(idx, y64, bnd, nbuckets, res)
+    with parallel_kernel_entry():
+        _bucket_sort_within(idx, y64, bnd, nbuckets, res)
     return np.asarray(res[::-1].copy())
 
 

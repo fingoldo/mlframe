@@ -33,6 +33,7 @@ _KEPT_KERNEL_VERSIONS = {"_pair_mi_best_per_first", "_pair_mi_best_per_first_v1"
 #: Documented public API: users call these, nothing inside the package has to. Each is exported (``__all__`` or a package
 #: re-export) and covered by tests of its own.
 _PUBLIC_API = {
+    "edges_uniform",  # fixed-nbins uniform-width edges: the single-rule entry of the adaptive-nbins module next to edges_quantile (module __all__; test_discretization_coverage)
     "soft_winsorize",  # public estimators.custom utility (documented example); clip_to_quantiles uses its per-side helpers directly
     "ewma",
     "trimmed_mean",
@@ -685,6 +686,7 @@ _KEPT_SUPERSEDED_REFERENCES = {
     "_top_marginal_mi_columns",  # removed from the FE sweep in commit 6eeec7029 (the sweep now covers every column); kept as a reference
     "_binagg_null_calibrated_floor",  # the single-block floor; production folds the per-permutation maxima of the column blocks itself (fmax over blocks); test_resident_mi_candidate_cache uses it
     "fit_logistic_ridge_newton_numpy",  # the NumPy twin the Newton kernel is tested against (test_gate_newton_kernel)
+    "search_target_transform",  # the equal-width-MI proposer plus ridge gate, replaced by the Jacobian log-likelihood link search (_target_transform_ll); test_target_transform_search keeps it as the measured baseline
     "launch_k3",  # version 3 of the root-split kernel, bench-rejected (1.4 to 1.8 times slower than v2, see the module header); test_honest_null_k3 keeps the equivalence for a tuner
     "fits_shared",  # the shared-memory guard of version 3 (launch_k3); same status
     "get_kernel_k4f",  # version 4f of the root-split kernel, rejected (gain error 2.4e-6 against gains of 1e-4); test_honest_null_k4 keeps the equivalence
@@ -697,6 +699,10 @@ _KEPT_SUPERSEDED_REFERENCES = {
 #: lose the reference the test checks the production twin against; restoring a caller would route production to a variant that
 #: was measured as slower, coarser or unsafe.
 _KEPT_TEST_REFERENCES = {
+    "_su_codes_of_finite_columns",  # the per-column host form of the SU quantiser (int32 codes and a bin count each), the oracle the device twin and the tiled block writer are checked against (test_su_quantiser_device_twin)
+    "corrected_joint_mi",  # the joint MI of a column list built from scratch, the oracle test_selection_compaction checks the prefix-cached JointCache against
+    "_pairwise_occupied_joint_k_njit",  # the serial distinct-code count of the pair tables, the reference of the fast kernel (test_pair_occupied_joint_k_fast_kernel compares them)
+    "_deviance",  # the numpy / cupy form of the logit likelihood-ratio statistic, the oracle the njit twin and the device kernel of the logit credit are checked against (test_unary_credit_logit_kernels)
     "_bf_apply_gpu",  # the cupy-op chain the fused bf_apply kernel replaced; test_bf_apply_fused compares the kernel against it value for value
     "_codes_from_edges_gpu",  # the cupy-op bin coder the disp_bin_codes kernel replaced; test_dispersion_column_kernel compares them
     "_emit_kind_gpu",  # the cupy-op candidate emitter the disp_columns kernel replaced; test_dispersion_column_kernel compares them
@@ -728,6 +734,11 @@ _KEPT_OPTIN_VARIANTS = {
     "_extra_basis_peak_bytes",  # the host-byte estimate of the extra-basis family, built for a host-budget reservation that was rejected (2026-11-21, see the comment above the family)
     "reserves_host_block_budget",  # the decorator form of the host block budget; the reservation on the extra-basis family was rejected, the decorator stays tested (test_host_block_budget)
     "reset_host_block_budget",  # forgets the process-wide budget so the next use sizes it again; the tests and fits that need the current free RAM call it
+}
+
+#: Entry points of components that are built and tested but not yet called by the fit. Each one has a named consumer outside the fit and a stated next step; delete the entry when the fit calls it.
+_NOT_YET_WIRED = {
+    "plan",  # the scheduling-problem solver of filters/_fe_plan (list scheduling + CP-SAT, bounds, validity check); consumed by _benchmarks/profiling/plan_from_ledger.py and test_fe_plan; the fit's stage scheduler adopts it in the next step of section 2a of the speed plan
 }
 
 #: Diagnostic hooks: the docstring says they are not for the production path (every transfer is hashed on the host anyway).
@@ -891,6 +902,8 @@ _SCANNER_LAG = {"_fill_bf_batch_njit"}
 #: lazily with importlib), so no call expression exists for the scanner to see.
 _NAME_DISPATCHED = {
     "clear_gpu_operand_table_caches",
+    "_apply_unary_credit",
+    "_apply_unary_credit_product",
     "_apply_cat_num_residual",
     "_apply_cluster_aggregate",
     "_apply_composite_group_agg_recipe",
@@ -1248,7 +1261,7 @@ def test_no_new_function_without_a_caller(request):
         files,
         REPO_ROOT,
         BASELINE,
-        ignore=_INTERPRETER_INVOKED | _KEPT_KERNEL_VERSIONS | _KEPT_SUPERSEDED_REFERENCES | _KEPT_TEST_REFERENCES | _KEPT_OPTIN_VARIANTS | _DIAGNOSTIC_HOOKS
+        ignore=_INTERPRETER_INVOKED | _KEPT_KERNEL_VERSIONS | _KEPT_SUPERSEDED_REFERENCES | _KEPT_TEST_REFERENCES | _KEPT_OPTIN_VARIANTS | _DIAGNOSTIC_HOOKS | _NOT_YET_WIRED
         | _PUBLIC_API
         | _REEXPORTED_PUBLIC_API
         | _OFFLINE_GENERATORS

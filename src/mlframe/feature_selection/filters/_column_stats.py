@@ -47,7 +47,8 @@ def _binning_meta(self) -> dict:
 
     try:
         return dict(spec_as_dict(spec_from_estimator(self)))
-    except ValueError:
+    except ValueError as exc:
+        logger.warning("binning meta fell back to the estimator attributes: %s", exc)
         return {"binning_scheme": getattr(self, "binning_scheme", None), "nbins_rule": getattr(self, "nbins_rule", None), "nbins_cap": getattr(self, "nbins_cap", None)}
 
 

@@ -554,7 +554,9 @@ def per_feature_edges(
     # apply.
     _low_card_cap = int(kwargs.get("low_card_cap", 32))
 
-    from ._adaptive_nbins_columns import compute_col_edges
+    from ._adaptive_nbins_columns import compute_col_edges, edge_presort_for
+
+    _device_presort = edge_presort_for(method_resolved, base, kwargs, y, int(X.shape[0]), _low_card_cap, _resolve_edge_jobs(n_jobs, int(X.shape[1])))
 
     def _compute_col_edges(col: np.ndarray):
         """Per-column edge computation for the cache loop below; touches no shared state, so it is safe under the thread pool."""
@@ -565,7 +567,7 @@ def per_feature_edges(
     # hit the cache on repeat fits; the code path stays uniform. Doing all GETs (and
     # later all PUTs) serially on the main thread keeps the DiskCache single-threaded
     # - no lock needed, hit/miss behavior bit-identical to the historical loop.
-    edges_list: list[Any] = _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key, n_jobs, _compute_col_edges)
+    edges_list: list[Any] = _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key, n_jobs, _compute_col_edges, _device_presort)
 
     return edges_list
 
@@ -621,6 +623,8 @@ def _edge_pool(workers: int) -> Any:
 
 #: Host bytes one in-flight column costs per row in the supervised edge kernels (sorted copy, order, labels and the cut search state; 13 MB per column at 200000 rows measured).
 _EDGE_BYTES_PER_ROW = 80
+#: Bytes per row a worker holds more when its columns are presorted on the device in blocks: the block's sorted values (8), labels (1), distinct values (4) and counts (8) for each of its 8 columns.
+_PRESORT_BYTES_PER_ROW = 8 * (8 + 1 + 4 + 8)
 #: Default cap on the memory the edge workers may hold together, and the share of the free RAM it may take (``MLFRAME_EDGE_RAM_GB`` overrides the cap).
 _EDGE_RAM_CAP_BYTES = 2 * 1024**3
 _EDGE_RAM_FREE_FRACTION = 0.25
@@ -689,7 +693,48 @@ def _cache_put_misses(_cache: Any, _miss_cols: list, _miss_keys: list, edges_lis
                 pass
 
 
-def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key, n_jobs, _compute_col_edges):
+def _edges_by_blocks(rest: list, workers: int, col_of: Any, compute: Any, presort: Any) -> list:
+    """``(column index, edges)`` of the columns ``rest``, in blocks of a few columns taken in turn by ``workers`` pool threads: a block is sorted with its labels on the device (one block at a time, the
+    other workers compute edges meanwhile) and its columns are then computed on the host from the supplied sort. A column the device does not take is computed as before."""
+    from ._mdlp_gpu_presort import BLOCK_COLUMNS, supplied
+
+    blocks = [rest[i : i + BLOCK_COLUMNS] for i in range(0, len(rest), BLOCK_COLUMNS)]
+    cursor = iter(blocks)
+    guard = threading.Lock()
+
+    def work() -> list:
+        """One worker: blocks until none is left."""
+        pairs: list = []
+        while True:
+            with guard:
+                block = next(cursor, None)
+            if block is None:
+                return pairs
+            columns = [col_of(j) for j in block]
+            for j, col, got in zip(block, columns, presort.block(columns)):
+                with supplied(col, got):
+                    pairs.append((j, compute(col)[0]))
+
+    pool = _edge_pool(workers)
+    futures = [pool.submit(work) for _ in range(min(workers, len(blocks)))]
+    return [pair for f in futures for pair in f.result()]
+
+
+def _edges_of_rest(rest: list, jobs: int, col_of: Any, compute: Any, presort: Any) -> list:
+    """``(column index, edges)`` for the columns in ``rest``: in blocks whose sort the device has done when ``presort`` is given, else one strided chunk of columns per worker."""
+    workers = min(jobs, len(rest))
+    if presort is not None:
+        return _edges_by_blocks(rest, workers, col_of, compute, presort)
+    chunks = [rest[i::workers] for i in range(workers)]
+
+    def run_chunk(chunk: list) -> list:
+        """Edges of the columns in ``chunk``, as ``(column index, edges)`` pairs."""
+        return [(j, compute(col_of(j))[0]) for j in chunk]
+
+    return [pair for pairs in _edge_pool(jobs).map(run_chunk, chunks) for pair in pairs]
+
+
+def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key, n_jobs, _compute_col_edges, _device_presort=None):
     """Block of per_feature_edges starting at ``edges_list: list = [None] * n_features``."""
     edges_list: list = [None] * n_features
     _miss_keys: list = [None] * n_features  # cache key per missed col (None => don't cache)
@@ -729,7 +774,7 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
     #   p=2000: serial 10.10s -> parallel 3.20s (3.16x)
     #   p=50  : serial 0.28s -> parallel 0.22s  (gated to serial, no regression)
     # (see test_per_feature_edges_parallel.py; numbers refreshed if hardware changes.)
-    _resolved_jobs = _cap_jobs_by_memory(_resolve_edge_jobs(n_jobs, len(_miss_cols)), int(X.shape[0]))
+    _resolved_jobs = _cap_jobs_by_memory(_resolve_edge_jobs(n_jobs, len(_miss_cols)), int(X.shape[0]), _EDGE_BYTES_PER_ROW + (_PRESORT_BYTES_PER_ROW if _device_presort is not None else 0))
 
     # Bit-identity above assumes njit(nogil=True) kernels: numba's nopython-mode functions get their
     # own thread-isolated internal RNG state, so concurrent threads never see each other's draws even
@@ -769,16 +814,8 @@ def _per_feature_edges_no_lock_needed_hit(n_features, X, _cache, _y_key, _kw_key
         if _rest:
             # One task per worker (strided so that neighbouring, similarly expensive columns spread out) on a pool that lives as long as the process: a call that bins a dozen
             # cheap columns used to spend most of its time creating threads and waiting for a future per column.
-            _workers = min(_resolved_jobs, len(_rest))
-            _chunks = [_rest[i::_workers] for i in range(_workers)]
-
-            def _run_chunk(chunk):
-                """Edges of the columns in ``chunk``, as ``(column index, edges)`` pairs."""
-                return [(j, _compute_col_edges(_col_of(j))[0]) for j in chunk]
-
-            for _pairs in _edge_pool(_resolved_jobs).map(_run_chunk, _chunks):
-                for j, edges in _pairs:
-                    edges_list[j] = edges
+            for j, edges in _edges_of_rest(_rest, _resolved_jobs, _col_of, _compute_col_edges, _device_presort):
+                edges_list[j] = edges
         _EDGES_WARMED = True
     else:
         for j in _miss_cols:

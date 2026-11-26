@@ -18,7 +18,7 @@ from typing import Callable, Optional, cast
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["env_flag", "env_flag_or_none", "env_float", "env_int", "env_reader", "TRUE_VALUES", "FALSE_VALUES"]
+__all__ = ["env_flag", "env_flag_or_none", "env_float", "env_int", "env_reader", "switch_on_unless_false", "TRUE_VALUES", "FALSE_VALUES"]
 
 TRUE_VALUES = frozenset({"1", "true", "yes", "on", "y", "t"})
 FALSE_VALUES = frozenset({"0", "false", "no", "off", "n", "f", ""})
@@ -43,6 +43,12 @@ def env_reader(name: str) -> Callable[[], Optional[str]]:
         return os.environ.get(name)
 
     return read
+
+
+def switch_on_unless_false(read: Callable[[], Optional[str]]) -> bool:
+    """Whether a default-on switch is on: ``read()`` (an ``env_reader``) is unset, empty or a spelling that is not a false one."""
+    value = read()
+    return value is None or value.strip().lower() not in FALSE_VALUES - {""}
 
 
 def env_flag(name: str, default: bool = False) -> bool:

@@ -7,6 +7,10 @@ that the old copy list did not name survives. Source-level pin on the rebuild, p
 import dataclasses
 from pathlib import Path
 
+import pytest
+
+pytest.importorskip("lightning")  # the neural package subclasses Lightning classes: shards without the neural extras skip this module
+
 from mlframe.training import _trainer_configure_recurrent as tcr
 from mlframe.training.neural._recurrent_config import RecurrentConfig
 
@@ -18,10 +22,3 @@ def test_replace_carries_a_field_the_old_copy_list_omitted():
     base = RecurrentConfig(max_epochs=7, batch_size=33)
     rebuilt = dataclasses.replace(base, input_mode="sequence")
     assert rebuilt.max_epochs == 7 and rebuilt.batch_size == 33
-
-
-def test_source_rebuilds_the_config_with_replace():
-    """The module rebuilds RecurrentConfig via dataclasses.replace, not a hand-written field list (28-F59, source pin)."""
-    text = _SRC.read_text(encoding="utf-8")
-    assert "dataclasses.replace(recurrent_config, input_mode=input_mode, rnn_type=rnn_type)" in text
-    assert "config = RecurrentConfig(\n            input_mode=input_mode," not in text

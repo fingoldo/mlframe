@@ -18,7 +18,7 @@ import numpy as np
 
 from mlframe.feature_selection.filters._fe_usability_signal import _crit_np_dtype
 from mlframe.feature_selection.filters._binning_spec import SUPERVISED_SCHEMES
-from mlframe.feature_selection.filters.discretization._quantile_radix import quantiles_of_sorted, sorted_unique_with_counts
+from mlframe.feature_selection.filters.discretization.shared import quantiles_of_sorted, sorted_unique_with_counts
 from mlframe.feature_selection.filters.discretization.shared import unique_with_counts
 
 logger = logging.getLogger("mlframe.feature_selection.filters._adaptive_nbins")
@@ -342,17 +342,62 @@ def compute_col_edges(col: np.ndarray, method_resolved: str, base: str, kwargs: 
     return edges, low
 
 
+def _mdlp_labels(y: np.ndarray, kwargs: dict) -> np.ndarray:
+    """The labels the MDLP search encodes ``y`` to (``_encode_mdlp_target`` is remembered for the last target, so this costs a hash of ``y``)."""
+    from .supervised_binning import _encode_mdlp_target
+
+    y_enc, _depth = _encode_mdlp_target(y, kwargs.get("mdlp_max_y_classes", 64), kwargs.get("mdlp_fast_mode", False), kwargs.get("mdlp_y_pseudo_classes", 16), _max_depth(kwargs))
+    return np.asarray(y_enc)
+
+
+class EdgePresort:
+    """The device presort of the edge search for the columns of one call: it sorts a block of the columns that will be computed (not the ones the content memo already holds) with their labels, on the device."""
+
+    def __init__(self, labels: np.ndarray, method_resolved: str, base: str, kwargs: dict, y: Optional[np.ndarray], low_card_cap: int) -> None:
+        self.labels, self._memo_args = labels, (method_resolved, base, kwargs, y, low_card_cap)
+
+    def block(self, columns: "list[np.ndarray]") -> list:
+        """One :class:`_mdlp_gpu_presort.Presorted` (or ``None``) per column; a column whose edges the memo holds is not sorted."""
+        from ._mdlp_gpu_presort import presort_block
+
+        wanted = []
+        for i, col in enumerate(columns):
+            key = _edge_memo_key(col, *self._memo_args)
+            with _EDGE_MEMO_LOCK:
+                held = key is not None and key in _EDGE_MEMO
+            if not held:
+                wanted.append(i)
+        out: list = [None] * len(columns)
+        if wanted:
+            for i, result in zip(wanted, presort_block([columns[i] for i in wanted], self.labels)):
+                out[i] = result
+        return out
+
+
+def edge_presort_for(method_resolved: str, base: str, kwargs: dict, y: Optional[np.ndarray], n_rows: int, low_card_cap: int, workers: int = 8) -> "EdgePresort | None":
+    """The device presort of the edge search of this call, or ``None`` when the host path serves it: the MDLP search of a supervised target on a frame the device takes (``workers`` edge-search workers share the host passes)."""
+    if method_resolved != "mdlp" or y is None:
+        return None
+    from ._mdlp_gpu_presort import applicable
+
+    labels = _mdlp_labels(y, kwargs)
+    if labels.shape[0] != n_rows or not applicable(n_rows, labels, workers):
+        return None
+    return EdgePresort(labels, method_resolved, base, kwargs, y, low_card_cap)
+
+
 def _presort_for_mdlp(col: np.ndarray, finite: np.ndarray, finite_mask: np.ndarray, method_resolved: str, y: Optional[np.ndarray], kwargs: dict) -> "tuple[np.ndarray, np.ndarray] | None":
     """``(x_sorted, y_sorted)`` of the finite rows of ``col`` for the MDLP (``fayyad_irani``) search, or ``None`` when the radix sort does not apply (small or non-float input, a non-integer
     label vector) and the search sorts for itself. The labels are the ones ``mdlp_bin_edges`` encodes ``y`` to, so the search gives the edges it gives unsorted."""
     if method_resolved != "mdlp" or y is None or finite.size == 0:
         return None
+    from ._mdlp_gpu_presort import supplied_presort
     from .discretization.shared import sort_xy
-    from .supervised_binning import _encode_mdlp_target
 
-    fast_mode = kwargs.get("mdlp_fast_mode", False)
-    y_enc, _depth = _encode_mdlp_target(y, kwargs.get("mdlp_max_y_classes", 64), fast_mode, kwargs.get("mdlp_y_pseudo_classes", 16), _max_depth(kwargs))
-    y_enc = np.asarray(y_enc)
+    device = supplied_presort(col)  # sorted on the device with its block (EdgePresort): the same arrays the host sort returns
+    if device is not None:
+        return device
+    y_enc = _mdlp_labels(y, kwargs)
     if y_enc.shape[0] != col.shape[0]:
         return None  # the search raises its own length error
     return sort_xy(finite, y_enc[finite_mask])
@@ -368,6 +413,8 @@ def _compute_col_edges_uncached(col: np.ndarray, method_resolved: str, base: str
     1-bin because ``_edges_from_quantiles`` returns empty edges after ``np.unique`` dedup. Such columns get midpoint-edges between consecutive unique
     values - this preserves the column's natural cardinality without going through quantile / supervised logic that doesn't apply.
     """
+    from ._mdlp_gpu_presort import SuppliedPresort
+
     _facts_cache = kwargs.get("optimal_joint_plan_cache")
     _facts_key = None
     if _facts_cache is not None:
@@ -381,9 +428,12 @@ def _compute_col_edges_uncached(col: np.ndarray, method_resolved: str, base: str
         # return_counts=True up front so the rare sparse-dominance fallback below (which needs the
         # per-value counts) reuses THIS array instead of re-running np.unique a second time.
         if _presorted is not None:
-            # the column was sorted once for the MDLP search: its distinct values and counts are a pass over that sort, not a second radix sort of the same values
-            _uniq, _uniq_counts = sorted_unique_with_counts(_presorted[0])
-            _uniq = _uniq.astype(_finite.dtype, copy=False)
+            # the column was sorted once for the MDLP search: its distinct values and counts are a pass over that sort, not a second radix sort of the same values (or, from the device, the runs it read off its sort)
+            if isinstance(_presorted, SuppliedPresort):
+                _uniq, _uniq_counts = _presorted.uniq, _presorted.counts
+            else:
+                _uniq, _uniq_counts = sorted_unique_with_counts(_presorted[0])
+                _uniq = _uniq.astype(_finite.dtype, copy=False)
         elif _finite.size > 0:
             _uniq, _uniq_counts = _unique_facts(_finite, col_sig)
         else:

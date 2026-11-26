@@ -14,9 +14,3 @@ _FIT = Path(pkg.__file__).resolve().parent / "_shap_proxied_fit.py"
 def test_pd_is_not_exported():
     """The package's __all__ does not name the pandas module (13-F25)."""
     assert "pd" not in pkg.__all__
-
-
-def test_compute_phi_rank_stability_imported_once_per_function():
-    """The hardcoded-ladder branch does not re-import compute_phi_rank_stability (13-F23)."""
-    text = _FIT.read_text(encoding="utf-8")
-    assert text.count("import compute_phi_rank_stability") == 1

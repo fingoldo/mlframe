@@ -55,6 +55,7 @@ def test_the_statistics_are_invariant_to_monotone_rescaling_of_the_inputs():
     y = 0.2 * winner + rng.normal(0, 0.1, N)
     base = pair_regression_stats(winner, a, b, y)
     moved = pair_regression_stats(np.exp(winner / 10.0), a**3, np.exp(b), y)
+    assert base
     for key in base:
         assert moved[key] == pytest.approx(base[key], rel=1e-6, abs=1e-6), key
 

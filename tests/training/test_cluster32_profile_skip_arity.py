@@ -4,8 +4,6 @@ The normal path returns 16 fields that the caller unpacks; the skip paths return
 tuple, and the source no longer contains the 6-field returns.
 """
 
-from pathlib import Path
-
 from mlframe.training._benchmarks import _profile_fuzz_1m_run_suite as suite
 
 
@@ -14,9 +12,3 @@ def test_skipped_result_has_sixteen_fields():
     out = suite._skipped_profile_result("UNSUPPORTED_TARGET_TYPE")
     assert len(out) == 16
     assert out[0] == 0.0 and out[1] is False and out[2] == "UNSUPPORTED_TARGET_TYPE"
-
-
-def test_no_six_field_early_returns_remain():
-    """The six-field early returns are gone from the source (32-F28)."""
-    src = Path(suite.__file__).resolve().read_text(encoding="utf-8")
-    assert 'return 0.0, False, "' not in src

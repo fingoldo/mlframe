@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from mlframe.system import host_memory
 import logging
+from mlframe.utils.log_throttle import log_throttle
 from typing import Any, Callable, Iterable, Sequence
 
 import numpy as np
@@ -365,6 +366,45 @@ _SUBSAMPLE_LOCK = threading.Lock()
 _SUBSAMPLE_CACHE: dict = {"X": None, "idx": None, "X_sub": None}
 
 
+def _same_rows(a: Any, b: Any) -> bool:
+    """Whether two row-index arrays name the same rows in the same order: the object itself, or equal values (every family builds its own array of the fit's one draw, 30000 integers: 30 us to compare)."""
+    if a is b:
+        return True
+    if a is None or b is None:
+        return False
+    try:
+        return bool(np.array_equal(a, b))
+    except (TypeError, ValueError) as exc:  # an array-like that cannot be compared is another draw: a full gather, never a wrong frame
+        log_throttle(logger, "_helpers.same_rows", logging.WARNING, "row indices could not be compared (%s: %s); the subsample is gathered in full", type(exc).__name__, exc)
+        return False
+
+
+def _extended_subsample(c: dict, X: Any, idx: np.ndarray) -> Any:
+    """The subsample of ``X`` built from the cached subsample of its parent when ``X`` is that parent with columns appended (``fe_append_columns``), else ``None``.
+
+    Every family that engineers columns hands the next one a frame that is the old frame plus those columns, and each decision gathered all ~1000 raw columns again (0.6 s a decision, 22 s over the 36
+    decisions of a 500000 x 1000 fit). Only the appended columns are gathered; the rest are the cached ones. The result is the frame a full gather gives (same columns in the same order, same dtypes),
+    else ``None`` and the caller gathers in full."""
+    from .._fe_frame_ops import appended_from, fe_subsample_to_pandas, is_pandas
+
+    cached = c["X_sub"]
+    if cached is None or not _same_rows(c["idx"], idx) or c["X"] is None or not is_pandas(X):
+        return None
+    lineage = appended_from(X)
+    if lineage is None or c["X"]() is not lineage[0]:
+        return None
+    names = list(lineage[1])
+    if list(X.columns) != list(cached.columns) + names or len(set(names)) != len(names):
+        return None
+    try:
+        # the rows of the appended columns come from the small frame they were appended from, not from ``X``: the first column selection of a freshly concatenated frame rebuilds pandas' block bookkeeping
+        added = lineage[2] if lineage[2] is not None else X[names]
+        return pd.concat([cached, fe_subsample_to_pandas(added, idx)], axis=1)
+    except Exception as exc:  # best-effort speed-up: a full gather is always right
+        log_throttle(logger, "_helpers.extended_subsample", logging.INFO, "incremental subsample failed (%s: %s); gathering in full", type(exc).__name__, exc)
+        return None
+
+
 def _gathered_subsample(X: Any, y: Any, idx: np.ndarray) -> "tuple[Any, np.ndarray]":
     """The rows ``idx`` of ``X`` as a pandas frame and of ``y``, the frame gathered once for the fit and shared by every family that decides on the same draw.
 
@@ -375,8 +415,9 @@ def _gathered_subsample(X: Any, y: Any, idx: np.ndarray) -> "tuple[Any, np.ndarr
     y_sub = np.asarray(y)[idx]
     with _SUBSAMPLE_LOCK:
         c = _SUBSAMPLE_CACHE
-        if not (c["X"] is not None and c["X"]() is X and c["idx"] is idx and c["X_sub"] is not None):
-            c["X_sub"] = fe_subsample_to_pandas(X, idx)
+        if not (c["X"] is not None and c["X"]() is X and _same_rows(c["idx"], idx) and c["X_sub"] is not None):
+            extended = _extended_subsample(c, X, idx)
+            c["X_sub"] = fe_subsample_to_pandas(X, idx) if extended is None else extended
             c["idx"] = idx
             try:
                 c["X"] = weakref.ref(X)
@@ -581,7 +622,12 @@ def fe_decide_on_subsample(
         if refit is not None:
             _full_cols, recipes = refit(X, y, recipes, kwargs)
         else:
+            _defer = _replay_is_deferred(X, _store)
             for r in recipes:
+                _lazy_col = _deferred_replay_column(r, X, _store) if _defer else None
+                if _lazy_col is not None:
+                    _full_cols[r.name] = _lazy_col
+                    continue
                 _v = np.asarray(apply_recipe(r, X))
                 # Intentional float64: narrows only a float64 replay result to the fit's dtype
                 _full_cols[r.name] = _v.astype(_store, copy=False) if (_store is not None and _v.dtype == np.float64) else _v
@@ -596,6 +642,36 @@ def fe_decide_on_subsample(
     # are materialised, never a copy of X.
     X_aug = fe_append_columns(X, _full_cols)
     return (X_aug, *_middle, recipes)
+
+
+def _replay_is_deferred(X: Any, store: Any) -> bool:
+    """Whether the winners of a decision are kept as recipes and replayed when read: a pandas frame of at least ``MLFRAME_FE_LAZY_REPLAY_MIN_ROWS`` rows whose engineered columns are kept in float32."""
+    from .._lazy_engineered import lazy_replay_min_rows
+
+    floor = lazy_replay_min_rows()
+    return bool(floor > 0 and store is not None and np.dtype(store) == np.float32 and hasattr(X, "iloc") and len(X) >= floor)
+
+
+def _deferred_replay_column(recipe: Any, X: Any, store: Any) -> Any:
+    """The winner ``recipe`` as a :class:`LazyEngineeredColumn` replayed on ``X`` when it is read, or ``None`` when its values are not floats (codes keep their own dtype and are replayed now).
+
+    The recipe is tried on the first rows first, so a recipe that cannot be replayed fails here, at the decision, as the eager replay did, and the family falls back to the full-data decision."""
+    from ..engineered_recipes import apply_recipe
+    from .._lazy_engineered import LazyEngineeredColumn
+
+    head = np.asarray(apply_recipe(recipe, X.iloc[: min(len(X), 2048)]))
+    if head.dtype.kind != "f":
+        return None
+
+    def compute() -> np.ndarray:
+        """The replay of the recipe on every row, in the dtype the eager replay stored."""
+        return np.asarray(apply_recipe(recipe, X)).astype(store, copy=False)
+
+    def compute_head(rows: int) -> np.ndarray:
+        """The replay on the first ``rows`` rows alone (what a slice of the column at the top of a frame reads, without the full-length replay)."""
+        return np.asarray(apply_recipe(recipe, X.iloc[:rows])).astype(store, copy=False)
+
+    return LazyEngineeredColumn(compute, len(X), head_replay=compute_head)
 
 
 def _replay_store_dtype() -> Any:

@@ -103,7 +103,14 @@ _RECIPES: dict = {
         for r in _REAL_TYPES
         for o in ("long long", "unsigned char")
     ],
+    # the code dtypes of ``_batch_mi_noise_gate_bits._C_TYPES``: the gather / transpose kernels of the family gate and the Feistel shuffle are built once for the dtype of the codes they move
+    "_family_columns_gather_cuda.py::_SRC": lambda s: [(dt, _fill(s, **{"{DT}": dt}), ()) for dt in ("signed char", "unsigned char", "short", "int", "long long")],
+    "_permutation_shuffle_cuda.py::_SRC": lambda s: [(dt, _fill(s, **{"{DT}": dt}), ()) for dt in ("signed char", "unsigned char", "short", "int", "long long")],
     "_pair_mi_perm_cuda.py::_SRC": lambda s: [(f"KB={kb}", _fill(s, **{"{ACC}": "double"}), (f"-DKB={kb}",)) for kb in (1, 4, 8)],
+    "_pair_mi_perm_cuda_bin.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
+    "_pair_mi_perm_cuda_bin.py::_SRC_LUT": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
+    # the label types of the encoded MDLP target (``_mdlp_gpu_presort._LABEL_CTYPE``): the unpack kernel is built once for the dtype of the labels
+    "_mdlp_gpu_presort.py::_UNPACK_SRC": lambda s: [(dt, _fill(s, **{"{REAL}": "float", "{LAB}": dt}), ()) for dt in ("signed char", "unsigned char", "short", "unsigned short", "int", "unsigned int", "long long", "unsigned long long")],
     "_fe_batched_mi_cmi.py::_BATCHED_JOINT_ENTROPY_SRC": lambda s: [(xt, _fill(s, **{"{ACC}": "double", "{XT}": xt}), ()) for xt in ("long long", "unsigned char")],
     "_parity_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
     "_dcor_gpu.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],

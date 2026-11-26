@@ -1,4 +1,4 @@
-"""Search for a monotone transform of a regression TARGET that a LINEAR model predicts better (PLAN_target_transform_in_mrmr, step 2: functions only, not wired into MRMR).
+"""Search for a monotone transform of a regression TARGET that a LINEAR model predicts better (PLAN_target_transform_in_mrmr, step 2: functions only, not wired into MRMR; superseded by the Jacobian log-likelihood link search of ``_target_transform_ll``, kept as the measured baseline of ``tests/feature_selection/mrmr/test_target_transform_search.py``).
 
 Two parts, because the experiment of 2026-11-23 (``_benchmarks/nbins_strategy/target_transform_mi_ext.py``: 5 target kinds x 7 seeds, four model families) showed that the MI alone is a biased judge:
 
@@ -63,6 +63,7 @@ def _equal_width_codes(v: np.ndarray, n_bins: int) -> np.ndarray:
 def _mutual_information(a: np.ndarray, b: np.ndarray) -> float:
     """Plug-in MI (nats) of two integer code vectors."""
     ka, kb = int(a.max()) + 1, int(b.max()) + 1
+    # Intentional float64: statistics of the target-transform proposal and its ridge gate
     joint = np.bincount(a * kb + b, minlength=ka * kb).astype(np.float64).reshape(ka, kb)  # bincount: np.add.at was 40 percent of the proposer at 1000 columns
     joint /= joint.sum()
     pa = joint.sum(1, keepdims=True)
@@ -73,7 +74,9 @@ def _mutual_information(a: np.ndarray, b: np.ndarray) -> float:
 
 def propose_target_transforms(X: np.ndarray, y: np.ndarray, transforms: Optional[Sequence[TargetTransform]] = None, n_bins: int = 10) -> "list[tuple[str, float]]":
     """``(name, score)`` of every applicable transform, best first; the score is the sum over the columns of ``X`` of MI(column; f(y)) under equal-width bins."""
+    # Intentional float64: statistics of the target-transform proposal and its ridge gate
     X = np.asarray(X, dtype=np.float64)
+    # Intentional float64: statistics of the target-transform proposal and its ridge gate
     y = np.asarray(y, dtype=np.float64).ravel()
     ok = np.isfinite(y) & np.isfinite(X).all(axis=1)
     X, y = X[ok], y[ok]
@@ -116,7 +119,9 @@ def gate_target_transform(
 
     The rows are split in two halves at random (``seed``); the model is fitted on one half and the loss is measured on the other, the roles are then swapped and the two loss vectors are concatenated, so every row
     is judged out of sample once. The identity itself is never accepted (its difference is zero)."""
+    # Intentional float64: statistics of the target-transform proposal and its ridge gate
     X = np.asarray(X, dtype=np.float64)
+    # Intentional float64: statistics of the target-transform proposal and its ridge gate
     y = np.asarray(y, dtype=np.float64).ravel()
     ok = np.isfinite(y) & np.isfinite(X).all(axis=1)
     X, y = X[ok], y[ok]

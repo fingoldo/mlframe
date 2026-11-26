@@ -5,9 +5,17 @@ from __future__ import annotations
 import json
 import time
 
+import pytest
+
 from mlframe.feature_selection._benchmarks.profiling import stage_idle_report as R
 from mlframe.feature_selection.filters import _fe_family_timing as T
 from mlframe.feature_selection.filters import _stage_ledger as L
+
+
+@pytest.fixture(autouse=True)
+def _own_ledger_events(monkeypatch):
+    """Every test records into its own event list, so the module's list is not shared between tests."""
+    monkeypatch.setattr(L, "_EVENTS", [])
 
 
 def test_the_ledger_is_off_and_empty_by_default(monkeypatch):
@@ -20,22 +28,35 @@ def test_the_ledger_is_off_and_empty_by_default(monkeypatch):
     assert not L.enabled() and L.snapshot() == []
 
 
+class _SteppingClock:
+    """An epoch clock that advances by half a second at every reading, so that a measured duration does not depend on the machine."""
+
+    def __init__(self) -> None:
+        """Start at a fixed epoch second."""
+        self.now = 1_000_000.0
+
+    def __call__(self) -> float:
+        """One reading: the clock moves on first."""
+        self.now += 0.5
+        return self.now
+
+
 def test_timers_become_events_with_epoch_times_device_and_input_size(monkeypatch):
     """A family timer, a direct wall record and a gate lap are events on the epoch clock; the labels given to the timer are kept."""
     monkeypatch.setenv(L.ENV, "1")
     L.reset()
+    monkeypatch.setattr(time, "time", _SteppingClock())
     before = time.time()
     with T.fe_family_timer("the_family", device="gpu:0", in_gb=0.4):
-        time.sleep(0.02)
+        pass
     T.record_fe_family_wall("direct", 0.05)
     timer = T.FamilyLapTimer()
     timer.gate("lap_flag", True)
-    time.sleep(0.01)
     timer.close()
     events = {e["name"]: e for e in L.snapshot()}
     assert set(events) == {"the_family", "direct", "gate:lap_flag"}
     family = events["the_family"]
-    assert before <= family["t0"] < family["t1"] <= time.time() and family["t1"] - family["t0"] >= 0.02
+    assert before <= family["t0"] < family["t1"] <= time.time() and family["t1"] - family["t0"] == 0.5
     assert family["device"] == "gpu:0" and family["in_gb"] == 0.4
     assert abs((events["direct"]["t1"] - events["direct"]["t0"]) - 0.05) < 1e-6
     assert events["gate:lap_flag"]["device"] is None

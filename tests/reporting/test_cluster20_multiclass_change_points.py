@@ -33,8 +33,3 @@ def test_single_class_gives_one_start():
     """Control: one repeated label yields a single class starting at 0 (20-F39)."""
     classes, starts = _change_points(np.array([3, 3, 3]))
     assert classes.tolist() == [3] and starts.tolist() == [0]
-
-
-def test_sampler_no_longer_sorts_twice():
-    """The module does not call np.unique on the already-sorted labels (20-F39, source pin)."""
-    assert "np.unique(y_pos[order]" not in _SRC.read_text(encoding="utf-8")

@@ -1,26 +1,46 @@
-"""Cluster 25 regression: the tuning rules document OR semantics and expected_fitness is set in both search modes (audit 2026-11-20, finding 25-F62).
+"""Cluster 25 regression: ``expected_fitness`` is set in both search modes (audit 2026-11-20, finding 25-F62).
 
-Source-level pins: the condition comment states ANY match holds, and the module-level assignment of self.expected_fitness sits after the
-mode branches (not inside the exploitation branch alone).
+It used to be assigned only inside the exploitation branch, so the exploration plot showed a stale score. The helper now stores it on the
+optimizer after either branch.
 """
 
-from pathlib import Path
+from types import SimpleNamespace
+
+import numpy as np
 
 from mlframe.models import _optimization_search as opt
-from mlframe.models import tuning_rules as tr
 
-_RULES = Path(tr.__file__).resolve()
-_SEARCH = Path(opt.__file__).resolve()
+_N = 6
 
 
-def test_condition_comment_states_or_semantics():
-    """The condition documentation says any matching condition holds (25-F62)."""
-    text = _RULES.read_text(encoding="utf-8")
-    assert "Holds when ANY listed condition matches" in text
-    assert "must hold on all the conditions" not in text
+def _owner(mode):
+    """A minimal optimizer state for the candidate helper in the given mode."""
+    return SimpleNamespace(
+        mode=mode,
+        direction=opt.OptimizationDirection.Maximize,
+        use_stds_for_exploitation=True,
+        search_space=list(range(_N)),
+        use_distances_on_preds_collision=False,
+        additional_info="",
+    )
 
 
-def test_expected_fitness_is_assigned_outside_the_exploitation_branch():
-    """self.expected_fitness is assigned at function level, so both modes set it (25-F62)."""
-    text = _SEARCH.read_text(encoding="utf-8")
-    assert "\n        self.expected_fitness = expected_fitness\n        return expected_fitness\n" in text
+def _arrays():
+    """Predictions, uncertainty and distance arrays for the helper."""
+    return np.linspace(0.1, 0.6, _N), np.linspace(0.0, 1.0, _N), np.linspace(0.0, 1.0, _N)
+
+
+def test_exploitation_mode_stores_expected_fitness_on_the_optimizer():
+    """In exploitation mode the returned scores are also stored on the optimizer, so the plot reads the current values (25-F62)."""
+    owner = _owner("exploitation")
+    y_std, distances, y_pred = _arrays()
+    returned = opt.MBHOptimizer._suggest_exploration_candidate(owner, y_std, distances, y_pred, set())
+    assert owner.expected_fitness is returned
+
+
+def test_exploration_mode_stores_expected_fitness_on_the_optimizer():
+    """Control: exploration mode stores its scores on the optimizer the same way (25-F62)."""
+    owner = _owner("exploration")
+    y_std, distances, y_pred = _arrays()
+    returned = opt.MBHOptimizer._suggest_exploration_candidate(owner, y_std, distances, y_pred, set())
+    assert owner.expected_fitness is returned

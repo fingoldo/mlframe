@@ -28,7 +28,13 @@ _EXEMPT_PATH_FRAGMENTS = ("__pycache__", "tests", "legacy", "profiling", "explor
 _MAX_TOLERANCE = 1e-6
 
 # "relpath::funcname" -> why a genuinely-different-algorithm comparison needs a loose tolerance.
-_USER_DEFERRED_LOOSE_TOLERANCE: dict[str, str] = {}
+_USER_DEFERRED_LOOSE_TOLERANCE: dict[str, str] = {
+    "feature_selection/filters/_unary_credit_logit_cuda.py::_run_sweep": (
+        "the device kernel accumulates its terms in float32 and the njit twin in double: the same Newton steps in two precisions, agreeing to about 1e-3 on likelihood-ratio statistics of 1 to 100. A tighter "
+        "tolerance would crown the double build of the kernel (the only one that meets it), which times 16 to 32 times slower than the float32 build production runs on a consumer card. The kernel itself is pinned by "
+        "tests/feature_selection/fe/unary_credit/test_unary_credit_logit_kernels.py: the double build to the numpy reference at 1e-8, the float32 build to 2e-3."
+    ),
+}
 
 
 def _tolerance_kwargs(call: ast.Call) -> dict[str, float]:

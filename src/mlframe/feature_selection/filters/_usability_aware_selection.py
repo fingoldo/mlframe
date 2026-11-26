@@ -605,6 +605,7 @@ def _usability_scorers(classification: bool, y_cont: np.ndarray) -> Optional[tup
                 eps = np.finfo(proba.dtype).eps
                 return float(-np.mean(np.log(np.clip(proba, eps, 1.0 - eps)[np.arange(proba.shape[0]), np.asarray(y_true)])))
             # integer-typed or non-2-D probabilities: the same clipped log loss, after normalising each row; a table whose columns are not the full label set is an error, as it was in scikit-learn
+            # Intentional float64: usability correlations of the selection
             p = np.asarray(proba, dtype=np.float64)
             if p.ndim != 2 or p.shape[1] != n_classes:
                 raise ValueError(f"log loss: the probabilities have shape {p.shape} but the label set has {n_classes} classes")

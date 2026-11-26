@@ -22,7 +22,7 @@ Algorithm (``recommend_target_transform``)
    residual quantiles for ``metric="rmse"``) and its error on B on the ORIGINAL scale must be at least ``min_gain`` (2 percent) below that of the identity head. The significant candidates are ordered by that error (``select="err"``, the default: the LL can
    prefer a transform that fits the tails and predicts the mean worse), those within ``tie_se`` paired standard errors of the best are a tie and the simplest family wins; otherwise the function abstains and says why.
 
-Valid for linear and additive heads; a tree head does not gain from a target transform (measured: neutral to slightly harmful), so the verdict is for linear / additive heads. float64 is used on purpose.
+Valid for linear and additive heads; a tree head does not gain from a target transform (measured: neutral to slightly harmful), so the verdict is for linear / additive heads. double is used on purpose.
 Not covered: classification, non-monotone transforms, targets with fewer than ``min_distinct`` distinct values (abstains), NaN rows (dropped)."""
 
 from __future__ import annotations
@@ -128,6 +128,7 @@ def _fixed_logjac(name: str, y: np.ndarray, s: float) -> np.ndarray:
     if name == "log1p":
         return np.asarray(-np.log1p(y))
     if name == "exp":
+        # Intentional float64: likelihood and Jacobian statistics of the link search
         return np.asarray(y, dtype=np.float64)
     if name == "reciprocal":
         return np.asarray(-2.0 * np.log(ay))
@@ -174,6 +175,7 @@ def _scale_grid(lam: np.ndarray, s: float) -> np.ndarray:
 
 def _param_forward(name: str, y: np.ndarray, lam: np.ndarray, s: float = 1.0) -> np.ndarray:
     """(n,) x (L,) -> (n, L): the transform ``name`` of ``y`` for every parameter at once (Yeo-Johnson / Box-Cox: expm1 / log1p forms, exact limit at lambda -> 0; asinh / sinh: ``c = s 2^lam``)."""
+    # Intentional float64: likelihood and Jacobian statistics of the link search
     lam = np.atleast_1d(np.asarray(lam, dtype=np.float64))
     if name in _SCALED:
         c = _scale_grid(lam, s)[None, :]
@@ -204,6 +206,7 @@ def _param_forward(name: str, y: np.ndarray, lam: np.ndarray, s: float = 1.0) ->
 
 def _param_logjac(name: str, y: np.ndarray, lam: np.ndarray, s: float = 1.0) -> np.ndarray:
     """``log |f'(y)|`` of the parametric transform ``name`` for every parameter at once."""
+    # Intentional float64: likelihood and Jacobian statistics of the link search
     lam = np.atleast_1d(np.asarray(lam, dtype=np.float64))
     if name in _SCALED:
         c = _scale_grid(lam, s)[None, :]
@@ -276,6 +279,7 @@ class FittedTransform:
 
     def forward(self, y: np.ndarray) -> np.ndarray:
         """The transformed target."""
+        # Intentional float64: likelihood and Jacobian statistics of the link search
         y = np.asarray(y, dtype=np.float64)
         if self.name in _PARAMETRIC:
             return _param_forward(self.name, y.ravel(), np.array([self.params["lambda"]]), self.scale)[:, 0].reshape(y.shape)
@@ -289,6 +293,7 @@ class FittedTransform:
 
     def inverse(self, z: np.ndarray, residuals: Optional[np.ndarray] = None) -> np.ndarray:
         """Back to the original scale; ``residuals`` (transformed-scale residuals of the model) switch on generalised Duan smearing (mean prediction), otherwise the median prediction."""
+        # Intentional float64: likelihood and Jacobian statistics of the link search
         z = np.asarray(z, dtype=np.float64)
         with np.errstate(all="ignore"):
             if residuals is None:
@@ -299,8 +304,9 @@ class FittedTransform:
 
 def build_transform(name: str, y_ref: np.ndarray, lam: Optional[float] = None) -> FittedTransform:
     """Fitted transform ``name`` with the clip range taken from ``y_ref`` (the training target); ``lam`` is required for Yeo-Johnson / Box-Cox."""
+    # Intentional float64: likelihood and Jacobian statistics of the link search
     y_ref = np.asarray(y_ref, dtype=np.float64).ravel()
-    s = float(np.std(y_ref)) + 1e-12
+    s = max(float(np.std(y_ref)), 1e-12)
     if name in _PARAMETRIC:
         if lam is None:
             raise ValueError(f"build_transform: {name} needs its lambda")
@@ -324,6 +330,7 @@ def _nat_spline(x: np.ndarray, t: np.ndarray) -> np.ndarray:
 
     def p3(v: np.ndarray) -> np.ndarray:
         """Truncated cube."""
+        # Intentional float64: the basis of the link search's spline fit is built in double
         return np.asarray(np.maximum(v, 0.0) ** 3, dtype=np.float64)
 
     for j in range(k - 2):
@@ -564,7 +571,9 @@ def analyse_target_transforms(
 ) -> TransformAnalysis:
     """Steps 1-5 plus the held-out errors of the significant candidates (see the module docstring)."""
     t0 = time.perf_counter()
+    # Intentional float64: likelihood and Jacobian statistics of the link search
     X = np.asarray(X, dtype=np.float64)
+    # Intentional float64: likelihood and Jacobian statistics of the link search
     y = np.asarray(y, dtype=np.float64).ravel()
     if X.ndim == 1:
         X = X[:, None]
@@ -593,7 +602,7 @@ def analyse_target_transforms(
     names, notes = _valid_names(y, wanted)
     if len(names) == 1:
         return empty("no non-identity candidate is valid for the range of y", notes)
-    spec = _Spec([m for m in names if m not in _PARAMETRIC], [m for m in names if m in _PARAMETRIC], float(np.std(y)) + 1e-12)
+    spec = _Spec([m for m in names if m not in _PARAMETRIC], [m for m in names if m in _PARAMETRIC], max(float(np.std(y)), 1e-12))
     names = spec.names
 
     D = _design(X, head)

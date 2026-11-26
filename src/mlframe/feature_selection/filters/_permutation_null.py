@@ -43,6 +43,7 @@ import numba
 import numpy as np
 
 from mlframe._numba_parallel_guard import parallel_kernel_entry
+from ._column_gather import gather_columns_cm
 from mlframe.utils.log_throttle import log_throttle
 
 from ._content_memo import ContentMemo
@@ -534,7 +535,7 @@ def _pairwise_occupied_joint_k(
     if pa.size == 0:
         return np.empty(0, dtype=np.int64)
     used, inverse = np.unique(np.concatenate([pa, pb]), return_inverse=True)
-    columns_cm = np.ascontiguousarray(np.asarray(factors_data)[:, used].T)  # only the columns the pairs touch, one contiguous row each
+    columns_cm = gather_columns_cm(np.asarray(factors_data), used, dtype=np.asarray(factors_data).dtype)  # only the columns the pairs touch, one contiguous row each, gathered on every core
     n_pairs = int(pa.shape[0])
     with parallel_kernel_entry():
         return np.asarray(_occupied_joint_k_cm_njit(columns_cm, inverse[:n_pairs].astype(np.int64), inverse[n_pairs:].astype(np.int64), nb[pa], nb[pb]))
@@ -572,6 +573,15 @@ def _column_min_max_njit(data, cols, n_blocks):
     return lo, hi
 
 
+def column_code_bounds(data: np.ndarray, columns: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
+    """``(lowest, highest)`` code of each of the sorted unique ``columns`` of ``data``, in one parallel pass over blocks of rows."""
+    arr = data if isinstance(data, np.ndarray) and data.dtype.kind in "iu" else np.asarray(data)
+    n_blocks = int(max(1, min(64, arr.shape[0] // 2048)))
+    with parallel_kernel_entry():
+        lo, hi = _column_min_max_njit(arr, np.ascontiguousarray(columns, dtype=np.int64), n_blocks)
+    return lo, hi
+
+
 def _validate_code_ranges(data: np.ndarray, nbins: np.ndarray, columns: np.ndarray) -> None:
     """Reject a used column holding a code outside ``[0, nbins[col])``: the joint-count kernels index their tables by the codes without bounds checks.
 
@@ -580,10 +590,7 @@ def _validate_code_ranges(data: np.ndarray, nbins: np.ndarray, columns: np.ndarr
     if data.shape[0] == 0:
         return
     used = np.unique(columns).astype(np.int64)
-    arr = data if isinstance(data, np.ndarray) and data.dtype.kind in "iu" else np.asarray(data)
-    n_blocks = int(max(1, min(64, arr.shape[0] // 2048)))
-    with parallel_kernel_entry():
-        lo, hi = _column_min_max_njit(arr, used, n_blocks)
+    lo, hi = column_code_bounds(data, used)
     bad = np.flatnonzero((lo < 0) | (hi >= np.asarray(nbins, dtype=np.int64)[used]))
     if bad.size:
         c, low, high = int(used[bad[0]]), int(lo[bad[0]]), int(hi[bad[0]])
@@ -666,7 +673,7 @@ def _resolve_mm_bias(mm_debias: bool, mm_bias: "np.ndarray | None", factors_data
     """
     if not mm_debias:
         return None
-    if mm_bias is not None and int(np.asarray(mm_bias).shape[0]) == int(pa.shape[0]):
+    if mm_bias is not None and int(np.shape(mm_bias)[0]) == int(pa.shape[0]):
         return np.asarray(mm_bias, dtype=np.float64)  # Intentional float64: statistic vector
     n = int(factors_data.shape[0])
     k_joint = _pairwise_occupied_joint_k(factors_data, pa, pb, nb)
@@ -674,6 +681,50 @@ def _resolve_mm_bias(mm_debias: bool, mm_bias: "np.ndarray | None", factors_data
     bias = (k_joint - 1).astype(np.float64) * float(k_y - 1) / (2.0 * n)
     bias[k_joint <= 1] = 0.0
     return bias
+
+
+def _scaled_floor_or_none(
+    factors_data: np.ndarray, nbins: np.ndarray, pair_a: np.ndarray, pair_b: np.ndarray, classes_y: np.ndarray, freqs_y: np.ndarray, n_permutations: int, quantile: float, random_seed: Any, device_only: bool
+) -> "float | None":
+    """The mm-debiased floor from a row subsample (``_pair_floor_scaled``), or ``None`` when the exact floor has to be computed; the decision is logged at INFO."""
+    from ._pair_floor_scaled import scaled_pair_floor
+
+    floor_scaled, scaling = scaled_pair_floor(
+        pooled_pair_permutation_null_joint_mi_floor, factors_data, nbins, pair_a, pair_b, classes_y, freqs_y,
+        n_permutations=n_permutations, quantile=quantile, random_seed=random_seed, device_only=device_only, k_joint_of_pairs=_pairwise_occupied_joint_k,
+    )
+    if floor_scaled is not None:
+        logger.info("order-2 maxT floor %.3e from %d of %d rows (calibration rho %.3f, factor %.3f)", floor_scaled, scaling["n_sub"], int(factors_data.shape[0]), scaling["rho"], scaling["factor"])
+    elif "rho" in scaling or "n_sub" in scaling:
+        logger.info("order-2 maxT floor computed on every row: %s", scaling.get("why"))
+    return floor_scaled
+
+def _pooled_shuffle_maxima(factors_data, pa, pb, nb, classes_y, fy, K, random_seed, mm_bias, device_only, cap):
+    """The K per-shuffle maxima of the pair pool's joint MI: the maxT null sample the floor takes its quantile of."""
+    from .info_theory import batch_pair_mi_perm_batched
+    from ._pair_mi_perm_cuda import DeviceKernelDeclinedError, floor_backend_choice, pair_mi_perm_matrix_cuda
+
+    n = int(factors_data.shape[0])
+    n_pairs = int(pa.shape[0])
+    y_perms = _sequential_label_shuffles(classes_y, K, random_seed)
+    # One device launch replays all K shuffles for every pair when the host's tuning-cache entry prefers it (and the shape fits); the shuffles above are the same host draws either way.
+    all_mis = None
+    if floor_backend_choice(n, n_pairs) == "cuda":
+        all_mis = pair_mi_perm_matrix_cuda(factors_data, pa, pb, nb, y_perms, fy, cap)
+    if all_mis is None:
+        if device_only:
+            raise DeviceKernelDeclinedError("the one-launch device kernel does not apply to this pool")
+        # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
+        with parallel_kernel_entry():
+            all_mis = batch_pair_mi_perm_batched(factors_data, pa, pb, nb, y_perms, fy, cap)  # (K, n_pairs)
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    maxes = np.empty(K, dtype=np.float64)
+    for k in range(K):
+        mis = all_mis[k]
+        if mm_bias is not None and mis.size:
+            mis = mis - mm_bias
+        maxes[k] = float(np.max(mis)) if mis.size else 0.0
+    return maxes
 
 
 def pooled_pair_permutation_null_joint_mi_floor(
@@ -752,17 +803,9 @@ def pooled_pair_permutation_null_joint_mi_floor(
     if k_y < 2:
         return 0.0
     if mm_debias and scaled is not False:
-        from ._pair_floor_scaled import scaled_pair_floor
-
-        floor_scaled, scaling = scaled_pair_floor(
-            pooled_pair_permutation_null_joint_mi_floor, factors_data, nbins, pair_a, pair_b, classes_y, freqs_y,
-            n_permutations=n_permutations, quantile=quantile, random_seed=random_seed, device_only=device_only, k_joint_of_pairs=_pairwise_occupied_joint_k,
-        )
+        floor_scaled = _scaled_floor_or_none(factors_data, nbins, pair_a, pair_b, classes_y, freqs_y, n_permutations, quantile, random_seed, device_only)
         if floor_scaled is not None:
-            logger.info("order-2 maxT floor %.3e from %d of %d rows (calibration rho %.3f, factor %.3f)", floor_scaled, scaling["n_sub"], n, scaling["rho"], scaling["factor"])
             return floor_scaled
-        if "rho" in scaling or "n_sub" in scaling:
-            logger.info("order-2 maxT floor computed on every row: %s", scaling.get("why"))
 
     # ROW-SUBSAMPLE the floor compute (noise-floor-cap regime). The floor is a q=0.95
     # QUANTILE of the per-shuffle MAX joint-MI over the O(p^2) pool - a COARSE noise threshold, not a
@@ -790,14 +833,12 @@ def pooled_pair_permutation_null_joint_mi_floor(
     # prange - deterministic, GPU-independent), so the per-shuffle max is on the same scale as the gated value.
     # The permutation-BATCHED variant computes each pair's joint encoding + x-marginal ONCE and reuses them across
     # all K shuffles (only the (joint, y_perm) contingency re-runs per shuffle) - ~1.71x, bit-identical.
-    from .info_theory import batch_pair_mi_perm_batched
     from mlframe.feature_selection.filters.info_theory.shared import joint_cardinality_cap
 
     pa = np.ascontiguousarray(pair_a, dtype=np.int64)
     pb = np.ascontiguousarray(pair_b, dtype=np.int64)
     nb = np.ascontiguousarray(nbins)
-    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    fy = np.ascontiguousarray(freqs_y, dtype=np.float64)
+    fy = np.ascontiguousarray(freqs_y, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
 
     mm_bias = _resolve_mm_bias(mm_debias, mm_bias, factors_data, pa, pb, nb, k_y)
 
@@ -811,26 +852,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
         remembered = _PAIR_FLOOR_MEMO.get(memo_key)
         if remembered is not None:
             return float(np.quantile(remembered, float(quantile)))
-    y_perms = _sequential_label_shuffles(classes_y, K, random_seed)
-    # One device launch replays all K shuffles for every pair when the host's tuning-cache entry prefers it (and the shape fits); the shuffles above are the same host draws either way.
-    from ._pair_mi_perm_cuda import DeviceKernelDeclinedError, floor_backend_choice, pair_mi_perm_matrix_cuda
-
-    all_mis = None
-    if floor_backend_choice(n, n_pairs) == "cuda":
-        all_mis = pair_mi_perm_matrix_cuda(factors_data, pa, pb, nb, y_perms, fy, joint_cardinality_cap())
-    if all_mis is None:
-        if device_only:
-            raise DeviceKernelDeclinedError("the one-launch device kernel does not apply to this pool")
-        # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
-        with parallel_kernel_entry():
-            all_mis = batch_pair_mi_perm_batched(factors_data, pa, pb, nb, y_perms, fy, joint_cardinality_cap())  # (K, n_pairs)
-    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    maxes = np.empty(K, dtype=np.float64)
-    for k in range(K):
-        mis = all_mis[k]
-        if mm_bias is not None and mis.size:
-            mis = mis - mm_bias
-        maxes[k] = float(np.max(mis)) if mis.size else 0.0
+    maxes = _pooled_shuffle_maxima(factors_data, pa, pb, nb, classes_y, fy, K, random_seed, mm_bias, device_only, joint_cardinality_cap())
 
     if memo_key is not None:
         _PAIR_FLOOR_MEMO.put(memo_key, maxes)

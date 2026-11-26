@@ -22,6 +22,10 @@
    "count": 1,
    "note": "benchmark-only diagnostic capture, filled only when its RSS_* environment switch is set; no test runs that path"
   },
+  "module-state-no-test-reset::feature_selection/_benchmarks/profiling/rss_scale_fit.py::module-level `min_avail` is mutated by a function and no test mentions it, so nothing resets it between tests": {
+   "count": 1,
+   "note": "benchmark script run once per process: its sampler thread is the only writer of the lowest free RAM seen during the fit; no test imports the script"
+  },
   "module-state-no-test-reset::feature_selection/filters/_adaptive_nbins_columns.py::module-level `_FALLBACK_EDGES` is mutated by a function and no test mentions it, so nothing resets it between tests": {
    "count": 1,
    "note": "bounded memo of a pure computation keyed by the column identity and settings; a hit returns the value computed for that key"

@@ -144,3 +144,62 @@ def test_nonfinite_values_in_other_columns_do_not_hide_the_dominant_column():
     X.loc[X.index[::90], "x3"] = -np.inf
     assert dominant_candidate(X, y) == "carrier"
     assert dominant_candidate(X.drop(columns=["carrier"]), y) is None
+
+
+def _long_frame(n=300_000, seed=5):
+    """Six independent normal columns of a frame long enough for the sample screen."""
+    rng = np.random.default_rng(seed)
+    return pd.DataFrame(rng.standard_normal((n, 6)).astype(np.float32), columns=[f"x{i}" for i in range(6)])
+
+
+def test_a_long_frame_is_screened_on_a_sample_and_only_the_survivors_are_scored_at_full_length(monkeypatch):
+    """The first scoring sees the sample's rows and every column; the full-length scoring sees the one column that cleared the screen and names it."""
+    from mlframe.feature_selection.filters import _fe_dominant_candidate as dom
+
+    X = _long_frame()
+    y = (X["x3"].to_numpy() > 0).astype(np.int64)
+    seen = []
+    real = dom._column_mis
+
+    def spy(frame, names, codes):
+        """Record the rows and the columns of each scoring."""
+        seen.append((len(codes), list(names)))
+        return real(frame, names, codes)
+
+    monkeypatch.setattr(dom, "_column_mis", spy)
+    assert dom.dominant_candidate(X, y) == "x3"
+    assert [rows for rows, _ in seen] == [dom._SCREEN_ROWS, len(X)]
+    assert seen[0][1] == list(X.columns) and seen[1][1] == ["x3"]
+
+
+def test_a_long_frame_without_a_dominant_column_is_decided_by_the_sample_alone(monkeypatch):
+    """When no column clears the screen the full-length scoring never runs."""
+    from mlframe.feature_selection.filters import _fe_dominant_candidate as dom
+
+    X = _long_frame()
+    rng = np.random.default_rng(1)
+    y = ((X["x2"].to_numpy() + rng.standard_normal(len(X))) > 0).astype(np.int64)
+    seen = []
+    real = dom._column_mis
+    monkeypatch.setattr(dom, "_column_mis", lambda frame, names, codes: (seen.append(len(codes)), real(frame, names, codes))[1])
+    assert dom.dominant_candidate(X, y) is None
+    assert seen == [dom._SCREEN_ROWS]
+
+
+def test_the_screen_never_changes_the_verdict_at_any_noise_level_around_the_bar(monkeypatch):
+    """Targets that are a column with 0 to 10 percent of the labels flipped, a clean three-level target and a rare class: the verdict with the screen equals the verdict of the full-length scoring."""
+    from mlframe.feature_selection.filters import _fe_dominant_candidate as dom
+
+    X = _long_frame()
+    rng = np.random.default_rng(2)
+    x = X["x4"].to_numpy()
+    targets = []
+    for flip in (0.0, 0.0003, 0.0007, 0.001, 0.0014, 0.002, 0.005, 0.02, 0.1):
+        targets.append(((x > 0) ^ (rng.random(len(x)) < flip)).astype(np.int64))
+    targets.append(np.digitize(x, [-0.5, 0.5]).astype(np.int64))
+    targets.append(((x > 2.3) ^ (rng.random(len(x)) < 0.0002)).astype(np.int64))  # about one row in a hundred is positive
+    screened = [dom.dominant_candidate(X, y) for y in targets]
+    monkeypatch.setattr(dom, "_SCREEN_MIN_ROWS", 10**12)
+    exact = [dom.dominant_candidate(X, y) for y in targets]
+    assert screened == exact
+    assert exact[0] == "x4" and exact[8] is None

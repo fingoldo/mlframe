@@ -149,3 +149,60 @@ def test_queue_variant_equals_the_thread_serial_and_overflow_paths(variant, monk
     got = run()
     for w, g in zip(want, got):
         np.testing.assert_array_equal(g, w)
+
+
+def _scan(cp, A, order, tie, yperm, n, kc, n_perm, h_full, tab):
+    """``(gain, ncand, idx)`` of every (column, permutation) pair from whichever scan kernel the module is set to use."""
+    g, c, i = cp.empty(n_perm * kc), cp.empty(n_perm * kc, dtype=cp.int32), cp.empty(n_perm * kc, dtype=cp.int32)
+    assert A.root_split_accept_gpu(cp, order, tie, yperm, n, n_perm, kc, 60, 0.05, h_full, tab, g, c, i)
+    return cp.asnumpy(g), cp.asnumpy(c), cp.asnumpy(i)
+
+
+@pytest.mark.parametrize(
+    "n,kc,n_perm,ties",
+    [(20011, 9, 130, True), (5003, 6, 40, False), (97, 4, 8, False), (64001, 5, 70, True), (200003, 3, 36, False)],
+)
+def test_the_coalesced_scan_equals_the_reference_scan_on_every_pair(monkeypatch, n, kc, n_perm, ties):
+    """The coalesced kernel and the reference thread-per-run kernel give the same gain, candidate count and index for EVERY pair (not only the accepted ones), for row counts that are and are not multiples of 32 and of a warp's segment."""
+    import mlframe.feature_selection.filters._honest_null_accept_bits as A
+
+    cp, order, tie, yperm, h_full, tab, _ref = _setup(n, kc, n_perm, 0.4, ties, 5, seed=n)
+    monkeypatch.setenv("MLFRAME_HONEST_ACCEPT_PRE_SCAN", "block")
+    want = _scan(cp, A, order, tie, yperm, n, kc, n_perm, h_full, tab)
+    monkeypatch.setenv("MLFRAME_HONEST_ACCEPT_PRE_SCAN", "coalesced")
+    got = _scan(cp, A, order, tie, yperm, n, kc, n_perm, h_full, tab)
+    for w, g in zip(want, got):
+        np.testing.assert_array_equal(w, g)
+
+
+def test_the_coalesced_scan_with_a_queue_that_overflows_equals_the_reference(monkeypatch):
+    """A build whose queue holds two words sends every surviving word through the in-thread fallback: the same outputs."""
+    import mlframe.feature_selection.filters._honest_null_accept_bits as A
+    from mlframe.feature_selection.filters._raw_module_cache import RawModuleCache
+
+    n, kc, n_perm = 30011, 8, 60
+    cp, order, tie, yperm, h_full, tab, _ref = _setup(n, kc, n_perm, 0.4, True, 5, seed=11)
+    monkeypatch.setenv("MLFRAME_HONEST_ACCEPT_PRE_SCAN", "block")
+    want = _scan(cp, A, order, tie, yperm, n, kc, n_perm, h_full, tab)
+    monkeypatch.setenv("MLFRAME_HONEST_ACCEPT_PRE_SCAN", "coalesced")
+    monkeypatch.setattr(A, "_MODULE_PRE_CO", RawModuleCache(A._SRC_PRE_CO.replace("#define QCAP 512", "#define QCAP 2")))
+    got = _scan(cp, A, order, tie, yperm, n, kc, n_perm, h_full, tab)
+    for w, g in zip(want, got):
+        np.testing.assert_array_equal(w, g)
+
+
+@pytest.mark.parametrize("n,nb", [(5003, 70), (32, 128), (33, 1), (64000, 128), (97, 32)])
+def test_the_label_word_transpose_kernel_equals_the_cupy_chain(n, nb):
+    """The bit-transpose kernel and the unpack / transposed copy / pack chain give the same ``(n, 4)`` words for row counts that are and are not multiples of 32 and for fewer than 128 permutations."""
+    cp = pytest.importorskip("cupy")
+    import mlframe.feature_selection.filters._honest_null_accept_bits as A
+
+    rng = np.random.default_rng(n + nb)
+    labels = (rng.random((nb, n)) < 0.37).astype(np.uint8)
+    words = (n + 31) // 32
+    padded = np.zeros((nb, words * 32), dtype=np.uint8)
+    padded[:, :n] = labels
+    yb = cp.asarray(np.ascontiguousarray(np.packbits(padded, axis=1, bitorder="little").view(np.uint32)))
+    want = cp.asnumpy(A._transposed_label_bits(cp, yb, n, 4))
+    got = cp.asnumpy(A._transposed_label_bits_kernel(cp, yb, n, 4))
+    np.testing.assert_array_equal(got, want)

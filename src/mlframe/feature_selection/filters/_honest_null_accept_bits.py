@@ -16,6 +16,7 @@ Handled when the sorted-space bitset fits the shared budget (about 380000 rows) 
 
 from __future__ import annotations
 
+import functools
 import logging
 
 import numpy as np
@@ -240,6 +241,155 @@ _MODULE_NOQUEUE = RawModuleCache("#define ACCEPT_NOQUEUE 1\n" + _SRC)  # v1: the
 _MODULE_G = RawModuleCache("#define ACCEPT_GLOBAL 1\n" + _SRC)
 _MODULE_PRE = RawModuleCache("#define ACCEPT_PRE 1\n" + _SRC)
 
+#: The acceptance scan over the precomputed sorted-space tables with COALESCED loads (ACCEPT_PRE, ``root_split_accept`` above, is kept as the reference). In that kernel every thread owns a contiguous run of
+#: 61 words (500000 rows), so a warp load touches 32 sectors: nvprof gld_efficiency 13 percent, 17.4 transactions per request, 25 million local loads, IPC 0.32 and two thirds of the stalls waiting for memory,
+#: 43.2 ms for 24 columns x 128 permutations. Here a warp walks a contiguous SEGMENT of the words 32 at a time (one 128-byte load per step); the ones before a word come from a shuffle scan in the warp plus a carry,
+#: the segments' starting counts from one scan of the warp totals. Outputs (gain, ncand, idx) equal the reference kernel's: ``ncand`` is an integer sum, the exact gain is the same expression, and the winner is the
+#: larger gain, the smaller index on a tie, whatever order the words are visited in. 11.2 ms for the same shape (3.85 times). A loop unrolled four times with all loads issued first was no faster (11.8 ms).
+#: Launch bounds (512, 2): the reference's (512, MLF_THREADS_PER_SM / 512) caps the kernel at 32 registers on sm_61 and it spills (48 bytes of local memory, flagged by the offline ptxas check); this one needs 56 and does not spill, at the same time.
+_SRC_PRE_CO = ARCH_THREADS_HEADER + render(r"""
+#define QCAP 512
+extern "C" __global__ void __launch_bounds__(512, 2) root_split_accept_pre_co(const int* __restrict__ order, const unsigned int* __restrict__ valid, const unsigned int* __restrict__ ybits,
+                                             const {ACC}* __restrict__ tab, const {ACC}* __restrict__ thr, const long long n, const int W, const int YW, const int m,
+                                             const int B, const {ACC} h_full, const {ACC} pi,
+                                             {ACC}* __restrict__ out_gain, int* __restrict__ out_ncand, int* __restrict__ out_idx,
+                                             const unsigned int* __restrict__ pre, const int WP) {
+    __shared__ int warp_pc[32];
+    __shared__ int s_ncand;
+    __shared__ int s_qn;
+    __shared__ int q_w[QCAP];
+    __shared__ int q_l[QCAP];
+    __shared__ {ACC} best_g[32];
+    __shared__ int best_i[32];
+    const int tid = threadIdx.x, lane = tid & 31, warp = tid >> 5, nw = (int)(blockDim.x >> 5);
+    const long long pair = blockIdx.x;
+    const int j = (int)(pair / B);
+    const int b = (int)(pair - (long long)j * B);
+    const unsigned int* bw = pre + ((long long)(j * B + b)) * WP;
+    const unsigned int* vj = valid + (long long)j * W;
+    const int seg = (((W + nw - 1) / nw) + 31) & ~31;      // words per warp, a multiple of 32
+    const int s0 = min(W, warp * seg), s1 = min(W, s0 + seg);
+    if (tid == 0) { s_ncand = 0; s_qn = 0; }
+    __syncthreads();
+    // pass 1: ones and valid label changes of the segment, one coalesced load of 32 words per step
+    int pc = 0, nc = 0;
+    for (int base = s0; base < s1; base += 32) {
+        const int w = base + lane;
+        unsigned int cur = 0u, v = 0u;
+        if (w < s1) { cur = bw[w]; v = vj[w]; }
+        unsigned int nxt = __shfl_down_sync(0xffffffffu, cur, 1);
+        if (lane == 31 || w + 1 >= s1) nxt = (w + 1 < W) ? bw[w + 1] : 0u;
+        if (w < s1) {
+            const unsigned int bnd = cur ^ ((cur >> 1) | (nxt << 31));
+            pc += __popc(cur);
+            nc += __popc(bnd & v);
+        }
+    }
+#pragma unroll
+    for (int o = 16; o >= 1; o >>= 1) { pc += __shfl_down_sync(0xffffffffu, pc, o); nc += __shfl_down_sync(0xffffffffu, nc, o); }
+    if (lane == 0) { warp_pc[warp] = pc; atomicAdd(&s_ncand, nc); }
+    __syncthreads();
+    if (tid == 0) {
+        int run = 0;
+        for (int w = 0; w < nw; ++w) { const int t = warp_pc[w]; warp_pc[w] = run; run += t; }
+    }
+    __syncthreads();
+    int L = warp_pc[warp];                              // ones before the first word of this warp's segment
+    const int ncand = s_ncand;
+    {ACC} bg = -1e300;
+    int bi = -1;
+    if (ncand > 0) {
+        const {ACC} th = thr[ncand];
+        const {REAL} pif = ({REAL})pi;
+        const {REAL} pi1mf = ({REAL})(pi * (1.0 - pi));
+        const {REAL} nnf = ({REAL})n;
+        const {ACC} nn = ({ACC})n;
+        for (int base = s0; base < s1; base += 32) {
+            const int w = base + lane;
+            unsigned int cur = 0u, v = 0u;
+            if (w < s1) { cur = bw[w]; v = vj[w]; }
+            unsigned int nxt = __shfl_down_sync(0xffffffffu, cur, 1);
+            if (lane == 31 || w + 1 >= s1) nxt = (w + 1 < W) ? bw[w + 1] : 0u;
+            const int x = (w < s1) ? __popc(cur) : 0;
+            int incl = x;                                // inclusive scan of the ones counts of the 32 words
+#pragma unroll
+            for (int o = 1; o < 32; o <<= 1) { const int t = __shfl_up_sync(0xffffffffu, incl, o); if (lane >= o) incl += t; }
+            const int Lw = L + incl - x;                  // ones before word w
+            L += __shfl_sync(0xffffffffu, incl, 31);
+            if (w < s1) {
+                const unsigned int cand = (cur ^ ((cur >> 1) | (nxt << 31))) & v;
+                if (cand) {
+                    const {REAL} i0 = ({REAL})w * 32.0f;
+                    const {REAL} dlo = ({REAL})Lw - (i0 + 32.0f) * pif;
+                    const {REAL} dhi = ({REAL})Lw + 32.0f - (i0 + 1.0f) * pif;
+                    const {REAL} d = fmaxf(fabsf(dlo), fabsf(dhi)) + 0.5f;
+                    const {REAL} nl1 = i0 + 1.0f, nl2 = fminf(i0 + 32.0f, nnf - 1.0f);
+                    const {REAL} fmn = fminf(nl1 * (nnf - nl1), nl2 * (nnf - nl2));
+                    const {ACC} bound = ({ACC})(d * d / (fmn * pi1mf)) * 1.001 + 1e-12;
+                    if (bound >= th) {
+                        const int slot = atomicAdd(&s_qn, 1);
+                        if (slot < QCAP) { q_w[slot] = w; q_l[slot] = Lw; }
+                        else {
+                            unsigned int c = cand;
+                            while (c) {
+                                const int bpos = __ffs(c) - 1;
+                                c &= c - 1;
+                                const long long i = (long long)w * 32 + bpos;
+                                const unsigned int upto = (bpos == 31) ? 0xFFFFFFFFu : ((2u << bpos) - 1u);
+                                const long long l1 = (long long)Lw + __popc(cur & upto);
+                                const long long n_l = i + 1, n_r = (long long)n - n_l, l0 = n_l - l1;
+                                const long long r1 = (long long)m - l1, r0 = ((long long)n - m) - l0;
+                                const {ACC} gain = h_full - (tab[n_l] - (tab[l0] + tab[l1]) + tab[n_r] - (tab[r0] + tab[r1])) / nn;
+                                if (gain > bg || (gain == bg && i < bi)) { bg = gain; bi = (int)i; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    __syncthreads();                                   // the queue is complete
+    {
+        const int nq = min(s_qn, QCAP);
+        const {ACC} nn2 = ({ACC})n;
+        for (int e = warp; e < nq; e += nw) {
+            const int w = q_w[e];
+            const int Lw = q_l[e];
+            const unsigned int cur = bw[w];
+            const unsigned int nxt = (w + 1 < W) ? bw[w + 1] : 0u;
+            const unsigned int cand = (cur ^ ((cur >> 1) | (nxt << 31))) & vj[w];
+            if ((cand >> lane) & 1u) {
+                const long long i = (long long)w * 32 + lane;
+                const unsigned int upto = (lane == 31) ? 0xFFFFFFFFu : ((2u << lane) - 1u);
+                const long long l1 = (long long)Lw + __popc(cur & upto);
+                const long long n_l = i + 1, n_r = (long long)n - n_l, l0 = n_l - l1;
+                const long long r1 = (long long)m - l1, r0 = ((long long)n - m) - l0;
+                const {ACC} gain = h_full - (tab[n_l] - (tab[l0] + tab[l1]) + tab[n_r] - (tab[r0] + tab[r1])) / nn2;
+                if (gain > bg || (gain == bg && i < bi)) { bg = gain; bi = (int)i; }
+            }
+        }
+    }
+#pragma unroll
+    for (int o = 16; o >= 1; o >>= 1) {
+        const {ACC} og = __shfl_down_sync(0xffffffffu, bg, o);
+        const int oi = __shfl_down_sync(0xffffffffu, bi, o);
+        if (oi >= 0 && (bi < 0 || og > bg || (og == bg && oi < bi))) { bg = og; bi = oi; }
+    }
+    if (lane == 0) { best_g[warp] = bg; best_i[warp] = bi; }
+    __syncthreads();
+    if (tid == 0) {
+        {ACC} G = -1e300;
+        int I = -1;
+        for (int t = 0; t < nw; ++t)
+            if (best_i[t] >= 0 && (best_g[t] > G || (best_g[t] == G && best_i[t] < I))) { G = best_g[t]; I = best_i[t]; }
+        out_gain[pair] = G;
+        out_ncand[pair] = ncand;
+        out_idx[pair] = I;
+    }
+}
+""", real=np.float32)
+_MODULE_PRE_CO = RawModuleCache(_SRC_PRE_CO)
+
 #: Builds the sorted-space label sequences of every (column, permutation) pair of a chunk from the row-major label bit matrix ``yt`` (row r: one word per 32 permutations, bit b = label of row r under
 #: permutation b): a warp owns 32 sorted positions, gathers the B-bit vector of the row at each position (one sector per position instead of one lookup per position and permutation) and transposes the
 #: 32 x 32 bit tile with ballots, so thread t ends with the 32 positions' bits of permutation ``pw * 32 + t``.
@@ -305,17 +455,42 @@ extern "C" __global__ void sorted_label_bits8(const int* __restrict__ order, con
 }
 """
 _MODULE_SORTED8 = RawModuleCache(_SRC_SORTED_BITS8)
+
+#: ``(n, pw)`` row-major label words from the ``(permutations, words)`` row-space bit rows, one 32 x 32 bit transpose per warp (word ``w`` of 32 permutations -> the 32 rows ``32 w .. 32 w + 31``): lane t reads
+#: word ``w`` of permutation ``32 pw + t`` (bit j = the label of row ``32 w + j``), the five butterfly steps leave lane t the bits of row ``32 w + t`` (bit p = the label under permutation ``32 pw + p``). The cupy chain it replaces
+#: (unpackbits to bytes, a transposed byte copy, packbits) took 18.5 ms per call at 500000 rows x 128 permutations, 405 calls in a 500k fit (nvprof: cupy_copy uint8 5.2 s, unpackbits 1.6 s, packbits 0.8 s).
+_SRC_LABEL_TRANSPOSE = r"""
+extern "C" __global__ void label_bits_transpose(const unsigned int* __restrict__ yb, unsigned int* __restrict__ yt, const long long n, const int YW, const int nb, const int PW) {
+    const int w = blockIdx.x;
+    const int pw = blockIdx.y;
+    const int t = threadIdx.x;
+    const int perm = pw * 32 + t;
+    unsigned int x = (perm < nb) ? yb[(long long)perm * YW + w] : 0u;
+#pragma unroll
+    for (int j = 16, mk = 0x0000FFFF; j != 0; j >>= 1, mk ^= (mk << j)) {
+        const unsigned int y = __shfl_xor_sync(0xffffffffu, x, j);
+        x = (t & j) ? (((y >> j) & (unsigned int)mk) | (x & ~(unsigned int)mk)) : ((x & (unsigned int)mk) | ((y & (unsigned int)mk) << j));
+    }
+    const long long row = (long long)w * 32 + t;
+    if (row < n) yt[row * PW + pw] = x;
+}
+"""
+_MODULE_LABEL_TRANSPOSE = RawModuleCache(_SRC_LABEL_TRANSPOSE)
 _PERM_CHUNK = 128  # permutations per pass: the unpacked label matrix is rows x 128 bytes
 _PRE_BYTES = 192 * 1024 * 1024  # sorted-space bit tables held at a time
 
 
+@functools.lru_cache(maxsize=8)
 def threshold_table(n: int, alpha: float) -> np.ndarray:
-    """``thr[c]``: the gain a pair with ``c`` valid cuts must exceed to be accepted (``p(g) * max(1, c) < alpha`` with ``p = erfc(sqrt(n g))``), scaled down by the prune margin; ``thr[0]`` is infinite (no candidate)."""
+    """``thr[c]``: the gain a pair with ``c`` valid cuts must exceed to be accepted (``p(g) * max(1, c) < alpha`` with ``p = erfc(sqrt(n g))``), scaled down by the prune margin; ``thr[0]`` is infinite (no candidate).
+
+    A function of ``(n, alpha)`` only, asked at every acceptance call of a fit (92 of them at 500000 rows, 57 ms of ``erfcinv`` each): remembered, and returned read-only."""
     from scipy.special import erfcinv
 
     c = np.maximum(1, np.arange(n + 1, dtype=np.float64))  # Intentional float64: the acceptance bar in double precision
     thr = erfcinv(np.minimum(alpha / c, 1.0)) ** 2 / float(n) * (1.0 - _MARGIN)
     thr[0] = np.inf
+    thr.flags.writeable = False
     return np.asarray(thr)
 
 
@@ -331,18 +506,18 @@ def valid_cut_bits(tie: np.ndarray, n: int, min_split: int) -> np.ndarray:
     return np.ascontiguousarray(np.packbits(padded, axis=1, bitorder="little").view(np.uint32))
 
 
-def accept_fits(n: int, y_raw_perm: np.ndarray) -> bool:
-    """Whether the bitset path applies: the bitset fits the shared budget and every permutation has the same number of label-1 rows."""
+def accept_fits(n: int, y_raw_perm: np.ndarray, ones: "np.ndarray | None" = None) -> bool:
+    """Whether the bitset path applies: the bitset fits the shared budget and every permutation has the same number of label-1 rows (``ones``: those counts when the caller has them)."""
     words = (int(n) + 31) // 32
     if words * 4 > SHARED_BUDGET_BYTES:
         return False
-    ones = label_one_counts(y_raw_perm)
+    ones = label_one_counts(y_raw_perm) if ones is None else ones
     return bool(ones.size and (ones == ones[0]).all() and 0 < int(ones[0]) < int(n))
 
 
-def accept_fits_global(n: int, y_raw_perm: np.ndarray) -> bool:
-    """Whether the bitset path applies with its tables in global memory (any row count): every permutation has the same number of label-1 rows."""
-    ones = label_one_counts(y_raw_perm)
+def accept_fits_global(n: int, y_raw_perm: np.ndarray, ones: "np.ndarray | None" = None) -> bool:
+    """Whether the bitset path applies with its tables in global memory (any row count): every permutation has the same number of label-1 rows (``ones``: those counts when the caller has them)."""
+    ones = label_one_counts(y_raw_perm) if ones is None else ones
     return bool(ones.size and (ones == ones[0]).all() and 0 < int(ones[0]) < int(n))
 
 
@@ -380,6 +555,21 @@ def _launch_global(cp: Any, d_order: Any, valid: Any, ybits: Any, tab_full: Any,
     return True
 
 
+def _transposed_label_bits_kernel(cp: Any, yb: Any, n: int, pw: int) -> Any:
+    """:func:`_transposed_label_bits` by one bit-transpose kernel (a warp per 32 rows x 32 permutations) instead of unpack, byte transpose and pack: 0.2 ms against 18.5 ms at 500000 rows x 128 permutations."""
+    nb, yw = int(yb.shape[0]), int(yb.shape[1])
+    out = cp.zeros((n, pw), dtype=cp.uint32)
+    _MODULE_LABEL_TRANSPOSE.get(cp).get_function("label_bits_transpose")((yw, pw), (32,), (cp.ascontiguousarray(yb), out, np.int64(n), np.int32(yw), np.int32(nb), np.int32(pw)))  # launch-ok: one warp per block by design, a warp transposes a 32 x 32 bit tile with shuffles
+    return out
+
+
+def label_transpose_kernel_enabled() -> bool:
+    """Whether the label words are transposed by the kernel (default; ``MLFRAME_HONEST_ACCEPT_LABEL_TRANSPOSE=cupy`` keeps the cupy chain), read on every call."""
+    import os
+
+    return os.environ.get("MLFRAME_HONEST_ACCEPT_LABEL_TRANSPOSE", "kernel").strip().lower() != "cupy"
+
+
 def _transposed_label_bits(cp: Any, yb: Any, n: int, pw: int) -> Any:
     """``(n, pw)`` uint32: row ``r`` holds bit ``b`` = the label of row ``r`` under permutation ``b`` of ``yb`` (``(permutations, words)`` row-space bits), 32 permutations per word."""
     nb = int(yb.shape[0])
@@ -389,17 +579,24 @@ def _transposed_label_bits(cp: Any, yb: Any, n: int, pw: int) -> Any:
     return cp.packbits(padded.reshape(-1), bitorder="little").view(cp.uint32).reshape(n, pw)
 
 
+def coalesced_pre_scan_enabled() -> bool:
+    """Whether the scan over the precomputed tables runs the coalesced kernel (default; ``MLFRAME_HONEST_ACCEPT_PRE_SCAN=block`` runs the reference thread-per-run kernel), read on every call."""
+    import os
+
+    return os.environ.get("MLFRAME_HONEST_ACCEPT_PRE_SCAN", "coalesced").strip().lower() != "block"
+
+
 def _launch_pre(cp: Any, d_order: Any, valid: Any, ybits: Any, tab_full: Any, thr: Any, n: int, words: int, m: int, n_perm: int, kc: int, h_full: float, d_gain: Any, d_ncand: Any, d_idx: Any) -> bool:
     """The scan over sorted-space label sequences built beforehand by gathering one B-bit vector per sorted position (``sorted_label_bits``): the scan kernel does no label lookup per (position,
     permutation), whatever the row count. Permutations go in chunks of ``_PERM_CHUNK`` and columns in chunks that keep the tables under ``_PRE_BYTES``."""
     build = _MODULE_SORTED8.get(cp).get_function("sorted_label_bits8")
-    scan = _MODULE_PRE.get(cp).get_function("root_split_accept")
+    scan = _MODULE_PRE_CO.get(cp).get_function("root_split_accept_pre_co") if coalesced_pre_scan_enabled() else _MODULE_PRE.get(cp).get_function("root_split_accept")
     width = _block_width(scan, 0, n)
     wp = ((words + 7) // 8) * 8
     g2, c2, i2 = d_gain.reshape(kc, n_perm), d_ncand.reshape(kc, n_perm), d_idx.reshape(kc, n_perm)
     for b0 in range(0, n_perm, _PERM_CHUNK):
         bc = min(_PERM_CHUNK, n_perm - b0)
-        yt = _transposed_label_bits(cp, ybits[b0 : b0 + bc], n, 4)  # padded to four words a row (a chunk is at most 128 permutations): one 16-byte gather per row
+        yt = (_transposed_label_bits_kernel if label_transpose_kernel_enabled() else _transposed_label_bits)(cp, ybits[b0 : b0 + bc], n, 4)  # padded to four words a row (a chunk is at most 128 permutations): one 16-byte gather per row
         col_chunk = max(1, _PRE_BYTES // (wp * bc * 4))
         for j0 in range(0, kc, col_chunk):
             jc = min(col_chunk, kc - j0)
@@ -427,7 +624,8 @@ def root_split_accept_gpu(cp: Any, order: Any, tie: Any, y_raw_perm: Any, n: int
     mode = os.environ.get("MLFRAME_HONEST_ACCEPT_MODE", "").strip().lower()
     if not mode and os.environ.get("MLFRAME_HONEST_ACCEPT_GLOBAL", "").strip() == "1":
         mode = "global"
-    shared_ok = accept_fits(n, y_raw_perm)
+    ones = label_one_counts(y_raw_perm)  # one pass over the permutations for the shape tests and the row total
+    shared_ok = accept_fits(n, y_raw_perm, ones)
     use_global = mode == "global"
     # the precomputed sorted-space tables are the default at every row count (``block`` keeps the kernel that fills a shared bit table per pair, the reference): at 100000 rows x 120 columns x 999
     # permutations the fill phase was 69 percent of that kernel's cycles (random shared-memory lookups, 24 percent shared efficiency), and building the tables 32 permutations per gather is
@@ -435,10 +633,10 @@ def root_split_accept_gpu(cp: Any, order: Any, tie: Any, y_raw_perm: Any, n: int
     use_pre = mode in ("pre", "")
     if mode == "off" and not shared_ok:
         return False
-    if not shared_ok and not accept_fits_global(n, y_raw_perm):
+    if not shared_ok and not accept_fits_global(n, y_raw_perm, ones):
         return False
     words = (int(n) + 31) // 32
-    m = int(label_one_counts(y_raw_perm)[0])
+    m = int(ones[0])
     d_order = cp.asarray(np.ascontiguousarray(order, dtype=np.int32))
     valid = cp.asarray(valid_cut_bits(tie, n, int(min_split)))
     thr = cp.asarray(threshold_table(int(n), float(alpha)))

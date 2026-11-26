@@ -10,6 +10,7 @@ identical). Input must be NaN-free, as for the multiselect kernel.
 from __future__ import annotations
 
 import math
+import os
 
 import numpy as np
 from numba import njit, prange
@@ -283,6 +284,23 @@ def _quantiles_of_sorted_njit(xs: np.ndarray, quantiles: np.ndarray) -> np.ndarr
     return out
 
 
+#: Vectors shorter than this are sorted by numpy (the four radix passes and their scratch cost more than its sort there).
+_RADIX_SORT_MIN_SIZE = 4096
+
+
+def radix_sorted_f32(values: np.ndarray) -> np.ndarray:
+    """A sorted copy of a NaN-free float32 vector: the LSD radix sort of :func:`_radix_sort_f32` for a long one (4.4 ms for 500000 values against numpy's 36 ms), numpy's sort for a short one.
+
+    The order is numpy's except that -0.0 and +0.0, which compare equal, may stand in either order."""
+    col = np.array(values, dtype=np.float32, copy=True, order="C").reshape(-1)
+    n = col.shape[0]
+    if n < _RADIX_SORT_MIN_SIZE:
+        col.sort()
+        return col
+    _radix_sort_f32(col, np.empty(n, dtype=np.uint32), np.empty(n, dtype=np.uint32), np.empty(256, dtype=np.int64))
+    return col
+
+
 def quantiles_of_sorted(xs: np.ndarray, quantiles: np.ndarray) -> np.ndarray:
     """Float64 quantiles (fractions in ``[0, 1]``) of a NaN-free vector already sorted ascending, as ``np.quantile`` gives them (method ``linear``)."""
     found: np.ndarray = _quantiles_of_sorted_njit(np.ascontiguousarray(xs), np.ascontiguousarray(quantiles, dtype=np.float64))  # Intentional float64: statistic / reference vector in double precision
@@ -290,10 +308,21 @@ def quantiles_of_sorted(xs: np.ndarray, quantiles: np.ndarray) -> np.ndarray:
 
 
 def sorted_quantiles(values: np.ndarray, quantiles: np.ndarray) -> "np.ndarray | None":
-    """Float64 quantiles (fractions in ``[0, 1]``) of a large NaN-free float32 vector by the radix route, or ``None`` when it does not apply (another dtype, a small vector): the caller then uses numpy."""
-    if values.dtype == np.float32 and values.ndim == 1 and values.size >= _UNIQUE_COUNTS_MIN_SIZE:
-        found: np.ndarray = _sorted_quantiles_f32_njit(np.ascontiguousarray(values), np.ascontiguousarray(quantiles, dtype=np.float64))  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
+    """Float64 quantiles (fractions in ``[0, 1]``) of a large NaN-free float32 vector by the radix route, or ``None`` when it does not apply (another dtype, a small vector): the caller then uses numpy.
+
+    A double-precision vector whose values are all exactly float32 (a float32 column widened, the form the edge search reads its columns in) takes the same route on its narrowed copy: the order statistics
+    and their interpolation are those of the widened values, so the edges are the ones ``np.percentile`` gives (about 15 ms of partition for 300000 values against 3 ms of radix sort)."""
+    if values.ndim != 1 or values.size < _UNIQUE_COUNTS_MIN_SIZE:
+        return None
+    q64 = np.ascontiguousarray(quantiles, dtype=np.float64)  # Intentional float64: statistic / reference vector in double precision (compared exactly with its host twin)
+    if values.dtype == np.float32:
+        found: np.ndarray = _sorted_quantiles_f32_njit(np.ascontiguousarray(values), q64)
         return found
+    if values.dtype == np.float64:  # Intentional float64: the test of the incoming vector's dtype, no double array is made
+        exact, narrow = _f64_as_f32_njit(np.ascontiguousarray(values))
+        if exact:
+            widened: np.ndarray = _sorted_quantiles_f32_njit(narrow, q64)
+            return widened
     return None
 
 
@@ -344,13 +373,169 @@ def _sort_xy_f32_njit(x: np.ndarray, y: np.ndarray):
     return xs, ys
 
 
+_KEY_SIGN = np.uint32(0x80000000)
+_KEY_LOW = np.uint32(0x7FFFFFFF)
+
+
+@njit(nogil=True, cache=True)
+def _sort_xy_pairs_f32_njit(x: np.ndarray, y: np.ndarray):
+    """``(x sorted ascending as double precision, y in that order)`` for the NaN-free float32 vector ``x``: the same stable order as :func:`_sort_xy_f32_njit`, with the label itself as the radix payload.
+
+    The index-carrying sort moves 12 bytes an element through each of four passes and then gathers ``x`` and ``y`` at random; here the payload is the label (one byte for the usual int8 target), the four
+    digit histograms are taken in the one pass that builds the keys, and the sorted values are rebuilt from the keys (the key transform is a bijection, so the sign of a zero survives). Eight threads sorting
+    500000-row columns spent 55 thread-ms a sort with the index kernel on float32 and 102 on double precision, 28 with this one."""
+    n = x.shape[0]
+    u = x.view(np.uint32)
+    keys = np.empty(n, dtype=np.uint32)
+    k2 = np.empty(n, dtype=np.uint32)
+    p1 = y.copy()
+    p2 = np.empty_like(y)
+    cnt = np.zeros((4, 256), dtype=np.int64)
+    for i in range(n):
+        v = u[i]
+        if v & _KEY_SIGN:
+            k = ~v
+        else:
+            k = v | _KEY_SIGN
+        keys[i] = k
+        cnt[0, k & 0xFF] += 1
+        cnt[1, (k >> 8) & 0xFF] += 1
+        cnt[2, (k >> 16) & 0xFF] += 1
+        cnt[3, (k >> 24) & 0xFF] += 1
+    for d in range(4):
+        s = 0
+        for b in range(256):
+            c = cnt[d, b]
+            cnt[d, b] = s
+            s += c
+    for d in range(4):
+        shift = np.uint32(8 * d)
+        for i in range(n):
+            k = keys[i]
+            b = (k >> shift) & 0xFF
+            pos = cnt[d, b]
+            k2[pos] = k
+            p2[pos] = p1[i]
+            cnt[d, b] = pos + 1
+        keys, k2 = k2, keys
+        p1, p2 = p2, p1
+    bits = np.empty(n, dtype=np.uint32)
+    for i in range(n):
+        k = keys[i]
+        if k & _KEY_SIGN:
+            bits[i] = k & _KEY_LOW
+        else:
+            bits[i] = ~k
+    f32 = bits.view(np.float32)
+    xs = np.empty(n, dtype=np.float64)  # Intentional float64: the MDLP cut search runs at the production binning width
+    for i in range(n):
+        xs[i] = f32[i]
+    return xs, p1
+
+
+@njit(nogil=True, cache=True)
+def _f64_as_f32_njit(x: np.ndarray):
+    """``(True, x as float32)`` when every value of the double-precision ``x`` is exactly a float32 (a float32 column widened), else ``(False, an empty vector)``; stops at the first value that is not."""
+    n = x.shape[0]
+    out = np.empty(n, dtype=np.float32)
+    for i in range(n):
+        v = np.float32(x[i])
+        if np.float64(v) != x[i]:  # Intentional float64: the comparison is against the widened float32
+            return False, out[:0]
+        out[i] = v
+    return True, out
+
+
+@njit(nogil=True, cache=True)
+def _edge_of_sorted(s: np.ndarray, q: float) -> np.float64:  # Intentional float64: the edge is a double
+    """``np.quantile(s, q)`` (method ``linear``) of the ascending vector ``s``, in numpy's arithmetic order (the interpolation of ``_edge_value``)."""
+    n = s.shape[0]
+    virtual = (n - 1) * q
+    if virtual >= n - 1:
+        return np.float64(s[n - 1])  # Intentional float64: the edges are computed in double precision from the exactly widened order statistics
+    i0 = 0 if virtual < 0 else int(np.floor(virtual))
+    i1 = i0 if virtual < 0 else i0 + 1
+    gamma = virtual - i0
+    a = np.float64(s[i0])  # Intentional float64: operands widened exactly before the interpolation
+    b = np.float64(s[i1])  # Intentional float64: operands widened exactly before the interpolation
+    diff = b - a
+    out = a + diff * gamma
+    if gamma >= 0.5:
+        out = b - diff * (1.0 - gamma)
+    return np.float64(out)  # Intentional float64: the edge is a double
+
+
+@njit(parallel=True, nogil=True, cache=True)
+def quantile_bin_block_radix(v: np.ndarray, n_bins: int, codes: np.ndarray, two_class: bool = True) -> None:
+    """:func:`quantile_bin_block` for a finite float32 block ``v`` ``(columns, n)``: the same codes, with the quantile edges read off a radix-sorted copy of the column instead of a quickselect.
+
+    The quickselect of the roughly twenty order statistics of the edges took 22 ms for 500000 values single-threaded (64 columns: 1.44 s on one thread, 0.30 s on eight); the LSD radix sort of the column takes 4.4 ms
+    and puts the same value at every position, so the edges (numpy's linear-interpolation quantiles with the repeated ones dropped) and therefore the codes are the same (a zero of either sign compares equal);
+    the binning pass counts the inner edges below the value instead of searching for them."""
+    k = v.shape[0]
+    n = v.shape[1]
+    step = 1.0 / n_bins
+    for j in prange(k):
+        s = v[j].copy()
+        keys = np.empty(n, dtype=np.uint32)
+        tmp = np.empty(n, dtype=np.uint32)
+        cnt = np.empty(256, dtype=np.int64)
+        _radix_sort_f32(s, keys, tmp, cnt)
+        edges = np.empty(n_bins + 1, dtype=np.float64)  # Intentional float64: quantile edges in numpy's arithmetic (equal codes to the numpy path)
+        m = 0
+        for b in range(n_bins + 1):
+            q = 1.0 if b == n_bins else b * step
+            e = _edge_of_sorted(s, q)
+            if m == 0 or e != edges[m - 1]:
+                edges[m] = e
+                m += 1
+        if m <= 2:
+            for i in range(n):
+                codes[j, i] = 1 if (two_class and m == 2 and v[j, i] >= edges[1]) else 0
+            continue
+        # the code is the number of inner edges that are <= the value (the edges are distinct and ascending): a branch-free count over the handful of edges is 1.8 ms for 500000 values, the binary
+        # search of the quickselect kernel 8.3 ms (its branches miss on random data)
+        inner = edges[1 : m - 1].copy()
+        n_inner = m - 2
+        for i in range(n):
+            x = v[j, i]
+            c = 0
+            for t in range(n_inner):
+                c += 1 if inner[t] <= x else 0
+            codes[j, i] = c
+
+
+def quantile_bin_block_fast(v: np.ndarray, n_bins: int, codes: np.ndarray, two_class: bool = True) -> None:
+    """:func:`quantile_bin_block` through the radix route for a float32 block of at least ``_RADIX_SORT_MIN_SIZE`` values a column (``MLFRAME_QBIN_RADIX=0`` keeps the quickselect kernel), the same codes."""
+    if v.dtype == np.float32 and v.ndim == 2 and v.shape[1] >= _RADIX_SORT_MIN_SIZE and os.environ.get("MLFRAME_QBIN_RADIX", "1").strip() != "0":
+        quantile_bin_block_radix(v, n_bins, codes, two_class)
+        return
+    from .._numba_utils import quantile_bin_block
+
+    quantile_bin_block(v, n_bins, codes, two_class)
+
+
+def _pairs_route_enabled() -> bool:
+    """On unless ``MLFRAME_SORT_XY_PAIRS=0`` (the index-carrying kernels then sort, as before)."""
+    return os.environ.get("MLFRAME_SORT_XY_PAIRS", "1").strip() != "0"
+
+
 def sort_xy(x: np.ndarray, y: np.ndarray) -> "tuple[np.ndarray, np.ndarray] | None":
     """``(x sorted ascending as double precision, y in that order)`` by the radix route for a large NaN-free float32 ``x`` with a 1-D integer ``y`` of the same length, else ``None`` (the caller sorts with numpy)."""
     if x.dtype == np.float32 and x.ndim == 1 and x.size >= _UNIQUE_COUNTS_MIN_SIZE and y.ndim == 1 and y.shape[0] == x.shape[0] and y.dtype.kind in "iu":
+        if _pairs_route_enabled():
+            pairs: "tuple[np.ndarray, np.ndarray]" = _sort_xy_pairs_f32_njit(np.ascontiguousarray(x), np.ascontiguousarray(y))
+            return pairs
         pair: "tuple[np.ndarray, np.ndarray]" = _sort_xy_f32_njit(np.ascontiguousarray(x), np.ascontiguousarray(y))
         return pair
     if x.dtype == np.float64 and x.ndim == 1 and x.size >= _UNIQUE_COUNTS_MIN_SIZE and y.ndim == 1 and y.shape[0] == x.shape[0] and y.dtype.kind in "iu" and not np.isnan(x).any():  # Intentional float64: the engineered-column dtype
-        pair64: "tuple[np.ndarray, np.ndarray]" = _sort_xy_f64_njit(np.ascontiguousarray(x), np.ascontiguousarray(y))
+        x64 = np.ascontiguousarray(x)
+        if _pairs_route_enabled():
+            exact, x32 = _f64_as_f32_njit(x64)  # a float32 column held in double precision (the usual FE frame) sorts on 4-byte keys: the same order and the same widened values
+            if exact:
+                narrow: "tuple[np.ndarray, np.ndarray]" = _sort_xy_pairs_f32_njit(x32, np.ascontiguousarray(y))
+                return narrow
+        pair64: "tuple[np.ndarray, np.ndarray]" = _sort_xy_f64_njit(x64, np.ascontiguousarray(y))
         return pair64
     return None
 

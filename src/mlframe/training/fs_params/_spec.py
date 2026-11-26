@@ -18,7 +18,7 @@ from .._param_model_spec import SelectorSpec, literal_source  # noqa: F401 -- re
 
 def _mrmr_enums() -> Dict[str, Tuple[Any, ...]]:
     """MRMR's accepted-value tuples, keyed by the constructor parameter each one validates (the table in ``_mrmr_validate_strings``)."""
-    from mlframe.feature_selection.filters._binning_spec import BINNING_SCHEMES, NBINS_RULES
+    from mlframe.feature_selection.filters.shared import BINNING_SCHEMES, NBINS_RULES
     from mlframe.feature_selection.filters.mrmr import param_constants as c
 
     return {

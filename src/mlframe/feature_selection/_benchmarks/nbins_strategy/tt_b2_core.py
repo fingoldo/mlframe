@@ -5,6 +5,7 @@ tt_a4 clipped-inverse + Duan-smearing judge) is re-implemented here, vectorised,
 """
 from __future__ import annotations
 
+import functools
 import os
 import warnings
 
@@ -142,14 +143,11 @@ def gen_x(dist: str, n: int, rng) -> np.ndarray:
     raise ValueError(dist)
 
 
-_REF: dict = {}
-
-
+@functools.cache
 def _ref(dist: str):
-    if dist not in _REF:
-        x = gen_x(dist, 200_000, np.random.default_rng(12345))
-        _REF[dist] = (float(np.median(x)), x)
-    return _REF[dist]
+    """The median and the reference sample of one distribution, drawn once."""
+    x = gen_x(dist, 200_000, np.random.default_rng(12345))
+    return (float(np.median(x)), x)
 
 
 def link_valid(dist: str, link: str) -> bool:
@@ -159,9 +157,6 @@ def link_valid(dist: str, link: str) -> bool:
     if link == "sqrt":
         return bool(x.min() >= 0)
     return True
-
-
-_GSD: dict = {}
 
 
 def link_fn(link: str, x: np.ndarray, c: float) -> np.ndarray:
@@ -180,15 +175,19 @@ def link_fn(link: str, x: np.ndarray, c: float) -> np.ndarray:
     raise ValueError(link)
 
 
+@functools.cache
+def _link_moments(dist: str, link: str) -> "tuple[float, float]":
+    """Mean and clipped standard deviation of the link over the reference sample of ``dist``."""
+    c, xr = _ref(dist)
+    gr = link_fn(link, xr, c)
+    return (float(np.mean(gr)), float(np.std(np.clip(gr, *np.percentile(gr, [0.01, 99.99])))))
+
+
 def g_std(dist: str, link: str, x: np.ndarray) -> np.ndarray:
     """Link standardised by population mean / sd (reference sample), so that effect sizes are comparable across fixtures; heavy tails are clipped at the
     reference 0.01 / 99.99 percentiles for the SCALE only."""
-    key = (dist, link)
-    c, xr = _ref(dist)
-    if key not in _GSD:
-        gr = link_fn(link, xr, c)
-        _GSD[key] = (float(np.mean(gr)), float(np.std(np.clip(gr, *np.percentile(gr, [0.01, 99.99])))))
-    m, s = _GSD[key]
+    c, _xr = _ref(dist)
+    m, s = _link_moments(dist, link)
     return np.asarray((link_fn(link, x, c) - m) / s)
 
 

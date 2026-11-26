@@ -427,7 +427,7 @@ def quantile_bin_columns(X: np.ndarray, nbins: int, dtype: Any = np.int64) -> "l
     The all-finite columns are binned in parallel blocks by ``quantile_bin_block`` (the dedupe and two-class rules of ``_quantile_bin``, equal codes); a column with a NaN or infinity takes the scalar
     host ``_quantile_bin``. Looping ``_quantile_bin`` over the columns ran one full device round trip (upload, two sorts, ~15 launches, download) per column on the strict GPU path.
     """
-    from ._numba_utils import quantile_bin_block
+    from .discretization._quantile_radix import quantile_bin_block_fast as quantile_bin_block
 
     n, k = int(X.shape[0]), int(X.shape[1])
     out: "list[np.ndarray | None]" = [None] * k
@@ -460,7 +460,7 @@ def _prebinned_candidates(X_cand: Any, cand_cols: list, nbins: int, score: "Call
 
     With ``score`` the values are ``score(codes_block)[row]`` instead (one value per column), so a block of codes is dropped as soon as it is scored."""
     from ._gpu_strict_fe import fe_gpu_strict_resident_enabled
-    from ._numba_utils import quantile_bin_block
+    from .discretization._quantile_radix import quantile_bin_block_fast as quantile_bin_block
 
     if len(cand_cols) < _PARALLEL_CMI_MIN_CANDS or fe_gpu_strict_resident_enabled():
         return {}

@@ -2,7 +2,7 @@
 
 ``_resolve_pair_prevalence_gate`` resolves the gate of ONE pair with scalar Python, and the usability pre-pass of ``score_prospective_pairs`` called it once per pair: about 500000 calls at 1000 columns,
 the largest single block of that function's host time. Almost all of a pair's gate is arithmetic on its joint MI, the MI of its two operands and a few per-fit constants, so it is evaluated here for
-all pairs at once with the same float64 operations; the few pairs that need more (an asymmetric synergy pair with no pre-computed verdict, the family-wise partner test of a pair whose operand clears
+all pairs at once with the same double operations; the few pairs that need more (an asymmetric synergy pair with no pre-computed verdict, the family-wise partner test of a pair whose operand clears
 the floor alone) go through the scalar code unchanged. ``_resolve_pair_prevalence_gate`` stays as the reference and the fallback.
 """
 
@@ -24,7 +24,7 @@ def resolve_pair_gates_batch(
     """``[(passes_prevalence, passes_maxt, is_synergy_pair, prev_thresh, floor_cmp)]`` for ``pairs``, the tuple ``_resolve_pair_prevalence_gate`` returns for each.
 
     ``pair_mis`` / ``ind_sums`` / ``singles`` are the pairs' joint MI, the sum of their operands' MI (as the caller formed it) and the operands' own MI. ``scalar_resolve`` is
-    ``_resolve_pair_prevalence_gate``; it handles the pairs this pass does not: a pair with exactly one bootstrap operand and no pre-computed relaxation verdict, and every pair when the MI values are not float64
+    ``_resolve_pair_prevalence_gate``; it handles the pairs this pass does not: a pair with exactly one bootstrap operand and no pre-computed relaxation verdict, and every pair when the MI values are not double
     (the array arithmetic would then round differently from the scalar code)."""
     n = len(pairs)
     if n == 0:
@@ -44,11 +44,13 @@ def resolve_pair_gates_batch(
         result: tuple = scalar_resolve(pairs[i], pair_mis[i], ind_sums[i], single_mis=(singles[0][i], singles[1][i]), **common)
         return result
 
+    # Intentional float64: pair-gate statistics (ratios of MI sums)
     if mi.dtype != np.float64 or ies.dtype != np.float64 or s0.dtype != np.float64 or s1.dtype != np.float64:
         return [_scalar(i) for i in range(n)]
     a = np.fromiter((p[0] for p in pairs), dtype=np.int64, count=n)
     b = np.fromiter((p[1] for p in pairs), dtype=np.int64, count=n)
     base = fe_min_pair_mi_prevalence
+    # Intentional float64: pair-gate statistics (ratios of MI sums)
     prev = np.full(n, base, dtype=np.float64)
     is_syn = np.zeros(n, dtype=bool)
     scalar_idx: "list[int]" = []
@@ -65,6 +67,7 @@ def resolve_pair_gates_batch(
                     prev[i] = base
             else:
                 scalar_idx.append(int(i))
+    # Intentional float64: pair-gate statistics (ratios of MI sums)
     bias = np.zeros(n, dtype=np.float64)
     if _pair_mm_bias:
         for pos, p in enumerate(pairs):

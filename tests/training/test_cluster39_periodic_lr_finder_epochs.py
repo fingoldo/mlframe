@@ -6,6 +6,10 @@ period and 2*period run the sweep, and the others do not.
 
 from unittest.mock import MagicMock
 
+import pytest
+
+pytest.importorskip("lightning")  # the neural package subclasses Lightning classes: shards without the neural extras skip this module
+
 from mlframe.training.neural._base_callbacks import PeriodicLearningRateFinder
 
 

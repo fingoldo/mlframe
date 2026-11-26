@@ -89,6 +89,18 @@ class TimelineSampler:
         self._stop = threading.Event()
         self._thread: "Optional[threading.Thread]" = None
 
+    def __getstate__(self) -> "dict[str, Any]":
+        """The state without the sampler thread and the stop event (neither can be pickled); a copy is a stopped sampler."""
+        state = dict(self.__dict__)
+        state["_thread"] = None
+        state.pop("_stop", None)
+        return state
+
+    def __setstate__(self, state: "dict[str, Any]") -> None:
+        """Restore a stopped sampler with a fresh stop event."""
+        self.__dict__.update(state)
+        self._stop = threading.Event()
+
     def _run(self) -> None:
         """Sample until stopped."""
         import psutil

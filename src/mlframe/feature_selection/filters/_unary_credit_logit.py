@@ -40,7 +40,8 @@ def _device_module() -> Optional[Any]:
         from ._batch_mi_noise_gate_kernels import cuda_available, cupy
 
         return cupy() if cuda_available() else None
-    except Exception:
+    except Exception as exc:
+        log_throttle(logger, "unary_credit_logit.device_module", logging.WARNING, "logit credit: the CUDA device probe failed (%r); the host null runs", exc)
         return None
 
 
@@ -53,6 +54,7 @@ def _fit_offset_logit(columns: "list[np.ndarray]", y: np.ndarray) -> np.ndarray:
     """Linear predictor (n,) of a lightly ridged logistic regression of ``y`` on the intercept and ``columns`` (standardised), by Newton; the intercept-only logit when there are no columns."""
     n = y.shape[0]
     if columns:
+        # Intentional float64: log-likelihood and Newton statistics of the logit credit
         z = np.column_stack(columns).astype(np.float64)
         z = (z - z.mean(axis=0)) / np.where(z.std(axis=0) > 0, z.std(axis=0), 1.0)
         design = np.column_stack([np.ones(n), z])
@@ -72,12 +74,9 @@ def _fit_offset_logit(columns: "list[np.ndarray]", y: np.ndarray) -> np.ndarray:
     return design @ beta
 
 
-def _deviance(offset: Any, z: Any, y_draws: Any, steps: int = NEWTON_STEPS, dtype: type = np.float64, xp: Any = np) -> Any:
-    """``LRT`` of every candidate (columns of ``z``, standardised) for every class vector (columns of ``y_draws``): shape (candidates, draws).
-
-    Per candidate and draw the logit ``offset + a + b z`` is fitted by Newton (all pairs at once) and compared with the offset-plus-intercept model. ``dtype`` is the precision of the (rows, candidates, draws) arrays: the
-    bootstrap null runs in float32 (half the memory traffic of the elementwise passes that dominate the cost). ``xp`` is numpy or cupy: with cupy the arrays are device arrays and so is the result."""
-    offset, z, y_draws = offset.astype(dtype, copy=False), z.astype(dtype, copy=False), y_draws.astype(dtype, copy=False)
+def _newton_loglik(offset: Any, z: Any, y_draws: Any, steps: int, dtype: type, xp: Any) -> Any:
+    """Log-likelihood ``(candidates, draws)`` of the logit ``offset + a + b z`` fitted by ``steps`` Newton steps for every column of ``z`` and every class vector of ``y_draws`` (the arithmetic of the njit twin
+    and of the device kernel: a Hessian ridge of 1e-9 on both diagonal terms, a determinant floored at 1e-12)."""
     _n, k = z.shape
     d = y_draws.shape[1]
     a = xp.zeros((k, d), dtype=dtype)
@@ -94,19 +93,26 @@ def _deviance(offset: Any, z: Any, y_draws: Any, steps: int = NEWTON_STEPS, dtyp
         h_aa = w.sum(axis=0) + 1e-9
         h_ab = (w * zz).sum(axis=0)
         h_bb = (w * zz * zz).sum(axis=0) + 1e-9
-        det = h_aa * h_bb - h_ab * h_ab
+        det = h_aa * h_bb - h_ab * h_ab  # moment-ok: the determinant of the 2 x 2 Newton Hessian of a logit on standardised columns, not a variance built from raw power sums
         det = xp.where(xp.abs(det) < 1e-12, 1e-12, det)
         a = a + (h_bb * g_a - h_ab * g_b) / det
         b = b + (h_aa * g_b - h_ab * g_a) / det
     eta1 = offset[:, None, None] + a[None] + b[None] * zz
-    ll1 = (yz * eta1 - xp.logaddexp(0.0, eta1)).sum(axis=0)
-    a0 = xp.zeros(d, dtype=dtype)
-    for _ in range(steps):
-        p0 = _sigmoid(offset[:, None] + a0[None], xp)
-        a0 = a0 + (y_draws - p0).sum(axis=0) / ((p0 * (1.0 - p0)).sum(axis=0) + 1e-9)
-    eta0 = offset[:, None] + a0[None]
-    ll0 = (y_draws * eta0 - xp.logaddexp(0.0, eta0)).sum(axis=0)
-    return (2.0 * (ll1 - ll0[None])).astype(np.float64)
+    return (yz * eta1 - xp.logaddexp(0.0, eta1)).sum(axis=0)
+
+
+# Intentional float64: log-likelihood and Newton statistics of the logit credit
+def _deviance(offset: Any, z: Any, y_draws: Any, steps: int = NEWTON_STEPS, dtype: type = np.float64, xp: Any = np) -> Any:
+    """``LRT`` of every candidate (columns of ``z``, standardised) for every class vector (columns of ``y_draws``): shape (candidates, draws).
+
+    Per candidate and draw the logit ``offset + a + b z`` is fitted by Newton (all pairs at once) and compared with the offset-plus-intercept model, which is the same fit on a column of zeros (as the njit twin
+    and the device kernel take it). ``dtype`` is the precision of the (rows, candidates, draws) arrays: the bootstrap null runs in float32 (half the memory traffic of the elementwise passes that dominate the
+    cost). ``xp`` is numpy or cupy: with cupy the arrays are device arrays and so is the result."""
+    offset, z, y_draws = offset.astype(dtype, copy=False), z.astype(dtype, copy=False), y_draws.astype(dtype, copy=False)
+    ll1 = _newton_loglik(offset, z, y_draws, steps, dtype, xp)
+    ll0 = _newton_loglik(offset, xp.zeros((z.shape[0], 1), dtype=dtype), y_draws, steps, dtype, xp)
+    # Intentional float64: log-likelihood and Newton statistics of the logit credit
+    return (2.0 * (ll1 - ll0)).astype(np.float64)
 
 
 def _standardise(values: np.ndarray) -> np.ndarray:
@@ -123,6 +129,7 @@ def _test_column(
     few bootstrap draws as needed (``adaptive_max_pvalue``); among candidates tied with the best, the simplest is reported."""
     n = x.shape[0]
     offset = _fit_offset_logit(others, y)
+    # Intentional float64: log-likelihood and Newton statistics of the logit credit
     z = _standardise(np.column_stack([np.asarray(x, dtype=np.float64)] + [apply_form(f, x) for f in forms]))
     zero_row = np.zeros((1, n))
     # the observed log-likelihoods: every candidate row of z and, as the last row, the offset-plus-intercept model (a row of zeros), all fitted by the njit twin of the device kernel
@@ -130,6 +137,7 @@ def _test_column(
     observed = 2.0 * (ll_obs[:-1] - ll_obs[-1])
     gains = observed[1:] - observed[0]
     # the classes redrawn from the identity logit on [offset, x]
+    # Intentional float64: log-likelihood and Newton statistics of the logit credit
     p_id = _sigmoid(_fit_offset_logit([*others, np.asarray(x, dtype=np.float64)], y))
 
     first_batch: "list[np.ndarray]" = []
@@ -183,7 +191,9 @@ def credit_columns_binary(
     passes: int = 2,
 ) -> "list[ColumnVerdict]":
     """One verdict per column of ``X`` for a binary target ``y`` in {0, 1}: which unary form, if any, a logistic head should use instead of the identity (same protocol as ``credit_columns``)."""
+    # Intentional float64: log-likelihood and Newton statistics of the logit credit
     X = np.asarray(X, dtype=np.float64)
+    # Intentional float64: log-likelihood and Newton statistics of the logit credit
     y = np.asarray(y, dtype=np.float64)
     n, m = X.shape
     rng = np.random.default_rng(seed)
