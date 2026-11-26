@@ -210,7 +210,9 @@ def _batch_one_scorer(s, Xmat, y_arr, *, nbins, random_state, n_neighbors, copul
         if _is_discrete_target(y_arr):
             complete = np.isfinite(Xmat).all(axis=0)
             if complete.all():
-                return ksg_mi_discrete_target_columns(Xmat, y_arr, n_neighbors=int(n_neighbors), random_state=int(random_state))
+                from ._orthogonal_univariate_fe._orth_scoring_memo import cached_ksg_columns
+
+                return cached_ksg_columns(Xmat, y_arr, n_neighbors=int(n_neighbors), random_state=int(random_state))  # shared with the KSG gate's columns
             # One column with a missing value used to send every column to its own call (105 device launches of one column each, 1.45 s of a 100000 x 100 fit): the complete
             # columns still go in one batch, read at the dtype the per-column scorer reads them at, and only the incomplete ones are scored on their own rows.
             from ._fe_usability_signal import _crit_np_dtype

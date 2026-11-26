@@ -110,6 +110,40 @@ def cached_raw_mi_baseline(
             _memo[keys[c]] = fv
     return result
 
+def cached_ksg_columns(X: np.ndarray, y_codes: np.ndarray, *, n_neighbors: int, random_state: int) -> np.ndarray:
+    """KSG MI of every column of the finite matrix ``X`` against the discrete target codes ``y_codes`` (``ksg_mi_discrete_target_columns``: each column draws its Kraskov noise
+    from its own ``RandomState(random_state)``, so a column's value depends on its content alone), remembered per column within an active :func:`orth_scoring_memo_scope`.
+
+    The KSG gate and the ensemble scorer compute the same columns (the raw columns and the engineered pool) with the same ``k`` and seed; with the memo the second is a lookup.
+    The key normalises the column to double precision, so a float32 and a float64 copy of the same values share an entry (the kernel widens to double either way)."""
+    from .._ksg_cd_fast import ksg_mi_discrete_target_columns
+
+    _memo = _SCORING_MEMO["cache"]
+    if _memo is None or X.shape[1] == 0:
+        plain: np.ndarray = ksg_mi_discrete_target_columns(X, y_codes, n_neighbors=int(n_neighbors), random_state=int(random_state))
+        return plain
+    from .._fe_resident_operands import _content_hash
+
+    y_hash = _content_hash(np.ascontiguousarray(np.asarray(y_codes, dtype=np.int64)))
+    out = np.empty(X.shape[1], dtype=np.float64)  # Intentional float64: MI output vector of the scorers
+    keys, missing = [], []
+    for j in range(X.shape[1]):
+        col = np.ascontiguousarray(X[:, j], dtype=np.float64)  # Intentional float64: the content key of a float32 and a float64 copy of the same values must be the same
+        key = ("ksg_col", col.shape, _content_hash(col), y_hash, int(n_neighbors), int(random_state))
+        keys.append(key)
+        hit = _memo.get(key)
+        if hit is None:
+            missing.append(j)
+        else:
+            out[j] = hit
+    if missing:
+        fresh = ksg_mi_discrete_target_columns(np.ascontiguousarray(X[:, missing]), y_codes, n_neighbors=int(n_neighbors), random_state=int(random_state))
+        for j, v in zip(missing, np.asarray(fresh).tolist()):
+            out[j] = v
+            _memo[keys[j]] = float(v)
+    return out
+
+
 def cached_dense_finite_corr_matrix(
     X: pd.DataFrame, cols: Optional[Sequence[str]], *, dtype: DTypeLike,
 ) -> tuple[list[str], np.ndarray]:

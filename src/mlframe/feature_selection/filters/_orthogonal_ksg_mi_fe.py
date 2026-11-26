@@ -129,8 +129,6 @@ def _ksg_mi_batch(
     ``discrete_features=False`` because the orth-poly engineered columns
     are continuous-valued by construction.
     """
-    from ._ksg_cd_fast import ksg_mi_discrete_target
-
     # The input keeps its own dtype until a path needs double: ``ksg_mi_discrete_target`` makes its own float64 working copy, and a second whole-block copy here sat beside it at the 500000-row memory peak
     # (440 MB at 110 columns). The values are the same: a float32 or float64 column widens exactly.
     X_in = np.asarray(X)
@@ -152,7 +150,10 @@ def _ksg_mi_batch(
             y_arr = y_arr.astype(np.int64, copy=False)
         # Same estimate as sklearn (scaling, Kraskov noise stream and nextafter radius reproduced; agrees to ~1e-12), 20-50x faster for single continuous columns. The columns are all finite here
         # (a matrix with a missing value was handed to ``_ksg_mi_batch_with_missing`` above).
-        return ksg_mi_discrete_target(X_in, y_arr, n_neighbors=int(n_neighbors), random_state=int(random_state))
+        # per column (each column its own noise stream) and remembered for the fit: the ensemble scorer asks for the same columns with the same k and seed
+        from ._orthogonal_univariate_fe._orth_scoring_memo import cached_ksg_columns
+
+        return cached_ksg_columns(X_in, y_arr, n_neighbors=int(n_neighbors), random_state=int(random_state))
     else:
         # Same estimate as sklearn's ``mutual_info_regression`` (scaling, Kraskov noise stream and nextafter radius reproduced; agrees to ~1e-13), 17-40x faster: no trees, no joblib.
         from ._ksg_cc_fast import ksg_mi_continuous_target
