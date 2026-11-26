@@ -230,8 +230,14 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
         X_proxy: Any,
         y_search: np.ndarray,
         _stage: _StageFn,
-    ) -> tuple[bool, Any, Any, np.ndarray, Any, np.ndarray]:
-        """Run the OOF-SHAP stage on the proxy columns; returns ``want_per_fold_phi, base, per_fold_phi_mean, phi, phi_var, y_phi``."""
+    ) -> tuple[bool, Any, Any, np.ndarray, Any, np.ndarray, Any, np.ndarray, Optional[np.ndarray]]:
+        """Run the OOF-SHAP stage on the proxy columns.
+
+        Returns ``want_per_fold_phi, base, per_fold_phi_mean, phi, phi_var, y_phi, X_proxy, y_search, kept_rows``. Under a temporal policy the folds are
+        forward-chained, so the first block has no out-of-fold value (NaN in ``phi`` and ``base``). Those rows are dropped here from every row-aligned
+        array (``phi``, ``base``, ``phi_var``, ``y_phi``, ``X_proxy``, ``y_search``) and from the search policy, and ``kept_rows`` lists the kept
+        positions so the caller can drop the same rows from its other search-side arrays (audit 24-F45). ``kept_rows`` is None when every row is kept.
+        """
         from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import compute_shap_matrix
 
         # SHAP attribution on the proxy (unit or raw) columns. Request per-model attribution variance
@@ -249,7 +255,23 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
                 return_per_fold_phi_mean=want_per_fold_phi,
                 cache_dir=self.cache_dir, cv_policy=getattr(self, "_search_cv_policy", None))
         base, per_fold_phi_mean, phi, phi_var, y_phi = self._fit_step2_want_var_want(want_var, want_per_fold_phi, shap_out)
-        return want_per_fold_phi, base, per_fold_phi_mean, phi, phi_var, y_phi
+        kept = np.flatnonzero(np.isfinite(np.asarray(base, dtype=np.float64)))
+        if kept.size == np.asarray(base).shape[0]:
+            return want_per_fold_phi, base, per_fold_phi_mean, phi, phi_var, y_phi, X_proxy, y_search, None
+        if kept.size == 0:
+            raise ValueError("the forward-chained OOF-SHAP stage explained no rows; the search set is too small for the number of splits")
+        logger.info("OOF-SHAP: forward chaining leaves %d of %d search rows without an out-of-fold value; the fit continues on the other %d rows.",
+                    np.asarray(base).shape[0] - kept.size, np.asarray(base).shape[0], kept.size)
+
+        def _take(a: Any) -> Any:
+            """Rows ``kept`` of a frame or array."""
+            return a.iloc[kept] if hasattr(a, "iloc") else np.asarray(a)[kept]
+
+        policy = getattr(self, "_search_cv_policy", None)
+        if policy is not None:
+            self._search_cv_policy = policy.subset(kept)
+        return (want_per_fold_phi, _take(base), per_fold_phi_mean, _take(phi), None if phi_var is None else _take(phi_var), _take(y_phi),
+                _take(X_proxy), _take(y_search), kept)
 
     def _fit_record_mean_abs_shap(
         self,
@@ -408,7 +430,9 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
 
         report, X_search, working_cols, X_hold, X_proxy, unit_to_members = self._fit_prefilter_and_cluster(X_search, y_search, X_cols, model_template, n_features, _stage)
 
-        want_per_fold_phi, base, per_fold_phi_mean, phi, phi_var, y_phi = self._fit_oof_shap(model_template, X_proxy, y_search, _stage)
+        want_per_fold_phi, base, per_fold_phi_mean, phi, phi_var, y_phi, X_proxy, y_search, _kept_rows = self._fit_oof_shap(model_template, X_proxy, y_search, _stage)
+        if _kept_rows is not None:  # forward chaining dropped the first block: keep every search-side array on the same rows
+            X_search = X_search.iloc[_kept_rows] if hasattr(X_search, "iloc") else np.asarray(X_search)[_kept_rows]
 
         # Two-phase residual attribution (gt_09, OPT-IN via residual_passes=0 default): a second SHAP
         # pass on pass-1's residual re-credits weak features the additive coalition proxy under-weighs

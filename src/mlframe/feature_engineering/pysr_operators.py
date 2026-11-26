@@ -26,8 +26,11 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, List, Tuple
 
 # Julia source strings for custom unary operators. Each MUST be total on the
-# Float range (return NaN on bad input, never throw) so ``turbo=True`` SIMD
-# codegen stays valid. ``T`` is generic so f32 / f64 paths both compile.
+# Float range (never throw) so ``turbo=True`` SIMD codegen stays valid; the
+# guarded ones (safe_log, harmonic_mean, xlogy) return NaN on bad input. ``inv``
+# is not guarded: at 0 it returns +/-Inf in Julia and sympy's ``zoo`` at predict
+# time, so train- and predict-time disagree there (audit 24-F52, documented, not
+# changed). ``T`` is generic so f32 / f64 paths both compile.
 OPERATOR_JULIA_SIGNATURES: Dict[str, str] = {
     "safe_log": "safe_log(x::T) where {T} = x > zero(T) ? log(x) : T(NaN)",
     "safe_sqrt": "safe_sqrt(x::T) where {T} = x >= zero(T) ? sqrt(x) : sqrt(-x)",

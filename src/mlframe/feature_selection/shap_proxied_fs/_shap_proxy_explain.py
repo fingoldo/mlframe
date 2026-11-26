@@ -622,9 +622,14 @@ class _StreamingPhiVariance:
 
 def _oof_split_iter(cv_policy: Any, X, y, n: int, n_splits: int, classification: bool, rng: np.random.Generator):
     """Out-of-fold ``(train, test)`` index pairs: the shared policy's time blocks / group folds when it applies, else a shuffled (stratified) KFold."""
-    from mlframe.feature_selection.cv_policy import partition_folds
+    from mlframe.feature_selection.cv_policy import forward_chain_folds, partition_folds
 
-    policy_folds = partition_folds(cv_policy, n, n_splits)
+    # A temporal policy is forward-chained: fold i trains on the blocks before block i only, so no row's attribution comes from a model that saw its
+    # future (audit 24-F45). The first block has no earlier data and gets no out-of-fold value; its rows stay NaN in phi and base and the fit
+    # drops them (see ``_fit_oof_shap``).
+    policy_folds = forward_chain_folds(cv_policy, n, n_splits)
+    if policy_folds is None:
+        policy_folds = partition_folds(cv_policy, n, n_splits)
     if policy_folds is not None:
         return iter(policy_folds)
     if classification:
@@ -756,16 +761,16 @@ def compute_shap_matrix(
     # Out-of-fold: honest per-row attributions.
     st.split_iter = _oof_split_iter(cv_policy, X, y, st.n, n_splits, classification, rng)
 
-    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
-    st.phi = np.zeros((st.n, f), dtype=np.float64)
-    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
-    st.base = np.zeros(st.n, dtype=np.float64)
-    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
-    st.phi_var = np.zeros((st.n, f), dtype=np.float64) if return_variance else None
-    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
-    st.per_fold_mean = np.zeros((n_splits, f), dtype=np.float64) if return_per_fold_phi_mean else None
-
     st.folds = list(st.split_iter)
+    # Rows no fold explains (the first block under forward chaining) stay NaN, not 0: a zero would read as a real attribution of exactly zero.
+    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
+    st.phi = np.full((st.n, f), np.nan, dtype=np.float64)
+    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
+    st.base = np.full(st.n, np.nan, dtype=np.float64)
+    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
+    st.phi_var = np.full((st.n, f), np.nan, dtype=np.float64) if return_variance else None
+    # Intentional float64: SHAP attribution accumulator kept f64 (exact additivity check)
+    st.per_fold_mean = np.zeros((len(st.folds), f), dtype=np.float64) if return_per_fold_phi_mean else None
     # Pre-draw every fold's model seeds in fold order BEFORE any fit, so concurrent folds yield the
     # byte-identical result the serial loop would (the RNG is consumed in fold order regardless of
     # which fold's thread runs first).

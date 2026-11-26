@@ -42,6 +42,8 @@ except ImportError:
     numba = None
     _HAS_NUMBA = False
 
+# The shared numba flags live in the metrics package, so this feature module depends on it for one constant (audit 24-F54, documented). The
+# fallback below must mirror those flags; a missing metrics package falls back silently by design, since the DWT does not need it otherwise.
 try:
     from mlframe.metrics.shared import NUMBA_NJIT_PARAMS
 except ImportError:
@@ -140,7 +142,10 @@ if _HAS_NUMBA:
     # ``_dwt_single_level_numba`` per level directly so no typed
     # list ever crosses the boundary. Kept the legacy function
     # below as ``_wavedec_numba_typedlist`` for any external caller
-    # that needs the typed-list shape.
+    # that needs the typed-list shape. Classified, not deleted (audit 24-F53): it
+    # and ``_waverec_numba_typedlist`` have no production caller and are referenced
+    # only by tests, and ``wavedec_dispatch`` is a public helper with no production
+    # caller either; the uncalled-functions rule is to wire in or classify first.
 
     @numba.njit(**NUMBA_NJIT_PARAMS)
     def _wavedec_numba_typedlist(
