@@ -428,7 +428,6 @@
 | 20-F9 | FIXED | the DeLong warning now says labels outside {0, 1} are excluded from both classes, matching the code; no separate test |
 | 20-F17 | FIXED | the per-alpha pinball panel drops non-finite rows first, as its sibling panels do; tests/reporting/test_cluster20_pinball_panel_nan.py |
 | 20-F14 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F15 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F18 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F20 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F21 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
@@ -453,12 +452,9 @@
 | 23-F12 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
 | 24-F48 | FIXED | validation-only class labels get the probability floor instead of a neighbouring class's column; tests/feature_selection/test_cluster24_unseen_validation_label.py |
 | 24-F23 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F24 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F25 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F26 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F27 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F28 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F29 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F30 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F31 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F36 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
@@ -471,19 +467,13 @@
 | 24-F31 | FIXED | chunks that return (None, None) are skipped and an all-empty run returns (None, None); no separate test |
 | 24-F36 | FIXED | the long MA is reindexed to the short one's index before differencing; tests/feature_engineering/test_cluster24_empty_and_alignment.py |
 | 24-F23 | DEFERRED | not reviewed in this pass; P2 still open |
-| 24-F24 | DEFERRED | not reviewed in this pass; P2 still open |
 | 24-F26 | DEFERRED | not reviewed in this pass; P2 still open |
-| 24-F27 | DEFERRED | not reviewed in this pass; P2 still open |
 | 24-F28 | DEFERRED | not reviewed in this pass; P2 still open |
-| 24-F29 | DEFERRED | not reviewed in this pass; P2 still open |
 | 24-F30 | DEFERRED | not reviewed in this pass; P2 still open |
 | 24-F31 | FIXED | empty parallel chunks are skipped and an all-empty run returns (None, None); tests/feature_engineering/test_timeseries.py expectation updated to the corrected cumsum end contract; 129 related tests pass |
 | 24-F23 | FIXED | local density drops the self-match when the query is the reference, so dist_to_kth is the k-th other point; tests/feature_engineering/test_cluster24_min_periods_and_self_match.py; 57 related tests pass |
 | 24-F26 | FIXED | rolling min_periods is clamped to the window; same test file |
-| 24-F24 | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
-| 24-F27 | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
 | 24-F28 | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
-| 24-F29 | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
 | 35-F1 | RESOLVED | from_fitted_inner now stamps smearing_quantiles from the train features (X_train) and the reconstructed T, as fit() does; call sites pass the raw train rows. Tests tests/training/composite/test_smearing_fit_from_fitted_parity.py. |
 | 09-F1 | RESOLVED | Random directions are unscaled; the d^{-1/4} scale moved to the inputs so the kernel is exp(q.k/sqrt(d)) as documented. Tests tests/feature_engineering/transformer/test_performer_kernel_identity.py; reference in test_performer_attention_key_side_stabilization.py updated. |
 | 24-F30 | DOCUMENTED | The complement fallback is pinned by tests/feature_engineering/test_aggregated_view_based.py; the subset_direct feature flags it in the feature names. No behaviour change. |
@@ -1618,3 +1608,11 @@
 | 20-F8 | PARTIAL | Multilabel legend ECE now uses each bin's mean prediction as the confidence (per label and pooled), and both axes say bin centre instead of claiming a mean prediction. The curves stay on the shared bin-centre grid because a line panel has one x for all series; per-series x would be a spec change. Test tests/reporting/test_cluster20_multilabel_ece_uses_mean_prediction.py. |
 
 | 20-F12 | FIXED | bootstrap_ap_ci returns the distinct-threshold AP (sklearn definition, same as the PR panel) and shifts the interval by the gap to the per-row step sum, so the interval is centred on the AP the title shows under tied scores. Test tests/reporting/test_cluster20_ap_ci_matches_displayed_ap.py. |
+
+| 20-F15 | DEFERRED | Re-read: the memo is keyed on frame identity with a weakref guard, so an in-place edit between two builder calls does return the old matrix. A sound fix is either passing the densified matrix explicitly from the dispatch to both builders (an API change across diagnostics_dispatch) or a content fingerprint, and a sampled fingerprint cannot detect every edit while a full one costs as much as the densify. Needs an owner choice between the two. |
+
+| 24-F24 | FIXED | find_best_mps_sequence docstring now states profits has length n (sized to raw_prices) and that callers use profits[:-1] for per-interval values. |
+
+| 24-F29 | FIXED | Windowed targets use at least float64 (np.promote_types(dtype, float64)); features keep the requested dtype. Test tests/feature_engineering/test_cluster24_dtype_docs_and_nan_pairs.py. |
+
+| 24-F27 | FIXED | variance_gated_pairwise_diff logs a WARNING naming the columns whose NaN/inf values drop every pair involving them. Same test file. |

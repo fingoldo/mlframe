@@ -93,7 +93,6 @@ Counts below are the number of files under `tests/` whose text names the functio
 - 20-F9: FIXED. the DeLong warning now says labels outside {0, 1} are excluded from both classes, matching the code; no separate test
 - 20-F17: FIXED. the per-alpha pinball panel drops non-finite rows first, as its sibling panels do; tests/reporting/test_cluster20_pinball_panel_nan.py
 - 20-F14: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
-- 20-F15: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F18: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F20: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F21: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
@@ -142,3 +141,5 @@ Counts below are the number of files under `tests/` whose text names the functio
 - 20-F8: PARTIAL. Multilabel legend ECE now uses each bin's mean prediction as the confidence (per label and pooled), and both axes say bin centre instead of claiming a mean prediction. The curves stay on the shared bin-centre grid because a line panel has one x for all series; per-series x would be a spec change. Test tests/reporting/test_cluster20_multilabel_ece_uses_mean_prediction.py.
 
 - 20-F12: FIXED. bootstrap_ap_ci returns the distinct-threshold AP (sklearn definition, same as the PR panel) and shifts the interval by the gap to the per-row step sum, so the interval is centred on the AP the title shows under tied scores. Test tests/reporting/test_cluster20_ap_ci_matches_displayed_ap.py.
+
+- 20-F15: DEFERRED. Re-read: the memo is keyed on frame identity with a weakref guard, so an in-place edit between two builder calls does return the old matrix. A sound fix is either passing the densified matrix explicitly from the dispatch to both builders (an API change across diagnostics_dispatch) or a content fingerprint, and a sampled fingerprint cannot detect every edit while a full one costs as much as the densify. Needs an owner choice between the two.

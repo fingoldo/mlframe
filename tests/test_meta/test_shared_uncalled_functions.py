@@ -699,6 +699,7 @@ _KEPT_SUPERSEDED_REFERENCES = {
 #: lose the reference the test checks the production twin against; restoring a caller would route production to a variant that
 #: was measured as slower, coarser or unsafe.
 _KEPT_TEST_REFERENCES = {
+    "_gaussian_kde_log",  # the single-bandwidth form of the log-KDE; the density-ratio features call the multi-bandwidth twin, and test_density_ratio_kde_gemm_identity and test_cluster09_kde_shared_distances check the twin against this form value for value
     "_su_codes_of_finite_columns",  # the per-column host form of the SU quantiser (int32 codes and a bin count each), the oracle the device twin and the tiled block writer are checked against (test_su_quantiser_device_twin)
     "corrected_joint_mi",  # the joint MI of a column list built from scratch, the oracle test_selection_compaction checks the prefix-cached JointCache against
     "_pairwise_occupied_joint_k_njit",  # the serial distinct-code count of the pair tables, the reference of the fast kernel (test_pair_occupied_joint_k_fast_kernel compares them)

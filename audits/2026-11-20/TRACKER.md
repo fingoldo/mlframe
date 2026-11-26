@@ -954,7 +954,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 20-F12 | 20_reporting-1.md | FIXED | bootstrap_ap_ci returns the distinct-threshold AP (sklearn definition, same as the PR panel) and shifts the interval by the gap to the per-row step sum, so the interval is centred on the AP the title shows under tied scores. Test tests/reporting/test_cluster20_ap_ci_matches_displayed_ap.py. |
 | 20-F13 | 20_reporting-1.md | FIXED | Model-card heteroscedasticity Spearman uses the shared average-rank implementation, so tied predictions no longer make it depend on row order; local rank helper import removed. Test tests/reporting/test_cluster20_model_card_spearman_ties.py. |
 | 20-F14 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F15 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
+| 20-F15 | 20_reporting-1.md | DEFERRED | Re-read: the memo is keyed on frame identity with a weakref guard, so an in-place edit between two builder calls does return the old matrix. A sound fix is either passing the densified matrix explicitly from the dispatch to both builders (an API change across diagnostics_dispatch) or a content fingerprint, and a sampled fingerprint cannot detect every edit while a full one costs as much as the densify. Needs an owner choice between the two. |
 | 20-F16 | 20_reporting-1.md | FIXED | The ndarray path of _resolve_feature_matrix refuses feature_names whose length differs from the column count, as the DataFrame path does. Test test_cluster20_axis_contracts_and_probes.py |
 | 20-F17 | 20_reporting-1.md | FIXED | the per-alpha pinball panel drops non-finite rows first, as its sibling panels do; tests/reporting/test_cluster20_pinball_panel_nan.py |
 | 20-F18 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
@@ -1043,12 +1043,12 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 23-F13 | 23_root_modules-2.md | FIXED | Dropped the unused name parameter of _merge_parallel_chunks and its call argument. |
 | 23-F14 | 23_root_modules-2.md | DOCUMENTED | Docstring now states the sign of cv_delta is ignored, so a loss on a shifted subgroup is flagged too; behaviour unchanged. |
 | 24-F23 | 24_root_modules-3.md | FIXED | local density drops the self-match when the query is the reference, so dist_to_kth is the k-th other point; tests/feature_engineering/test_cluster24_min_periods_and_self_match.py; 57 related tests pass |
-| 24-F24 | 24_root_modules-3.md | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
+| 24-F24 | 24_root_modules-3.md | FIXED | find_best_mps_sequence docstring now states profits has length n (sized to raw_prices) and that callers use profits[:-1] for per-interval values. |
 | 24-F25 | 24_root_modules-3.md | FIXED | empty support returns NaN per query point; tests/feature_engineering/test_cluster24_empty_and_alignment.py |
 | 24-F26 | 24_root_modules-3.md | FIXED | rolling min_periods is clamped to the window; same test file |
-| 24-F27 | 24_root_modules-3.md | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
+| 24-F27 | 24_root_modules-3.md | FIXED | variance_gated_pairwise_diff logs a WARNING naming the columns whose NaN/inf values drop every pair involving them. Same test file. |
 | 24-F28 | 24_root_modules-3.md | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
-| 24-F29 | 24_root_modules-3.md | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
+| 24-F29 | 24_root_modules-3.md | FIXED | Windowed targets use at least float64 (np.promote_types(dtype, float64)); features keep the requested dtype. Test tests/feature_engineering/test_cluster24_dtype_docs_and_nan_pairs.py. |
 | 24-F30 | 24_root_modules-3.md | DOCUMENTED | The complement fallback is pinned by tests/feature_engineering/test_aggregated_view_based.py; the subset_direct feature flags it in the feature names. No behaviour change. |
 | 24-F31 | 24_root_modules-3.md | FIXED | empty parallel chunks are skipped and an all-empty run returns (None, None); tests/feature_engineering/test_timeseries.py expectation updated to the corrected cumsum end contract; 129 related tests pass |
 | 24-F32 | 24_root_modules-3.md | FIXED | Spectral NaN fill is per window inside _spec_pow (the segment-wide mean let early windows read future values); _nan_impute_segment removed. Test tests/feature_engineering/test_cluster24_spectral_scale_and_nan_windows.py; test_fe_top_a_fixes.py::test_f20 revised |
