@@ -82,3 +82,25 @@ def test_device_null_rows_are_within_stratum_shuffles_of_the_target():
     np.testing.assert_allclose(null[0], want, rtol=0, atol=1e-12)
     assert (null[1:] != null[0]).any()
     assert len({tuple(r) for r in null[1:]}) == 12
+
+
+@pytest.mark.parametrize("n, p, B, kz, kw, ky", [(3001, 9, 5, 4, 7, 2), (40003, 30, 11, 64, 12, 3), (6, 4, 3, 2, 3, 2)])
+def test_the_byte_kernel_equals_version_1_bit_for_bit(n, p, B, kz, kw, ky):
+    """Codes that fit a byte go through ``cond_mi_columns_u8`` (3 bytes a row, 4-row loads): the same counts and epilogue as version 1, so the same bits, for row counts
+    that are and are not a multiple of 4 and up to 64 strata, on two seeds."""
+    import cupy as cp
+
+    from mlframe.feature_selection.filters._mrmr_fe_step import _conditional_maxt_gpu as G
+
+    for seed in (0, 1):
+        rng = np.random.default_rng(seed)
+        widths = np.full(p, kw, dtype=np.int64)
+        widths[::2] = max(2, kw - 2)
+        codes = np.minimum(rng.integers(0, kw, (p, n)), widths[:, None] - 1).astype(np.int16)
+        targets = rng.integers(0, ky, (B, n)).astype(np.int32)
+        z = rng.integers(0, kz, n).astype(np.int32)
+        got = G.conditional_mi_targets_device(codes, widths, targets, z, ky, kz)
+        max_w = int(widths.max())
+        out = cp.empty((B, p), dtype=cp.float64)
+        G._kernel(cp)((p * B,), (256,), (cp.asarray(codes), cp.asarray(widths), cp.asarray(targets), cp.asarray(z), np.int32(n), np.int32(p), np.int32(B), np.int32(ky), np.int32(kz), np.int32(max_w), out), shared_mem=kz * max_w * ky * 4)  # launch-ok: version 1's fixed block
+        assert got is not None and np.array_equal(got, cp.asnumpy(out))

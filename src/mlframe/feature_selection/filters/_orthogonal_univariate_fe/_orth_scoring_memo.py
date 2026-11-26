@@ -115,7 +115,7 @@ def cached_ksg_columns(X: np.ndarray, y_codes: np.ndarray, *, n_neighbors: int, 
     from its own ``RandomState(random_state)``, so a column's value depends on its content alone), remembered per column within an active :func:`orth_scoring_memo_scope`.
 
     The KSG gate and the ensemble scorer compute the same columns (the raw columns and the engineered pool) with the same ``k`` and seed; with the memo the second is a lookup.
-    The key normalises the column to double precision, so a float32 and a float64 copy of the same values share an entry (the kernel widens to double either way)."""
+    The key normalises the column to double precision, so a single- and a double-precision copy of the same values share an entry (the kernel widens to double either way)."""
     from .._ksg_cd_fast import ksg_mi_discrete_target_columns
 
     _memo = _SCORING_MEMO["cache"]

@@ -31,6 +31,7 @@ from typing import Any, Sequence
 import numpy as np
 from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
 from mlframe.feature_selection.cv_policy import CVPolicy, get_cv_policy
+from mlframe.feature_selection._fdr_bh import benjamini_hochberg_reject
 from sklearn.base import BaseEstimator, TransformerMixin
 
 if TYPE_CHECKING:
@@ -89,23 +90,11 @@ def _read_importances(model, importance: str, X, y, n_repeats: int, random_state
 
 
 def _benjamini_hochberg_reject(p_values: np.ndarray, alpha: float) -> np.ndarray:
-    """BH step-up: return a bool mask of rejected (accepted-as-relevant) hypotheses at FDR ``alpha``.
+    """BH step-up: return a bool mask of rejected (accepted-as-relevant) hypotheses at FDR ``alpha`` (shared code in ``_fdr_bh``).
 
-    ACE runs one test per feature, so without multiplicity control the per-feature alpha admits ~alpha*p
-    false positives. BH controls the false-discovery rate across the whole feature battery."""
-    p = np.asarray(p_values, dtype=_crit_np_dtype())
-    m = p.size
-    if m == 0:
-        return np.zeros(0, dtype=bool)
-    order = np.argsort(p)
-    ranked = p[order]
-    thresholds = alpha * (np.arange(1, m + 1) / m)
-    below = ranked <= thresholds
-    reject = np.zeros(m, dtype=bool)
-    if below.any():
-        k = np.nonzero(below)[0].max()  # largest rank passing the BH line; all lower ranks reject too
-        reject[order[: k + 1]] = True
-    return reject
+    ACE runs one test per feature, so without multiplicity control the per-feature alpha admits ~alpha*p false positives. BH controls the
+    false-discovery rate across the whole feature battery."""
+    return benjamini_hochberg_reject(p_values, alpha, dtype=_crit_np_dtype())
 
 
 def _make_contrasts(X: np.ndarray, rng: np.random.Generator) -> np.ndarray:
@@ -155,6 +144,20 @@ def _pfi_split(n: int, y: np.ndarray, rng: np.random.Generator, cv_policy=None, 
         return perm[n_hold:], perm[:n_hold]
 
 
+def _fit_and_split_importances(
+    model, X_fit: np.ndarray, y_fit: np.ndarray, X_score: np.ndarray, y_score: np.ndarray, importance: str, n_perm_repeats: int, seed: int, p: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Fit ``model`` on the fit rows, read its importances on the score rows, and split them into (real, contrast) halves of ``p`` columns each.
+
+    The held-out branch and the in-sample fallback of ``_one_replicate_importances`` share this body; they differ only in which rows they pass.
+    """
+    model.fit(X_fit, y_fit)
+    imps = _read_importances(model, importance, X_score, y_score, n_repeats=n_perm_repeats, random_state=seed)
+    if imps.shape[0] != 2 * p:
+        raise ValueError(f"ACE expected {2 * p} importances from the joint fit, got {imps.shape[0]}.")
+    return imps[:p], imps[p:]
+
+
 def _one_replicate_importances(
     fit_predict_model, X: np.ndarray, y: np.ndarray, importance: str, n_perm_repeats: int, rng: np.random.Generator, seed: int, cv_policy=None,
     split_seed: int = 0,
@@ -176,18 +179,10 @@ def _one_replicate_importances(
     if importance == "permutation":
         fit_idx, score_idx = _pfi_split(X_joint.shape[0], y, rng, cv_policy, split_seed)
         if fit_idx is not None:
-            model.fit(X_joint[fit_idx], y[fit_idx])
-            imps = _read_importances(model, importance, X_joint[score_idx], y[score_idx], n_repeats=n_perm_repeats, random_state=seed)
-            if imps.shape[0] != 2 * p:
-                raise ValueError(f"ACE expected {2 * p} importances from the joint fit, got {imps.shape[0]}.")
-            return imps[:p], imps[p:]
+            return _fit_and_split_importances(model, X_joint[fit_idx], y[fit_idx], X_joint[score_idx], y[score_idx], importance, n_perm_repeats, seed, p)
         logger.debug("ACE: %d rows are too few to hold any out; scoring permutation importance in-sample for this replicate.", X_joint.shape[0])
 
-    model.fit(X_joint, y)
-    imps = _read_importances(model, importance, X_joint, y, n_repeats=n_perm_repeats, random_state=seed)
-    if imps.shape[0] != 2 * p:
-        raise ValueError(f"ACE expected {2 * p} importances from the joint fit, got {imps.shape[0]}.")
-    return imps[:p], imps[p:]
+    return _fit_and_split_importances(model, X_joint, y, X_joint, y, importance, n_perm_repeats, seed, p)
 
 
 def _summ_ace(res, b):
