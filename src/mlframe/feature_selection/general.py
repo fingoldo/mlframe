@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 
 import numpy as np, pandas as pd
 from mlframe.feature_selection.filters.shared import crit_np_dtype as _crit_np_dtype
+from mlframe.feature_selection._fdr_bh import benjamini_hochberg_reject
 import polars as pl, polars.selectors as cs
 
 import textwrap
@@ -54,33 +55,12 @@ def _occupied_bins(codes: np.ndarray) -> int:
 
 
 def _benjamini_hochberg_reject(p_values: np.ndarray, alpha: float) -> np.ndarray:
-    """Benjamini-Hochberg (1995) FDR-controlling rejection mask.
+    """Benjamini-Hochberg (1995) FDR-controlling rejection mask, shared with ACE (see ``_fdr_bh``).
 
-    Returns a boolean mask, ``True`` where the null is REJECTED (feature deemed relevant) while
-    controlling the false-discovery rate at ``alpha`` across all tested features. This is the
-    multiple-comparison control the legacy per-feature ``>=`` exceedance lacked entirely: with hundreds
-    of independent noise features the raw exceedance over-selects at ~``max_permuted_prevalence_percent``
-    per feature, whereas BH bounds the expected fraction of false positives among the selected set.
+    ``True`` where the null is REJECTED (feature deemed relevant) while controlling the false-discovery rate at ``alpha`` across all tested features.
+    The legacy per-feature ``>=`` exceedance had no multiple-comparison control at all, so with hundreds of noise features it over-selected.
     """
-    p = np.asarray(p_values, dtype=float)
-    m = p.size
-    if m == 0:
-        return np.zeros(0, dtype=bool)
-    order = np.argsort(p)
-    ranked = p[order]
-    thresholds = (np.arange(1, m + 1) / m) * alpha
-    passing = ranked <= thresholds
-    if not passing.any():
-        rejected = np.zeros(m, dtype=bool)
-        return rejected
-    cutoff_idx = int(np.where(passing)[0].max())
-    rejected = np.zeros(m, dtype=bool)
-    rejected[order[: cutoff_idx + 1]] = True
-    return rejected
-
-# ----------------------------------------------------------------------------------------------------------------------------
-# Core
-# ----------------------------------------------------------------------------------------------------------------------------
+    return benjamini_hochberg_reject(p_values, alpha)
 
 
 def benchmark_mi_algos(base_mi_algos: list, verbose: int = 0, seed: int = 42) -> list:

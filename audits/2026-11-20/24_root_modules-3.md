@@ -131,11 +131,6 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F39: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F47: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F50: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F52: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F53: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F54: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F60: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F65: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F25: FIXED. empty support returns NaN per query point; tests/feature_engineering/test_cluster24_empty_and_alignment.py
 - 24-F31: FIXED. chunks that return (None, None) are skipped and an all-empty run returns (None, None); no separate test
 - 24-F36: FIXED. the long MA is reindexed to the short one's index before differencing; tests/feature_engineering/test_cluster24_empty_and_alignment.py
@@ -209,3 +204,13 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F64: FIXED. ACESelector and the four functional adapters (ForwardSelect, GreedyBackwardElimination, ZeroImportancePruning, CascadeSelect) are exported from the package and listed in __all__. Test tests/feature_selection/test_cluster24_p3_exports.py; the existing public-name tests pass (20)
 
 - 24-F51: FIXED. The per-window Hurst docstring states that it returns log(R/S)/log(n), and that compute_hurst_rs returns the raw R/S ratio, so the two agree only after the same transform. Test tests/feature_selection/test_cluster24_p3_exports.py
+
+- 24-F60: FIXED. One Benjamini-Hochberg implementation in the leaf module _fdr_bh; general.py and ace.py delegate (ace keeps its crit dtype). Test tests/feature_selection/test_cluster24_p3_dedup_bh_and_ace.py: shared, general and ace agree with a textbook BH on random p-values, ties and empty input; existing ACE/FDR/EFS tests pass (230)
+
+- 24-F65: FIXED. The fit, read-importances and width-check block shared by the held-out and in-sample branches of ACE's replicate importances is one helper, _fit_and_split_importances. Tests in test_cluster24_p3_dedup_bh_and_ace.py; existing ACE tests pass (230)
+
+- 24-F52: DOCUMENTED. pysr_operators comment now states which operators return NaN on bad input and that inv returns +/-Inf at 0 in Julia and sympy zoo at predict time, so train and predict disagree there. Behaviour not changed
+
+- 24-F53: DOCUMENTED. Classified, not deleted: _wavedec_numba_typedlist and _waverec_numba_typedlist have no production caller and are referenced only by tests, and wavedec_dispatch is a public helper with no production caller; recorded in wavelet_dwt.py per the wire-in-or-classify rule
+
+- 24-F54: DOCUMENTED. wavelet_dwt documents that it takes one numba-flags constant from mlframe.metrics.shared and that the fallback must mirror it; the silent fallback is by design
