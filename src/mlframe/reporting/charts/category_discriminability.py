@@ -195,6 +195,10 @@ def category_discriminability_table(
     rows: List[Tuple[str, str, float, int, float]] = []
     dropped = 0
     for name, codes, labels in _iter_categorical_columns(X, features):
+        # The length is checked against y BEFORE sampling: after it, ``codes[row_idx]`` is always the cap long, so a longer X slipped through and a
+        # shorter one raised a raw IndexError (audit 20-F23).
+        if codes.shape[0] != n:
+            raise ValueError(f"category_discriminability_table: length mismatch X={codes.shape[0]} y={n}")
         if row_idx is not None:
             codes = np.ascontiguousarray(codes[row_idx])
         # X's row count can diverge from y's (an upstream caller-side mismatch, e.g. a coarse re-scoring pass

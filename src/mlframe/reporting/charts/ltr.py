@@ -361,11 +361,12 @@ def _score_by_rel_panel(y_true, y_score, group_ids, shared: Optional[dict] = Non
         unique_vals_full = np.unique(y_true_arr)
         n_unique = int(unique_vals_full.size)
     else:
-        # Cheap path: cap at 13 unique values to avoid full unique scan
-        # on N=5M when grades are integer with thousands of levels.
-        n_unique = int(np.unique(y_true_arr[:50_000]).size)
-        if n_unique > 12:
-            # Confirm on full array to be safe
+        # Integer-valued grades: the value range bounds the number of distinct grades, so a narrow range needs no full scan. The old probe looked at the
+        # first 50k rows only, so data sorted with few early grades took the discrete path and drew one violin per grade (audit 20-F19).
+        span = float(np.nanmax(y_true_arr)) - float(np.nanmin(y_true_arr)) + 1.0
+        if span <= 12:
+            n_unique = int(np.unique(y_true_arr[:50_000]).size)  # at most 12 distinct values exist in total
+        else:
             unique_vals_full = np.unique(y_true_arr)
             n_unique = int(unique_vals_full.size)
 

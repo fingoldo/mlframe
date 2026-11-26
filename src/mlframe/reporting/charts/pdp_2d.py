@@ -80,7 +80,8 @@ def _default_pair(model: Any, X: Any, names: Optional[List[str]], n_cols: int) -
             best = int(np.argmax(mat[iu]))
             return label(int(iu[0][best])), label(int(iu[1][best]))
     except Exception as e:  # nosec B110 - best-effort path
-        logger.debug("non-additive-residual pair selection failed: %s", e)
+        # A failure here silently switches the 2-D PDP to importance-based pairs, so it must be visible (audit 20-F27).
+        logger.warning("2-D PDP: SHAP pair selection failed (%s: %s); using the importance-based pair instead.", type(e).__name__, e)
 
     imp = getattr(model, "feature_importances_", None)
     if imp is None:

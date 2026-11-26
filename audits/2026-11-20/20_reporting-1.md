@@ -94,23 +94,16 @@ Counts below are the number of files under `tests/` whose text names the functio
 - 20-F17: FIXED. the per-alpha pinball panel drops non-finite rows first, as its sibling panels do; tests/reporting/test_cluster20_pinball_panel_nan.py
 - 20-F7: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F8: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
-- 20-F10: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F11: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F12: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F13: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F14: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F15: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
-- 20-F16: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F18: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
-- 20-F19: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F20: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F21: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F22: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
-- 20-F23: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F24: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
-- 20-F25: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
-- 20-F26: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
-- 20-F27: DEFERRED. not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report)
 - 20-F1: WON'T FIX. Not reproduced: the label swap was tried and reverted. The WORM verdict already labels a long positive-tail residual RIGHT-SKEW (tests/reporting/test_worm_plot_verdict_is_operative.py pins it, 13 pass on HEAD), so the finding's premise fails
 - 20-F30: WON'T FIX. _per_query_groups has no production caller, but it is the parity reference for the live group slices: two tests import it, and the shared uncalled-functions allowlist classifies it as a deliberately kept reference. Not deleted.
 - 20-F29: FIXED. Confusion-matrix hidden-values note is joined to the title only when a title is set, so a missing title no longer becomes the literal 'None'. Test tests/reporting/test_cluster20_confusion_title_none.py (source pin); existing confusion-matrix tests pass.
@@ -130,3 +123,17 @@ Counts below are the number of files under `tests/` whose text names the functio
 - 20-F43: FIXED. Fuzzy-membership docstring and comment now state the fit draw is bounded and with replacement, matching rng.integers. Test tests/training/test_cluster20_fuzzy_subsample_wording.py.
 - 20-F42: DEFERRED. The panel's CI base rate uses the full y while the table's point estimate uses its own subsample base (row_idx). Aligning them needs category_discriminability_table to return the base it used, which changes its return shape. Deferred to a pass that changes that API. No code change.
 - 20-F44: FIXED. __all__ moved to the end of _error_analysis_shared; blank-line gap added before _frame_rows in _drift_shared. Test tests/training/test_cluster20_shared_module_layout.py.
+
+- 20-F10: FIXED. Heterogeneity noise floor uses the prevalence of the finite labels, so one NaN label no longer makes it NaN. Test test_cluster20_nan_prevalence_bench_and_pdp_warn.py
+
+- 20-F16: FIXED. The ndarray path of _resolve_feature_matrix refuses feature_names whose length differs from the column count, as the DataFrame path does. Test test_cluster20_axis_contracts_and_probes.py
+
+- 20-F19: FIXED. Relevance-grade count uses the value range (a span of at most 12 grades needs no scan), else a full unique, instead of probing only the first 50k rows. Test test_cluster20_axis_contracts_and_probes.py
+
+- 20-F23: FIXED. category_discriminability_table checks X against y length before sampling, so a longer X is refused. Test test_cluster20_axis_contracts_and_probes.py
+
+- 20-F25: FIXED. The Spearman bench sets _rank_stats.SPEARMAN_NJIT_MIN_N (where spearman reads it) instead of the removed prediction_stability attribute. Test test_cluster20_nan_prevalence_bench_and_pdp_warn.py
+
+- 20-F26: FIXED. metric_over_time marks the axis as time only for a datetime index; otherwise x_is_time is False and the label is bucket. Test test_cluster20_axis_contracts_and_probes.py
+
+- 20-F27: FIXED. A failed SHAP pair choice in the 2-D PDP is logged at WARNING (was DEBUG), naming the exception. Test test_cluster20_nan_prevalence_bench_and_pdp_warn.py. tests/reporting/test_cluster20_nan_prevalence_bench_and_pdp_warn.py, tests/reporting/test_cluster20_axis_contracts_and_probes.py; existing chart tests 992 passed, one unrelated xgb dmatrix shim failure not checked on HEAD

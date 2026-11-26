@@ -949,24 +949,24 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 20-F7 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F8 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F9 | 20_reporting-1.md | FIXED | the DeLong warning now says labels outside {0, 1} are excluded from both classes, matching the code; no separate test |
-| 20-F10 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
+| 20-F10 | 20_reporting-1.md | FIXED | Heterogeneity noise floor uses the prevalence of the finite labels, so one NaN label no longer makes it NaN. Test test_cluster20_nan_prevalence_bench_and_pdp_warn.py |
 | 20-F11 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F12 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F13 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F14 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F15 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F16 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
+| 20-F16 | 20_reporting-1.md | FIXED | The ndarray path of _resolve_feature_matrix refuses feature_names whose length differs from the column count, as the DataFrame path does. Test test_cluster20_axis_contracts_and_probes.py |
 | 20-F17 | 20_reporting-1.md | FIXED | the per-alpha pinball panel drops non-finite rows first, as its sibling panels do; tests/reporting/test_cluster20_pinball_panel_nan.py |
 | 20-F18 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F19 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
+| 20-F19 | 20_reporting-1.md | FIXED | Relevance-grade count uses the value range (a span of at most 12 grades needs no scan), else a full unique, instead of probing only the first 50k rows. Test test_cluster20_axis_contracts_and_probes.py |
 | 20-F20 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F21 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F22 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F23 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
+| 20-F23 | 20_reporting-1.md | FIXED | category_discriminability_table checks X against y length before sampling, so a longer X is refused. Test test_cluster20_axis_contracts_and_probes.py |
 | 20-F24 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F25 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F26 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F27 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
+| 20-F25 | 20_reporting-1.md | FIXED | The Spearman bench sets _rank_stats.SPEARMAN_NJIT_MIN_N (where spearman reads it) instead of the removed prediction_stability attribute. Test test_cluster20_nan_prevalence_bench_and_pdp_warn.py |
+| 20-F26 | 20_reporting-1.md | FIXED | metric_over_time marks the axis as time only for a datetime index; otherwise x_is_time is False and the label is bucket. Test test_cluster20_axis_contracts_and_probes.py |
+| 20-F27 | 20_reporting-1.md | FIXED | A failed SHAP pair choice in the 2-D PDP is logged at WARNING (was DEBUG), naming the exception. Test test_cluster20_nan_prevalence_bench_and_pdp_warn.py. tests/reporting/test_cluster20_nan_prevalence_bench_and_pdp_warn.py, tests/reporting/test_cluster20_axis_contracts_and_probes.py; existing chart tests 992 passed, one unrelated xgb dmatrix shim failure not checked on HEAD |
 | 20-F28 | 20_reporting-1.md | FIXED | Binary composer docstring corrected to the real default panel constant (ROC PR SCORE_DIST THRESHOLD); KS and GAIN stated as opt-in. Test tests/reporting/test_cluster20_binary_default_panels_doc.py. |
 | 20-F29 | 20_reporting-1.md | FIXED | Confusion-matrix hidden-values note is joined to the title only when a title is set, so a missing title no longer becomes the literal 'None'. Test tests/reporting/test_cluster20_confusion_title_none.py (source pin); existing confusion-matrix tests pass. |
 | 20-F30 | 20_reporting-1.md | WON'T FIX | _per_query_groups has no production caller, but it is the parity reference for the live group slices: two tests import it, and the shared uncalled-functions allowlist classifies it as a deliberately kept reference. Not deleted. |
