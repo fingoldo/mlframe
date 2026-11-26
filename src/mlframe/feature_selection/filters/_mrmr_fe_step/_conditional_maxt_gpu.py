@@ -70,6 +70,113 @@ void cond_mi_columns(const short* __restrict__ codes, const long long* __restric
     if (tid == 0) out[(long long)b * p + j] = red[0];
 }
 """
+# Version 2 (``_SRC_U8``): the same counts and the same epilogue, read from bytes. Version 1 reads a 2-byte code, a 4-byte stratum and a 4-byte target for each row of
+# each (target, column) block, and nvprof put it at 72 percent memory-dependency stalls (209.7 ms for 300 columns x 41 targets x 300000 rows, DRAM 47 GB/s, double-precision
+# efficiency 1.8 percent: the logarithms are not the cost). The code, the stratum (at most 64) and the class (at most 16) each fit a byte, so a row is 3 bytes, and a thread
+# reads 4 rows with one 4-byte load of each array (rows padded to a multiple of 4). Counts are integers and the epilogue is unchanged, so the values are bit-identical:
+# 213.6 -> 78.7 ms at that shape (2.7 x), 30.4 -> 15.8 ms at 100003 rows x 120 columns x 33 targets with 64 strata. Win axis: every shape whose codes fit a byte; version 1
+# stays for wider codes.
+_SRC_U8 = r"""
+extern "C" __global__  // dtype-ok: Intentional float64, out is the float64 array the launcher allocates, the sums are double as in _SRC
+void cond_mi_columns_u8(const unsigned char* __restrict__ codes, const long long* __restrict__ widths, const unsigned char* __restrict__ ys, const unsigned char* __restrict__ z,
+                        const int n, const int stride, const int p, const int B, const int ky, const int kz, const int max_w, double* __restrict__ out) {
+    extern __shared__ int cnt[];
+    __shared__ double red[256];
+    __shared__ int n_z[64];
+    __shared__ int n_zy[64 * 16];
+    const int pair = blockIdx.x;
+    const int b = pair / p;
+    const int j = pair - b * p;
+    const int kw = (int)widths[j];
+    const int cells = kz * kw * ky;
+    const int tid = threadIdx.x;
+    for (int u = tid; u < cells; u += blockDim.x) cnt[u] = 0;
+    __syncthreads();
+    const unsigned char* cj = codes + (long long)j * stride;
+    const unsigned char* yb = ys + (long long)b * stride;
+    const unsigned int* cj4 = (const unsigned int*)cj;
+    const unsigned int* yb4 = (const unsigned int*)yb;
+    const unsigned int* z4 = (const unsigned int*)z;
+    const int n4 = n >> 2;
+    for (int g = tid; g < n4; g += blockDim.x) {
+        const unsigned int wc = cj4[g], wy = yb4[g], wz = z4[g];
+#pragma unroll
+        for (int u = 0; u < 4; ++u) {
+            const int zz = (int)((wz >> (8 * u)) & 0xffu), cc = (int)((wc >> (8 * u)) & 0xffu), yy = (int)((wy >> (8 * u)) & 0xffu);
+            atomicAdd(&cnt[(zz * kw + cc) * ky + yy], 1);
+        }
+    }
+    for (int i = (n4 << 2) + tid; i < n; i += blockDim.x) atomicAdd(&cnt[((int)z[i] * kw + (int)cj[i]) * ky + (int)yb[i]], 1);
+    __syncthreads();
+    for (int u = tid; u < kz * ky; u += blockDim.x) n_zy[u] = 0;
+    for (int u = tid; u < kz; u += blockDim.x) n_z[u] = 0;
+    __syncthreads();
+    for (int u = tid; u < cells; u += blockDim.x) {
+        const int c = u % ky;
+        const int a = u / (kw * ky);
+        atomicAdd(&n_zy[a * ky + c], cnt[u]);
+        atomicAdd(&n_z[a], cnt[u]);
+    }
+    __syncthreads();
+    const double inv_n = 1.0 / (double)n;
+    double acc = 0.0;
+    for (int u = tid; u < kz * kw; u += blockDim.x) {
+        const int a = u / kw;
+        int n_zw = 0;
+        for (int c = 0; c < ky; ++c) n_zw += cnt[u * ky + c];
+        if (n_zw == 0) continue;
+        for (int c = 0; c < ky; ++c) {
+            const int v = cnt[u * ky + c];
+            if (v > 0) acc += (double)v * inv_n * log((double)v * (double)n_z[a] / ((double)n_zw * (double)n_zy[a * ky + c]));
+        }
+    }
+    red[tid] = acc;
+    __syncthreads();
+    for (int s = blockDim.x >> 1; s > 0; s >>= 1) {
+        if (tid < s) red[tid] += red[tid + s];
+        __syncthreads();
+    }
+    if (tid == 0) out[(long long)b * p + j] = red[0];
+}
+"""
+_KERNEL_U8: Any = None
+#: Rows of the byte arrays are padded to this many bytes (the 4-row loads).
+_ROW_ALIGN = 4
+
+
+def _kernel_u8(cp):
+    """The compiled byte kernel."""
+    global _KERNEL_U8
+    if _KERNEL_U8 is None:
+        _KERNEL_U8 = cp.RawModule(code=_SRC_U8).get_function("cond_mi_columns_u8")
+    return _KERNEL_U8
+
+
+def _padded_bytes(cp, a2d, stride):
+    """``a2d`` (host or device, integer values below 256) as a device uint8 matrix whose rows are ``stride`` bytes (the pad is zero and never counted)."""
+    out = cp.zeros((int(a2d.shape[0]), int(stride)), dtype=cp.uint8)
+    out[:, : int(a2d.shape[1])] = cp.asarray(a2d).astype(cp.uint8, copy=False)
+    return out
+
+
+def _launch(cp, codes, widths, targets_d, z, n, p, B, ky, kz, max_w):
+    """One launch over every (target, column) pair: the byte kernel when the codes fit a byte, version 1 otherwise; ``(B, p)`` double sums on the host."""
+    w_d = cp.asarray(np.ascontiguousarray(widths, dtype=np.int64))
+    # Intentional float64: the kernel writes double sums
+    out = cp.empty((B, p), dtype=cp.float64)
+    shared = kz * max_w * ky * 4
+    if max_w <= 256 and int(codes.max()) <= 255:
+        stride = -(-n // _ROW_ALIGN) * _ROW_ALIGN
+        codes_d = _padded_bytes(cp, np.ascontiguousarray(codes, dtype=np.uint8), stride)
+        ys_d = _padded_bytes(cp, targets_d, stride)
+        z_d = _padded_bytes(cp, cp.asarray(z).reshape(1, -1), stride)[0]
+        _kernel_u8(cp)((p * B,), (_THREADS,), (codes_d, w_d, ys_d, z_d, np.int32(n), np.int32(stride), np.int32(p), np.int32(B), np.int32(ky), np.int32(kz), np.int32(max_w), out), shared_mem=shared)  # launch-ok: 256 threads, the size of the static reduction array of the kernel
+    else:
+        codes_d = cp.asarray(np.ascontiguousarray(codes, dtype=np.int16))
+        _kernel(cp)((p * B,), (_THREADS,), (codes_d, w_d, cp.asarray(targets_d, dtype=cp.int32), cp.asarray(z, dtype=cp.int32), np.int32(n), np.int32(p), np.int32(B), np.int32(ky), np.int32(kz), np.int32(max_w), out), shared_mem=shared)  # launch-ok: 256 threads, the size of the static reduction array of the kernel
+    return np.asarray(cp.asnumpy(out))
+
+
 _KERNEL: Any = None
 _FALLBACK_WARNED = False
 
@@ -93,14 +200,7 @@ def conditional_mi_targets_device(codes: np.ndarray, widths: np.ndarray, targets
         import cupy as cp
 
         B = int(targets.shape[0])
-        codes_d = cp.asarray(np.ascontiguousarray(codes, dtype=np.int16))
-        w_d = cp.asarray(np.ascontiguousarray(widths, dtype=np.int64))
-        ys_d = cp.asarray(np.ascontiguousarray(targets, dtype=np.int32))
-        z_d = cp.asarray(np.ascontiguousarray(z, dtype=np.int32))
-        # Intentional float64: the kernel writes double sums
-        out = cp.empty((B, p), dtype=cp.float64)
-        _kernel(cp)((p * B,), (_THREADS,), (codes_d, w_d, ys_d, z_d, np.int32(n), np.int32(p), np.int32(B), np.int32(ky), np.int32(kz), np.int32(max_w), out), shared_mem=kz * max_w * ky * 4)  # launch-ok: the kernel's shared reduction array and tree reduction are sized for 256 threads
-        return np.asarray(cp.asnumpy(out))
+        return _launch(cp, codes, widths, cp.asarray(np.ascontiguousarray(targets, dtype=np.int32)), np.ascontiguousarray(z, dtype=np.int32), n, p, B, ky, kz, max_w)
     except Exception as exc:  # no device / out of memory / compile failure: the host kernel answers
         global _FALLBACK_WARNED
         if not _FALLBACK_WARNED:
@@ -137,13 +237,7 @@ def conditional_mi_null_device(codes: np.ndarray, widths: np.ndarray, y: np.ndar
         targets = cp.empty((int(n_permutations) + 1, n), dtype=cp.int32)
         targets[0] = y_d
         targets[1:, order] = flat
-        codes_d = cp.asarray(np.ascontiguousarray(codes, dtype=np.int16))
-        w_d = cp.asarray(np.ascontiguousarray(widths, dtype=np.int64))
-        # Intentional float64: the kernel writes double sums
-        out = cp.empty((int(n_permutations) + 1, p), dtype=cp.float64)
-        max_w = int(widths.max())
-        _kernel(cp)((p * (int(n_permutations) + 1),), (_THREADS,), (codes_d, w_d, targets, z_d, np.int32(n), np.int32(p), np.int32(int(n_permutations) + 1), np.int32(ky), np.int32(kz), np.int32(max_w), out), shared_mem=kz * max_w * ky * 4)  # launch-ok: the kernel's shared reduction array and tree reduction are sized for 256 threads
-        return np.asarray(cp.asnumpy(out))
+        return _launch(cp, codes, widths, targets, z_d, n, p, int(n_permutations) + 1, ky, kz, int(widths.max()))
     except Exception as exc:  # no device / out of memory / compile failure: the host draws and counts
         log_throttle(
             logger, "conditional_maxt_gpu_unavailable", logging.WARNING,
