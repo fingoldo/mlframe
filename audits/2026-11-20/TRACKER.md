@@ -1019,10 +1019,10 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 22-F16 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F17 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F18 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
-| 22-F19 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F19 | 22_root_modules-1.md | FIXED | IdentityEstimator.fit collects the label set with pd.unique for an object ndarray (no sort), so None next to strings no longer raises before the str-key fallback runs. Test tests/estimators/test_cluster22_estimator_contracts.py |
 | 22-F20 | 22_root_modules-1.md | FIXED | the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test |
-| 22-F21 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
-| 22-F22 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F21 | 22_root_modules-1.md | FIXED | MyDecorrelator.transform drops by the names recorded at fit when the DataFrame still has them all; position-based only when fit saw an ndarray. A reordered frame no longer loses the wrong columns. Test test_cluster22_estimator_contracts.py |
+| 22-F22 | 22_root_modules-1.md | FIXED | get_best_dummy_score retries the scorer unweighted only when the TypeError mentions sample_weight; any other TypeError propagates. Test test_cluster22_estimator_contracts.py; existing estimator tests 334 passed |
 | 22-F23 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F24 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F25 | 22_root_modules-1.md | FIXED | The fused bootstrap AUC/Brier/log-loss/ECE bundle returns None (not applicable) unless y is exactly 0/1, so a {1,2}, {-1,+1} or NaN-bearing encoding falls back to bootstrap_metrics instead of giving a meaningless AUC. Test tests/evaluation/test_cluster22_fused_bootstrap_binary_labels.py |

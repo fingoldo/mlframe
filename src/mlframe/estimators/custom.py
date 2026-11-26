@@ -444,7 +444,13 @@ class MyDecorrelator(TransformerMixin, BaseEstimator):
         # correlated_features_ is always integer positions (see fit's comment) -- position-based indexing
         # works identically for a DataFrame or an ndarray input, regardless of which type `fit` saw.
         if isinstance(X, pd.DataFrame):
-            drop_labels = [X.columns[c] for c in self.correlated_features_]
+            # By the NAMES recorded at fit when the frame still has them all: the positions were fixed against the fit-time column order, so a reordered
+            # frame dropped the wrong columns with no error (audit 22-F21). Without names (fit on an ndarray) the positions are all there is.
+            fit_names = getattr(self, "feature_names_in_", None)
+            if fit_names is not None and all(name in X.columns for name in fit_names):
+                drop_labels = [fit_names[c] for c in self.correlated_features_]
+            else:
+                drop_labels = [X.columns[c] for c in self.correlated_features_]
             return X.drop(labels=drop_labels, axis=1)
         keep = [j for j in range(n_cols) if j not in self.correlated_features_]
         return np.asarray(X)[:, keep]
@@ -682,7 +688,13 @@ class IdentityEstimator(BaseEstimator):
             # object-dtype label set with mixed types
             # (None + str) would TypeError on Python sorted(); use np.sort
             # when dtype is numeric, str-key fallback otherwise.
-            _y_arr = y.unique() if isinstance(y, pd.Series) else np.unique(y)
+            # np.unique SORTS, so an object ndarray holding None next to strings raised before the sorted-key fallback below could run; pd.unique
+            # collects the distinct values without comparing them (audit 22-F19).
+            if isinstance(y, pd.Series):
+                _y_arr = y.unique()
+            else:
+                _y_np = np.asarray(y)
+                _y_arr = pd.unique(_y_np.ravel()) if _y_np.dtype == object else np.unique(_y_np)
             if hasattr(_y_arr, "dtype") and _y_arr.dtype != object:
                 self.classes_ = np.sort(_y_arr)
             else:

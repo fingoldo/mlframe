@@ -91,9 +91,6 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F16: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F17: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F18: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
-- 22-F19: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
-- 22-F21: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
-- 22-F22: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F23: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F24: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F26: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
@@ -132,3 +129,9 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F14: FIXED. The persistence floor uses the row's actual mass beyond the active class as the rest mass, so every returned row sums to 1 even when the input row did not. The biz_val flicker test used rows summing to 0.9 and relied on the old arithmetic; its rows are normalised and the floor moved to 0.475 (inside the window that suppresses flicker without blocking real changes). Test test_cluster22_persistence_floor_row_sum.py
 
 - 22-F15: FIXED. fit_group_bias_correction excludes rows with a non-finite y_true or y_pred (warned), so one NaN no longer makes the global mean NaN and every shrunk ratio fall back to 1.0. Test test_cluster22_group_bias_nonfinite_rows.py
+
+- 22-F19: FIXED. IdentityEstimator.fit collects the label set with pd.unique for an object ndarray (no sort), so None next to strings no longer raises before the str-key fallback runs. Test tests/estimators/test_cluster22_estimator_contracts.py
+
+- 22-F21: FIXED. MyDecorrelator.transform drops by the names recorded at fit when the DataFrame still has them all; position-based only when fit saw an ndarray. A reordered frame no longer loses the wrong columns. Test test_cluster22_estimator_contracts.py
+
+- 22-F22: FIXED. get_best_dummy_score retries the scorer unweighted only when the TypeError mentions sample_weight; any other TypeError propagates. Test test_cluster22_estimator_contracts.py; existing estimator tests 334 passed

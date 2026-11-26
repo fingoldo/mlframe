@@ -63,7 +63,10 @@ def get_best_dummy_score(
         if test_sample_weight is not None:
             try:
                 dummy_score = scoring(model, X_test, y_test, sample_weight=test_sample_weight)
-            except TypeError:
+            except TypeError as exc:
+                # Retry unweighted only when the scorer does not take sample_weight; any other TypeError was silently re-run unweighted (audit 22-F22).
+                if "sample_weight" not in str(exc):
+                    raise
                 dummy_score = scoring(model, X_test, y_test)
         else:
             dummy_score = scoring(model, X_test, y_test)
