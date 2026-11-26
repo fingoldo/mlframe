@@ -90,7 +90,6 @@ Scope: the 72 files in `audits/2026-11-20/manifests/09_feature_engineering-2.txt
 - 09-F15: DEFERRED. tried an early return in the underdetermined branch; it broke the contract that the linear column stays finite. The real defect is the per-row exception path zeroing whole rows; needs a column-aware fix
 - 09-F24: FIXED. binary local-lift labels are normalised to {0,1} for both the global mean and the neighbour sums; tests/feature_engineering/transformer/test_cluster09_edges.py covers the KMeans path only, lift path covered by existing lift tests
 - 09-F26: FIXED. anchor count is capped by the row count, so a one-row fold yields one anchor; tests/feature_engineering/transformer/test_cluster09_edges.py
-- 09-F27: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F28: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F29: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F30: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
@@ -135,3 +134,5 @@ Scope: the 72 files in `audits/2026-11-20/manifests/09_feature_engineering-2.txt
 - 09-F35: FIXED. The quantile-neighbour graph is Euclidean (NearestNeighbors with the default metric) and the module docstring now says so; the cosine claim is gone. Test tests/feature_engineering/test_cluster09_quantile_neighbours_euclidean.py pins the requested metric (1 passed). The other docstrings listed in this finding are not re-checked here.
 
 - 09-F40: FIXED. pure_pos_smote and smote_distance choose SMOTE candidates by excluding the source index, not by slicing column 1 onward, so a duplicate that sorts first cannot leave self among the candidates. density_weighted_smote already excluded by index. Test tests/feature_engineering/test_cluster09_smote_no_self_candidate.py forces self into the second neighbour slot: it fails on the old code and passes on the fix (2 passed).
+
+- 09-F27: FIXED. Pairwise distances are built once per query chunk and class and reused for all bandwidths (_gaussian_kde_log_multi); results are bit-identical to the single-bandwidth calls. Test tests/feature_engineering/transformer/test_cluster09_kde_shared_distances.py.

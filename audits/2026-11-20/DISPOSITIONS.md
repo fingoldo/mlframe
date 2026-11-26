@@ -310,7 +310,6 @@
 | 09-F15 | DEFERRED | tried an early return in the underdetermined branch; it broke the contract that the linear column stays finite. The real defect is the per-row exception path zeroing whole rows; needs a column-aware fix |
 | 09-F24 | FIXED | binary local-lift labels are normalised to {0,1} for both the global mean and the neighbour sums; tests/feature_engineering/transformer/test_cluster09_edges.py covers the KMeans path only, lift path covered by existing lift tests |
 | 09-F26 | FIXED | anchor count is capped by the row count, so a one-row fold yields one anchor; tests/feature_engineering/transformer/test_cluster09_edges.py |
-| 09-F27 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F28 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F29 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F30 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
@@ -1600,3 +1599,5 @@
 | 17-F10 | FIXED | Fixed-[0,1] ECE/Brier kernels return NaN when a score lies outside [0,1] beyond 1e-9, matching fast_brier_score_loss and the fused block. Regression test added. Seven failures in test_metrics.py (fast_ice_only empty input, regression length_of numba typing) are in untouched code and not caused by this change. |
 
 | 17-F12 | FIXED | Quantile binning kernel locates each pocket by binary search (O(log nbins)); NaN scores stay in pocket 0 as before. Regression test compares with the old linear scan, including ties and edge values. |
+
+| 09-F27 | FIXED | Pairwise distances are built once per query chunk and class and reused for all bandwidths (_gaussian_kde_log_multi); results are bit-identical to the single-bandwidth calls. Test tests/feature_engineering/transformer/test_cluster09_kde_shared_distances.py. |
