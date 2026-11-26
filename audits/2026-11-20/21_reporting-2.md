@@ -67,7 +67,6 @@ Name-reference counts are a grep of `tests/` for each public or load-bearing nam
 - 21-F16: FIXED. metric direction uses the family name before any @k cutoff; same test file
 - 21-F8: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F9: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
-- 21-F12: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F14: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F18: FIXED. Perfect model gets a 'deferral cannot reduce error' verdict instead of 'insufficient data' (new branch for err_at_100 == 0). Test tests/reporting/test_cluster21_perfect_model_verdict.py drives build_risk_coverage_spec with a perfect model that has varying confidence.
 - 21-F17: FIXED. Training-curve alignment no longer holds the last value flat past a series' last logged sample: such series take the gap path, and _interp_with_gaps returns NaN beyond its last position. Test tests/reporting/test_cluster21_training_curve_tail_gap.py; existing training-curve tests (4 files) pass.
@@ -93,3 +92,5 @@ Name-reference counts are a grep of `tests/` for each public or load-bearing nam
 - 21-F15: FIXED. A failing decision_function/predict_proba/predict in the SHAP score proxy now logs a throttled WARNING stating that tail preservation is lost. Same test file.
 
 - 21-F10: FIXED. Low-evidence indices are mapped through the downsample selection (remap_low_evidence_indices) in both the matplotlib and plotly scatter, so weak points stay hollow after capping. Test tests/reporting/test_cluster21_low_evidence_survives_downsample.py.
+
+- 21-F12: FIXED. A static image replaced by an HTML file (burned kaleido or failing oneshot) or lost entirely is now counted in get_render_failure_stats(); the HTML file is still written and the figure handle kept. Test tests/reporting/test_cluster21_kaleido_html_fallback_is_counted.py.
