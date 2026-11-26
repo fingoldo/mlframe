@@ -133,7 +133,10 @@ def calibration_drift(
     if n_bins < 2:
         raise ValueError(f"n_bins must be >= 2, got {n_bins}")
 
-    base_rate = float(np.mean(yt)) if n else 0.0
+    # Over the finite labels only: one NaN label made the base rate NaN, which turned every per-window noise band NaN (audit 20-F11).
+    yt_num = np.asarray(yt, dtype=np.float64)
+    yt_ok = np.isfinite(yt_num)
+    base_rate = float(np.mean(yt_num[yt_ok])) if yt_ok.any() else 0.0
 
     if n == 0:
         empty_f = np.empty(0, dtype=np.float64)
@@ -246,7 +249,7 @@ def build_calibration_drift_spec(
             ),),),
             figsize=figsize,
         )
-    usable = result.n_windows - result.n_excluded_windows
+    usable = int(finite.sum())  # windows with a finite ECE; a window that was scored but came out NaN is not usable (audit 20-F11)
     usable_note = f"; {usable} of {result.n_windows} windows usable"
     if result.usable_window_fraction < 0.5:
         usable_note += " -- under half the timeline is monitored, so the trend is thinly supported"

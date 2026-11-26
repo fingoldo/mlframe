@@ -175,7 +175,10 @@ def compute_calibration_by_feature_heterogeneity(
     gap = float(eces.max() - eces.min())
     # Debiasing removes the systematic inflation, but the per-bin ECE still has sampling SPREAD that falls as
     # 1/sqrt(bin rows). The smallest bin therefore sets the largest gap that carries no information about the model.
-    prevalence = float(np.mean(np.asarray(y_true, dtype=np.float64).ravel()))
+    # Over the finite labels only: one NaN label made the prevalence NaN, so the noise floor was NaN and the traffic light silently lost it (audit 20-F10).
+    y_all = np.asarray(y_true, dtype=np.float64).ravel()
+    y_finite = y_all[np.isfinite(y_all)]
+    prevalence = float(np.mean(y_finite)) if y_finite.size else float("nan")
     noise_floor = max(null_ece_scale(int(r["n"]), prevalence, n_prob_bins) for r in records)
     return {
         "per_bin_ece": per_bin,

@@ -87,10 +87,8 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F3: DEFERRED. get_postcalibrators imports netcal, pycalib, ml_insights, betacal and venn_abers unguarded, and the calibrator list references their attributes directly. Making each optional means restructuring the whole zoo list per library. The change is mechanical but touches every entry; deferred to a dedicated pass with a test that blocks each module in turn.
 - 22-F13: FIXED. the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass
 - 22-F20: FIXED. the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test
-- 22-F9: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F10: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F11: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
-- 22-F12: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F14: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F15: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F16: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
@@ -101,7 +99,6 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F22: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F23: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F24: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
-- 22-F25: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F26: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F3: DEFERRED. Still deferred: get_postcalibrators imports six optional libraries unguarded and builds each calibrator inline. Guarding each entry means restructuring the zoo list per library; deferred to a dedicated pass with a test that blocks each module in turn.
 - 22-F3: FIXED. Each optional calibration library is imported separately; an absent one skips only its candidates (calibration/post.py get_postcalibrators); tests/calibration/test_cluster22_missing_calibrator_library_skipped.py
@@ -126,3 +123,9 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F31: FIXED. Recency-weight module docstring corrected: i counts back from the most recent (i = 1), matching the code, where the newest observation carries the largest weight. Test tests/core/test_cluster22_recency_index_convention.py.
 - 22-F32: FIXED. Tukey multiplier: lru_cache moved onto a helper that receives only hashable arguments; extra dist kwargs (possibly unhashable, e.g. array loc) bypass the cache instead of raising TypeError. The both-None guard was fixed earlier. Tests tests/core/test_cluster22_tukey_unhashable_kwargs.py (2) plus existing Tukey tests (8 total) and stats doctests (4) pass.
 - 22-F27: DEFERRED. Timing helpers in _bench_timing_shared.py differ in warmup semantics and are called by about a dozen bench scripts; consolidating to one implementation per shape needs a decision on the kept signatures. Not changed.
+
+- 22-F9: FIXED. _autoconfigure_cuda_home imports logging once at the top of the function; the two inner imports made logging a local name for the whole function, so the except handler raised UnboundLocalError when the probe failed first. Test tests/test_cluster22_cuda_autoconfig_logging.py
+
+- 22-F12: FIXED. show_classifier_calibration cuts a full-length ranking down to each interval's rows (positions inside [lo, r), shifted by lo, order kept) before binning, instead of passing it unchanged to the unchecked njit kernel. Test tests/calibration/test_cluster22_interval_ranking_slices.py; existing calibration tests 170 passed, 2 unrelated fast_r2 numba-typing failures in test_audit_divide_by_zero.py (metrics.regression, not touched)
+
+- 22-F25: FIXED. The fused bootstrap AUC/Brier/log-loss/ECE bundle returns None (not applicable) unless y is exactly 0/1, so a {1,2}, {-1,+1} or NaN-bearing encoding falls back to bootstrap_metrics instead of giving a meaningless AUC. Test tests/evaluation/test_cluster22_fused_bootstrap_binary_labels.py

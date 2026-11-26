@@ -790,7 +790,8 @@ def metric_over_time(
     idx = perf.index
     # Numeric x for the line (nanosecond epoch for timestamps; renderers format ticks via x_is_time). Datetime index
     # converts to int64 ns directly; a non-datetime fallback uses the row ordinal.
-    x = idx.values.astype("datetime64[ns]").astype(np.int64).astype(np.float64) if _is_datetime_index(idx) else np.arange(len(idx), dtype=np.float64)
+    is_time_index = _is_datetime_index(idx)
+    x = idx.values.astype("datetime64[ns]").astype(np.int64).astype(np.float64) if is_time_index else np.arange(len(idx), dtype=np.float64)
     yvals = perf[metric].to_numpy(dtype=np.float64)
 
     if x.size > max_vertices:
@@ -805,11 +806,12 @@ def metric_over_time(
         y=yvals,
         series_labels=(metric,),
         title=f"{metric} over time ({direction})" if title is None else title,
-        xlabel="time",
+        xlabel="time" if is_time_index else "bucket",
         ylabel=metric,
         line_styles=("lines+markers",),
         colors=("steelblue",),
-        x_is_time=x_is_time,
+        # Only a datetime index is a time axis; otherwise x is the bucket ordinal and epoch-date ticks would render it as 1970 (audit 20-F26).
+        x_is_time=bool(x_is_time) and is_time_index,
         vspans=vspans,
     )
     caption = (

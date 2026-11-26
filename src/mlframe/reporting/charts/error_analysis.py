@@ -193,6 +193,9 @@ def _resolve_feature_matrix_uncached(
     if mat.ndim == 1:
         mat = mat.reshape(-1, 1)
     names = list(feature_names) if feature_names is not None else [f"f{i}" for i in range(mat.shape[1])]
+    if feature_names is not None and len(names) != mat.shape[1]:
+        # The DataFrame path already refuses this; a short list here reached ``names[ja]`` as an IndexError and a long one was silently ignored (audit 20-F16).
+        raise ValueError(f"_resolve_feature_matrix: feature_names has {len(names)} entries but X has {mat.shape[1]} columns; they must correspond one-to-one.")
     return mat, names
 
 

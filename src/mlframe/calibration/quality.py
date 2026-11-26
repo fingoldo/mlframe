@@ -416,9 +416,16 @@ def show_classifier_calibration(
         else:
             r = lo + step
 
+        # ``indices`` ranks the FULL arrays. Each slice is binned on its own rows, so the ranking is cut down to the positions inside [lo, r) and shifted
+        # to slice-local ones, keeping the order. The full-length ranking was passed unchanged, so the njit kernel (no bounds check) read past the slice
+        # or binned the wrong rows (audit 22-F12).
+        slice_indices = indices
+        if indices is not None and nintervals > 1:
+            full = np.asarray(indices)
+            slice_indices = full[(full >= lo) & (full < r)] - lo
         try:
             x, y, data, performances = estimate_calibration_quality_binned(
-                y_true[lo:r], y_pred[lo:r], nbins=nbins, indices=indices, metrics_to_show=metrics_to_show
+                y_true[lo:r], y_pred[lo:r], nbins=nbins, indices=slice_indices, metrics_to_show=metrics_to_show
             )
         except (ValueError, ZeroDivisionError, IndexError):
             # Expected data-shape / empty-interval failures from binning: log and abort this call, returning None.

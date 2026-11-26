@@ -48,11 +48,14 @@ def main():
     new_min, new_med = _bench(lambda: ps._uncertainty_calibration(spread, abs_err, nbins=20))
     new_out = ps._uncertainty_calibration(spread, abs_err, nbins=20)
 
-    orig = cast(Any, ps)._SPEARMAN_NJIT_MIN_N
-    cast(Any, ps)._SPEARMAN_NJIT_MIN_N = 10**12
+    # The threshold lives in _rank_stats (the spearman it calls reads it there), not on prediction_stability (audit 20-F25).
+    from mlframe.reporting.charts import _rank_stats as rs
+
+    orig = rs.SPEARMAN_NJIT_MIN_N
+    rs.SPEARMAN_NJIT_MIN_N = 10**12
     old_min, old_med = _bench(lambda: ps._uncertainty_calibration(spread, abs_err, nbins=20))
     old_out = ps._uncertainty_calibration(spread, abs_err, nbins=20)
-    cast(Any, ps)._SPEARMAN_NJIT_MIN_N = orig
+    rs.SPEARMAN_NJIT_MIN_N = orig
 
     print(f"e2e @200k: OLD {old_min:.3f} ms (med {old_med:.3f}) -> NEW {new_min:.3f} ms (med {new_med:.3f}) = {old_min/new_min:.2f}x")
     print(f"Spearman  OLD {old_out[2]:.17g}  NEW {new_out[2]:.17g}  diff {abs(old_out[2]-new_out[2]):.3e}")

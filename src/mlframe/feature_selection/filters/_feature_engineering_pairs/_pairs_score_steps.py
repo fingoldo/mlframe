@@ -109,8 +109,22 @@ def _score_one_pair_step1_reads_buffer_have(
                 _ex = chunk_state.get("pipeline_ex")
                 _target_buf = _bufs[_my_chunk % 2] if _bufs is not None else _chunk_buffer
 
+                # The prefetch runs on the pipeline's worker thread, where the per-fit thread-locals (symmetric uncertainty, Miller-Madow, AUTO-STRICT, ...) and the CUDA
+                # device and allocator are the thread's defaults: publish the main thread's ones, as the edge pool does, so a prefetched chunk scores as an inline one.
+                from .._edge_pool import _capture_device_scope
+                from .._fit_context import capture_fit_context, fit_context_scope
+
+                _fit_ctx = capture_fit_context()
+                _device_scope = _capture_device_scope()
+                _use_su = use_su_normalization()
+
                 def _produce(_ci, _buf):
                     """Compute one FE chunk's engineered values into ``_buf``, for the pipelined worker to prefetch ahead of the consumer."""
+                    with fit_context_scope(_fit_ctx), _device_scope():
+                        return _produce_in_context(_ci, _buf)
+
+                def _produce_in_context(_ci, _buf):
+                    """``_compute_one_fe_chunk`` of chunk ``_ci`` into ``_buf`` with the caller's settings."""
                     return _compute_one_fe_chunk(
                         chunk_pairs=_fe_chunks[_ci],
                         pair_valid_combs=_pair_valid_combs,
@@ -126,7 +140,7 @@ def _score_one_pair_step1_reads_buffer_have(
                         fe_npermutations=fe_npermutations,
                         fe_min_nonzero_confidence=fe_min_nonzero_confidence,
                         batch_mi_kernel=batch_mi_with_noise_gate,
-                        use_su=use_su_normalization(),
+                        use_su=_use_su,
                         prewarp_unary=_PREWARP_UNARY,
                         logger=logger,
                         discretize_2d_quantile_batch=discretize_2d_quantile_batch,

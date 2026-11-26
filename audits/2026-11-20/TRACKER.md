@@ -949,24 +949,24 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 20-F7 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F8 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F9 | 20_reporting-1.md | FIXED | the DeLong warning now says labels outside {0, 1} are excluded from both classes, matching the code; no separate test |
-| 20-F10 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F11 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
+| 20-F10 | 20_reporting-1.md | FIXED | Heterogeneity noise floor uses the prevalence of the finite labels, so one NaN label no longer makes it NaN. Test test_cluster20_nan_prevalence_bench_and_pdp_warn.py |
+| 20-F11 | 20_reporting-1.md | FIXED | calibration_drift base rate is the mean of the finite labels, and the usable-window note counts windows with a finite ECE. Test tests/reporting/test_cluster20_drift_nan_label_base_rate.py |
 | 20-F12 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F13 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F14 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F15 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F16 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
+| 20-F16 | 20_reporting-1.md | FIXED | The ndarray path of _resolve_feature_matrix refuses feature_names whose length differs from the column count, as the DataFrame path does. Test test_cluster20_axis_contracts_and_probes.py |
 | 20-F17 | 20_reporting-1.md | FIXED | the per-alpha pinball panel drops non-finite rows first, as its sibling panels do; tests/reporting/test_cluster20_pinball_panel_nan.py |
 | 20-F18 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F19 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
+| 20-F19 | 20_reporting-1.md | FIXED | Relevance-grade count uses the value range (a span of at most 12 grades needs no scan), else a full unique, instead of probing only the first 50k rows. Test test_cluster20_axis_contracts_and_probes.py |
 | 20-F20 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F21 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F22 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F23 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
+| 20-F23 | 20_reporting-1.md | FIXED | category_discriminability_table checks X against y length before sampling, so a longer X is refused. Test test_cluster20_axis_contracts_and_probes.py |
 | 20-F24 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F25 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F26 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F27 | 20_reporting-1.md | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
+| 20-F25 | 20_reporting-1.md | FIXED | The Spearman bench sets _rank_stats.SPEARMAN_NJIT_MIN_N (where spearman reads it) instead of the removed prediction_stability attribute. Test test_cluster20_nan_prevalence_bench_and_pdp_warn.py |
+| 20-F26 | 20_reporting-1.md | FIXED | metric_over_time marks the axis as time only for a datetime index; otherwise x_is_time is False and the label is bucket. Test test_cluster20_axis_contracts_and_probes.py |
+| 20-F27 | 20_reporting-1.md | FIXED | A failed SHAP pair choice in the 2-D PDP is logged at WARNING (was DEBUG), naming the exception. Test test_cluster20_nan_prevalence_bench_and_pdp_warn.py. tests/reporting/test_cluster20_nan_prevalence_bench_and_pdp_warn.py, tests/reporting/test_cluster20_axis_contracts_and_probes.py; existing chart tests 992 passed, one unrelated xgb dmatrix shim failure not checked on HEAD |
 | 20-F28 | 20_reporting-1.md | FIXED | Binary composer docstring corrected to the real default panel constant (ROC PR SCORE_DIST THRESHOLD); KS and GAIN stated as opt-in. Test tests/reporting/test_cluster20_binary_default_panels_doc.py. |
 | 20-F29 | 20_reporting-1.md | FIXED | Confusion-matrix hidden-values note is joined to the title only when a title is set, so a missing title no longer becomes the literal 'None'. Test tests/reporting/test_cluster20_confusion_title_none.py (source pin); existing confusion-matrix tests pass. |
 | 20-F30 | 20_reporting-1.md | WON'T FIX | _per_query_groups has no production caller, but it is the parity reference for the live group slices: two tests import it, and the shared uncalled-functions allowlist classifies it as a deliberately kept reference. Not deleted. |
@@ -1009,10 +1009,10 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 21-F26 | 21_reporting-2.md | PARTIAL | SHAP per-instance result docstring now says the figure is closed on return (the finally closes it) and that n_background counts explained rows. Not changed: the same closed-figure pattern in shap_panels.py:811-812 named in the finding, and the field itself is not renamed (API). Test tests/reporting/test_cluster21_shap_result_docs.py (docstring pins). |
 | 21-F27 | 21_reporting-2.md | FIXED | Split-name canonicalisation raises ValueError when two keys normalise to the same name, instead of silently overwriting. Test tests/reporting/test_cluster21_split_names_collision.py; 31 existing split-comparison tests pass. |
 | 21-F28 | 21_reporting-2.md | FIXED | Binary split takes the positive column of a (n, 2) predict_proba and refuses other multi-column shapes instead of raveling them against an n-length label vector. Test tests/reporting/test_cluster21_binary_score_shape.py; 31 existing split-comparison tests pass. |
-| 22-F9 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F9 | 22_root_modules-1.md | FIXED | _autoconfigure_cuda_home imports logging once at the top of the function; the two inner imports made logging a local name for the whole function, so the except handler raised UnboundLocalError when the probe failed first. Test tests/test_cluster22_cuda_autoconfig_logging.py |
 | 22-F10 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F11 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
-| 22-F12 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F12 | 22_root_modules-1.md | FIXED | show_classifier_calibration cuts a full-length ranking down to each interval's rows (positions inside [lo, r), shifted by lo, order kept) before binning, instead of passing it unchanged to the unchecked njit kernel. Test tests/calibration/test_cluster22_interval_ranking_slices.py; existing calibration tests 170 passed, 2 unrelated fast_r2 numba-typing failures in test_audit_divide_by_zero.py (metrics.regression, not touched) |
 | 22-F13 | 22_root_modules-1.md | FIXED | the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass |
 | 22-F14 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F15 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
@@ -1025,7 +1025,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 22-F22 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F23 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F24 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
-| 22-F25 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
+| 22-F25 | 22_root_modules-1.md | FIXED | The fused bootstrap AUC/Brier/log-loss/ECE bundle returns None (not applicable) unless y is exactly 0/1, so a {1,2}, {-1,+1} or NaN-bearing encoding falls back to bootstrap_metrics instead of giving a meaningless AUC. Test tests/evaluation/test_cluster22_fused_bootstrap_binary_labels.py |
 | 22-F26 | 22_root_modules-1.md | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F27 | 22_root_modules-1.md | DEFERRED | Timing helpers in _bench_timing_shared.py differ in warmup semantics and are called by about a dozen bench scripts; consolidating to one implementation per shape needs a decision on the kept signatures. Not changed. |
 | 22-F28 | 22_root_modules-1.md | FIXED | The secondary-ECE None is passed straight into the holdout helper; the redundant assignment is removed (the helper's parameter is the starting value, so the assignment was not dead). Covered by the calibration policy tests (4 pass). |
