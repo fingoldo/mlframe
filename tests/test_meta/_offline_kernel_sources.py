@@ -106,6 +106,7 @@ _RECIPES: dict = {
     # the code dtypes of ``_batch_mi_noise_gate_bits._C_TYPES``: the gather / transpose kernels of the family gate and the Feistel shuffle are built once for the dtype of the codes they move
     "_family_columns_gather_cuda.py::_SRC": lambda s: [(dt, _fill(s, **{"{DT}": dt}), ()) for dt in ("signed char", "unsigned char", "short", "int", "long long")],
     "_permutation_shuffle_cuda.py::_SRC": lambda s: [(dt, _fill(s, **{"{DT}": dt}), ()) for dt in ("signed char", "unsigned char", "short", "int", "long long")],
+    "_family_columns_dedupe_cuda.py::_SRC": lambda s: [(dt, _fill(s, **{"{DT}": dt}), ()) for dt in ("signed char", "unsigned char", "short", "int", "long long")],
     "_pair_mi_perm_cuda.py::_SRC": lambda s: [(f"KB={kb}", _fill(s, **{"{ACC}": "double"}), (f"-DKB={kb}",)) for kb in (1, 4, 8)],
     "_pair_mi_perm_cuda_bin.py::_SRC": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
     "_pair_mi_perm_cuda_bin.py::_SRC_LUT": lambda s: [("default", _fill(s, **{"{ACC}": "double"}), ())],
