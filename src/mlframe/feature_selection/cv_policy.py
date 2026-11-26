@@ -238,6 +238,22 @@ def partition_folds(
     return [(tr, te) for tr, te in GroupKFold(n_splits=n_splits).split(np.empty(n), groups=np.asarray(policy.groups))]
 
 
+def forward_chain_folds(policy: Optional[CVPolicy], n: int, n_splits: int) -> Optional[List[Tuple[np.ndarray, np.ndarray]]]:
+    """Forward-chained ``(train, test)`` folds for a temporal policy: fold ``i`` trains on the blocks before block ``i`` only and tests on block ``i``.
+
+    No fold ever trains on a later row, so a score taken from it cannot see the future (audit 2026-11-20, finding 24-F45). The first block has no
+    earlier data and is never a test set, so the folds cover blocks ``1..n_splits-1``. Returns None when the policy is not temporal or there are
+    too few rows to form ``n_splits`` blocks; a grouped or i.i.d. policy keeps its own folds (see ``partition_folds``).
+    """
+    if policy is None or policy.kind != "temporal" or n < 2 * n_splits:
+        return None
+    order = _chronological_positions(policy, n)
+    if order is None:
+        return None
+    blocks = np.array_split(order, n_splits)
+    return [(np.sort(np.concatenate(blocks[:i])), np.sort(blocks[i])) for i in range(1, n_splits)]
+
+
 def holdout_indices(policy: Optional[CVPolicy], n: int, test_size: float, *, random_state: int = 0) -> Optional[Tuple[np.ndarray, np.ndarray]]:
     """``(search_idx, holdout_idx)`` positions, both ascending: the newest ``test_size`` rows (temporal) or whole groups (grouped).
 

@@ -114,10 +114,14 @@ def _fold_indices(n: int, k: int, rng: np.random.Generator) -> list[np.ndarray]:
 
 
 def _vote_folds(cv_policy: Any, n: int, k: int, rng: np.random.Generator) -> list[np.ndarray]:
-    """Held-out fold index arrays: contiguous time blocks / whole groups under a temporal / grouped shared policy, else the seeded shuffled partition."""
-    from mlframe.feature_selection.cv_policy import partition_folds
+    """Held-out fold index arrays: forward-chained time blocks under a temporal shared policy (no fold tests on rows that have a later row in its
+    training part, audit 24-F45), whole groups under a grouped policy, else the seeded shuffled partition. A temporal vote has ``k - 1`` folds:
+    the first block has no earlier data and is never a test set, and the quorum adapts to the folds actually evaluated."""
+    from mlframe.feature_selection.cv_policy import forward_chain_folds, partition_folds
 
-    policy_folds = partition_folds(cv_policy, n, k)
+    policy_folds = forward_chain_folds(cv_policy, n, k)
+    if policy_folds is None:
+        policy_folds = partition_folds(cv_policy, n, k)
     return [te for _, te in policy_folds] if policy_folds is not None else _fold_indices(n, k, rng)
 
 
