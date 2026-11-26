@@ -203,6 +203,7 @@ def _hybrid_orth_family_variants_group1_part1(
                 top_triplet_seed_k=_t_seed_k,
                 top_triplet_count=_t_top_count,
                 explicit_triplets=_explicit_triplets,
+                skip_univariate_stage=True,  # only the triplet columns are kept below: the univariate stage would be computed and replayed for nothing
             )
             _t_appended = [c for c in X_t.columns if c not in _X_before_triplet_cols]
             # Only keep TRUE triplet columns (3 legs joined by '*');

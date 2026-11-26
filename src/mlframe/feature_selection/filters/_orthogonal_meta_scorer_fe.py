@@ -109,6 +109,7 @@ from mlframe.utils.log_throttle import log_throttle
 
 import importlib
 import logging
+from collections.abc import Collection
 from typing import Optional, Sequence, cast
 
 import numpy as np
@@ -684,17 +685,23 @@ def hybrid_orth_mi_meta_fe_with_recipes(
     min_abs_mi_frac: float = 0.05,
     force_scorer: Optional[str] = None,
     random_state: int = 0,
+    already_run: Optional[Collection[str]] = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, list, str, dict]:
     """Same as :func:`hybrid_orth_mi_meta_fe` plus a list of
     ``orth_univariate`` recipes from the dispatched scorer - one per
     appended column - so that ``MRMR.transform`` can recompute each
     engineered column on test data without re-running the meta-cascade.
+
+    ``already_run``: scorers whose own gate the caller ran on the same input with the arguments this would dispatch with. When the chosen scorer
+    is one of them it is not run again: ``X`` comes back unchanged with empty scores and no recipes (the gate already appended its columns).
     """
     fp = fingerprint_signal(X, y, cols=cols, random_state=int(random_state))
     if force_scorer is not None:
         chosen = str(force_scorer).lower()
     else:
         chosen = predict_best_scorer(fp)
+    if already_run and chosen in already_run:
+        return X, pd.DataFrame(columns=["engineered_col", "source_col", "baseline_mi", "engineered_mi", "uplift"]), [], chosen, fp
     result = _dispatch_scorer(
         chosen, X, y,
         cols=cols, degrees=degrees, basis=basis,

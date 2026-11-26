@@ -751,6 +751,7 @@ def hybrid_orth_mi_triplet_fe(
     triplet_min_abs_mi_frac: float = 0.1,
     nbins: int = 10,
     explicit_triplets: Optional[Sequence[tuple]] = None,
+    skip_univariate_stage: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Two-stage hybrid: (1) univariate orthogonal-poly FE + MI-greedy,
     then (2) cross-basis TRIPLET FE on the top-N raw source columns by
@@ -785,6 +786,10 @@ def hybrid_orth_mi_triplet_fe(
     top_triplet_seed_k : int
         How many top raw source columns (by MI to y) to pull into the
         triplet seed pool. With N=4 we enumerate C(4,3)=4 triplets.
+    skip_univariate_stage : bool
+        Do not run stage 1. The triplet seeds then take the raw columns' baseline MI from ``cached_raw_mi_baseline`` (the same plug-in estimator
+        stage 1 uses for its baseline), so the seeds and the triplet winners are the same; the univariate winners are not produced. MRMR keeps only
+        the triplet columns of this family, so it skips the stage (13 s of a 500000 x 1000 fit, and the full-length replay of the discarded winners).
     triplet_min_uplift, triplet_min_abs_mi_frac : float
         Accepted for signature compatibility and not read by this function: the gate is the conditional CMI test in
         ``score_triplet_cross_basis_by_cmi``.
@@ -798,7 +803,19 @@ def hybrid_orth_mi_triplet_fe(
         triplet_scores : ranking DataFrame from stage 2.
     """
     # Stage 1: univariate hybrid (Layer 21).
-    X_aug_uni, uni_scores = hybrid_orth_mi_fe(
+    if skip_univariate_stage:
+        X_aug_uni, uni_scores = X, pd.DataFrame(columns=["engineered_col", "source_col", "baseline_mi", "engineered_mi", "uplift"])
+    else:
+        X_aug_uni, uni_scores = _stage_one(X, y, cols, degrees, basis, top_k, min_uplift, min_abs_mi_frac, nbins)
+
+    seed_sources, explicit_triplets = _triplet_seed_sources(X, y, cols, uni_scores, explicit_triplets, top_triplet_seed_k, nbins)
+    out: tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame] = _triplet_stage(X, y, X_aug_uni, uni_scores, seed_sources, explicit_triplets, top_triplet_count, triplet_max_degree, basis, nbins)
+    return out
+
+
+def _stage_one(X, y, cols, degrees, basis, top_k, min_uplift, min_abs_mi_frac, nbins):
+    """Stage 1 of the triplet hybrid: the univariate orthogonal-poly winners and their scores (``hybrid_orth_mi_fe``)."""
+    return hybrid_orth_mi_fe(
         X,
         y,
         cols=cols,
@@ -810,8 +827,9 @@ def hybrid_orth_mi_triplet_fe(
         nbins=nbins,
     )
 
-    seed_sources, explicit_triplets = _triplet_seed_sources(X, y, cols, uni_scores, explicit_triplets, top_triplet_seed_k, nbins)
 
+def _triplet_stage(X, y, X_aug_uni, uni_scores, seed_sources, explicit_triplets, top_triplet_count, triplet_max_degree, basis, nbins):
+    """Stage 2 of the triplet hybrid: the cross-basis triplets of the seed pool scored by CMI, the winners appended after the stage-1 winners."""
     resolved = _resolve_triplets(X, explicit_triplets, seed_sources, top_triplet_count)
     if resolved is None:
         return X_aug_uni, uni_scores, pd.DataFrame(columns=_TRIPLET_SCORE_EMPTY_COLS)
