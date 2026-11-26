@@ -261,7 +261,8 @@ def test_f8_run_heavy_automl_flag_registered():
     from pathlib import Path
 
     repo_root = str(Path(__file__).resolve().parents[2])
-    node_filter = ["-k", "test_basic_training or test_training_with_test_df"]
+    # One process without the random-order plugin: the planned xdist workers and the reseeders each re-import the training stack (3x slower, measured).
+    node_filter = ["-p", "no:randomly", "-n", "0", "-k", "test_basic_training or test_training_with_test_df"]
 
     without_flag = subprocess.run(
         [sys.executable, "-m", "pytest", "tests/training/test_automl.py", "-q", "--no-cov", *node_filter],
