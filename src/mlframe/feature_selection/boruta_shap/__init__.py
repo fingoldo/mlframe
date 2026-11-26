@@ -140,6 +140,7 @@ class BorutaShap(BorutaShapProtocolMixin, TransformerMixin, BaseEstimator):
             of 1 or less disable it and run a single fit.
         stability_subsample_fraction: Fraction of rows in each stability subsample.
         stability_threshold: Fraction of subsamples in which a feature must be accepted to be kept; 1.0 is the intersection.
+        stability_n_jobs: Threads for the independent stability sub-fits (joblib threading); ``-1`` uses all cores, ``1`` runs them serially.
         early_stop_tentative: Opt-in margin-gated adaptive trial-stop for the residual tentative tail. Default OFF, so behaviour is
             byte-identical to the prior fixed-cap run. When True the trial loop stops early (before the n_trials cap)
             once the tail is provably stuck: the accepted set has been unchanged for ``early_stop_patience`` trials AND
@@ -192,6 +193,7 @@ class BorutaShap(BorutaShapProtocolMixin, TransformerMixin, BaseEstimator):
         stability_subsamples: int = 0,
         stability_subsample_fraction: float = 0.75,
         stability_threshold: float = 1.0,
+        stability_n_jobs: int = -1,
         early_stop_tentative: bool = False,
         early_stop_patience: int = 20,
         early_stop_margin: float = 0.15,
@@ -250,6 +252,7 @@ class BorutaShap(BorutaShapProtocolMixin, TransformerMixin, BaseEstimator):
         self.stability_subsamples = stability_subsamples
         self.stability_subsample_fraction = stability_subsample_fraction
         self.stability_threshold = stability_threshold
+        self.stability_n_jobs = stability_n_jobs  # a real constructor parameter, so get_params and clone keep it (audit 13-F20)
 
         # Margin-gated adaptive trial-stop for the residual TENTATIVE TAIL (opt-in; default OFF -> byte-identical
         # to the prior behaviour). The shipped all-decided early-stop (in the trial loop) only fires when ZERO
