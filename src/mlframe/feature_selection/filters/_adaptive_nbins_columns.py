@@ -117,6 +117,7 @@ def _partition(col: np.ndarray, y: Optional[np.ndarray], base: str, kwargs: dict
     """Edges of the ``quantile`` / ``uniform`` schemes with the bin count of ``count_rule`` capped at ``nbins_cap``."""
     return _an().edges_partition(
         col, kwargs["partition"], kwargs["count_rule"], cap=kwargs.get("nbins_cap", _an().DEFAULT_NBINS_CAP), fixed_nbins=kwargs.get("fixed_nbins", 10), alpha=kwargs.get("qs_alpha", 0.30),
+        facts=kwargs.get("_unique_facts"),
     )
 
 
@@ -446,7 +447,7 @@ def _compute_col_edges_uncached(col: np.ndarray, method_resolved: str, base: str
     builder = _EDGE_BUILDERS.get(method_resolved)
     if builder is None:
         raise NotImplementedError(method_resolved)
-    edges = builder(col, y, base, kwargs if _presorted is None else {**kwargs, "_presorted": _presorted})
+    edges = builder(col, y, base, {**kwargs, "_unique_facts": (_uniq, _uniq_counts)} if method_resolved == "partition" else (kwargs if _presorted is None else {**kwargs, "_presorted": _presorted}))
     if method_resolved in _SUPERVISED_METHODS:
         edges = _collapsed_supervised_edges(edges, col, _finite, base, kwargs, _facts_key, _uniq, _uniq_counts, _presorted)
     edges = _sparse_dominance_edges(edges, _finite, _uniq, _uniq_counts, kwargs)

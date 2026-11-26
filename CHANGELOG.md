@@ -11,6 +11,7 @@ history.
 
 ## [Unreleased]
 ### Fixed
+- The quantile bin edges of a column are read off the distinct values and counts the edge search already computes for it (`quantiles_from_runs`), so the column is sorted once, not twice: 160 columns of 500000 rows 2.8 -> 2.4 s and 17.0 -> 14.9 CPU-seconds, the same edges.
 - The quantile bin edges of a float32 column held in double precision (the form the edge search reads its columns in) come from the radix sort of its float32 copy instead of `np.percentile`: 23.2 -> 12.5 ms for 500000 values, the same edges.
 - The MDLP edge search can take the sort, the distinct values and the duplicate-pair collapse of its columns from the device in blocks of 8 (`MLFRAME_MDLP_GPU_PRESORT=1`; two fused kernels, page-locked downloads, the same edges: 2.87 against 3.16 s and 11.0 against 15.8 CPU-seconds for 160 columns of 500000 rows on an idle card). Off by default: a paired 500000 x 1000 fit with it took 628.5 s against 482.7 s without it.
 - The pair maxT null floor of the default (quantile) binning reads the MI of a cell from a table of c ln c instead of two double-precision logarithms, and the warps of a block share the cells of a permutation (`_SRC_LUT` in `_pair_mi_perm_cuda_bin`, kernel 136 -> 13.4 ms for 600 pairs of 48 x 48 bins at 55296 rows, values equal to 4e-15; the pooled floor of a 500000 x 1000 fit 150 -> 45 s, wall 586 -> 470 s with the same selection; `MLFRAME_PAIR_PERM_LUT=0` runs the logarithm kernel).

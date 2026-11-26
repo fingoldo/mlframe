@@ -54,3 +54,16 @@ def test_the_float32_route_is_unchanged():
     """A float32 vector takes the route it always did and gives the same numbers as its widened twin."""
     x32 = _column(50_000, 5, "normal").astype(np.float32)
     assert np.array_equal(sorted_quantiles(x32, PCT / 100.0), sorted_quantiles(x32.astype(np.float64), PCT / 100.0))
+
+
+@pytest.mark.parametrize("kind", ["normal", "ties", "both zeros", "few values"])
+@pytest.mark.parametrize("n", [60_000, 260_000])
+def test_unique_with_counts_of_an_exact_float32_double_vector_equals_numpys(kind, n):
+    """Above ``_NARROW_UNIQUE_MIN_SIZE`` the sort runs on the float32 copy: the distinct values (double precision, the zero's sign included up to what numpy's own ordering decides) and the counts are ``np.unique``'s."""
+    from mlframe.feature_selection.filters.discretization._quantile_radix import unique_with_counts
+
+    x = _column(n, 11, kind)
+    values, counts = unique_with_counts(x)
+    ref_values, ref_counts = np.unique(x, return_counts=True)
+    assert values.dtype == np.float64 and counts.dtype == ref_counts.dtype
+    assert np.array_equal(values, ref_values) and np.array_equal(counts, ref_counts)

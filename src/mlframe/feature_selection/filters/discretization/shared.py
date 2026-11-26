@@ -17,7 +17,7 @@ from ._discretization_edges import (
 )
 
 from ._null_binner import PermutedTargetBinner
-from ._quantile_radix import sort_xy, sorted_quantiles, unique_with_counts
+from ._quantile_radix import quantiles_from_runs, sort_xy, sorted_quantiles, unique_with_counts
 
 from ._quantile_radix import quantiles_of_sorted, sorted_unique_with_counts
 from ._code_dtype import append_code_columns, narrowest_code_dtype
@@ -37,6 +37,7 @@ __all__ = [
     "quantiles_of_sorted",
     "safe_code_dtype",
     "sort_xy",
+    "quantiles_from_runs",
     "sorted_quantiles",
     "sorted_unique_with_counts",
     "target_classes",

@@ -89,6 +89,8 @@ def _unique_counts_f32_njit(x: np.ndarray):
     return vals, counts
 
 
+# From this size a double-precision vector that is exactly float32 is sorted on its float32 copy (measured, 500000 values: 30.0 against 18.8 ms; 100000 values: 5.8 against 6.5 ms, the narrowing pass does not pay yet).
+_NARROW_UNIQUE_MIN_SIZE = 250_000
 # Below this size ``np.unique`` is as fast as the sort-and-scan (and the JIT dispatch is not worth it): measured 6.8 against 1.1 ms for 100000 continuous float32 values.
 _UNIQUE_COUNTS_MIN_SIZE = 4096
 
@@ -227,7 +229,13 @@ def unique_with_counts(values: np.ndarray) -> "tuple[np.ndarray, np.ndarray]":
         radix: "tuple[np.ndarray, np.ndarray]" = _unique_counts_f32_njit(np.ascontiguousarray(values))
         return radix
     if values.dtype == np.float64 and values.ndim == 1 and values.size >= _UNIQUE_COUNTS_MIN_SIZE and not np.isnan(values).any():  # Intentional float64: the engineered-column dtype
-        radix64: "tuple[np.ndarray, np.ndarray]" = _unique_counts_f64_njit(np.ascontiguousarray(values))
+        x64 = np.ascontiguousarray(values)
+        if x64.size >= _NARROW_UNIQUE_MIN_SIZE:
+            exact, narrow = _f64_as_f32_njit(x64)  # a float32 column held in double precision sorts on 4-byte keys: half the radix passes, the same values, counts and zero signs
+            if exact:
+                vals32, counts32 = _unique_counts_f32_njit(narrow)
+                return vals32.astype(np.float64), counts32  # Intentional float64: the distinct values in the dtype of the input
+        radix64: "tuple[np.ndarray, np.ndarray]" = _unique_counts_f64_njit(x64)
         return radix64
     return np.unique(values, return_counts=True)
 
@@ -324,6 +332,58 @@ def sorted_quantiles(values: np.ndarray, quantiles: np.ndarray) -> "np.ndarray |
             widened: np.ndarray = _sorted_quantiles_f32_njit(narrow, q64)
             return widened
     return None
+
+
+@njit(nogil=True, cache=True)
+def _run_of_rank(cum: np.ndarray, rank: int) -> int:
+    """Index of the run holding the 0-based sorted position ``rank``: the first run whose cumulative count exceeds it."""
+    lo = 0
+    hi = cum.shape[0] - 1
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if cum[mid] > rank:
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo
+
+
+@njit(nogil=True, cache=True)
+def _quantiles_from_runs_njit(uniq: np.ndarray, counts: np.ndarray, quantiles: np.ndarray) -> np.ndarray:
+    """``np.quantile`` (method ``linear``) of the vector described by its ascending distinct values and their counts, in the arithmetic order of ``_edge_of_sorted``: the order statistics are read off the cumulative counts, no sort."""
+    m = uniq.shape[0]
+    cum = np.empty(m, dtype=np.int64)
+    total = 0
+    for j in range(m):
+        total += counts[j]
+        cum[j] = total
+    out = np.empty(quantiles.shape[0], dtype=np.float64)  # Intentional float64: the edges are doubles
+    for k in range(quantiles.shape[0]):
+        virtual = (total - 1) * quantiles[k]
+        if virtual >= total - 1:
+            out[k] = np.float64(uniq[m - 1])  # Intentional float64: the order statistic widened exactly, the interpolation is done in double precision
+            continue
+        i0 = 0 if virtual < 0 else int(np.floor(virtual))
+        i1 = i0 if virtual < 0 else i0 + 1
+        gamma = virtual - i0
+        a = np.float64(uniq[_run_of_rank(cum, i0)])  # Intentional float64: operands widened exactly before the interpolation (a float32 difference would round)
+        b = np.float64(uniq[_run_of_rank(cum, i1)])  # Intentional float64: operands widened exactly before the interpolation
+        diff = b - a
+        res = a + diff * gamma
+        if gamma >= 0.5:
+            res = b - diff * (1.0 - gamma)
+        out[k] = res
+    return out
+
+
+def quantiles_from_runs(uniq: np.ndarray, counts: np.ndarray, quantiles: np.ndarray) -> "np.ndarray | None":
+    """Double-precision quantiles (fractions in ``[0, 1]``) of the NaN-free vector whose ascending distinct values are ``uniq`` with ``counts``: the order statistics come off the cumulative counts, so a column whose
+    distinct values and counts are known (the edge search computes them for every column) is not sorted a second time. ``None`` when there is nothing to read (no runs, or counts that do not add up)."""
+    if uniq.ndim != 1 or uniq.shape[0] == 0 or uniq.shape[0] != counts.shape[0] or uniq.dtype.kind != "f":
+        return None
+    q64 = np.ascontiguousarray(quantiles, dtype=np.float64)  # Intentional float64: statistic / reference vector in double precision
+    found: np.ndarray = _quantiles_from_runs_njit(np.ascontiguousarray(uniq), np.ascontiguousarray(counts, dtype=np.int64), q64)
+    return found
 
 
 @njit(nogil=True, cache=True)
