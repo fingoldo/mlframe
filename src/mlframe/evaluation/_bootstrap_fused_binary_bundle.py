@@ -215,6 +215,15 @@ def _iter_resample_idx_chunks(
         yield lo, hi, chunk
 
 
+def _fused_applicable(y_true: np.ndarray, p_pos: np.ndarray) -> bool:
+    """Whether the fused bundle can score these inputs: at least two rows and labels that are exactly 0/1.
+
+    The fused AUC counts y as 0/1 (``ones += y``), so any other encoding ({-1, +1}, {1, 2}, NaN, ...) would give a meaningless value with no error.
+    Not applicable means the caller falls back to ``bootstrap_metrics`` (audit 22-F25).
+    """
+    return p_pos.shape[0] >= 2 and bool(np.all((y_true == 0) | (y_true == 1)))
+
+
 def bootstrap_auc_brier_ll_ece_batch(
     y_true: np.ndarray,
     p_pos: np.ndarray,
@@ -248,11 +257,7 @@ def bootstrap_auc_brier_ll_ece_batch(
     y_true = np.ascontiguousarray(y_true)
     p_pos = np.ascontiguousarray(p_pos)
     n = p_pos.shape[0]
-    if n < 2:
-        return None
-    # The fused AUC counts y as 0/1 (``ones += y``), so any other encoding ({-1, +1}, {1, 2}, NaN, ...) would give a meaningless value with no error.
-    # Not applicable: return None and the caller falls back to ``bootstrap_metrics`` (audit 22-F25).
-    if not bool(np.all((y_true == 0) | (y_true == 1))):
+    if not _fused_applicable(y_true, p_pos):
         return None
 
     asc_order = np.argsort(p_pos)
