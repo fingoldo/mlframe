@@ -140,7 +140,6 @@ def sort_by_density_leak_scan(
     mask_by_row_order = mask[row_order, :]
 
     mask_int = mask_by_row_order.astype(np.int32)
-    row_popcount = mask_int.sum(axis=1)
 
     overlap_scores = np.full(n_rows, np.nan, dtype=float)
     pair_best: dict[tuple[int, int], float] = {}
@@ -149,7 +148,6 @@ def sort_by_density_leak_scan(
         if j_hi <= i + 1:
             continue
         block = mask_int[i + 1 : j_hi]  # (w, n_cols)
-        block_popcount = row_popcount[i + 1 : j_hi]
         best_overlap_block = np.zeros(block.shape[0], dtype=float)
         for shift in range(-min(max_col_shift, n_cols - 1), min(max_col_shift, n_cols - 1) + 1):  # a shift of n_cols or more leaves no columns to compare
             if shift >= 0:
@@ -159,7 +157,9 @@ def sort_by_density_leak_scan(
                 a_seg = mask_int[i, -shift:]
                 b_block_seg = block[:, : n_cols + shift]
             shared = b_block_seg @ a_seg  # popcount of AND, per window row
-            union = block_popcount + row_popcount[i] - shared
+            # The union is taken over the SAME aligned segments as the intersection. It used the full-row popcounts, so the columns a shift drops
+            # off one end still counted in the union and shifted partners were under-scored (audit 22-F11).
+            union = b_block_seg.sum(axis=1) + a_seg.sum() - shared
             valid = (union > 0) & (shared >= min_shared_values)
             overlap = np.where(valid, shared / np.where(union == 0, 1, union), 0.0)
             best_overlap_block = np.maximum(best_overlap_block, overlap)

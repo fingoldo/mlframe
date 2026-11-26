@@ -40,6 +40,23 @@ def _canonical_group_key_series(group: np.ndarray) -> pd.Series:
     return keys_obj
 
 
+def _finite_rows(y_true: np.ndarray, y_pred: np.ndarray, group: np.ndarray) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``(y_true, y_pred, group)`` restricted to the rows where both targets are finite, warning when rows are dropped.
+
+    One NaN prediction made the global mean NaN, so with shrinkage every group's ratio was NaN and fell back to 1.0 silently; a NaN inside a group's
+    own column could do the same to that group (audit 22-F15).
+    """
+    yt = np.asarray(y_true, dtype=np.float64)
+    yp = np.asarray(y_pred, dtype=np.float64)
+    gr = _canonical_group_key_series(group).to_numpy()
+    ok = np.isfinite(yt) & np.isfinite(yp)
+    n_bad = int((~ok).sum())
+    if n_bad:
+        logger.warning("fit_group_bias_correction: %d row(s) have a non-finite y_true or y_pred and are excluded from the fit.", n_bad)
+        return yt[ok], yp[ok], gr[ok]
+    return yt, yp, gr
+
+
 def fit_group_bias_correction(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -93,13 +110,8 @@ def fit_group_bias_correction(
             n_nan_groups,
         )
 
-    df = pd.DataFrame(
-        {
-            "y_true": np.asarray(y_true, dtype=np.float64),
-            "y_pred": np.asarray(y_pred, dtype=np.float64),
-            "group": _canonical_group_key_series(group).to_numpy(),
-        }
-    )
+    y_true_arr, y_pred_arr, group_arr = _finite_rows(y_true, y_pred, group)
+    df = pd.DataFrame({"y_true": y_true_arr, "y_pred": y_pred_arr, "group": group_arr})
     # A per-group loop calling sub["y_true"].mean()/sub["y_pred"].mean() separately pays pandas per-group
     # column-access + reduction overhead TWICE per group (measured as the dominant cProfile cost at
     # n_groups=2000). A single groupby(...).agg(["mean", "count"]) computes both means and the group size for
@@ -111,8 +123,6 @@ def fit_group_bias_correction(
         raw_ratio = np.where(agg["y_pred_mean"].to_numpy() != 0, agg["y_true_mean"].to_numpy() / agg["y_pred_mean"].to_numpy(), 1.0)
 
     if shrinkage_k is not None:
-        y_true_arr = np.asarray(y_true, dtype=np.float64)
-        y_pred_arr = np.asarray(y_pred, dtype=np.float64)
         global_pred_mean = y_pred_arr.mean()
         global_ratio = float(y_true_arr.mean() / global_pred_mean) if global_pred_mean != 0 else 1.0
         counts = agg["count"].to_numpy(dtype=np.float64)

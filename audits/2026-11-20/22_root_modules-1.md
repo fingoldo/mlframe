@@ -88,9 +88,6 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F13: FIXED. the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass
 - 22-F20: FIXED. the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test
 - 22-F10: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
-- 22-F11: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
-- 22-F14: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
-- 22-F15: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F16: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F17: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F18: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
@@ -129,3 +126,9 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F12: FIXED. show_classifier_calibration cuts a full-length ranking down to each interval's rows (positions inside [lo, r), shifted by lo, order kept) before binning, instead of passing it unchanged to the unchecked njit kernel. Test tests/calibration/test_cluster22_interval_ranking_slices.py; existing calibration tests 170 passed, 2 unrelated fast_r2 numba-typing failures in test_audit_divide_by_zero.py (metrics.regression, not touched)
 
 - 22-F25: FIXED. The fused bootstrap AUC/Brier/log-loss/ECE bundle returns None (not applicable) unless y is exactly 0/1, so a {1,2}, {-1,+1} or NaN-bearing encoding falls back to bootstrap_metrics instead of giving a meaningless AUC. Test tests/evaluation/test_cluster22_fused_bootstrap_binary_labels.py
+
+- 22-F11: FIXED. leak_scan shifted overlap takes the union over the same aligned segments as the intersection (segment popcounts), instead of full-row popcounts; the now-unused row/block popcount variables are gone. Test test_cluster22_leak_scan_shifted_jaccard.py (the audit's worked example does not add up, so the test uses its own rows); existing leak_scan tests 77 passed
+
+- 22-F14: FIXED. The persistence floor uses the row's actual mass beyond the active class as the rest mass, so every returned row sums to 1 even when the input row did not. The biz_val flicker test used rows summing to 0.9 and relied on the old arithmetic; its rows are normalised and the floor moved to 0.475 (inside the window that suppresses flicker without blocking real changes). Test test_cluster22_persistence_floor_row_sum.py
+
+- 22-F15: FIXED. fit_group_bias_correction excludes rows with a non-finite y_true or y_pred (warned), so one NaN no longer makes the global mean NaN and every shrunk ratio fall back to 1.0. Test test_cluster22_group_bias_nonfinite_rows.py

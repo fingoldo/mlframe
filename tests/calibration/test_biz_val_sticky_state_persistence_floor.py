@@ -40,7 +40,9 @@ def _make_sticky_state_with_flicker(n: int, n_classes: int, n_flicker: int, seed
         wrong = (true_state[i] + 1) % n_classes
         row = np.full(n_classes, 0.1)
         row[wrong] = 0.7
-        probs[i] = row
+        # Normalised: the raw row summed to 0.9, and the floor's old rest-of-row arithmetic (1 - active) happened to suppress it. The floor now works on the
+        # row's real mass (audit 22-F14), so the flicker row must be a probability row to be a fair test.
+        probs[i] = row / row.sum()
 
     return true_state, probs
 
@@ -61,7 +63,9 @@ def test_biz_val_persistence_floor_smooths_isolated_flicker():
     true_state, probs = _make_sticky_state_with_flicker(n=2000, n_classes=3, n_flicker=150, seed=0)
 
     acc_raw = accuracy_score(true_state, _simulate_sequential(probs, floor=0.0))
-    acc_floored = accuracy_score(true_state, _simulate_sequential(probs, floor=0.45))
+    # On normalised rows a floor must clear the flicker row's scaled wrong-class mass (0.778 * (1 - f) / 0.889 < f, i.e. f > 0.467) without suppressing a
+    # real state change (0.9 * (1 - f) / 0.95 > f, i.e. f < 0.486): 0.475 sits in that window.
+    acc_floored = accuracy_score(true_state, _simulate_sequential(probs, floor=0.475))
 
     assert (
         acc_floored > acc_raw + 0.05

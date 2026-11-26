@@ -72,7 +72,9 @@ def apply_sticky_state_persistence_floor(probs: np.ndarray, active_class: np.nda
     # total (200000 rows x20 classes x200 calls) when the copy was unconditional.
     probs_arr = probs_src.copy()
     row_floor = floor_per_row if isinstance(floor_per_row, float) else floor_per_row[needs_floor]
-    rest_mass = 1.0 - active_prob[needs_floor]
+    # The rest of the row is its ACTUAL mass beyond the active class, not ``1 - active``: a row that does not sum to 1 otherwise came out not summing to 1
+    # although the contract is that every returned row does (audit 22-F14). For rows that already sum to 1 the two agree up to rounding.
+    rest_mass = probs_src[needs_floor].sum(axis=1) - active_prob[needs_floor]
     target_rest_mass = 1.0 - row_floor
     scale = np.where(rest_mass > 0, target_rest_mass / rest_mass, 0.0)
 
