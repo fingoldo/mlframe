@@ -86,7 +86,7 @@ def _gaussian_kde_log_multi(X_query: np.ndarray, X_train_subset: np.ndarray, hs:
 
 def _gaussian_kde_log(X_query: np.ndarray, X_train_subset: np.ndarray, h: float, chunk: int = 1000) -> np.ndarray:
     """Log-KDE at one bandwidth: ``log( (1/N) Σ exp(-||x - x_i||² / (2 h²)) )``; see ``_gaussian_kde_log_multi``."""
-    return _gaussian_kde_log_multi(X_query, X_train_subset, (h,), chunk)[0]
+    return np.asarray(_gaussian_kde_log_multi(X_query, X_train_subset, (h,), chunk)[0])
 
 
 def compute_density_ratio_features(

@@ -44,7 +44,7 @@ def cluster_resample_indices(rng: np.random.Generator, order: np.ndarray, offset
         return order[:0]
     group_first = np.cumsum(lengths) - lengths  # output position where each drawn group begins
     within = np.arange(total) - np.repeat(group_first, lengths)
-    return order[np.repeat(offsets[picks], lengths) + within]
+    return np.asarray(order[np.repeat(offsets[picks], lengths) + within])
 
 
 def block_resample_indices(rng: np.random.Generator, n: int, block_length: int) -> np.ndarray:
