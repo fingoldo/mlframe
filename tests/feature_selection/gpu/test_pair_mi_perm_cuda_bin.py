@@ -137,3 +137,37 @@ def test_the_table_form_is_repeatable_to_the_bit(monkeypatch):
     monkeypatch.setenv("MLFRAME_PAIR_PERM_LUT", "1")
     first = P.pair_mi_perm_matrix_cuda(*args, 10_000)
     assert np.array_equal(first, P.pair_mi_perm_matrix_cuda(*args, 10_000))
+
+
+@pytest.mark.parametrize("bins, n", [([48, 48, 40], 55_296), ([32, 32, 5], 4_001), ([2, 3, 7], 65_535), ([16, 16, 16], 30_001)])
+def test_the_16_bit_counters_give_the_32_bit_matrix(monkeypatch, bins, n):
+    """Below 65536 rows two counters share a word (more permutations a pass): the matrix equals the 32-bit form's to rounding, at the row limit too, on two seeds."""
+    for seed in (31, 32):
+        args = _case(n, bins, 40, 25, seed=seed)
+        monkeypatch.setenv("MLFRAME_PAIR_PERM_COUNTERS16", "0")
+        wide = P.pair_mi_perm_matrix_cuda(*args, 10_000)
+        monkeypatch.setenv("MLFRAME_PAIR_PERM_COUNTERS16", "1")
+        narrow = P.pair_mi_perm_matrix_cuda(*args, 10_000)
+        assert np.abs(wide - narrow).max() < 1e-12
+
+
+def test_a_cell_holding_every_row_does_not_overflow_the_16_bit_counter(monkeypatch):
+    """65535 rows in one cell (two constant columns) is the largest count a half-word must hold: the MI is the 32-bit form's (zero)."""
+    n = 65_535
+    x = np.zeros((n, 2), dtype=np.uint8)
+    nb = np.array([2, 2], dtype=np.int64)
+    rng = np.random.default_rng(0)
+    y = (rng.random(n) < 0.3).astype(np.uint8)
+    perms = np.stack([rng.permutation(y) for _ in range(9)])
+    fy = np.bincount(y, minlength=2).astype(np.float64) / n
+    args = (x, np.array([0]), np.array([1]), nb, perms, fy)
+    monkeypatch.setenv("MLFRAME_PAIR_PERM_COUNTERS16", "1")
+    got = P.pair_mi_perm_matrix_cuda(*args, 10_000)
+    monkeypatch.setenv("MLFRAME_PAIR_PERM_COUNTERS16", "0")
+    assert np.abs(got - P.pair_mi_perm_matrix_cuda(*args, 10_000)).max() < 1e-12
+
+
+def test_the_16_bit_form_takes_more_permutations_a_pass():
+    """A 48 x 48 pair: 2 permutations a pass with 4-byte counters, 3 with 2-byte ones; a 2 x 2 pair keeps the cap of 8."""
+    assert B.perms_per_pass(48 * 48, 25) == 2 and B.perms_per_pass16(48 * 48, 25) == 3
+    assert B.perms_per_pass16(4, 25) == 8
