@@ -29,6 +29,7 @@ actionable speedup beyond the sort floor.
 
 from __future__ import annotations
 
+import logging
 from typing import cast
 from dataclasses import dataclass
 from typing import Any, Literal, Optional, Tuple
@@ -39,6 +40,8 @@ import pandas as pd
 from mlframe.metrics import trapezoid
 from mlframe.reporting.spec import AnnotationPanelSpec, FigureSpec, LinePanelSpec
 from mlframe.utils.array_shape import shape_of, size_of
+
+logger = logging.getLogger(__name__)
 
 MAX_PLOT_POINTS: int = 2000
 
@@ -119,6 +122,12 @@ def _prepare_classification(y_true, y_score, *, task: Task) -> Tuple[np.ndarray,
         return conf, correct
     ys = ys.ravel()
     yt_f = yt.astype(np.float64)
+    _bad_label = np.isfinite(yt_f) & ~((yt_f == 0.0) | (yt_f == 1.0))
+    if _bad_label.any():
+        logger.warning(
+            "risk-coverage: dropped %d of %d rows whose label is outside {0, 1} (saw %s); the binary curve is one-vs-rest on the positive class.",
+            int(_bad_label.sum()), yt_f.size, np.unique(yt_f[_bad_label])[:5].tolist(),
+        )
     finite = np.isfinite(ys) & np.isfinite(yt_f) & ((yt_f == 0.0) | (yt_f == 1.0))
     ys = ys[finite]
     yt_f = yt_f[finite]
@@ -201,7 +210,7 @@ def _risk_coverage_unavailable(
             suptitle="",
             panels=((AnnotationPanelSpec(
                 text=(f"Risk-coverage unavailable: none of the {n_in:,} supplied rows survives the finite "
-                      "y_true/score mask, so there is no confidence ordering to abstain along."),
+                      "y_true/score mask (binary labels must be 0 or 1), so there is no confidence ordering to abstain along."),
                 title=title,
             ),),),
             figsize=figsize,

@@ -65,14 +65,11 @@ Name-reference counts are a grep of `tests/` for each public or load-bearing nam
 - 21-F3: RESOLVED. Per-instance and interaction SHAP builders skip a multi-output CatBoost model before shap's TreeExplainer, as shap_panels already does. Test tests/reporting/test_shap_multioutput_catboost_is_skipped.py (monkeypatched; it would not catch a renamed explainer call); 91 existing SHAP tests pass. Commit below.
 - 21-F5: FIXED. an all-missing slice column takes the missingness code; tests/reporting/test_cluster21_slice_missing_and_metric_direction.py
 - 21-F16: FIXED. metric direction uses the family name before any @k cutoff; same test file
-- 21-F7: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F8: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F9: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F10: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
-- 21-F11: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F12: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F14: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
-- 21-F15: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F18: FIXED. Perfect model gets a 'deferral cannot reduce error' verdict instead of 'insufficient data' (new branch for err_at_100 == 0). Test tests/reporting/test_cluster21_perfect_model_verdict.py drives build_risk_coverage_spec with a perfect model that has varying confidence.
 - 21-F17: FIXED. Training-curve alignment no longer holds the last value flat past a series' last logged sample: such series take the gap path, and _interp_with_gaps returns NaN beyond its last position. Test tests/reporting/test_cluster21_training_curve_tail_gap.py; existing training-curve tests (4 files) pass.
 - 21-F20: FIXED. A failed os.replace of a rendered chart now abandons (removes) its scratch file, as the other branch does. Test tests/reporting/test_cluster21_kaleido_scratch_on_move_failure.py (source pin).
@@ -89,3 +86,9 @@ Name-reference counts are a grep of `tests/` for each public or load-bearing nam
 - 21-F6: FIXED. Multiclass SHAP interactions rank each pair by the class it moves most (largest mean /interaction/), as the main-effects panel does; binary keeps the positive-class convention. Tests tests/reporting/test_cluster21_multiclass_interaction_best_class.py (2 passed).
 
 - 21-F13: FIXED. The trend fit cache stores a blake2b digest of each array's contents and checks it on every hit, so an in-place refill of the same buffer is refitted rather than served stale. Tests tests/reporting/test_cluster21_trend_cache_content.py (2 passed).
+
+- 21-F11: FIXED. Split metrics take n_rows, n_pos and n_neg from the full split before subsampling, so the legend and the AUC noise bar use the true counts. Test tests/reporting/test_cluster21_split_comparison_true_counts.py.
+
+- 21-F7: FIXED. Risk-coverage logs a WARNING naming the labels outside {0,1} that it drops, and the empty-figure annotation mentions the 0/1 requirement. Test tests/reporting/test_cluster21_risk_coverage_labels_and_shap_proxy_warn.py.
+
+- 21-F15: FIXED. A failing decision_function/predict_proba/predict in the SHAP score proxy now logs a throttled WARNING stating that tail preservation is lost. Same test file.

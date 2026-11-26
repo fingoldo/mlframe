@@ -312,8 +312,12 @@ def _score_proxy(model: Any, carrier: Any, n: int) -> Optional[np.ndarray]:
             continue
         try:
             out = np.asarray(fn(carrier))
-        except Exception as e:  # nosec B112 - swallow converted to debug-log, non-fatal by design
-            logger.debug("suppressed: %s", e)
+        except Exception as e:  # non-fatal by design, but the lost tail preservation is stated (21-F15)
+            log_throttle(
+                logger, f"shap_panels._score_proxy.{attr}", logging.WARNING,
+                "%s() failed (%s: %s) -- the SHAP subsample loses its tail-row preservation for this call and falls back to the next output or a plain random draw",
+                attr, type(e).__name__, e,
+            )
             continue
         if out.ndim == 2:
             out = out[:, -1] if out.shape[1] >= 2 else out.ravel()

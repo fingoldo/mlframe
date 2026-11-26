@@ -440,14 +440,11 @@
 | 20-F24 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 21-F5 | FIXED | an all-missing slice column takes the missingness code; tests/reporting/test_cluster21_slice_missing_and_metric_direction.py |
 | 21-F16 | FIXED | metric direction uses the family name before any @k cutoff; same test file |
-| 21-F7 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F8 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F9 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F10 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
-| 21-F11 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F12 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F14 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
-| 21-F15 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 22-F13 | FIXED | the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass |
 | 22-F20 | FIXED | the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test |
 | 22-F16 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
@@ -1609,3 +1606,9 @@
 | 15-F6 | FIXED | Stability selection counts failed estimator fits and importance computations and logs one WARNING when at least half failed (with an explicit note when none succeeded), regardless of verbose. Test tests/feature_selection/test_cluster15_stability_failed_fits_warn.py. |
 
 | 18-F11 | FIXED | Streaming ensemble keeps the member shape for ndim>=2, so (N,K,C) members work as in the materialised path; uncertainty is the per-row mean of the std over all other axes; 0-d members raise a clear ValueError. Test tests/models/test_cluster18_streaming_ensemble_three_dim.py. |
+
+| 21-F11 | FIXED | Split metrics take n_rows, n_pos and n_neg from the full split before subsampling, so the legend and the AUC noise bar use the true counts. Test tests/reporting/test_cluster21_split_comparison_true_counts.py. |
+
+| 21-F7 | FIXED | Risk-coverage logs a WARNING naming the labels outside {0,1} that it drops, and the empty-figure annotation mentions the 0/1 requirement. Test tests/reporting/test_cluster21_risk_coverage_labels_and_shap_proxy_warn.py. |
+
+| 21-F15 | FIXED | A failing decision_function/predict_proba/predict in the SHAP score proxy now logs a throttled WARNING stating that tail preservation is lost. Same test file. |

@@ -987,15 +987,15 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 20-F45 | 20_reporting-1.md | FIXED | Calibration chart subsample indexes s and t directly with the drawn indices instead of a one-off lambda; same values. Test tests/training/test_cluster20_calibration_subsample_direct_index.py. |
 | 21-F5 | 21_reporting-2.md | FIXED | an all-missing slice column takes the missingness code; tests/reporting/test_cluster21_slice_missing_and_metric_direction.py |
 | 21-F6 | 21_reporting-2.md | FIXED | Multiclass SHAP interactions rank each pair by the class it moves most (largest mean /interaction/), as the main-effects panel does; binary keeps the positive-class convention. Tests tests/reporting/test_cluster21_multiclass_interaction_best_class.py (2 passed). |
-| 21-F7 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
+| 21-F7 | 21_reporting-2.md | FIXED | Risk-coverage logs a WARNING naming the labels outside {0,1} that it drops, and the empty-figure annotation mentions the 0/1 requirement. Test tests/reporting/test_cluster21_risk_coverage_labels_and_shap_proxy_warn.py. |
 | 21-F8 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F9 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F10 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
-| 21-F11 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
+| 21-F11 | 21_reporting-2.md | FIXED | Split metrics take n_rows, n_pos and n_neg from the full split before subsampling, so the legend and the AUC noise bar use the true counts. Test tests/reporting/test_cluster21_split_comparison_true_counts.py. |
 | 21-F12 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F13 | 21_reporting-2.md | FIXED | The trend fit cache stores a blake2b digest of each array's contents and checks it on every hit, so an in-place refill of the same buffer is refitted rather than served stale. Tests tests/reporting/test_cluster21_trend_cache_content.py (2 passed). |
 | 21-F14 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
-| 21-F15 | 21_reporting-2.md | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
+| 21-F15 | 21_reporting-2.md | FIXED | A failing decision_function/predict_proba/predict in the SHAP score proxy now logs a throttled WARNING stating that tail preservation is lost. Same test file. |
 | 21-F16 | 21_reporting-2.md | FIXED | metric direction uses the family name before any @k cutoff; same test file |
 | 21-F17 | 21_reporting-2.md | FIXED | Training-curve alignment no longer holds the last value flat past a series' last logged sample: such series take the gap path, and _interp_with_gaps returns NaN beyond its last position. Test tests/reporting/test_cluster21_training_curve_tail_gap.py; existing training-curve tests (4 files) pass. |
 | 21-F18 | 21_reporting-2.md | FIXED | Perfect model gets a 'deferral cannot reduce error' verdict instead of 'insufficient data' (new branch for err_at_100 == 0). Test tests/reporting/test_cluster21_perfect_model_verdict.py drives build_risk_coverage_spec with a perfect model that has varying confidence. |
