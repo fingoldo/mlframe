@@ -443,7 +443,7 @@ def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_
         y=tuple(all_series),
         series_labels=tuple(all_labels),
         title=title,
-        xlabel="Mean predicted P(y=k)",
+        xlabel="Predicted P(y=k) (bin centre)",
         ylabel="Observed P(y=k | bin)",
         line_styles=tuple(styles),
         colors=tuple(all_colors),
