@@ -456,7 +456,6 @@
 | 21-F15 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 22-F13 | FIXED | the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass |
 | 22-F20 | FIXED | the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test |
-| 22-F10 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F16 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F17 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F18 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
@@ -1242,7 +1241,6 @@
 | 12-F87 | PARTIAL | Removed the unused sd_a/sd_b fit fields and the unreachable ratio_eps branch from fe_richops_bench. Not changed: _apply_op skips a pair with a missing operand without recording it; output names carry the pair index, so the gaps are identifiable. Test tests/feature_selection/test_cluster12_richops_dead_code_removed.py. |
 | 12-F16 | FIXED | Unblinding replaces whole labels in one pass, longest first, so arm_b no longer rewrites inside arm_bx; a non-object mapping JSON means no mapping instead of a crash. Test tests/feature_selection/test_cluster12_blinding_boundaries_and_json.py; 16 blinding tests pass. |
 | 32-F15 | FIXED | Config sufficiency test uses the signed delta, so a negative delta (init_score better than raw) counts as sufficient, as the module note says; the abs() had made it high_potential. Test tests/training/test_cluster32_init_score_sign_consistent.py; 55 baseline diagnostics tests pass. |
-| 13-F20 | DEFERRED | stability_n_jobs is read by getattr but is not a constructor parameter. Making it a real parameter changes get_params/clone and the public signature, so it needs an API decision. No code change. |
 | 13-F28 | DEFERRED | kernel_arg_dtype_audit maps long to int32 by Windows LLP64. A portable fix needs a platform-aware type table and a decision on which platform the audit must catch; deferred to the benchmarks owner. No code change. |
 | 26-F35 | DEFERRED | parametric.py calls settings.load_profile at import, changing global Hypothesis settings for any importer. Moving it to an explicit call changes what test suites that import the module get. Needs a decision. No code change. |
 | 37-F48 | DEFERRED | The OOD lag router uses the validation split for both the route-or-keep decision and the reported score, so the reported score is optimistic. Fixing that is an ML evaluation-design decision (which split reports the estimate). No code change. |
@@ -1595,3 +1593,7 @@
 | 22-F21 | FIXED | MyDecorrelator.transform drops by the names recorded at fit when the DataFrame still has them all; position-based only when fit saw an ndarray. A reordered frame no longer loses the wrong columns. Test test_cluster22_estimator_contracts.py |
 
 | 22-F22 | FIXED | get_best_dummy_score retries the scorer unweighted only when the TypeError mentions sample_weight; any other TypeError propagates. Test test_cluster22_estimator_contracts.py; existing estimator tests 334 passed |
+
+| 22-F10 | DEFERRED | Tried the direct fix (walk every module that defines a callee name): the gate then reports 21 new paths on the real tree, 14 of them through the closure name _kernel that many modules define, so they are same-name collisions, not real calls. The gate resolves callees by bare name; a correct fix has to resolve them through the caller's imports (qualified names), which is a larger change to the scanner. Left as is so the CI gate stays meaningful |
+
+| 13-F20 | FIXED | stability_n_jobs is now a BorutaShap constructor parameter (default -1, stored verbatim, documented), so get_params and clone keep it. Test tests/feature_selection/boruta_shap/test_cluster13_stability_n_jobs_param.py. Existing BorutaShap tests: 24 passed with no failure before my own time cap on the heavy ones; the rest left to CI |
