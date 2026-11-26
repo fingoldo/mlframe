@@ -25,6 +25,7 @@ def _hybrid_orth_family_variants_group4(
 ):
     """Run the cmim, auto_scorer, ensemble, meta hybrid_orth family stage(s) and return the (possibly
     column-augmented) ``X``. See the package docstring for the full section this carves out."""
+    self._fe_scorer_gate_runs = {}  # scorer -> the arguments its own gate completed with in this fit (the meta scorer does not re-run it)
     if _fe_family_on("fe_hybrid_orth_cmim_enable", False):
         # Format-agnostic since the matrix-native FE seam (see triplet stage): skip-guard removed, runs on polars/pandas.
         try:
@@ -78,6 +79,7 @@ def _hybrid_orth_family_variants_group4(
                 n_bins=_cmim_n_bins,
             )
             _cmim_appended = [c for c in X_cmim.columns if c not in _X_before_cmim_cols]
+            self._fe_scorer_gate_runs["cmim"] = (sorted(_cmim_cols), _cmim_degrees, _cmim_basis, _cmim_top_k, _cmim_n_bins, _cmim_min_uplift, _cmim_min_abs_mi_frac)
             if _cmim_appended:
                 X = fe_append_columns(X, fe_extract_columns(X_cmim, _cmim_appended))
                 self.hybrid_orth_features_ = list(self.hybrid_orth_features_ or []) + list(_cmim_appended)
@@ -299,6 +301,23 @@ def _hybrid_orth_family_variants_group4_part2(
     return False, None
 
 
+def _meta_already_run(self: Any, cols: Any, degrees: Any, basis: Any, top_k: Any, min_uplift: Any, min_abs_mi_frac: Any) -> "set[str]":
+    """The scorers whose own gate already ran in this fit with the arguments the meta scorer would dispatch them with: the meta scorer's run of
+    such a scorer is the same computation, and its columns would be dropped as duplicates of the gate's. Only scorers of this lane qualify (cmim,
+    which runs just before; a scorer of another lane sees a different set of appended columns), and only when the shape pool is off."""
+    from ..._orthogonal_meta_scorer_fe import _SCORER_DISPATCH
+
+    runs = getattr(self, "_fe_scorer_gate_runs", None) or {}
+    if str(getattr(self, "fe_shape_pool", "all")) == "relevant":
+        return set()
+    out = set()
+    for scorer, args in runs.items():
+        fixed = _SCORER_DISPATCH.get(scorer, (None, None, {}, None))[2]
+        if args == (sorted(cols), tuple(degrees), basis, top_k, int(fixed.get("n_bins", -1)), min_uplift, min_abs_mi_frac):
+            out.add(scorer)
+    return out
+
+
 def _hybrid_orth_family_variants_group4_part1(
     _fe_family_on: Any, _y_np: Any, self: Any, X: Any, _hybrid_orth_pre_recipes: Any, verbose: Any,
 ) -> tuple[Any, ...]:
@@ -370,6 +389,7 @@ def _hybrid_orth_family_variants_group4_part1(
                 min_abs_mi_frac=_meta_min_abs_mi_frac,
                 force_scorer=_meta_force,
                 random_state=int(getattr(self, "random_seed", 0) or 0),
+                already_run=_meta_already_run(self, _meta_cols, _meta_degrees, _meta_basis, _meta_top_k, _meta_min_uplift, _meta_min_abs_mi_frac),
             )
             _meta_appended = [c for c in X_meta.columns if c not in _X_before_meta_cols]
             if _meta_appended:
