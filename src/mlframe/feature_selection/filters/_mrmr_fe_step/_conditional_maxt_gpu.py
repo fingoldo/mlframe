@@ -159,7 +159,7 @@ def _padded_bytes(cp, a2d, stride):
     return out
 
 
-def _launch(cp, codes, widths, targets_d, z, n, p, B, ky, kz, max_w):
+def _launch(cp: Any, codes: np.ndarray, widths: np.ndarray, targets_d: Any, z: Any, n: int, p: int, B: int, ky: int, kz: int, max_w: int) -> np.ndarray:
     """One launch over every (target, column) pair: the byte kernel when the codes fit a byte, version 1 otherwise; ``(B, p)`` double sums on the host."""
     w_d = cp.asarray(np.ascontiguousarray(widths, dtype=np.int64))
     # Intentional float64: the kernel writes double sums
