@@ -136,8 +136,12 @@ def optimal_ordinal_cutpoints(
         if cand_score >= base_score:
             return cand_thr, cand_score
         return thr, base_score
-    except Exception:
-        # scipy.optimize failed -> fall back to the coordinate scan. Log at DEBUG so a genuine bug (vs a
-        # legitimately hard objective) is diagnosable rather than a silent optimizer swap.
-        logger.debug("ordinal cutpoints: scipy optimize failed; falling back to coordinate scan", exc_info=True)
+    except Exception as exc:
+        # scipy missing -> an expected, quiet fallback to the coordinate scan. Any other failure of the optimiser (or of the objective it calls) is not
+        # expected: it is logged at WARNING with its type, not hidden at DEBUG, then the scan runs. If the objective itself is broken the scan hits the same
+        # error and it propagates (audit 17-F14).
+        if isinstance(exc, ImportError):
+            logger.info("ordinal cutpoints: scipy.optimize unavailable; using the coordinate scan")
+        else:
+            logger.warning("ordinal cutpoints: scipy optimize failed (%s: %s); falling back to the coordinate scan", type(exc).__name__, exc, exc_info=True)
         return cast(tuple[np.ndarray, float], _coordinate_scan(yt, yp, thr, n_classes, metric))

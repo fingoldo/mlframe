@@ -410,9 +410,7 @@
 | 17-F13 | FIXED | the quantile calibration branch refuses non-integer labels instead of truncating them; tests/metrics/test_cluster17_kappa_and_label_guard.py |
 | 17-F16 | FIXED | single-class perfect agreement gives kappa 1, as sklearn; tests/metrics/test_cluster17_kappa_and_label_guard.py |
 | 17-F15 | FIXED | a failed title-token metric is logged at WARNING, not DEBUG; no separate test |
-| 17-F10 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 17-F12 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
-| 17-F14 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 17-F17 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 17-F18 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 17-F19 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
@@ -1597,3 +1595,7 @@
 | 22-F10 | DEFERRED | Tried the direct fix (walk every module that defines a callee name): the gate then reports 21 new paths on the real tree, 14 of them through the closure name _kernel that many modules define, so they are same-name collisions, not real calls. The gate resolves callees by bare name; a correct fix has to resolve them through the caller's imports (qualified names), which is a larger change to the scanner. Left as is so the CI gate stays meaningful |
 
 | 13-F20 | FIXED | stability_n_jobs is now a BorutaShap constructor parameter (default -1, stored verbatim, documented), so get_params and clone keep it. Test tests/feature_selection/boruta_shap/test_cluster13_stability_n_jobs_param.py. Existing BorutaShap tests: 24 passed with no failure before my own time cap on the heavy ones; the rest left to CI |
+
+| 17-F14 | FIXED | Optimizer failure now logs a WARNING with the exception type and traceback before the coordinate-scan fallback; a missing scipy logs INFO. Regression test added. |
+
+| 17-F10 | FIXED | Fixed-[0,1] ECE/Brier kernels return NaN when a score lies outside [0,1] beyond 1e-9, matching fast_brier_score_loss and the fused block. Regression test added. Seven failures in test_metrics.py (fast_ice_only empty input, regression length_of numba typing) are in untouched code and not caused by this change. |

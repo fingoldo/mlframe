@@ -63,9 +63,7 @@ Reading coverage: every manifest file was read in full (all of `calibration/`, `
 - 17-F13: FIXED. the quantile calibration branch refuses non-integer labels instead of truncating them; tests/metrics/test_cluster17_kappa_and_label_guard.py
 - 17-F16: FIXED. single-class perfect agreement gives kappa 1, as sklearn; tests/metrics/test_cluster17_kappa_and_label_guard.py
 - 17-F15: FIXED. a failed title-token metric is logged at WARNING, not DEBUG; no separate test
-- 17-F10: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
 - 17-F12: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
-- 17-F14: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
 - 17-F17: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
 - 17-F18: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
 - 17-F19: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
@@ -86,3 +84,7 @@ Reading coverage: every manifest file was read in full (all of `calibration/`, `
 - 17-F11: FIXED. The comment claimed ECE used the same data-adaptive grid as CMAEW. The ECE kernel uses the fixed [0,1] equal-width grid, and CMAEW uses the data span, so the two partition the data differently. The comment is corrected; behaviour is unchanged (aligning the grids would change the headline ECE).
 
 - 17-F21: FIXED. The RMSLE and MAPE warn-dedup sets in _regression_extras.py are cleared at a 4096-entry bound, the same bound the Tweedie cache uses, so a long run cannot grow them without limit. Test tests/metrics/test_cluster17_warn_seen_bounded.py (2 passed).
+
+- 17-F14: FIXED. Optimizer failure now logs a WARNING with the exception type and traceback before the coordinate-scan fallback; a missing scipy logs INFO. Regression test added.
+
+- 17-F10: FIXED. Fixed-[0,1] ECE/Brier kernels return NaN when a score lies outside [0,1] beyond 1e-9, matching fast_brier_score_loss and the fused block. Regression test added. Seven failures in test_metrics.py (fast_ice_only empty input, regression length_of numba typing) are in untouched code and not caused by this change.

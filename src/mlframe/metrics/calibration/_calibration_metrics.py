@@ -26,6 +26,23 @@ import numba
 from .._numba_params import NUMBA_NJIT_PARAMS
 from ._calibration_plot import _fast_calibration_binning_serial
 
+_RANGE_TOL = 1e-9  # rounding slack: an average of probabilities can land a hair above 1.0 and is still a probability
+
+
+@numba.njit(**NUMBA_NJIT_PARAMS)
+def _has_out_of_range_score(y_pred) -> bool:
+    """True when some score lies outside [0, 1] by more than rounding noise.
+
+    The fixed-[0, 1] ECE/Brier kernels clamp an out-of-range score into an end bin but keep the raw value in the bin's mean, so the result looks finite
+    and is wrong. The fused Brier block documents the opposite contract (NaN), and ``fast_brier_score_loss`` already returns it (audit 17-F10).
+    A NaN score compares false here and is left to the kernel's existing handling.
+    """
+    for i in range(y_pred.shape[0]):
+        p = y_pred[i]
+        if p < -_RANGE_TOL or p > 1.0 + _RANGE_TOL:
+            return True
+    return False
+
 
 @numba.njit(**NUMBA_NJIT_PARAMS)
 def calibration_metrics_from_freqs(
@@ -132,7 +149,7 @@ def compute_ece_and_brier_decomposition(
     Returns NaN for every field on empty input: an empty slice has no calibration error, and a number (the old 1.0 worst case) would be averaged in as a measurement.
     """
     n = len(y_true)
-    if n == 0:
+    if n == 0 or _has_out_of_range_score(y_pred):
         return np.nan, np.nan, np.nan, np.nan, np.nan
 
     base_rate = 0.0
@@ -210,7 +227,7 @@ def compute_ece_debiased(
     does not depend on the sample's observed min/max). Returns NaN on empty input (an empty slice must not score as a number).
     """
     n = len(y_true)
-    if n == 0:
+    if n == 0 or _has_out_of_range_score(y_pred):
         return np.nan
 
     pred_sum = np.zeros(nbins, dtype=np.float64)
@@ -283,7 +300,7 @@ def compute_brier_decomposition_debiased(
     NaN for every field on empty input.
     """
     n = len(y_true)
-    if n == 0:
+    if n == 0 or _has_out_of_range_score(y_pred):
         return np.nan, np.nan, np.nan, np.nan
 
     base_rate = 0.0
@@ -360,7 +377,7 @@ def compute_ece_brier_full_and_debiased(
     Returns the empty-input sentinels of all three kernels on ``n == 0``.
     """
     n = len(y_true)
-    if n == 0:
+    if n == 0 or _has_out_of_range_score(y_pred):
         return np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan
 
     base_rate = 0.0
