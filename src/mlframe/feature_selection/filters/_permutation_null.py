@@ -699,6 +699,33 @@ def _scaled_floor_or_none(
         logger.info("order-2 maxT floor computed on every row: %s", scaling.get("why"))
     return floor_scaled
 
+def _pooled_shuffle_maxima(factors_data, pa, pb, nb, classes_y, fy, K, random_seed, mm_bias, device_only, cap):
+    """The K per-shuffle maxima of the pair pool's joint MI: the maxT null sample the floor takes its quantile of."""
+    from .info_theory import batch_pair_mi_perm_batched
+    from ._pair_mi_perm_cuda import DeviceKernelDeclinedError, floor_backend_choice, pair_mi_perm_matrix_cuda
+
+    n = int(factors_data.shape[0])
+    n_pairs = int(pa.shape[0])
+    y_perms = _sequential_label_shuffles(classes_y, K, random_seed)
+    # One device launch replays all K shuffles for every pair when the host's tuning-cache entry prefers it (and the shape fits); the shuffles above are the same host draws either way.
+    all_mis = None
+    if floor_backend_choice(n, n_pairs) == "cuda":
+        all_mis = pair_mi_perm_matrix_cuda(factors_data, pa, pb, nb, y_perms, fy, cap)
+    if all_mis is None:
+        if device_only:
+            raise DeviceKernelDeclinedError("the one-launch device kernel does not apply to this pool")
+        # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
+        with parallel_kernel_entry():
+            all_mis = batch_pair_mi_perm_batched(factors_data, pa, pb, nb, y_perms, fy, cap)  # (K, n_pairs)
+    # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
+    maxes = np.empty(K, dtype=np.float64)
+    for k in range(K):
+        mis = all_mis[k]
+        if mm_bias is not None and mis.size:
+            mis = mis - mm_bias
+        maxes[k] = float(np.max(mis)) if mis.size else 0.0
+    return maxes
+
 
 def pooled_pair_permutation_null_joint_mi_floor(
     factors_data: np.ndarray,
@@ -806,7 +833,6 @@ def pooled_pair_permutation_null_joint_mi_floor(
     # prange - deterministic, GPU-independent), so the per-shuffle max is on the same scale as the gated value.
     # The permutation-BATCHED variant computes each pair's joint encoding + x-marginal ONCE and reuses them across
     # all K shuffles (only the (joint, y_perm) contingency re-runs per shuffle) - ~1.71x, bit-identical.
-    from .info_theory import batch_pair_mi_perm_batched
     from mlframe.feature_selection.filters.info_theory.shared import joint_cardinality_cap
 
     pa = np.ascontiguousarray(pair_a, dtype=np.int64)
@@ -826,25 +852,7 @@ def pooled_pair_permutation_null_joint_mi_floor(
         remembered = _PAIR_FLOOR_MEMO.get(memo_key)
         if remembered is not None:
             return float(np.quantile(remembered, float(quantile)))
-    y_perms = _sequential_label_shuffles(classes_y, K, random_seed)
-    # One device launch replays all K shuffles for every pair when the host's tuning-cache entry prefers it (and the shape fits); the shuffles above are the same host draws either way.
-    from ._pair_mi_perm_cuda import DeviceKernelDeclinedError, floor_backend_choice, pair_mi_perm_matrix_cuda
-
-    all_mis = None
-    if floor_backend_choice(n, n_pairs) == "cuda":
-        all_mis = pair_mi_perm_matrix_cuda(factors_data, pa, pb, nb, y_perms, fy, joint_cardinality_cap())
-    if all_mis is None:
-        if device_only:
-            raise DeviceKernelDeclinedError("the one-launch device kernel does not apply to this pool")
-        # Reachable from the FE pair sweep's threaded paths; see mlframe._numba_parallel_guard.
-        with parallel_kernel_entry():
-            all_mis = batch_pair_mi_perm_batched(factors_data, pa, pb, nb, y_perms, fy, joint_cardinality_cap())  # (K, n_pairs)
-    maxes = np.empty(K, dtype=np.float64)  # Intentional float64: statistic vector (MI / null max / p-value inputs), exact permutation ties
-    for k in range(K):
-        mis = all_mis[k]
-        if mm_bias is not None and mis.size:
-            mis = mis - mm_bias
-        maxes[k] = float(np.max(mis)) if mis.size else 0.0
+    maxes = _pooled_shuffle_maxima(factors_data, pa, pb, nb, classes_y, fy, K, random_seed, mm_bias, device_only, joint_cardinality_cap())
 
     if memo_key is not None:
         _PAIR_FLOOR_MEMO.put(memo_key, maxes)

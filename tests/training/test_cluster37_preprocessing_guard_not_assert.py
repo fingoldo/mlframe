@@ -1,17 +1,39 @@
-"""Cluster 37 regression: the preprocessing-config guard is an explicit raise, not an assert (audit 2026-11-20, finding 37-F43).
+"""Cluster 37 regression: a missing preprocessing config raises RuntimeError before any pipeline component is built (audit 2026-11-20, finding 37-F43).
 
-``assert`` is stripped under ``python -O``, so a None preprocessing config would reach the pipeline and fail somewhere unrelated. The guard is an
-``if ...: raise RuntimeError`` that survives optimisation.
+The check used to be an ``assert``, which ``python -O`` strips, so a None config reached the pipeline. It is now an explicit raise that runs
+before the components are built.
 """
 
-from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from mlframe.training.core import _main_train_suite as suite
 
 
-def test_guard_is_an_explicit_raise_not_an_assert():
-    """The preprocessing_config check raises RuntimeError and is not an assert (37-F43)."""
-    src = Path(suite.__file__).resolve().read_text(encoding="utf-8")
-    assert "assert st.preprocessing_config is not None" not in src
-    assert "if st.preprocessing_config is None:" in src
-    assert 'raise RuntimeError("_main_train_suite: preprocessing_config must be resolved' in src
+def _state(preprocessing_config):
+    """A minimal suite state that reaches the preprocessing guard and nothing else."""
+    return SimpleNamespace(
+        verbose=False,
+        split_config=None,
+        preprocessing_config=preprocessing_config,
+        cat_features=[],
+        common_params_dict={},
+        rfecv_models=[],
+        mrmr_kwargs={},
+    )
+
+
+def test_missing_preprocessing_config_raises_runtime_error_naming_it(monkeypatch):
+    """With no preprocessing config the stage raises RuntimeError that names the missing config (37-F43)."""
+    with pytest.raises(RuntimeError, match="preprocessing_config must be resolved"):
+        suite._suite_stage_defaults_and_conversion(SimpleNamespace(), _state(None))
+
+
+def test_guard_fires_before_any_pipeline_component_is_built(monkeypatch):
+    """The guard runs before the pipeline components are built, so nothing is constructed from a missing config (37-F43)."""
+    built = []
+    monkeypatch.setattr(suite, "_get_pipeline_components", lambda *args, **kwargs: built.append(args) or (None, None, None))
+    with pytest.raises(RuntimeError):
+        suite._suite_stage_defaults_and_conversion(SimpleNamespace(), _state(None))
+    assert built == []

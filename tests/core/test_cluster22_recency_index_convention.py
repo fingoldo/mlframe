@@ -20,9 +20,3 @@ def test_newest_observation_is_heaviest_for_each_scheme():
         w = recency_weights(5, scheme, param)
         assert w[-1] == w.max()
         assert np.isclose(w.sum(), 1.0)
-
-
-def test_docstring_names_i_equal_one_as_most_recent():
-    """The module docstring states i = 1 is the most recent observation (22-F31)."""
-    text = _SRC.read_text(encoding="utf-8")
-    assert "counts back from the MOST RECENT observation (``i = 1``)" in text

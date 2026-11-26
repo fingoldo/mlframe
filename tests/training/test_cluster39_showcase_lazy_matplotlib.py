@@ -4,19 +4,25 @@
 The import now lives inside the function that plots.
 """
 
-from pathlib import Path
+import subprocess
+import sys
 
 from mlframe.training.extractors import _extractors_showcase as sc
 
 
-def test_module_does_not_import_pyplot_at_load():
-    """No top-level matplotlib import remains in the showcase module (39-F16)."""
-    src = Path(sc.__file__).resolve().read_text(encoding="utf-8")
-    top_level = [line for line in src.splitlines() if line.startswith("import matplotlib") or line.startswith("from matplotlib")]
-    assert top_level == []
+def test_importing_the_showcase_module_does_not_load_pyplot():
+    """A fresh interpreter that imports the showcase module has no ``matplotlib.pyplot`` loaded (39-F16)."""
+    code = "import sys; from mlframe.training.extractors import _extractors_showcase; " "print('matplotlib.pyplot' in sys.modules)"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=300)
+    assert out.stdout.strip().splitlines()[-1] == "False"
 
 
-def test_plotting_function_still_imports_pyplot():
-    """Control: the histogram path keeps its matplotlib import inside the function (39-F16)."""
-    src = Path(sc.__file__).resolve().read_text(encoding="utf-8")
-    assert "import matplotlib.pyplot as plt" in src
+def test_plotting_path_loads_pyplot_on_demand(monkeypatch):
+    """Control: calling the target-distribution plotter with no targets still reaches the lazy pyplot import (39-F16)."""
+    monkeypatch.setitem(sys.modules, "matplotlib.pyplot", None)
+    try:
+        sc._showcase_target_distributions({}, False, 0, 10)
+    except ImportError:
+        # Blocking pyplot with a None entry makes the lazy import raise, which proves the plotter imports it at call time.
+        return
+    raise AssertionError("plotter did not attempt the lazy matplotlib.pyplot import")

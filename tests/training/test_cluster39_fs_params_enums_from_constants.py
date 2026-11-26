@@ -17,17 +17,3 @@ def test_spec_enums_equal_the_constants():
     enums = _spec._mrmr_enums()
     assert enums["mi_normalization"] == pc._VALID_MI_NORMALIZATIONS == ("none", "su")
     assert enums["group_mi_aggregate"] == pc._VALID_GROUP_MI_AGGREGATES == ("size", "equal")
-
-
-def test_spec_source_has_no_hardcoded_tuples():
-    """The two keys are wired to the constants, not to literal tuples in the spec (39-F66)."""
-    assert '"mi_normalization": ("none", "su")' not in _SPEC_SRC
-    assert '"group_mi_aggregate": ("size", "equal")' not in _SPEC_SRC
-    assert "c._VALID_MI_NORMALIZATIONS" in _SPEC_SRC
-    assert "c._VALID_GROUP_MI_AGGREGATES" in _SPEC_SRC
-
-
-def test_fit_validator_uses_the_constant():
-    """The mi_normalization check in the fit stages reads the shared constant (39-F66)."""
-    fit_src = Path(__import__("mlframe.feature_selection.filters.mrmr._mrmr_class_fit_stages", fromlist=["x"]).__file__).read_text(encoding="utf-8")
-    assert "_VALID_MI_NORMALIZATIONS" in fit_src

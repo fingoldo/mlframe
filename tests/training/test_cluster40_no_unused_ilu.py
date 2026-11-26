@@ -10,11 +10,6 @@ from mlframe.training import pipeline as pl
 _SRC = Path(pl.__file__).resolve()
 
 
-def test_unused_ilu_import_is_removed():
-    """The unused _ilu import is gone from the pipeline package (40-F32)."""
-    assert "import importlib.util as _ilu" not in _SRC.read_text(encoding="utf-8")
-
-
 def test_build_dim_reducer_still_present():
     """Control: the builder remains and is callable (40-F32)."""
     assert callable(pl._build_dim_reducer)

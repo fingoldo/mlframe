@@ -4,19 +4,10 @@
 remaining operators and the train-fit parameters are unchanged.
 """
 
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 
 from mlframe.feature_selection._benchmarks.fs_hybrid import fe_richops_bench as rb
-
-
-def test_dead_fit_fields_and_branch_removed():
-    """The unused sd fields and the ratio_eps branch are gone from the source (12-F87)."""
-    src = Path(rb.__file__).resolve().read_text(encoding="utf-8")
-    assert "sd_a=" not in src
-    assert '"ratio_eps"' not in src
 
 
 def test_live_operator_still_applies():

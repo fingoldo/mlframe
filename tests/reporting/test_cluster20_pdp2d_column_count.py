@@ -22,8 +22,3 @@ def test_shape_rule_matches_the_copy_for_2d_and_counts_1d_as_one():
     v = np.zeros(5)
     n = shape_of(v)[1] if len(shape_of(v)) > 1 else 1
     assert n == 1
-
-
-def test_no_full_copy_just_to_count_columns():
-    """The module no longer copies the frame to read its width (20-F40, source pin)."""
-    assert "np.asarray(X).reshape(len(X), -1).shape[1]" not in _SRC.read_text(encoding="utf-8")

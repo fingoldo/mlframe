@@ -48,7 +48,7 @@ def _binning_meta(self) -> dict:
     try:
         return dict(spec_as_dict(spec_from_estimator(self)))
     except ValueError as exc:
-        logger.debug("the binning of this fit is not a resolvable spec (%s); its raw parameters are recorded as given", type(exc).__name__)
+        logger.warning("binning meta fell back to the estimator attributes: %s", exc)
         return {"binning_scheme": getattr(self, "binning_scheme", None), "nbins_rule": getattr(self, "nbins_rule", None), "nbins_cap": getattr(self, "nbins_cap", None)}
 
 

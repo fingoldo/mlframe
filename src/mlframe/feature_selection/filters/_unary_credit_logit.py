@@ -41,7 +41,7 @@ def _device_module() -> Optional[Any]:
 
         return cupy() if cuda_available() else None
     except Exception as exc:
-        log_throttle(logger, "unary_credit_logit.device_module", logging.WARNING, "logit credit: the device module is unavailable (%r); the host null runs", exc)
+        log_throttle(logger, "unary_credit_logit.device_module", logging.WARNING, "logit credit: the CUDA device probe failed (%r); the host null runs", exc)
         return None
 
 

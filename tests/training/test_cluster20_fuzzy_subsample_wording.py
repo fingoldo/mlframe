@@ -4,19 +4,42 @@ The code draws the fit subsample with ``rng.integers``, which is with replacemen
 quantiles). The module docstring used to call it a random subsample. It now says with replacement.
 """
 
-from pathlib import Path
+import numpy as np
 
 from mlframe.reporting.charts import fuzzy_membership as fm
 
 
-def test_docstring_says_draw_is_with_replacement():
-    """The module docstring describes the bounded draw as with replacement (20-F43)."""
-    doc = fm.__doc__ or ""
-    assert "with replacement" in doc
-    assert "random subsample" not in doc
+def _capture_fit_input(monkeypatch, values):
+    """Run the fuzzy curves on ``values`` with the partition fit stubbed out, and return the sample the fit received."""
+    import mlframe.feature_engineering.fuzzy_features as ff
+
+    captured = {}
+
+    def _fake_fit(sample, n_sets, kind):
+        """Record the sample the fit was given."""
+        captured["sample"] = np.asarray(sample).copy()
+        return None
+
+    def _fake_transform(grid_x, recipe):
+        """Return a flat membership grid of the right shape."""
+        return np.zeros((grid_x.size, 2))
+
+    monkeypatch.setattr(ff, "fuzzy_partition_fit", _fake_fit)
+    monkeypatch.setattr(ff, "fuzzy_partition_transform", _fake_transform)
+    fm.fuzzy_membership_curves(values, grid=10)
+    return captured["sample"]
 
 
-def test_code_still_draws_with_replacement():
-    """The draw itself is the with-replacement rng.integers call, matching the docs (20-F43)."""
-    src = Path(fm.__file__).resolve().read_text(encoding="utf-8")
-    assert "rng.integers(0, finite.size, _FIT_SUBSAMPLE_CAP)" in src
+def test_large_column_is_subsampled_with_replacement(monkeypatch):
+    """A column above the cap is drawn WITH replacement: the sample has the cap's size but repeats some values (20-F43)."""
+    values = np.arange(2 * fm._FIT_SUBSAMPLE_CAP, dtype=np.float64)
+    sample = _capture_fit_input(monkeypatch, values)
+    assert sample.size == fm._FIT_SUBSAMPLE_CAP
+    assert np.unique(sample).size < sample.size
+
+
+def test_column_below_the_cap_is_used_unchanged(monkeypatch):
+    """Control: a column within the cap reaches the fit whole, with no repeats (20-F43)."""
+    values = np.arange(100, dtype=np.float64)
+    sample = _capture_fit_input(monkeypatch, values)
+    assert np.array_equal(sample, values)

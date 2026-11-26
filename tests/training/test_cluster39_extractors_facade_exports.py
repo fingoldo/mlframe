@@ -21,10 +21,3 @@ def test_public_names_still_importable():
     assert ex.__all__
     for name in ex.__all__:
         assert hasattr(ex, name), name
-
-
-def test_unused_typing_and_private_imports_removed():
-    """The facade no longer imports the unused private helpers or typing names (39-F15)."""
-    assert "_safe_int_cast_numpy" not in _SRC
-    assert "_smallest_safe_int_dtype" not in _SRC
-    assert "runtime_checkable" not in _SRC

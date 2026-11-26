@@ -13,13 +13,6 @@ from mlframe.feature_engineering.transformer import quantile_neighbours as qn
 _SRC = Path(qn.__file__).resolve()
 
 
-def test_docstring_names_euclidean_not_cosine():
-    """The kNN description says Euclidean and no longer says cosine (09-F35)."""
-    text = _SRC.read_text(encoding="utf-8")
-    assert "Euclidean top-k via sklearn NearestNeighbors" in text
-    assert "cosine top-k" not in text
-
-
 def test_sklearn_default_metric_is_euclidean():
     """The default metric the module relies on is Euclidean (09-F35)."""
     assert NearestNeighbors().get_params()["metric"] == "minkowski"

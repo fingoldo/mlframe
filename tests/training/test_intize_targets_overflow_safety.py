@@ -16,7 +16,10 @@ import polars as pl
 import pytest
 
 from mlframe.training.extractors import intize_targets
-from mlframe.training.extractors._extractors_dtype_helpers import _safe_int_cast_numpy, _smallest_safe_int_dtype
+from mlframe.training.extractors._extractors_dtype_helpers import (
+    _safe_int_cast_numpy,
+    _smallest_safe_int_dtype,
+)
 
 # ----- _smallest_safe_int_dtype --------------------------------------------------
 
