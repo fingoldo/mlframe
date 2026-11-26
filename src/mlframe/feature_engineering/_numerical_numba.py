@@ -479,7 +479,10 @@ def _make_compute_moments_slope_mi(use_kahan: bool, use_fastmath: bool):
 
         res: list = []
         if not directional_only:
-            res.extend((mad, std, skew, kurt))
+            # The emitted std is the unbiased sample std (divide by n - 1), matching the other feature std columns (audit 24-F55). The
+            # population std above still standardises skew and kurt, so those moments keep their definition. Fewer than two rows: NaN.
+            std_out = std * np.sqrt(size / (size - 1)) if size > 1 else np.nan
+            res.extend((mad, std_out, skew, kurt))
             if weights is not None:
                 res.extend((weighted_mad, weighted_std, weighted_skew, weighted_kurt))
         res.extend((slope, intercept, r, n_mean_crossings, n_lintrend_crossings))

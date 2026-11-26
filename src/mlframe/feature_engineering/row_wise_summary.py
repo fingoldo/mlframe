@@ -103,7 +103,7 @@ def _summary_stats_block(values: np.ndarray, stats: Sequence[Union[str, float]],
         if stat == "mean":
             out[f"{column_prefix}_mean"] = np.nanmean(values, axis=1)
         elif stat == "std":
-            out[f"{column_prefix}_std"] = np.nanstd(values, axis=1)
+            out[f"{column_prefix}_std"] = np.nanstd(values, axis=1, ddof=1)  # unbiased, matching the polars path (audit 24-F55)
         elif stat == "min":
             out[f"{column_prefix}_min"] = np.nanmin(values, axis=1)
         elif stat == "max":

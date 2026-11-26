@@ -124,10 +124,10 @@ class TestBasicStatsRegression:
     @given(st.lists(st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False), min_size=5, max_size=200))
     @settings(max_examples=50, deadline=None)
     def test_std_vs_numpy(self, arr):
-        """Test std matches numpy (ddof=0)."""
+        """Test std matches numpy (unbiased, ddof=1; audit 24-F55)."""
         arr = np.array(arr, dtype=np.float64)
         _, _, _, _, _, std_val = compute_simple_stats_numba(arr)
-        assert np.isclose(std_val, np.std(arr, ddof=0), rtol=1e-10)
+        assert np.isclose(std_val, np.std(arr, ddof=1), rtol=1e-10)
 
 
 # =============================================================================
@@ -230,7 +230,7 @@ class TestMomentsRegression:
 
         std_idx = names.index("std")
         computed = result[std_idx]
-        expected = np.std(arr, ddof=0)
+        expected = np.std(arr, ddof=1)
         assert np.isclose(computed, expected, rtol=1e-6), f"Std: {computed} vs {expected}"
 
     def test_skewness_vs_scipy(self, random_array_100):
@@ -436,7 +436,7 @@ class TestPerformanceBenchmarks:
         """Benchmark numba simple stats."""
         arr = random_array_1000
         result = benchmark(compute_simple_stats_numba, arr)
-        reference = (np.min(arr), np.max(arr), np.argmin(arr), np.argmax(arr), np.mean(arr), np.std(arr))
+        reference = (np.min(arr), np.max(arr), np.argmin(arr), np.argmax(arr), np.mean(arr), np.std(arr, ddof=1))
         np.testing.assert_allclose(result, reference, rtol=1e-9)
 
     @pytest.mark.benchmark(group="simple_stats")
@@ -446,7 +446,7 @@ class TestPerformanceBenchmarks:
 
         def numpy_simple_stats(arr):
             """Numpy simple stats."""
-            return (np.min(arr), np.max(arr), np.argmin(arr), np.argmax(arr), np.mean(arr), np.std(arr))
+            return (np.min(arr), np.max(arr), np.argmin(arr), np.argmax(arr), np.mean(arr), np.std(arr, ddof=1))
 
         result = benchmark(numpy_simple_stats, arr)
         np.testing.assert_allclose(result, compute_simple_stats_numba(arr), rtol=1e-9)
@@ -457,7 +457,7 @@ class TestPerformanceBenchmarks:
         arr = random_array_1000
         mean_val = np.mean(arr)
         result = benchmark(compute_moments_slope_mi, arr, mean_val)
-        reference = (np.mean(np.abs(arr - mean_val)), np.std(arr), stats.skew(arr), stats.kurtosis(arr))
+        reference = (np.mean(np.abs(arr - mean_val)), np.std(arr, ddof=1), stats.skew(arr), stats.kurtosis(arr))
         np.testing.assert_allclose(result[0][:4], reference, rtol=1e-9)
 
     @pytest.mark.benchmark(group="moments")
@@ -468,7 +468,7 @@ class TestPerformanceBenchmarks:
         def scipy_moments(arr):
             """Scipy moments."""
             mean_val = np.mean(arr)
-            return (np.mean(np.abs(arr - mean_val)), np.std(arr), stats.skew(arr), stats.kurtosis(arr))
+            return (np.mean(np.abs(arr - mean_val)), np.std(arr, ddof=1), stats.skew(arr), stats.kurtosis(arr))
 
         result = benchmark(scipy_moments, arr)
         np.testing.assert_allclose(result, compute_moments_slope_mi(arr, np.mean(arr))[0][:4], rtol=1e-9)
@@ -529,7 +529,7 @@ class TestPerformanceBenchmarks:
         named = dict(zip(get_numaggs_names(), result))
         assert len(result) == len(get_numaggs_names())
         assert named["min"] == pytest.approx(float(arr.min()), rel=1e-6)
-        assert named["std"] == pytest.approx(float(arr.std()), rel=1e-5)
+        assert named["std"] == pytest.approx(float(arr.std(ddof=1)), rel=1e-5)
 
 
 # =============================================================================

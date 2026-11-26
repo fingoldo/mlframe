@@ -53,7 +53,7 @@ real multi-stat call.
 
 Exactness against the numpy reference is a requirement, not a hope. Measured at 400k x 85: every order statistic
 (min/max/median/q10/q90) is bit-identical, ``mean`` differs by at most 3.9e-16 and ``std`` by 8.9e-16 (float
-summation order only). ``std`` needs ``ddof=0`` to match ``np.nanstd``'s default, and quantiles need the same
+summation order only). ``std`` is the unbiased sample std (``ddof=1``), matching ``np.nanstd(..., ddof=1)`` (audit 24-F55), and quantiles need the same
 linear interpolation ``np.nanquantile`` uses -- ``.arr.get()`` accepts a per-row expression index, so the
 interpolation position varies with each row's own count of non-null values.
 
@@ -137,8 +137,8 @@ def _stats_block(
         if kind == "horizontal":
             exprs.append(_HORIZONTAL_REDUCERS[str(payload)](cols).alias(alias))
         elif kind == "std":
-            # ddof=0 to match np.nanstd's default; polars defaults to 1 and would differ in the third decimal.
-            exprs.append(row.arr.std(ddof=0).alias(alias))
+            # Unbiased sample std (ddof=1), the same convention as the other feature std/var columns (audit 24-F55).
+            exprs.append(row.arr.std(ddof=1).alias(alias))
         else:
             exprs.append(_quantile_expr(sorted_row, count, float(payload)).alias(alias))
     return exprs

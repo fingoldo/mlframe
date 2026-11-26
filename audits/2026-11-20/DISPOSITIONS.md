@@ -511,7 +511,6 @@
 | 24-F52 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F53 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F54 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F55 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F60 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F64 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F65 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
@@ -1568,3 +1567,5 @@
 | 24-F63 | FIXED | ForwardSelectSelector raises TypeError naming the returned type instead of a bare AssertionError. Test tests/feature_selection/test_cluster24_p3_guard_order_and_type.py |
 
 | 24-F56 | FIXED | stack_relational_chain no longer zero-fills the new columns at each hop: a parent with no eligible history keeps NaN instead of a zero mean. Test tests/feature_engineering/test_cluster24_relational_no_history_nan.py; test_biz_val_relational_dfs.py and test_fe_top_b_fixes.py pass (17) |
+
+| 24-F55 | FIXED | Feature std is the unbiased sample std (ddof=1) everywhere in the feature path: compute_numaggs and the moments kernel emit n-1 (NaN under two values), row_wise_summary_polars and the numpy reference row_wise_summary use ddof=1. Skew and kurt keep the population std they standardise with. Left as is on purpose: the weighted std (no single unbiased definition for weights), Welford in _numerical_stable (shared with metrics and ensembling). Tests: test_numerical.py, test_row_wise_summary_polars.py, test_row_wise_polars_fastpath.py, test_biz_val_row_wise_summary.py, feature_engineering changed-kernel set (426 passed, 10 skipped) |
