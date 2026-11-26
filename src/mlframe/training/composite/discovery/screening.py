@@ -867,15 +867,8 @@ def _mi_to_target(
         for j in range(n_cols):
             per_feat[j] = _mi_pair_bin(feature_matrix[:, j], target, nbins=nbins)
     else:
-        # the Kraskov estimator cannot ingest NaN, so mask per pair
-        # here and run the single-column estimator on the surviving rows.
-        for j in range(n_cols):
-            col = feature_matrix[:, j]
-            pair_finite = target_finite & np.isfinite(col)
-            if int(pair_finite.sum()) < 50:
-                per_feat[j] = 0.0
-                continue
-            per_feat[j] = _knn_mi_column(col[pair_finite], target[pair_finite], n_neighbors=n_neighbors, random_state=random_state)
+        # The kNN sweep lives in _mi_per_feature_knn; one copy, so a fix to the pair mask cannot miss this path (audit 35-F38).
+        per_feat = _mi_per_feature_knn(feature_matrix, target, n_neighbors=n_neighbors, random_state=random_state)
     if aggregation == "sum":
         return float(np.sum(per_feat))
     # Default: mean.
