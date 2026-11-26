@@ -114,7 +114,7 @@ def compute_tree_path_boolean_features(
         except Exception as exc:
             # No paths means no evidence, not "every path matched": emit NaN, not the constant-1.0 columns an empty path list produces (09-F17).
             logger.warning("tree_path_boolean: path extraction failed (%s); path and match-count columns are NaN for this fold.", exc)
-            nan_block = np.full((np.asarray(Xq_s).shape[0], n_paths + 1), np.nan, dtype=np.float32)
+            nan_block = np.full((len(Xq_s), n_paths + 1), np.nan, dtype=np.float32)
             return np.column_stack([nan_block, pred_q])
         # Pad to n_paths if fewer extracted
         while len(paths) < n_paths:

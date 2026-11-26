@@ -661,7 +661,7 @@ def _codes_with_extra_columns(data: np.ndarray, extra_cols: "list[np.ndarray]") 
     out_dtype = data.dtype
     if np.issubdtype(out_dtype, np.integer):
         limit = np.iinfo(out_dtype).max
-        if any(int(np.max(c)) > limit or int(np.min(c)) < np.iinfo(out_dtype).min for c in extra_cols if np.asarray(c).size):
+        if any(int(np.max(c)) > limit or int(np.min(c)) < np.iinfo(out_dtype).min for c in extra_cols if len(c)):
             out_dtype = np.result_type(out_dtype, *[np.asarray(c).dtype for c in extra_cols])
     out = np.empty((n, width + len(extra_cols)), dtype=out_dtype)
     out[:, :width] = data
