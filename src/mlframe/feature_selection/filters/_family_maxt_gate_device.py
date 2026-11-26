@@ -110,7 +110,12 @@ def _distinct_columns_on_device(cp: Any, devs: "list") -> "tuple[Any, np.ndarray
     else:
         block = devs[0] if len(devs) == 1 else cp.concatenate(devs, axis=1)
         columns_first = cp.ascontiguousarray(block.T)
-    distinct = unique_columns(cp.asnumpy(columns_first))
+    from ._family_columns_dedupe_cuda import unique_columns_device
+
+    # compared where the codes are: only the k hashes and flags cross the bus (the host comparison copied the whole (columns, rows) matrix down)
+    distinct = unique_columns_device(cp, columns_first)
+    if distinct is False:
+        distinct = unique_columns(cp.asnumpy(columns_first))
     del columns_first
     if distinct is None:
         return None
