@@ -125,40 +125,19 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F29: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F30: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F31: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F32: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F33: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F34: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F35: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F36: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F37: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F38: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F39: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F40: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F41: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F42: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F43: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F44: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F45: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F46: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F47: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F49: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F50: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F51: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F52: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F53: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F54: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F55: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F56: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F57: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F58: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F59: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F60: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F61: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F62: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F63: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F64: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F65: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F66: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F25: FIXED. empty support returns NaN per query point; tests/feature_engineering/test_cluster24_empty_and_alignment.py
 - 24-F31: FIXED. chunks that return (None, None) are skipped and an all-empty run returns (None, None); no separate test
 - 24-F36: FIXED. the long MA is reindexed to the short one's index before differencing; tests/feature_engineering/test_cluster24_empty_and_alignment.py
@@ -169,10 +148,6 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F28: DEFERRED. not reviewed in this pass; P2 still open
 - 24-F29: DEFERRED. not reviewed in this pass; P2 still open
 - 24-F30: DEFERRED. not reviewed in this pass; P2 still open
-- 24-F32: DEFERRED. not reviewed in this pass; P2 still open
-- 24-F33: DEFERRED. not reviewed in this pass; P2 still open
-- 24-F34: DEFERRED. not reviewed in this pass; P2 still open
-- 24-F35: DEFERRED. not reviewed in this pass; P2 still open
 - 24-F31: FIXED. empty parallel chunks are skipped and an all-empty run returns (None, None); tests/feature_engineering/test_timeseries.py expectation updated to the corrected cumsum end contract; 129 related tests pass
 - 24-F23: FIXED. local density drops the self-match when the query is the reference, so dist_to_kth is the k-th other point; tests/feature_engineering/test_cluster24_min_periods_and_self_match.py; 57 related tests pass
 - 24-F26: FIXED. rolling min_periods is clamped to the window; same test file
@@ -190,3 +165,45 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F17: PARTIAL. Causal KDE lookback (opt-in, default exact). Dominant error found: the grid argmax jumps to another density peak on about 0.6% of rows, giving max gaps near 0.36 while the mean is 0.006. The auto criterion now uses the MEAN probe gap, default lookback_tol=1e-2 (chosen by me; owner to confirm). Measured on synthetic AR(1) groups (20 x 1500, exp 0.95): fixed L=256 7.1x faster, mean gap 6.0e-3, 0.84% of rows gap above 0.05; auto (selects a candidate) 18.3x faster, mean gap 1.1e-2, 2.1% of rows gap above 0.05. Owner decision still open: accept this tail or tighten tol. Tests tests/feature_engineering/test_cluster24_causal_kde_lookback.py (6 passed). Bench: scratchpad/bench_kde_lookback.py.
 
 - 24-F16: DOCUMENTED. The exp scheme uses one recurrence pass per group (A_L = p*(A+v), B_L = p*(B+1)), equal to the prefix re-walk within 1e-9 (test_cluster24_exp_causal_recurrence.py, 2 passed). The poly scheme keeps the O(m^2) prefix re-walk: its weights depend on the window length, so prefix sums cannot be updated exactly. The choice is now stated at the poly branch.
+
+- 24-F40: FIXED. Windowed edge aggregation: a NaN entity is its own group. Positions come from factorize codes (NaN kept), so the lookup no longer raises KeyError; grouping is one stable argsort, not a per-entity scan. Test tests/feature_engineering/test_cluster24_nan_entity_and_warmup_vote.py
+
+- 24-F35: FIXED. MA crossover vote_sum is NaN on rows where every pair is still warming up (any_vote mask), instead of 0 that reads as neutral consensus. Test tests/feature_engineering/test_cluster24_nan_entity_and_warmup_vote.py
+
+- 24-F32: FIXED. Spectral NaN fill is per window inside _spec_pow (the segment-wide mean let early windows read future values); _nan_impute_segment removed. Test tests/feature_engineering/test_cluster24_spectral_scale_and_nan_windows.py; test_fe_top_a_fixes.py::test_f20 revised
+
+- 24-F33: FIXED. Spectral entropy normalises by the window's own power with p*log(p) only where p>0; flatness floor is relative to each window's mean power, and a zero-power window reports 0.0. Scale-invariance test in test_cluster24_spectral_scale_and_nan_windows.py
+
+- 24-F34: FIXED. Rolling Hurst-family wrappers report NaN for every window that held a non-finite input (cumulative-count mask), instead of a finite value from the zero fill. Test test_cluster24_spectral_scale_and_nan_windows.py::test_hurst_window_with_nan
+
+- 24-F44: FIXED. Verify path uses max(..., default=0.0) for the derived signal: a raw column with no present derived column keeps a zero retained fraction, so it is kept and recorded in safety_report instead of raising ValueError. Test tests/feature_selection/test_cluster24_drop_raw_no_derived_columns.py
+
+- 24-F43: FIXED. Hetero vote importance reads coef_ / feature_importances_ from a Pipeline's final step, so the linear panel member votes with /coef_/ as documented instead of permutation importance on a subsample. Test tests/feature_selection/test_cluster24_hetero_pipeline_coef.py; stability/test_hetero_vote.py and test_degenerate_input_guards.py pass (10 passed). biz_val hetero tests left to CI
+
+- 24-F58: FIXED. nearest_past_join fallback carries the row position in a private column instead of reset_index(), which created a column named index; the caller's index is restored. Test tests/feature_engineering/test_cluster24_nearest_past_fallback_index.py
+
+- 24-F57: RESOLVED. Not reproduced: pandas sort_values keeps tied rows in input order for both the multi-key and single-key sorts used here, so the tie order is deterministic. No code change.
+
+- 24-F46: FIXED. chronological_order warns (UserWarning) with the count of labels that could not be parsed; they still sort last as before. Test tests/feature_selection/test_cluster24_unparsed_time_and_append_index.py
+
+- 24-F49: FIXED. append_columns raises ValueError when new_cols does not share X's index, instead of appending NaN columns silently; all three callers already pass index=X.index. Test tests/feature_selection/test_cluster24_unparsed_time_and_append_index.py
+
+- 24-F41: FIXED. MRMR member abstains (no mrmr key, warning logged) when MRMR selects no relevant column, instead of voting for every relevant column. Tests: tests/feature_selection/test_cluster24_hybrid_vote_fallbacks.py; stability/test_hybrid_selector_deep.py::test_use_mrmr_false_zeroes_engineering_and_still_votes updated
+
+- 24-F42: FIXED. No-consensus fallback keeps the clusters with the most votes (ties all kept) instead of the union of every pick. Tests: test_cluster24_hybrid_vote_fallbacks.py; stability/test_hybrid_selector_chunk48_fixes.py::test_combine_union_fallback_warns updated
+
+- 24-F59: FIXED. _rep_member docstring names cluster_rep='first' as the constructor default (it said sum_fi). Test tests/feature_selection/test_cluster24_p3_docs_and_dead_code.py
+
+- 24-F61: FIXED. Removed the features_usefulness zero array that was overwritten; the same zeros are now passed in place, so behaviour is unchanged. Existing MRMR tests cover the path
+
+- 24-F66: FIXED. Removed the unused classes local in prune_conditional_twins (computed and deleted). Test tests/feature_selection/test_cluster24_p3_docs_and_dead_code.py; tests/feature_selection/test_hybrid_twin_prune*.py pass (12)
+
+- 24-F62: FIXED. run_efs refuses duplicate target names before binning or any MI work, instead of after the full permutation loop. Test tests/feature_selection/test_cluster24_p3_guard_order_and_type.py
+
+- 24-F63: FIXED. ForwardSelectSelector raises TypeError naming the returned type instead of a bare AssertionError. Test tests/feature_selection/test_cluster24_p3_guard_order_and_type.py
+
+- 24-F56: FIXED. stack_relational_chain no longer zero-fills the new columns at each hop: a parent with no eligible history keeps NaN instead of a zero mean. Test tests/feature_engineering/test_cluster24_relational_no_history_nan.py; test_biz_val_relational_dfs.py and test_fe_top_b_fixes.py pass (17)
+
+- 24-F55: FIXED. Feature std is the unbiased sample std (ddof=1) everywhere in the feature path: compute_numaggs and the moments kernel emit n-1 (NaN under two values), row_wise_summary_polars and the numpy reference row_wise_summary use ddof=1. Skew and kurt keep the population std they standardise with. Left as is on purpose: the weighted std (no single unbiased definition for weights), Welford in _numerical_stable (shared with metrics and ensembling). Tests: test_numerical.py, test_row_wise_summary_polars.py, test_row_wise_polars_fastpath.py, test_biz_val_row_wise_summary.py, feature_engineering changed-kernel set (426 passed, 10 skipped)
+
+- 24-F45: PARTIAL. Stability vote folds are forward-chained under a temporal policy (forward_chain_folds): no fold trains on a later row, the first block is never tested, the quorum adapts to the folds evaluated. SHAP OOF explainer keeps its partition: its phi, residual pass, mean-abs and prescreen need a value for every row, so forward chaining there would need row subsetting across the whole fit. Left open as a separate change. Tests: tests/feature_selection/test_cluster24_forward_chain_folds.py (4 passed); cv_policy wiring test updated. Pre-existing failures on untouched HEAD: fe_rejection_ledger floors, mrmr fast_search [1][2]

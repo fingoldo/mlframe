@@ -37,10 +37,13 @@ def _importance(est, X, y, *, n_perm_repeats: int = 3, random_state: int = 0) ->
     from sklearn.base import clone
     m = clone(est)
     m.fit(X, y)
-    if hasattr(m, "feature_importances_"):
-        return np.asarray(np.abs(np.asarray(m.feature_importances_, dtype=float)))
-    if hasattr(m, "coef_"):
-        c = np.abs(np.asarray(m.coef_, dtype=float))
+    # A sklearn Pipeline has no coef_ of its own; the linear or tree model is its final step (audit 24-F43). Without this the
+    # linear panel member fell back to permutation importance on a subsample, not the |coef_| the docstring promises.
+    final = m.steps[-1][1] if hasattr(m, "steps") else m
+    if hasattr(final, "feature_importances_"):
+        return np.asarray(np.abs(np.asarray(final.feature_importances_, dtype=float)))
+    if hasattr(final, "coef_"):
+        c = np.abs(np.asarray(final.coef_, dtype=float))
         return np.asarray(c.max(axis=0) if c.ndim > 1 else c)
     from sklearn.inspection import permutation_importance
     n = X.shape[0]

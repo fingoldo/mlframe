@@ -404,8 +404,8 @@ class HybridSelector:
 
     def _rep_member(self, members):
         """Pick the kept representative of a (correlation) cluster per ``cluster_rep``. ``members`` is already the
-        candidate subset (filtered to in-frame / relevant). "first" = the cluster's first column (legacy, arbitrary);
-        "max_fi" = highest single mean perm-FI; "sum_fi" (default) = highest summed-per-repeat perm-FI (most stable).
+        candidate subset (filtered to in-frame / relevant). "first" (the constructor default) = the cluster's first column;
+        "max_fi" = highest single mean perm-FI; "sum_fi" = highest summed-per-repeat perm-FI (most stable).
         Empty input returns None. Pure function of the shared FI - no extra compute."""
         if not members:
             return None
@@ -720,7 +720,15 @@ class HybridSelector:
         """The selections of the member selectors on the shared narrowed space: ``{"mrmr", "shap", "boruta"[, "tree"]}``."""
         member_sel = {}
         _mrmr_hits = [c for c in (self.mrmr_selected_ + sorted(engineered)) if c in relevant]
-        member_sel["mrmr"] = _mrmr_hits if _mrmr_hits else list(relevant)  # MRMR selected nothing relevant (degenerate) -> the mrmr member votes for everything rather than abstaining, not a caller-supplied-empty trap
+        # MRMR selected nothing relevant: the member abstains (its key is omitted) and the degradation is logged. Voting for every relevant
+        # column instead gave it two votes for each cluster another member picked (audit 24-F41).
+        if _mrmr_hits:
+            member_sel["mrmr"] = _mrmr_hits
+        else:
+            log_throttle(
+                logger, "hybrid_selector.mrmr_abstained", logging.WARNING,
+                "HybridSelector: MRMR selected no relevant column; the mrmr member abstains from the vote.",
+            )
         if self.use_shap:
             try:
                 member_sel["shap"] = self._run_shap(X_aug, y, relevant, self.artifacts_)
@@ -784,13 +792,14 @@ class HybridSelector:
                 chosen.append(r)
             elif s >= self.vote and _rep_fi(r) >= floor:  # single-member -> must clear the credibility floor
                 chosen.append(r)
-        if not chosen:  # guard/vote too strict for this dataset -> fall back to any-member union of clusters
+        if not chosen and support:  # no cluster reached the vote -> keep the best-supported clusters, not the union of every pick (audit 24-F42)
+            top = max(support.values())
+            chosen = [r for r, s in support.items() if s == top]
             log_throttle(
-                logger, "hybrid_selector.combine_union_fallback", logging.WARNING,
-                "HybridSelector: no cluster reached vote=%s (members voting: %s, fi_guard=%s); falling back to the union of every cluster any member selected.",
-                self.vote, len(member_sel), self.fi_guard,
+                logger, "hybrid_selector.best_supported_fallback", logging.WARNING,
+                "HybridSelector: no cluster reached vote=%s (members voting: %s, fi_guard=%s); keeping the %d cluster(s) with the most votes (%d).",
+                self.vote, len(member_sel), self.fi_guard, len(chosen), top,
             )
-            chosen = list(cluster_votes.keys())
         selected = []
         for r in chosen:
             ms = [m for m in self.members_[r] if m in cols]

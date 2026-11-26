@@ -62,17 +62,6 @@ def _detrend_zero_mean(wins: np.ndarray) -> np.ndarray:
     return np.asarray(wins - wins.mean(axis=1, keepdims=True))
 
 
-def _nan_impute_segment(seg: np.ndarray) -> np.ndarray:
-    """NaN-fill ``seg`` with its own finite mean (0.0 if entirely NaN) before an FFT/power computation.
-
-    Shared by every ``rolling_spectral_*``/``rolling_periodicity_score`` function in this module (was
-    duplicated 6x identically.
-    """
-    # all-NaN window: nanmean is NaN and `NaN or 0` keeps NaN (NaN is truthy), so guard explicitly
-    seg_mean = float(np.nanmean(seg)) if np.isfinite(seg).any() else 0.0
-    return np.where(np.isfinite(seg), seg, seg_mean)
-
-
 def rolling_spectral_band_energies(
     values: np.ndarray,
     group_ids: np.ndarray,
@@ -153,9 +142,13 @@ def rolling_spectral_entropy(
         if detrend:
             wins = _detrend_zero_mean(wins)
         spec = np.abs(np.fft.rfft(wins, axis=1)) ** 2
-        spec_norm = spec / np.maximum(spec.sum(axis=1, keepdims=True), 1e-9)
-        # -sum p log p; clip avoids log(0) (NaN under div-by-zero).
-        ent = -np.sum(spec_norm * np.log(spec_norm + 1e-12), axis=1)
+        # Normalise by the window's own power, with no absolute floor: the old 1e-9 and 1e-12 floors are in squared-amplitude
+        # units and dominated small-amplitude series (audit 24-F33). A zero-power window has p = 0 everywhere and entropy 0.
+        total = spec.sum(axis=1, keepdims=True)
+        spec_norm = np.divide(spec, total, out=np.zeros_like(spec), where=total > 0)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            plogp = np.where(spec_norm > 0, spec_norm * np.log(spec_norm), 0.0)
+        ent = -np.sum(plogp, axis=1)
         out[write_idx] = ent
     return out
 
@@ -234,13 +227,19 @@ def rolling_hf_lf_ratio(
     return np.clip(ratio, clip_range[0], clip_range[1])
 
 
-def _spec_pow(seg_f: np.ndarray, K: int, detrend: bool) -> Tuple[np.ndarray, np.ndarray]:
-    """Window into K-stride, optional zero-mean detrend, return |rfft|^2.
+def _spec_pow(seg: np.ndarray, K: int, detrend: bool) -> Tuple[np.ndarray, np.ndarray]:
+    """Window into K-stride, impute NaN per window, optional zero-mean detrend, return |rfft|^2.
 
+    NaN is filled with the mean of the finite values inside each window, not of the whole segment: a segment-wide mean
+    would carry future values into every window that precedes them (audit 24-F32). An all-NaN window is filled with 0.
     Helper shared by centroid/bandwidth/rolloff/flatness/flux/periodicity.
     """
     from numpy.lib.stride_tricks import sliding_window_view
-    wins = sliding_window_view(seg_f, K)
+    wins = sliding_window_view(seg, K)
+    finite_mask = np.isfinite(wins)
+    if not finite_mask.all():
+        mu = np.where(finite_mask.any(axis=1, keepdims=True), np.nanmean(wins, axis=1, keepdims=True), 0.0)
+        wins = np.where(finite_mask, wins, mu)
     if detrend:
         wins = wins - wins.mean(axis=1, keepdims=True)
     return np.abs(np.fft.rfft(wins, axis=1)) ** 2, wins
@@ -267,8 +266,7 @@ def rolling_spectral_centroid(
         values, group_ids, window_K=window_K,
     ):
         seg = values[sort_idx_seg].astype(np.float64)
-        seg_f = _nan_impute_segment(seg)
-        spec, _ = _spec_pow(seg_f, window_K, detrend)
+        spec, _ = _spec_pow(seg, window_K, detrend)
         n_freq = spec.shape[1]
         k = np.arange(n_freq, dtype=np.float64)
         denom = spec.sum(axis=1)
@@ -296,8 +294,7 @@ def rolling_spectral_bandwidth(
         values, group_ids, window_K=window_K,
     ):
         seg = values[sort_idx_seg].astype(np.float64)
-        seg_f = _nan_impute_segment(seg)
-        spec, _ = _spec_pow(seg_f, window_K, detrend)
+        spec, _ = _spec_pow(seg, window_K, detrend)
         n_freq = spec.shape[1]
         k = np.arange(n_freq, dtype=np.float64)
         denom = spec.sum(axis=1)
@@ -335,8 +332,7 @@ def rolling_spectral_rolloff(
         values, group_ids, window_K=window_K,
     ):
         seg = values[sort_idx_seg].astype(np.float64)
-        seg_f = _nan_impute_segment(seg)
-        spec, _ = _spec_pow(seg_f, window_K, detrend)
+        spec, _ = _spec_pow(seg, window_K, detrend)
         cum = np.cumsum(spec, axis=1)
         # No epsilon here (unlike centroid's denom, `total` is never a divisor in this function): at
         # percentile=1.0 (explicitly allowed by this function's own validation), `target = total + eps`
@@ -365,6 +361,9 @@ def rolling_spectral_flatness(
     Distinct from ``rolling_spectral_entropy`` (unbounded in nats);
     flatness is a normalised ratio downstream models prefer.
 
+    ``eps`` is a floor relative to each window's mean power, so the ratio does not depend on the amplitude of the series.
+    A zero-power window reports 0.0.
+
     Use cases: tonal vs noisy regime classifier (engine knock, ECG vs
     noise, voice-activity), volatility regime compression in finance,
     audio codec quality.
@@ -374,13 +373,17 @@ def rolling_spectral_flatness(
         values, group_ids, window_K=window_K,
     ):
         seg = values[sort_idx_seg].astype(np.float64)
-        seg_f = _nan_impute_segment(seg)
-        spec, _ = _spec_pow(seg_f, window_K, detrend)
+        spec, _ = _spec_pow(seg, window_K, detrend)
         # Drop DC bin (always 0 after detrend; would give log(0) noise).
-        s = spec[:, 1:] + eps
-        log_g = np.log(s).mean(axis=1)
+        s = spec[:, 1:]
         a = s.mean(axis=1)
-        out[write_idx] = np.exp(log_g) / (a + eps)
+        # eps is relative to each window's own mean power, so the ratio is scale-free; a zero-power window is undefined (NaN).
+        floor = a[:, None] * eps
+        with np.errstate(divide="ignore", invalid="ignore"):
+            log_g = np.log(np.maximum(s, floor)).mean(axis=1)
+            flat = np.exp(log_g) / a
+        # A zero-power window (e.g. all NaN) has no spectral shape; it reports 0.0 so the output stays finite.
+        out[write_idx] = np.where(a > 0, flat, 0.0)
     return out
 
 
@@ -412,8 +415,7 @@ def rolling_spectral_flux(
         values, group_ids, window_K=window_K,
     ):
         seg = values[sort_idx_seg].astype(np.float64)
-        seg_f = _nan_impute_segment(seg)
-        spec, _ = _spec_pow(seg_f, window_K, detrend)
+        spec, _ = _spec_pow(seg, window_K, detrend)
         mag = np.sqrt(spec)
         # Flux at row r = sum over k of (mag[r, k] - mag[r-1, k])^2.
         # First row of segment has no previous -> NaN.
@@ -454,8 +456,7 @@ def rolling_periodicity_score(
         values, group_ids, window_K=window_K,
     ):
         seg = values[sort_idx_seg].astype(np.float64)
-        seg_f = _nan_impute_segment(seg)
-        spec, _ = _spec_pow(seg_f, window_K, detrend)
+        spec, _ = _spec_pow(seg, window_K, detrend)
         acf = np.fft.irfft(spec, n=window_K, axis=1)
         # Use first half (lags 0 .. K//2) where ACF is meaningful.
         half = window_K // 2

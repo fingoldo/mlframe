@@ -49,11 +49,16 @@ def _nearest_past_join_single_tier(
             out[new_name] = result_pd[col].to_numpy()
         return out
     except ImportError:
-        left_sorted = left_df.sort_values(on).reset_index()
-        right_sorted = right_df[[on, *by_list, *right_value_cols]].sort_values(on)
+        # Row position is carried in a private column, not reset_index(): that column is literally named "index", which collided with a
+        # user column of that name or with a named index (audit 24-F58). The original index is restored from left_df at the end.
+        row_col = "__nearest_past_row__"
+        left_sorted = left_df.reset_index(drop=True)
+        left_sorted[row_col] = np.arange(len(left_sorted))
+        left_sorted = left_sorted.sort_values(on, kind="stable")
+        right_sorted = right_df[[on, *by_list, *right_value_cols]].sort_values(on, kind="stable")
         merged = pd.merge_asof(left_sorted, right_sorted, on=on, by=by_list or None, direction="backward", suffixes=("", suffix))
-        merged = merged.set_index("index").sort_index()
-        merged.index.name = None
+        merged = merged.sort_values(row_col, kind="stable").drop(columns=row_col)
+        merged.index = left_df.index
         return merged
 
 

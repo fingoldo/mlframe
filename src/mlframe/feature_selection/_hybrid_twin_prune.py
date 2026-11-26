@@ -29,7 +29,6 @@ def _row_losses(Z: np.ndarray, y: np.ndarray, classification: bool, folds: np.nd
     from sklearn.linear_model import LogisticRegression, Ridge
 
     out = np.empty(Z.shape[0], dtype=np.float64)  # Intentional float64: statistic vector (per-row losses entering a mean and a standard error)
-    classes = np.unique(y) if classification else None
     for fo in range(_FOLDS):
         tr, va = folds != fo, folds == fo
         if classification:
@@ -47,7 +46,6 @@ def _row_losses(Z: np.ndarray, y: np.ndarray, classification: bool, folds: np.nd
         else:
             model = (HistGradientBoostingRegressor(max_iter=60, max_depth=4, random_state=0) if model_kind == "hgb" else Ridge(alpha=1.0)).fit(Z[tr], y[tr])
             out[va] = np.abs(y[va] - model.predict(Z[va]))
-    del classes
     return out
 
 

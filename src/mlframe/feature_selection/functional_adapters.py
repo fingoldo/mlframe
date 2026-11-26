@@ -255,8 +255,8 @@ class ForwardSelectSelector(_FunctionalSelectorBase):
             min_improvement=self.min_improvement, patience=self.patience, significance_level=self.significance_level,
             return_report=False,
         )
-        if not (isinstance(selected, list)):
-            raise AssertionError
+        if not isinstance(selected, list):
+            raise TypeError(f"forward_select returned {type(selected).__name__}; expected a list of selected column names (audit 24-F63)")
         self._finalize(X, selected)
         return self
 

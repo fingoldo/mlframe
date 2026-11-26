@@ -39,10 +39,10 @@ class TestItMatchesTheNumpyReference:
         assert np.nanmax(np.abs(expected - got)) < 1e-12
 
     def test_std_uses_the_reference_ddof(self):
-        """polars defaults to ddof=1 and numpy's nanstd to ddof=0 -- a silent third-decimal drift if unfixed."""
+        """The row std is unbiased (ddof=1), matching numpy's nanstd with ddof=1 (audit 24-F55)."""
         df = pl.DataFrame({"a": [1.0, 2.0], "b": [3.0, 6.0], "c": [5.0, 10.0]})
         got = row_wise_summary_stats_polars(df, stats=["std"])["row_summary_std"].to_numpy()
-        assert np.allclose(got, [np.nanstd([1, 3, 5]), np.nanstd([2, 6, 10])])
+        assert np.allclose(got, [np.nanstd([1, 3, 5], ddof=1), np.nanstd([2, 6, 10], ddof=1)])
 
     def test_quantiles_interpolate_like_numpy(self):
         """Nearest-rank would be a different definition; the reference interpolates and so must this."""

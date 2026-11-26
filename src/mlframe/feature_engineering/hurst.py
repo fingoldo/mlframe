@@ -4,7 +4,8 @@ https://en.wikipedia.org/wiki/Hurst_exponent
 
 The single-window kernels (``dfa_alpha``, ``higuchi_fd``, ``dfa_alpha2_quadratic``, ``multifractal_dfa``, ``_hurst_rs_single``) are compiled with the full
 ``fastmath=True`` flag set, which assumes finite input: a window holding NaN returns a finite sentinel (0.0) from some of them instead of NaN. The rolling
-wrappers replace non-finite values with 0 before calling them; callers of the single-window functions must pass finite data.
+wrappers replace non-finite values with 0 before calling them, then report NaN for every window that held a non-finite input, so no
+finite value is produced from a NaN; callers of the single-window functions must pass finite data.
 """
 
 from __future__ import annotations
@@ -360,10 +361,11 @@ def _per_group_rolling(
     arr = np.ascontiguousarray(values, dtype=np.float64)
     out = np.full(arr.size, np.nan, dtype=np.float64)
     if group_ids is None:
-        # Replace NaN with 0 for the kernel; non-finite handling is
-        # caller's job for ML pipelines that need it.
+        # The kernel runs on 0-filled data; a window holding a non-finite value is then reported as NaN, not as a finite
+        # value computed from the fill (audit 24-F34).
         arr_finite = np.where(np.isfinite(arr), arr, 0.0)
         kernel(arr_finite, *kernel_args, out)
+        _nan_windows_with_nonfinite(arr, out, window_K)
         return out
     from .grouped import iter_group_segments
     sort_idx, starts, ends = iter_group_segments(group_ids)
@@ -375,8 +377,23 @@ def _per_group_rolling(
         seg_finite = np.where(np.isfinite(seg), seg, 0.0)
         seg_out = np.full(seg.size, np.nan, dtype=np.float64)
         kernel(seg_finite, *kernel_args, seg_out)
+        _nan_windows_with_nonfinite(seg, seg_out, window_K)
         out[sort_idx[s:e]] = seg_out
     return out
+
+
+def _nan_windows_with_nonfinite(seg: np.ndarray, out: np.ndarray, window_K: int) -> None:
+    """Set ``out[i]`` to NaN wherever the window ending at ``i`` contains a non-finite input (audit 24-F34).
+
+    A window is ``seg[i - window_K + 1 : i + 1]``; the count of non-finite values in it comes from one cumulative sum.
+    """
+    bad = (~np.isfinite(seg)).astype(np.int64)
+    csum = np.concatenate(([0], np.cumsum(bad)))
+    ends = np.arange(window_K - 1, seg.size)
+    if ends.size == 0:
+        return
+    has_bad = (csum[ends + 1] - csum[ends + 1 - window_K]) > 0
+    out[ends[has_bad]] = np.nan
 
 
 def rolling_hurst(

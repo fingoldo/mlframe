@@ -272,8 +272,9 @@ def test_use_mrmr_false_zeroes_engineering_and_still_votes():
     assert h.mrmr_selected_ == [] and h.artifacts_ is None
     assert h._mrmr_member is None and h._eng_names == [] and h._eng_rename == {}
     assert h.n_engineered_ == 0
-    # the "mrmr" member key still exists, mapping to the relevant-fallback list (`or list(relevant)`)
-    assert "mrmr" in h.member_selections_
+    # MRMR selected nothing relevant, so the mrmr member abstains: no key, instead of voting for every relevant column (audit 24-F41)
+    assert "mrmr" not in h.member_selections_
+    assert "shap" in h.member_selections_ or "boruta" in h.member_selections_
     # the other members still recover the block
     assert len(set(h.raw_selected_) & set(inf)) >= 3
 

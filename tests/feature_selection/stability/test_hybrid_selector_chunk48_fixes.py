@@ -35,7 +35,7 @@ def test_augment_keeps_the_callers_row_labels():
 
 
 def test_combine_union_fallback_warns(caplog):
-    """When no cluster reaches ``vote`` the any-member union is returned, and the fallback is logged at WARNING."""
+    """When no cluster reaches ``vote`` the clusters with the most votes are kept (a tie keeps all of them), logged at WARNING (audit 24-F42)."""
     reset_throttle_counts()
     h = HybridSelector(vote=3)
     h.members_ = {"a": ["a"], "b": ["b"]}
@@ -44,7 +44,7 @@ def test_combine_union_fallback_warns(caplog):
     with caplog.at_level(logging.WARNING, logger="mlframe.feature_selection.hybrid_selector"):
         out = h._combine({"mrmr": ["a"], "shap": ["b"]}, ["a", "b"])
     assert sorted(out) == ["a", "b"]
-    assert any("falling back to the union" in r.getMessage() for r in caplog.records)
+    assert any("keeping the" in r.getMessage() and "most votes" in r.getMessage() for r in caplog.records)
 
 
 def test_get_support_builds_the_selected_set_once():

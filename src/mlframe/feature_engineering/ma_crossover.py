@@ -71,6 +71,7 @@ def ma_crossover_features(
 
     out: Dict[str, np.ndarray] = {}
     vote_sum: Optional[np.ndarray] = None
+    any_vote: Optional[np.ndarray] = None
     for short, long in combinations(windows, 2):
         # Align the long average to the short one's index: a plain subtraction matched labels, but the output frame takes the
         # short index, so differently ordered inputs shifted rows (audit 24-F36).
@@ -82,6 +83,9 @@ def ma_crossover_features(
         # instead of a separate np.stack + np.nansum pass over all pairs -- avoids materializing an extra
         # (n_rows, n_pairs) array just to reduce it away; measured as the dominant cProfile cost otherwise.
         vote_contribution = np.where(np.isnan(vote), 0.0, vote)
+        # A row where every pair is still in warm-up has no vote at all. Its consensus must stay NaN, not 0, which reads as a
+        # genuine neutral consensus (audit 24-F35).
+        any_vote = ~np.isnan(vote) if any_vote is None else any_vote | ~np.isnan(vote)
         if short_window_weight_power:
             # weight by the SHORT leg's window size, not the long leg's: a pair like (3, 90) still has a
             # noisy short MA driving most of its sign flips, so weighting on `long` alone (its prior
@@ -92,6 +96,8 @@ def ma_crossover_features(
         vote_sum = vote_contribution if vote_sum is None else vote_sum + vote_contribution
 
     assert vote_sum is not None  # guaranteed: len(windows) >= 2 checked above -> at least one pair iterated.
+    assert any_vote is not None
+    vote_sum = np.where(any_vote, vote_sum, np.nan)
     out[f"{column_prefix}_vote_sum"] = vote_sum
     if group_ids is None:
         vote_sum_delta = np.empty_like(vote_sum)

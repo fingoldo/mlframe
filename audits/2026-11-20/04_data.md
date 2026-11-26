@@ -73,7 +73,6 @@ Scope: the 42 files in `audits/2026-11-20/manifests/04_data.txt`, all read in fu
 - 04-F13: FIXED. graded-cardinality weights scaled to 1/(levels-1) so each cardinality carries equal signal range; existing dataset tests pass (49); test tests/data/test_cluster04_graded_cardinality_weights.py
 - 04-F25: FIXED. scipy rvs gets shape parameters first, loc and scale as keywords; tests/data/test_cluster04_sapp_args_and_coerce.py
 - 04-F23: FIXED. non-numeric values coerced to NaN are counted in the notes; same test file
-- 04-F14: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
 - 04-F15: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
 - 04-F16: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
 - 04-F17: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
@@ -98,7 +97,6 @@ Scope: the 42 files in `audits/2026-11-20/manifests/04_data.txt`, all read in fu
 - 04-F19: FIXED. Removed the three never-populated FeatureTruth fields (marginal_mi, conditional_mi_given_rest, r2_to_source); the generator fills only role, region, source, cost. Test tests/data/test_cluster04_feature_truth_fields.py.
 - 04-F24: FIXED. replay(with_data=False) compares the spec hash and skips generation; replay_report uses it, so one line per scenario no longer regenerates every bed. Test tests/data/test_cluster04_replay_status_skips_generation.py.
 - 04-F26: FIXED. _feature_parents raises naming a parent that is neither observed, latent, nor the selected target, instead of dropping its effect while the truth graph keeps the edge. Test tests/data/test_cluster04_derived_refuses_dropped_parent.py.
-- 04-F14: PARTIAL. bayes_auc's per-row tie-group loop is vectorised over group boundaries and matches the old loop exactly (tests/data/test_cluster04_bayes_auc_vectorised_matches_loop.py). The prevalence bisection is not warm-started yet: it is 60 passes per call and remains the cost to address next. Pre-existing failure, not caused by this change: test_datasets_oracle.py::TestReferenceMI::test_a_signal_column_carries_more_information_than_a_probe fails on origin/master too.
 - 04-F30: FIXED. replay_from_record refuses a record without dataset_seed instead of defaulting to 0. Test test_cluster04_replay_requires_seed.py.
 - 04-F34: FIXED. sample_categorical clamps the drawn index to K-1 when rounding leaves the cumulative sum under 1. Test tests/data/test_cluster04_sample_categorical_in_range.py.
 - 04-F32: FIXED. Scenario name index refuses duplicate names (_index_by_name raises ValueError). Tests tests/data/test_cluster04_scenario_names_unique.py.
@@ -106,4 +104,8 @@ Scope: the 42 files in `audits/2026-11-20/manifests/04_data.txt`, all read in fu
 - 04-F29: FIXED. tail_gate_term builds only the quantile masks its direction uses; direction is validated first. Tests tests/data/test_cluster04_tail_gate_builds_needed_masks.py.
 - 04-F33: FIXED. MCAR draws an exact count (matching the documented contract); the caveat reports the column's total hidden share. Note: MCAR output for seeded beds changes once. Test tests/data/test_cluster04_mcar_exact_share.py.
 - 04-F27: FIXED. Derived ordering tests membership against a per-round set and drops ready names via a set; realize_derived builds the edge-weight map once (first edge wins, as before). Test tests/data/test_cluster04_derived_order_uses_sets.py.
-- 04-F28: PARTIAL. _collapse_redundant builds each group's member set once (was per remaining member). Still open: _is_m_collider recomputes graph.descendants per parent, and _declared_kind_role scans all edges per node; both need caller-level caching. Test tests/data/test_cluster04_collapse_redundant_classes.py.
+
+- 04-F14: DEFERRED. bayes_auc's per-row tie-group loop is vectorised and matches the old loop exactly (test_cluster04_bayes_auc_vectorised_matches_loop.py). Left open: the prevalence bisection runs 60 passes per call. A warm start narrows the bracket from the previous result, which changes the numerics within tolerance, so it needs a benchmark on real call counts before it lands.
+
+
+- 04-F28: FIXED. Declared kind roles built once per derivation (_declared_kind_roles, first edge wins) instead of rescanning all edges per column; M-bias collider check uses the precomputed ancestor set. Tests: tests/data/test_cluster04_declared_roles_single_pass.py, test_cluster04_m_collider_no_descendant_walk.py

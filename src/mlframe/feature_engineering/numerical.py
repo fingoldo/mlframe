@@ -262,10 +262,12 @@ def _make_compute_simple_stats(use_kahan: bool, use_fastmath: bool):
                     std_val = t
                 else:
                     std_val += summand
-        if size:
-            std_val = np.sqrt((std_val + std_compensation) / size)
+        # Unbiased sample std (divide by n - 1), the convention of the other feature std columns (audit 24-F55). Fewer than two finite
+        # values leave it undefined: NaN, as the polars path reports (ddof=1 on a single value is null).
+        if size > 1:
+            std_val = np.sqrt((std_val + std_compensation) / (size - 1))
         else:
-            std_val = 0.0
+            std_val = np.nan
         return minval, maxval, argmin, argmax, mean_value, std_val
 
     return kernel
@@ -293,7 +295,7 @@ def compute_simple_stats_numba(arr: np.ndarray, compensated: bool = False) -> tu
         ``True`` forces the Kahan kernel unconditionally - use for float32 with N>=1e6 or
         known ill-conditioned (uncentered, large-magnitude) data.
 
-    Returns an all-zero tuple when ``arr`` contains no finite element. ``std`` is biased (ddof=0).
+    Returns an all-zero tuple when ``arr`` contains no finite element. ``std`` is the unbiased sample std (ddof=1); NaN with fewer than two finite values.
     """
     if compensated:
         return cast(tuple, _compute_simple_stats_compensated(arr))

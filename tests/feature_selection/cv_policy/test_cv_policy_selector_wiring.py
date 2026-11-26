@@ -284,8 +284,10 @@ def test_mrmr_stability_vote_folds_are_time_blocks_under_temporal_policy():
     """Mrmr stability vote folds are time blocks under temporal policy."""
     from mlframe.feature_selection.filters._fe_stability_vote import _vote_folds
 
+    # Forward chaining (audit 24-F45): blocks 1..4 are the test sets; block 0 has no earlier data and is never tested.
     folds = _vote_folds(_temporal_policy(), N, 5, np.random.default_rng(0))
-    assert len(folds) == 5 and sum(len(f) for f in folds) == N
+    assert len(folds) == 4
     assert all(TS[earlier].max() < TS[later].min() for earlier, later in zip(folds[:-1], folds[1:]))
+    assert TS[np.concatenate(folds)].min() > TS.min(), "the earliest block is never a test set"
     shuffled = _vote_folds(None, N, 5, np.random.default_rng(0))
     assert TS[shuffled[0]].max() > TS[shuffled[1]].min(), "control: no policy keeps the seeded shuffled partition"

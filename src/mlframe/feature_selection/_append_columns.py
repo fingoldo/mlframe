@@ -16,6 +16,9 @@ def append_columns(X: pd.DataFrame, new_cols: pd.DataFrame) -> pd.DataFrame:
     """
     if new_cols.shape[1] == 0:
         return X
+    # Assignment aligns on the index, so a mismatched index would append NaN columns without a sign of it (audit 24-F49).
+    if not new_cols.index.equals(X.index):
+        raise ValueError("append_columns: new_cols must share X's index (build it with index=X.index)")
     out = X.copy(deep=False)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", pd.errors.PerformanceWarning)  # many appended columns fragment the frame; the caller consolidates when it needs to
