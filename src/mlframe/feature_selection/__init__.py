@@ -41,7 +41,13 @@ from mlframe.feature_selection.structure_discovery import (
     StructureReport,
     DiscoveredRelation,
 )
-from mlframe.feature_selection.ace import ace_select, ACEResult
+from mlframe.feature_selection.ace import ace_select, ACEResult, ACESelector
+from mlframe.feature_selection.functional_adapters import (
+    ForwardSelectSelector,
+    GreedyBackwardEliminationSelector,
+    ZeroImportancePruningSelector,
+    CascadeSelectSelector,
+)
 from mlframe.feature_selection.forward_select import forward_select, ForwardSelectReport, MarginalGainStep
 from mlframe.feature_selection.cascade_select import cascade_select
 from mlframe.feature_selection.cascade_select_stability import cascade_select_stable
@@ -85,6 +91,12 @@ __all__ = [
     # artificial-contrast feature significance (parametric t-test vs permuted-contrast importances + masking loop)
     "ace_select",
     "ACEResult",
+    "ACESelector",
+    # sklearn-compatible adapters over the functional search loops (forward, backward, zero-importance pruning, 3-stage cascade)
+    "ForwardSelectSelector",
+    "GreedyBackwardEliminationSelector",
+    "ZeroImportancePruningSelector",
+    "CascadeSelectSelector",
     # forward selection + 3-stage cascade (Boruta screen -> forward select -> permutation backward elimination)
     "forward_select",
     "ForwardSelectReport",
