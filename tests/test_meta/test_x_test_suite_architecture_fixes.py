@@ -262,28 +262,33 @@ def test_f8_run_heavy_automl_flag_registered():
     running pytest itself (not by grepping conftest.py's source for the flag string): without the
     flag they are runtime-SKIPPED with the documented reason; with the flag registered as a real
     CLI option, collection of those same tests succeeds instead of erroring on an unknown arg."""
+    import json
     from pathlib import Path
+    from types import SimpleNamespace
 
     repo_root = str(Path(__file__).resolve().parents[2])
-    # One process without the random-order plugin: the planned xdist workers and the reseeders each re-import the training stack (3x slower, measured).
+    # One child process runs both pytest sessions: the first pays ~40 s importing the training stack, the second reuses
+    # it from sys.modules (1.2 s, measured), where two child processes paid the import twice. No random-order plugin and
+    # no xdist: the planned workers and the reseeders each re-import that stack (3x slower, measured).
     node_filter = ["-p", "no:randomly", "-n", "0", "-k", "test_basic_training or test_training_with_test_df"]
-
-    without_flag = subprocess.run(
-        [sys.executable, "-m", "pytest", "tests/training/test_automl.py", "-q", "--no-cov", *node_filter],
-        capture_output=True,
-        text=True,
-        cwd=repo_root,
+    driver = (
+        "import contextlib, io, json, sys, pytest\n"
+        "base = ['tests/training/test_automl.py', '-q', '--no-cov'] + json.loads(sys.argv[1])\n"
+        "out = []\n"
+        "for extra in ([], ['--collect-only', '--run-heavy-automl']):\n"
+        "    buf, err = io.StringIO(), io.StringIO()\n"
+        "    with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(err):\n"
+        "        rc = pytest.main(base + extra)\n"
+        "    out.append({'rc': int(rc), 'stdout': buf.getvalue(), 'stderr': err.getvalue()})\n"
+        "sys.stdout.write(json.dumps(out))\n"
     )
+    proc = subprocess.run([sys.executable, "-c", driver, json.dumps(node_filter)], capture_output=True, text=True, cwd=repo_root)
+    assert proc.returncode == 0, f"the two-session driver crashed:\n{proc.stderr[-2000:]}"
+    without_flag, with_flag = (SimpleNamespace(**item) for item in json.loads(proc.stdout[proc.stdout.index("[{") :]))
     assert "4 skipped" in without_flag.stdout, f"expected the 4 heavy_automl tests to be runtime-skipped without --run-heavy-automl; got:\n{without_flag.stdout}"
     assert "--run-heavy-automl" in without_flag.stdout, f"skip reason must name the opt-in flag; got:\n{without_flag.stdout}"
 
-    with_flag = subprocess.run(
-        [sys.executable, "-m", "pytest", "tests/training/test_automl.py", "--collect-only", "-q", "--no-cov", "--run-heavy-automl", *node_filter],
-        capture_output=True,
-        text=True,
-        cwd=repo_root,
-    )
-    assert with_flag.returncode == 0, f"--run-heavy-automl must be a registered option, not rejected as unrecognized; stderr:\n{with_flag.stderr}"
+    assert with_flag.rc == 0, f"--run-heavy-automl must be a registered option, not rejected as unrecognized; stderr:\n{with_flag.stderr}"
     assert (
         "4/23 tests collected" in with_flag.stdout or "4 tests collected" in with_flag.stdout
     ), f"expected the 4 heavy_automl tests collected (no longer runtime-skipped) with --run-heavy-automl; got:\n{with_flag.stdout}"
