@@ -324,6 +324,7 @@ def _note_appended(child: Any, parent: Any, names: Iterable[str], added: Any = N
     try:
         entry = (weakref.ref(child, _drop), weakref.ref(parent), tuple(names), added)
     except TypeError:  # not weakly referenceable: no lineage
+        logger.debug("_note_appended: %s cannot be weakly referenced; no appended-column lineage is recorded", type(child).__name__)
         return
     with _APPENDED_LOCK:
         _APPENDED_FROM[key] = entry

@@ -147,8 +147,11 @@ def _prefetch_workers() -> int:
 
         count = psutil.cpu_count(logical=False) or 2
     except Exception as exc:  # psutil missing: the logical count
-        logging.getLogger(__name__).debug("_lazy_engineered: ignored %s: %s", type(exc).__name__, exc)
+        from mlframe.utils.log_throttle import log_throttle
+
         count = os.cpu_count() or 2
+        log_throttle(logging.getLogger(__name__), "lazy_engineered.prefetch_workers_psutil", logging.WARNING,
+                     "prefetch pool size: the physical core count is unavailable (%s: %s); sizing it from the logical count of %d", type(exc).__name__, exc, count)
     return max(1, min(8, int(count)))
 
 

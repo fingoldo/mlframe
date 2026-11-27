@@ -99,6 +99,9 @@ def _resident_codes(cp: Any, fd: np.ndarray) -> "Any | None":
     try:
         dev = cp.empty(fd.shape, dtype=cp.int8 if narrow else cp.int16)
     except cp.cuda.memory.OutOfMemoryError:
+        from mlframe.utils.log_throttle import log_throttle
+
+        log_throttle(logger, "dcd_pair_su.resident_codes_oom", logging.WARNING, "resident codes: the %s device matrix of %d x %d does not fit; uploading column blocks instead", "int8" if narrow else "int16", int(fd.shape[0]), int(fd.shape[1]))
         return None  # the per-block upload path serves the sweep (a block of columns at a time), instead of the whole sweep falling to the host kernel
     step = max(1, int((32 * 1024 * 1024) // max(1, int(fd.shape[0]) * int(fd.dtype.itemsize))))
     for c0 in range(0, int(fd.shape[1]), step):
