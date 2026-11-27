@@ -124,6 +124,13 @@ _RMSLE_NEG_WARN_SEEN: set = set()
 _WARN_SEEN_MAX = 4096
 
 
+def _remember_warning(seen: "set", key: tuple) -> None:
+    """Record that the warning for ``key`` was issued; a table past ``_WARN_SEEN_MAX`` keys starts over with just this one."""
+    seen.add(key)
+    if len(seen) > _WARN_SEEN_MAX:
+        seen.intersection_update({key})
+
+
 def fast_rmsle(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     """Root Mean Squared Logarithmic Error.
 
@@ -153,9 +160,7 @@ def fast_rmsle(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     if neg > 0:
         key = (int(neg), int(yt.shape[0]))
         if key not in _RMSLE_NEG_WARN_SEEN:
-            if len(_RMSLE_NEG_WARN_SEEN) >= _WARN_SEEN_MAX:
-                _RMSLE_NEG_WARN_SEEN.clear()
-            _RMSLE_NEG_WARN_SEEN.add(key)
+            _remember_warning(_RMSLE_NEG_WARN_SEEN, key)
             import warnings
             warnings.warn(
                 f"fast_rmsle: {neg} of {yt.shape[0]} rows had y_true<0 or y_pred<0 "
@@ -232,9 +237,7 @@ def fast_mape_mean(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     if n_zero > 0:
         key = (int(n_zero), int(yt.shape[0]))
         if key not in _MAPE_MEAN_ZERO_WARN_SEEN:
-            if len(_MAPE_MEAN_ZERO_WARN_SEEN) >= _WARN_SEEN_MAX:
-                _MAPE_MEAN_ZERO_WARN_SEEN.clear()
-            _MAPE_MEAN_ZERO_WARN_SEEN.add(key)
+            _remember_warning(_MAPE_MEAN_ZERO_WARN_SEEN, key)
             import warnings
             warnings.warn(
                 f"fast_mape_mean: {n_zero} of {yt.shape[0]} y_true entries are zero; "

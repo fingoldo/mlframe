@@ -14,7 +14,6 @@ Used only for pandas frames of at least ``MLFRAME_FE_LAZY_REPLAY_MIN_ROWS`` rows
 
 from __future__ import annotations
 
-import builtins
 import functools
 import itertools
 import logging
@@ -23,7 +22,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Iterable
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Type
 
 import numpy as np
 import pandas as pd
@@ -246,7 +245,7 @@ class LazyEngineeredDtype(ExtensionDtype):
     na_value = np.nan
 
     @classmethod
-    def construct_array_type(cls) -> "builtins.type[LazyEngineeredColumn]":
+    def construct_array_type(cls) -> "Type[LazyEngineeredColumn]":
         """The array class of this dtype."""
         return LazyEngineeredColumn
 
