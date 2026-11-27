@@ -234,7 +234,7 @@ void pair_mi_perm_bin(const unsigned char* __restrict__ cols, const long long* _
 """)
 
 # Version 3 (``_SRC_LUT16``): ``_SRC_LUT`` with two 16-bit counters in each 32-bit shared word. The kernel reads two code columns and a target plane for every row of every pass
-# and is at the memory limit of that algorithm (PLAN-SPEED-30), so the lever is the number of passes: a 48 x 48 pair fits 3 permutations a pass instead of 2 in the same
+# and is at the memory limit of that algorithm, so the lever is the number of passes: a 48 x 48 pair fits 3 permutations a pass instead of 2 in the same
 # shared budget (9 passes instead of 13 for 25 permutations), a 32 x 32 pair 4 instead of 3. A cell count is at most the row count, so this form is used below 65536 rows
 # (the scaled floor's subsample is 55296 rows for 48 bins); the superset sums add whole words (no carry: a sum is at most the row count) and bit 0 inside a word.
 # The counts are those of version 2; the MI differs by summation order only (2e-15 on values up to 0.34): 181.6 -> 148.3 ms for 6000 pairs of 48 x 48 at 55296 rows (1.22 x),
