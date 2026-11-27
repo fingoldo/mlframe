@@ -23,7 +23,7 @@ def test_mlp_ranker_exposes_random_state_param():
 
 
 def test_mlp_ranker_deprecated_seed_still_works_and_warns(caplog):
-    """The deprecated seed= alias still sets random_state (back-compat) and logs a deprecation warning."""
+    """The deprecated seed= alias still drives the RNG (back-compat), leaves random_state as given, and logs a deprecation warning."""
     with caplog.at_level(logging.WARNING, logger="mlframe.training.neural.ranker"):
         model = MLPRanker(n_estimators=1, seed=13)
     assert model.random_state == 13
@@ -57,7 +57,8 @@ def test_shortlist_transformer_adapter_deprecated_seed_still_works_and_warns(cap
 
     with caplog.at_level(logging.WARNING, logger="mlframe.feature_engineering.transformer._suite_adapter"):
         adapter = ShortlistTransformerAdapter(_dummy_compute_fn, seed=9, needs_y=False)
-    assert adapter.random_state == 9
+    assert adapter._rng_seed() == 9
+    assert adapter.random_state == 42  # kept as given for sklearn clone; the deprecated seed drives the RNG
     assert any("deprecated" in r.message and "random_state" in r.message for r in caplog.records)
 
 
