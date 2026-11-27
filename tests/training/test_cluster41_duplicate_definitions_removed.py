@@ -21,10 +21,10 @@ def _assigned_names(path: Path) -> Counter:
 
 def test_logger_and_not_aggregatable_are_defined_once():
     """logger and _NOT_AGGREGATABLE are each assigned once per module (41-F42)."""
-    for rel, wanted in (("reporting/_reporting_probabilistic_helpers.py", ("logger", "_NOT_AGGREGATABLE")), ("ranking/_ranker_suite_train_helpers.py", ("logger",))):
-        counts = _assigned_names(ROOT / rel)
-        for name in wanted:
-            assert counts[name] == 1, (rel, name, counts[name])
+    targets = [(rel, name) for rel, wanted in (("reporting/_reporting_probabilistic_helpers.py", ("logger", "_NOT_AGGREGATABLE")), ("ranking/_ranker_suite_train_helpers.py", ("logger",))) for name in wanted]
+    assert len(targets) == 3, "three assignments are checked: two in the probabilistic helpers, one in the ranker helpers"
+    for rel, name in targets:
+        assert _assigned_names(ROOT / rel)[name] == 1, (rel, name)
 
 
 def test_slug_pattern_lives_in_one_module_and_dataclass_is_not_doubled():

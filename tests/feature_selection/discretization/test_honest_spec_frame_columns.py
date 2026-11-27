@@ -61,7 +61,9 @@ def test_a_frame_with_the_target_and_a_lazy_column_keeps_the_float32_matrix_and_
     dense_frame["tgt"] = y.astype(np.float64)
     dense = build_honest_spec(dense_frame, cols, y, 6)
     assert spec["raw"].dtype == np.float32 and dense["raw"].dtype == np.float64
-    for j in range(len(cols)):
+    column_indexes = list(range(len(cols)))
+    assert column_indexes, "the frame must have columns, or the per-column loop checks nothing"
+    for j in column_indexes:
         assert np.array_equal(np.asarray(spec["raw"][:, j], dtype=np.float64), dense["raw"][:, j])
     assert np.array_equal(spec["is_cont"], dense["is_cont"]) and np.array_equal(spec["q_fb"], dense["q_fb"]) and np.array_equal(spec["q_rf"], dense["q_rf"])
     codes = np.zeros((n, len(cols)), dtype=np.int8)

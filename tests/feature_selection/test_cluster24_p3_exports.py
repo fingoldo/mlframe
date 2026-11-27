@@ -13,6 +13,7 @@ EXPORTED = ["ACESelector", "ForwardSelectSelector", "GreedyBackwardEliminationSe
 
 def test_ace_and_functional_selectors_are_public_names():
     """Each selector is importable from the package and listed in __all__ (24-F64)."""
+    assert EXPORTED, "the list of selectors under test must not be empty"
     for name in EXPORTED:
         assert name in fs.__all__, name
         assert hasattr(fs, name), name
