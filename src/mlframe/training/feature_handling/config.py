@@ -370,8 +370,9 @@ class FeatureHandlingConfig(BaseConfig):
         budget_gb = self.memory.budget_gb if self.memory.budget_gb is not None else total_gb * ad.memory_budget_fraction
 
         # cache.ram_max_gb derives from memory_budget
-        cache_ram_was_explicit = self.cache.ram_max_gb is not None
-        ram_max_gb = self.cache.ram_max_gb if cache_ram_was_explicit else budget_gb * ad.cache_ram_fraction
+        explicit_ram_max = self.cache.ram_max_gb
+        cache_ram_was_explicit = explicit_ram_max is not None
+        ram_max_gb = explicit_ram_max if explicit_ram_max is not None else budget_gb * ad.cache_ram_fraction
 
         # cache.ram_reserve_gb -- absolute floor, not fraction-of-budget
         ram_reserve_gb = (
