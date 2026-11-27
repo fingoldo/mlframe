@@ -190,4 +190,5 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 
 - 28-F68: FIXED. Removed the empty trailing 'Callback Classes for Training Monitoring' section header from helpers.py (no code under it). The device-gating comment the finding names is no longer in the file. Test tests/training/test_cluster28_helpers_no_empty_header.py (2 passed).
 
-- 28-F76: PARTIAL. Added tests for _oof_train_timestamps (none, no index, numpy rows, tz-aware pandas kept) and retry_params_after_empty_text_dictionary (no text features, unigram rescue, unusable columns moved to cat_features). Still without a test reference: _run_val_split_metrics, _run_test_split_metrics, _handle_fit_failure, _realign_val_columns, _open_verified_bundle; each needs a fixture trainer or bundle. Test tests/training/test_cluster28_untested_helpers.py.
+
+- 28-F76: PARTIAL. Tests now cover _oof_train_timestamps, retry_params_after_empty_text_dictionary and _open_verified_bundle (missing file, matching digest, tampered bytes, no digest with and without the opt-out). Still without a test reference: _run_val_split_metrics, _run_test_split_metrics, _handle_fit_failure, _realign_val_columns; each needs a fixture trainer. Tests tests/training/test_cluster28_untested_helpers.py and test_cluster28_open_verified_bundle.py.
