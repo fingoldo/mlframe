@@ -14,9 +14,6 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
-logger = logging.getLogger(__name__)
-
-
 def _train_mlframe_rank_pandas_dataframes_arrow_backed(df_features):
     """Block of train_mlframe_ranker_suite starting at ``if isinstance(df_features, _pl.DataFrame):``."""
     import polars as _pl
@@ -111,7 +108,7 @@ def _train_mlframe_rank_drops_replacements_single_sweep(df_X, _drop_cols, _repla
         dt = df_X[col].dtype
         if str(dt).startswith("datetime"):
             _drop_cols.append(col)
-        elif dt is object:
+        elif pd.api.types.is_object_dtype(dt):  # `dt is object` was never true for a dtype instance, so every object column was skipped (41-F40)
             # object-dtype columns can contain either scalar strings (cat features ->
             # astype('category') OK) OR nested arrays/lists (embedding features from
             # pl.List(pl.Float32) round-trip -> astype('category') raises
@@ -119,7 +116,8 @@ def _train_mlframe_rank_drops_replacements_single_sweep(df_X, _drop_cols, _repla
             # can't hash arrays). Drop nested-element columns silently: the rankers can't
             # consume them as numeric anyway, and CB/XGB/LGB sklearn wrappers reject them
             # at fit time.
-            _sample = next((v for v in df_X[col] if v is not None and not (isinstance(v, float) and np.isnan(v))), None)
+            _non_null = df_X[col].dropna()
+            _sample = _non_null.iloc[0] if len(_non_null) else None
             if _sample is not None and isinstance(_sample, (list, tuple, np.ndarray)):
                 # Surface the silent drop: pre-fix the comment said "drop silently" but
                 # an operator who shipped an embedding column unflagged loses a feature

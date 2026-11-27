@@ -61,8 +61,6 @@ No P0 found on the default path. Findings below were verified by reading the cit
 - 18-F3: RESOLVED. Target-MAE gate reads a binary (n, 2) predict_proba as its positive column (_as_gate_vector), not as 2n flattened values, so the MAE is no longer NaN and the block is no longer skipped. Test tests/models/test_gate_vector_uses_positive_column.py; 82 existing gate/stacking tests pass. Commit below.
 - 18-F9: FIXED. gate weighted means return NaN when every weight is zero instead of raising; tests/models/test_cluster18_zero_weight_gate.py; existing quality-gate and ensembling tests: 231 passed
 - 18-F12: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
-- 18-F13: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
-- 18-F14: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F2: PARTIAL. Multiclass (N,K>2) member probabilities now produce an explicit warning that the NNLS/Caruana weight fit does not support them (score_flavours.py run_stacking_aware_gate), instead of blaming the row count. Per-class weighting is not built; tests/models/test_cluster18_multiclass_gate_skip_is_explicit.py
 - 18-F4: FIXED. Level-1 member tuples (entry, train_df, val_df, test_df) are unwrapped to the entry namespace in the probability accessors (models/ensembling/process_method.py _entry_of); tests/models/test_cluster18_level_member_tuple_unwrapped.py
 - 18-F17: FIXED. Removed the unreachable except NameError around the gate-stats lookup: _gate_stats is a parameter, always bound. Behaviour unchanged; 71 existing ensembling tests pass.
@@ -84,3 +82,7 @@ No P0 found on the default path. Findings below were verified by reading the cit
 - 18-F19: FIXED. A failed member test-prediction stacking is logged as a WARNING with its cause, so the missing member_test_preds has a visible reason; a successful stacking still stamps the attribute. Tests tests/models/ensembling/test_cluster18_stacking_failure_logged.py (2 passed).
 
 - 18-F11: FIXED. Streaming ensemble keeps the member shape for ndim>=2, so (N,K,C) members work as in the materialised path; uncertainty is the per-row mean of the std over all other axes; 0-d members raise a clear ValueError. Test tests/models/test_cluster18_streaming_ensemble_three_dim.py.
+
+- 18-F13: PARTIAL. A failed per-member auto-tune now logs a WARNING with the error type and message (was DEBUG), and the docstring at member_metrics names the real module path. ensure_per_member_tuning stays: it has no production caller but is an uncalled-function entry on the project's kept list and a manual calibration entry point, so wiring it in or retiring it is an owner call. Test tests/models/test_cluster18_per_member_tuning_failure_visible.py.
+
+- 18-F14: DEFERRED. Re-read: the _all_members_catastrophic sentinel has no reader and the K>2 path still builds a one-member ensemble, while the K=2 path returns early with a _reason. Making the K>2 gate behave like K=2 changes which models ship as ensembles for a whole class of runs (single survivor vs best single member vs dummy baseline), so it needs the owner to pick the policy; the warning already tells the operator in the meantime.

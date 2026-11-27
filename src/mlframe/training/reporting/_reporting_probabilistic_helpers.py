@@ -50,12 +50,6 @@ logger = logging.getLogger("mlframe.training.reporting._reporting")
 _NOT_AGGREGATABLE = re.compile(r"(^|_)(p|pval|pvalue|p_value|dof|df)$|^base_rate$|^n_|support", re.IGNORECASE)
 
 
-logger = logging.getLogger("mlframe.training.reporting._reporting")
-
-
-_NOT_AGGREGATABLE = re.compile(r"(^|_)(p|pval|pvalue|p_value|dof|df)$|^base_rate$|^n_|support", re.IGNORECASE)
-
-
 def _aggregate_per_class_metrics(metrics: dict, per_class_blocks: list, supports: dict) -> None:
     """Write ``macro_<key>`` and, when real class supports exist, ``weighted_<key>`` for every per-class METRIC key.
 

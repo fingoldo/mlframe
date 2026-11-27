@@ -218,7 +218,7 @@ def ensure_per_member_tuning(observed_elements: int | None = None, force: bool =
         cache.update(_PER_MEMBER_KERNEL_NAME, axes=["elements_per_member", "n_groups", "ndim"], regions=regions)
         logger.info("per_member auto-tune winners persisted to %s: %s", cache_path(), regions)
     except Exception as e:  # never let calibration break a training run
-        logger.debug("per_member auto-tune failed (using fallback): %s", e)
+        logger.warning("per_member auto-tune failed (%s: %s); the numpy-vs-numba choice falls back to the built-in default", type(e).__name__, e)
 
 
 # Register with the kernel-tuner registry so ``mlframe-tune-kernels`` /

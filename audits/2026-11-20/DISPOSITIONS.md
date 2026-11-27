@@ -387,7 +387,6 @@
 | 14-F5 | FIXED | a failed seed or n_jobs set_params is logged at WARNING; no separate test |
 | 14-F6 | FIXED | an unreadable xgboost class count fails closed; tests/feature_selection/shap_proxied/test_cluster14_xgb_eligibility_fails_closed.py |
 | 14-F3 | DEFERRED | string handling on the array path needs a design decision on supported dtypes |
-| 14-F4 | DEFERRED | catboost fast-budget parameter naming needs a behaviour decision (iterations vs n_estimators) |
 | 14-F7 | DEFERRED | duplicated per-column correlation loops: performance refactor, not a correctness fix |
 | 14-F5 | FIXED | note: tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_core_refine.py::test_biz_val_auto_matches_core_on_non_saturated_bed fails on the exact pre-change file too (pre-existing, verified) |
 | 15-F8 | FIXED | a callable prescreen's result is filtered to the candidate names the search offered; no direct test (the prescreen path needs a full RFECV fixture) |
@@ -414,8 +413,6 @@
 | 17-F20 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 18-F9 | FIXED | gate weighted means return NaN when every weight is zero instead of raising; tests/models/test_cluster18_zero_weight_gate.py; existing quality-gate and ensembling tests: 231 passed |
 | 18-F12 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
-| 18-F13 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
-| 18-F14 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 19-F1 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 19-F2 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 19-F3 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
@@ -1223,9 +1220,6 @@
 | 37-F42 | DEFERRED | _apply_plot_style_overrides changes process-wide matplotlib and plotly state and is not restored on failure. Restoring it needs a context-manager design across the setup path; deferred. No code change. |
 | 37-F36 | DEFERRED | The unary transforms logger name differs from the composite_transforms name used elsewhere; changing it affects log filters configured by users, so it needs a naming decision. No code change. |
 | 39-F72 | DEFERRED | The torch from_numpy benchmark's Strategy C measures a path the code does not produce, and the 0.014 ms figure needs re-measurement on the real path before the doc can be corrected. Deferred to a benchmark re-run. No code change. |
-| 41-F40 | DEFERRED | Per-object-column next() scan in the ranker suite is a perf nit on wide frames; a sampled-value approach changes which value is probed, so it needs a perf and behaviour check. No code change. |
-| 41-F41 | DEFERRED | Pairwise redundancy is an O(F^2) Python double loop; vectorising it needs an equivalence check on the redundancy score, deferred to a perf pass. No code change. |
-| 41-F42 | DEFERRED | Duplicated helper and import nits span several ranking and reporting files; consolidating them is a cross-file refactor for its own pass. No code change. |
 | 15-F13 | DEFERRED | Three near-identical unwrap-to-inner-estimator loops with different attribute sets across the wrappers files. Consolidating them needs one attribute-set contract across the three call sites, deferred to a refactor pass. No code change. |
 
 | 39-F38 | FIXED | HGB TF-IDF cap is now applied on the feature-handling path: TF-IDF max_features is capped for hgb via _tfidf_params_for_model (was exported but never called). Test tests/training/test_cluster39_hgb_tfidf_cap_wired.py; 38 feature-handling tests pass. |
@@ -1618,3 +1612,15 @@
 | 22-F24 | FIXED | cluster_resample_indices builds the resample with one np.repeat gather instead of a Python slice per drawn group; output and rng consumption are identical (test compares with the old form over 20 seeds). Test tests/evaluation/test_cluster22_cluster_resample_vectorised.py. |
 
 | 22-F16 | RESOLVED | Not a defect: in the inner_cv path the full-OOF fit (cal_oof) is still used, for the non-finite check and as the returned calibrated_probs, so it cannot move into the same_oof branch. No change. |
+
+| 41-F41 | FIXED | The pairwise redundancy scan selects the upper-triangle pairs with np.triu_indices and one mask; output order and values are identical to the nested loop (test compares both, including a constant column). Test tests/training/test_cluster41_pairwise_redundancy_vectorised.py. |
+
+| 41-F40 | FIXED | The sample probe now takes the first non-null element via dropna().iloc[0]. Re-reading the loop found a worse defect: the branch tested 'dt is object', which is never true for a pandas dtype instance, so no object column was categorised or checked for nested embeddings. It now uses dt == object. Test tests/training/test_cluster41_ranker_object_columns_swept.py. |
+
+| 41-F42 | PARTIAL | Removed the duplicate logger and _NOT_AGGREGATABLE definitions, the doubled @dataclass on TemporalAuditResult, the unused importlib.util import and the unused second _SLUG_PATTERN in strategies/base.py. Not done: the truncated comment at the regression __init__ and the shared MTRESID helper (two call sites with different inputs, a small refactor left for the regression-report owner). Test tests/training/test_cluster41_duplicate_definitions_removed.py. |
+
+| 14-F4 | FIXED | fast_model now reads iterations, depth and rsm as well as n_estimators, max_depth and colsample_bytree, so a catboost template gets the quarter budget, depth 3 and column subsampling (helper _fast_model_params, keeps the cap as a minimum). A catboost template that does not set iterations explicitly still keeps its default budget because get_params omits defaults. Test tests/feature_selection/shap_proxied/test_cluster14_fast_model_catboost_params.py. |
+
+| 18-F13 | PARTIAL | A failed per-member auto-tune now logs a WARNING with the error type and message (was DEBUG), and the docstring at member_metrics names the real module path. ensure_per_member_tuning stays: it has no production caller but is an uncalled-function entry on the project's kept list and a manual calibration entry point, so wiring it in or retiring it is an owner call. Test tests/models/test_cluster18_per_member_tuning_failure_visible.py. |
+
+| 18-F14 | DEFERRED | Re-read: the _all_members_catastrophic sentinel has no reader and the K>2 path still builds a one-member ensemble, while the K=2 path returns early with a _reason. Making the K>2 gate behave like K=2 changes which models ship as ensembles for a whole class of runs (single survivor vs best single member vs dummy baseline), so it needs the owner to pick the policy; the warning already tells the operator in the meantime. |

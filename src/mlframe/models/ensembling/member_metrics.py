@@ -55,7 +55,7 @@ def _per_member_backend_cached(elements_per_member: int, n_groups: int, ndim: in
     The crossover is HW-dependent, so this follows the project dispatch
     convention (mirrors ``feature_engineering._recursion_dispatch``): env
     override -> per-host ``kernel_tuning_cache`` (populated by
-    ``training._benchmarks.per_member_tuning.ensure_per_member_tuning`` once per
+    ``models.ensembling.per_member_tuning.ensure_per_member_tuning`` once per
     machine) -> measurement-backed fallback.
 
     The fallback defaults to numba whenever it is available and the input clears
