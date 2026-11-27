@@ -21,6 +21,24 @@ if TYPE_CHECKING:
     from sklearn.feature_extraction.text import TfidfTransformer
 
 
+def _positions_in(vocab: np.ndarray, values: np.ndarray) -> np.ndarray:
+    """Position of each of ``values`` in ``vocab`` (``-1`` when absent), as the dict lookup it replaces gave.
+
+    A strictly increasing vocabulary (what ``np.unique`` returns) is searched with ``np.searchsorted``; anything else, or values the vocabulary cannot be
+    compared with, takes the original dictionary path. The Python loop over every event row was most of this function's time (24-F37).
+    """
+    vocab = np.asarray(vocab)
+    try:
+        if vocab.size and bool(np.all(vocab[1:] > vocab[:-1])):
+            pos = np.searchsorted(vocab, values)
+            clipped = np.minimum(pos, vocab.size - 1)
+            return np.where(vocab[clipped] == values, clipped, -1).astype(np.int64)
+    except TypeError:
+        pass
+    index = {v: i for i, v in enumerate(vocab)}
+    return np.array([index.get(v, -1) for v in values], dtype=np.int64)
+
+
 def _weighted_matrix(
     events_df: pd.DataFrame,
     row_entity: str,
@@ -54,12 +72,12 @@ def _weighted_matrix(
         in_vocab = np.ones(len(events_df), dtype=bool)
     else:
         col_uniq_out = col_uniq
-        col_index = {v: i for i, v in enumerate(col_uniq_out)}
-        col_inv = np.array([col_index.get(v, -1) for v in col_vals], dtype=np.int64)
+        col_inv = _positions_in(col_uniq_out, col_vals)
         in_vocab = col_inv >= 0
 
-    row_index = {v: i for i, v in enumerate(row_uniq)}
-    row_inv = np.array([row_index[v] for v in row_vals], dtype=np.int64)
+    row_inv = _positions_in(row_uniq, row_vals)
+    if (row_inv < 0).any():
+        raise KeyError(row_vals[int(np.argmax(row_inv < 0))])
 
     n_rows, n_cols = len(row_uniq), len(col_uniq_out)
     total_mass = np.zeros(n_rows, dtype=np.float64)

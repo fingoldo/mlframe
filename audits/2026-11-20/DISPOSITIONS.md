@@ -441,7 +441,6 @@
 | 24-F30 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F31 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F36 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F37 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F38 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F39 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F47 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
@@ -1647,3 +1646,5 @@
 | 21-F9 | FIXED | The plotly scatter now subsets y_err and x_err (symmetric or asymmetric) with the same downsample selection as x/y instead of dropping them, so the HTML keeps the intervals the PNG shows; a panel with error bars above the cap stays an SVG go.Scatter of at most the cap. Test tests/reporting/test_cluster21_plotly_scatter_error_bars_downsampled.py. |
 
 | 21-F8 | FIXED | step_fill now steps the fill in plotly: the fill moves to an invisible hv-shaped trace laid down before the straight series line (tozeroy, or tonexty against the constant baseline trace for a non-zero baseline), matching matplotlib's step='post' fill with a straight line. Before, line_shape='linear' was the default and the fill stayed a polyline. Test tests/reporting/test_cluster21_plotly_step_fill.py. |
+
+| 24-F37 | FIXED | The event-to-vocabulary lookup in _weighted_matrix uses np.searchsorted when the vocabulary is strictly increasing (what np.unique returns) and the original dictionary path otherwise, via _positions_in; results are identical (test compares with the dict form on int and string vocabularies, absent values included). An unknown row entity still raises KeyError. Test tests/feature_engineering/test_cluster24_positions_in_vocabulary.py. |

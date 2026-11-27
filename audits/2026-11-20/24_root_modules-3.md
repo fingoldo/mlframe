@@ -123,7 +123,6 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F30: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F31: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F36: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F37: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F38: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F39: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F47: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
@@ -212,3 +211,5 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F29: FIXED. Windowed targets use at least float64 (np.promote_types(dtype, float64)); features keep the requested dtype. Test tests/feature_engineering/test_cluster24_dtype_docs_and_nan_pairs.py.
 
 - 24-F27: FIXED. variance_gated_pairwise_diff logs a WARNING naming the columns whose NaN/inf values drop every pair involving them. Same test file.
+
+- 24-F37: FIXED. The event-to-vocabulary lookup in _weighted_matrix uses np.searchsorted when the vocabulary is strictly increasing (what np.unique returns) and the original dictionary path otherwise, via _positions_in; results are identical (test compares with the dict form on int and string vocabularies, absent values included). An unknown row entity still raises KeyError. Test tests/feature_engineering/test_cluster24_positions_in_vocabulary.py.
