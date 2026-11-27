@@ -413,7 +413,6 @@
 | 17-F20 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 18-F9 | FIXED | gate weighted means return NaN when every weight is zero instead of raising; tests/models/test_cluster18_zero_weight_gate.py; existing quality-gate and ensembling tests: 231 passed |
 | 18-F12 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
-| 18-F13 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 18-F14 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 19-F1 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 19-F2 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
@@ -1622,3 +1621,5 @@
 | 41-F42 | PARTIAL | Removed the duplicate logger and _NOT_AGGREGATABLE definitions, the doubled @dataclass on TemporalAuditResult, the unused importlib.util import and the unused second _SLUG_PATTERN in strategies/base.py. Not done: the truncated comment at the regression __init__ and the shared MTRESID helper (two call sites with different inputs, a small refactor left for the regression-report owner). Test tests/training/test_cluster41_duplicate_definitions_removed.py. |
 
 | 14-F4 | FIXED | fast_model now reads iterations, depth and rsm as well as n_estimators, max_depth and colsample_bytree, so a catboost template gets the quarter budget, depth 3 and column subsampling (helper _fast_model_params, keeps the cap as a minimum). A catboost template that does not set iterations explicitly still keeps its default budget because get_params omits defaults. Test tests/feature_selection/shap_proxied/test_cluster14_fast_model_catboost_params.py. |
+
+| 18-F13 | PARTIAL | A failed per-member auto-tune now logs a WARNING with the error type and message (was DEBUG), and the docstring at member_metrics names the real module path. ensure_per_member_tuning stays: it has no production caller but is an uncalled-function entry on the project's kept list and a manual calibration entry point, so wiring it in or retiring it is an owner call. Test tests/models/test_cluster18_per_member_tuning_failure_visible.py. |
