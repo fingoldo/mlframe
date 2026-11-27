@@ -1546,7 +1546,6 @@
 
 | 23-F9 | FIXED | Docstring now says best_scheme is the smallest mean per-fold gap. |
 
-| 23-F10 | DEFERRED | Docstring and code differ on the z-score reference set; choosing leave-one-out or fixing the text changes which variants are flagged, an owner call. |
 
 | 23-F11 | RESOLVED | Not dead code: the next call takes jackknife as an argument, so the None initial value is used. Removing it raises UnboundLocalError (18 existing tests failed). Left as is. |
 
@@ -1656,3 +1655,5 @@
 | 39-F28 | FIXED | Owner decision applied (option A): _derive_memory_budgets no longer writes the derived values into the user's memory and cache sub-configs. It computes them in locals, stores them in the _resolved_* attributes, and the new resolved_memory and resolved_cache properties return copies with those filled in; fhc.memory and fhc.cache keep None for an auto value, so a dumped config re-derives on the machine that loads it (a dump from a big box no longer raises the explicit-ram_max error on a small one, and a dump from a small box no longer pins the small budget). The only reader, FeatureCache, takes resolved_cache. Dependent tests in test_feature_handling_config.py moved to the resolved views. Test tests/training/feature_handling/test_cluster39_config_dump_rederives.py. |
 
 | 20-F15 | FIXED | Owner decision applied (option A): the module-level matrix cache keyed on id(X) is gone (with clear_feature_matrix_cache and its lock). _resolve_feature_matrix is a plain resolver; the shared dispatcher prep now carries a DenseFeatureMatrix holder over the sub-frame and hands it to weak_segment_heatmap and find_weak_slices through a new feature_matrix= argument, so the second builder reuses the first densify without a hidden global, an in-place edit is seen by the next resolve, and the dense copy lives only as long as the prep entry. Callers that pass nothing densify as before. Test tests/reporting/test_shared_error_prep.py (rewritten around the holder). One unrelated failure in tests/test_meta/test_shared_uncalled_functions.py comes from _nested_parallel_scan._starts_thread_pool, added by another commit (85f4aa9cf). |
+
+| 23-F10 | FIXED | Owner decision applied (docstring fix plus floor): the docstring now says the z-score is taken over ALL variants' fold_std, including the one scored, and the new risk_min_std_ratio (default 1.25) adds a floor: is_risky also needs fold_std above that multiple of the median fold_std of the OTHER variants, because a z-score is scale-free and flagged the least stable of near-identical variants whatever the spread (0.100/0.101/0.102 gave z=1.0 > 0.5). risk_min_std_ratio=0.0 restores the pure z-score rule. The shift_gap flag is unchanged. Test tests/evaluation/test_cluster23_imputation_risk_floor.py. |
