@@ -7,6 +7,7 @@ Usage: python tt_b4_timing.py --p 100 --n 100000
 """
 from __future__ import annotations
 
+import logging
 import argparse
 import os
 import sys
@@ -26,7 +27,8 @@ def rss_mb():
         import psutil
 
         return psutil.Process(os.getpid()).memory_info().rss / 2**20
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("tt_b4_timing: ignored %s: %s", type(exc).__name__, exc)
         return float("nan")
 
 

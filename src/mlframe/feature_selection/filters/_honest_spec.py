@@ -15,7 +15,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from mlframe.feature_selection.filters._fe_family_timing import fe_timed
-from mlframe.feature_selection.filters.discretization._quantile_radix import quantiles_of_sorted, radix_sorted_f32
+from mlframe.feature_selection.filters.discretization import quantiles_of_sorted, radix_sorted_f32
 
 _LOW_CARD_CAP = 32  # compute_col_edges default (kwargs 'low_card_cap')
 _FALLBACK_NBINS = 5  # collapsed_fallback_nbins default

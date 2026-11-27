@@ -100,6 +100,41 @@ def _called_names(node: ast.AST) -> Set[str]:
     return {n for n in out if n}
 
 
+def _function_facts(node: ast.AST, tables: Dict[str, Set[str]]) -> Tuple[Set[str], bool]:
+    """``(edges, starts_pool)`` of one function from a single walk of its subtree.
+
+    Gives exactly what ``_called_names`` (plus the dispatch-table edges) and ``_starts_thread_pool`` give, which together walked the
+    subtree about ten times; the rules they apply are the same ones, applied to one list of nodes.
+    """
+    nodes = list(ast.walk(node))
+    calls = [n for n in nodes if isinstance(n, ast.Call)]
+    guarded: Set[int] = set()
+    for with_node in nodes:
+        if not isinstance(with_node, (ast.With, ast.AsyncWith)):
+            continue
+        holds = any(
+            isinstance(item.context_expr, ast.Call)
+            and (getattr(item.context_expr.func, "id", None) or getattr(item.context_expr.func, "attr", None)) == "parallel_kernel_entry"
+            for item in with_node.items
+        )
+        if holds:
+            guarded.update(id(c) for c in ast.walk(with_node) if isinstance(c, ast.Call))
+    names = [getattr(c.func, "id", None) or getattr(c.func, "attr", None) for c in calls]
+    out = {name for call, name in zip(calls, names) if id(call) not in guarded}
+    for call, name in zip(calls, names):
+        if name == "delayed":
+            out |= {a.id for a in call.args if isinstance(a, ast.Name)}
+    called = {n for n in out if n}
+    starts_pool = "ThreadPoolExecutor" in called or any(name in _FAN_OUT_CALLS for name in names)
+    edges = set(called)
+    if tables and not guarded:
+        referenced = {n.id for n in nodes if isinstance(n, ast.Name)}
+        for table, members in tables.items():
+            if table in referenced:
+                edges |= members
+    return edges, starts_pool
+
+
 def _dispatch_tables(tree: ast.AST) -> Dict[str, Set[str]]:
     """``{dict name: the function names it holds}`` for module-level ``{"a": fn_a, ...}`` literals.
 
@@ -149,25 +184,14 @@ class Package:
                 if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     continue
                 self.where.setdefault(node.name, []).append(path)
-                edges = _called_names(node)
-                # A function that touches a dispatch table can call anything in it, so treat every entry
-                # as an edge. Referencing the table is enough -- the lookup and the call are usually two
-                # statements apart, and tracking the variable between them buys nothing here.
-                # A dispatch-table edge is added from a bare REFERENCE to the table, because the lookup
-                # and the call are usually separate statements. That bypasses the per-call guard check,
-                # so a function that guards its dispatched call (``with ...: builder(x)``) would still be
-                # reported for every member. If the function guards anything at all, take that as guarding
-                # the dispatch too -- an over-approximation, but the alternative reports four false paths
-                # for every guarded table.
-                if not _guarded_call_nodes(node):
-                    referenced = {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
-                    for table, members in tables.items():
-                        if table in referenced:
-                            edges |= members
+                # A function that touches a dispatch table can call anything in it, so every entry is an edge (see ``_function_facts``).
+                # A reference to the table is enough, because the lookup and the call are usually separate statements; a function that
+                # guards anything at all is taken to guard the dispatch too, an over-approximation that avoids four false paths per table.
+                edges, starts_pool = _function_facts(node, tables)
                 self.calls[(path, node.name)] = edges
                 if _is_parallel_kernel(node):
                     self.kernels.add(node.name)
-                if _starts_thread_pool(node):
+                if starts_pool:
                     self.pools.append((path, node.name))
 
     def reachable_kernels(self, path: Path, fname: str) -> Dict[str, str]:

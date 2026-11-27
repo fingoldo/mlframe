@@ -592,7 +592,7 @@ def main():
         print(f"[{a.group}] {kind} done in {time.perf_counter() - t0:.1f}s", flush=True)
     summarise(rows, a.seeds, a.group)
     if a.out:
-        with open(a.out, "w") as fh:
+        with open(a.out, "w", encoding="utf-8") as fh:
             json.dump(rows, fh)
 
 

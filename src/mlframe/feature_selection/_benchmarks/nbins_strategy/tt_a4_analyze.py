@@ -10,7 +10,7 @@ import numpy as np
 
 PROP = ("identity", "cbrt", "signed_sqrt", "log", "yeo_johnson")
 here = os.path.dirname(os.path.abspath(__file__))
-R = json.load(open(os.path.join(here, "tt_a4_results.json")))
+R = json.load(open(os.path.join(here, "tt_a4_results.json"), encoding="utf-8"))
 fixtures = sorted({r["fixture"] for r in R})
 models = list(R[0]["judge"])
 

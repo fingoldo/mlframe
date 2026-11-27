@@ -23,6 +23,8 @@ def test_out_of_fold_proxy_does_not_look_like_the_in_sample_fit():
         from scipy.special import expit
         from sklearn.metrics import brier_score_loss
 
+        from mlframe.feature_selection.shap_proxied_fs._shap_proxy_explain import _maybe_patch_shap_xgb_base_score
+
         import s2_interaction_deficit_test as s2
     finally:
         sys.path.remove(str(_FS_HYBRID))
@@ -31,7 +33,8 @@ def test_out_of_fold_proxy_does_not_look_like_the_in_sample_fit():
     ytr = rng.integers(0, 2, size=300)
     names = list(Xtr.columns)
     m = lgb.LGBMClassifier(n_estimators=200, num_leaves=31, verbose=-1).fit(Xtr, ytr)
-    e = shap.TreeExplainer(m)
+    with _maybe_patch_shap_xgb_base_score():
+        e = shap.TreeExplainer(m)
     phi = np.asarray(e.shap_values(Xtr))
     if phi.ndim == 3:
         phi = phi[..., 1] if phi.shape[-1] == 2 else phi[..., 0]

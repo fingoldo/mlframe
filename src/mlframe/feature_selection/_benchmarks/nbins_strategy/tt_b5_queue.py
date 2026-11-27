@@ -1,6 +1,7 @@
 """Run the tt_b5_invariance jobs one MRMR fit at a time: wait until no other tt_b5_invariance.py process is alive, then run the queue sequentially.
     python tt_b5_queue.py OUT.jsonl LOGFILE "steps:group:seeds" ...
 """
+import logging
 import subprocess, sys, time, os
 import psutil
 
@@ -13,7 +14,8 @@ def others():
     for pr in psutil.process_iter(["pid", "cmdline", "name"]):
         try:
             cl = " ".join(pr.info["cmdline"] or [])
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("tt_b5_queue: ignored %s: %s", type(exc).__name__, exc)
             continue
         if "python" not in (pr.info["name"] or "").lower():
             continue  # skip nohup / sh wrappers, which carry the same command line
@@ -24,7 +26,7 @@ def others():
 
 while others():
     time.sleep(10)
-with open(log, "a") as lf:
+with open(log, "a", encoding="utf-8") as lf:
     for j in jobs:
         steps, group, seeds = j.split(":")[:3]
         tag = j.split(":")[3] if len(j.split(":")) > 3 else ""

@@ -28,6 +28,7 @@ transformed column that makes the link linear: log x0, sqrt x0, x0) to compare a
 """
 from __future__ import annotations
 
+import logging
 import argparse
 import json
 import os
@@ -175,7 +176,8 @@ def fit_names(Xv, yv, scheme, steps, seed, kind, ovr=None):
         for nm, g, ino in zip(pv["feature_name"], pv["mrmr_gain"], pv["in_output"]):
             if bool(ino) and g == g:
                 core.append((str(nm), round(float(g), 6)))
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("tt_b5_invariance: ignored %s: %s", type(exc).__name__, exc)
         core = []
     return [str(s) for s in m.get_feature_names_out()], wall, core
 
@@ -188,11 +190,12 @@ def run(out, steps, group, n, seeds, extra_seed_jitter=True, tag="", schemes=SCH
     fixtures, vs = GROUPS[group]
     done = set()
     if os.path.exists(out):
-        for line in open(out):
+        for line in open(out, encoding="utf-8"):
             try:
                 r = json.loads(line)
                 done.add((r["fixture"], r["variant"], r["scheme"], r["steps"], r["seed"], r["fitseed"], r.get("tag", "")))
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("tt_b5_invariance: ignored %s: %s", type(exc).__name__, exc)
                 pass
     for fx in fixtures:
         for ds in seeds:
@@ -215,9 +218,10 @@ def run(out, steps, group, n, seeds, extra_seed_jitter=True, tag="", schemes=SCH
                         names, wall, core = fit_names(Xv, yv, scheme, steps, fitseed, kind, TAGS[tag])
                         err = None
                     except Exception as ex:  # keep going, record the failure
+                        logging.getLogger(__name__).debug("tt_b5_invariance: ignored %s: %s", type(ex).__name__, ex)
                         names, wall, err, core = [], float("nan"), repr(ex)[:300], []
                     rec = dict(fixture=fx, variant=v, scheme=scheme, tag=tag, steps=steps, seed=ds, fitseed=fitseed, n=n, informative=sorted(inf), names=names, core=core, wall=wall, error=err)
-                    with open(out, "a") as f:
+                    with open(out, "a", encoding="utf-8") as f:
                         f.write(json.dumps(rec) + "\n")
                     print(f"{fx:9s} ds{ds} {v:5s} {scheme:8s} steps={steps} fs={fitseed} {wall:6.1f}s {len(names)} cols {names[:6]}", flush=True)
 
@@ -234,7 +238,7 @@ def direct_raw(names):
 
 
 def analyze(path):
-    rows = [json.loads(l) for l in open(path)]
+    rows = [json.loads(l) for l in open(path, encoding="utf-8")]
     base = {}
     for r in rows:
         if r["variant"] == "raw" and r["fitseed"] == 0:

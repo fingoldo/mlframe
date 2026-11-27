@@ -255,13 +255,13 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
                 return_per_fold_phi_mean=want_per_fold_phi,
                 cache_dir=self.cache_dir, cv_policy=getattr(self, "_search_cv_policy", None))
         base, per_fold_phi_mean, phi, phi_var, y_phi = self._fit_step2_want_var_want(want_var, want_per_fold_phi, shap_out)
-        kept = np.flatnonzero(np.isfinite(np.asarray(base, dtype=np.float64)))
-        if kept.size == np.asarray(base).shape[0]:
+        kept = np.flatnonzero(np.isfinite(np.asarray(base)))
+        if kept.size == len(base):
             return want_per_fold_phi, base, per_fold_phi_mean, phi, phi_var, y_phi, X_proxy, y_search, None
         if kept.size == 0:
             raise ValueError("the forward-chained OOF-SHAP stage explained no rows; the search set is too small for the number of splits")
         logger.info("OOF-SHAP: forward chaining leaves %d of %d search rows without an out-of-fold value; the fit continues on the other %d rows.",
-                    np.asarray(base).shape[0] - kept.size, np.asarray(base).shape[0], kept.size)
+                    len(base) - kept.size, len(base), kept.size)
 
         def _take(a: Any) -> Any:
             """Rows ``kept`` of a frame or array."""

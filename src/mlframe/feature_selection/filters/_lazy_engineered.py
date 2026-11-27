@@ -146,7 +146,8 @@ def _prefetch_workers() -> int:
         import psutil
 
         count = psutil.cpu_count(logical=False) or 2
-    except Exception:  # psutil missing: the logical count
+    except Exception as exc:  # psutil missing: the logical count
+        logging.getLogger(__name__).debug("_lazy_engineered: ignored %s: %s", type(exc).__name__, exc)
         count = os.cpu_count() or 2
     return max(1, min(8, int(count)))
 

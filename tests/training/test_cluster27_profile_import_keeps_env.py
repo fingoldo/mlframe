@@ -13,4 +13,5 @@ def test_import_does_not_set_cuda_visible_devices(monkeypatch):
     spec = importlib.util.spec_from_file_location("_profile_probe_import", Path(mod.__file__))
     probe = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(probe)
-    assert "CUDA_VISIBLE_DEVICES" not in os.environ
+    leaked = "CUDA_VISIBLE_DEVICES" in os.environ
+    assert not leaked

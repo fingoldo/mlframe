@@ -514,7 +514,14 @@ from ._kernels import (
     _searchsorted_2d_right_njit,
     _searchsorted_2d_right_njit_parallel,
 )
-from ._quantile_radix import _quantile_edges_2d_radix_tiled_njit, tile_cols_for
+from ._quantile_radix import (
+    _f64_as_f32_njit as f64_as_f32_njit,
+    _quantile_edges_2d_radix_tiled_njit,
+    quantile_bin_block_fast,
+    quantiles_of_sorted,
+    radix_sorted_f32,
+    tile_cols_for,
+)
 from ._count_le_rowmajor import _count_le_2d_rowmajor_njit, _count_le_2d_rowmajor_njit_parallel
 
 # Largest interior-edge count for which the branch-free count kernels beat the binary search (measured 1.25x at 31 edges).

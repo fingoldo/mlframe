@@ -8,6 +8,7 @@ them in unchanged.
 """
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional, cast
 
 import numpy as np
@@ -324,7 +325,8 @@ class _PredictMixin:
                 try:
                     import torch as _torch
                     _device_id = int(_torch.cuda.current_device()) if _torch.cuda.is_available() else 0
-                except Exception:  # best-effort: device 0 is the old behaviour
+                except Exception as exc:  # best-effort: device 0 is the old behaviour
+                    logging.getLogger(__name__).debug("_base_predict: ignored %s: %s", type(exc).__name__, exc)
                     _device_id = 0
                 pred_batch_size = resolve_mlp_predict_batch_size(
                     n_features=_n_features,

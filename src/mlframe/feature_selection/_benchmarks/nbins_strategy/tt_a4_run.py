@@ -42,7 +42,7 @@ def main() -> None:
             out.append(r)
             print("done", r["fixture"], r["seed"], r["picked"], flush=True)
     here = os.path.dirname(os.path.abspath(__file__))
-    with open(os.path.join(here, "tt_a4_results.json"), "w") as fh:
+    with open(os.path.join(here, "tt_a4_results.json"), "w", encoding="utf-8") as fh:
         json.dump(out, fh)
 
 
