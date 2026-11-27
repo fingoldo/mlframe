@@ -149,6 +149,7 @@ Always pass `--no-cov`: pytest-cov raises a PermissionError writing its data fil
 Run unbuffered with `-x -s` rather than launching a long blind run.
 A failure that is an OOM or a Windows paging-file error (WinError 1455 under joblib fan-out) reflects machine-wide memory pressure at that moment, not a defect: retry once, and if it fails again it is real. Tolerate it in code via `OSError` plus a skip.
 Heavily-parametrised modules expose a fast mode (a `--fast` flag or env var plus a `fast_subset` helper) that runs one representative case per code path, with the exhaustive sweep behind a slow marker. Without it the only options are the full matrix or no coverage, and the full matrix stops being run.
+A test that starts a child pytest passes `-n 0 -p no:randomly` to it: the planned xdist workers each rebuild the heavy session fixtures (one nested run of two small files took 119 s with them and 37 s without, paired). When it times a nested run or a gate, it alternates the two variants and repeats them: one ordered pair drifted 2.5 times with the machine load.
 
 ## BUG FIX (2026-08-02): a broad except silently downgraded the whole process's MI backend to sklearn (~100x)
 2M-row cProfile on combo `c0094_5637be0a` (master-seed `9999`) found `_mi_classif_batch_sklearn`
