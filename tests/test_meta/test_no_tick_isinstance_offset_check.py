@@ -25,6 +25,8 @@ from pathlib import Path
 import orjson
 import pytest
 
+from tests.test_meta._shared_ast_cache import parsed_ast, source_text
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCAN_DIRS = (_REPO_ROOT / "src" / "mlframe", _REPO_ROOT / "tests")
 _BASELINE_PATH = Path(__file__).resolve().parent / "_tick_isinstance_baseline.json"
@@ -69,8 +71,11 @@ def _build_offending_set() -> set[str]:
     for py in _candidate_files():
         if "__pycache__" in py.parts:
             continue
+        text = source_text(py)  # the process-wide read cache; None when the file does not decode
+        if text is not None and "Tick" not in text:
+            continue  # the class being checked for is spelled Tick, bare or as an attribute
         try:
-            tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
+            tree = parsed_ast(py) or ast.parse(py.read_text(encoding="utf-8", errors="replace"))
         except (SyntaxError, OSError):
             continue
         rel = py.relative_to(_REPO_ROOT).as_posix()
