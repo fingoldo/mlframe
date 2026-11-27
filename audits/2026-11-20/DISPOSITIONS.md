@@ -443,7 +443,6 @@
 | 24-F36 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F38 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F39 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F47 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F50 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F25 | FIXED | empty support returns NaN per query point; tests/feature_engineering/test_cluster24_empty_and_alignment.py |
 | 24-F31 | FIXED | chunks that return (None, None) are skipped and an all-empty run returns (None, None); no separate test |
@@ -1648,3 +1647,5 @@
 | 21-F8 | FIXED | step_fill now steps the fill in plotly: the fill moves to an invisible hv-shaped trace laid down before the straight series line (tozeroy, or tonexty against the constant baseline trace for a non-zero baseline), matching matplotlib's step='post' fill with a straight line. Before, line_shape='linear' was the default and the fill stayed a polyline. Test tests/reporting/test_cluster21_plotly_step_fill.py. |
 
 | 24-F37 | FIXED | The event-to-vocabulary lookup in _weighted_matrix uses np.searchsorted when the vocabulary is strictly increasing (what np.unique returns) and the original dictionary path otherwise, via _positions_in; results are identical (test compares with the dict form on int and string vocabularies, absent values included). An unknown row entity still raises KeyError. Test tests/feature_engineering/test_cluster24_positions_in_vocabulary.py. |
+
+| 24-F47 | FIXED | GroupTimeSeriesSplit finds each row's group position by sorting the distinct labels once and searching the rows (_temporal_positions) instead of a Python dictionary lookup per row; labels that cannot be ordered keep the dictionary path. Positions are identical to the dict form (tested on shuffled temporal orders and string labels) and the fold structure is unchanged. Test tests/feature_selection/test_cluster24_group_time_split_positions.py. |
