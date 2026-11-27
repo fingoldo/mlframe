@@ -410,6 +410,7 @@ def show_classifier_calibration(
     performances: dict = {}
     all_x: list = []
     all_y: list = []
+    full_ranking = np.asarray(indices) if indices is not None and nintervals > 1 else None
     for i in range(nintervals):
         if i == nintervals - 1:
             r = s
@@ -420,9 +421,8 @@ def show_classifier_calibration(
         # to slice-local ones, keeping the order. The full-length ranking was passed unchanged, so the njit kernel (no bounds check) read past the slice
         # or binned the wrong rows (audit 22-F12).
         slice_indices = indices
-        if indices is not None and nintervals > 1:
-            full = np.asarray(indices)
-            slice_indices = full[(full >= lo) & (full < r)] - lo
+        if full_ranking is not None:
+            slice_indices = full_ranking[(full_ranking >= lo) & (full_ranking < r)] - lo
         try:
             x, y, data, performances = estimate_calibration_quality_binned(
                 y_true[lo:r], y_pred[lo:r], nbins=nbins, indices=slice_indices, metrics_to_show=metrics_to_show
