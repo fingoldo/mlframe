@@ -1601,7 +1601,6 @@
 
 
 
-| 39-F28 | DEFERRED | Re-read: the validator assigns the derived values onto the public memory.budget_gb, cache.ram_max_gb and cache.ram_reserve_gb fields, and the test suite and cache.py read them there. Moving them to private resolved fields changes what every reader and every dumped config sees, so it needs the readers migrated together with a way to dump the user's original (None) values; a partial change would leave the dump/re-validate case failing as before. |
 
 | 28-F64 | DEFERRED | Re-read: the write is the mechanism that hands the first model's stats to every later model through the shared common_params, and process_model also returns them. Removing the write is safe only once every later call site is shown to pass the returned value explicitly; no wrong result was observed, so the audited-reader pass is left to the training-loop owner. |
 
@@ -1654,3 +1653,5 @@
 | 33-F4 | FIXED | Owner decision applied (option A): one named constant _PROBA_MARGIN_EPS = 1e-6 clips every probability-derived base margin, binary and multiclass, so saturated probabilities are capped at about +/-13.8 in log space whatever the class count (the multiclass fallback was -27.6). A decision_function, when the estimator has one, is still used unclipped. Test tests/training/test_cluster33_probability_margin_clip.py; 87 composite-classification tests pass. |
 
 | 12-F74 | FIXED | Owner decision applied (option A): run_grid counts the status of every cell it executes and ends with one WARNING naming how many did not finish ok, by status, with the hint that on a resumed run those keys count as done unless --retry-failed is passed (_log_status_summary). Default resume behaviour is unchanged. Test tests/feature_selection/test_cluster12_run_grid_status_summary.py. |
+
+| 39-F28 | FIXED | Owner decision applied (option A): _derive_memory_budgets no longer writes the derived values into the user's memory and cache sub-configs. It computes them in locals, stores them in the _resolved_* attributes, and the new resolved_memory and resolved_cache properties return copies with those filled in; fhc.memory and fhc.cache keep None for an auto value, so a dumped config re-derives on the machine that loads it (a dump from a big box no longer raises the explicit-ram_max error on a small one, and a dump from a small box no longer pins the small budget). The only reader, FeatureCache, takes resolved_cache. Dependent tests in test_feature_handling_config.py moved to the resolved views. Test tests/training/feature_handling/test_cluster39_config_dump_rederives.py. |

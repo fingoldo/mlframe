@@ -364,22 +364,19 @@ class FeatureHandlingConfig(BaseConfig):
         total_gb = total_bytes / 1e9
         ad = self.memory.auto_derive
 
-        # memory_budget_gb
-        if self.memory.budget_gb is None:
-            self.memory.budget_gb = total_gb * ad.memory_budget_fraction
-        budget_gb = self.memory.budget_gb
+        # The derived values live in locals and the ``_resolved_*`` attributes, never in the user's ``memory`` / ``cache`` sub-configs: writing them there
+        # made ``FeatureHandlingConfig(**fhc.model_dump())`` treat a number derived on one machine as an explicit setting on the next, so a dump taken on a
+        # large box raised the explicit-ram_max error on a small one and a dump from a small box silently kept its small budget (39-F28).
+        budget_gb = self.memory.budget_gb if self.memory.budget_gb is not None else total_gb * ad.memory_budget_fraction
 
         # cache.ram_max_gb derives from memory_budget
         cache_ram_was_explicit = self.cache.ram_max_gb is not None
-        if self.cache.ram_max_gb is None:
-            self.cache.ram_max_gb = budget_gb * ad.cache_ram_fraction
+        ram_max_gb = self.cache.ram_max_gb if cache_ram_was_explicit else budget_gb * ad.cache_ram_fraction
 
         # cache.ram_reserve_gb -- absolute floor, not fraction-of-budget
-        if self.cache.ram_reserve_gb is None:
-            self.cache.ram_reserve_gb = max(
-                ad.cache_keep_free_min_gb,
-                total_gb * ad.cache_keep_free_fraction,
-            )
+        ram_reserve_gb = (
+            self.cache.ram_reserve_gb if self.cache.ram_reserve_gb is not None else max(ad.cache_keep_free_min_gb, total_gb * ad.cache_keep_free_fraction)
+        )
 
         # Sanity invariant. Two policies:
         #   * If both ram_max and ram_reserve are auto-derived, cap
@@ -388,12 +385,12 @@ class FeatureHandlingConfig(BaseConfig):
         #     (legitimate -- they may want headroom for swap/etc).
         #   * If ram_max was EXPLICIT and exceeds total - reserve,
         #     raise. The user told us a number we can't honour.
-        max_allowed = total_gb - self.cache.ram_reserve_gb
-        if self.cache.ram_max_gb > max_allowed:
+        max_allowed = total_gb - ram_reserve_gb
+        if ram_max_gb > max_allowed:
             if cache_ram_was_explicit:
                 raise ValueError(
-                    f"FeatureHandlingConfig: cache.ram_max_gb={self.cache.ram_max_gb:.2f} "
-                    f"exceeds total-{self.cache.ram_reserve_gb:.2f} "
+                    f"FeatureHandlingConfig: cache.ram_max_gb={ram_max_gb:.2f} "
+                    f"exceeds total-{ram_reserve_gb:.2f} "
                     f"= {max_allowed:.2f} GB on a {total_gb:.1f} GB system. "
                     f"Lower cache.ram_max_gb or cache.ram_reserve_gb."
                 )
@@ -402,27 +399,27 @@ class FeatureHandlingConfig(BaseConfig):
             logger.info(
                 "[fhc] auto-derived cache.ram_max_gb=%.2f exceeds total-%.2f=%.2f; "
                 "capping to %.2f to fit %.1f GB system",
-                self.cache.ram_max_gb, self.cache.ram_reserve_gb, max_allowed,
+                ram_max_gb, ram_reserve_gb, max_allowed,
                 new_cap, total_gb,
             )
-            self.cache.ram_max_gb = new_cap
+            ram_max_gb = new_cap
 
         # Hard invariant after cap: cache_ram must be > 0 on any
         # reasonable machine. Below this we genuinely can't run --
         # tiny 1 GB box + 2 GB reserve_min would have ram_max < 0,
         # caught here.
-        if self.cache.ram_max_gb <= 0.0:
+        if ram_max_gb <= 0.0:
             raise ValueError(
                 f"FeatureHandlingConfig: invalid memory budget on a "
                 f"{total_gb:.1f} GB system. After auto-derive, "
-                f"cache.ram_max_gb={self.cache.ram_max_gb:.2f} (must be > 0). "
+                f"cache.ram_max_gb={ram_max_gb:.2f} (must be > 0). "
                 f"Lower cache.ram_reserve_gb or auto_cache_keep_free_min_gb."
             )
 
-        # Stash resolved values for describe() / repr().
+        # Stash resolved values for describe() / repr() and for ``resolved_cache`` / ``resolved_memory``.
         self._resolved_memory_budget_gb = budget_gb
-        self._resolved_cache_ram_max_gb = self.cache.ram_max_gb
-        self._resolved_cache_ram_reserve_gb = self.cache.ram_reserve_gb
+        self._resolved_cache_ram_max_gb = ram_max_gb
+        self._resolved_cache_ram_reserve_gb = ram_reserve_gb
 
         return self
 
@@ -472,6 +469,19 @@ class FeatureHandlingConfig(BaseConfig):
     # ------------------------------------------------------------------
     # Introspection
     # ------------------------------------------------------------------
+
+    @property
+    def resolved_cache(self) -> CacheConfig:
+        """The cache sub-config with ``ram_max_gb`` / ``ram_reserve_gb`` filled in -- what a ``FeatureCache`` should be built from.
+
+        ``self.cache`` keeps exactly what the user set (``None`` for an auto value), so a dumped config re-derives on the machine that loads it.
+        """
+        return self.cache.model_copy(update={"ram_max_gb": self._resolved_cache_ram_max_gb, "ram_reserve_gb": self._resolved_cache_ram_reserve_gb})
+
+    @property
+    def resolved_memory(self) -> MemoryConfig:
+        """The memory sub-config with ``budget_gb`` filled in; ``self.memory`` keeps the user's setting."""
+        return self.memory.model_copy(update={"budget_gb": self._resolved_memory_budget_gb})
 
     @property
     def resolved(self) -> Dict[str, Any]:

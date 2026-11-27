@@ -28,6 +28,7 @@ Reuse semantics:
     the model.
 
 Eviction:
+  * Build the cache from ``FeatureHandlingConfig.resolved_cache``: ``fhc.cache`` keeps the user's ``None`` for an auto value.
   * In-memory: LRU within ``cache.ram_max_gb``. ``cache.ram_reserve_gb``
     floor on remaining system RAM via :func:`psutil.virtual_memory`.
   * Disk: oldest-file-first (by mtime -- reads don't touch mtime, so this is write-order, not a true
