@@ -23,7 +23,7 @@ import pathlib
 
 import pytest
 
-from tests.test_meta._shared_ast_cache import walk_cached
+from tests.test_meta._shared_ast_cache import parsed_ast, walk_cached
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 SCANNED_ROOTS = ("src/mlframe", "tests", "benchmarks")
@@ -57,7 +57,9 @@ def _load_modules() -> tuple[tuple[tuple[str, ast.Module], ...], tuple[str, ...]
         for path in sorted(base.rglob("*.py")):
             rel = path.relative_to(REPO_ROOT).as_posix()
             try:
-                tree = ast.parse(path.read_text(encoding="utf-8"))
+                # The process-wide cache first: the other meta tests that walk these trees parse each file once per worker, and this one re-parsed
+                # all of them. A file the cache cannot parse is parsed again here, so a syntax error still names its line.
+                tree = parsed_ast(path) or ast.parse(path.read_text(encoding="utf-8"))
             except SyntaxError as exc:
                 broken.append(f"{rel}:{exc.lineno}: {exc.msg}")
                 continue
