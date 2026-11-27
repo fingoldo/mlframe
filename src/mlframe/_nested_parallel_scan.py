@@ -73,17 +73,6 @@ def _guarded_call_nodes(node: ast.AST) -> Set[int]:
 _FAN_OUT_CALLS = frozenset({"Parallel", "parallel_run"})
 
 
-def _starts_thread_pool(node: ast.AST) -> bool:
-    """True when a function starts a thread fan-out: a ``ThreadPoolExecutor``, or any joblib ``Parallel`` / ``parallel_run`` call.
-
-    Every joblib call counts, whatever its backend. The backend is often a runtime value, and a fallback from the process
-    backend to threads (loky refusing to nest inside a worker thread) is exactly how the X6 crash reached numba.
-    """
-    if "ThreadPoolExecutor" in _called_names(node):
-        return True
-    return any(isinstance(call, ast.Call) and (getattr(call.func, "id", None) or getattr(call.func, "attr", None)) in _FAN_OUT_CALLS for call in ast.walk(node))
-
-
 def _called_names(node: ast.AST) -> Set[str]:
     """Every name called inside a function body that is NOT already under the guard.
 
@@ -103,8 +92,10 @@ def _called_names(node: ast.AST) -> Set[str]:
 def _function_facts(node: ast.AST, tables: Dict[str, Set[str]]) -> Tuple[Set[str], bool]:
     """``(edges, starts_pool)`` of one function from a single walk of its subtree.
 
-    Gives exactly what ``_called_names`` (plus the dispatch-table edges) and ``_starts_thread_pool`` give, which together walked the
-    subtree about ten times; the rules they apply are the same ones, applied to one list of nodes.
+    Gives exactly what ``_called_names`` (plus the dispatch-table edges) gave together with the thread-pool check, which walked the
+    subtree about ten times; the rules are the same ones, applied to one list of nodes. The pool check is True for a ``ThreadPoolExecutor`` or any joblib
+    ``Parallel`` / ``parallel_run`` call, whatever its backend: the backend is often a runtime value, and a fallback from the process backend to threads
+    (loky refusing to nest inside a worker thread) is how the X6 crash reached numba.
     """
     nodes = list(ast.walk(node))
     calls = [n for n in nodes if isinstance(n, ast.Call)]

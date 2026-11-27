@@ -34,6 +34,13 @@ def _functions(source: str):
     return tables, [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
 
 
+def _reference_starts_thread_pool(node: ast.AST) -> bool:
+    """The per-question check the single walk replaced: a ``ThreadPoolExecutor``, or any joblib ``Parallel`` / ``parallel_run`` call."""
+    if "ThreadPoolExecutor" in scan._called_names(node):
+        return True
+    return any(isinstance(call, ast.Call) and (getattr(call.func, "id", None) or getattr(call.func, "attr", None)) in scan._FAN_OUT_CALLS for call in ast.walk(node))
+
+
 def _reference_edges(node: ast.AST, tables) -> set:
     """What the package build computed before the single walk: ``_called_names`` plus the dispatch-table edges."""
     edges = scan._called_names(node)
@@ -53,7 +60,7 @@ def test_single_walk_edges_and_pool_flag_match_the_per_question_helpers(case):
     for node in functions:
         edges, starts_pool = scan._function_facts(node, tables)
         assert edges == _reference_edges(node, tables), f"{case}:{node.name} edges moved"
-        assert starts_pool == scan._starts_thread_pool(node), f"{case}:{node.name} pool flag moved"
+        assert starts_pool == _reference_starts_thread_pool(node), f"{case}:{node.name} pool flag moved"
 
 
 def test_a_guarded_dispatch_table_adds_no_edges_and_an_unguarded_one_adds_its_members():
