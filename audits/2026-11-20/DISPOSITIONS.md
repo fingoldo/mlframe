@@ -631,7 +631,6 @@
 | 27-F10 | FIXED | A non-finite value in any seed curve raises naming the seed, instead of producing a stability verdict. Test tests/training/test_cluster27_cv_stability_rejects_nan_curve.py. |
 | 27-F15 | FIXED | The LightGBM factories return the lightgbm class when the shim is off, instead of the unbound module name. Test tests/training/test_cluster27_lgb_factory_without_shim.py. |
 | 27-F16 | FIXED | The MSLE to rmse substitution for LightGBM is logged at WARNING. Test tests/training/test_cluster27_lgb_msle_substitution_warns.py. |
-| 27-F11 | DEFERRED | Hashing every row needs a content hash that keeps the documented pandas and polars equality invariant, and a per-row Python hash is too slow on large frames. A design pass on the fingerprint is needed; the 64-row sample stays until then. |
 | 27-F9 | FIXED | The pandas NaN fill works on a shallow copy, so the caller's frame keeps its NaNs, as the polars branch already did. Test tests/training/test_cluster27_nan_fill_leaves_caller_frame.py. |
 | 27-F7 | FIXED | A weighted fit's permutation importances skip the unweighted CUDA kernel and use the weighted CPU path. Test tests/training/test_cluster27_weighted_fi_skips_cuda.py. |
 | 27-F8 | DEFERRED | Owner decision: signed or magnitude coef_ importances. The two branches disagree today; choosing either changes the reported numbers for one of them. |
@@ -1641,3 +1640,5 @@
 | 28-F48 | FIXED | Removed _train_and_evaluate_train_df_none (it built report_title and returned None, and its only caller ignored the result) together with its import and call; nothing else referenced it. Test tests/training/test_cluster28_no_unused_report_title_builder.py. |
 
 | 04-F15 | DOCUMENTED | _probability_only is on the project's kept list as a hand-run difficulty-sweep helper. Its docstring now states the limits the audit found: the caller must pass columns that already include the latent factors, the score is scaled including its intercept, and generate's heteroscedastic term, prevalence shift and corruption are not applied. Making it reproduce the shipped law is a redesign of the sweep, left to the dataset-generator owner. |
+
+| 27-F11 | DEFERRED | Re-read: the sampled row hash is the deliberate key of the CatBoost val-Pool cache, chosen because predict-side frames are fresh objects and a full hash was weighed against a 53-66 s Pool rebuild. A frame that differs only in unsampled rows does share the key, so the stale-Pool risk is real; the sound fixes (a full vectorised content hash on both writer and reader, or an identity token carried with the val frame) change the cache key layout for every consumer and trade hashing cost against exactness, which is the owner's call. |
