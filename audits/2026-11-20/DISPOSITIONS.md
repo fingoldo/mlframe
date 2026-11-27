@@ -1598,7 +1598,6 @@
 
 | 18-F13 | PARTIAL | A failed per-member auto-tune now logs a WARNING with the error type and message (was DEBUG), and the docstring at member_metrics names the real module path. ensure_per_member_tuning stays: it has no production caller but is an uncalled-function entry on the project's kept list and a manual calibration entry point, so wiring it in or retiring it is an owner call. Test tests/models/test_cluster18_per_member_tuning_failure_visible.py. |
 
-| 18-F14 | DEFERRED | Re-read: the _all_members_catastrophic sentinel has no reader and the K>2 path still builds a one-member ensemble, while the K=2 path returns early with a _reason. Making the K>2 gate behave like K=2 changes which models ship as ensembles for a whole class of runs (single survivor vs best single member vs dummy baseline), so it needs the owner to pick the policy; the warning already tells the operator in the meantime. |
 
 
 
@@ -1651,3 +1650,5 @@
 | 24-F38 | PARTIAL | Reading _direct_window_agg for the regrouping cost found a correctness defect: it wrote results by the query's index LABELS into a positional array, raising IndexError for any query whose index was not 0..n-1 and mis-placing values for a permuted index. It now writes by row position (also under the row mask) and the per-entity query grouping uses positions. Not done: building the history groupby once across the repeated calls (needs the caller to pass the groups in; a perf-only change left until measured). Test tests/feature_engineering/test_cluster24_direct_window_agg_positional.py. |
 
 | 24-F39 | DEFERRED | Re-read: the negative samples are drawn one rng.choice per (center, context) pair from the same generator that also draws the window width, so pre-drawing them in blocks changes the random stream and therefore every embedding a seed produced before. Bit-identical output is not possible; it is a perf change that needs a measured benefit and an owner's agreement to re-baseline the embeddings. |
+
+| 18-F14 | FIXED | K>2 now short-circuits like K=2: catastrophic_drop_kn records the kept and dropped member tags in the _all_members_catastrophic sentinel and kn_all_catastrophic_early_return stamps _reason='kn_catastrophic_dropout', _n_members, _dropped_member and _kept_member, so score_ensemble returns the sentinel-only result and no one-member 'ensemble' is built; the surviving model stays in the per-family list. Owner decision applied: option A. Test tests/models/test_cluster18_kn_all_catastrophic_early_return.py. |

@@ -35,6 +35,7 @@ from .score_validate import _validate_score_ensemble_inputs
 from .score_gate import (
     catastrophic_drop_k2,
     catastrophic_drop_kn,
+    kn_all_catastrophic_early_return,
     realign_gate_preds,
     select_gate_source_split,
     resolve_gate_target_arr,
@@ -136,6 +137,12 @@ def _run_quality_gates(
         verbose=verbose,
         res=res,
     )
+
+    if kn_all_catastrophic_early_return(res):
+        return _GateState(
+            members, _gate_preds_for_check, _gate_source_split, _ensemble_member_tags, _ensemble_short_tags,
+            ensemble_name, max_mae, max_std, max_mae_relative, max_std_relative, early_return=True,
+        )
 
     (
         members,
