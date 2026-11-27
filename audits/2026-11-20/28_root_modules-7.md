@@ -190,6 +190,7 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F68: FIXED. Removed the empty trailing 'Callback Classes for Training Monitoring' section header from helpers.py (no code under it). The device-gating comment the finding names is no longer in the file. Test tests/training/test_cluster28_helpers_no_empty_header.py (2 passed).
 
 
-- 28-F76: PARTIAL. Tests now cover _oof_train_timestamps, retry_params_after_empty_text_dictionary and _open_verified_bundle (missing file, matching digest, tampered bytes, no digest with and without the opt-out). Still without a test reference: _run_val_split_metrics, _run_test_split_metrics, _handle_fit_failure, _realign_val_columns; each needs a fixture trainer. Tests tests/training/test_cluster28_untested_helpers.py and test_cluster28_open_verified_bundle.py.
 
 - 28-F64: DEFERRED. Re-read: the write is the mechanism that hands the first model's stats to every later model through the shared common_params, and process_model also returns them. Removing the write is safe only once every later call site is shown to pass the returned value explicitly; no wrong result was observed, so the audited-reader pass is left to the training-loop owner.
+
+- 28-F76: PARTIAL. Tests now cover _oof_train_timestamps, retry_params_after_empty_text_dictionary, _open_verified_bundle and _realign_val_columns (categorical dtype and categories taken from train, untouched frames, unseen value to NaN). Still without a test reference: _run_val_split_metrics, _run_test_split_metrics and _handle_fit_failure; each needs a fixture trainer. Tests tests/training/test_cluster28_untested_helpers.py, test_cluster28_open_verified_bundle.py, test_cluster28_realign_val_columns.py.
