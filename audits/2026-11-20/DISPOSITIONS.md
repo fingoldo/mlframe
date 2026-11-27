@@ -413,7 +413,6 @@
 | 17-F20 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 18-F9 | FIXED | gate weighted means return NaN when every weight is zero instead of raising; tests/models/test_cluster18_zero_weight_gate.py; existing quality-gate and ensembling tests: 231 passed |
 | 18-F12 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
-| 18-F14 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 19-F1 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 19-F2 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 19-F3 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
@@ -1623,3 +1622,5 @@
 | 14-F4 | FIXED | fast_model now reads iterations, depth and rsm as well as n_estimators, max_depth and colsample_bytree, so a catboost template gets the quarter budget, depth 3 and column subsampling (helper _fast_model_params, keeps the cap as a minimum). A catboost template that does not set iterations explicitly still keeps its default budget because get_params omits defaults. Test tests/feature_selection/shap_proxied/test_cluster14_fast_model_catboost_params.py. |
 
 | 18-F13 | PARTIAL | A failed per-member auto-tune now logs a WARNING with the error type and message (was DEBUG), and the docstring at member_metrics names the real module path. ensure_per_member_tuning stays: it has no production caller but is an uncalled-function entry on the project's kept list and a manual calibration entry point, so wiring it in or retiring it is an owner call. Test tests/models/test_cluster18_per_member_tuning_failure_visible.py. |
+
+| 18-F14 | DEFERRED | Re-read: the _all_members_catastrophic sentinel has no reader and the K>2 path still builds a one-member ensemble, while the K=2 path returns early with a _reason. Making the K>2 gate behave like K=2 changes which models ship as ensembles for a whole class of runs (single survivor vs best single member vs dummy baseline), so it needs the owner to pick the policy; the warning already tells the operator in the meantime. |
