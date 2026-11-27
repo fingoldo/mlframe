@@ -46,9 +46,11 @@ def test_block_limit_ignores_the_oom_cooldown_that_the_refusal_of_the_whole_matr
     try:
         assert _fe_gpu_vram._in_oom_cooldown() and not _fe_gpu_vram.fe_gpu_has_vram_cushion(1 << 20)
         limit = operand_block_limit(1141, 2_000_000, 16)
+        budget = _fe_gpu_vram.fe_gpu_bytes_above_cushion()
     finally:
         _fe_gpu_vram._reset_gpu_oom_cooldown()
-    assert 2 <= limit < 1141 and limit * (2_000_000 + 16) <= 3 << 30
+    # The limit is the share of the free memory above the cushion that one operand column takes, read from the device and not from the cooldown.
+    assert budget is not None and limit == (budget - (1 << 20)) // (2_000_000 + 16) < 1141
 
 
 @pytest.mark.skipif(not M._CUDA_AVAIL, reason="no CUDA device")
