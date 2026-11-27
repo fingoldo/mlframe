@@ -30,6 +30,8 @@ from pathlib import Path
 import orjson
 import pytest
 
+from tests.test_meta._shared_ast_cache import parsed_ast, source_text
+
 _TESTS_DIR = Path(__file__).resolve().parent.parent
 _BASELINE_PATH = Path(__file__).resolve().parent / "_unprotected_treeexplainer_baseline.json"
 
@@ -86,8 +88,11 @@ def _build_offending_set() -> set[str]:
     for py in _candidate_files():
         if "__pycache__" in py.parts:
             continue
+        text = source_text(py)  # the process-wide read cache; None when the file does not decode
+        if text is not None and "TreeExplainer" not in text:
+            continue  # the call being hunted spells its attribute name
         try:
-            tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
+            tree = parsed_ast(py) or ast.parse(py.read_text(encoding="utf-8", errors="replace"))
         except (SyntaxError, OSError):
             continue
         rel = py.relative_to(_TESTS_DIR).as_posix()
