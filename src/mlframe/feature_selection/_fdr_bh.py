@@ -6,9 +6,10 @@ A leaf module with numpy only, so a selector can import it without pulling in th
 from __future__ import annotations
 
 import numpy as np
+from numpy.typing import ArrayLike, DTypeLike
 
 
-def benjamini_hochberg_reject(p_values, alpha: float, dtype=np.float64) -> np.ndarray:
+def benjamini_hochberg_reject(p_values: ArrayLike, alpha: float, dtype: DTypeLike = np.float64) -> np.ndarray:
     """Boolean mask, ``True`` where the null is rejected at FDR ``alpha`` across all tested hypotheses.
 
     Sorts the p-values, finds the largest rank whose p-value is at most ``rank / m * alpha``, and rejects every hypothesis at or below that rank.
