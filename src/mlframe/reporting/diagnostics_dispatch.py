@@ -200,17 +200,19 @@ def _prepared_error_inputs(
     df: Any, yt: np.ndarray, yp: np.ndarray, task: str, seed: int, n: int, feature_names: Optional[Sequence[str]],
     cache_key_arrays: Optional[Tuple[Any, Any]] = None,
 ):
-    """``(loss, sample_idx, sub_df, names)`` for the error diagnostics, computed once per (frame, target, seed).
+    """``(loss, sample_idx, sub_df, names, dense)`` for the error diagnostics, computed once per (frame, target, seed).
 
     Both entry points draw the same bounded worst-error-preserving sample from the same per-row error, cap
-    the same columns and gather the same rows. Returning the SAME sub-frame OBJECT to both is what lets the
-    builders' own densify cache spare the second resolve.
+    the same columns and gather the same rows. ``dense`` is a :class:`DenseFeatureMatrix` over the sub-frame:
+    returning the SAME holder to both is what lets the second builder reuse the first one's densify, without a
+    global cache keyed on the frame's identity (20-F15).
     """
     from ._diagnostics_prep import shared_error_prep
 
     def _build():
         """The preparation itself, run only on a cache miss."""
         from mlframe.reporting.charts.shared import per_row_error as _per_row_error
+        from mlframe.reporting.charts.error_analysis import DenseFeatureMatrix
 
         loss = _per_row_error(yt, yp, task=task)
         loss_finite = np.where(np.isfinite(loss), loss, -np.inf)
@@ -220,7 +222,8 @@ def _prepared_error_inputs(
         # a ~25x wider intermediate than the diagnostic ever reads. Column selection is a view/projection,
         # so narrowing first makes the row gather proportional to what is actually used.
         _capped_df, names = _select_feature_columns(df, feature_names, DIAG_MAX_FEATURES)
-        return loss, sample_idx, _subset_rows(_capped_df, sample_idx), names
+        _sub = _subset_rows(_capped_df, sample_idx)
+        return loss, sample_idx, _sub, names, DenseFeatureMatrix(_sub, names)
 
     # Key on the arrays the CALLER passed in, not on the sliced views built here: ``np.asarray(...).ravel()[:n]``
     # produces a new object on every call, so an id()-keyed entry could never be hit and the second diagnostic paid
@@ -287,7 +290,7 @@ def _render_split_error_diagnostics(
     # Shared with the slice-finder diagnostic, which a report runs on the same frame, targets and seed
     # immediately afterwards and which prepared all of this a second time -- including the densify inside
     # its builder, 0.29 s on 100k x 200 all-numeric and 2.55 s with twenty object columns.
-    loss, sample_idx, sub_df, names = _prepared_error_inputs(df, yt, yp, task, seed, n, feature_names, cache_key_arrays=(y_true, y_pred))
+    loss, sample_idx, sub_df, names, dense = _prepared_error_inputs(df, yt, yp, task, seed, n, feature_names, cache_key_arrays=(y_true, y_pred))
     ts_arg = _timestamps_for_diagnostics(timestamps, n, sample_idx)
     try:
         wk = worst_k_table(
@@ -312,7 +315,7 @@ def _render_split_error_diagnostics(
     yp_s = yp if n <= DIAG_ROW_CAP else yp[sample_idx]
 
     try:
-        res = weak_segment_heatmap(sub_df, yt_s, yp_s, task=task, feature_names=names, seed=seed)
+        res = weak_segment_heatmap(sub_df, yt_s, yp_s, task=task, feature_names=names, seed=seed, feature_matrix=dense)
         ok = _save_spec(res.figure, plot_outputs, base_path + "_weak_segments")
         _record(charts, "weak_segments", ok)
         if ok:
@@ -364,17 +367,14 @@ def _render_split_error_diagnostics(
 def render_split_error_diagnostics(**kwargs: Any) -> Dict[str, Any]:
     """Render the per-split error diagnostics; accepts the same keyword arguments as ``_render_split_error_diagnostics``.
 
-    The memoised error prep and the densified feature matrix hold the full split's frame, so both caches are released
-    when the call returns, whether it rendered or returned early.
+    The memoised error prep holds the sub-frame and its densified matrix, so it is released when the call returns, whether it rendered or returned early.
     """
     from ._diagnostics_prep import clear_shared_error_prep
-    from .charts.error_analysis import clear_feature_matrix_cache
 
     try:
         return _render_split_error_diagnostics(**kwargs)
     finally:
         clear_shared_error_prep()
-        clear_feature_matrix_cache()
 
 
 def _render_psi_panel(test_frame: Any, timestamps: Any, non_calendar: Optional[List[Any]], calendar: list, plot_outputs: str, base_path: str, charts: Any) -> None:
@@ -656,10 +656,10 @@ def render_slice_finder_diagnostic(
 
     # Same prepared inputs the split-error diagnostic used, reused rather than rebuilt -- see
     # ``_prepared_error_inputs``.
-    _, idx, sub_df, names = _prepared_error_inputs(df, yt, yp, task, seed, n, feature_names, cache_key_arrays=(y_true, y_pred))
+    _, idx, sub_df, names, dense = _prepared_error_inputs(df, yt, yp, task, seed, n, feature_names, cache_key_arrays=(y_true, y_pred))
     try:
         res = find_weak_slices(
-            sub_df, yt[idx], yp[idx], task=task, feature_names=names, seed=seed,
+            sub_df, yt[idx], yp[idx], task=task, feature_names=names, seed=seed, feature_matrix=dense,
         )
         ok = _save_spec(res.figure, plot_outputs, base_path + "_weak_slices")
         _record(charts, "weak_slices", ok)

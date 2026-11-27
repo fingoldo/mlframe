@@ -31,6 +31,21 @@ from sklearn.model_selection import GroupKFold, TimeSeriesSplit
 logger = logging.getLogger("mlframe.feature_selection.wrappers.rfecv")
 
 
+def _temporal_positions(ordered: np.ndarray, groups: np.ndarray) -> np.ndarray:
+    """Position of each row's group in ``ordered`` (distinct group labels, earliest first).
+
+    Sorting the distinct labels once and searching the rows replaces a Python dictionary lookup per row, which cost seconds per split call at 1e7 rows
+    and was repeated for every RFECV fold (24-F47). Labels that cannot be ordered against each other keep the dictionary path.
+    """
+    try:
+        by_label = np.argsort(ordered, kind="stable")
+        pos = np.searchsorted(ordered[by_label], groups)
+        return np.asarray(by_label[pos], dtype=np.int64)
+    except (TypeError, IndexError):
+        order_of = {g: i for i, g in enumerate(ordered)}
+        return np.fromiter((order_of[g] for g in groups), dtype=np.int64, count=len(groups))
+
+
 class GroupTimeSeriesSplit:
     """Forward-chaining CV over time-ordered groups (entity isolation + temporal order).
 
@@ -98,8 +113,7 @@ class GroupTimeSeriesSplit:
                 f"(need at least {n_folds}). Reduce n_splits or provide more groups."
             )
         # Position of each group in the temporal order (0 = earliest); vectorised row -> group-order lookup.
-        order_of = {g: i for i, g in enumerate(ordered)}
-        group_pos = np.fromiter((order_of[g] for g in groups), dtype=np.int64, count=n_samples)
+        group_pos = _temporal_positions(ordered, groups)
 
         # Same block arithmetic as sklearn TimeSeriesSplit, applied to the GROUP axis.
         test_size = n_groups // n_folds

@@ -114,7 +114,6 @@ from ._trainer_train_and_evaluate_parts import (  # noqa: F401  -- carved helper
     _train_and_evaluate_forwarding_happens_through_apply,
     _train_and_evaluate_model_none_pre_pipeline,
     _train_and_evaluate_val_df_none,
-    _train_and_evaluate_train_df_none,
     _train_and_evaluate_nest_lightning_checkpoints_csv,
     _train_and_evaluate_score_ensemble_can_pick,
     _train_and_evaluate_train_runs_sequentially_may,
@@ -423,8 +422,6 @@ def _tae_prefit_prepare(st: SimpleNamespace, model: object, train_df: Any, model
         from mlframe.training.reporting.shared import style_with_caption as _style_with_caption
         ipython_display(_style_with_caption(train_df.head(display_sample_size), f"{model_name} features head"))
         ipython_display(_style_with_caption(train_df.tail(display_sample_size), f"{model_name} features tail"))
-
-    _train_and_evaluate_train_df_none(train_df, model_name, st.show_feature_names)
 
     train_df, st.fit_params = _prepare_train_df_for_fitting(train_df, model, st.model_type_name, st.fit_params)
 

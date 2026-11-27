@@ -331,15 +331,6 @@ def _train_and_evaluate_val_df_none(val_df, val_target, control, model_category,
     return model, model_obj, val_target
 
 
-def _train_and_evaluate_train_df_none(train_df, model_name, show_feature_names):
-    """Block of train_and_evaluate_model starting at ``if train_df is not None:``."""
-    if train_df is not None:
-        report_title = f"Training {model_name} model on {train_df.shape[1]} feature(s)"
-        if show_feature_names:
-            report_title += ": " + ", ".join(list(train_df.columns))
-        report_title += f", {len(train_df):_} records"
-
-
 def _train_and_evaluate_nest_lightning_checkpoints_csv(model_file_name, model):
     """Block of train_and_evaluate_model starting at ``try:``."""
     try:

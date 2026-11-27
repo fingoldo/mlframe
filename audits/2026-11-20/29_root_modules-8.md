@@ -101,7 +101,6 @@ Grep-only verification: `pyproject.toml:13` (requires-python), callers of `creat
 - 29-F28: FIXED. Deleted the unused _RELATIVE_IMPORT pattern in numba_cache_guard. Test tests/utils/test_cluster29_numba_guard_no_dead_pattern.py (source pin).
 - 29-F27: FIXED. Time-aware OOF skip for predict_proba is logged at WARNING (the INFO path is only for non-probability methods); covered by tests/training/composite/eval/test_composite_oof_time_aware_logged.py (3 pass). Recorded here, where the disposition was missing.
 - 29-F29: FIXED. Post-import callbacks all run even when one raises (fixed earlier in 2b08fdc4a). Covered by tests/utils/test_cluster29_post_import_callbacks_all_run.py (1 pass). Recorded here, where the disposition was missing.
-- 29-F30: DEFERRED. The docstring already states the filter is installed once and never restored. The remaining issue is the misleading block-scoped name; renaming changes a helper used across several modules, so it is an owner decision. Not changed.
 - 29-F31: FIXED. Benchmark sweep logs a WARNING when no combo gives a finite score (the decorated call returns None). Test tests/utils/test_cluster29_param_oracle_no_finite_warns.py (2 pass).
 - 29-F34: FIXED. Names-mismatch guard raises ValueError naming both lists (fixed earlier in 83b648677). Covered by tests/votenrank/test_biz_val_correlation_diversity_ablation.py and the diversity recommendations test (11 pass). Recorded here, where the disposition was missing.
 - 29-F33: WON'T FIX. n_jobs is a documented no-op (coalition scoring is serial), marked unused-ok, and kept so every estimator in the votenrank API shares one signature. Removing it would break the uniform signature. Not changed.
@@ -112,3 +111,5 @@ Grep-only verification: `pyproject.toml:13` (requires-python), callers of `creat
 - 29-F41: FIXED. Bagging without randomize_order/randomize_start logs a WARNING that all bags are identical. Test test_cluster29_hill_climb_bagging_warns.py.
 
 - 29-F14: DOCUMENTED. Aggregated oracle rows keep only the median and n_obs, so a later append takes a median of medians and the result depends on append batching. The exact fix stores (value, weight) pairs per metric, which changes the stored format and needs a schema bump and migration. Documented at the aggregation site; not changed here.
+
+- 29-F30: DOCUMENTED. Deliberate: silenced_once is the thread-safe replacement for warnings.catch_warnings on pool threads, whose snapshot/restore of the global filter list races; its docstring already says it installs one narrow filter once and never restores it. All five call sites use it for the same numba.cuda performance warning. A restoring context manager would reintroduce the race, so no change.

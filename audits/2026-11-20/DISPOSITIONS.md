@@ -267,7 +267,6 @@
 | 03-F6 | DEFERRED | benchmark-script change not made in this pass; low impact |
 | 04-F25 | FIXED | scipy rvs gets shape parameters first, loc and scale as keywords; tests/data/test_cluster04_sapp_args_and_coerce.py |
 | 04-F23 | FIXED | non-numeric values coerced to NaN are counted in the notes; same test file |
-| 04-F15 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
 | 04-F16 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
 | 04-F17 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
 | 04-F18 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
@@ -325,10 +324,8 @@
 | 12-F13 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F14 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F15 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
-| 12-F17 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F40 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F41 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
-| 12-F42 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F43 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F44 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F45 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
@@ -426,14 +423,11 @@
 | 20-F24 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 21-F5 | FIXED | an all-missing slice column takes the missingness code; tests/reporting/test_cluster21_slice_missing_and_metric_direction.py |
 | 21-F16 | FIXED | metric direction uses the family name before any @k cutoff; same test file |
-| 21-F8 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
-| 21-F9 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F14 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 22-F13 | FIXED | the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass |
 | 22-F20 | FIXED | the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test |
 | 22-F17 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F18 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
-| 22-F23 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F26 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 23-F5 | FIXED | the leakage p-value is computed whether or not a tolerance decided the verdict; tests/evaluation/test_cluster23_leak_pvalue_and_event_days.py |
 | 23-F8 | FIXED | event distances use fractional days (total seconds / 86400) instead of the floored .dt.days; same test file; 95 related tests pass |
@@ -447,10 +441,6 @@
 | 24-F30 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F31 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F36 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F37 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F38 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F39 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F47 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F50 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F25 | FIXED | empty support returns NaN per query point; tests/feature_engineering/test_cluster24_empty_and_alignment.py |
 | 24-F31 | FIXED | chunks that return (None, None) are skipped and an all-empty run returns (None, None); no separate test |
@@ -550,7 +540,6 @@
 | 04-F17 | FIXED | Removed the no-op threshold line: sign(score)*/score/ equals score, so behaviour is unchanged. Existing link tests pass (test_link_region_reaches_feature_truth.py, 2). |
 | 04-F16 | FIXED | The shortfall caveat uses the spec's CeilingTarget.tolerance instead of a hard-coded 0.01. Test tests/data/test_cluster04_ceiling_tolerance_drives_caveat.py. |
 | 04-F18 | FIXED | Renamed the coverage-adjusted plug-in estimator to coverage_adjusted_plugin (it is not Chao-Shen entropy). Test tests/data/test_cluster04_oracle_estimator_names_are_honest.py. |
-| 04-F15 | DEFERRED | _probability_only is an allowlisted exploration helper (tests/test_meta/test_shared_uncalled_functions.py) with a wrong body per the audit. Fixing it needs the difficulty-sweep intent confirmed; deferred. |
 | 04-F21 | FIXED | Probe resampling keeps the donor's missing values, so probes match the donor's missingness. Test tests/data/test_cluster04_probe_keeps_donor_missingness.py. |
 | 04-F22 | FIXED | Probes built into one dict and appended with a single concat; donors converted once. Values unchanged (same per-probe streams). Test tests/data/test_cluster04_probes_built_in_one_pass.py. |
 | 04-F19 | FIXED | Removed the three never-populated FeatureTruth fields (marginal_mi, conditional_mi_given_rest, r2_to_source); the generator fills only role, region, source, cost. Test tests/data/test_cluster04_feature_truth_fields.py. |
@@ -635,7 +624,6 @@
 | 27-F10 | FIXED | A non-finite value in any seed curve raises naming the seed, instead of producing a stability verdict. Test tests/training/test_cluster27_cv_stability_rejects_nan_curve.py. |
 | 27-F15 | FIXED | The LightGBM factories return the lightgbm class when the shim is off, instead of the unbound module name. Test tests/training/test_cluster27_lgb_factory_without_shim.py. |
 | 27-F16 | FIXED | The MSLE to rmse substitution for LightGBM is logged at WARNING. Test tests/training/test_cluster27_lgb_msle_substitution_warns.py. |
-| 27-F11 | DEFERRED | Hashing every row needs a content hash that keeps the documented pandas and polars equality invariant, and a per-row Python hash is too slow on large frames. A design pass on the fingerprint is needed; the 64-row sample stays until then. |
 | 27-F9 | FIXED | The pandas NaN fill works on a shallow copy, so the caller's frame keeps its NaNs, as the polars branch already did. Test tests/training/test_cluster27_nan_fill_leaves_caller_frame.py. |
 | 27-F7 | FIXED | A weighted fit's permutation importances skip the unweighted CUDA kernel and use the weighted CPU path. Test tests/training/test_cluster27_weighted_fi_skips_cuda.py. |
 | 27-F8 | DEFERRED | Owner decision: signed or magnitude coef_ importances. The two branches disagree today; choosing either changes the reported numbers for one of them. |
@@ -696,8 +684,6 @@
 | 28-F22 | FIXED | Lasso and elasticnet classifiers refuse alpha <= 0 with a ValueError naming the unpenalised alternative, instead of silently using C=1.0. Test tests/training/test_cluster28_linear_classifier_alpha_positive.py. |
 | 28-F23 | DEFERRED | Uncalled function: project rule is to wire it in or classify it before deleting. Classification is deferred to the uncalled-functions pass. |
 | 28-F24 | DEFERRED | The TTA duplication needs the fused function kept and the others made thin wrappers, or removed; that touches a public API and the bench that calls it. Deferred. |
-| 28-F47 | DEFERRED | Duplicated GTC cache state in the helpers module: deletion needs a check that nothing imports it. Deferred to the uncalled-functions pass. |
-| 28-F48 | DEFERRED | report_title is built and never emitted: wiring it in changes the train report, so it is an owner decision (emit or delete). |
 | 32-F10 | FIXED | Integer timestamps go through the same unit detector as object timestamps, so epoch seconds are no longer read as nanoseconds. Test tests/training/test_cluster32_integer_epoch_seconds_unit.py. |
 | 32-F26 | FIXED | The smoke script exits 1 when the suite raises instead of printing a pass line and returning 0. Verified by reading; the smoke run is a manual end-to-end script, not a unit test. |
 | 33-F3 | FIXED | The conformal rank rule lives in one helper (conformal_rank), used by the split, signed and online calibrations. Two further copies in conformal_classification.py and conformal_glm.py are outside the finding and are not yet changed. Tests: tests/training/composite/test_biz_val_conformal_ood.py (16 pass). |
@@ -1121,7 +1107,6 @@
 | 29-F28 | FIXED | Deleted the unused _RELATIVE_IMPORT pattern in numba_cache_guard. Test tests/utils/test_cluster29_numba_guard_no_dead_pattern.py (source pin). |
 | 29-F27 | FIXED | Time-aware OOF skip for predict_proba is logged at WARNING (the INFO path is only for non-probability methods); covered by tests/training/composite/eval/test_composite_oof_time_aware_logged.py (3 pass). Recorded here, where the disposition was missing. |
 | 29-F29 | FIXED | Post-import callbacks all run even when one raises (fixed earlier in 2b08fdc4a). Covered by tests/utils/test_cluster29_post_import_callbacks_all_run.py (1 pass). Recorded here, where the disposition was missing. |
-| 29-F30 | DEFERRED | The docstring already states the filter is installed once and never restored. The remaining issue is the misleading block-scoped name; renaming changes a helper used across several modules, so it is an owner decision. Not changed. |
 | 29-F31 | FIXED | Benchmark sweep logs a WARNING when no combo gives a finite score (the decorated call returns None). Test tests/utils/test_cluster29_param_oracle_no_finite_warns.py (2 pass). |
 | 29-F34 | FIXED | Names-mismatch guard raises ValueError naming both lists (fixed earlier in 83b648677). Covered by tests/votenrank/test_biz_val_correlation_diversity_ablation.py and the diversity recommendations test (11 pass). Recorded here, where the disposition was missing. |
 | 29-F33 | WON'T FIX | n_jobs is a documented no-op (coalition scoring is serial), marked unused-ok, and kept so every estimator in the votenrank API shares one signature. Removing it would break the uniform signature. Not changed. |
@@ -1208,7 +1193,6 @@
 | 13-F18 | DEFERRED | Per-trial Python loops in update_importance_history and calculate_hits could be vectorised, but the change needs a perf benchmark and equivalence check of the importance history, deferred to a perf pass. No code change. |
 | 27-F19 | DEFERRED | Two suffix-stripping implementations differ (only one strips WithFastpath). Unifying them changes which names are stripped in one path, so it needs a decision. No code change. |
 | 28-F54 | DEFERRED | The two CatBoost loss-ensuring helpers duplicate about 60 lines. Extracting a shared helper is a refactor that needs call-site tests in both paths; deferred to a refactor pass. No code change. |
-| 33-F4 | DEFERRED | Binary and multiclass margin paths clip probabilities to different epsilons. Picking one changes numerical output at the clip boundary, so it needs an owner decision on the clip. No code change. |
 | 37-F42 | DEFERRED | _apply_plot_style_overrides changes process-wide matplotlib and plotly state and is not restored on failure. Restoring it needs a context-manager design across the setup path; deferred. No code change. |
 | 37-F36 | DEFERRED | The unary transforms logger name differs from the composite_transforms name used elsewhere; changing it affects log filters configured by users, so it needs a naming decision. No code change. |
 | 39-F72 | DEFERRED | The torch from_numpy benchmark's Strategy C measures a path the code does not produce, and the 0.014 ms figure needs re-measurement on the real path before the doc can be corrected. Deferred to a benchmark re-run. No code change. |
@@ -1562,7 +1546,6 @@
 
 | 23-F9 | FIXED | Docstring now says best_scheme is the smallest mean per-fold gap. |
 
-| 23-F10 | DEFERRED | Docstring and code differ on the z-score reference set; choosing leave-one-out or fixing the text changes which variants are flagged, an owner call. |
 
 | 23-F11 | RESOLVED | Not dead code: the next call takes jackknife as an argument, so the None initial value is used. Removing it raises UnboundLocalError (18 existing tests failed). Left as is. |
 
@@ -1588,11 +1571,9 @@
 
 | 20-F7 | FIXED | Non-finite values get a split-gain bin code of their own above every finite bin, so missing rows no longer dilute the top finite bin and a missingness-driven column is ranked. Test tests/reporting/test_cluster20_split_gain_missing_bin.py. |
 
-| 20-F8 | PARTIAL | Multilabel legend ECE now uses each bin's mean prediction as the confidence (per label and pooled), and both axes say bin centre instead of claiming a mean prediction. The curves stay on the shared bin-centre grid because a line panel has one x for all series; per-series x would be a spec change. Test tests/reporting/test_cluster20_multilabel_ece_uses_mean_prediction.py. |
 
 | 20-F12 | FIXED | bootstrap_ap_ci returns the distinct-threshold AP (sklearn definition, same as the PR panel) and shifts the interval by the gap to the per-row step sum, so the interval is centred on the AP the title shows under tied scores. Test tests/reporting/test_cluster20_ap_ci_matches_displayed_ap.py. |
 
-| 20-F15 | DEFERRED | Re-read: the memo is keyed on frame identity with a weakref guard, so an in-place edit between two builder calls does return the old matrix. A sound fix is either passing the densified matrix explicitly from the dispatch to both builders (an API change across diagnostics_dispatch) or a content fingerprint, and a sampled fingerprint cannot detect every edit while a full one costs as much as the densify. Needs an owner choice between the two. |
 
 | 24-F24 | FIXED | find_best_mps_sequence docstring now states profits has length n (sized to raw_prices) and that callers use profits[:-1] for per-interval values. |
 
@@ -1614,13 +1595,10 @@
 
 | 18-F13 | PARTIAL | A failed per-member auto-tune now logs a WARNING with the error type and message (was DEBUG), and the docstring at member_metrics names the real module path. ensure_per_member_tuning stays: it has no production caller but is an uncalled-function entry on the project's kept list and a manual calibration entry point, so wiring it in or retiring it is an owner call. Test tests/models/test_cluster18_per_member_tuning_failure_visible.py. |
 
-| 18-F14 | DEFERRED | Re-read: the _all_members_catastrophic sentinel has no reader and the K>2 path still builds a one-member ensemble, while the K=2 path returns early with a _reason. Making the K>2 gate behave like K=2 changes which models ship as ensembles for a whole class of runs (single survivor vs best single member vs dummy baseline), so it needs the owner to pick the policy; the warning already tells the operator in the meantime. |
 
 
 
-| 39-F28 | DEFERRED | Re-read: the validator assigns the derived values onto the public memory.budget_gb, cache.ram_max_gb and cache.ram_reserve_gb fields, and the test suite and cache.py read them there. Moving them to private resolved fields changes what every reader and every dumped config sees, so it needs the readers migrated together with a way to dump the user's original (None) values; a partial change would leave the dump/re-validate case failing as before. |
 
-| 28-F64 | DEFERRED | Re-read: the write is the mechanism that hands the first model's stats to every later model through the shared common_params, and process_model also returns them. Removing the write is safe only once every later call site is shown to pass the returned value explicitly; no wrong result was observed, so the audited-reader pass is left to the training-loop owner. |
 
 
 
@@ -1630,10 +1608,55 @@
 
 | 12-F79 | PARTIAL | A failing downstream fit in the campaign is now logged as a WARNING with the error type and message (was DEBUG), so a cell dropped from the holdout verdict is visible in the log. Not done: the None count in summarize (the benchmark report layout is the campaign owner's). Test tests/feature_selection/test_cluster12_campaign_failure_visible.py. |
 
-| 12-F74 | DEFERRED | Re-read: the failed cell already logs a WARNING with its status and the record keeps the error text and traceback; what is missing is a per-run error count and the resume semantics (error rows count as done without --retry-failed), which is a harness-design choice for the experiment owner. |
 
 | 09-F15 | FIXED | In the underdetermined configuration a row whose lstsq raises now stays NaN (the column's 'not identifiable' sentinel) instead of being overwritten with 0.0; the identifiable case keeps its documented zero fallback and the log line says which. Test tests/feature_engineering/transformer/test_cluster09_local_curvature_nan_stays_nan.py. |
 
 | 14-F3 | FIXED | The array path of the auto-tune fingerprint casts each column to float when it can and factorises it otherwise (missing stays NaN), so a polars or object-array frame with a string column no longer raises and no longer skips auto-tune. The numeric-fraction signal on that path is still reported as 1.0. Test tests/feature_selection/test_cluster14_auto_tune_string_columns.py. |
 
 | 12-F2 | FIXED | ReliefF's neighbour count now uses the size of the rarest class that occurs (np.unique counts) instead of bincount().argmin(), which picked an empty class for labels not in 0..K-1 (balanced {1,2} gave k=1) and raised on negative labels. Test tests/feature_selection/test_cluster12_relief_minority_count.py. |
+
+| 12-F17 | FIXED | classify_exception no longer reports a timeout for ValueError, TypeError, KeyError, IndexError, AttributeError or AssertionError whose message merely contains 'timeout' or 'timed out'; TimeoutError, runtime errors that say they timed out and subprocess timeouts keep the timeout status. Test tests/feature_selection/test_cluster12_classify_exception_timeout_text.py. |
+
+| 12-F42 | DOCUMENTED | The override is deliberate: _min_rows_for_minority guarantees the minimum minority count, so a null bed has max(n, 10000) rows. The _make_null docstring now says so; behaviour unchanged. |
+
+| 28-F47 | FIXED | Deleted the duplicate _GTC_CACHE, lock, pin dict and cap (and the now-unused threading import) from _trainer_configure_helpers.py; a repo-wide grep shows every reader and test uses the live copy in _trainer_configure.py. Test tests/training/test_cluster28_gtc_cache_single_copy.py. |
+
+| 28-F48 | FIXED | Removed _train_and_evaluate_train_df_none (it built report_title and returned None, and its only caller ignored the result) together with its import and call; nothing else referenced it. Test tests/training/test_cluster28_no_unused_report_title_builder.py. |
+
+| 04-F15 | DOCUMENTED | _probability_only is on the project's kept list as a hand-run difficulty-sweep helper. Its docstring now states the limits the audit found: the caller must pass columns that already include the latent factors, the score is scaled including its intercept, and generate's heteroscedastic term, prevalence shift and corruption are not applied. Making it reproduce the shipped law is a redesign of the sweep, left to the dataset-generator owner. |
+
+| 27-F11 | DEFERRED | Re-read: the sampled row hash is the deliberate key of the CatBoost val-Pool cache, chosen because predict-side frames are fresh objects and a full hash was weighed against a 53-66 s Pool rebuild. A frame that differs only in unsampled rows does share the key, so the stale-Pool risk is real; the sound fixes (a full vectorised content hash on both writer and reader, or an identity token carried with the val frame) change the cache key layout for every consumer and trade hashing cost against exactness, which is the owner's call. |
+
+| 22-F23 | FIXED | Ported both hand-run helpers instead of deleting them: MakeSureBlasAndLaPackAreInstalled reads numpy.show_config(mode='dicts') (numpy.distutils no longer exists) and ListAllSkLearnClassifiers imports all_estimators from sklearn.utils (sklearn.utils.testing was removed). Both stay on the kept list as hand-run diagnostics. Test tests/core/test_cluster22_interactive_helpers_run.py. |
+
+
+| 29-F30 | DOCUMENTED | Deliberate: silenced_once is the thread-safe replacement for warnings.catch_warnings on pool threads, whose snapshot/restore of the global filter list races; its docstring already says it installs one narrow filter once and never restores it. All five call sites use it for the same numba.cuda performance warning. A restoring context manager would reintroduce the race, so no change. |
+
+| 21-F9 | FIXED | The plotly scatter now subsets y_err and x_err (symmetric or asymmetric) with the same downsample selection as x/y instead of dropping them, so the HTML keeps the intervals the PNG shows; a panel with error bars above the cap stays an SVG go.Scatter of at most the cap. Test tests/reporting/test_cluster21_plotly_scatter_error_bars_downsampled.py. |
+
+| 21-F8 | FIXED | step_fill now steps the fill in plotly: the fill moves to an invisible hv-shaped trace laid down before the straight series line (tozeroy, or tonexty against the constant baseline trace for a non-zero baseline), matching matplotlib's step='post' fill with a straight line. Before, line_shape='linear' was the default and the fill stayed a polyline. Test tests/reporting/test_cluster21_plotly_step_fill.py. |
+
+| 24-F37 | FIXED | The event-to-vocabulary lookup in _weighted_matrix uses np.searchsorted when the vocabulary is strictly increasing (what np.unique returns) and the original dictionary path otherwise, via _positions_in; results are identical (test compares with the dict form on int and string vocabularies, absent values included). An unknown row entity still raises KeyError. Test tests/feature_engineering/test_cluster24_positions_in_vocabulary.py. |
+
+| 24-F47 | FIXED | GroupTimeSeriesSplit finds each row's group position by sorting the distinct labels once and searching the rows (_temporal_positions) instead of a Python dictionary lookup per row; labels that cannot be ordered keep the dictionary path. Positions are identical to the dict form (tested on shuffled temporal orders and string labels) and the fold structure is unchanged. Test tests/feature_selection/test_cluster24_group_time_split_positions.py. |
+
+| 24-F38 | PARTIAL | Reading _direct_window_agg for the regrouping cost found a correctness defect: it wrote results by the query's index LABELS into a positional array, raising IndexError for any query whose index was not 0..n-1 and mis-placing values for a permuted index. It now writes by row position (also under the row mask) and the per-entity query grouping uses positions. Not done: building the history groupby once across the repeated calls (needs the caller to pass the groups in; a perf-only change left until measured). Test tests/feature_engineering/test_cluster24_direct_window_agg_positional.py. |
+
+
+| 18-F14 | FIXED | K>2 now short-circuits like K=2: catastrophic_drop_kn records the kept and dropped member tags in the _all_members_catastrophic sentinel and kn_all_catastrophic_early_return stamps _reason='kn_catastrophic_dropout', _n_members, _dropped_member and _kept_member, so score_ensemble returns the sentinel-only result and no one-member 'ensemble' is built; the surviving model stays in the per-family list. Owner decision applied: option A. Test tests/models/test_cluster18_kn_all_catastrophic_early_return.py. |
+
+| 33-F4 | FIXED | Owner decision applied (option A): one named constant _PROBA_MARGIN_EPS = 1e-6 clips every probability-derived base margin, binary and multiclass, so saturated probabilities are capped at about +/-13.8 in log space whatever the class count (the multiclass fallback was -27.6). A decision_function, when the estimator has one, is still used unclipped. Test tests/training/test_cluster33_probability_margin_clip.py; 87 composite-classification tests pass. |
+
+| 12-F74 | FIXED | Owner decision applied (option A): run_grid counts the status of every cell it executes and ends with one WARNING naming how many did not finish ok, by status, with the hint that on a resumed run those keys count as done unless --retry-failed is passed (_log_status_summary). Default resume behaviour is unchanged. Test tests/feature_selection/test_cluster12_run_grid_status_summary.py. |
+
+| 39-F28 | FIXED | Owner decision applied (option A): _derive_memory_budgets no longer writes the derived values into the user's memory and cache sub-configs. It computes them in locals, stores them in the _resolved_* attributes, and the new resolved_memory and resolved_cache properties return copies with those filled in; fhc.memory and fhc.cache keep None for an auto value, so a dumped config re-derives on the machine that loads it (a dump from a big box no longer raises the explicit-ram_max error on a small one, and a dump from a small box no longer pins the small budget). The only reader, FeatureCache, takes resolved_cache. Dependent tests in test_feature_handling_config.py moved to the resolved views. Test tests/training/feature_handling/test_cluster39_config_dump_rederives.py. |
+
+| 20-F15 | FIXED | Owner decision applied (option A): the module-level matrix cache keyed on id(X) is gone (with clear_feature_matrix_cache and its lock). _resolve_feature_matrix is a plain resolver; the shared dispatcher prep now carries a DenseFeatureMatrix holder over the sub-frame and hands it to weak_segment_heatmap and find_weak_slices through a new feature_matrix= argument, so the second builder reuses the first densify without a hidden global, an in-place edit is seen by the next resolve, and the dense copy lives only as long as the prep entry. Callers that pass nothing densify as before. Test tests/reporting/test_shared_error_prep.py (rewritten around the holder). One unrelated failure in tests/test_meta/test_shared_uncalled_functions.py comes from _nested_parallel_scan._starts_thread_pool, added by another commit (85f4aa9cf). |
+
+| 23-F10 | FIXED | Owner decision applied (docstring fix plus floor): the docstring now says the z-score is taken over ALL variants' fold_std, including the one scored, and the new risk_min_std_ratio (default 1.25) adds a floor: is_risky also needs fold_std above that multiple of the median fold_std of the OTHER variants, because a z-score is scale-free and flagged the least stable of near-identical variants whatever the spread (0.100/0.101/0.102 gave z=1.0 > 0.5). risk_min_std_ratio=0.0 restores the pure z-score rule. The shift_gap flag is unchanged. Test tests/evaluation/test_cluster23_imputation_risk_floor.py. |
+
+| 20-F8 | FIXED | Owner decision applied (option B): the multilabel and multiclass reliability panels pass LinePanelSpec.x as a tuple of per-series x arrays (the spec already supported it), each curve at its per-bin MEAN prediction (NaN where the bin is empty, matching the NaN observed rate), the pooled series at the pooled mean prediction, and the diagonal on the uniform grid; the x labels say 'Mean predicted P(...)' again because they are now true. The legend ECE already used the mean prediction. Tests tests/reporting/test_cluster20_reliability_curves_at_mean_prediction.py (including a render on both backends) and the earlier multilabel ECE test updated. |
+
+| 24-F39 | FIXED | Owner decision applied (option C): the whole SGNS training loop runs in one numba call (_sgns_train_njit): window width, negatives and update stay compiled, token indices are flattened once into an array with per-sequence offsets, and negatives come from _draw_negative, an inverse-transform binary search over the cumulative freq**0.75 table (the old rng.choice re-validated p on every call). Measured on 1500 sequences x 60 tokens, 300-token vocabulary, dim 32, 2 epochs: 46.9 s before, 0.78 s after. As agreed this changes the random stream, so embeddings for a given seed differ from before (same distribution); a given random_state is still reproducible. Tests tests/feature_engineering/test_cluster24_sequence2vec_numba_loop.py (sampler distribution against freq**0.75, co-occurring tokens closer than never-co-occurring, determinism, empty sequences). |
+
+| 28-F64 | DOCUMENTED | Owner decision applied (leave, document): the write of trainset_features_stats into the shared common_params stays; a comment at the site now says it is a fallback for standalone calls (the suite computes the statistics up front and passes them in), that the write is how the first model's statistics reach later models, and that the value is also returned. No behaviour change. |

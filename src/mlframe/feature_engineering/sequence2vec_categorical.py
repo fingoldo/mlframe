@@ -50,6 +50,65 @@ def _sgns_update_njit(target_emb: np.ndarray, context_emb: np.ndarray, center_id
         target_emb[center_idx, x] -= lr * grad_center[x]
 
 
+@njit(cache=True)
+def _draw_negative(cum_probs: np.ndarray) -> int:
+    """One draw from the negative-sampling distribution by inverse transform: the first index whose cumulative probability exceeds a uniform draw.
+
+    A binary search over the cumulative table (O(log V)) replaces ``rng.choice(n_vocab, p=...)``, which re-validated and re-normalised ``p`` on every call.
+    """
+    u = np.random.random()
+    lo = 0
+    hi = cum_probs.shape[0] - 1
+    while lo < hi:
+        mid = (lo + hi) // 2
+        if u < cum_probs[mid]:
+            hi = mid
+        else:
+            lo = mid + 1
+    return lo
+
+
+@njit(cache=True)
+def _sgns_train_njit(
+    target_emb: np.ndarray,
+    context_emb: np.ndarray,
+    flat_idx: np.ndarray,
+    offsets: np.ndarray,
+    n_epochs: int,
+    window: int,
+    n_negative: int,
+    lr: float,
+    cum_probs: np.ndarray,
+    seed: int,
+) -> None:
+    """Run every epoch of SGNS training in one compiled call, in place.
+
+    The Python loop over (center, context) pairs, with a numpy ``rng.choice`` and a call into the update kernel per pair, was the cost of this function;
+    here the window width, the negatives and the update all stay inside numba. ``flat_idx`` holds every sequence's in-vocabulary token indices back to back and
+    ``offsets[i]:offsets[i + 1]`` bounds sequence ``i``. Sequences are visited in order, as before; the random stream is numba's, seeded once by ``seed``.
+    """
+    np.random.seed(seed)
+    labels = np.zeros(n_negative + 1, dtype=np.float64)
+    labels[0] = 1.0
+    sample_indices = np.empty(n_negative + 1, dtype=np.int64)
+    for _ in range(n_epochs):
+        for s in range(offsets.shape[0] - 1):
+            start = offsets[s]
+            n = offsets[s + 1] - start
+            for center_pos in range(n):
+                center_idx = flat_idx[start + center_pos]
+                w = np.random.randint(1, window + 1)
+                lo = max(0, center_pos - w)
+                hi = min(n, center_pos + w + 1)
+                for context_pos in range(lo, hi):
+                    if context_pos == center_pos:
+                        continue
+                    sample_indices[0] = flat_idx[start + context_pos]
+                    for k in range(n_negative):
+                        sample_indices[k + 1] = _draw_negative(cum_probs)
+                    _sgns_update_njit(target_emb, context_emb, center_idx, sample_indices, labels, lr)
+
+
 def train_sequence2vec(
     sequences: Sequence[Sequence[str]],
     embedding_dim: int = 32,
@@ -106,27 +165,15 @@ def train_sequence2vec(
     target_emb = (rng.random((n_vocab, embedding_dim)) - 0.5) / embedding_dim
     context_emb = np.zeros((n_vocab, embedding_dim), dtype=np.float64)
 
-    labels_buf = np.zeros(n_negative + 1, dtype=np.float64)
-    labels_buf[0] = 1.0
-    sample_indices_buf = np.empty(n_negative + 1, dtype=np.int64)
-
-    for _ in range(n_epochs):
-        for seq in sequences:
-            idx_seq = [tok_to_idx[tok] for tok in seq if tok in tok_to_idx]
-            n = len(idx_seq)
-            for center_pos in range(n):
-                center_idx = idx_seq[center_pos]
-                w = rng.integers(1, window + 1)
-                lo, hi = max(0, center_pos - w), min(n, center_pos + w + 1)
-                for context_pos in range(lo, hi):
-                    if context_pos == center_pos:
-                        continue
-                    context_idx = idx_seq[context_pos]
-
-                    sample_indices_buf[0] = context_idx
-                    sample_indices_buf[1:] = rng.choice(n_vocab, size=n_negative, p=neg_sample_probs)
-
-                    _sgns_update_njit(target_emb, context_emb, center_idx, sample_indices_buf, labels_buf, learning_rate)
+    # Flatten the in-vocabulary token indices of every sequence into one array with offsets, so the whole training loop runs inside numba.
+    idx_lists = [[tok_to_idx[tok] for tok in seq if tok in tok_to_idx] for seq in sequences]
+    offsets = np.zeros(len(idx_lists) + 1, dtype=np.int64)
+    offsets[1:] = np.cumsum([len(lst) for lst in idx_lists])
+    flat_idx = np.fromiter((i for lst in idx_lists for i in lst), dtype=np.int64, count=int(offsets[-1]))
+    cum_probs = np.cumsum(neg_sample_probs)
+    cum_probs[-1] = 1.0  # the running sum can stop a hair short of 1; the last index must absorb the remainder
+    seed = int(rng.integers(0, 2**31 - 1))
+    _sgns_train_njit(target_emb, context_emb, flat_idx, offsets, int(n_epochs), int(window), int(n_negative), float(learning_rate), cum_probs, seed)
 
     return {tok: target_emb[i] for tok, i in tok_to_idx.items()}
 

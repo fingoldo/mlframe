@@ -387,6 +387,7 @@ def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_
     x_grid = (edges[:-1] + edges[1:]) / 2
 
     series: List[np.ndarray] = []
+    series_x: List[np.ndarray] = []  # per-bin MEAN prediction of each curve: the x a reliability point belongs at (20-F8)
     labels: List[str] = []
     colors: List[str] = []
     yt = np.asarray(y_true)
@@ -398,6 +399,7 @@ def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_
     proba_s = y_proba[sub]
     pooled_sums = np.zeros(n_bins, dtype=np.float64)
     pooled_counts = np.zeros(n_bins, dtype=np.float64)
+    pooled_pred_sums = np.zeros(n_bins, dtype=np.float64)
     for k in draw_idx:
         proba_k = proba_s[:, k]
         true_k = (yt_s == k).astype(np.float64)
@@ -412,12 +414,17 @@ def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_
         # inner n_bins x O(N) mask loop.
         counts = np.bincount(bin_idx, minlength=n_bins)
         sums = np.bincount(bin_idx, weights=true_k, minlength=n_bins)
+        pred_sums = np.bincount(bin_idx, weights=proba_k, minlength=n_bins)
         observed = np.full(n_bins, np.nan)
         nz = counts > 0
         observed[nz] = sums[nz] / counts[nz]
         series.append(observed)
+        mean_pred = np.full(n_bins, np.nan)
+        mean_pred[nz] = pred_sums[nz] / counts[nz]
+        series_x.append(mean_pred)
         pooled_sums += sums
         pooled_counts += counts
+        pooled_pred_sums += pred_sums
         labels.append(_legend_class_name(classes[k]))
         colors.append(_class_color(k))
     diag = x_grid.copy()
@@ -432,6 +439,9 @@ def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_
         nz_pool = pooled_counts > 0
         macro[nz_pool] = pooled_sums[nz_pool] / pooled_counts[nz_pool]
         all_series.append(macro)
+        _pooled_x = np.full(n_bins, np.nan)
+        _pooled_x[nz_pool] = pooled_pred_sums[nz_pool] / pooled_counts[nz_pool]
+        series_x.append(_pooled_x)
         all_labels.append("pooled avg (weighted by bin support)")
         styles.append("--")
         all_colors.append("black")
@@ -439,11 +449,11 @@ def _calib_grid_panel(y_true, y_proba, classes, *, y_pred=None, sub=None, class_
     if class_subset is not None:
         title = f"Per-class reliability: {len(draw_idx)} of {K} classes (worst by AUC) + macro-avg"
     return LinePanelSpec(
-        x=x_grid,
+        x=(x_grid, *series_x),
         y=tuple(all_series),
         series_labels=tuple(all_labels),
         title=title,
-        xlabel="Predicted P(y=k) (bin centre)",
+        xlabel="Mean predicted P(y=k)",
         ylabel="Observed P(y=k | bin)",
         line_styles=tuple(styles),
         colors=tuple(all_colors),

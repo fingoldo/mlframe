@@ -274,10 +274,14 @@ def _direct_window_agg(
     reduce_fn = _DIRECT_AGG_REDUCTIONS.get(fn)
     history_groups = {entity: grp for entity, grp in history_df.groupby(entity_col, sort=False)}
     out = np.full(len(query), np.nan)
-    query_rows = query if rows is None else query[rows]
-    if not len(query_rows):
+    # POSITIONS in ``query``, not its index labels: the result is a positional array, and writing it by label raised IndexError for any query whose index
+    # was not 0..n-1, and silently mis-placed values when the labels were a permutation of it (found while reading 24-F38).
+    query_pos = np.arange(len(query)) if rows is None else np.flatnonzero(np.asarray(rows, dtype=bool))
+    if not query_pos.size:
         return out
-    for entity, entity_queries in query_rows.groupby(entity_col, sort=False):
+    query_rows = query.iloc[query_pos]
+    cutoffs_all = query_rows[query_entity_col].to_numpy()
+    for entity, local_pos in query_rows.groupby(entity_col, sort=False).indices.items():
         entity_history = history_groups.get(entity)
         if entity_history is None or entity_history.empty:
             continue
@@ -285,13 +289,13 @@ def _direct_window_agg(
         order = np.argsort(times)
         sorted_times = times[order]
         sorted_col = entity_history[col].to_numpy()[order]
-        for idx, cutoff in zip(entity_queries.index, entity_queries[query_entity_col]):
+        for pos, cutoff in zip(query_pos[local_pos], cutoffs_all[local_pos]):
             lo = np.searchsorted(sorted_times, cutoff - horizon, side="left")
             hi = np.searchsorted(sorted_times, cutoff, side="left")
             if hi > lo:
                 # A numpy reduction on the slice, not a per-row `pd.Series` construction inside the loop.
                 window = sorted_col[lo:hi]
-                out[idx] = reduce_fn(window) if reduce_fn is not None else getattr(pd.Series(window), fn)()
+                out[pos] = reduce_fn(window) if reduce_fn is not None else getattr(pd.Series(window), fn)()
     return out
 
 

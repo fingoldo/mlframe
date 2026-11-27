@@ -72,7 +72,6 @@ Scope: 88 files listed in `audits/2026-11-20/manifests/27_root_modules-6.txt`, a
 - 27-F10: FIXED. A non-finite value in any seed curve raises naming the seed, instead of producing a stability verdict. Test tests/training/test_cluster27_cv_stability_rejects_nan_curve.py.
 - 27-F15: FIXED. The LightGBM factories return the lightgbm class when the shim is off, instead of the unbound module name. Test tests/training/test_cluster27_lgb_factory_without_shim.py.
 - 27-F16: FIXED. The MSLE to rmse substitution for LightGBM is logged at WARNING. Test tests/training/test_cluster27_lgb_msle_substitution_warns.py.
-- 27-F11: DEFERRED. Hashing every row needs a content hash that keeps the documented pandas and polars equality invariant, and a per-row Python hash is too slow on large frames. A design pass on the fingerprint is needed; the 64-row sample stays until then.
 - 27-F9: FIXED. The pandas NaN fill works on a shallow copy, so the caller's frame keeps its NaNs, as the polars branch already did. Test tests/training/test_cluster27_nan_fill_leaves_caller_frame.py.
 - 27-F7: FIXED. A weighted fit's permutation importances skip the unweighted CUDA kernel and use the weighted CPU path. Test tests/training/test_cluster27_weighted_fi_skips_cuda.py.
 - 27-F8: DEFERRED. Owner decision: signed or magnitude coef_ importances. The two branches disagree today; choosing either changes the reported numbers for one of them.
@@ -91,3 +90,5 @@ Scope: 88 files listed in `audits/2026-11-20/manifests/27_root_modules-6.txt`, a
 - 27-F12: FIXED. Trainset aging without timestamps is refused with a ValueError in the no-timestamp row-based split, instead of slicing a shuffled split by position. Without the limit the split is unchanged. Test tests/training/test_cluster27_aging_needs_timestamps.py (2 passed).
 
 - 27-F14: DOCUMENTED. cv_plus_intervals is a pooled symmetric band from out-of-fold absolute residuals, not the CV+ or Jackknife+ construction of Barber et al. 2021; its docstring now states that no coverage guarantee is proven. The name is kept for API compatibility. A real CV+ needs per-fold models and is not built. No behaviour change.
+
+- 27-F11: DEFERRED. Re-read: the sampled row hash is the deliberate key of the CatBoost val-Pool cache, chosen because predict-side frames are fresh objects and a full hash was weighed against a 53-66 s Pool rebuild. A frame that differs only in unsampled rows does share the key, so the stale-Pool risk is real; the sound fixes (a full vectorised content hash on both writer and reader, or an identity token carried with the val frame) change the cache key layout for every consumer and trade hashing cost against exactness, which is the owner's call.

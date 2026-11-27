@@ -15,4 +15,4 @@ def test_perfectly_calibrated_off_centre_bin_has_zero_ece():
     label = panel.series_labels[1]
     ece = float(label.split("ECE=")[1].split(",")[0])
     assert ece < 0.002
-    assert "bin centre" in panel.xlabel
+    assert panel.xlabel == "Mean predicted P(label)"

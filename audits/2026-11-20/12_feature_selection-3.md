@@ -146,10 +146,8 @@ Counts: P0 0, P1 22, P2 57, P3 22 (101 rows). The rows marked [v] are the ones I
 - 12-F13: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F14: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F15: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
-- 12-F17: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F40: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F41: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
-- 12-F42: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F43: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F44: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F45: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
@@ -236,6 +234,11 @@ Counts: P0 0, P1 22, P2 57, P3 22 (101 rows). The rows marked [v] are the ones I
 
 - 12-F79: PARTIAL. A failing downstream fit in the campaign is now logged as a WARNING with the error type and message (was DEBUG), so a cell dropped from the holdout verdict is visible in the log. Not done: the None count in summarize (the benchmark report layout is the campaign owner's). Test tests/feature_selection/test_cluster12_campaign_failure_visible.py.
 
-- 12-F74: DEFERRED. Re-read: the failed cell already logs a WARNING with its status and the record keeps the error text and traceback; what is missing is a per-run error count and the resume semantics (error rows count as done without --retry-failed), which is a harness-design choice for the experiment owner.
 
 - 12-F2: FIXED. ReliefF's neighbour count now uses the size of the rarest class that occurs (np.unique counts) instead of bincount().argmin(), which picked an empty class for labels not in 0..K-1 (balanced {1,2} gave k=1) and raised on negative labels. Test tests/feature_selection/test_cluster12_relief_minority_count.py.
+
+- 12-F17: FIXED. classify_exception no longer reports a timeout for ValueError, TypeError, KeyError, IndexError, AttributeError or AssertionError whose message merely contains 'timeout' or 'timed out'; TimeoutError, runtime errors that say they timed out and subprocess timeouts keep the timeout status. Test tests/feature_selection/test_cluster12_classify_exception_timeout_text.py.
+
+- 12-F42: DOCUMENTED. The override is deliberate: _min_rows_for_minority guarantees the minimum minority count, so a null bed has max(n, 10000) rows. The _make_null docstring now says so; behaviour unchanged.
+
+- 12-F74: FIXED. Owner decision applied (option A): run_grid counts the status of every cell it executes and ends with one WARNING naming how many did not finish ok, by status, with the hint that on a resumed run those keys count as done unless --retry-failed is passed (_log_status_summary). Default resume behaviour is unchanged. Test tests/feature_selection/test_cluster12_run_grid_status_summary.py.

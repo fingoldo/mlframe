@@ -42,4 +42,6 @@ None. Partial reads: `cb/_cb_pool.py` (about 60 lines), `composite/conformal.py`
 - 33-F1: FIXED. the CatBoost categorical NaN fill failure is logged at WARNING with the error type; the except is kept broad (not narrowed) so the fill never raises into predict; no separate test
 - 33-F2: FIXED. label-stacking failure logged at WARNING; no separate test
 - 33-F3: FIXED. The conformal rank rule lives in one helper (conformal_rank), used by the split, signed and online calibrations. Two further copies in conformal_classification.py and conformal_glm.py are outside the finding and are not yet changed. Tests: tests/training/composite/test_biz_val_conformal_ood.py (16 pass).
-- 33-F4: DEFERRED. Binary and multiclass margin paths clip probabilities to different epsilons. Picking one changes numerical output at the clip boundary, so it needs an owner decision on the clip. No code change.
+
+
+- 33-F4: FIXED. Owner decision applied (option A): one named constant _PROBA_MARGIN_EPS = 1e-6 clips every probability-derived base margin, binary and multiclass, so saturated probabilities are capped at about +/-13.8 in log space whatever the class count (the multiclass fallback was -27.6). A decision_function, when the estimator has one, is still used unclipped. Test tests/training/test_cluster33_probability_margin_clip.py; 87 composite-classification tests pass.

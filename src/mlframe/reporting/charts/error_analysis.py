@@ -28,8 +28,6 @@ from __future__ import annotations
 
 from typing import cast
 import logging
-import threading
-import weakref
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -96,15 +94,28 @@ def _per_row_error(
 _EMPTY_COLUMN: np.ndarray = np.empty(0, dtype=np.float64)
 
 
-_MATRIX_CACHE_MAX = 2
-_MATRIX_CACHE: dict = {}
-_MATRIX_LOCK = threading.Lock()
+class DenseFeatureMatrix:
+    """A frame's densified feature matrix, built on first use and shared by the diagnostics that run on the same sub-frame.
 
+    The weak-segment and slice-finder builders both need the dense matrix of the same sub-frame. It used to be memoised on the frame's identity in a
+    module-level cache, which served the OLD matrix after an in-place edit and pinned up to two dense copies until something evicted them. The caller that
+    owns the sub-frame now holds one of these and hands it to both builders (``feature_matrix=``), so the lifetime of the matrix is the lifetime of the
+    holder and there is no hidden global (20-F15).
 
-def clear_feature_matrix_cache() -> None:
-    """Drop every memoised densify. For tests, and for a caller that wants the frame released immediately."""
-    with _MATRIX_LOCK:
-        _MATRIX_CACHE.clear()
+    Construct it with the frame and its feature names; nothing is densified until ``get`` is first called.
+    """
+
+    def __init__(self, X: Any, feature_names: Optional[Sequence[str]]):
+        self._X = X
+        self._names = feature_names
+        self._value: Optional[Tuple[np.ndarray, List[str]]] = None
+
+    def get(self) -> Tuple[np.ndarray, List[str]]:
+        """The matrix and names, computed on the first call."""
+        if self._value is None:
+            self._value = _resolve_feature_matrix(self._X, self._names)
+        mat, names = self._value
+        return mat, list(names)
 
 
 def _resolve_feature_matrix(
@@ -120,33 +131,10 @@ def _resolve_feature_matrix(
     object dtype) can't be stringified by ``astype(str)`` -- numpy raises "setting an array element with a
     sequence" trying to broadcast the list into a fixed-width string array -- so those columns are dropped
     (a single embedding vector isn't a meaningful scalar split feature anyway).
+
+    Not memoised: share the result between callers with :class:`DenseFeatureMatrix`.
     """
-    # Memoised on the frame's IDENTITY. The dispatch hands the SAME sub-frame to the weak-segment and
-    # slice-finder builders one after the other, and each densified it independently -- 0.29 s on
-    # 100k x 200 all-numeric, 2.55 s with twenty object columns. Hashing a frame that may be 100 GB to avoid
-    # that would be far worse than the densify. Identity alone is unsound because a freed object's id is
-    # reused, so the entry holds a WEAK reference and the hit is confirmed against it; weak, not strong, so
-    # a cache entry can never pin the caller's frame.
-    _key = (id(X), tuple(feature_names) if feature_names is not None else None)
-    with _MATRIX_LOCK:
-        _entry = _MATRIX_CACHE.get(_key)
-        if _entry is not None:
-            _ref, _cached = _entry
-            if _ref() is X:
-                _mat, _names = _cached
-                return _mat, list(_names)
-        _result = _resolve_feature_matrix_uncached(X, feature_names)
-        _weak_x = None
-        try:
-            _weak_x = weakref.ref(X)
-        except TypeError:
-            pass  # not weak-referenceable (a bare ndarray): skip the cache rather than risk a stale hit
-        if _weak_x is not None:
-            if len(_MATRIX_CACHE) >= _MATRIX_CACHE_MAX:
-                # evict-ok: memo; a miss recomputes the value
-                _MATRIX_CACHE.pop(next(iter(_MATRIX_CACHE)), None)
-            _MATRIX_CACHE[_key] = (_weak_x, _result)
-    return _result
+    return _resolve_feature_matrix_uncached(X, feature_names)
 
 
 def _resolve_feature_matrix_uncached(
@@ -338,6 +326,7 @@ def weak_segment_heatmap(
     max_depth: int = DEFAULT_TREE_DEPTH,
     title: str = "Weak segments (mean error by feature slice)",
     seed: int = 0,
+    feature_matrix: Optional[DenseFeatureMatrix] = None,
 ) -> WeakSegmentResult:
     """Own FreaAI / weak-segments heatmap: localise where the model is weak.
 
@@ -347,7 +336,7 @@ def weak_segment_heatmap(
     annotated with cell counts. Aggregation is O(n) via ``bincount``; nothing iterates per row in Python.
     """
     err = _per_row_error(y_true, y_pred, task=task)
-    mat, names = _resolve_feature_matrix(X, feature_names)
+    mat, names = feature_matrix.get() if feature_matrix is not None else _resolve_feature_matrix(X, feature_names)
     # Inf in any feature column crashes DecisionTreeRegressor.fit (ValueError); NaN feature values are
     # tolerated by modern sklearn and left alone so the tree can still use those rows.
     finite = np.isfinite(err) & ~np.any(np.isinf(mat), axis=1)

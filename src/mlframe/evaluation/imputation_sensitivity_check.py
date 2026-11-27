@@ -30,6 +30,19 @@ def _split(cv, X: pd.DataFrame):
     return cv.split(X)
 
 
+def _clears_std_floor(stds: np.ndarray, min_ratio: float) -> np.ndarray:
+    """True where a variant's ``fold_std`` exceeds ``min_ratio`` times the median ``fold_std`` of the other variants.
+
+    With no other variant, or others whose median is zero, any positive ``fold_std`` clears the floor.
+    """
+    out = np.zeros(len(stds), dtype=bool)
+    for i, value in enumerate(stds):
+        others = np.delete(stds, i)
+        reference = float(np.median(others)) if others.size else 0.0
+        out[i] = bool(value > min_ratio * reference)
+    return out
+
+
 def imputation_sensitivity_check(
     estimator: Any,
     X_variants: Dict[str, pd.DataFrame],
@@ -39,6 +52,7 @@ def imputation_sensitivity_check(
     risk_z_threshold: float = 0.5,
     shift_split: Optional[Tuple[np.ndarray, np.ndarray]] = None,
     shift_risk_z_threshold: float = 0.5,
+    risk_min_std_ratio: float = 1.25,
 ) -> pd.DataFrame:
     """Compare per-fold CV score stability across several imputation-choice variants of ``X``.
 
@@ -57,8 +71,14 @@ def imputation_sensitivity_check(
         sklearn-style CV splitter; defaults to ``KFold(n_splits=5, shuffle=True, random_state=0)``. Pass a
         time-ordered splitter (no shuffle) to match the source's own train/test-shift framing.
     risk_z_threshold
-        A variant's ``fold_std`` is flagged ``is_risky=True`` when its z-score (relative to the OTHER
-        variants' `fold_std`) exceeds this threshold -- i.e. it is notably less stable than its peers.
+        A variant's ``fold_std`` is flagged ``is_risky=True`` when its z-score exceeds this threshold AND it clears the
+        ``risk_min_std_ratio`` floor. The z-score is taken over ALL variants' ``fold_std`` (the mean and standard deviation
+        include the variant being scored), so it measures how far a variant sits above the group, not above its peers alone.
+    risk_min_std_ratio
+        Floor on ``is_risky``: the variant's ``fold_std`` must also exceed this multiple of the median ``fold_std`` of the
+        OTHER variants. A z-score is scale-free, so without a floor the least stable of several equally stable variants
+        was flagged whatever the size of the differences (a 1% spread still produced ``z > 0.5``). Use ``0.0`` to
+        switch the floor off and get the pure z-score rule.
     shift_split
         Opt-in. ``(train_idx, holdout_idx)`` row-index arrays into ``X_variants``/``y`` describing ONE real
         distribution-shift holdout (e.g. a chronological "past vs. future" cut, or a covariate-shift split) --
@@ -98,7 +118,7 @@ def imputation_sensitivity_check(
         z_scores = (stds - stds.mean()) / stds.std(ddof=1)
     else:
         z_scores = np.zeros_like(stds)
-    is_risky = z_scores > risk_z_threshold
+    is_risky = (z_scores > risk_z_threshold) & _clears_std_floor(stds, risk_min_std_ratio)
 
     columns: Dict[str, np.ndarray] = {"fold_mean": means, "fold_std": stds, "is_risky": is_risky}
 

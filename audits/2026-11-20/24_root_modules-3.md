@@ -123,10 +123,6 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F30: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F31: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F36: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F37: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F38: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F39: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F47: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F50: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F25: FIXED. empty support returns NaN per query point; tests/feature_engineering/test_cluster24_empty_and_alignment.py
 - 24-F31: FIXED. chunks that return (None, None) are skipped and an all-empty run returns (None, None); no separate test
@@ -212,3 +208,12 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F29: FIXED. Windowed targets use at least float64 (np.promote_types(dtype, float64)); features keep the requested dtype. Test tests/feature_engineering/test_cluster24_dtype_docs_and_nan_pairs.py.
 
 - 24-F27: FIXED. variance_gated_pairwise_diff logs a WARNING naming the columns whose NaN/inf values drop every pair involving them. Same test file.
+
+- 24-F37: FIXED. The event-to-vocabulary lookup in _weighted_matrix uses np.searchsorted when the vocabulary is strictly increasing (what np.unique returns) and the original dictionary path otherwise, via _positions_in; results are identical (test compares with the dict form on int and string vocabularies, absent values included). An unknown row entity still raises KeyError. Test tests/feature_engineering/test_cluster24_positions_in_vocabulary.py.
+
+- 24-F47: FIXED. GroupTimeSeriesSplit finds each row's group position by sorting the distinct labels once and searching the rows (_temporal_positions) instead of a Python dictionary lookup per row; labels that cannot be ordered keep the dictionary path. Positions are identical to the dict form (tested on shuffled temporal orders and string labels) and the fold structure is unchanged. Test tests/feature_selection/test_cluster24_group_time_split_positions.py.
+
+- 24-F38: PARTIAL. Reading _direct_window_agg for the regrouping cost found a correctness defect: it wrote results by the query's index LABELS into a positional array, raising IndexError for any query whose index was not 0..n-1 and mis-placing values for a permuted index. It now writes by row position (also under the row mask) and the per-entity query grouping uses positions. Not done: building the history groupby once across the repeated calls (needs the caller to pass the groups in; a perf-only change left until measured). Test tests/feature_engineering/test_cluster24_direct_window_agg_positional.py.
+
+
+- 24-F39: FIXED. Owner decision applied (option C): the whole SGNS training loop runs in one numba call (_sgns_train_njit): window width, negatives and update stay compiled, token indices are flattened once into an array with per-sequence offsets, and negatives come from _draw_negative, an inverse-transform binary search over the cumulative freq**0.75 table (the old rng.choice re-validated p on every call). Measured on 1500 sequences x 60 tokens, 300-token vocabulary, dim 32, 2 epochs: 46.9 s before, 0.78 s after. As agreed this changes the random stream, so embeddings for a given seed differ from before (same distribution); a given random_state is still reproducible. Tests tests/feature_engineering/test_cluster24_sequence2vec_numba_loop.py (sampler distribution against freq**0.75, co-occurring tokens closer than never-co-occurring, determinism, empty sequences).

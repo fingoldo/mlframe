@@ -89,7 +89,6 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F20: FIXED. the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test
 - 22-F17: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F18: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
-- 22-F23: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F26: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F3: DEFERRED. Still deferred: get_postcalibrators imports six optional libraries unguarded and builds each calibrator inline. Guarding each entry means restructuring the zoo list per library; deferred to a dedicated pass with a test that blocks each module in turn.
 - 22-F3: FIXED. Each optional calibration library is imported separately; an absent one skips only its candidates (calibration/post.py get_postcalibrators); tests/calibration/test_cluster22_missing_calibrator_library_skipped.py
@@ -138,3 +137,5 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F24: FIXED. cluster_resample_indices builds the resample with one np.repeat gather instead of a Python slice per drawn group; output and rng consumption are identical (test compares with the old form over 20 seeds). Test tests/evaluation/test_cluster22_cluster_resample_vectorised.py.
 
 - 22-F16: RESOLVED. Not a defect: in the inner_cv path the full-OOF fit (cal_oof) is still used, for the non-finite check and as the returned calibrated_probs, so it cannot move into the same_oof branch. No change.
+
+- 22-F23: FIXED. Ported both hand-run helpers instead of deleting them: MakeSureBlasAndLaPackAreInstalled reads numpy.show_config(mode='dicts') (numpy.distutils no longer exists) and ListAllSkLearnClassifiers imports all_estimators from sklearn.utils (sklearn.utils.testing was removed). Both stay on the kept list as hand-run diagnostics. Test tests/core/test_cluster22_interactive_helpers_run.py.

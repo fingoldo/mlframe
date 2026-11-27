@@ -282,6 +282,8 @@ def catastrophic_drop_kn(
                     "best_mae": _best_mae,
                     "per_member_target_mae": _maes,
                     "ratio_threshold": float(k2_catastrophic_mae_ratio),
+                    "kept_tags": [_ensemble_member_tags[i] for i in _kept_idx_kn],
+                    "dropped_tags": [_ensemble_member_tags[i] for i, _ in _excl_kn],
                 }
                 if verbose:
                     logger.warning(
@@ -318,6 +320,24 @@ def catastrophic_drop_kn(
         # A skipped drop keeps a member the gate meant to remove, so it is reported whether or not the run is verbose.
         logger.warning("[ensemble] K>2 catastrophic-drop check raised %s; proceeding without drop.", _kn_err)
     return level_models_and_predictions, _gate_preds_for_check, _ensemble_member_tags, _ensemble_short_tags
+
+
+def kn_all_catastrophic_early_return(res: dict) -> bool:
+    """Stamp the K=2-style short-circuit keys and return True when the K>2 gate left at most one member.
+
+    ``catastrophic_drop_kn`` records ``_all_members_catastrophic`` but nothing read it, so a K>2 suite whose members were all catastrophic except the
+    best was still blended and reported as an ensemble of one. The K=2 path already returns early with ``_reason``; this gives K>2 the same contract:
+    no ensemble entry is produced, the surviving model stays in the per-family list, and the result carries ``_reason`` (18-F14).
+    """
+    sentinel = res.get("_all_members_catastrophic")
+    if not isinstance(sentinel, dict) or int(sentinel.get("n_survivors", 2)) >= 2:
+        return False
+    kept = list(sentinel.get("kept_tags") or [])
+    res["_reason"] = "kn_catastrophic_dropout"
+    res["_n_members"] = int(sentinel.get("n_survivors", 0))
+    res["_dropped_member"] = ", ".join(str(t) for t in (sentinel.get("dropped_tags") or []))
+    res["_kept_member"] = kept[0] if kept else None
+    return True
 
 
 def catastrophic_drop_k2(

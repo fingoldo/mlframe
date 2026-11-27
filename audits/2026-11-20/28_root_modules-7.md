@@ -153,8 +153,6 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F22: FIXED. Lasso and elasticnet classifiers refuse alpha <= 0 with a ValueError naming the unpenalised alternative, instead of silently using C=1.0. Test tests/training/test_cluster28_linear_classifier_alpha_positive.py.
 - 28-F23: DEFERRED. Uncalled function: project rule is to wire it in or classify it before deleting. Classification is deferred to the uncalled-functions pass.
 - 28-F24: DEFERRED. The TTA duplication needs the fused function kept and the others made thin wrappers, or removed; that touches a public API and the bench that calls it. Deferred.
-- 28-F47: DEFERRED. Duplicated GTC cache state in the helpers module: deletion needs a check that nothing imports it. Deferred to the uncalled-functions pass.
-- 28-F48: DEFERRED. report_title is built and never emitted: wiring it in changes the train report, so it is an owner decision (emit or delete).
 - 28-F73: FIXED. A bare model-name string is keyed as one model, not iterated per character. Test test_cluster28_suite_key_string_models.py; 26 existing artefact-cache tests pass.
 - 28-F57: FIXED. Failed categorical casts in the LightGBM shim (fit-time val and predict-time) log a WARNING naming the column. Test test_cluster28_lgb_cat_cast_warns.py; 5 existing shim tests pass.
 - 28-F66: FIXED. Every RMSE recommendation carries lgb/xgb/cb_extra_params keys (empty), matching the other branches. Test test_cluster28_rmse_recommendation_keys.py; 15 existing loss-recommendation tests pass.
@@ -191,8 +189,13 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 
 
 
-- 28-F64: DEFERRED. Re-read: the write is the mechanism that hands the first model's stats to every later model through the shared common_params, and process_model also returns them. Removing the write is safe only once every later call site is shown to pass the returned value explicitly; no wrong result was observed, so the audited-reader pass is left to the training-loop owner.
 
 
 
 - 28-F76: FIXED. All seven named functions now have tests: _oof_train_timestamps, retry_params_after_empty_text_dictionary, _open_verified_bundle, _realign_val_columns, _handle_fit_failure, and the two split-metric emitters (no-op without a split, argument unpacking, the val-tuned F1 threshold reused for test). Tests tests/training/test_cluster28_*.py.
+
+- 28-F47: FIXED. Deleted the duplicate _GTC_CACHE, lock, pin dict and cap (and the now-unused threading import) from _trainer_configure_helpers.py; a repo-wide grep shows every reader and test uses the live copy in _trainer_configure.py. Test tests/training/test_cluster28_gtc_cache_single_copy.py.
+
+- 28-F48: FIXED. Removed _train_and_evaluate_train_df_none (it built report_title and returned None, and its only caller ignored the result) together with its import and call; nothing else referenced it. Test tests/training/test_cluster28_no_unused_report_title_builder.py.
+
+- 28-F64: DOCUMENTED. Owner decision applied (leave, document): the write of trainset_features_stats into the shared common_params stays; a comment at the site now says it is a fallback for standalone calls (the suite computes the statistics up front and passes them in), that the write is how the first model's statistics reach later models, and that the value is also returned. No behaviour change.

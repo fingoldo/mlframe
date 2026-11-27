@@ -517,6 +517,9 @@ def process_model(
     from mlframe.training._train_eval_cache import _register_trained_model
     _register_trained_model(fpath, model, optimize_storage, target_type, metadata_columns, pre_pipeline_name, model_file_name, models, cur_target_name, ens_models)
     if trainset_features_stats is None:
+        # Fallback only: the suite computes the train-set statistics once up front and passes them in, so this branch runs for a standalone call. The write
+        # into the shared ``common_params`` is deliberate -- it is how the first model's statistics reach every later model of the same suite -- and the
+        # value is also returned, so a caller that threads the return value does not depend on the mutation (28-F64).
         trainset_features_stats = model.trainset_features_stats
         common_params["trainset_features_stats"] = trainset_features_stats
 

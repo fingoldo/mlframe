@@ -56,10 +56,11 @@ Counts: P0 0, P1 4, P2 4, P3 6.
 
 - 23-F9: FIXED. Docstring now says best_scheme is the smallest mean per-fold gap.
 
-- 23-F10: DEFERRED. Docstring and code differ on the z-score reference set; choosing leave-one-out or fixing the text changes which variants are flagged, an owner call.
 
 - 23-F11: RESOLVED. Not dead code: the next call takes jackknife as an argument, so the None initial value is used. Removing it raises UnboundLocalError (18 existing tests failed). Left as is.
 
 - 23-F13: FIXED. Dropped the unused name parameter of _merge_parallel_chunks and its call argument.
 
 - 23-F14: DOCUMENTED. Docstring now states the sign of cv_delta is ignored, so a loss on a shifted subgroup is flagged too; behaviour unchanged.
+
+- 23-F10: FIXED. Owner decision applied (docstring fix plus floor): the docstring now says the z-score is taken over ALL variants' fold_std, including the one scored, and the new risk_min_std_ratio (default 1.25) adds a floor: is_risky also needs fold_std above that multiple of the median fold_std of the OTHER variants, because a z-score is scale-free and flagged the least stable of near-identical variants whatever the spread (0.100/0.101/0.102 gave z=1.0 > 0.5). risk_min_std_ratio=0.0 restores the pure z-score rule. The shift_gap flag is unchanged. Test tests/evaluation/test_cluster23_imputation_risk_floor.py.

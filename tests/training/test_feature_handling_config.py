@@ -312,9 +312,9 @@ class TestAutoDeriveMemory:
         ):
             mock_vm.return_value = mock.MagicMock(total=int(total_gb * 1e9))
             fhc = FeatureHandlingConfig()
-            assert abs(fhc.memory.budget_gb - expected_budget) < 0.01
-            assert abs(fhc.cache.ram_max_gb - expected_cache) < 0.01
-            assert abs(fhc.cache.ram_reserve_gb - expected_reserve) < 0.01
+            assert abs(fhc.resolved_memory.budget_gb - expected_budget) < 0.01
+            assert abs(fhc.resolved_cache.ram_max_gb - expected_cache) < 0.01
+            assert abs(fhc.resolved_cache.ram_reserve_gb - expected_reserve) < 0.01
 
     def test_auto_derive_with_cgroup_limit_uses_min(self):
         """Inside a 4 GB container on a 64 GB host, budget derives
@@ -330,8 +330,8 @@ class TestAutoDeriveMemory:
             fhc = FeatureHandlingConfig()
             # 4 GB total -> 0.7 fraction = 2.8 GB; reserve floor 2.0;
             # cache_ram = 2.8 * 0.3 = 0.84
-            assert abs(fhc.memory.budget_gb - 2.8) < 0.01
-            assert abs(fhc.cache.ram_reserve_gb - 2.0) < 0.01
+            assert abs(fhc.resolved_memory.budget_gb - 2.8) < 0.01
+            assert abs(fhc.resolved_cache.ram_reserve_gb - 2.0) < 0.01
 
     def test_explicit_budget_skips_auto_derive(self):
         """Explicit budget skips auto derive."""
@@ -373,7 +373,7 @@ class TestAutoDeriveMemory:
         monkeypatch.setenv("MLFRAME_MEMORY_BUDGET_GB", "20.0")
         # detect_memory_limit_bytes returns 20 GB -> budget = 20 * 0.7 = 14
         fhc = FeatureHandlingConfig()
-        assert abs(fhc.memory.budget_gb - 14.0) < 0.01
+        assert abs(fhc.resolved_memory.budget_gb - 14.0) < 0.01
 
 
 # =====================================================================

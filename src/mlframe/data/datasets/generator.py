@@ -288,6 +288,10 @@ def _probability_only(spec: DatasetSpec, target: TargetSpec, columns: Dict[str, 
 
     Kept separate from :func:`generate` so a sweep does not redraw the data at every point: redrawing makes
     the difficulty curve non-monotone for a reason that has nothing to do with difficulty.
+
+    Limits, so a sweep is not read as the shipped law: ``columns`` must already hold the latent factors the link addresses (the way ``generate`` builds
+    ``link_inputs``), the whole score including its intercept is scaled, and the heteroscedastic term, prevalence shift and label corruption that
+    ``generate`` applies are NOT included (04-F15).
     """
     knob_rng = stream_for(spec.root_seed, spec.name, "knobs", target.name)
     score = scale * link_score(target.link, columns, int(spec.n_samples), knob_rng=knob_rng, scale_override=1.0)

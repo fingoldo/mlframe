@@ -65,6 +65,10 @@ def cell_key(spec: Dict[str, Any]) -> str:
     return hashlib.sha256(canonical_json(spec).encode("utf-8")).hexdigest()
 
 
+# Exception types that signal a bad argument or a bug rather than a runtime that ran out of time, whatever their message says.
+_NOT_A_TIMEOUT_TYPES = (ValueError, TypeError, KeyError, IndexError, AttributeError, AssertionError)
+
+
 def classify_exception(exc: BaseException) -> str:
     """Map a raised exception onto one of `CELL_STATUSES` (never `ok`)."""
     if isinstance(exc, MemoryError):
@@ -74,7 +78,8 @@ def classify_exception(exc: BaseException) -> str:
     text = f"{type(exc).__name__}: {exc}".lower()
     if "out of memory" in text or "cannot allocate" in text or "paging file" in text or "winerror 1455" in text:
         return "oom"
-    if "timeout" in text or "timed out" in text:
+    # A bad argument or a code bug whose message merely mentions a timeout ("timeout parameter invalid") is an error, not a timeout (12-F17).
+    if ("timeout" in text or "timed out" in text) and not isinstance(exc, _NOT_A_TIMEOUT_TYPES):
         return "timeout"
     if isinstance(exc, (SystemError, OSError)) and "access violation" in text:
         return "crashed"

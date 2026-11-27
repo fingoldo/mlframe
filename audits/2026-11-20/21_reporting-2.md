@@ -65,8 +65,6 @@ Name-reference counts are a grep of `tests/` for each public or load-bearing nam
 - 21-F3: RESOLVED. Per-instance and interaction SHAP builders skip a multi-output CatBoost model before shap's TreeExplainer, as shap_panels already does. Test tests/reporting/test_shap_multioutput_catboost_is_skipped.py (monkeypatched; it would not catch a renamed explainer call); 91 existing SHAP tests pass. Commit below.
 - 21-F5: FIXED. an all-missing slice column takes the missingness code; tests/reporting/test_cluster21_slice_missing_and_metric_direction.py
 - 21-F16: FIXED. metric direction uses the family name before any @k cutoff; same test file
-- 21-F8: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
-- 21-F9: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F14: DEFERRED. not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report)
 - 21-F18: FIXED. Perfect model gets a 'deferral cannot reduce error' verdict instead of 'insufficient data' (new branch for err_at_100 == 0). Test tests/reporting/test_cluster21_perfect_model_verdict.py drives build_risk_coverage_spec with a perfect model that has varying confidence.
 - 21-F17: FIXED. Training-curve alignment no longer holds the last value flat past a series' last logged sample: such series take the gap path, and _interp_with_gaps returns NaN beyond its last position. Test tests/reporting/test_cluster21_training_curve_tail_gap.py; existing training-curve tests (4 files) pass.
@@ -94,3 +92,7 @@ Name-reference counts are a grep of `tests/` for each public or load-bearing nam
 - 21-F10: FIXED. Low-evidence indices are mapped through the downsample selection (remap_low_evidence_indices) in both the matplotlib and plotly scatter, so weak points stay hollow after capping. Test tests/reporting/test_cluster21_low_evidence_survives_downsample.py.
 
 - 21-F12: FIXED. A static image replaced by an HTML file (burned kaleido or failing oneshot) or lost entirely is now counted in get_render_failure_stats(); the HTML file is still written and the figure handle kept. Test tests/reporting/test_cluster21_kaleido_html_fallback_is_counted.py.
+
+- 21-F9: FIXED. The plotly scatter now subsets y_err and x_err (symmetric or asymmetric) with the same downsample selection as x/y instead of dropping them, so the HTML keeps the intervals the PNG shows; a panel with error bars above the cap stays an SVG go.Scatter of at most the cap. Test tests/reporting/test_cluster21_plotly_scatter_error_bars_downsampled.py.
+
+- 21-F8: FIXED. step_fill now steps the fill in plotly: the fill moves to an invisible hv-shaped trace laid down before the straight series line (tozeroy, or tonexty against the constant baseline trace for a non-zero baseline), matching matplotlib's step='post' fill with a straight line. Before, line_shape='linear' was the default and the fill stayed a polyline. Test tests/reporting/test_cluster21_plotly_step_fill.py.

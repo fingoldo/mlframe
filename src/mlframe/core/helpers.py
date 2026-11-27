@@ -92,16 +92,24 @@ def derive_seed(master_seed: int, key: str) -> int:
 
 
 def MakeSureBlasAndLaPackAreInstalled() -> None:
-    """Print numpy's detected BLAS/LAPACK backend info (interactive diagnostic to confirm numpy is linked against an optimized linear-algebra library rather than the slow reference implementation)."""
-    from numpy.distutils.system_info import get_info
+    """Print numpy's detected BLAS/LAPACK backend info (interactive diagnostic to confirm numpy is linked against an optimized linear-algebra library rather than the slow reference implementation).
 
-    print(get_info("blas_opt"))  # noqa: T201 -- interactive diagnostic utility, this IS the function's job
-    print(get_info("lapack_opt"))  # noqa: T201
+    Reads ``numpy.show_config(mode="dicts")``; the old ``numpy.distutils`` probe no longer exists in current numpy, so the helper raised ImportError (22-F23).
+    """
+    import numpy as np
+
+    config = np.show_config(mode="dicts")
+    deps = config.get("Build Dependencies", {}) if isinstance(config, dict) else {}
+    for name in ("blas", "lapack"):
+        print(name, deps.get(name, "not reported"))  # noqa: T201 -- interactive diagnostic utility, this IS the function's job
 
 
 def ListAllSkLearnClassifiers() -> None:
-    """Print module path + name of every registered sklearn estimator whose name contains "Class" (interactive discovery helper for classifier-family estimators)."""
-    from sklearn.utils.testing import all_estimators
+    """Print module path + name of every registered sklearn estimator whose name contains "Class" (interactive discovery helper for classifier-family estimators).
+
+    ``all_estimators`` moved from the removed ``sklearn.utils.testing`` to ``sklearn.utils`` (22-F23).
+    """
+    from sklearn.utils import all_estimators
 
     for name, Class in all_estimators():
         if name.find("Class") > 0:
