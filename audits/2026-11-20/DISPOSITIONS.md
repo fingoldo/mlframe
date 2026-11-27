@@ -362,11 +362,9 @@
 | 12-F71 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F72 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F73 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
-| 12-F74 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F75 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F77 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F78 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
-| 12-F79 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F80 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F81 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F84 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
@@ -1632,3 +1630,7 @@
 | 28-F76 | FIXED | All seven named functions now have tests: _oof_train_timestamps, retry_params_after_empty_text_dictionary, _open_verified_bundle, _realign_val_columns, _handle_fit_failure, and the two split-metric emitters (no-op without a split, argument unpacking, the val-tuned F1 threshold reused for test). Tests tests/training/test_cluster28_*.py. |
 
 | 12-F76 | FIXED | run_phase0 raises ValueError naming any --arms entry missing from the roster, before anything runs, instead of building a roster without it and exiting 0. Test tests/feature_selection/test_cluster12_phase0_unknown_arm.py. |
+
+| 12-F79 | PARTIAL | A failing downstream fit in the campaign is now logged as a WARNING with the error type and message (was DEBUG), so a cell dropped from the holdout verdict is visible in the log. Not done: the None count in summarize (the benchmark report layout is the campaign owner's). Test tests/feature_selection/test_cluster12_campaign_failure_visible.py. |
+
+| 12-F74 | DEFERRED | Re-read: the failed cell already logs a WARNING with its status and the record keeps the error text and traceback; what is missing is a per-run error count and the resume semantics (error rows count as done without --retry-failed), which is a harness-design choice for the experiment owner. |

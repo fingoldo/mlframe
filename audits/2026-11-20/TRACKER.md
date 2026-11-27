@@ -813,12 +813,12 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 12-F71 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F72 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F73 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
-| 12-F74 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
+| 12-F74 | 12_feature_selection-3.md | DEFERRED | Re-read: the failed cell already logs a WARNING with its status and the record keeps the error text and traceback; what is missing is a per-run error count and the resume semantics (error rows count as done without --retry-failed), which is a harness-design choice for the experiment owner. |
 | 12-F75 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F76 | 12_feature_selection-3.md | FIXED | run_phase0 raises ValueError naming any --arms entry missing from the roster, before anything runs, instead of building a roster without it and exiting 0. Test tests/feature_selection/test_cluster12_phase0_unknown_arm.py. |
 | 12-F77 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F78 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
-| 12-F79 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
+| 12-F79 | 12_feature_selection-3.md | PARTIAL | A failing downstream fit in the campaign is now logged as a WARNING with the error type and message (was DEBUG), so a cell dropped from the holdout verdict is visible in the log. Not done: the None count in summarize (the benchmark report layout is the campaign owner's). Test tests/feature_selection/test_cluster12_campaign_failure_visible.py. |
 | 12-F80 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F81 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F84 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |

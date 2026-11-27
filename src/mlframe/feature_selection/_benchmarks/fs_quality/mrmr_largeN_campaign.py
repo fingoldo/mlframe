@@ -175,7 +175,7 @@ def _downstream_score(X_tr, y_tr, X_ho, y_ho, sel_idx, scenario: str) -> float |
     except Exception as exc:
         if os.environ.get("MRMR_CAMPAIGN_RAISE"):
             raise
-        logger.debug("campaign cell failed, scoring as None: %s", exc)
+        logger.warning("campaign cell failed (%s: %s); its holdout score is None and the cell is left out of the means and win counts", type(exc).__name__, exc)
         return None
 
 
