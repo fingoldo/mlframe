@@ -84,7 +84,8 @@ def _own_nodes(func: ast.AST) -> list[ast.AST]:
     if hit is not None and hit[0] is func:
         return hit[1]
     nodes: list[ast.AST] = []
-    stack = list(ast.iter_child_nodes(func))
+    # A function's BODY only: its decorator list would turn the declarative `@pytest.mark.xfail(...)` into an imperative-xfail finding.
+    stack = list(func.body) if isinstance(func, _FUNC_NODES) else list(ast.iter_child_nodes(func))
     while stack:
         node = stack.pop()
         nodes.append(node)
@@ -270,13 +271,17 @@ def test_late_skip():
 
 def test_discriminates():
     assert f() == 3
+
+@pytest.mark.xfail(strict=True, reason="known gap")
+def test_declaratively_marked():
+    assert f() == 3
 """
 
 
 def test_scanner_flags_each_nondiscriminating_shape_and_passes_a_discriminating_test():
     """Every shape the scanner names is reported for its canary function and the clean one gets no reason at all."""
     funcs = {n.name: n for n in ast.walk(ast.parse(_CANARY_SOURCE)) if isinstance(n, ast.FunctionDef)}
-    assert len(funcs) == 7
+    assert len(funcs) == 8
     assert _reasons(funcs["test_no_check"]) == ["no-assert"]
     assert _reasons(funcs["test_swallows"]) == ["swallows-assertionerror"]
     assert _reasons(funcs["test_conditional"]) == ["all-asserts-conditional"]
@@ -284,6 +289,7 @@ def test_scanner_flags_each_nondiscriminating_shape_and_passes_a_discriminating_
     assert _reasons(funcs["test_xfails"]) == ["imperative-xfail"]
     assert shape_reasons(funcs["test_late_skip"]) == ["late-skip"]
     assert _reasons(funcs["test_discriminates"]) == []
+    assert _reasons(funcs["test_declaratively_marked"]) == []  # the marker is a decorator, not an imperative xfail in the body
     assert shape_reasons(funcs["test_discriminates"]) == []
 
 
