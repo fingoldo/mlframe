@@ -327,7 +327,6 @@
 | 12-F15 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F40 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F41 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
-| 12-F42 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F43 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F44 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F45 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
@@ -1638,3 +1637,5 @@
 | 12-F2 | FIXED | ReliefF's neighbour count now uses the size of the rarest class that occurs (np.unique counts) instead of bincount().argmin(), which picked an empty class for labels not in 0..K-1 (balanced {1,2} gave k=1) and raised on negative labels. Test tests/feature_selection/test_cluster12_relief_minority_count.py. |
 
 | 12-F17 | FIXED | classify_exception no longer reports a timeout for ValueError, TypeError, KeyError, IndexError, AttributeError or AssertionError whose message merely contains 'timeout' or 'timed out'; TimeoutError, runtime errors that say they timed out and subprocess timeouts keep the timeout status. Test tests/feature_selection/test_cluster12_classify_exception_timeout_text.py. |
+
+| 12-F42 | DOCUMENTED | The override is deliberate: _min_rows_for_minority guarantees the minimum minority count, so a null bed has max(n, 10000) rows. The _make_null docstring now says so; behaviour unchanged. |

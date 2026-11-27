@@ -346,7 +346,11 @@ def probe_flood_p1000(seed: int = 0, n: int = 5000, n_informative: int = 8, n_pr
 
 
 def _make_null(name: str, seed: int, n: int, p: int) -> Tuple[pd.DataFrame, pd.Series, Dict[str, object]]:
-    """Build a bed where ``y`` is independent of ``X`` by construction; the correct answer is the empty set."""
+    """Build a bed where ``y`` is independent of ``X`` by construction; the correct answer is the empty set.
+
+    The row count is ``max(n, 10000)``: ``_min_rows_for_minority`` raises it so a 0.5-prevalence bed always holds the minimum minority count, so an ``n``
+    below 10000 is deliberately overridden (12-F42).
+    """
     rng_x = stream_for(seed, name, "features")
     rng_y = stream_for(seed, name, "target")
     rows = _min_rows_for_minority(n, 0.5)

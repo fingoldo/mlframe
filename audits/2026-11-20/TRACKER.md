@@ -781,7 +781,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 12-F18 | 12_feature_selection-3.md | FIXED | _quantile_block returns an explicit 'No finite tau' line instead of crashing on an empty tau list. Test tests/feature_selection/test_cluster12_quantile_block_empty.py. |
 | 12-F40 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F41 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
-| 12-F42 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
+| 12-F42 | 12_feature_selection-3.md | DOCUMENTED | The override is deliberate: _min_rows_for_minority guarantees the minimum minority count, so a null bed has max(n, 10000) rows. The _make_null docstring now says so; behaviour unchanged. |
 | 12-F43 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F44 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F45 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
