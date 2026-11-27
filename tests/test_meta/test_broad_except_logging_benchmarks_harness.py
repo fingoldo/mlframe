@@ -403,7 +403,9 @@ def test_mrmr_largeN_campaign_logs_on_failure_and_reraises_when_requested(monkey
     assert healthy is not None and 0.5 < healthy <= 1.0
     with caplog.at_level(logging.DEBUG, logger="campaign_under_test"):
         assert score(X[:50], y[:50], X[50:], y[50:], [7], "classification") is None
-    assert caplog.messages[0].startswith("campaign cell failed, scoring as None:")
+    message = caplog.messages[0]
+    assert message.startswith("campaign cell failed (IndexError:")  # the exception type and text come first
+    assert "its holdout score is None" in message  # and the line says what the failed cell costs the means and win counts
     monkeypatch.setenv("MRMR_CAMPAIGN_RAISE", "1")
     with pytest.raises(IndexError):
         score(X[:50], y[:50], X[50:], y[50:], [7], "classification")
