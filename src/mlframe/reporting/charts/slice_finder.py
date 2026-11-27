@@ -36,7 +36,7 @@ import numpy as np
 
 from mlframe.core.proportion_stats import norm_ppf
 from mlframe.reporting.charts.error_analysis import (
-    _per_row_error, _resolve_feature_matrix, _top_split_features,
+    DenseFeatureMatrix, _per_row_error, _resolve_feature_matrix, _top_split_features,
 )
 from mlframe.reporting.spec import FIGSIZE_STANDARD, BarPanelSpec, FigureSpec
 
@@ -267,6 +267,7 @@ def find_weak_slices(
     three_way_top_features: int = DEFAULT_THREE_WAY_TOP_FEATURES,
     title: str = "Worst feature-value slices (error degradation x support)",
     seed: int = 0,
+    feature_matrix: Optional[DenseFeatureMatrix] = None,
 ) -> SliceFinderResult:
     """Search 1-``max_arity``-feature binned slices for the worst (degradation x support) regions.
 
@@ -278,7 +279,7 @@ def find_weak_slices(
     import pandas as pd
 
     err = _per_row_error(y_true, y_pred, task=task)
-    mat, names = _resolve_feature_matrix(X, feature_names)
+    mat, names = feature_matrix.get() if feature_matrix is not None else _resolve_feature_matrix(X, feature_names)
     finite = np.isfinite(err)
     row_mask = None
     if not np.all(finite):

@@ -651,7 +651,6 @@ _TEST_UTILITIES = {
     "reset_gpu_model_available_cache",
     "is_numba_active",  # fast-path probe that tests assert on; not a production call site
     "clear_mah_y_binning_cache",  # test-isolation reset of the MAH binning cache
-    "clear_feature_matrix_cache",  # test-isolation reset of the error-analysis feature-matrix cache
     "clear_shared_error_prep",  # test-isolation reset of the shared error-prep cache
     "_clear_gate_cache",  # test-isolation reset of the ensemble gate cache
     "reset_gpu_argsort_probe",  # test-isolation reset of the GPU argsort probe

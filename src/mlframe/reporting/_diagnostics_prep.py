@@ -10,8 +10,8 @@ all-numeric and 2.55 s with twenty object columns, so doing it twice cost 0.6-5.
 The prep is memoised on the IDENTITY of its inputs rather than their content: hashing a 100 GB frame to
 avoid a 2.5 s densify would be absurd. Identity alone is unsound -- a freed object's id is reused -- so each
 entry holds WEAK references and a hit is confirmed against them; weak, not strong, because pinning the
-caller's frame is exactly what this package's memory rules forbid. Returning the SAME sub-frame object to
-both callers is also what lets the resolver's own identity cache spare the second densify.
+caller's frame is exactly what this package's memory rules forbid. The prep result also carries a DenseFeatureMatrix holder over the sub-frame, so
+both callers share one densify without a second identity-keyed cache (20-F15).
 """
 
 from __future__ import annotations

@@ -21,18 +21,15 @@ import pandas as pd
 import pytest
 
 from mlframe.reporting import _diagnostics_prep as prep_mod
-from mlframe.reporting.charts import error_analysis as ea_mod
-from mlframe.reporting.charts.error_analysis import _resolve_feature_matrix, clear_feature_matrix_cache
+from mlframe.reporting.charts.error_analysis import DenseFeatureMatrix, _resolve_feature_matrix
 
 
 @pytest.fixture(autouse=True)
 def _clean_caches():
     """A leaked entry would make the next test pass for the wrong reason."""
     prep_mod.clear_shared_error_prep()
-    clear_feature_matrix_cache()
     yield
     prep_mod.clear_shared_error_prep()
-    clear_feature_matrix_cache()
 
 
 def _frame(n: int = 2_000, p: int = 12) -> pd.DataFrame:
@@ -44,46 +41,38 @@ def _frame(n: int = 2_000, p: int = 12) -> pd.DataFrame:
     return pd.DataFrame(data)
 
 
-def test_the_densify_is_reused_for_the_same_frame():
-    """The second diagnostic gets the first one's matrix instead of rebuilding it."""
+def test_the_densify_is_shared_through_the_holder_not_a_global_cache():
+    """Two builders given the same holder get one matrix; the plain resolver no longer memoises on the frame's identity (20-F15)."""
     df = _frame()
-    first, _ = _resolve_feature_matrix(df, None)
-    second, _ = _resolve_feature_matrix(df, None)
-    assert first is second, "the same frame was densified twice"
+    holder = DenseFeatureMatrix(df, None)
+    first, names1 = holder.get()
+    second, names2 = holder.get()
+    assert first is second and names1 == names2
+    plain_a, _ = _resolve_feature_matrix(df, None)
+    plain_b, _ = _resolve_feature_matrix(df, None)
+    assert plain_a is not plain_b
 
 
-def test_a_different_frame_is_densified_again():
-    """Guard: the cache must key on the frame, not simply return whatever it saw last."""
-    a, _ = _resolve_feature_matrix(_frame(), None)
-    b, _ = _resolve_feature_matrix(_frame(n=2_001), None)
-    assert a is not b and a.shape != b.shape
-
-
-def test_a_stale_entry_under_a_recycled_id_is_not_served():
-    """The reason the entries hold weak references, exercised deliberately rather than by waiting for luck."""
+def test_an_in_place_edit_is_seen_by_a_fresh_resolve():
+    """The reason for the change: editing the frame between two calls no longer serves the pre-edit matrix (20-F15)."""
     df = _frame()
-    honest, _ = _resolve_feature_matrix(df, None)
-    clear_feature_matrix_cache()
+    before, names = _resolve_feature_matrix(df, None)
+    col = names.index("f0")
+    old_value = float(before[0, col])
+    df.loc[df.index[0], "f0"] = old_value + 100.0
+    after, _ = _resolve_feature_matrix(df, None)
+    assert float(after[0, col]) == old_value + 100.0
 
-    dead = _frame(n=2_002)
-    other = ea_mod._resolve_feature_matrix_uncached(dead, None)
-    dead_ref = weakref.ref(dead)
-    del dead
+
+def test_the_holder_does_not_outlive_its_owner():
+    """The holder is the only owner of the matrix: when it and the frame go, nothing keeps a dense copy alive (20-F15)."""
+    df = _frame()
+    holder = DenseFeatureMatrix(df, None)
+    mat, _ = holder.get()
+    ref_df, ref_mat = weakref.ref(df), weakref.ref(mat)
+    del df, holder, mat
     gc.collect()
-    ea_mod._MATRIX_CACHE[(id(df), None)] = (dead_ref, other)
-
-    served, _ = _resolve_feature_matrix(df, None)
-    assert served.shape == honest.shape, "a stale entry under a recycled id was served as this frame's matrix"
-
-
-def test_the_matrix_cache_does_not_pin_the_frame():
-    """A cache entry that keeps a 100GB frame alive is worse than the densify it saves."""
-    df = _frame()
-    _resolve_feature_matrix(df, None)
-    ref = weakref.ref(df)
-    del df
-    gc.collect()
-    assert ref() is None, "the densify cache is holding a strong reference to the caller's frame"
+    assert ref_df() is None and ref_mat() is None
 
 
 def test_the_prep_is_built_once_per_input_set():

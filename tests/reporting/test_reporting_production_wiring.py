@@ -9,18 +9,16 @@ import numpy as np
 
 import mlframe.reporting._diagnostics_prep as prep_mod
 import mlframe.reporting.catalog as catalog
-import mlframe.reporting.charts.error_analysis as error_analysis
 from mlframe.reporting.charts.ltr import _per_query_groups, _sorted_layout
 from mlframe.reporting.diagnostics_dispatch import render_split_error_diagnostics
 
 
-def test_split_error_diagnostics_releases_both_caches_on_return(monkeypatch):
-    """The per-split dispatcher drops the memoised error prep and the densified matrix when it returns."""
+def test_split_error_diagnostics_releases_the_prep_on_return(monkeypatch):
+    """The per-split dispatcher drops the memoised error prep (which holds the sub-frame and its densified matrix) when it returns."""
     calls = []
     monkeypatch.setattr(prep_mod, "clear_shared_error_prep", lambda: calls.append("prep"))
-    monkeypatch.setattr(error_analysis, "clear_feature_matrix_cache", lambda: calls.append("matrix"))
     render_split_error_diagnostics(df=None, y_true=np.zeros(3), y_pred=np.zeros(3), task="regression", plot_outputs="", base_path="")
-    assert calls == ["prep", "matrix"]
+    assert calls == ["prep"]
 
 
 def test_describe_panels_prints_standalone_diagnostics_from_the_accessor(monkeypatch):
