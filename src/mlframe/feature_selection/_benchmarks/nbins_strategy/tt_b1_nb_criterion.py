@@ -86,7 +86,7 @@ def decide(obs, null, names):
 def main():
     rows = []
     for f in sys.argv[1:]:
-        rows += json.load(open(f))
+        rows += json.load(open(f, encoding="utf-8"))
     out = []
     for r in rows:
         kind, K, seed = r["kind"], r["K"], r["seed"]

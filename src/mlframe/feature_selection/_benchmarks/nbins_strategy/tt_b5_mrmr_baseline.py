@@ -37,5 +37,5 @@ for steps in (0, 1):
     wall = time.perf_counter() - t; c1 = proc.cpu_times()
     rec = dict(kind="mrmr", n=n, p=p, fe_max_steps=steps, wall_s=round(wall, 2), cpu_s=round(c1.user + c1.system - c0.user - c0.system, 2), peak_wset_MB=round(proc.memory_info().peak_wset / 2 ** 20, 1),
                n_selected=len(m.get_feature_names_out()), names=[str(s) for s in m.get_feature_names_out()][:12], load=psutil.cpu_percent(interval=None))
-    open(sys.argv[1], "a").write(json.dumps(rec) + "\n")
+    open(sys.argv[1], "a", encoding="utf-8").write(json.dumps(rec) + "\n")
     print(rec, flush=True)

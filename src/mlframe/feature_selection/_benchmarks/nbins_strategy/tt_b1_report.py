@@ -22,7 +22,7 @@ GAIN, NONE, TOL, HARM = 0.010, 0.003, 0.005, 0.005
 def load(files):
     rows = []
     for f in files:
-        with open(f) as fh:
+        with open(f, encoding="utf-8") as fh:
             rows.extend(json.load(fh))
     return rows
 

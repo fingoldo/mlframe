@@ -12,7 +12,7 @@ import sys
 path = sys.argv[1]
 steps_f = int(sys.argv[sys.argv.index("--steps") + 1]) if "--steps" in sys.argv else None
 detail = "--detail" in sys.argv
-rows = [json.loads(l) for l in open(path) if l.strip()]
+rows = [json.loads(l) for l in open(path, encoding="utf-8") if l.strip()]
 base = {}
 for r in rows:
     if r["variant"] == "raw" and r["fitseed"] == 0 and not r.get("error"):

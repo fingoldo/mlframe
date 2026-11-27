@@ -7,7 +7,7 @@ which = sys.argv[2] if len(sys.argv) > 2 else "all"
 here = os.path.dirname(os.path.abspath(__file__))
 done = set()
 if os.path.exists(out):
-    for l in open(out):
+    for l in open(out, encoding="utf-8"):
         try:
             r = json.loads(l); done.add((r["kind"], r["n"], r["p"], r["variant"], r["K"], r["B"]))
         except Exception as exc:
@@ -50,10 +50,10 @@ for c in cells:
         pr = subprocess.run([sys.executable, os.path.join(here, "tt_b5_bench.py"), c[0], str(c[1]), str(c[2]), c[3], str(c[4]), str(c[5])], capture_output=True, text=True, timeout=1500)
         line = [l for l in pr.stdout.splitlines() if l.startswith("{")]
         if line:
-            open(out, "a").write(line[-1] + "\n")
+            open(out, "a", encoding="utf-8").write(line[-1] + "\n")
             print("done", key, round(time.time() - t, 1), flush=True)
         else:
             print("FAILED", key, pr.stderr[-400:], flush=True)
     except subprocess.TimeoutExpired:
-        open(out, "a").write(json.dumps(dict(kind=c[0], n=c[1], p=c[2], variant=c[3], K=c[4], B=c[5], timeout_s=1500)) + "\n")
+        open(out, "a", encoding="utf-8").write(json.dumps(dict(kind=c[0], n=c[1], p=c[2], variant=c[3], K=c[4], B=c[5], timeout_s=1500)) + "\n")
         print("TIMEOUT", key, flush=True)

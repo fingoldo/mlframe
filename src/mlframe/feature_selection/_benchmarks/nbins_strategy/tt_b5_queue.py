@@ -26,7 +26,7 @@ def others():
 
 while others():
     time.sleep(10)
-with open(log, "a") as lf:
+with open(log, "a", encoding="utf-8") as lf:
     for j in jobs:
         steps, group, seeds = j.split(":")[:3]
         tag = j.split(":")[3] if len(j.split(":")) > 3 else ""

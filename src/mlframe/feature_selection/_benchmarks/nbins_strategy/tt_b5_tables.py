@@ -3,7 +3,7 @@ import json
 import sys
 from collections import defaultdict
 
-rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+rows = [json.loads(l) for l in open(sys.argv[1], encoding="utf-8") if l.strip()]
 by = defaultdict(dict)
 for r in rows:
     by[(r["kind"], r["n"], r["p"])][r.get("variant", "")] = r
@@ -47,7 +47,7 @@ for (kind, n, p), v in sorted(by.items()):
                 print(f"| {kind} | {n} | {p} | {r['cpu_user_s']} | {r['compute_s']} | {r['peak_wset_MB']} |")
 if len(sys.argv) > 2:
     print("\n### MRMR fits")
-    for l in open(sys.argv[2]):
+    for l in open(sys.argv[2], encoding="utf-8"):
         print(l.strip()[:300])
 print("\n### stages of the target criterion (compute s; wall minus data generation)")
 for (kind, n, p), v in sorted(by.items()):
