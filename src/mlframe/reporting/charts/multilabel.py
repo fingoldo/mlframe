@@ -212,6 +212,7 @@ def _calib_grid_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePane
     x_grid = (edges[:-1] + edges[1:]) / 2
 
     series: List[np.ndarray] = []
+    series_x: List[np.ndarray] = []  # per-bin MEAN prediction of each curve: the x a reliability point belongs at (20-F8)
     series_labels: List[str] = []
     colors: List[str] = []
     pooled_sums = np.zeros(n_bins, dtype=np.float64)
@@ -235,6 +236,9 @@ def _calib_grid_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePane
         nz = counts > 0
         observed[nz] = sums[nz] / counts[nz]
         series.append(observed)
+        mean_pred = np.full(n_bins, np.nan)
+        mean_pred[nz] = pred_sums[nz] / counts[nz]
+        series_x.append(mean_pred)
         pooled_sums += sums
         pooled_counts += counts
         pooled_pred_sums += pred_sums
@@ -258,6 +262,9 @@ def _calib_grid_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePane
         nz_pool = pooled_counts > 0
         macro[nz_pool] = pooled_sums[nz_pool] / pooled_counts[nz_pool]
         all_series.append(macro)
+        _pooled_x = np.full(n_bins, np.nan)
+        _pooled_x[nz_pool] = pooled_pred_sums[nz_pool] / pooled_counts[nz_pool]
+        series_x.append(_pooled_x)
         _n_pool = float(pooled_counts.sum())
         _ece_pool = float(np.sum(pooled_counts[nz_pool] * np.abs(macro[nz_pool] - pooled_pred_sums[nz_pool] / pooled_counts[nz_pool])) / _n_pool) if _n_pool else float("nan")
         all_labels.append(f"pooled avg (weighted by bin support; ECE={_ece_pool:.3f}, n={int(_n_pool):,})")
@@ -267,11 +274,11 @@ def _calib_grid_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePane
     if label_subset is not None:
         title = f"Per-label reliability: {len(draw_idx)} of {K} labels (worst by AUC) + pooled avg"
     return LinePanelSpec(
-        x=x_grid,
+        x=(x_grid, *series_x),
         y=tuple(all_series),
         series_labels=tuple(all_labels),
         title=title,
-        xlabel="Predicted P(label) (bin centre)",
+        xlabel="Mean predicted P(label)",
         ylabel="Observed P(label | bin)",
         line_styles=tuple(styles),
         colors=tuple(all_colors),
