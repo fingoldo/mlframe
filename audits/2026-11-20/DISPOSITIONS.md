@@ -382,7 +382,6 @@
 | 13-F3 | FIXED | note: tests/feature_selection/boruta_shap/test_explain_basis_is_the_fitted_slice.py fails both before and after this change (pre-existing, verified by restoring the prior file); not caused by the fix, needs a separate look |
 | 14-F5 | FIXED | a failed seed or n_jobs set_params is logged at WARNING; no separate test |
 | 14-F6 | FIXED | an unreadable xgboost class count fails closed; tests/feature_selection/shap_proxied/test_cluster14_xgb_eligibility_fails_closed.py |
-| 14-F3 | DEFERRED | string handling on the array path needs a design decision on supported dtypes |
 | 14-F7 | DEFERRED | duplicated per-column correlation loops: performance refactor, not a correctness fix |
 | 14-F5 | FIXED | note: tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_core_refine.py::test_biz_val_auto_matches_core_on_non_saturated_bed fails on the exact pre-change file too (pre-existing, verified) |
 | 15-F8 | FIXED | a callable prescreen's result is filtered to the candidate names the search offered; no direct test (the prescreen path needs a full RFECV fixture) |
@@ -1635,3 +1634,5 @@
 | 12-F74 | DEFERRED | Re-read: the failed cell already logs a WARNING with its status and the record keeps the error text and traceback; what is missing is a per-run error count and the resume semantics (error rows count as done without --retry-failed), which is a harness-design choice for the experiment owner. |
 
 | 09-F15 | FIXED | In the underdetermined configuration a row whose lstsq raises now stays NaN (the column's 'not identifiable' sentinel) instead of being overwritten with 0.0; the identifiable case keeps its documented zero fallback and the log line says which. Test tests/feature_engineering/transformer/test_cluster09_local_curvature_nan_stays_nan.py. |
+
+| 14-F3 | FIXED | The array path of the auto-tune fingerprint casts each column to float when it can and factorises it otherwise (missing stays NaN), so a polars or object-array frame with a string column no longer raises and no longer skips auto-tune. The numeric-fraction signal on that path is still reported as 1.0. Test tests/feature_selection/test_cluster14_auto_tune_string_columns.py. |

@@ -91,6 +91,23 @@ def _target_as_float(y_arr: np.ndarray) -> np.ndarray:
         return out.reshape(y_arr.shape)
 
 
+def _float_columns(arr: np.ndarray) -> np.ndarray:
+    """A float64 copy of a non-numeric 2-D array: each column is cast when it can be, otherwise factorised (missing values stay NaN).
+
+    ``astype(float)`` on the whole array raised on any string column, which is what a polars frame with a text column reaches this path as, so
+    auto-tune was skipped with only a warning (14-F3). Codes of a categorical column are a crude but defined signal for the correlation pass.
+    """
+    out = np.empty(arr.shape, dtype=np.float64)
+    for j in range(arr.shape[1]):
+        col = arr[:, j]
+        try:
+            out[:, j] = col.astype(float)
+        except (TypeError, ValueError):
+            codes = np.asarray(pd.factorize(col)[0])
+            out[:, j] = np.where(codes < 0, np.nan, codes)
+    return out
+
+
 def _array_column_signals(X, y_arr: np.ndarray, p: int) -> tuple[bool, float, float]:
     """NaN presence and the max / mean absolute target correlation of a fully numeric ndarray ``X``."""
     max_corr = 0.0
@@ -99,7 +116,7 @@ def _array_column_signals(X, y_arr: np.ndarray, p: int) -> tuple[bool, float, fl
     # Keep a numeric dtype as it is (a float64 twin of a large frame for a heuristic fingerprint is pure waste) and widen one column at a time.
     X_arr = np.asarray(X)
     if X_arr.dtype.kind not in "fiub":
-        X_arr = X_arr.astype(float)
+        X_arr = _float_columns(X_arr)
     has_nan = bool(np.isnan(X_arr).any())
     yfloat = _target_as_float(y_arr)
     corrs = []
