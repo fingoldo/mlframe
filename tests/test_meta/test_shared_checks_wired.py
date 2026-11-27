@@ -487,6 +487,11 @@ def test_no_lock_held_across_io():
 # Accepted check-then-act sites: a cache read, an unlocked compute, then a locked write. A concurrent miss computes the same
 # pure value twice, which is the cost of not holding the lock across the compute. Each entry is (file suffix, function name).
 _CHECK_THEN_ACT_EXEMPT: dict[tuple[str, str], str] = {
+    ("reporting/diagnostics_dispatch.py", "_psi_heatmap_cached"): (
+        "PSI heatmap memo keyed by the frame signature, the timestamp axis and the feature set: two targets that both miss build the same matrix and the "
+        "last write stores an identical value; the lock covers each lookup and the evict-then-insert, and is deliberately not held across the build "
+        "so the targets of a run do not queue behind one another."
+    ),
     ("filters/_adaptive_nbins_columns.py", "compute_col_edges"): (
         "edge memo of a pure computation keyed by the column's content and settings: two threads that both miss compute the same edges "
         "and the last write stores an identical value; the lock is taken for each lookup and store, not across the compute."
