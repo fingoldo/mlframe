@@ -387,7 +387,6 @@
 | 14-F5 | FIXED | a failed seed or n_jobs set_params is logged at WARNING; no separate test |
 | 14-F6 | FIXED | an unreadable xgboost class count fails closed; tests/feature_selection/shap_proxied/test_cluster14_xgb_eligibility_fails_closed.py |
 | 14-F3 | DEFERRED | string handling on the array path needs a design decision on supported dtypes |
-| 14-F4 | DEFERRED | catboost fast-budget parameter naming needs a behaviour decision (iterations vs n_estimators) |
 | 14-F7 | DEFERRED | duplicated per-column correlation loops: performance refactor, not a correctness fix |
 | 14-F5 | FIXED | note: tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_core_refine.py::test_biz_val_auto_matches_core_on_non_saturated_bed fails on the exact pre-change file too (pre-existing, verified) |
 | 15-F8 | FIXED | a callable prescreen's result is filtered to the candidate names the search offered; no direct test (the prescreen path needs a full RFECV fixture) |
@@ -1621,3 +1620,5 @@
 | 41-F40 | FIXED | The sample probe now takes the first non-null element via dropna().iloc[0]. Re-reading the loop found a worse defect: the branch tested 'dt is object', which is never true for a pandas dtype instance, so no object column was categorised or checked for nested embeddings. It now uses dt == object. Test tests/training/test_cluster41_ranker_object_columns_swept.py. |
 
 | 41-F42 | PARTIAL | Removed the duplicate logger and _NOT_AGGREGATABLE definitions, the doubled @dataclass on TemporalAuditResult, the unused importlib.util import and the unused second _SLUG_PATTERN in strategies/base.py. Not done: the truncated comment at the regression __init__ and the shared MTRESID helper (two call sites with different inputs, a small refactor left for the regression-report owner). Test tests/training/test_cluster41_duplicate_definitions_removed.py. |
+
+| 14-F4 | FIXED | fast_model now reads iterations, depth and rsm as well as n_estimators, max_depth and colsample_bytree, so a catboost template gets the quarter budget, depth 3 and column subsampling (helper _fast_model_params, keeps the cap as a minimum). A catboost template that does not set iterations explicitly still keeps its default budget because get_params omits defaults. Test tests/feature_selection/shap_proxied/test_cluster14_fast_model_catboost_params.py. |

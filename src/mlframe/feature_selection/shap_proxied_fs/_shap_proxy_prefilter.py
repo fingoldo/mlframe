@@ -331,6 +331,26 @@ def _rank_model(model_template, X, y, *, n_features: int, n_estimators_cap=None)
     return _importances_from_fitted(_unwrap_estimator(pf), n_features)
 
 
+def _fast_model_params(pf, valid: set, n_estimators_cap) -> "dict[str, Any]":
+    """Reduced-budget parameters the template exposes: ~1/4 of the trees, shallow, column and row subsampling.
+
+    The tree budget is ``n_estimators`` (xgboost / lightgbm / sklearn) or ``iterations`` (catboost); depth is ``max_depth`` or ``depth``, and column
+    subsampling is ``colsample_bytree`` or ``rsm``. Reading only the first of each pair left a catboost template at its full budget (14-F4).
+    """
+    fast: dict[str, Any] = {}
+    for name in ("n_estimators", "iterations"):
+        n_est = getattr(pf, name, None)
+        if name in valid and isinstance(n_est, (int, np.integer)):
+            budget = max(50, int(n_est) // 4)
+            if n_estimators_cap is not None:
+                # min() so the cap never increases fast_model's already-reduced budget.
+                budget = min(budget, int(n_estimators_cap))
+            fast[name] = budget
+            break
+    fast.update({name: value for name, value in (("max_depth", 3), ("depth", 3), ("colsample_bytree", 0.5), ("rsm", 0.5), ("subsample", 0.7)) if name in valid})
+    return fast
+
+
 def _rank_fast_model(model_template, X, y, *, n_features: int, n_estimators_cap=None):
     """Reduced-budget booster (fewer/shallower trees + column subsampling) for a coarse but still
     interaction-aware ranking. Clones the user's template so non-tree estimators degrade gracefully:
@@ -348,20 +368,7 @@ def _rank_fast_model(model_template, X, y, *, n_features: int, n_estimators_cap=
     # Coarse-but-cheap: ~1/4 the trees, shallow, subsample columns+rows. Only set params the estimator
     # exposes (get_params keys) so a non-GBM template is left as-is rather than crashing on set_params.
     valid = set(pf.get_params(deep=False).keys()) if hasattr(pf, "get_params") else set()
-    fast: dict[str, Any] = {}
-    n_est = getattr(pf, "n_estimators", None)
-    if "n_estimators" in valid and isinstance(n_est, (int, np.integer)):
-        budget = max(50, int(n_est) // 4)
-        if n_estimators_cap is not None:
-            # min() so the cap never increases fast_model's already-reduced budget.
-            budget = min(budget, int(n_estimators_cap))
-        fast["n_estimators"] = budget
-    if "max_depth" in valid:
-        fast["max_depth"] = 3
-    if "colsample_bytree" in valid:
-        fast["colsample_bytree"] = 0.5
-    if "subsample" in valid:
-        fast["subsample"] = 0.7
+    fast = _fast_model_params(pf, valid, n_estimators_cap)
     if fast:
         try:
             pf.set_params(**fast)

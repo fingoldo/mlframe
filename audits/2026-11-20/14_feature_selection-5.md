@@ -38,7 +38,6 @@ Scope: 63 files from `audits/2026-11-20/manifests/14_feature_selection-5.txt` (s
 - 14-F5: FIXED. a failed seed or n_jobs set_params is logged at WARNING; no separate test
 - 14-F6: FIXED. an unreadable xgboost class count fails closed; tests/feature_selection/shap_proxied/test_cluster14_xgb_eligibility_fails_closed.py
 - 14-F3: DEFERRED. string handling on the array path needs a design decision on supported dtypes
-- 14-F4: DEFERRED. catboost fast-budget parameter naming needs a behaviour decision (iterations vs n_estimators)
 - 14-F7: DEFERRED. duplicated per-column correlation loops: performance refactor, not a correctness fix
 - 14-F5: FIXED. note: tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_core_refine.py::test_biz_val_auto_matches_core_on_non_saturated_bed fails on the exact pre-change file too (pre-existing, verified)
 - 14-F1: FIXED. su_seeded_snr_z defaults to None (unset); an explicit value always wins, so an explicit 3.0 under proxy_mode=auto is no longer replaced by 4.5 (_shap_proxied_methods.py _su_screen_snr_z); tests/feature_selection/shap_proxied/test_cluster14_explicit_snr_z_pin_wins.py
@@ -48,3 +47,5 @@ Scope: 63 files from `audits/2026-11-20/manifests/14_feature_selection-5.txt` (s
 - 14-F10: FIXED. Removed the orphan comment about a TreeSHAP cell threshold that is not defined in the file. Comment-only; no behaviour change.
 - 14-F8: FIXED. Permutation buffer built with one C-order copy instead of ascontiguousarray().copy(), which copied twice for a non-contiguous input. Equivalence checked on a non-contiguous view (same values, C-contiguous, writable, no shared memory). Regression: 5 existing SHAP-proxy cluster tests pass.
 - 14-F11: FIXED. Stale docstrings citing the non-existent kernel_tuning_cache.get API replaced with accurate statements (wrappers are live and kept). Docstring-only; module imports; no behaviour change.
+
+- 14-F4: FIXED. fast_model now reads iterations, depth and rsm as well as n_estimators, max_depth and colsample_bytree, so a catboost template gets the quarter budget, depth 3 and column subsampling (helper _fast_model_params, keeps the cap as a minimum). A catboost template that does not set iterations explicitly still keeps its default budget because get_params omits defaults. Test tests/feature_selection/shap_proxied/test_cluster14_fast_model_catboost_params.py.
