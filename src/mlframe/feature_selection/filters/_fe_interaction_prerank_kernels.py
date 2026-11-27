@@ -247,7 +247,7 @@ def _get_numba_fn():
     import numba
 
     @numba.njit(parallel=True, fastmath=True, cache=True, nogil=True)
-    def _kernel(ZV, ZV2, Yc):  # ZV,ZV2 (n,p) ; Yc (n,K)
+    def _prerank_corr_prange_kernel(ZV, ZV2, Yc):  # ZV,ZV2 (n,p) ; Yc (n,K)
         """Per-column-parallel accumulation of sum_c(|corr(V,1[y=c])| + |corr(V2,1[y=c])|) via explicit dot-product loops (no BLAS)."""
         n, p = ZV.shape
         K = Yc.shape[1]
@@ -265,8 +265,8 @@ def _get_numba_fn():
             out[j] = acc
         return out
 
-    _NUMBA_FN = _kernel
-    return _kernel
+    _NUMBA_FN = _prerank_corr_prange_kernel
+    return _prerank_corr_prange_kernel
 
 
 def discrete_score_numba(ZV: np.ndarray, ZV2: np.ndarray, Yc: np.ndarray) -> np.ndarray:
