@@ -28,6 +28,7 @@ transformed column that makes the link linear: log x0, sqrt x0, x0) to compare a
 """
 from __future__ import annotations
 
+import logging
 import argparse
 import json
 import os
@@ -175,7 +176,8 @@ def fit_names(Xv, yv, scheme, steps, seed, kind, ovr=None):
         for nm, g, ino in zip(pv["feature_name"], pv["mrmr_gain"], pv["in_output"]):
             if bool(ino) and g == g:
                 core.append((str(nm), round(float(g), 6)))
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("tt_b5_invariance: ignored %s: %s", type(exc).__name__, exc)
         core = []
     return [str(s) for s in m.get_feature_names_out()], wall, core
 
@@ -192,7 +194,8 @@ def run(out, steps, group, n, seeds, extra_seed_jitter=True, tag="", schemes=SCH
             try:
                 r = json.loads(line)
                 done.add((r["fixture"], r["variant"], r["scheme"], r["steps"], r["seed"], r["fitseed"], r.get("tag", "")))
-            except Exception:
+            except Exception as exc:
+                logging.getLogger(__name__).debug("tt_b5_invariance: ignored %s: %s", type(exc).__name__, exc)
                 pass
     for fx in fixtures:
         for ds in seeds:
@@ -215,6 +218,7 @@ def run(out, steps, group, n, seeds, extra_seed_jitter=True, tag="", schemes=SCH
                         names, wall, core = fit_names(Xv, yv, scheme, steps, fitseed, kind, TAGS[tag])
                         err = None
                     except Exception as ex:  # keep going, record the failure
+                        logging.getLogger(__name__).debug("tt_b5_invariance: ignored %s: %s", type(ex).__name__, ex)
                         names, wall, err, core = [], float("nan"), repr(ex)[:300], []
                     rec = dict(fixture=fx, variant=v, scheme=scheme, tag=tag, steps=steps, seed=ds, fitseed=fitseed, n=n, informative=sorted(inf), names=names, core=core, wall=wall, error=err)
                     with open(out, "a") as f:

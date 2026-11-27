@@ -1,5 +1,6 @@
 """Which value-based component of MRMR breaks rank invariance at fe_max_steps=0 under binning_scheme='quantile'?  Fits raw vs transformed variant of one case under
 parameter overrides and prints the selected names.   python tt_b5_diag.py FIXTURE DS VARIANT [steps] [scheme]"""
+import logging
 import sys, warnings
 warnings.simplefilter("ignore", category=FutureWarning); warnings.simplefilter("ignore", category=DeprecationWarning)
 import tt_b5_invariance as I
@@ -29,5 +30,6 @@ for name, o in OVR.items():
             m = MRMR(binning_scheme=scheme, fe_max_steps=steps, verbose=0, n_jobs=1, random_state=0, **o).fit(df, b)
             out.append(sorted(map(str, m.get_feature_names_out())))
         except Exception as e:
+            logging.getLogger(__name__).debug("tt_b5_diag: ignored %s: %s", type(e).__name__, e)
             out.append("ERR " + repr(e)[:80])
     print(f"{name:22s} same={out[0] == out[1]}  raw={out[0]}  {var}={out[1]}", flush=True)

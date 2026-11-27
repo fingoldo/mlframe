@@ -7,6 +7,7 @@ Usage: python tt_a5_resid_scale.py [--seeds 4] [--rows 4000]
 """
 from __future__ import annotations
 
+import logging
 import argparse
 import time
 import warnings
@@ -117,6 +118,7 @@ def real():
         c = fetch_california_housing(download_if_missing=False)
         out["california"] = (c.data, c.target.astype(float))
     except Exception as e:
+        logging.getLogger(__name__).debug("tt_a5_resid_scale: ignored %s: %s", type(e).__name__, e)
         print("california NOT cached:", e)
     return out
 

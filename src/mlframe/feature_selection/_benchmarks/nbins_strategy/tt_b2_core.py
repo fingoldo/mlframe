@@ -5,6 +5,7 @@ tt_a4 clipped-inverse + Duan-smearing judge) is re-implemented here, vectorised,
 """
 from __future__ import annotations
 
+import logging
 import functools
 import os
 import warnings
@@ -244,7 +245,8 @@ def build_candidates(y: np.ndarray, rng, extended: bool = False, floor: float = 
     sub = y[:: max(1, len(y) // yj_n)]  # deterministic stride subsample: the same lambda in the criterion, the null and the judge
     try:
         lam = float(np.clip(stats.yeojohnson(sub)[1], -1.0, 3.0))
-    except Exception:
+    except Exception as exc:
+        logging.getLogger(__name__).debug("tt_b2_core: ignored %s: %s", type(exc).__name__, exc)
         lam = 1.0
     c["yeo_johnson"] = (
         lambda t, l=lam: yj_fwd(t, l),

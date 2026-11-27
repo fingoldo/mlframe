@@ -17,6 +17,7 @@ inverses cannot overflow and trees' extrapolation (none) and ridge's extrapolati
 
 from __future__ import annotations
 
+import logging
 import warnings
 from typing import Any, Callable
 
@@ -114,7 +115,8 @@ def models() -> dict[str, Callable[[], Any]]:
         from lightgbm import LGBMRegressor
 
         out["lgbm"] = lambda: LGBMRegressor(n_estimators=150, learning_rate=0.1, verbose=-1, n_jobs=1)
-    except Exception:  # pragma: no cover
+    except Exception as exc:  # pragma: no cover
+        logging.getLogger(__name__).debug("tt_a4_oracle: ignored %s: %s", type(exc).__name__, exc)
         pass
     return out
 

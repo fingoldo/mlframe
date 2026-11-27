@@ -1,4 +1,5 @@
 """Run the tt_b5_bench.py cells one process at a time and append the JSON lines to OUT.  python tt_b5_bench_grid.py OUT.jsonl [criteria|baselines|all]"""
+import logging
 import json, os, subprocess, sys, time
 
 out = sys.argv[1]
@@ -9,7 +10,8 @@ if os.path.exists(out):
     for l in open(out):
         try:
             r = json.loads(l); done.add((r["kind"], r["n"], r["p"], r["variant"], r["K"], r["B"]))
-        except Exception:
+        except Exception as exc:
+            logging.getLogger(__name__).debug("tt_b5_bench_grid: ignored %s: %s", type(exc).__name__, exc)
             pass
 cells = []
 NS, PS = (20000, 100000, 1000000), (20, 200, 1000)
