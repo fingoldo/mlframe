@@ -182,11 +182,21 @@ def _line_series_traces(
                 trace_kw["fill"] = "tonexty"
             trace_kw["fillcolor"] = _rgba(cols[i % len(cols)], 0.2)
             if p.step_fill:
-                # matplotlib's step="post" steps the FILL EDGE and leaves the line straight; "hv" here stepped
-                # the line too, so the same spec drew a staircase on one backend and a polyline on the other.
-                # The fill edge is the shared meaning, so the line stays straight and the fill is stepped by
-                # emitting the baseline boundary as a step trace.
-                trace_kw.setdefault("line_shape", "linear")
+                # matplotlib's step="post" steps the FILL EDGE and leaves the line straight. plotly steps a fill only through its own trace's
+                # line_shape, so the fill moves to an invisible "hv" trace laid down right before the (straight) series line; "tonexty" then fills
+                # between it and the baseline trace above it. Before, line_shape="linear" was simply the default and the fill stayed a
+                # polyline (21-F8).
+                _fill_mode = trace_kw.pop("fill")
+                _fill_color = trace_kw.pop("fillcolor")
+                fig.add_trace(
+                    go.Scatter(
+                        x=_xi(i), y=yv, mode="lines",
+                        line=dict(width=0, shape="hv"),
+                        fill=_fill_mode, fillcolor=_fill_color,
+                        hoverinfo="skip", showlegend=False,
+                    ),
+                    row=row, col=col, **({"secondary_y": sec[i]} if has_secondary else {}),
+                )
         sec_kw = {"secondary_y": sec[i]} if has_secondary else {}
         fig.add_trace(
             go.Scatter(x=_xi(i), y=yv,
