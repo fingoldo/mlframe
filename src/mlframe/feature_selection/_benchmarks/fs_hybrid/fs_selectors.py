@@ -190,6 +190,16 @@ class ShapSel:
         return X[keep]
 
 
+def _minority_class_count(y: np.ndarray) -> int:
+    """Row count of the rarest class actually present in ``y``.
+
+    ``np.bincount(y).argmin()`` picks an EMPTY class when the labels are not 0..K-1 (balanced {1, 2} chose the absent class 0, so k collapsed to 1),
+    and raises on negative labels; counting only the labels that occur has neither problem (12-F2).
+    """
+    _, counts = np.unique(np.asarray(y), return_counts=True)
+    return int(counts.min())
+
+
 class ReliefFSel:
     """ReliefF ranker (skrebate) as a selector. ReliefF scores features by local
     near-hit/near-miss separation; we keep features with POSITIVE weight (irrelevant
@@ -214,7 +224,7 @@ class ReliefFSel:
             rng = np.random.default_rng(0)
             idx = rng.choice(n, self.RELIEFF_ROW_CAP, replace=False)
             Xn, yn = Xn[idx], yn[idx]
-        k = min(self.n_neighbors, max(1, (yn == np.bincount(yn).argmin()).sum() - 1))
+        k = min(self.n_neighbors, max(1, _minority_class_count(yn) - 1))
         r = ReliefF(n_neighbors=k, n_jobs=-1)
         r.fit(Xn, yn)
         w = np.asarray(r.feature_importances_, dtype=np.float64)

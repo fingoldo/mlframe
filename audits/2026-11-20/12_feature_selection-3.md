@@ -134,7 +134,6 @@ Counts: P0 0, P1 22, P2 57, P3 22 (101 rows). The rows marked [v] are the ones I
 - 12-F23: DEFERRED. The baseline filters raw_selected_ to raw columns, dropping engineered names. The fix must use the hybrid's transform output (Ztr = h.transform(Xtr)) and filter against it. Confirming which names survive takes a full HybridSelector fit (minutes), so it cannot be covered by a cheap test here; deferred until a cheap fixture for the transform output exists.
 - 12-F24: RESOLVED. Protected core is the intersection of Boruta and MRMR accepts (agreed_core), matching the docstring. Test tests/feature_selection/test_protected_core_is_the_intersection.py. Commit below.
 - 12-F25: DEFERRED. Whether RFECV with max_runtime_mins=3 timed out on this data is only visible from a real run (cv_results_ length); the fix (fail or flag a timed-out run) needs that run to be defined. Deferred.
-- 12-F2: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F3: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F4: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F5: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
@@ -238,3 +237,5 @@ Counts: P0 0, P1 22, P2 57, P3 22 (101 rows). The rows marked [v] are the ones I
 - 12-F79: PARTIAL. A failing downstream fit in the campaign is now logged as a WARNING with the error type and message (was DEBUG), so a cell dropped from the holdout verdict is visible in the log. Not done: the None count in summarize (the benchmark report layout is the campaign owner's). Test tests/feature_selection/test_cluster12_campaign_failure_visible.py.
 
 - 12-F74: DEFERRED. Re-read: the failed cell already logs a WARNING with its status and the record keeps the error text and traceback; what is missing is a per-run error count and the resume semantics (error rows count as done without --retry-failed), which is a harness-design choice for the experiment owner.
+
+- 12-F2: FIXED. ReliefF's neighbour count now uses the size of the rarest class that occurs (np.unique counts) instead of bincount().argmin(), which picked an empty class for labels not in 0..K-1 (balanced {1,2} gave k=1) and raised on negative labels. Test tests/feature_selection/test_cluster12_relief_minority_count.py.

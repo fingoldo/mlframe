@@ -313,7 +313,6 @@
 | 09-F29 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F30 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F31 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
-| 12-F2 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F3 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F4 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F5 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
@@ -1636,3 +1635,5 @@
 | 09-F15 | FIXED | In the underdetermined configuration a row whose lstsq raises now stays NaN (the column's 'not identifiable' sentinel) instead of being overwritten with 0.0; the identifiable case keeps its documented zero fallback and the log line says which. Test tests/feature_engineering/transformer/test_cluster09_local_curvature_nan_stays_nan.py. |
 
 | 14-F3 | FIXED | The array path of the auto-tune fingerprint casts each column to float when it can and factorises it otherwise (missing stays NaN), so a polars or object-array frame with a string column no longer raises and no longer skips auto-tune. The numeric-fraction signal on that path is still reported as 1.0. Test tests/feature_selection/test_cluster14_auto_tune_string_columns.py. |
+
+| 12-F2 | FIXED | ReliefF's neighbour count now uses the size of the rarest class that occurs (np.unique counts) instead of bincount().argmin(), which picked an empty class for labels not in 0..K-1 (balanced {1,2} gave k=1) and raised on negative labels. Test tests/feature_selection/test_cluster12_relief_minority_count.py. |
