@@ -325,7 +325,6 @@
 | 12-F13 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F14 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F15 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
-| 12-F17 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F40 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F41 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F42 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
@@ -1637,3 +1636,5 @@
 | 14-F3 | FIXED | The array path of the auto-tune fingerprint casts each column to float when it can and factorises it otherwise (missing stays NaN), so a polars or object-array frame with a string column no longer raises and no longer skips auto-tune. The numeric-fraction signal on that path is still reported as 1.0. Test tests/feature_selection/test_cluster14_auto_tune_string_columns.py. |
 
 | 12-F2 | FIXED | ReliefF's neighbour count now uses the size of the rarest class that occurs (np.unique counts) instead of bincount().argmin(), which picked an empty class for labels not in 0..K-1 (balanced {1,2} gave k=1) and raised on negative labels. Test tests/feature_selection/test_cluster12_relief_minority_count.py. |
+
+| 12-F17 | FIXED | classify_exception no longer reports a timeout for ValueError, TypeError, KeyError, IndexError, AttributeError or AssertionError whose message merely contains 'timeout' or 'timed out'; TimeoutError, runtime errors that say they timed out and subprocess timeouts keep the timeout status. Test tests/feature_selection/test_cluster12_classify_exception_timeout_text.py. |

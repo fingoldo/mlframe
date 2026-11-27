@@ -777,7 +777,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 12-F14 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F15 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F16 | 12_feature_selection-3.md | FIXED | Unblinding replaces whole labels in one pass, longest first, so arm_b no longer rewrites inside arm_bx; a non-object mapping JSON means no mapping instead of a crash. Test tests/feature_selection/test_cluster12_blinding_boundaries_and_json.py; 16 blinding tests pass. |
-| 12-F17 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
+| 12-F17 | 12_feature_selection-3.md | FIXED | classify_exception no longer reports a timeout for ValueError, TypeError, KeyError, IndexError, AttributeError or AssertionError whose message merely contains 'timeout' or 'timed out'; TimeoutError, runtime errors that say they timed out and subprocess timeouts keep the timeout status. Test tests/feature_selection/test_cluster12_classify_exception_timeout_text.py. |
 | 12-F18 | 12_feature_selection-3.md | FIXED | _quantile_block returns an explicit 'No finite tau' line instead of crashing on an empty tau list. Test tests/feature_selection/test_cluster12_quantile_block_empty.py. |
 | 12-F40 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F41 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
