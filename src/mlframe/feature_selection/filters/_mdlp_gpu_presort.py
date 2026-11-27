@@ -201,7 +201,7 @@ def _eligible(column: np.ndarray) -> "np.ndarray | None":
     if column.dtype == np.float32:
         x32 = np.ascontiguousarray(column)
     elif column.dtype == np.float64:  # Intentional float64: the test of the incoming column's dtype, no double array is made
-        from .discretization._quantile_radix import _f64_as_f32_njit
+        from .discretization import f64_as_f32_njit as _f64_as_f32_njit
 
         exact, x32 = _f64_as_f32_njit(np.ascontiguousarray(column))
         if not exact:
