@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     pass
@@ -68,35 +67,6 @@ from mlframe.utils.array_shape import size_of
 
 
 logger = logging.getLogger("mlframe.training.trainer")
-
-
-# A5#4/#16 session-level memo for ``get_training_configs``. The function is called
-# twice per ``select_target`` invocation (CPU + GPU), and ``select_target`` runs
-# once per (target, pre_pipeline, model) in the suite -- ten targets x three
-# pre_pipelines x five models = 300 calls to ``get_training_configs`` per suite.
-# Most of those calls share identical ``config_params`` content because the
-# suite-level ``hyperparams_config.model_dump()`` is computed once and never
-# changes between targets; only ``subgroups`` may differ when per-target OD
-# filtering changes ``train_idx`` / ``val_idx``.
-#
-# The cache is capped via FIFO eviction at 16 entries to bound memory; in
-# practice 2-4 entries cover the canonical suite (CPU + GPU x at most a few
-# distinct ``subgroups`` shapes). Falls through to a direct call when the
-# kwargs contain unhashable values (callable scorers, large polars-categorical
-# dicts) so the contract stays "memo when safe; direct otherwise".
-_GTC_CACHE_MAX = 16
-_GTC_CACHE: "dict[tuple, Any]" = {}
-# Guards _GTC_CACHE and its pin dict together: concurrent fits could otherwise evict a key between another
-# thread's insert into one dict and the other, leaving a pin without its entry or an entry without its pin.
-_GTC_CACHE_LOCK = threading.Lock()
-# Pins the exact ``subgroups`` object whose id() was folded into a live cache key, keyed by that same
-# key. CPython can reuse a freed object's id() for a brand-new, unrelated object -- without this pin, a
-# short-lived ``indexed_subgroups`` dict from one target being garbage-collected and a DIFFERENT
-# target's freshly-built dict landing at the same id() would produce a stale cache HIT mixing one
-# target's fairness-subgroup-derived calibration metric config into another target's result. Holding a
-# strong reference here for as long as the cache entry lives guarantees id() cannot be reused by
-# anything else while that entry is still a valid hit; evicted together with its cache entry below.
-_GTC_CACHE_SUBGROUPS_PIN: "dict[tuple, Any]" = {}
 
 
 logger = logging.getLogger("mlframe.training.trainer")
