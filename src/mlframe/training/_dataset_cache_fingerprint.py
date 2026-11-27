@@ -51,9 +51,12 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 _MAX_SAMPLE_ROWS = 64
+CONTENT_HASH_AT = 4
+CONTENT_KEY_LEN = CONTENT_HASH_AT + 1
+"""Layout of :func:`compute_signature`: ``(cols, n_rows, n_cols, dtypes, content_hash, extra)``."""
 
 
-def compute_signature(X: Any, *, extra: tuple = ()) -> tuple:
+def compute_signature(X: Any, *, extra: tuple = (), exact_numeric: bool = False) -> tuple:
     """Return a content-based cache key for ``X``.
 
     Parameters
@@ -66,6 +69,14 @@ def compute_signature(X: Any, *, extra: tuple = ()) -> tuple:
         Additional tuple to fold into the key (eg. ``cat_features``,
         ``text_features``). Always positional so callers can compose
         without changing the key when ``extra`` is omitted.
+    exact_numeric
+        Also fold an exact digest of every numeric column's raw bytes into the content hash, so a change to any single
+        numeric value changes the key (the sampled rows alone miss a change between sampled positions). Costs one
+        pass over the numeric data (about 0.6 s for 2M rows x 40 float64 columns); non-numeric columns stay sampled.
+        Off by default. Writer and reader of one cache must ask for the same mode.
+
+    The content hash is element ``CONTENT_HASH_AT`` of the returned tuple; key prefixes that must say something about
+    content are ``sig[:CONTENT_KEY_LEN]``, not ``sig[:4]`` (which stops before the content hash).
     """
     cols = tuple(str(c) for c in X.columns) if hasattr(X, "columns") else None
     shape = getattr(X, "shape", (None, None))
@@ -77,6 +88,8 @@ def compute_signature(X: Any, *, extra: tuple = ()) -> tuple:
         # same columns and shape would share it and one would be served the other's cached dataset. A fresh sentinel
         # makes the key match nothing - a cache miss, which is the safe answer to "cannot tell".
         content_hash = ("unhashable", object())
+    elif exact_numeric:
+        content_hash = (content_hash, _exact_numeric_digest(X))
     # dtypes, as step 1 of the module docstring always said: a tier transition that recasts the same columns
     # float64 -> float32 (or int -> category) otherwise produces an identical key, and the booster caches hand back
     # a dataset built from the old dtypes.
@@ -258,3 +271,40 @@ def _row_sample_hash(X: Any, n_rows: int | None) -> int | None:
     if hasattr(X, "__getitem__") and hasattr(X, "ndim"):
         return _hash_sampled_rows(lambda: _ndarray_row_samples(np.asarray(X), indices, n_rows), "np.asarray()")
     return None
+
+
+def _numeric_column_arrays(X: Any) -> list:
+    """The numeric columns of ``X`` (pandas, polars or ndarray) as contiguous numpy arrays; other columns are skipped."""
+    if hasattr(X, "iloc"):
+        cols = [X.iloc[:, i] for i in range(X.shape[1])]
+    elif hasattr(X, "get_columns"):
+        cols = list(X.get_columns())
+    elif isinstance(X, np.ndarray):
+        return [np.ascontiguousarray(X)] if X.dtype.kind in "biuf" else []
+    else:
+        return []
+    out: list = []
+    for col in cols:
+        arr = col.to_numpy()
+        if arr.dtype.kind in "biuf":
+            out.append(np.ascontiguousarray(arr))
+    return out
+
+
+def _exact_numeric_digest(X: Any) -> object:
+    """A BLAKE2b digest over the raw bytes of every numeric column, or a fresh sentinel when the bytes cannot be read.
+
+    Any single changed value, including NaN versus a number, changes the digest. The sentinel makes the key match
+    nothing (a cache miss), the safe answer to "cannot tell".
+    """
+    import hashlib
+
+    try:
+        h = hashlib.blake2b(digest_size=16)
+        for arr in _numeric_column_arrays(X):
+            h.update(arr.dtype.str.encode())
+            h.update(memoryview(arr.reshape(-1).view(np.uint8)))
+        return h.hexdigest()
+    except Exception as exc:
+        logger.debug("exact numeric digest unavailable (%s: %s); the key matches nothing.", type(exc).__name__, exc)
+        return ("unreadable", object())

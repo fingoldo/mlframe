@@ -558,11 +558,12 @@ def _psi_cache_key(test_frame: Any, timestamps: Any, names: Any) -> Optional[tup
     """
     try:
         from mlframe.training import compute_signature
+        from mlframe.training._dataset_cache_fingerprint import CONTENT_KEY_LEN
 
         ts = np.asarray(timestamps)
         ts_key = (int(ts.size), str(ts[0]), str(ts[-1])) if ts.size else (0,)
         return (
-            compute_signature(test_frame)[:4],
+            compute_signature(test_frame)[:CONTENT_KEY_LEN],
             ts_key,
             tuple(str(n) for n in names) if names is not None else None,
         )

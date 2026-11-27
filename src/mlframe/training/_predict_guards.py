@@ -137,16 +137,16 @@ def _cb_val_pool_cache_lookup(X: Any, method: str) -> Any | None:
     # so it never hit and every predict on the val frame rebuilt the Pool (53-66 s per metrics call on a 7M-row run).
     # Match on the same content signature; ``extra`` is not known here and does not change a predict.
     try:
-        from ._dataset_cache_fingerprint import compute_signature
+        from ._dataset_cache_fingerprint import CONTENT_KEY_LEN, compute_signature
 
-        _sig = compute_signature(X)[:4]
+        _sig = compute_signature(X, exact_numeric=True)[:CONTENT_KEY_LEN]
     except Exception as e:
         # best-effort: a failed signature only costs a cache miss, so the Pool is rebuilt and the predict stays correct.
         logger.debug("val-pool cache lookup: signature failed, skipping cache reuse: %s", e)
         return None
     # A snapshot: CatBoost fits on other threads insert and evict while this scans.
     for key, pool in list(_CB_VAL_POOL_CACHE.items()):
-        if tuple(key[:4]) != _sig:
+        if tuple(key[:CONTENT_KEY_LEN]) != _sig:
             continue
         if _dtypes_sig is not None:
             cached_dtypes = getattr(pool, "_mlframe_dtypes_sig", None)

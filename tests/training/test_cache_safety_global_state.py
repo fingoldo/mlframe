@@ -102,7 +102,7 @@ def test_con11_cb_val_pool_stage1_accepts_matching_dtypes():
     pool._mlframe_dtypes_sig = ("float64", "float64")
     pg._CB_VAL_POOL_CACHE.clear()
     # The key ``cb._cb_pool`` writes: the content signature plus the (cat, text, embedding) feature lists.
-    pg._CB_VAL_POOL_CACHE[compute_signature(X_fit, extra=((), (), ()))] = pool
+    pg._CB_VAL_POOL_CACHE[compute_signature(X_fit, extra=((), (), ()), exact_numeric=True)] = pool
     assert pg._cb_val_pool_cache_lookup(X_fit.copy(), "predict") is pool
     pg._CB_VAL_POOL_CACHE.clear()
 

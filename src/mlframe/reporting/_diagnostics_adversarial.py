@@ -72,8 +72,9 @@ def _adversarial_cache_key(train_frame: Any, test_frame: Any, val_frame: Any, na
     """Content key for an adversarial-validation figure: frame signatures (columns, shape, row-sample hash) + features."""
     try:
         from mlframe.training import compute_signature
+        from mlframe.training._dataset_cache_fingerprint import CONTENT_KEY_LEN
 
-        sig = tuple(compute_signature(f)[:4] if f is not None else None for f in (train_frame, test_frame, val_frame))
+        sig = tuple(compute_signature(f)[:CONTENT_KEY_LEN] if f is not None else None for f in (train_frame, test_frame, val_frame))
         return (*sig, tuple(str(n) for n in names) if names is not None else None, int(seed))
     except Exception as exc:  # an unkeyable frame only means "do not cache": the figure is recomputed, never wrong
         # best-effort: an unkeyable frame only disables caching; the figure is recomputed, never wrong.

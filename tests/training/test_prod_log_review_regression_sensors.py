@@ -1539,7 +1539,7 @@ class TestCBValPoolCacheContentFallback:
 
         # The key the fit side (``cb._cb_pool``) writes: content signature plus the (cat, text, embedding) lists.
         assert cols_a and shape_a
-        _CB_VAL_POOL_CACHE[compute_signature(df_a, extra=((), (), ()))] = fake_pool
+        _CB_VAL_POOL_CACHE[compute_signature(df_a, extra=((), (), ()), exact_numeric=True)] = fake_pool
 
         # Lookup with df_b: id miss, but cols+shape+dtypes match → hit.
         calls = []

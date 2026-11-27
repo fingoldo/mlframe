@@ -931,6 +931,7 @@ def _maybe_rewrite_eval_set_as_cb_pool(fit_params: dict[str, Any]) -> None:
         key = compute_signature(
             val_df,
             extra=(cat_features, text_features, embedding_features),
+            exact_numeric=True,
         )
 
         cached = _CB_VAL_POOL_CACHE.get(key)
