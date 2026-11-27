@@ -1599,7 +1599,6 @@
 
 
 
-| 28-F64 | DEFERRED | Re-read: the write is the mechanism that hands the first model's stats to every later model through the shared common_params, and process_model also returns them. Removing the write is safe only once every later call site is shown to pass the returned value explicitly; no wrong result was observed, so the audited-reader pass is left to the training-loop owner. |
 
 
 
@@ -1659,3 +1658,5 @@
 | 20-F8 | FIXED | Owner decision applied (option B): the multilabel and multiclass reliability panels pass LinePanelSpec.x as a tuple of per-series x arrays (the spec already supported it), each curve at its per-bin MEAN prediction (NaN where the bin is empty, matching the NaN observed rate), the pooled series at the pooled mean prediction, and the diagonal on the uniform grid; the x labels say 'Mean predicted P(...)' again because they are now true. The legend ECE already used the mean prediction. Tests tests/reporting/test_cluster20_reliability_curves_at_mean_prediction.py (including a render on both backends) and the earlier multilabel ECE test updated. |
 
 | 24-F39 | FIXED | Owner decision applied (option C): the whole SGNS training loop runs in one numba call (_sgns_train_njit): window width, negatives and update stay compiled, token indices are flattened once into an array with per-sequence offsets, and negatives come from _draw_negative, an inverse-transform binary search over the cumulative freq**0.75 table (the old rng.choice re-validated p on every call). Measured on 1500 sequences x 60 tokens, 300-token vocabulary, dim 32, 2 epochs: 46.9 s before, 0.78 s after. As agreed this changes the random stream, so embeddings for a given seed differ from before (same distribution); a given random_state is still reproducible. Tests tests/feature_engineering/test_cluster24_sequence2vec_numba_loop.py (sampler distribution against freq**0.75, co-occurring tokens closer than never-co-occurring, determinism, empty sequences). |
+
+| 28-F64 | DOCUMENTED | Owner decision applied (leave, document): the write of trainset_features_stats into the shared common_params stays; a comment at the site now says it is a fallback for standalone calls (the suite computes the statistics up front and passes them in), that the write is how the first model's statistics reach later models, and that the value is also returned. No behaviour change. |
