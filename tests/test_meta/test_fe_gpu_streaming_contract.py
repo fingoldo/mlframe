@@ -77,7 +77,7 @@ def test_every_tuner_dispatched_backend_names_a_real_dispatcher():
     broken = {name: ktc_dispatch_problems(name) for name in KTC_DISPATCHERS if ktc_dispatch_problems(name)}
     assert not broken, f"KTC_DISPATCHERS entries that no longer hold: {broken}"
     assert KTC_DISPATCHERS and all(len(why) > 30 for _dispatcher, why in KTC_DISPATCHERS.values())
-    assert all(name in set(fe_modules()) for name in KTC_DISPATCHERS), "an entry names a module that is not an FE module"
+    assert set(KTC_DISPATCHERS) <= set(fe_modules()), "an entry names a module that is not an FE module"
 
 
 def test_every_cpu_twin_names_a_real_module_with_a_numba_kernel():
@@ -85,7 +85,7 @@ def test_every_cpu_twin_names_a_real_module_with_a_numba_kernel():
     broken = {name: cpu_twin_problems(name) for name in CPU_TWINS if cpu_twin_problems(name)}
     assert not broken, f"CPU_TWINS entries that no longer hold: {broken}"
     assert CPU_TWINS and all(len(why) > 30 for _twin, why in CPU_TWINS.values())
-    assert all(name in set(fe_modules()) for name in CPU_TWINS), "an entry names a module that is not an FE module"
+    assert set(CPU_TWINS) <= set(fe_modules()), "an entry names a module that is not an FE module"
 
 
 def test_every_gpu_backend_is_a_real_module_that_meets_the_contract_itself():
@@ -95,7 +95,7 @@ def test_every_gpu_backend_is_a_real_module_that_meets_the_contract_itself():
     broken = {name: gpu_backend_problems(name) for name in GPU_BACKENDS if gpu_backend_problems(name)}
     assert not broken, f"GPU_BACKENDS entries that no longer hold: {broken}"
     assert GPU_BACKENDS and all(backends and len(why) > 30 for backends, why, _tuned in GPU_BACKENDS.values())
-    assert all(name in set(fe_modules()) for name in GPU_BACKENDS), "an entry names a module that is not an FE module"
+    assert set(GPU_BACKENDS) <= set(fe_modules()), "an entry names a module that is not an FE module"
 
 
 def test_integer_code_kernels_meet_the_type_point_through_their_code_type_placeholder():
