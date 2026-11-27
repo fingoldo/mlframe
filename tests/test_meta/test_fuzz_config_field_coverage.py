@@ -223,7 +223,8 @@ def test_semantic_generators_move_every_registered_field_off_its_default(monkeyp
         cls_name, field = key.split(".", 1)
         by_class.setdefault(cls_name, []).append(field)
     hit: set = set()
-    combos = [dataclasses.replace(c, n_rows=300) for c in enumerate_combos(target=150, master_seed=7)]
+    # Date-window recipes need a datetime column and are about one combo in thirty, and val_start is drawn in under half of those: 150 combos left it unmoved.
+    combos = [dataclasses.replace(c, n_rows=300) for c in enumerate_combos(target=300, master_seed=7)]
     for i, combo in enumerate(combos):
         for cls_name, fields in by_class.items():
             default = _semantic_base(cls_name)
