@@ -255,7 +255,7 @@ class ShapProxiedFitMixin(ShapProxiedFitStepsMixin):
                 return_per_fold_phi_mean=want_per_fold_phi,
                 cache_dir=self.cache_dir, cv_policy=getattr(self, "_search_cv_policy", None))
         base, per_fold_phi_mean, phi, phi_var, y_phi = self._fit_step2_want_var_want(want_var, want_per_fold_phi, shap_out)
-        kept = np.flatnonzero(np.isfinite(np.asarray(base, dtype=np.float64)))
+        kept = np.flatnonzero(np.isfinite(np.asarray(base)))
         if kept.size == len(base):
             return want_per_fold_phi, base, per_fold_phi_mean, phi, phi_var, y_phi, X_proxy, y_search, None
         if kept.size == 0:

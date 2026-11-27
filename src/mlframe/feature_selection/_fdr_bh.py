@@ -9,6 +9,7 @@ import numpy as np
 from numpy.typing import ArrayLike, DTypeLike
 
 
+# Intentional float64: the default compare dtype, so the rejection set does not depend on the caller's float width; a caller may pass a narrower dtype.
 def benjamini_hochberg_reject(p_values: ArrayLike, alpha: float, dtype: DTypeLike = np.float64) -> np.ndarray:
     """Boolean mask, ``True`` where the null is rejected at FDR ``alpha`` across all tested hypotheses.
 
