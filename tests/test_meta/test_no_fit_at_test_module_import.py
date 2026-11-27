@@ -7,6 +7,7 @@ A one-off setup belongs in a fixture, which runs only when a test that needs it 
 
 from __future__ import annotations
 from tests.test_meta._scan_guard import assert_scanned_enough
+from tests.test_meta._shared_ast_cache import parsed_ast
 
 import ast
 from pathlib import Path
@@ -87,9 +88,8 @@ def test_no_test_module_trains_a_model_at_import():
     files = sorted(p for pattern in ("test_*.py", "conftest.py") for p in TESTS_ROOT.rglob(pattern))
     assert_scanned_enough(len(files), "tests")
     for path in files:
-        try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
-        except (SyntaxError, UnicodeDecodeError):
+        tree = parsed_ast(path)  # the process-wide parse cache: None for a file that does not decode or parse, which this scan skips as before
+        if tree is None:
             continue
         for line in _import_time_fits(tree):
             offenders.append(f"{path.relative_to(TESTS_ROOT).as_posix()}:{line}")
