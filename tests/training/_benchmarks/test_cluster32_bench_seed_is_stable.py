@@ -15,7 +15,7 @@ from mlframe.training._benchmarks import bench_threshold_objective as bench
 _REAL_DEFAULT_RNG = np.random.default_rng
 
 
-class _Stop(Exception):
+class _StopError(Exception):
     """Stops the benchmark once the seeds of its first scenario are recorded."""
 
 
@@ -27,12 +27,12 @@ def _seeds_of_the_first_scenario(monkeypatch, salted_hash):
         """Record the seed, and stop after the oracle draw plus the first cell."""
         seeds.append(seed)
         if len(seeds) > 2:
-            raise _Stop
+            raise _StopError
         return _REAL_DEFAULT_RNG(seed)
 
     monkeypatch.setattr(builtins, "hash", salted_hash)
     monkeypatch.setattr(np.random, "default_rng", recorder)
-    with pytest.raises(_Stop):
+    with pytest.raises(_StopError):
         bench.run()
     return seeds
 
