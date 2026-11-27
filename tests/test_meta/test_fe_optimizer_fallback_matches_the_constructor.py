@@ -11,6 +11,7 @@ import inspect
 from pathlib import Path
 
 from mlframe.feature_selection.filters.mrmr import MRMR
+from tests.test_meta._scan_guard import assert_scanned_enough
 
 _SRC = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "feature_selection"
 
@@ -18,9 +19,8 @@ _SRC = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "feature_select
 def _fallbacks_of(attribute: str) -> "list[tuple[str, int, object]]":
     """``(file, line, fallback)`` of every ``getattr(self, "<attribute>", <literal>)`` under the feature-selection package."""
     found: list[tuple[str, int, object]] = []
-    for path in sorted(_SRC.rglob("*.py")):
-        if "_benchmarks" in path.parts:
-            continue
+    files = [path for path in sorted(_SRC.rglob("*.py")) if "_benchmarks" not in path.parts]
+    for path in files:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr" and len(node.args) == 3):
@@ -28,6 +28,7 @@ def _fallbacks_of(attribute: str) -> "list[tuple[str, int, object]]":
             obj, name, fallback = node.args
             if isinstance(obj, ast.Name) and obj.id == "self" and isinstance(name, ast.Constant) and name.value == attribute and isinstance(fallback, ast.Constant):
                 found.append((path.relative_to(_SRC).as_posix(), node.lineno, fallback.value))
+    assert_scanned_enough(len(files), "src/mlframe/feature_selection")
     return found
 
 

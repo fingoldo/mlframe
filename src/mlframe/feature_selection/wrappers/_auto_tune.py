@@ -92,12 +92,12 @@ def _target_as_float(y_arr: np.ndarray) -> np.ndarray:
 
 
 def _float_columns(arr: np.ndarray) -> np.ndarray:
-    """A float64 copy of a non-numeric 2-D array: each column is cast when it can be, otherwise factorised (missing values stay NaN).
+    """A double-precision copy of a non-numeric 2-D array: each column is cast when it can be, otherwise factorised (missing values stay NaN).
 
     ``astype(float)`` on the whole array raised on any string column, which is what a polars frame with a text column reaches this path as, so
     auto-tune was skipped with only a warning (14-F3). Codes of a categorical column are a crude but defined signal for the correlation pass.
     """
-    out = np.empty(arr.shape, dtype=np.float64)
+    out = np.empty(arr.shape, dtype=np.float64)  # Intentional float64: each column is cast with astype(float), which is double; the block holds strings, so it is a small fingerprint copy
     for j in range(arr.shape[1]):
         col = arr[:, j]
         try:
