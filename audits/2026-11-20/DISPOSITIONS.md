@@ -694,7 +694,6 @@
 | 28-F22 | FIXED | Lasso and elasticnet classifiers refuse alpha <= 0 with a ValueError naming the unpenalised alternative, instead of silently using C=1.0. Test tests/training/test_cluster28_linear_classifier_alpha_positive.py. |
 | 28-F23 | DEFERRED | Uncalled function: project rule is to wire it in or classify it before deleting. Classification is deferred to the uncalled-functions pass. |
 | 28-F24 | DEFERRED | The TTA duplication needs the fused function kept and the others made thin wrappers, or removed; that touches a public API and the bench that calls it. Deferred. |
-| 28-F48 | DEFERRED | report_title is built and never emitted: wiring it in changes the train report, so it is an owner decision (emit or delete). |
 | 32-F10 | FIXED | Integer timestamps go through the same unit detector as object timestamps, so epoch seconds are no longer read as nanoseconds. Test tests/training/test_cluster32_integer_epoch_seconds_unit.py. |
 | 32-F26 | FIXED | The smoke script exits 1 when the suite raises instead of printing a pass line and returning 0. Verified by reading; the smoke run is a manual end-to-end script, not a unit test. |
 | 33-F3 | FIXED | The conformal rank rule lives in one helper (conformal_rank), used by the split, signed and online calibrations. Two further copies in conformal_classification.py and conformal_glm.py are outside the finding and are not yet changed. Tests: tests/training/composite/test_biz_val_conformal_ood.py (16 pass). |
@@ -1640,3 +1639,5 @@
 | 12-F42 | DOCUMENTED | The override is deliberate: _min_rows_for_minority guarantees the minimum minority count, so a null bed has max(n, 10000) rows. The _make_null docstring now says so; behaviour unchanged. |
 
 | 28-F47 | FIXED | Deleted the duplicate _GTC_CACHE, lock, pin dict and cap (and the now-unused threading import) from _trainer_configure_helpers.py; a repo-wide grep shows every reader and test uses the live copy in _trainer_configure.py. Test tests/training/test_cluster28_gtc_cache_single_copy.py. |
+
+| 28-F48 | FIXED | Removed _train_and_evaluate_train_df_none (it built report_title and returned None, and its only caller ignored the result) together with its import and call; nothing else referenced it. Test tests/training/test_cluster28_no_unused_report_title_builder.py. |
