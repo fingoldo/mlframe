@@ -161,7 +161,6 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F62: FIXED. Collapsed the no-op l1_ratio conditional: both branches returned config.l1_ratio, so behaviour is unchanged. Regression: 43 existing linear-model tests pass.
 - 28-F67: FIXED. parse_catboost_devices returns GPUs in the requested order, each once. Test test_cluster28_catboost_devices_requested_order.py; 37 existing device-parsing tests pass.
 - 28-F60: FIXED. Removed the unreachable '(none)' description branch: _bad_desc is only built inside if _bad. Regression: 14 existing CatBoost text-feature probe tests pass.
-- 28-F64: DEFERRED. process_model writes trainset_features_stats into the shared common_params. It may be relied on by later models in the same loop; removing the write needs an audit of every reader of common_params first. Deferred.
 - 28-F71: FIXED. The categorical column set is built once per call rather than once per feature. Output unchanged. Regression: 53 existing drift-report tests pass.
 - 28-F50: FIXED. Removed the duplicate SimpleNamespace import (aliased copy) and used the plain name. The repeated _pre_pipeline_groups reset is left in place: it is only redundant if the attribute is already None, which this change does not establish. Regression: module import check and a related trainer test pass.
 - 28-F55: FIXED. Removed the no-op del of a parameter (it freed nothing while the caller held the frame); _maybe_clean_ram still runs. Import check passes; the removed branch had no observable effect, so no test.
@@ -192,3 +191,5 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 
 
 - 28-F76: PARTIAL. Tests now cover _oof_train_timestamps, retry_params_after_empty_text_dictionary and _open_verified_bundle (missing file, matching digest, tampered bytes, no digest with and without the opt-out). Still without a test reference: _run_val_split_metrics, _run_test_split_metrics, _handle_fit_failure, _realign_val_columns; each needs a fixture trainer. Tests tests/training/test_cluster28_untested_helpers.py and test_cluster28_open_verified_bundle.py.
+
+- 28-F64: DEFERRED. Re-read: the write is the mechanism that hands the first model's stats to every later model through the shared common_params, and process_model also returns them. Removing the write is safe only once every later call site is shown to pass the returned value explicitly; no wrong result was observed, so the audited-reader pass is left to the training-loop owner.

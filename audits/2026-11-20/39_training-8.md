@@ -193,8 +193,9 @@ Totals: 72 findings. P0: 0. P1: 20. P2: 26. P3: 26.
 
 - 39-F68: FIXED. The all-zero-weight check in the weighted MLP loss runs on every 50th batch (_ZERO_WEIGHT_CHECK_EVERY), not on every step, so the host-device sync is paid 1/50 as often. A zero-weight batch is reported at the next sampled batch rather than on the batch itself; the loss value is unchanged. Test tests/training/neural/test_cluster39_zero_weight_check_sampled.py (2 passed).
 
-- 39-F28: DEFERRED. _derive_memory_budgets writes derived values into the user's memory and cache sub-configs, so a dump and re-validation treats them as explicit. The fix needs the cache to read the resolved values: cache.py reads self._cfg.ram_max_gb and ram_reserve_gb from the sub-config, so the cache construction site must receive the _resolved_* values. Plan: pass resolved values into the cache constructor, stop writing into the sub-configs, and test a round trip on a smaller simulated RAM limit. No code change in this pass.
 
 - 39-F62: FIXED. The probe that runs the degenerate-init check on every fit is renamed _generate_mlp_every_fit_init_probe (it was named as a bench-profiling helper); its failure is logged at WARNING and says the check was skipped. The old name is gone from the sources. Tests tests/training/neural/test_cluster39_init_probe_name.py (2 passed).
 
 - 39-F31: FIXED. apply.py uses one named constant _SVD_DEFAULT_DIM (256, unchanged) at both SVD call sites instead of a repeated literal, and the assembler docstring names the real svd_default_dim argument. There is no config field for the width, so none is added. Tests tests/training/feature_handling/test_cluster39_svd_default_constant.py (2 passed).
+
+- 39-F28: DEFERRED. Re-read: the validator assigns the derived values onto the public memory.budget_gb, cache.ram_max_gb and cache.ram_reserve_gb fields, and the test suite and cache.py read them there. Moving them to private resolved fields changes what every reader and every dumped config sees, so it needs the readers migrated together with a way to dump the user's original (None) values; a partial change would leave the dump/re-validate case failing as before.

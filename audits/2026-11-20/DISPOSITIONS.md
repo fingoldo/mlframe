@@ -946,7 +946,6 @@
 | 28-F62 | FIXED | Collapsed the no-op l1_ratio conditional: both branches returned config.l1_ratio, so behaviour is unchanged. Regression: 43 existing linear-model tests pass. |
 | 28-F67 | FIXED | parse_catboost_devices returns GPUs in the requested order, each once. Test test_cluster28_catboost_devices_requested_order.py; 37 existing device-parsing tests pass. |
 | 28-F60 | FIXED | Removed the unreachable '(none)' description branch: _bad_desc is only built inside if _bad. Regression: 14 existing CatBoost text-feature probe tests pass. |
-| 28-F64 | DEFERRED | process_model writes trainset_features_stats into the shared common_params. It may be relied on by later models in the same loop; removing the write needs an audit of every reader of common_params first. Deferred. |
 | 28-F71 | FIXED | The categorical column set is built once per call rather than once per feature. Output unchanged. Regression: 53 existing drift-report tests pass. |
 | 27-F22 | FIXED | Title positive rate counts the larger label as positive, matching the decision-threshold block (labels {1, 2} no longer read as 0%). Test test_cluster27_title_rate_positive_larger_label.py. |
 | 27-F21 | FIXED | recalibrate on an unfitted DistributionalRecalibrator raises RuntimeError instead of returning the identity. Test test_cluster27_unfitted_recalibrator_raises.py; 19 existing calibration tests pass. |
@@ -1355,7 +1354,6 @@
 
 | 38-F24 | FIXED | A CV policy without a target_type is refused with a ValueError instead of being silently wired as regression. Test tests/training/core/test_cluster38_cv_policy_needs_target_type.py (2 passed). |
 
-| 39-F28 | DEFERRED | _derive_memory_budgets writes derived values into the user's memory and cache sub-configs, so a dump and re-validation treats them as explicit. The fix needs the cache to read the resolved values: cache.py reads self._cfg.ram_max_gb and ram_reserve_gb from the sub-config, so the cache construction site must receive the _resolved_* values. Plan: pass resolved values into the cache constructor, stop writing into the sub-configs, and test a round trip on a smaller simulated RAM limit. No code change in this pass. |
 
 | 35-F28 | DOCUMENTED | The default quantile grid (0.05..0.95) truncates the tails: sample() holds draws flat outside Q(0.05)..Q(0.95) and crps() omits the outer 5% per side. Documented at the grid; extending it with 0.001/0.999 costs two inner fits and is noisy on small samples, so the default is kept and an explicit tail grid is the way out. Test tests/training/composite/test_cluster35_grid_truncation_documented.py (2 passed). |
 
@@ -1626,3 +1624,7 @@
 
 
 | 28-F76 | PARTIAL | Tests now cover _oof_train_timestamps, retry_params_after_empty_text_dictionary and _open_verified_bundle (missing file, matching digest, tampered bytes, no digest with and without the opt-out). Still without a test reference: _run_val_split_metrics, _run_test_split_metrics, _handle_fit_failure, _realign_val_columns; each needs a fixture trainer. Tests tests/training/test_cluster28_untested_helpers.py and test_cluster28_open_verified_bundle.py. |
+
+| 39-F28 | DEFERRED | Re-read: the validator assigns the derived values onto the public memory.budget_gb, cache.ram_max_gb and cache.ram_reserve_gb fields, and the test suite and cache.py read them there. Moving them to private resolved fields changes what every reader and every dumped config sees, so it needs the readers migrated together with a way to dump the user's original (None) values; a partial change would leave the dump/re-validate case failing as before. |
+
+| 28-F64 | DEFERRED | Re-read: the write is the mechanism that hands the first model's stats to every later model through the shared common_params, and process_model also returns them. Removing the write is safe only once every later call site is shown to pass the returned value explicitly; no wrong result was observed, so the audited-reader pass is left to the training-loop owner. |
