@@ -38,6 +38,8 @@ from pathlib import Path
 import orjson
 import pytest
 
+from tests.test_meta._shared_ast_cache import parsed_ast, walk_cached
+
 _TESTS_DIR = Path(__file__).resolve().parent.parent
 _BASELINE_PATH = Path(__file__).resolve().parent / "_numba_config_env_mutation_baseline.json"
 
@@ -77,7 +79,7 @@ def _numba_config_env_mutations(tree: ast.Module) -> list[tuple[int, str]]:
     fixture/test function, since both run in the same live process.
     """
     out: list[tuple[int, str]] = []
-    for node in ast.walk(tree):
+    for node in walk_cached(tree):
         if isinstance(node, ast.Assign):
             for t in node.targets:
                 if isinstance(t, ast.Subscript) and _is_environ(t.value) and _const_str(t.slice) in _FLAGGED_VARS:
@@ -113,7 +115,7 @@ def _build_offending_set() -> set[str]:
         if "__pycache__" in py.parts:
             continue
         try:
-            tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
+            tree = parsed_ast(py) or ast.parse(py.read_text(encoding="utf-8", errors="replace"))  # the process-wide parse cache first
         except (SyntaxError, OSError):
             continue
         rel = py.relative_to(_TESTS_DIR).as_posix()
