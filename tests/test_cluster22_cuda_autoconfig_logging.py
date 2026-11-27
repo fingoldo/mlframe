@@ -22,3 +22,6 @@ def test_probe_failure_is_swallowed_not_an_unbound_local(monkeypatch):
 
     monkeypatch.setattr(sysconfig, "get_paths", boom)
     mlframe._autoconfigure_cuda_home()
+    # Quiet means no exception and no CUDA variable set on the way out.
+    leaked = [k for k in ("CUDA_HOME", "CUDA_PATH") if k in os.environ]
+    assert leaked == []

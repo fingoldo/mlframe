@@ -7,6 +7,8 @@ The import now lives inside the function that plots.
 import subprocess
 import sys
 
+import pytest
+
 from mlframe.training.extractors import _extractors_showcase as sc
 
 
@@ -20,9 +22,6 @@ def test_importing_the_showcase_module_does_not_load_pyplot():
 def test_plotting_path_loads_pyplot_on_demand(monkeypatch):
     """Control: calling the target-distribution plotter with no targets still reaches the lazy pyplot import (39-F16)."""
     monkeypatch.setitem(sys.modules, "matplotlib.pyplot", None)
-    try:
+    # Blocking pyplot with a None entry makes the lazy import raise, which proves the plotter imports it at call time.
+    with pytest.raises(ImportError):
         sc._showcase_target_distributions({}, False, 0, 10)
-    except ImportError:
-        # Blocking pyplot with a None entry makes the lazy import raise, which proves the plotter imports it at call time.
-        return
-    raise AssertionError("plotter did not attempt the lazy matplotlib.pyplot import")
