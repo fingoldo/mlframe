@@ -1629,4 +1629,5 @@
 | 28-F64 | DEFERRED | Re-read: the write is the mechanism that hands the first model's stats to every later model through the shared common_params, and process_model also returns them. Removing the write is safe only once every later call site is shown to pass the returned value explicitly; no wrong result was observed, so the audited-reader pass is left to the training-loop owner. |
 
 
-| 28-F76 | PARTIAL | Tests now cover _oof_train_timestamps, retry_params_after_empty_text_dictionary, _open_verified_bundle, _realign_val_columns and _handle_fit_failure (KeyboardInterrupt text, GPU callbacks, CUDA tree learner, unsupported dtype re-raise, unexpected validation keyword, unrecognised error). Still without a test reference: _run_val_split_metrics and _run_test_split_metrics, which need a fixture trainer state. Tests in tests/training/test_cluster28_*.py. |
+
+| 28-F76 | FIXED | All seven named functions now have tests: _oof_train_timestamps, retry_params_after_empty_text_dictionary, _open_verified_bundle, _realign_val_columns, _handle_fit_failure, and the two split-metric emitters (no-op without a split, argument unpacking, the val-tuned F1 threshold reused for test). Tests tests/training/test_cluster28_*.py. |
