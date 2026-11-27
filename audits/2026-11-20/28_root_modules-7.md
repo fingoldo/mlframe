@@ -155,7 +155,6 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F24: DEFERRED. The TTA duplication needs the fused function kept and the others made thin wrappers, or removed; that touches a public API and the bench that calls it. Deferred.
 - 28-F47: DEFERRED. Duplicated GTC cache state in the helpers module: deletion needs a check that nothing imports it. Deferred to the uncalled-functions pass.
 - 28-F48: DEFERRED. report_title is built and never emitted: wiring it in changes the train report, so it is an owner decision (emit or delete).
-- 28-F76: DEFERRED. Seven public or load-bearing functions have no test reference. Each needs a targeted test; deferred as a batch to its own change.
 - 28-F73: FIXED. A bare model-name string is keyed as one model, not iterated per character. Test test_cluster28_suite_key_string_models.py; 26 existing artefact-cache tests pass.
 - 28-F57: FIXED. Failed categorical casts in the LightGBM shim (fit-time val and predict-time) log a WARNING naming the column. Test test_cluster28_lgb_cat_cast_warns.py; 5 existing shim tests pass.
 - 28-F66: FIXED. Every RMSE recommendation carries lgb/xgb/cb_extra_params keys (empty), matching the other branches. Test test_cluster28_rmse_recommendation_keys.py; 15 existing loss-recommendation tests pass.
@@ -190,3 +189,5 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F56: FIXED. A failed train-envelope computation is logged at WARNING and says the reporter falls back to the per-split envelope, since the report content changes. The early-stopping strip failure was already WARNING. Test tests/training/test_cluster28_envelope_failure_warns.py (1 passed).
 
 - 28-F68: FIXED. Removed the empty trailing 'Callback Classes for Training Monitoring' section header from helpers.py (no code under it). The device-gating comment the finding names is no longer in the file. Test tests/training/test_cluster28_helpers_no_empty_header.py (2 passed).
+
+- 28-F76: PARTIAL. Added tests for _oof_train_timestamps (none, no index, numpy rows, tz-aware pandas kept) and retry_params_after_empty_text_dictionary (no text features, unigram rescue, unusable columns moved to cat_features). Still without a test reference: _run_val_split_metrics, _run_test_split_metrics, _handle_fit_failure, _realign_val_columns, _open_verified_bundle; each needs a fixture trainer or bundle. Test tests/training/test_cluster28_untested_helpers.py.
