@@ -60,7 +60,7 @@ def test_the_scaled_floor_is_the_exact_one_within_the_noise_of_the_floor_itself(
         assert got is not None, info
         ratios.append(got / exact)
     assert 0.9 <= float(np.mean(ratios)) <= 1.1, ratios
-    assert all(0.75 <= r <= 1.3 for r in ratios), ratios
+    assert ratios and all(0.75 <= r <= 1.3 for r in ratios), ratios
 
 
 @pytest.mark.parametrize("rho, expected_factor", [(1.0, 1.0), (1.05, 1.0), (1.4, 1.4), (0.7, 0.7)])

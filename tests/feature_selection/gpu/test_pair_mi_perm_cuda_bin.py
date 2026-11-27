@@ -82,7 +82,8 @@ def test_a_three_class_target_stays_on_the_general_kernel(monkeypatch):
     """The outcome-code kernel counts one bit per permutation: a target of three classes never reaches it."""
     monkeypatch.setattr(B, "launch_pairs_binary", lambda *a, **k: (_ for _ in ()).throw(AssertionError("the binary kernel was used")))
     args = _case(2000, [4, 6, 5], 30, 5, ky=3)
-    assert P.pair_mi_perm_matrix_cuda(*args, 10_000) is not None
+    table = P.pair_mi_perm_matrix_cuda(*args, 10_000)
+    assert table is not None and table.shape == (5, 30) and np.isfinite(table).all()
 
 
 @pytest.mark.parametrize("bins", [[2, 5, 7], [16, 16, 16], [32, 48, 48]])

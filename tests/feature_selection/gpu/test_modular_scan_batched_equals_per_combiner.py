@@ -33,6 +33,7 @@ def test_batched_values_equal_per_combiner_values():
     out = res.combiner_bases_and_grids_resident(combiners, y, mods, nbins=12, rank_binning=True)
     assert out is not None
     bases, grids = out
+    assert grids.shape == (len(combiners), len(mods))
     for i, c in enumerate(combiners):
         one_grid = res.residue_grid_mis_resident(c, y, mods, nbins=12)
         one_base = res.combiner_mi_resident(c, y, nbins=12, rank_binning=True, modulus=0)
@@ -49,6 +50,7 @@ def test_moduli_past_the_radix_cap_batch_like_the_small_ones():
     out = res.combiner_bases_and_grids_resident(combiners, y, mods, nbins=12, rank_binning=True)
     assert out is not None
     bases, grids = out
+    assert grids.shape == (len(combiners), len(mods))
     for i, c in enumerate(combiners):
         np.testing.assert_allclose(grids[i], res.residue_grid_mis_resident(c, y, mods, nbins=12), rtol=1e-6, atol=1e-9)
         assert bases[i] == res.combiner_mi_resident(c, y, nbins=12, rank_binning=True, modulus=0)

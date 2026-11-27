@@ -37,5 +37,5 @@ def test_the_prefetched_chunk_is_scored_with_the_main_threads_settings(monkeypat
         ex.shutdown(wait=True)
         _fe_gpu_strict._auto_fit_state.__dict__.pop("probe_marker", None)
     assert [on_main for on_main, _, _ in seen] == [True, False], "chunk 1 was not prefetched on the worker"
-    assert all(use_su for _, use_su, _ in seen), "the prefetch scored with the worker thread's switch"
-    assert all(state.get("probe_marker") == "set-on-main" for _, _, state in seen), "the prefetch did not see the main thread's fit state"
+    assert seen and all(use_su for _, use_su, _ in seen), "the prefetch scored with the worker thread's switch"
+    assert seen and all(state.get("probe_marker") == "set-on-main" for _, _, state in seen), "the prefetch did not see the main thread's fit state"

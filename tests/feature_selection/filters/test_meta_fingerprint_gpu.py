@@ -41,7 +41,7 @@ def test_the_cuda_kernel_gives_the_numpy_moments():
     xs = np.ascontiguousarray(X.to_numpy().T)
     yc = y - y.mean()
     got = MF._moments_device(xs, yc)
-    assert got is not None, "the device path returned nothing on a host with a usable device"
+    assert got is not None and np.asarray(got).shape == (xs.shape[0], 5), "the device path returned nothing on a host with a usable device"
     np.testing.assert_allclose(got, _reference_moments(xs, yc), rtol=1e-9, atol=1e-10)
 
 

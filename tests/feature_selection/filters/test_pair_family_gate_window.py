@@ -81,5 +81,5 @@ def test_the_pair_gate_zeroes_only_inside_the_window_and_keeps_the_leaders_verdi
     leaders = [cfg for cfg, v in perf.items() if v >= 0.98 * max(perf.values())]
     assert leaders and all(window_perf[cfg] == full_perf[cfg] for cfg in leaders)
     below = [cfg for cfg in perf if cfg not in leaders]
-    assert all(window_perf[cfg] in (perf[cfg], 0.0) for cfg in below)
-    assert all(window_perf[cfg] == perf[cfg] for cfg in below if full_perf[cfg] == perf[cfg]), "a passing configuration below the window was zeroed"
+    assert below and all(window_perf[cfg] in (perf[cfg], 0.0) for cfg in below)
+    assert below and all(window_perf[cfg] == perf[cfg] for cfg in below if full_perf[cfg] == perf[cfg]), "a passing configuration below the window was zeroed"

@@ -126,7 +126,7 @@ def test_additive_factors_do_not_make_a_product():
     X, y = _build("sum", ["sin", "log"], 6000, 0, "normal")
     verdicts, _ = credit_interactions(X, y, seed=0)
     found = [v.form for v in verdicts[:2]]
-    assert all(f is not None for f in found), _names(verdicts)
+    assert found and all(f is not None for f in found), _names(verdicts)
     assert select_products(X[:, :2], y, found, [(0, 1)], seed=0) == []
     rng = np.random.default_rng(1)
     raw = rng.standard_normal((6000, 4))
