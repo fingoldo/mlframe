@@ -45,6 +45,15 @@ def _colorbar_dict(p: ScatterPanelSpec) -> dict:
     return cbar
 
 
+def _subset_error_spec(err, idx, n):
+    """The error-bar spec restricted to the downsample selection ``idx``; per-point arrays of length ``n`` follow the rows, scalars pass through."""
+    if err is None or idx is None:
+        return err
+    if isinstance(err, tuple):
+        return tuple(np.asarray(e)[idx] if np.ndim(e) > 0 and np.shape(e)[0] == n else e for e in err)
+    return np.asarray(err)[idx] if np.ndim(err) > 0 and np.shape(err)[0] == n else err
+
+
 def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
     """Render a scatter panel: downsamples above ``_SCATTER_MAX_POINTS`` (extremes-preserving), converts mpl marker-area sizing to plotly pixel-diameter, switches to WebGL above ``_SCATTER_WEBGL_THRESHOLD`` points (unless error bars are present, which Scattergl doesn't support), and layers optional highlight points, trend line, uncertainty band, overlay line, and a perfect-fit y=x diagonal on top."""
     # Lazy, function-local, matching ``_plotly_network``: the parent module imports this one at its own bottom,
@@ -99,12 +108,10 @@ def _scatter(self, fig, p: ScatterPanelSpec, row: int, col: int) -> None:
 
     _scatter_labels(_labels, _lab_colors, fig, _lab_font, row, col, go)
 
-    # Per-point error bars (e.g. Wilson CIs on reliability bins). CI panels carry n=bin-count points (no
-    # downsample reorder), so the error arrays align with x/y as-passed; only attach when not downsampled.
-    error_y = error_x = None
-    if n <= _SCATTER_MAX_POINTS:
-        error_y = _err_to_plotly(p.y_err)
-        error_x = _err_to_plotly(p.x_err)
+    # Per-point error bars (e.g. Wilson CIs on reliability bins). When the scatter was downsampled the error arrays follow the same rows as x/y, as the
+    # matplotlib twin does; they used to be dropped silently, so the HTML showed no intervals where the PNG did (21-F9).
+    error_y = _err_to_plotly(_subset_error_spec(p.y_err, idx, n))
+    error_x = _err_to_plotly(_subset_error_spec(p.x_err, idx, n))
 
     # WebGL renders large scatters orders of magnitude faster than SVG-mode go.Scatter; ndarrays pass
     # through to plotly natively (faster + smaller than .tolist()). Scattergl has no error_y/error_x support,

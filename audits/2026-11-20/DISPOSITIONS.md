@@ -424,7 +424,6 @@
 | 21-F5 | FIXED | an all-missing slice column takes the missingness code; tests/reporting/test_cluster21_slice_missing_and_metric_direction.py |
 | 21-F16 | FIXED | metric direction uses the family name before any @k cutoff; same test file |
 | 21-F8 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
-| 21-F9 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F14 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 22-F13 | FIXED | the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass |
 | 22-F20 | FIXED | the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test |
@@ -1645,3 +1644,5 @@
 | 33-F4 | DEFERRED | Re-read: both clips are valid; unifying the epsilon changes the saturated-probability margins that seed boosting (binary capped near +/-13.8 vs multiclass near -27.6) for existing runs, so picking the single constant is a modelling choice for the composite-classification owner rather than a bug fix. |
 
 | 29-F30 | DOCUMENTED | Deliberate: silenced_once is the thread-safe replacement for warnings.catch_warnings on pool threads, whose snapshot/restore of the global filter list races; its docstring already says it installs one narrow filter once and never restores it. All five call sites use it for the same numba.cuda performance warning. A restoring context manager would reintroduce the race, so no change. |
+
+| 21-F9 | FIXED | The plotly scatter now subsets y_err and x_err (symmetric or asymmetric) with the same downsample selection as x/y instead of dropping them, so the HTML keeps the intervals the PNG shows; a panel with error bars above the cap stays an SVG go.Scatter of at most the cap. Test tests/reporting/test_cluster21_plotly_scatter_error_bars_downsampled.py. |
