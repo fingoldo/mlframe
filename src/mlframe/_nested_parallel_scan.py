@@ -53,46 +53,14 @@ def _is_parallel_kernel(node: ast.AST) -> bool:
     )
 
 
-def _guarded_call_nodes(node: ast.AST) -> Set[int]:
-    """``id()`` of every Call lexically inside a ``with parallel_kernel_entry():`` block."""
-    guarded: Set[int] = set()
-    for with_node in ast.walk(node):
-        if not isinstance(with_node, (ast.With, ast.AsyncWith)):
-            continue
-        holds = any(
-            isinstance(item.context_expr, ast.Call)
-            and (getattr(item.context_expr.func, "id", None) or getattr(item.context_expr.func, "attr", None)) == "parallel_kernel_entry"
-            for item in with_node.items
-        )
-        if holds:
-            guarded.update(id(c) for c in ast.walk(with_node) if isinstance(c, ast.Call))
-    return guarded
-
-
 #: Calls that fan out through joblib. ``parallel_run`` is a thin shim over ``Parallel``, so it is one too.
 _FAN_OUT_CALLS = frozenset({"Parallel", "parallel_run"})
-
-
-def _called_names(node: ast.AST) -> Set[str]:
-    """Every name called inside a function body that is NOT already under the guard.
-
-    Per CALL, not per module. Marking a whole module safe because one of its functions takes the guard is
-    what let a real crash through: ``_hermite_prewarp`` guards its fourier replay, and the walk then
-    treated ``fit_pair_prewarp_als`` in the same file as covered when it was not.
-    """
-    guarded = _guarded_call_nodes(node)
-    out = {getattr(c.func, "id", None) or getattr(c.func, "attr", None) for c in ast.walk(node) if isinstance(c, ast.Call) and id(c) not in guarded}
-    # ``joblib.delayed(fn)`` hands fn to the pool worker, so a bare function name passed there is a callee even though it is not called here.
-    for c in ast.walk(node):
-        if isinstance(c, ast.Call) and (getattr(c.func, "id", None) or getattr(c.func, "attr", None)) == "delayed":
-            out |= {a.id for a in c.args if isinstance(a, ast.Name)}
-    return {n for n in out if n}
 
 
 def _function_facts(node: ast.AST, tables: Dict[str, Set[str]]) -> Tuple[Set[str], bool]:
     """``(edges, starts_pool)`` of one function from a single walk of its subtree.
 
-    Gives exactly what ``_called_names`` (plus the dispatch-table edges) gave together with the thread-pool check, which walked the
+    Gives exactly what the per-call name collection (plus the dispatch-table edges) gave together with the thread-pool check, which walked the
     subtree about ten times; the rules are the same ones, applied to one list of nodes. The pool check is True for a ``ThreadPoolExecutor`` or any joblib
     ``Parallel`` / ``parallel_run`` call, whatever its backend: the backend is often a runtime value, and a fallback from the process backend to threads
     (loky refusing to nest inside a worker thread) is how the X6 crash reached numba.

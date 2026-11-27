@@ -34,17 +34,43 @@ def _functions(source: str):
     return tables, [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
 
 
+def _reference_guarded_call_nodes(node: ast.AST) -> "set[int]":
+    """``id()`` of every Call lexically inside a ``with parallel_kernel_entry():`` block."""
+    guarded: "set[int]" = set()
+    for with_node in ast.walk(node):
+        if not isinstance(with_node, (ast.With, ast.AsyncWith)):
+            continue
+        holds = any(
+            isinstance(item.context_expr, ast.Call)
+            and (getattr(item.context_expr.func, "id", None) or getattr(item.context_expr.func, "attr", None)) == "parallel_kernel_entry"
+            for item in with_node.items
+        )
+        if holds:
+            guarded.update(id(c) for c in ast.walk(with_node) if isinstance(c, ast.Call))
+    return guarded
+
+
+def _reference_called_names(node: ast.AST) -> set:
+    """Every name called inside a function body that is not under the guard, plus the functions handed to ``joblib.delayed`` (the replaced per-call walk)."""
+    guarded = _reference_guarded_call_nodes(node)
+    out = {getattr(c.func, "id", None) or getattr(c.func, "attr", None) for c in ast.walk(node) if isinstance(c, ast.Call) and id(c) not in guarded}
+    for c in ast.walk(node):
+        if isinstance(c, ast.Call) and (getattr(c.func, "id", None) or getattr(c.func, "attr", None)) == "delayed":
+            out |= {a.id for a in c.args if isinstance(a, ast.Name)}
+    return {n for n in out if n}
+
+
 def _reference_starts_thread_pool(node: ast.AST) -> bool:
     """The per-question check the single walk replaced: a ``ThreadPoolExecutor``, or any joblib ``Parallel`` / ``parallel_run`` call."""
-    if "ThreadPoolExecutor" in scan._called_names(node):
+    if "ThreadPoolExecutor" in _reference_called_names(node):
         return True
     return any(isinstance(call, ast.Call) and (getattr(call.func, "id", None) or getattr(call.func, "attr", None)) in scan._FAN_OUT_CALLS for call in ast.walk(node))
 
 
 def _reference_edges(node: ast.AST, tables) -> set:
-    """What the package build computed before the single walk: ``_called_names`` plus the dispatch-table edges."""
-    edges = scan._called_names(node)
-    if not scan._guarded_call_nodes(node):
+    """What the package build computed before the single walk: the per-call names plus the dispatch-table edges."""
+    edges = _reference_called_names(node)
+    if not _reference_guarded_call_nodes(node):
         referenced = {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
         for table, members in tables.items():
             if table in referenced:
