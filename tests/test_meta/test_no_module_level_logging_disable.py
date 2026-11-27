@@ -37,6 +37,8 @@ from pathlib import Path
 import orjson
 import pytest
 
+from tests.test_meta._shared_ast_cache import parsed_ast
+
 _TESTS_DIR = Path(__file__).resolve().parent.parent
 _BASELINE_PATH = Path(__file__).resolve().parent / "_module_level_logging_disable_baseline.json"
 
@@ -105,7 +107,8 @@ def _build_offending_set() -> set[str]:
         if "__pycache__" in py.parts:
             continue
         try:
-            tree = ast.parse(py.read_text(encoding="utf-8", errors="replace"))
+            # The process-wide parse cache first (one parse per file and worker for every meta test); a file it cannot parse is parsed here as before.
+            tree = parsed_ast(py) or ast.parse(py.read_text(encoding="utf-8", errors="replace"))
         except (SyntaxError, OSError):
             continue
         rel = py.relative_to(_TESTS_DIR).as_posix()
