@@ -310,25 +310,20 @@ def test_the_available_memory_is_read_once_per_ttl_not_once_per_put(monkeypatch)
 def test_prefetch_computes_the_pending_lazy_columns_of_a_frame_concurrently_and_once(monkeypatch):
     """Sixteen lazy columns whose replay takes 50 ms are replayed with at least two in flight at once (not one after another), each computed exactly once; plain columns, held columns and cached ones are left alone."""
     import threading
-    import time
 
     L.release_caches()
     base = _frame(n=200)
     lock = threading.Lock()
     calls: "dict[int, int]" = {}
-    active, peak = [0], [0]
+    meet = threading.Barrier(2, timeout=30)  # two replays must be in flight at once for either to finish: a serial run breaks the barrier and fails
 
     def make(j):
-        """A lazy column whose replay takes a while."""
+        """A lazy column whose replay waits for a second replay to run beside it."""
 
         def compute():
-            """The slow replay."""
+            """The replay, held until a second one arrives."""
+            meet.wait()
             with lock:
-                active[0] += 1
-                peak[0] = max(peak[0], active[0])
-            time.sleep(0.05)
-            with lock:
-                active[0] -= 1
                 calls[j] = calls.get(j, 0) + 1
             return np.full(len(base), float(j), dtype=np.float32)
 
@@ -337,7 +332,7 @@ def test_prefetch_computes_the_pending_lazy_columns_of_a_frame_concurrently_and_
     lazies = {f"e{j}": make(j) for j in range(16)}
     X = pd.concat([base, pd.DataFrame(lazies, index=base.index, copy=False)], axis=1)
     done = L.prefetch_columns(X, ["x0", "k", *lazies], workers=8)
-    assert done == 16 and peak[0] >= 2 and sorted(calls) == list(range(16)) and set(calls.values()) == {1}
+    assert done == 16 and sorted(calls) == list(range(16)) and set(calls.values()) == {1}
     assert L.prefetch_columns(X, list(lazies), workers=8) == 0  # all cached now
     assert [float(np.asarray(X[f"e{j}"])[0]) for j in range(16)] == [float(j) for j in range(16)]
     assert set(calls.values()) == {1}
@@ -389,7 +384,6 @@ def test_the_counters_lose_no_increment_when_the_prefetch_pool_replays_columns_o
 def test_the_subsample_cut_of_a_frame_gathers_its_pending_lazy_columns_on_a_pool_and_once():
     """Sixteen lazy columns whose replay takes 50 ms are cut to a subsample with at least two replays in flight at once, each replayed once, with the rows a plain gather gives; a second cut replays nothing."""
     import threading
-    import time
 
     from mlframe.feature_selection.filters._fe_frame_ops import fe_subsample_to_pandas
 
@@ -397,19 +391,15 @@ def test_the_subsample_cut_of_a_frame_gathers_its_pending_lazy_columns_on_a_pool
     base = _frame(n=400)
     lock = threading.Lock()
     calls: "dict[int, int]" = {}
-    active, peak = [0], [0]
+    meet = threading.Barrier(2, timeout=30)  # two replays must be in flight at once for either to finish: a serial run breaks the barrier and fails
 
     def make(j):
-        """A lazy column whose replay takes a while."""
+        """A lazy column whose replay waits for a second replay to run beside it."""
 
         def replay():
-            """The slow replay."""
+            """The replay, held until a second one arrives."""
+            meet.wait()
             with lock:
-                active[0] += 1
-                peak[0] = max(peak[0], active[0])
-            time.sleep(0.05)
-            with lock:
-                active[0] -= 1
                 calls[j] = calls.get(j, 0) + 1
             return np.arange(len(base), dtype=np.float32) * (j + 1)
 
@@ -419,7 +409,7 @@ def test_the_subsample_cut_of_a_frame_gathers_its_pending_lazy_columns_on_a_pool
     X = pd.concat([base, pd.DataFrame(lazies, index=base.index, copy=False)], axis=1)
     idx = np.arange(0, 400, 7)
     cut = fe_subsample_to_pandas(X, idx)
-    assert peak[0] >= 2 and sorted(calls) == list(range(16)) and set(calls.values()) == {1}
+    assert sorted(calls) == list(range(16)) and set(calls.values()) == {1}
     for j in range(16):
         assert np.array_equal(np.asarray(cut[f"s{j}"]), idx.astype(np.float32) * (j + 1))
     again = fe_subsample_to_pandas(X, idx)
