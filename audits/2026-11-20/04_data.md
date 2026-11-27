@@ -73,7 +73,6 @@ Scope: the 42 files in `audits/2026-11-20/manifests/04_data.txt`, all read in fu
 - 04-F13: FIXED. graded-cardinality weights scaled to 1/(levels-1) so each cardinality carries equal signal range; existing dataset tests pass (49); test tests/data/test_cluster04_graded_cardinality_weights.py
 - 04-F25: FIXED. scipy rvs gets shape parameters first, loc and scale as keywords; tests/data/test_cluster04_sapp_args_and_coerce.py
 - 04-F23: FIXED. non-numeric values coerced to NaN are counted in the notes; same test file
-- 04-F15: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
 - 04-F16: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
 - 04-F17: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
 - 04-F18: DEFERRED. not changed in this pass; needs a targeted design or plumbing decision (see cluster report)
@@ -91,7 +90,6 @@ Scope: the 42 files in `audits/2026-11-20/manifests/04_data.txt`, all read in fu
 - 04-F17: FIXED. Removed the no-op threshold line: sign(score)*|score| equals score, so behaviour is unchanged. Existing link tests pass (test_link_region_reaches_feature_truth.py, 2).
 - 04-F16: FIXED. The shortfall caveat uses the spec's CeilingTarget.tolerance instead of a hard-coded 0.01. Test tests/data/test_cluster04_ceiling_tolerance_drives_caveat.py.
 - 04-F18: FIXED. Renamed the coverage-adjusted plug-in estimator to coverage_adjusted_plugin (it is not Chao-Shen entropy). Test tests/data/test_cluster04_oracle_estimator_names_are_honest.py.
-- 04-F15: DEFERRED. _probability_only is an allowlisted exploration helper (tests/test_meta/test_shared_uncalled_functions.py) with a wrong body per the audit. Fixing it needs the difficulty-sweep intent confirmed; deferred.
 - 04-F21: FIXED. Probe resampling keeps the donor's missing values, so probes match the donor's missingness. Test tests/data/test_cluster04_probe_keeps_donor_missingness.py.
 - 04-F22: FIXED. Probes built into one dict and appended with a single concat; donors converted once. Values unchanged (same per-probe streams). Test tests/data/test_cluster04_probes_built_in_one_pass.py.
 - 04-F19: FIXED. Removed the three never-populated FeatureTruth fields (marginal_mi, conditional_mi_given_rest, r2_to_source); the generator fills only role, region, source, cost. Test tests/data/test_cluster04_feature_truth_fields.py.
@@ -109,3 +107,5 @@ Scope: the 42 files in `audits/2026-11-20/manifests/04_data.txt`, all read in fu
 
 
 - 04-F28: FIXED. Declared kind roles built once per derivation (_declared_kind_roles, first edge wins) instead of rescanning all edges per column; M-bias collider check uses the precomputed ancestor set. Tests: tests/data/test_cluster04_declared_roles_single_pass.py, test_cluster04_m_collider_no_descendant_walk.py
+
+- 04-F15: DOCUMENTED. _probability_only is on the project's kept list as a hand-run difficulty-sweep helper. Its docstring now states the limits the audit found: the caller must pass columns that already include the latent factors, the score is scaled including its intercept, and generate's heteroscedastic term, prevalence shift and corruption are not applied. Making it reproduce the shipped law is a redesign of the sweep, left to the dataset-generator owner.

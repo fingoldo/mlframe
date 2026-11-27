@@ -303,7 +303,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 04-F17 | 04_data.md | FIXED | No-op threshold line removed (behaviour identical). Existing link tests pass. |
 | 04-F16 | 04_data.md | FIXED | Caveat threshold from the spec's ceiling tolerance. Test test_cluster04_ceiling_tolerance_drives_caveat.py. |
 | 04-F18 | 04_data.md | FIXED | Renamed to coverage_adjusted_plugin. Test test_cluster04_oracle_estimator_names_are_honest.py. |
-| 04-F15 | 04_data.md | DEFERRED | Allowlisted exploration helper with a wrong body; intent needs confirming. |
+| 04-F15 | 04_data.md | DOCUMENTED | _probability_only is on the project's kept list as a hand-run difficulty-sweep helper. Its docstring now states the limits the audit found: the caller must pass columns that already include the latent factors, the score is scaled including its intercept, and generate's heteroscedastic term, prevalence shift and corruption are not applied. Making it reproduce the shipped law is a redesign of the sweep, left to the dataset-generator owner. |
 | 04-F21 | 04_data.md | FIXED | Probes keep donor missingness. Test test_cluster04_probe_keeps_donor_missingness.py. |
 | 04-F1 | 04_data.md | RESOLVED | count branch uses count_mean(scale*unit_score), intercept no longer added twice. Test tests/data/datasets/test_count_target_intercept_once.py. Commit below. |
 | 04-F2 | 04_data.md | RESOLVED | TargetSpec rejects a logloss or accuracy ceiling on a binary target (was silently ignored). Tests tests/data/datasets/test_binary_ceiling_metric_rejected.py. Commit below. |

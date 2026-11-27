@@ -267,7 +267,6 @@
 | 03-F6 | DEFERRED | benchmark-script change not made in this pass; low impact |
 | 04-F25 | FIXED | scipy rvs gets shape parameters first, loc and scale as keywords; tests/data/test_cluster04_sapp_args_and_coerce.py |
 | 04-F23 | FIXED | non-numeric values coerced to NaN are counted in the notes; same test file |
-| 04-F15 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
 | 04-F16 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
 | 04-F17 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
 | 04-F18 | DEFERRED | not changed in this pass; needs a targeted design or plumbing decision (see cluster report) |
@@ -548,7 +547,6 @@
 | 04-F17 | FIXED | Removed the no-op threshold line: sign(score)*/score/ equals score, so behaviour is unchanged. Existing link tests pass (test_link_region_reaches_feature_truth.py, 2). |
 | 04-F16 | FIXED | The shortfall caveat uses the spec's CeilingTarget.tolerance instead of a hard-coded 0.01. Test tests/data/test_cluster04_ceiling_tolerance_drives_caveat.py. |
 | 04-F18 | FIXED | Renamed the coverage-adjusted plug-in estimator to coverage_adjusted_plugin (it is not Chao-Shen entropy). Test tests/data/test_cluster04_oracle_estimator_names_are_honest.py. |
-| 04-F15 | DEFERRED | _probability_only is an allowlisted exploration helper (tests/test_meta/test_shared_uncalled_functions.py) with a wrong body per the audit. Fixing it needs the difficulty-sweep intent confirmed; deferred. |
 | 04-F21 | FIXED | Probe resampling keeps the donor's missing values, so probes match the donor's missingness. Test tests/data/test_cluster04_probe_keeps_donor_missingness.py. |
 | 04-F22 | FIXED | Probes built into one dict and appended with a single concat; donors converted once. Values unchanged (same per-probe streams). Test tests/data/test_cluster04_probes_built_in_one_pass.py. |
 | 04-F19 | FIXED | Removed the three never-populated FeatureTruth fields (marginal_mi, conditional_mi_given_rest, r2_to_source); the generator fills only role, region, source, cost. Test tests/data/test_cluster04_feature_truth_fields.py. |
@@ -1641,3 +1639,5 @@
 | 28-F47 | FIXED | Deleted the duplicate _GTC_CACHE, lock, pin dict and cap (and the now-unused threading import) from _trainer_configure_helpers.py; a repo-wide grep shows every reader and test uses the live copy in _trainer_configure.py. Test tests/training/test_cluster28_gtc_cache_single_copy.py. |
 
 | 28-F48 | FIXED | Removed _train_and_evaluate_train_df_none (it built report_title and returned None, and its only caller ignored the result) together with its import and call; nothing else referenced it. Test tests/training/test_cluster28_no_unused_report_title_builder.py. |
+
+| 04-F15 | DOCUMENTED | _probability_only is on the project's kept list as a hand-run difficulty-sweep helper. Its docstring now states the limits the audit found: the caller must pass columns that already include the latent factors, the score is scaled including its intercept, and generate's heteroscedastic term, prevalence shift and corruption are not applied. Making it reproduce the shipped law is a redesign of the sweep, left to the dataset-generator owner. |
