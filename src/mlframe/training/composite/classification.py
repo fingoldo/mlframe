@@ -120,6 +120,11 @@ def _default_margin_pipeline(X: Any):
     return make_pipeline(pre, LogisticRegression(max_iter=1000))
 
 
+# One clip for every probability-derived base margin, binary and multiclass alike, so a margin does not depend on the class count. It caps a saturated
+# probability at about +/-13.8 in log space: a larger cap would start boosting from a margin where the gradient has all but vanished (33-F4).
+_PROBA_MARGIN_EPS = 1e-6
+
+
 class CompositeClassificationEstimator(ClassifierMixin, BaseEstimator):
     """Binary classifier that learns the residual log-odds over a base margin.
 
@@ -162,13 +167,13 @@ class CompositeClassificationEstimator(ClassifierMixin, BaseEstimator):
                 return np.asarray(est.decision_function(X), dtype=np.float64).reshape(-1)
             proba = np.asarray(est.predict_proba(X), dtype=np.float64)
             p1 = proba[:, 1] if proba.ndim == 2 else proba.reshape(-1)
-            p1 = np.clip(p1, 1e-6, 1.0 - 1e-6)
+            p1 = np.clip(p1, _PROBA_MARGIN_EPS, 1.0 - _PROBA_MARGIN_EPS)
             return np.log(p1 / (1.0 - p1))
         if hasattr(est, "decision_function"):
             df = np.asarray(est.decision_function(X), dtype=np.float64)
             if df.ndim == 2 and df.shape[1] == n_classes:
                 return df
-        proba = np.clip(np.asarray(est.predict_proba(X), dtype=np.float64), 1e-12, 1.0)
+        proba = np.clip(np.asarray(est.predict_proba(X), dtype=np.float64), _PROBA_MARGIN_EPS, 1.0)
         return np.log(proba)
 
     def _extract_margin_column(self, X: Any) -> np.ndarray:

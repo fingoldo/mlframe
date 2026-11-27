@@ -1635,7 +1635,6 @@
 
 | 22-F23 | FIXED | Ported both hand-run helpers instead of deleting them: MakeSureBlasAndLaPackAreInstalled reads numpy.show_config(mode='dicts') (numpy.distutils no longer exists) and ListAllSkLearnClassifiers imports all_estimators from sklearn.utils (sklearn.utils.testing was removed). Both stay on the kept list as hand-run diagnostics. Test tests/core/test_cluster22_interactive_helpers_run.py. |
 
-| 33-F4 | DEFERRED | Re-read: both clips are valid; unifying the epsilon changes the saturated-probability margins that seed boosting (binary capped near +/-13.8 vs multiclass near -27.6) for existing runs, so picking the single constant is a modelling choice for the composite-classification owner rather than a bug fix. |
 
 | 29-F30 | DOCUMENTED | Deliberate: silenced_once is the thread-safe replacement for warnings.catch_warnings on pool threads, whose snapshot/restore of the global filter list races; its docstring already says it installs one narrow filter once and never restores it. All five call sites use it for the same numba.cuda performance warning. A restoring context manager would reintroduce the race, so no change. |
 
@@ -1652,3 +1651,5 @@
 | 24-F39 | DEFERRED | Re-read: the negative samples are drawn one rng.choice per (center, context) pair from the same generator that also draws the window width, so pre-drawing them in blocks changes the random stream and therefore every embedding a seed produced before. Bit-identical output is not possible; it is a perf change that needs a measured benefit and an owner's agreement to re-baseline the embeddings. |
 
 | 18-F14 | FIXED | K>2 now short-circuits like K=2: catastrophic_drop_kn records the kept and dropped member tags in the _all_members_catastrophic sentinel and kn_all_catastrophic_early_return stamps _reason='kn_catastrophic_dropout', _n_members, _dropped_member and _kept_member, so score_ensemble returns the sentinel-only result and no one-member 'ensemble' is built; the surviving model stays in the per-family list. Owner decision applied: option A. Test tests/models/test_cluster18_kn_all_catastrophic_early_return.py. |
+
+| 33-F4 | FIXED | Owner decision applied (option A): one named constant _PROBA_MARGIN_EPS = 1e-6 clips every probability-derived base margin, binary and multiclass, so saturated probabilities are capped at about +/-13.8 in log space whatever the class count (the multiclass fallback was -27.6). A decision_function, when the estimator has one, is still used unclipped. Test tests/training/test_cluster33_probability_margin_clip.py; 87 composite-classification tests pass. |
