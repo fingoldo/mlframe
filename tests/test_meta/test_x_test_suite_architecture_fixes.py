@@ -19,6 +19,7 @@ repo's own behavioral-tests convention; converted, no whitelist entry needed any
 from __future__ import annotations
 
 import importlib
+import inspect
 import subprocess
 import sys
 import types
@@ -58,7 +59,7 @@ def test_f1_f2_try_import_suite_no_longer_skips_on_import_failure(module_path):
 @pytest.mark.parametrize(
     "module_path, test_func_name",
     [
-        ("tests.training.test_biz_val_training_core", "test_biz_val_training_suite_regression_completes"),
+        ("tests.training.test_biz_val_training_core", "lgb_regression_run"),  # the module fixture that now holds the suite call
         ("tests.training.test_suite_api_ergonomics", "test_default_extractor_regression_matches_explicit"),
     ],
 )
@@ -74,6 +75,9 @@ def test_f1_f2_no_typeerror_importerror_skip_around_suite_call(module_path, test
 
     mod = importlib.import_module(module_path)
     test_func = getattr(mod, test_func_name)
+    wrapped = test_func._get_wrapped_function() if hasattr(test_func, "_get_wrapped_function") else test_func
+    # A module fixture takes the session's tmp_path_factory; a plain test takes tmp_path.
+    arg = types.SimpleNamespace(mktemp=lambda name: tmp_path / name) if "tmp_path_factory" in inspect.signature(wrapped).parameters else tmp_path
 
     def _raise_typeerror(*_args, **_kwargs):
         """Simulate the suite call raising a kwarg-contract-break TypeError."""
@@ -82,7 +86,7 @@ def test_f1_f2_no_typeerror_importerror_skip_around_suite_call(module_path, test
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(core_mod, "train_mlframe_models_suite", _raise_typeerror)
         with pytest.raises(TypeError, match="simulated kwarg-contract break"):
-            test_func(tmp_path)
+            wrapped(arg)
 
 
 # ---------------------------------------------------------------------------
