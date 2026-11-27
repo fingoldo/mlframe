@@ -26,6 +26,7 @@ disappearing from the file.
 from __future__ import annotations
 
 import logging
+from collections import Counter
 import os
 import time
 import traceback
@@ -341,6 +342,23 @@ def _default_scenarios() -> List[Tuple[str, ScenarioGen]]:
     return out
 
 
+def _log_status_summary(status_counts: "Counter[str]") -> Optional[str]:
+    """Log, and return, how many cells of this run ended in a non-ok status; ``None`` when all were ok.
+
+    A failed cell is recorded as data and the grid carries on, and on a resumed run those keys count as done unless ``--retry-failed`` is passed, so a
+    fixed bug was never re-run and the failures were visible only as one WARNING line each. One summary at the end says how many there were (12-F74).
+    """
+    failed = {status: n for status, n in status_counts.items() if status != "ok"}
+    if not failed:
+        return None
+    message = (
+        f"{sum(failed.values())} of {sum(status_counts.values())} cells executed in this run did not finish ok ({', '.join(f'{k}={v}' for k, v in sorted(failed.items()))}); "
+        "on a resumed run these keys count as done unless --retry-failed is passed"
+    )
+    logger.warning("run_grid: %s", message)
+    return message
+
+
 def run_grid(
     scenarios: Optional[Sequence[Tuple[str, ScenarioGen]]] = None,
     roster: Optional[Dict[str, Callable[[], Any]]] = None,
@@ -367,6 +385,7 @@ def run_grid(
     # this flag makes explicit instead of deciding it for the caller.
     done = store.completed_keys({"ok"} if retry_failed else None) if resume else set()
     executed = 0
+    status_counts: Counter = Counter()
     manifest_written = False
 
     for scenario_name, gen in scenarios:
@@ -423,6 +442,7 @@ def run_grid(
                     record = run_cell(spec, factory, x_train, np.asarray(y_train), x_test, np.asarray(y_test), truth)
                     store.append(record)
                     executed += 1
+                    status_counts[str(record.get("status"))] += 1
                     logger.info(
                         "cell %s/%s seed=%s cv=%s -> %s (fits=%s)",
                         scenario_name,
@@ -432,6 +452,7 @@ def run_grid(
                         record["status"],
                         record.get("n_model_fits"),
                     )
+    _log_status_summary(status_counts)
     return executed
 
 

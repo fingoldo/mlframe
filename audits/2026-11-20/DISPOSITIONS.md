@@ -1613,7 +1613,6 @@
 
 | 12-F79 | PARTIAL | A failing downstream fit in the campaign is now logged as a WARNING with the error type and message (was DEBUG), so a cell dropped from the holdout verdict is visible in the log. Not done: the None count in summarize (the benchmark report layout is the campaign owner's). Test tests/feature_selection/test_cluster12_campaign_failure_visible.py. |
 
-| 12-F74 | DEFERRED | Re-read: the failed cell already logs a WARNING with its status and the record keeps the error text and traceback; what is missing is a per-run error count and the resume semantics (error rows count as done without --retry-failed), which is a harness-design choice for the experiment owner. |
 
 | 09-F15 | FIXED | In the underdetermined configuration a row whose lstsq raises now stays NaN (the column's 'not identifiable' sentinel) instead of being overwritten with 0.0; the identifiable case keeps its documented zero fallback and the log line says which. Test tests/feature_engineering/transformer/test_cluster09_local_curvature_nan_stays_nan.py. |
 
@@ -1653,3 +1652,5 @@
 | 18-F14 | FIXED | K>2 now short-circuits like K=2: catastrophic_drop_kn records the kept and dropped member tags in the _all_members_catastrophic sentinel and kn_all_catastrophic_early_return stamps _reason='kn_catastrophic_dropout', _n_members, _dropped_member and _kept_member, so score_ensemble returns the sentinel-only result and no one-member 'ensemble' is built; the surviving model stays in the per-family list. Owner decision applied: option A. Test tests/models/test_cluster18_kn_all_catastrophic_early_return.py. |
 
 | 33-F4 | FIXED | Owner decision applied (option A): one named constant _PROBA_MARGIN_EPS = 1e-6 clips every probability-derived base margin, binary and multiclass, so saturated probabilities are capped at about +/-13.8 in log space whatever the class count (the multiclass fallback was -27.6). A decision_function, when the estimator has one, is still used unclipped. Test tests/training/test_cluster33_probability_margin_clip.py; 87 composite-classification tests pass. |
+
+| 12-F74 | FIXED | Owner decision applied (option A): run_grid counts the status of every cell it executes and ends with one WARNING naming how many did not finish ok, by status, with the hint that on a resumed run those keys count as done unless --retry-failed is passed (_log_status_summary). Default resume behaviour is unchanged. Test tests/feature_selection/test_cluster12_run_grid_status_summary.py. |
