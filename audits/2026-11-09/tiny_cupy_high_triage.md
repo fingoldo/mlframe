@@ -3,7 +3,7 @@
 The detector's `high` hits in the current source, one row per function. The baseline (`tests/test_meta/_tiny_cupy_loops_baseline.json`) holds these keys.
 Dispositions to fill in: **FALSE POSITIVE** (the loop is a chunk, fold or fallback loop with a few trips and real work per trip), **FALLBACK** (the cupy loop runs only when a batched path is not taken, measured), **REAL** (a launch-bound loop, to restructure), **OPEN** (not yet read).
 
-Rows: 118.
+Rows: 119.
 
 | file | function | line(s) | disposition |
 |---|---|---|---|
@@ -87,6 +87,7 @@ Rows: 118.
 | feature_selection/filters/_orthogonal_univariate_fe/_orth_mi_null_max.py | _null_max_strict_gpu | 182 | REAL, measured 2026-11-16 (100000 x 100 all-families GPU fit, cProfile, 68.7 s): 0.17 s cumulative over 8 calls (0.2 % of the fit); one label upload and one batched MI per permutation, the same class as the pre-batched null (GPU11-62); whether a batched path precedes it is not checked |
 | feature_selection/filters/_orthogonal_univariate_fe/_streamed_gpu_mi.py | mi_classif_streamed | 160 | FALSE POSITIVE: the planned streaming loop over column blocks, each a full block MI |
 | feature_selection/filters/_orthogonal_univariate_fe/_streamed_gpu_mi.py | null_max_streamed | 224, 244 | FALSE POSITIVE: the planned streaming loop over column blocks, each a full block null |
+| feature_selection/filters/_pair_mi_perm_cuda_bin.py | launch_pairs_binary | 462 | FALSE POSITIVE: the loop runs once per distinct permutations-per-pass value (a few trips), and each trip is one kernel launch over every pair of that group |
 | feature_selection/filters/_pairwise_modular_resident.py | _grid_block_one_call | 111 | FALLBACK: accepted exception, see tests/test_meta/_tiny_cupy_loops_exceptions.json: Same loop as combiner_bases_and_grids_resident: one iteration per distinct effective bin count, building that group's residues and interior edges (per-group rad |
 | feature_selection/filters/_pairwise_modular_resident.py | combiner_bases_and_grids_resident | 179, 193 | FALLBACK: accepted exception, see tests/test_meta/_tiny_cupy_loops_exceptions.json: The loop runs over the distinct effective bin counts max(nbins, modulus), one group per distinct count (1 with the default moduli at small nbins, up to about 8  |
 | feature_selection/filters/_pairwise_modular_resident.py | residue_grid_mis_resident | 254 | FALSE POSITIVE: loops over the few effective-bin groups, each one batched MI |
