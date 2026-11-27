@@ -430,7 +430,6 @@
 | 22-F20 | FIXED | the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test |
 | 22-F17 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F18 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
-| 22-F23 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F26 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 23-F5 | FIXED | the leakage p-value is computed whether or not a tolerance decided the verdict; tests/evaluation/test_cluster23_leak_pvalue_and_event_days.py |
 | 23-F8 | FIXED | event distances use fractional days (total seconds / 86400) instead of the floored .dt.days; same test file; 95 related tests pass |
@@ -1642,3 +1641,5 @@
 | 04-F15 | DOCUMENTED | _probability_only is on the project's kept list as a hand-run difficulty-sweep helper. Its docstring now states the limits the audit found: the caller must pass columns that already include the latent factors, the score is scaled including its intercept, and generate's heteroscedastic term, prevalence shift and corruption are not applied. Making it reproduce the shipped law is a redesign of the sweep, left to the dataset-generator owner. |
 
 | 27-F11 | DEFERRED | Re-read: the sampled row hash is the deliberate key of the CatBoost val-Pool cache, chosen because predict-side frames are fresh objects and a full hash was weighed against a 53-66 s Pool rebuild. A frame that differs only in unsampled rows does share the key, so the stale-Pool risk is real; the sound fixes (a full vectorised content hash on both writer and reader, or an identity token carried with the val frame) change the cache key layout for every consumer and trade hashing cost against exactness, which is the owner's call. |
+
+| 22-F23 | FIXED | Ported both hand-run helpers instead of deleting them: MakeSureBlasAndLaPackAreInstalled reads numpy.show_config(mode='dicts') (numpy.distutils no longer exists) and ListAllSkLearnClassifiers imports all_estimators from sklearn.utils (sklearn.utils.testing was removed). Both stay on the kept list as hand-run diagnostics. Test tests/core/test_cluster22_interactive_helpers_run.py. |
