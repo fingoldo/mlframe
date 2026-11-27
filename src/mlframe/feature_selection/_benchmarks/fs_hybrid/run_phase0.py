@@ -64,6 +64,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         widest = max(int(gen(seeds[0])[0].shape[1]) for _, gen in beds)
         full = build_arm_roster(widest, random_state=seeds[0])
+        _unknown = [a for a in wanted if a not in full]
+        if _unknown:
+            # run_grid's own typo check never sees these names (it is called without arms=), so a misspelt arm silently produced a roster without it.
+            raise ValueError(f"unknown arm name(s) {_unknown}; the roster has {sorted(full)}")
         roster = {name: factory for name, factory in full.items() if name in wanted or name.startswith("random-")}
         logger.warning("arm subset requested: fixed-cardinality arms are sized for the widest bed (%s features)", widest)
 

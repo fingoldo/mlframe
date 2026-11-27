@@ -184,7 +184,6 @@ Counts: P0 0, P1 22, P2 57, P3 22 (101 rows). The rows marked [v] are the ones I
 - 12-F73: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F74: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F75: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
-- 12-F76: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F77: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F78: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
 - 12-F79: DEFERRED. P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule
@@ -235,3 +234,5 @@ Counts: P0 0, P1 22, P2 57, P3 22 (101 rows). The rows marked [v] are the ones I
 - 12-F34: DEFERRED. H35 and H32 pick the config by OOF AUC on rows the members were fit on. A real fix refits the members on a training split and scores the augmented features of held-out rows, and HybridSelector has no transform path that builds those features. Needs that transform first (a feature-engine change). Benchmark-only, not production. No code change.
 
 - 12-F31: RESOLVED. All 60 fs_hybrid bench files that installed a bare catch-all ignore now silence only FutureWarning and DeprecationWarning; other warnings surface. Each file compiles. Test tests/feature_selection/test_cluster12_no_catch_all_warning_filter.py.
+
+- 12-F76: FIXED. run_phase0 raises ValueError naming any --arms entry missing from the roster, before anything runs, instead of building a roster without it and exiting 0. Test tests/feature_selection/test_cluster12_phase0_unknown_arm.py.

@@ -815,7 +815,7 @@ Each P0 was checked by reading the cited code. Disposition is the closing state.
 | 12-F73 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F74 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F75 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
-| 12-F76 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
+| 12-F76 | 12_feature_selection-3.md | FIXED | run_phase0 raises ValueError naming any --arms entry missing from the roster, before anything runs, instead of building a roster without it and exiting 0. Test tests/feature_selection/test_cluster12_phase0_unknown_arm.py. |
 | 12-F77 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F78 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F79 | 12_feature_selection-3.md | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
