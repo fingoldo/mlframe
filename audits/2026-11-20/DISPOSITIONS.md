@@ -307,7 +307,6 @@
 | 08-F10 | FIXED | magnitude check uses max(/min/,/max/) with Python ints, so the most negative int64 is flagged; tests/feature_engineering/transformer/test_cluster08_edges.py |
 | 08-F11 | FIXED | the silent temperature override now warns (RuntimeWarning); no separate test |
 | 08-F7 | DEFERRED | not changed in this pass; needs a design or behaviour decision (see cluster report) |
-| 09-F15 | DEFERRED | tried an early return in the underdetermined branch; it broke the contract that the linear column stays finite. The real defect is the per-row exception path zeroing whole rows; needs a column-aware fix |
 | 09-F24 | FIXED | binary local-lift labels are normalised to {0,1} for both the global mean and the neighbour sums; tests/feature_engineering/transformer/test_cluster09_edges.py covers the KMeans path only, lift path covered by existing lift tests |
 | 09-F26 | FIXED | anchor count is capped by the row count, so a one-row fold yields one anchor; tests/feature_engineering/transformer/test_cluster09_edges.py |
 | 09-F28 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
@@ -1634,3 +1633,5 @@
 | 12-F79 | PARTIAL | A failing downstream fit in the campaign is now logged as a WARNING with the error type and message (was DEBUG), so a cell dropped from the holdout verdict is visible in the log. Not done: the None count in summarize (the benchmark report layout is the campaign owner's). Test tests/feature_selection/test_cluster12_campaign_failure_visible.py. |
 
 | 12-F74 | DEFERRED | Re-read: the failed cell already logs a WARNING with its status and the record keeps the error text and traceback; what is missing is a per-run error count and the resume semantics (error rows count as done without --retry-failed), which is a harness-design choice for the experiment owner. |
+
+| 09-F15 | FIXED | In the underdetermined configuration a row whose lstsq raises now stays NaN (the column's 'not identifiable' sentinel) instead of being overwritten with 0.0; the identifiable case keeps its documented zero fallback and the log line says which. Test tests/feature_engineering/transformer/test_cluster09_local_curvature_nan_stays_nan.py. |

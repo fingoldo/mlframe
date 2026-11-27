@@ -146,8 +146,9 @@ def compute_local_curvature_features(
                 # Singular matrix or other numerical issue; use zeros. Logged (matching the sibling
                 # local_linear.py's identical per-row fallback) so a real failure rate is visible
                 # instead of only ever surfacing as unexplained all-zero rows downstream.
-                log_throttle(logger, "local_curvature._process", logging.WARNING, "local_curvature: fit failed on row %d (%s); leaving zeros", int(q), exc)
-                out[q] = 0.0
+                log_throttle(logger, "local_curvature._process", logging.WARNING, "local_curvature: fit failed on row %d (%s); leaving %s", int(q), exc, "zeros" if quad_identifiable else "NaN")
+                # An underdetermined configuration marks its columns NaN ("not identifiable"); a failed row must not turn that into a real-looking 0.0 (09-F15).
+                out[q] = 0.0 if quad_identifiable else np.nan
         return out
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:
