@@ -18,10 +18,7 @@ def test_h35_fits_members_on_a_training_part_first():
     """The base fit sees 75% of the rows first, then all rows for the final refit (12-F34)."""
     pytest.importorskip("lightgbm")
     sys.path.insert(0, str(BENCH))
-    try:
-        import round3_hybrid_refine_bench as rb
-    except Exception as exc:  # the bench needs its sibling helpers on the path
-        pytest.skip(f"bench module not importable: {exc}")
+    rb = pytest.importorskip("round3_hybrid_refine_bench")  # the bench needs its sibling helpers on the path
     from mlframe.feature_selection.hybrid_selector import HybridSelector
 
     rng = np.random.default_rng(0)

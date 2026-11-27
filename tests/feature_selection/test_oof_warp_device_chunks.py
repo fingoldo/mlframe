@@ -22,12 +22,19 @@ def _stats(cands):
     return [(c["col"], c["cls"], c["mi_raw"], c["mi_warp"], c["se"], c["bulk_gain"], c["bulk_se"], c["scored_on"]) for c in cands]
 
 
-def test_chunks_give_the_numbers_of_one_call_and_candidates_do_not_hold_the_columns(monkeypatch):
-    """A chunk budget of two columns against the whole frame at once: the same candidates (numbers to 1e-12); the device scan's candidates read their column from the frame on demand."""
+@pytest.fixture(scope="module")
+def device_scan():
+    """The frame and the one-call device scan of all its columns; skips the module when the device scan is not available on this host."""
     X, y = _frame()
     whole = W.warp_candidates(X, y, list(X.columns), device=True)
     if not whole or whole[0]["scored_on"] != "device":
         pytest.skip("the device warp scan is not available on this host")
+    return X, y, whole
+
+
+def test_chunks_give_the_numbers_of_one_call_and_candidates_do_not_hold_the_columns(device_scan, monkeypatch):
+    """A chunk budget of two columns against the whole frame at once: the same candidates (numbers to 1e-12); the device scan's candidates read their column from the frame on demand."""
+    X, y, whole = device_scan
     n_bytes = len(X) * np.dtype(W._crit_np_dtype()).itemsize
     monkeypatch.setattr(W, "_STACK_CHUNK_BYTES", 2 * n_bytes)
     chunked = W.warp_candidates(X, y, list(X.columns), device=True)

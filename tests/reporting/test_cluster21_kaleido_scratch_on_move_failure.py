@@ -42,10 +42,7 @@ def test_failed_move_leaves_no_scratch_file_next_to_the_target(tmp_path, monkeyp
 
     monkeypatch.setattr(os, "replace", _move_fails)
     target = str(tmp_path / "chart.png")
-    try:
-        kd.write_image_via_kaleido(object(), target, "png")
-    except Exception:
-        pass  # the caller-visible outcome is not under test; the scratch file is
+    kd.write_image_via_kaleido(object(), target, "png")  # the failed move is handled inside; only its leftovers are under test
 
     assert not os.path.exists(target)
     assert not [name for name in os.listdir(tmp_path) if ".partial-" in name]
