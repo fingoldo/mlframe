@@ -404,7 +404,7 @@ def _quantile_binning_kernel(y_true: np.ndarray, y_pred: np.ndarray, edges: np.n
     """Bin (y_true, y_pred) into the pockets defined by ascending ``edges`` (len = nbins+1).
 
     Equal-population (quantile) edges are computed by the Python wrapper; this kernel just
-    assigns each sample to its pocket via a linear scan over the (small) edge array and
+    assigns each sample to its pocket via a binary search over the edge array and
     returns mean-pred / observed-freq / population per non-empty pocket. Mirrors
     fast_calibration_binning's outputs so downstream metrics are strategy-agnostic.
     """
@@ -416,12 +416,18 @@ def _quantile_binning_kernel(y_true: np.ndarray, y_pred: np.ndarray, edges: np.n
     for i in range(len(y_pred)):
         p = y_pred[i]
         # Find pocket: largest b with edges[b] <= p. Clamp to [0, nbins-1].
+        # Binary search over the inner edges (O(log nbins)); a NaN score matches no edge and stays in pocket 0, as the old linear scan left it.
         b = 0
-        for e in range(1, nbins):
-            if p >= edges[e]:
-                b = e
-            else:
-                break
+        if p == p:
+            lo = 1
+            hi = nbins
+            while lo < hi:
+                mid = (lo + hi) // 2
+                if p >= edges[mid]:
+                    lo = mid + 1
+                else:
+                    hi = mid
+            b = lo - 1
         pockets_predicted[b] += 1
         pockets_true[b] += y_true[i]
         pockets_pred_sum[b] += p

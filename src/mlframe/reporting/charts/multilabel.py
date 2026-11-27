@@ -216,6 +216,7 @@ def _calib_grid_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePane
     colors: List[str] = []
     pooled_sums = np.zeros(n_bins, dtype=np.float64)
     pooled_counts = np.zeros(n_bins, dtype=np.float64)
+    pooled_pred_sums = np.zeros(n_bins, dtype=np.float64)
     for k in draw_idx:
         proba_k = y_proba[:, k]
         true_k = y_true[:, k].astype(np.float64)
@@ -229,16 +230,18 @@ def _calib_grid_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePane
         # Per-bin observed mean via two bincounts (sum / count) instead of an inner n_bins x O(N) mask loop.
         counts = np.bincount(bin_idx, minlength=n_bins)
         sums = np.bincount(bin_idx, weights=true_k, minlength=n_bins)
+        pred_sums = np.bincount(bin_idx, weights=proba_k, minlength=n_bins)
         observed = np.full(n_bins, np.nan)
         nz = counts > 0
         observed[nz] = sums[nz] / counts[nz]
         series.append(observed)
         pooled_sums += sums
         pooled_counts += counts
+        pooled_pred_sums += pred_sums
         # Support-weighted ECE from the same per-bin counts, so each curve's label carries how far it sits from the
         # diagonal AND how many rows drew it.
         _n_k = float(counts.sum())
-        _ece_k = float(np.sum(counts[nz] * np.abs(observed[nz] - x_grid[nz])) / _n_k) if _n_k else float("nan")
+        _ece_k = float(np.sum(counts[nz] * np.abs(observed[nz] - pred_sums[nz] / counts[nz])) / _n_k) if _n_k else float("nan")  # confidence = the bin's mean prediction, not its centre (20-F8)
         series_labels.append(f"{_legend_name(labels[k])} (ECE={_ece_k:.3f}, n={int(_n_k):,})")
         colors.append(line_color(k))
     diag = x_grid.copy()
@@ -256,7 +259,7 @@ def _calib_grid_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePane
         macro[nz_pool] = pooled_sums[nz_pool] / pooled_counts[nz_pool]
         all_series.append(macro)
         _n_pool = float(pooled_counts.sum())
-        _ece_pool = float(np.sum(pooled_counts[nz_pool] * np.abs(macro[nz_pool] - x_grid[nz_pool])) / _n_pool) if _n_pool else float("nan")
+        _ece_pool = float(np.sum(pooled_counts[nz_pool] * np.abs(macro[nz_pool] - pooled_pred_sums[nz_pool] / pooled_counts[nz_pool])) / _n_pool) if _n_pool else float("nan")
         all_labels.append(f"pooled avg (weighted by bin support; ECE={_ece_pool:.3f}, n={int(_n_pool):,})")
         styles.append("--")
         all_colors.append("black")
@@ -268,7 +271,7 @@ def _calib_grid_panel(y_true, y_proba, labels, *, label_subset=None) -> LinePane
         y=tuple(all_series),
         series_labels=tuple(all_labels),
         title=title,
-        xlabel="Mean predicted P(label)",
+        xlabel="Predicted P(label) (bin centre)",
         ylabel="Observed P(label | bin)",
         line_styles=tuple(styles),
         colors=tuple(all_colors),

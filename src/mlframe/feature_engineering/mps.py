@@ -226,7 +226,8 @@ def find_best_mps_sequence(
 
     Returns:
         Tuple of ``(positions, profits)``: ``positions`` is an int8 array of length n-1 with values -1, 0, 1 for the position held on
-        interval t->t+1, and ``profits`` is a float array of length n-1 with per-interval profit (after transaction costs).
+        interval t->t+1, and ``profits`` is a float array of length n (sized to ``raw_prices``, as ``compute_area_profits`` returns it; the final element is 0 and callers
+        that want one value per interval use ``profits[:-1]``) with per-interval profit (after transaction costs).
     """
     if shift < 0:
         # numba njit exception messages must be compile-time constants -- no f-string/dynamic value here.

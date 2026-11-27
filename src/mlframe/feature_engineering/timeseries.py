@@ -664,10 +664,11 @@ def create_windowed_features(
         columns=features_names if features_creation_fcn else past_vars_names,
         dtype=dtype,
     )
+    # Targets keep at least float64: the feature dtype (float32 by default) would round a large regression target such as 16777217.0 (24-F29).
     Y = pd.DataFrame(
         data=targets,
         columns=targets_names if targets_creation_fcn else future_vars_names,
-        dtype=dtype,
+        dtype=np.promote_types(dtype, np.float64),
     )
 
     if Y.shape[1] == 1:

@@ -16,8 +16,7 @@ import numpy as np
 from mlframe.reporting.colors import PERFECT_FIT_LINE, OVERLAY_LINE, TREND_LINE
 from mlframe.reporting.spec import ScatterPanelSpec
 
-from ._shared_helpers import _SCATTER_MAX_POINTS, low_evidence_mask, non_colliding_label_indices, select_per_point
-from mlframe.utils.array_shape import length_of
+from ._shared_helpers import _SCATTER_MAX_POINTS, low_evidence_mask, non_colliding_label_indices, remap_low_evidence_indices, select_per_point
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +134,8 @@ def _subsample_scatter(x, y, p, size_arr, color_arr, n):
                 _sub[_name] = tuple(np.asarray(e)[idx] for e in _err)
         elif _err is not None and np.ndim(_err) > 0 and np.shape(_err)[0] == n:
             _sub[_name] = np.asarray(_err)[idx]
+    if getattr(p, "low_evidence_indices", None) is not None:
+        _sub["low_evidence_indices"] = remap_low_evidence_indices(p.low_evidence_indices, idx, n)
     if _sub:
         p = dataclasses.replace(p, **_sub)
     # capped scatter still rasterized so a vector export stays small.
@@ -160,7 +161,7 @@ def _scatter(self, ax, p: ScatterPanelSpec, fig, cbar_axes=None) -> None:
     # error arrays align with x/y as-passed.
     # Points whose value rests on too little data to be an observation. Their interval is drawn muted and
     # their marker hollow, so the pair keeps its honest width without carrying an observation's weight.
-    weak = low_evidence_mask(p.low_evidence_indices if len(x) == length_of(p.x) else None, len(x))
+    weak = low_evidence_mask(p.low_evidence_indices, len(x))
 
     _draw_scatter_error_bars(ax, p, x, y, weak)
 

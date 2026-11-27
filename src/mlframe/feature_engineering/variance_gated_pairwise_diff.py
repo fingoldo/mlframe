@@ -94,6 +94,12 @@ def variance_gated_pairwise_diff(
     X = df[columns].to_numpy(dtype=np.float64)
     cov = np.cov(X, rowvar=False)
     var_diag = np.diag(cov)
+    _nan_cols = [c for c, i in col_index.items() if not np.isfinite(var_diag[i])]
+    if _nan_cols:
+        logger.warning(
+            "variance_gated_pairwise_diff: %d column(s) hold NaN or inf values, so every pair involving them is dropped by the variance gate: %s",
+            len(_nan_cols), _nan_cols[:10],
+        )
 
     all_pairs = list(combinations(columns, 2))
     surviving_pairs = []

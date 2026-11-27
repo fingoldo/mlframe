@@ -54,17 +54,18 @@ def _silverman_h(X: np.ndarray) -> float:
     return float(max(h, 1e-3))
 
 
-def _gaussian_kde_log(X_query: np.ndarray, X_train_subset: np.ndarray, h: float, chunk: int = 1000) -> np.ndarray:
-    """Log-KDE: log( (1/N) Σ exp(-||x - x_i||² / (2 h²)) ).
+def _gaussian_kde_log_multi(X_query: np.ndarray, X_train_subset: np.ndarray, hs: Tuple[float, ...], chunk: int = 1000) -> np.ndarray:
+    """Log-KDE at several bandwidths from one pairwise-distance build: row ``j`` is ``log( (1/N) Σ exp(-||x - x_i||² / (2 hs[j]²)) )``.
 
-    Chunked over query rows to keep memory bounded.
+    Chunked over query rows to keep memory bounded. The squared distances do not depend on the bandwidth, so they are built once per chunk and reused
+    for every bandwidth (09-F27).
     """
     n_q = X_query.shape[0]
     n_t = X_train_subset.shape[0]
     if n_t < 1:
-        return np.full(n_q, -30.0, dtype=np.float32)
-    out = np.zeros(n_q, dtype=np.float32)
-    h_sq = max(h * h, 1e-9)
+        return np.full((len(hs), n_q), -30.0, dtype=np.float32)
+    out = np.zeros((len(hs), n_q), dtype=np.float32)
+    h_sqs = [max(h * h, 1e-9) for h in hs]
     log_N = np.log(n_t)
     # |x - y|^2 = |x|^2 + |y|^2 - 2 x.y^T computed via one BLAS sgemm per chunk; avoids the (chunk, n_t, d) broadcast temporary the naive form materialises.
     t_sq = np.einsum("ij,ij->i", X_train_subset, X_train_subset)  # |y|^2, (n_t,)
@@ -74,12 +75,18 @@ def _gaussian_kde_log(X_query: np.ndarray, X_train_subset: np.ndarray, h: float,
         q_sq = np.einsum("ij,ij->i", Xq, Xq)  # |x|^2, (chunk,)
         d2 = q_sq[:, None] + t_sq[None, :] - 2.0 * (Xq @ X_train_subset.T)  # (chunk, n_t)
         np.maximum(d2, 0.0, out=d2)  # clamp tiny negatives from float cancellation before negating
-        logits = -d2 / (2.0 * h_sq)  # (chunk, n_t)
-        # log-sum-exp for numerical stability
-        m = logits.max(axis=1, keepdims=True)
-        lse = m.ravel() + np.log(np.exp(logits - m).sum(axis=1) + 1e-30)
-        out[start:end] = (lse - log_N).astype(np.float32)
+        for j, h_sq in enumerate(h_sqs):
+            logits = -d2 / (2.0 * h_sq)  # (chunk, n_t)
+            # log-sum-exp for numerical stability
+            m = logits.max(axis=1, keepdims=True)
+            lse = m.ravel() + np.log(np.exp(logits - m).sum(axis=1) + 1e-30)
+            out[j, start:end] = (lse - log_N).astype(np.float32)
     return out
+
+
+def _gaussian_kde_log(X_query: np.ndarray, X_train_subset: np.ndarray, h: float, chunk: int = 1000) -> np.ndarray:
+    """Log-KDE at one bandwidth: ``log( (1/N) Σ exp(-||x - x_i||² / (2 h²)) )``; see ``_gaussian_kde_log_multi``."""
+    return np.asarray(_gaussian_kde_log_multi(X_query, X_train_subset, (h,), chunk)[0])
 
 
 def compute_density_ratio_features(
@@ -134,11 +141,10 @@ def compute_density_ratio_features(
             return np.zeros((Xq_s.shape[0], len(bandwidth_multipliers)), dtype=np.float32)
         h_base = _silverman_h(Xt_s)
         feats = np.zeros((Xq_s.shape[0], len(bandwidth_multipliers)), dtype=np.float32)
-        for col_idx, mult in enumerate(bandwidth_multipliers):
-            h = h_base * mult
-            log_pos = _gaussian_kde_log(Xq_s, Xt_pos, h=h)
-            log_neg = _gaussian_kde_log(Xq_s, Xt_neg, h=h)
-            feats[:, col_idx] = (log_pos - log_neg).astype(np.float32)
+        hs = tuple(h_base * mult for mult in bandwidth_multipliers)
+        log_pos = _gaussian_kde_log_multi(Xq_s, Xt_pos, hs)
+        log_neg = _gaussian_kde_log_multi(Xq_s, Xt_neg, hs)
+        feats[:, :] = (log_pos - log_neg).T.astype(np.float32)
         return feats
 
     def _make_df(feats: np.ndarray) -> dict[str, np.ndarray]:

@@ -578,7 +578,10 @@ def ensemble_probabilistic_predictions_streaming(
     # Transform-per-model, feed Welford. Separate instances for each
     # moment we need (mean + the method-specific transform).
     first = np.asarray(preds_list[0])
-    shape = first.shape if first.ndim == 2 else (first.shape[0], 1)
+    if first.ndim == 0:
+        raise ValueError("streaming ensemble members must be at least 1-D arrays")
+    # (N,) members become (N, 1); (N, K) and higher-rank members such as (N, K, C) keep their own shape (18-F11).
+    shape = first.shape if first.ndim >= 2 else (first.shape[0], 1)
 
     # Primary aggregator -- the ensemble method's target statistic
     primary_acc = _WelfordAccumulator(shape=shape)
@@ -610,7 +613,7 @@ def ensemble_probabilistic_predictions_streaming(
     # Uncertainty from Welford std (raw preds, not transformed).
     raw_result = raw_acc.result()
     std_preds = raw_result["std"]
-    uncertainty = std_preds.mean(axis=1) if std_preds is not None else None
+    uncertainty = std_preds.reshape(std_preds.shape[0], -1).mean(axis=1) if std_preds is not None else None
 
     # Restore (N,) shape if original was 1-D. Only the predictions need it: `uncertainty` is the
     # axis=1 mean of the (N, K) Welford std, so it is already (N,) on every path.

@@ -172,6 +172,20 @@ def _group_subsample_index(rng: np.random.Generator, groups_arr: np.ndarray, n_s
     return np.flatnonzero(np.isin(groups_arr, uniq[chosen]))
 
 
+# Share of failed estimator fits above which stability selection warns regardless of ``verbose``.
+_STABILITY_FAILURE_WARN_RATE = 0.5
+
+
+def _warn_on_failed_bootstrap_fits(n_attempts: int, n_failures: int) -> None:
+    """Warn once when at least half of the bootstrap fits failed; an all-failed run would otherwise return an empty ``support_`` without a message (15-F6)."""
+    if n_attempts > 0 and n_failures / n_attempts >= _STABILITY_FAILURE_WARN_RATE:
+        logger.warning(
+            "stability_selection: %d of %d bootstrap estimator fits failed; selection counts are based on the rest%s. "
+            "Re-run with verbose=True for the per-fit errors.",
+            n_failures, n_attempts, " (none succeeded: support_ will be empty)" if n_failures >= n_attempts else "",
+        )
+
+
 def _run_stability_bootstraps(
     self: Any,
     X: Any,
@@ -190,6 +204,8 @@ def _run_stability_bootstraps(
 ) -> np.ndarray:
     """Run the ``stability_n_bootstrap`` subsample fits and return how often each feature landed in a bootstrap's positive-importance top-K."""
     selection_counts = np.zeros(n_features, dtype=int)
+    n_attempts = 0  # estimator fits tried across all bootstraps
+    n_failures = 0  # fits or importance computations that raised (15-F6)
 
     # W1: self._fit_sample_weight_ was previously never read anywhere in this function - a caller
     # who validated their weighted-fit setup on the default (MBH) path, then flipped
@@ -220,6 +236,7 @@ def _run_stability_bootstraps(
         per_feature_score_sum = np.zeros(n_features, dtype=float)
         for est in estimators_list:
             est_clone = clone(est)
+            n_attempts += 1
             _fit_kwargs = {}
             if sw_sub is not None:
                 _fit_key = getattr(est_clone.fit, "__func__", est_clone.fit)
@@ -229,6 +246,7 @@ def _run_stability_bootstraps(
                 est_clone.fit(X_sub, y_sub, **_fit_kwargs)
             except Exception as exc:
                 logger.debug("stability-select bootstrap fit failed: %s", exc)
+                n_failures += 1
                 if self.verbose:
                     log_throttle(
                         logger,
@@ -254,6 +272,7 @@ def _run_stability_bootstraps(
                 )
             except Exception as exc:
                 logger.debug("stability-select permutation-importance computation failed: %s", exc)
+                n_failures += 1
                 if self.verbose:
                     log_throttle(
                         logger,
@@ -278,6 +297,7 @@ def _run_stability_bootstraps(
         # stability threshold - admitting noise into support_. A zero-FI feature is, by definition, not "selected" by this bootstrap.
         top_idx = top_idx[per_feature_score_sum[top_idx] > 0]
         selection_counts[top_idx] += 1
+    _warn_on_failed_bootstrap_fits(n_attempts, n_failures)
     return selection_counts
 
 

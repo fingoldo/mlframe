@@ -117,12 +117,9 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F22: FIXED. cohort helper returns raw column labels, so non-string labels match; same test file
 - 24-F48: FIXED. validation-only class labels get the probability floor instead of a neighbouring class's column; tests/feature_selection/test_cluster24_unseen_validation_label.py
 - 24-F23: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F24: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F25: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F26: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F27: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F28: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F29: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F30: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F31: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F36: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
@@ -135,19 +132,13 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F31: FIXED. chunks that return (None, None) are skipped and an all-empty run returns (None, None); no separate test
 - 24-F36: FIXED. the long MA is reindexed to the short one's index before differencing; tests/feature_engineering/test_cluster24_empty_and_alignment.py
 - 24-F23: DEFERRED. not reviewed in this pass; P2 still open
-- 24-F24: DEFERRED. not reviewed in this pass; P2 still open
 - 24-F26: DEFERRED. not reviewed in this pass; P2 still open
-- 24-F27: DEFERRED. not reviewed in this pass; P2 still open
 - 24-F28: DEFERRED. not reviewed in this pass; P2 still open
-- 24-F29: DEFERRED. not reviewed in this pass; P2 still open
 - 24-F30: DEFERRED. not reviewed in this pass; P2 still open
 - 24-F31: FIXED. empty parallel chunks are skipped and an all-empty run returns (None, None); tests/feature_engineering/test_timeseries.py expectation updated to the corrected cumsum end contract; 129 related tests pass
 - 24-F23: FIXED. local density drops the self-match when the query is the reference, so dist_to_kth is the k-th other point; tests/feature_engineering/test_cluster24_min_periods_and_self_match.py; 57 related tests pass
 - 24-F26: FIXED. rolling min_periods is clamped to the window; same test file
-- 24-F24: DEFERRED. read this pass; judgement or performance item deferred (see cluster report)
-- 24-F27: DEFERRED. read this pass; judgement or performance item deferred (see cluster report)
 - 24-F28: DEFERRED. read this pass; judgement or performance item deferred (see cluster report)
-- 24-F29: DEFERRED. read this pass; judgement or performance item deferred (see cluster report)
 - 24-F30: DOCUMENTED. The complement fallback is pinned by tests/feature_engineering/test_aggregated_view_based.py; the subset_direct feature flags it in the feature names. No behaviour change.
 
 
@@ -215,3 +206,9 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F54: DOCUMENTED. wavelet_dwt documents that it takes one numba-flags constant from mlframe.metrics.shared and that the fallback must mirror it; the silent fallback is by design
 
 - 24-F45: FIXED. Forward chaining now covers both consumers. Stability vote: forward_chain_folds. SHAP OOF explainer: _oof_split_iter forward-chains a temporal policy, rows no fold explains (first block) are NaN in phi/base, and _fit_oof_shap drops them from phi, base, phi_var, y_phi, X_proxy, y_search, X_search and the search policy so every row-aligned array stays on the same rows; per_fold_mean is sized to the folds run. Cost: the search set loses its first block (1/n_splits of the rows) under a temporal policy. Tests: tests/feature_selection/test_cluster24_forward_chain_folds.py, tests/feature_selection/shap_proxied/test_cluster24_forward_chained_oof_shap.py (incl. a full ShapProxiedFS fit under a temporal policy); existing SHAP/cv_policy set 110 passed
+
+- 24-F24: FIXED. find_best_mps_sequence docstring now states profits has length n (sized to raw_prices) and that callers use profits[:-1] for per-interval values.
+
+- 24-F29: FIXED. Windowed targets use at least float64 (np.promote_types(dtype, float64)); features keep the requested dtype. Test tests/feature_engineering/test_cluster24_dtype_docs_and_nan_pairs.py.
+
+- 24-F27: FIXED. variance_gated_pairwise_diff logs a WARNING naming the columns whose NaN/inf values drop every pair involving them. Same test file.

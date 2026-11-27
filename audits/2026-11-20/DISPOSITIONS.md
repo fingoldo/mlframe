@@ -310,7 +310,6 @@
 | 09-F15 | DEFERRED | tried an early return in the underdetermined branch; it broke the contract that the linear column stays finite. The real defect is the per-row exception path zeroing whole rows; needs a column-aware fix |
 | 09-F24 | FIXED | binary local-lift labels are normalised to {0,1} for both the global mean and the neighbour sums; tests/feature_engineering/transformer/test_cluster09_edges.py covers the KMeans path only, lift path covered by existing lift tests |
 | 09-F26 | FIXED | anchor count is capped by the row count, so a one-row fold yields one anchor; tests/feature_engineering/transformer/test_cluster09_edges.py |
-| 09-F27 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F28 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F29 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F30 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
@@ -393,7 +392,6 @@
 | 14-F5 | FIXED | note: tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_core_refine.py::test_biz_val_auto_matches_core_on_non_saturated_bed fails on the exact pre-change file too (pre-existing, verified) |
 | 15-F8 | FIXED | a callable prescreen's result is filtered to the candidate names the search offered; no direct test (the prescreen path needs a full RFECV fixture) |
 | 15-F9 | FIXED | the importance callable is called with target only when its signature accepts it, so a TypeError inside it runs once; tests/feature_selection/test_cluster15_importance_getter_and_prescreen.py |
-| 15-F6 | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
 | 15-F10 | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
 | 15-F11 | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
 | 16-F1 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
@@ -410,15 +408,11 @@
 | 17-F13 | FIXED | the quantile calibration branch refuses non-integer labels instead of truncating them; tests/metrics/test_cluster17_kappa_and_label_guard.py |
 | 17-F16 | FIXED | single-class perfect agreement gives kappa 1, as sklearn; tests/metrics/test_cluster17_kappa_and_label_guard.py |
 | 17-F15 | FIXED | a failed title-token metric is logged at WARNING, not DEBUG; no separate test |
-| 17-F10 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
-| 17-F12 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
-| 17-F14 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 17-F17 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 17-F18 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 17-F19 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 17-F20 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 18-F9 | FIXED | gate weighted means return NaN when every weight is zero instead of raising; tests/models/test_cluster18_zero_weight_gate.py; existing quality-gate and ensembling tests: 231 passed |
-| 18-F11 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 18-F12 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 18-F13 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 18-F14 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
@@ -433,12 +427,7 @@
 | 19-F9 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 20-F9 | FIXED | the DeLong warning now says labels outside {0, 1} are excluded from both classes, matching the code; no separate test |
 | 20-F17 | FIXED | the per-alpha pinball panel drops non-finite rows first, as its sibling panels do; tests/reporting/test_cluster20_pinball_panel_nan.py |
-| 20-F7 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F8 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F12 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F13 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F14 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
-| 20-F15 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F18 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F20 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 20-F21 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
@@ -446,40 +435,24 @@
 | 20-F24 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 21-F5 | FIXED | an all-missing slice column takes the missingness code; tests/reporting/test_cluster21_slice_missing_and_metric_direction.py |
 | 21-F16 | FIXED | metric direction uses the family name before any @k cutoff; same test file |
-| 21-F7 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F8 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F9 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
-| 21-F10 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
-| 21-F11 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
-| 21-F12 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 21-F14 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
-| 21-F15 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 22-F13 | FIXED | the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass |
 | 22-F20 | FIXED | the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test |
-| 22-F16 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F17 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F18 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F23 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
-| 22-F24 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 22-F26 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 23-F5 | FIXED | the leakage p-value is computed whether or not a tolerance decided the verdict; tests/evaluation/test_cluster23_leak_pvalue_and_event_days.py |
 | 23-F8 | FIXED | event distances use fractional days (total seconds / 86400) instead of the floored .dt.days; same test file; 95 related tests pass |
-| 23-F6 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
 | 23-F7 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
-| 23-F9 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
-| 23-F10 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
-| 23-F11 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
 | 23-F12 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
-| 23-F13 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
-| 23-F14 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
 | 24-F48 | FIXED | validation-only class labels get the probability floor instead of a neighbouring class's column; tests/feature_selection/test_cluster24_unseen_validation_label.py |
 | 24-F23 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F24 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F25 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F26 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F27 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F28 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F29 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F30 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F31 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F36 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
@@ -492,19 +465,13 @@
 | 24-F31 | FIXED | chunks that return (None, None) are skipped and an all-empty run returns (None, None); no separate test |
 | 24-F36 | FIXED | the long MA is reindexed to the short one's index before differencing; tests/feature_engineering/test_cluster24_empty_and_alignment.py |
 | 24-F23 | DEFERRED | not reviewed in this pass; P2 still open |
-| 24-F24 | DEFERRED | not reviewed in this pass; P2 still open |
 | 24-F26 | DEFERRED | not reviewed in this pass; P2 still open |
-| 24-F27 | DEFERRED | not reviewed in this pass; P2 still open |
 | 24-F28 | DEFERRED | not reviewed in this pass; P2 still open |
-| 24-F29 | DEFERRED | not reviewed in this pass; P2 still open |
 | 24-F30 | DEFERRED | not reviewed in this pass; P2 still open |
 | 24-F31 | FIXED | empty parallel chunks are skipped and an all-empty run returns (None, None); tests/feature_engineering/test_timeseries.py expectation updated to the corrected cumsum end contract; 129 related tests pass |
 | 24-F23 | FIXED | local density drops the self-match when the query is the reference, so dist_to_kth is the k-th other point; tests/feature_engineering/test_cluster24_min_periods_and_self_match.py; 57 related tests pass |
 | 24-F26 | FIXED | rolling min_periods is clamped to the window; same test file |
-| 24-F24 | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
-| 24-F27 | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
 | 24-F28 | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
-| 24-F29 | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
 | 35-F1 | RESOLVED | from_fitted_inner now stamps smearing_quantiles from the train features (X_train) and the reconstructed T, as fit() does; call sites pass the raw train rows. Tests tests/training/composite/test_smearing_fit_from_fitted_parity.py. |
 | 09-F1 | RESOLVED | Random directions are unscaled; the d^{-1/4} scale moved to the inputs so the kernel is exp(q.k/sqrt(d)) as documented. Tests tests/feature_engineering/transformer/test_performer_kernel_identity.py; reference in test_performer_attention_key_side_stabilization.py updated. |
 | 24-F30 | DOCUMENTED | The complement fallback is pinned by tests/feature_engineering/test_aggregated_view_based.py; the subset_direct feature flags it in the feature names. No behaviour change. |
@@ -1597,3 +1564,57 @@
 | 22-F10 | DEFERRED | Tried the direct fix (walk every module that defines a callee name): the gate then reports 21 new paths on the real tree, 14 of them through the closure name _kernel that many modules define, so they are same-name collisions, not real calls. The gate resolves callees by bare name; a correct fix has to resolve them through the caller's imports (qualified names), which is a larger change to the scanner. Left as is so the CI gate stays meaningful |
 
 | 13-F20 | FIXED | stability_n_jobs is now a BorutaShap constructor parameter (default -1, stored verbatim, documented), so get_params and clone keep it. Test tests/feature_selection/boruta_shap/test_cluster13_stability_n_jobs_param.py. Existing BorutaShap tests: 24 passed with no failure before my own time cap on the heavy ones; the rest left to CI |
+
+| 17-F14 | FIXED | Optimizer failure now logs a WARNING with the exception type and traceback before the coordinate-scan fallback; a missing scipy logs INFO. Regression test added. |
+
+| 17-F10 | FIXED | Fixed-[0,1] ECE/Brier kernels return NaN when a score lies outside [0,1] beyond 1e-9, matching fast_brier_score_loss and the fused block. Regression test added. Seven failures in test_metrics.py (fast_ice_only empty input, regression length_of numba typing) are in untouched code and not caused by this change. |
+
+| 17-F12 | FIXED | Quantile binning kernel locates each pocket by binary search (O(log nbins)); NaN scores stay in pocket 0 as before. Regression test compares with the old linear scan, including ties and edge values. |
+
+| 09-F27 | FIXED | Pairwise distances are built once per query chunk and class and reused for all bandwidths (_gaussian_kde_log_multi); results are bit-identical to the single-bandwidth calls. Test tests/feature_engineering/transformer/test_cluster09_kde_shared_distances.py. |
+
+| 23-F6 | FIXED | Derived ratio keeps NaN for missing or zero denominators (inf mapped to NaN) so the finite mask and missing_correlation see it. Test tests/evaluation/test_cluster23_leak_scan_ratio_nan.py. |
+
+| 23-F9 | FIXED | Docstring now says best_scheme is the smallest mean per-fold gap. |
+
+| 23-F10 | DEFERRED | Docstring and code differ on the z-score reference set; choosing leave-one-out or fixing the text changes which variants are flagged, an owner call. |
+
+| 23-F11 | RESOLVED | Not dead code: the next call takes jackknife as an argument, so the None initial value is used. Removing it raises UnboundLocalError (18 existing tests failed). Left as is. |
+
+| 23-F13 | FIXED | Dropped the unused name parameter of _merge_parallel_chunks and its call argument. |
+
+| 23-F14 | DOCUMENTED | Docstring now states the sign of cv_delta is ignored, so a loss on a shifted subgroup is flagged too; behaviour unchanged. |
+
+| 15-F6 | FIXED | Stability selection counts failed estimator fits and importance computations and logs one WARNING when at least half failed (with an explicit note when none succeeded), regardless of verbose. Test tests/feature_selection/test_cluster15_stability_failed_fits_warn.py. |
+
+| 18-F11 | FIXED | Streaming ensemble keeps the member shape for ndim>=2, so (N,K,C) members work as in the materialised path; uncertainty is the per-row mean of the std over all other axes; 0-d members raise a clear ValueError. Test tests/models/test_cluster18_streaming_ensemble_three_dim.py. |
+
+| 21-F11 | FIXED | Split metrics take n_rows, n_pos and n_neg from the full split before subsampling, so the legend and the AUC noise bar use the true counts. Test tests/reporting/test_cluster21_split_comparison_true_counts.py. |
+
+| 21-F7 | FIXED | Risk-coverage logs a WARNING naming the labels outside {0,1} that it drops, and the empty-figure annotation mentions the 0/1 requirement. Test tests/reporting/test_cluster21_risk_coverage_labels_and_shap_proxy_warn.py. |
+
+| 21-F15 | FIXED | A failing decision_function/predict_proba/predict in the SHAP score proxy now logs a throttled WARNING stating that tail preservation is lost. Same test file. |
+
+| 21-F10 | FIXED | Low-evidence indices are mapped through the downsample selection (remap_low_evidence_indices) in both the matplotlib and plotly scatter, so weak points stay hollow after capping. Test tests/reporting/test_cluster21_low_evidence_survives_downsample.py. |
+
+| 21-F12 | FIXED | A static image replaced by an HTML file (burned kaleido or failing oneshot) or lost entirely is now counted in get_render_failure_stats(); the HTML file is still written and the figure handle kept. Test tests/reporting/test_cluster21_kaleido_html_fallback_is_counted.py. |
+
+| 20-F13 | FIXED | Model-card heteroscedasticity Spearman uses the shared average-rank implementation, so tied predictions no longer make it depend on row order; local rank helper import removed. Test tests/reporting/test_cluster20_model_card_spearman_ties.py. |
+
+| 20-F7 | FIXED | Non-finite values get a split-gain bin code of their own above every finite bin, so missing rows no longer dilute the top finite bin and a missingness-driven column is ranked. Test tests/reporting/test_cluster20_split_gain_missing_bin.py. |
+
+| 20-F8 | PARTIAL | Multilabel legend ECE now uses each bin's mean prediction as the confidence (per label and pooled), and both axes say bin centre instead of claiming a mean prediction. The curves stay on the shared bin-centre grid because a line panel has one x for all series; per-series x would be a spec change. Test tests/reporting/test_cluster20_multilabel_ece_uses_mean_prediction.py. |
+
+| 20-F12 | FIXED | bootstrap_ap_ci returns the distinct-threshold AP (sklearn definition, same as the PR panel) and shifts the interval by the gap to the per-row step sum, so the interval is centred on the AP the title shows under tied scores. Test tests/reporting/test_cluster20_ap_ci_matches_displayed_ap.py. |
+
+| 20-F15 | DEFERRED | Re-read: the memo is keyed on frame identity with a weakref guard, so an in-place edit between two builder calls does return the old matrix. A sound fix is either passing the densified matrix explicitly from the dispatch to both builders (an API change across diagnostics_dispatch) or a content fingerprint, and a sampled fingerprint cannot detect every edit while a full one costs as much as the densify. Needs an owner choice between the two. |
+
+| 24-F24 | FIXED | find_best_mps_sequence docstring now states profits has length n (sized to raw_prices) and that callers use profits[:-1] for per-interval values. |
+
+| 24-F29 | FIXED | Windowed targets use at least float64 (np.promote_types(dtype, float64)); features keep the requested dtype. Test tests/feature_engineering/test_cluster24_dtype_docs_and_nan_pairs.py. |
+
+| 24-F27 | FIXED | variance_gated_pairwise_diff logs a WARNING naming the columns whose NaN/inf values drop every pair involving them. Same test file. |
+
+| 22-F24 | FIXED | cluster_resample_indices builds the resample with one np.repeat gather instead of a Python slice per drawn group; output and rng consumption are identical (test compares with the old form over 20 seeds). Test tests/evaluation/test_cluster22_cluster_resample_vectorised.py. |
+
+| 22-F16 | RESOLVED | Not a defect: in the inner_cv path the full-OOF fit (cal_oof) is still used, for the non-finite check and as the returned calibrated_probs, so it cannot move into the same_oof branch. No change. |

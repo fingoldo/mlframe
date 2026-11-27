@@ -37,7 +37,14 @@ def cluster_resample_indices(rng: np.random.Generator, order: np.ndarray, offset
     """Row indices of one cluster-bootstrap resample: draw as many groups as exist, with replacement, and concatenate their rows."""
     n_groups = offsets.shape[0] - 1
     picks = rng.integers(0, n_groups, size=n_groups)
-    return np.concatenate([order[offsets[g] : offsets[g + 1]] for g in picks])
+    # One gather instead of a Python slice per drawn group: repeat each drawn group's start offset over its length, then add the within-group position.
+    lengths = offsets[picks + 1] - offsets[picks]
+    total = int(lengths.sum())
+    if total == 0:
+        return order[:0]
+    group_first = np.cumsum(lengths) - lengths  # output position where each drawn group begins
+    within = np.arange(total) - np.repeat(group_first, lengths)
+    return np.asarray(order[np.repeat(offsets[picks], lengths) + within])
 
 
 def block_resample_indices(rng: np.random.Generator, n: int, block_length: int) -> np.ndarray:

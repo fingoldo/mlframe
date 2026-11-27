@@ -250,6 +250,17 @@ def _oneshot_write_static(fig: Any, path: str, fmt: str) -> None:
         atomic_write_bytes(path, lambda fh: fh.write(data))
 
 
+def _count_unrendered_static_chart() -> None:
+    """Count one requested static image that was replaced by an HTML file (or lost) in ``get_render_failure_stats()``.
+
+    The write returns normally after the HTML fallback, so the caller saw a success and the suite-end "dropped" count stayed at zero while ``.html`` files
+    sat where ``.png`` was asked for (21-F12). The import is local because ``save`` imports this module.
+    """
+    from mlframe.reporting.renderers.save import _record_render_failure
+
+    _record_render_failure(timed_out=False)
+
+
 def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
     """Write ``fig`` to ``path`` as png/svg/pdf via kaleido.
 
@@ -353,6 +364,7 @@ def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
                 "lost but suite continues. Last error: %s",
                 path, fmt, e,
             )
+        _count_unrendered_static_chart()
         return
 
     # Persistent path skipped (kaleido never started or unavailable); use plotly oneshot. Catch
@@ -380,6 +392,7 @@ def write_image_via_kaleido(fig: Any, path: str, fmt: str) -> None:
                     "lost but suite continues. Last error: %s",
                     path, fmt, e2,
                 )
+            _count_unrendered_static_chart()
     finally:
         # Record cumulative oneshot wall regardless of success / exception path; the suite-end
         # summary uses this to quote concrete savings of upgrading kaleido.

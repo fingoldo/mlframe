@@ -132,12 +132,14 @@ def _metrics_for_split(
             return None, "no finite (label, score) pairs"
         if (yt == 1).sum() == 0 or (yt == 0).sum() == 0:
             return None, "single class -- discrimination undefined"
+        # Counts describe the whole split: the AUC noise bar and the legend would otherwise report the subsample cap (21-F11).
+        n_rows_full, n_pos_full, n_neg_full = float(yt.size), float((yt == 1).sum()), float((yt == 0).sum())
         yt, ys = _subsample(yt, ys, cap=subsample, seed=seed)
         sort = _ScoreSort(yt, ys)
         _m = _classification_metrics(sort, yt, ys, threshold)
-        _m["n_rows"] = float(yt.size)
-        _m["n_pos"] = float((yt == 1).sum())
-        _m["n_neg"] = float((yt == 0).sum())
+        _m["n_rows"] = n_rows_full
+        _m["n_pos"] = n_pos_full
+        _m["n_neg"] = n_neg_full
         return _m, None
 
     if task == "regression":
@@ -149,10 +151,11 @@ def _metrics_for_split(
         yt, yp = _finite_pair(entry["y_true"], pred)
         if yt.size == 0:
             return None, "no finite (y_true, y_pred) pairs"
+        n_rows_full = float(yt.size)
         yt, yp = _subsample(yt, yp, cap=subsample, seed=seed)
         m = _regression_metrics(yt, yp)
         m["y_std"] = float(np.std(yt))  # carried for the 0-1 quality normalization of RMSE/MAE/|bias| bars
-        m["n_rows"] = float(yt.size)
+        m["n_rows"] = n_rows_full
         return m, None
 
     raise ValueError(f"unknown task {task!r}; expected 'classification'/'binary'/'regression'")
