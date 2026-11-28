@@ -80,11 +80,9 @@ def _fit_3baselines_with_sigma(Xt: np.ndarray, y_t: np.ndarray, Xq: np.ndarray, 
         resid_pred = (p1_train, p2_train, p3_train)
         if Xt.shape[0] >= 3:
 
-            from .ib_baseline_codes import _members_predict
-
             oof = np.zeros((Xt.shape[0], 3), dtype=np.float32)
             for k, (tr, va) in enumerate(_bo.kfold_splits(Xt, 3, int(seed) + 11, groups)):
-                oof[va] = _members_predict(Xt[tr], y_t[tr], Xt[va], "regression", int(seed) + 7 + k)
+                oof[va] = _bo.three_member_predictions(Xt[tr], y_t[tr], Xt[va], "regression", int(seed) + 7 + k, __name__)
             resid_pred = (oof[:, 0], oof[:, 1], oof[:, 2])
         sigmas[0] = float((y_t - resid_pred[0]).std()) + 1e-6
         sigmas[1] = float((y_t - resid_pred[1]).std()) + 1e-6

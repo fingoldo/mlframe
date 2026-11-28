@@ -54,6 +54,29 @@ _TREE_TOKENS = (
 )
 
 
+_UNWRAP_ATTRS = ("_final_estimator", "regressor_", "best_estimator_")
+
+
+def unwrap_estimator(m: object, extra_attrs: tuple = ()) -> object:
+    """Walk up to 8 wrapper hops to the innermost fitted estimator (Pipeline ``_final_estimator``, TransformedTargetRegressor ``regressor_``, a search-CV's ``best_estimator_``).
+
+    The single definition of the unwrap loop (audit 15-F13): family detection, signed-coefficient extraction and the ``'auto'`` getter each had their own copy with a
+    different attribute list, so a fitted ``GridSearchCV`` was unwrapped by one and left opaque by another. ``extra_attrs`` are tried after the standard ones
+    (family detection adds ``base_estimator``, which would be wrong for coefficient extraction because it is an unfitted template).
+    """
+    for _ in range(8):
+        inner = None
+        for attr in _UNWRAP_ATTRS + tuple(extra_attrs):
+            cand = getattr(m, attr, None)
+            if cand is not None and cand is not m:
+                inner = cand
+                break
+        if inner is None:
+            break
+        m = inner
+    return m
+
+
 def detect_estimator_family(estimator: object) -> str:
     """Return 'tree' / 'linear' / 'kernel' for an estimator.
 
@@ -62,17 +85,7 @@ def detect_estimator_family(estimator: object) -> str:
     (coef_ -> linear, feature_importances_ -> tree) and finally 'kernel' for
     SVMs / kNN / anything without a native importance attribute.
     """
-    m = estimator
-    for _ in range(8):
-        inner = None
-        for attr in ("_final_estimator", "regressor_", "best_estimator_", "base_estimator"):
-            cand = getattr(m, attr, None)
-            if cand is not None and cand is not m:
-                inner = cand
-                break
-        if inner is None:
-            break
-        m = inner
+    m = unwrap_estimator(estimator, extra_attrs=("base_estimator",))
     name = type(m).__name__
     if any(tok in name for tok in _LINEAR_TOKENS):
         return "linear"
@@ -105,15 +118,7 @@ def get_signed_linear_coef(
     Multiclass collapse keeps the sign of the dominant-magnitude class
     ('max' -> coef of the argmax-|coef| class; 'sum' -> signed sum across classes).
     """
-    m = model
-    for _ in range(8):
-        if hasattr(m, "_final_estimator") and m._final_estimator is not m:
-            m = m._final_estimator
-            continue
-        if hasattr(m, "regressor_") and getattr(m, "regressor_") is not m:
-            m = m.regressor_
-            continue
-        break
+    m = unwrap_estimator(model)
     coef = getattr(m, "coef_", None)
     if coef is None:
         return None

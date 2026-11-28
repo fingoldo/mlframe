@@ -307,7 +307,6 @@
 | 08-F11 | FIXED | the silent temperature override now warns (RuntimeWarning); no separate test |
 | 09-F24 | FIXED | binary local-lift labels are normalised to {0,1} for both the global mean and the neighbour sums; tests/feature_engineering/transformer/test_cluster09_edges.py covers the KMeans path only, lift path covered by existing lift tests |
 | 09-F26 | FIXED | anchor count is capped by the row count, so a one-row fold yields one anchor; tests/feature_engineering/transformer/test_cluster09_edges.py |
-| 09-F31 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 12-F3 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F4 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F5 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
@@ -1050,7 +1049,6 @@
 | 22-F28 | FIXED | The secondary-ECE None is passed straight into the holdout helper; the redundant assignment is removed (the helper's parameter is the starting value, so the assignment was not dead). Covered by the calibration policy tests (4 pass). |
 | 22-F31 | FIXED | Recency-weight module docstring corrected: i counts back from the most recent (i = 1), matching the code, where the newest observation carries the largest weight. Test tests/core/test_cluster22_recency_index_convention.py. |
 | 22-F32 | FIXED | Tukey multiplier: lru_cache moved onto a helper that receives only hashable arguments; extra dist kwargs (possibly unhashable, e.g. array loc) bypass the cache instead of raising TypeError. The both-None guard was fixed earlier. Tests tests/core/test_cluster22_tukey_unhashable_kwargs.py (2) plus existing Tukey tests (8 total) and stats doctests (4) pass. |
-| 22-F27 | DEFERRED | Timing helpers in _bench_timing_shared.py differ in warmup semantics and are called by about a dozen bench scripts; consolidating to one implementation per shape needs a decision on the kept signatures. Not changed. |
 | 25-F56 | FIXED | Unused marginals array removed from the MI kernel in an earlier commit (995050561); verified by the MI kernel tests (28 pass). Recorded here, where the disposition was missing. |
 | 25-F55 | FIXED | MI docstrings corrected from the fixed 0-14 range to the validated [0, 127] / [0, n_bins) contract (three sites). Test tests/feature_selection/test_cluster25_mi_bin_range_doc.py (source pins). |
 | 25-F57 | FIXED | Ridge prefilter scans candidate sizes ascending, so the smallest qualifying size wins regardless of input order (fixed earlier in 7565c18fd). Covered by tests/feature_selection/test_cluster25_prefilter_unsorted_sizes.py and the nested-CV prefilter test (3 pass). |
@@ -1147,7 +1145,6 @@
 | 28-F54 | DEFERRED | The two CatBoost loss-ensuring helpers duplicate about 60 lines. Extracting a shared helper is a refactor that needs call-site tests in both paths; deferred to a refactor pass. No code change. |
 | 37-F42 | DEFERRED | _apply_plot_style_overrides changes process-wide matplotlib and plotly state and is not restored on failure. Restoring it needs a context-manager design across the setup path; deferred. No code change. |
 | 39-F72 | DEFERRED | The torch from_numpy benchmark's Strategy C measures a path the code does not produce, and the 0.014 ms figure needs re-measurement on the real path before the doc can be corrected. Deferred to a benchmark re-run. No code change. |
-| 15-F13 | DEFERRED | Three near-identical unwrap-to-inner-estimator loops with different attribute sets across the wrappers files. Consolidating them needs one attribute-set contract across the three call sites, deferred to a refactor pass. No code change. |
 
 | 39-F38 | FIXED | HGB TF-IDF cap is now applied on the feature-handling path: TF-IDF max_features is capped for hgb via _tfidf_params_for_model (was exported but never called). Test tests/training/test_cluster39_hgb_tfidf_cap_wired.py; 38 feature-handling tests pass. |
 
@@ -1175,7 +1172,6 @@
 
 | 08-F13 | WON'T FIX | _project_single_head_njit is a test-parity fallback with no production caller; kept as classified test-only helper per the project rule. No code change. |
 
-| 08-F15 | DEFERRED | Four near-identical SMOTE loops remain despite the module header. Consolidating them changes the kernel call contract across the synthesis paths; deferred to a refactor pass with call-site tests. No code change. |
 
 
 | 09-F16 | FIXED | FCA lattice-construction failure logs at WARNING (was INFO): the zero features are no longer indistinguishable from a real no-match. Test tests/feature_engineering/test_cluster09_fca_fallback_warns.py. |
@@ -1689,7 +1685,6 @@
 
 | 17-F19 | FIXED | Tests for the parallel RMSLE kernel, the quantile-binning kernel and the general-power Tweedie kernel. test_cluster17_kernel_coverage_gaps. |
 
-| 17-F20 | PARTIAL | Tests added for matthews_corrcoef_multiclass, brier_skill_score_from_brier and fast_logcosh_loss; the weighted-ICE unit-weight parity test is not written (the kernel takes 17 arguments and needs its own fixture). |
 
 | 17-F27 | PARTIAL | Production fast_r2_score verified against sklearn for a constant y_true (0.0 imperfect, 1.0 perfect): the -inf is only in the bench copy fused_regression_metrics. The bench copies with fastmath=True stay as the A/B arms under test. |
 
@@ -1701,7 +1696,6 @@
 
 | 09-F30 | FIXED | The finite-difference gradient stacks the d perturbed copies into one predict (bounded by _MAX_STACK_ELEMS), as fisher_weighted_residual does; equal to the per-column loop. test_cluster09_gradient_direction_batched_matches_loop. |
 
-| 09-F28 | PARTIAL | pure_pos_smote and smote_distance are draw-then-vectorise through a shared helper, bit-identical to their row loops (test_cluster09_smote_loops_vectorised_bit_identical); local_classifier, persistence_diagram and local_curvature loops remain. |
 
 | 22-F17 | FIXED | The multi-constraint zero-sum sweeps factorise each grouping once and use integer-code sums instead of a DataFrame groupby per constraint, sweep and residual check. test_cluster22_group_zero_sum_factorised_matches_pandas. |
 
@@ -1712,3 +1706,15 @@
 | 22-F26 | DOCUMENTED | The counting-sort family and array min/max kernels are kept: tests exercise them and the uncalled-function gate classifies them as test-referenced utilities; not deleted. |
 
 | 41-F26 | DOCUMENTED | rrf_fuse, borda_fuse, _binned_mi and _group_features_mi_njit are kept and classified: tests exercise them (project rule: wire in or classify, not delete). |
+
+| 09-F31 | PARTIAL | The three-member ensemble (shallow LGB, deeper LGB, linear) has one definition in _baseline_oof (three_member_predictions / three_member_oof) used by disagreement_band, multi_baseline_hard_row, ib_baseline_codes, pairwise_kl_divergence and nn_oof_target_mean; outputs verified bit-identical to the old copies and each module logs the linear-member fallback on its own logger. baseline_disagreement(_v2/_balanced/_smote) and gradient_direction_agreement keep their own bodies (different return shapes: fitted models, query-side predictions). test_cluster09_three_member_ensemble_shared. |
+
+| 15-F13 | FIXED | One unwrap_estimator helper (attrs _final_estimator, regressor_, best_estimator_; family detection adds base_estimator) serves family detection, signed-coef extraction and the 'auto' getter; a fitted GridSearchCV was previously left opaque to get_signed_linear_coef. test_cluster15_one_unwrap_for_all_three_users. |
+
+| 08-F15 | FIXED | smote_within_cluster and smote_synthesize_minority_vectorized (used by cluster/bgm/active_virtual/multiscale) now run on the single vectorised kernel; the production row-loop copy smote_synthesize_minority_rowloop is removed (smote_synthesize_rowloop stays as the test reference). Output verified identical to the old loops for float32 and float64 without duplicate rows; duplicates now exclude self by index (09-F40 completed here). |
+
+| 17-F20 | FIXED | Tests for matthews_corrcoef_multiclass, brier_skill_score_from_brier, fast_logcosh_loss and, new, the weighted ICE bin_index (quantile weight-mass bins, uniform, single-edge fallback); unit-weight parity of the weighted kernel was already covered by test_ice_weighted_kernel. test_cluster17_ice_weighted_bin_index. |
+
+| 09-F28 | PARTIAL | pure_pos_smote and smote_distance vectorised (bit-identical). The remaining three loops stay: persistence_diagram calls gudhi once per query (an external per-row C++ call), local_classifier solves an iterative weighted logistic fit per row, local_curvature does an SVD lstsq per row where a batched pinv would change near-singular results; none can be batched without changing numerics. |
+
+| 22-F27 | WON'T FIX | The timing helpers are bench utilities with differing warmup semantics on purpose (each bench measures a different thing); unifying them would change what the benches measure. |

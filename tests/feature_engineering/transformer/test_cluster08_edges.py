@@ -2,14 +2,14 @@
 
 import numpy as np
 
-from mlframe.feature_engineering.transformer._smote_kernels_shared import smote_synthesize_minority_rowloop, smote_synthesize_minority_vectorized
+from mlframe.feature_engineering.transformer._smote_kernels_shared import smote_synthesize_minority_vectorized, smote_within_cluster
 
 
 def test_empty_minority_shape_matches_across_smote_variants():
     """Both SMOTE siblings return (0, d) for an empty minority (08-F5)."""
     empty = np.zeros((0, 4), dtype=np.float64)
-    a = smote_synthesize_minority_rowloop(empty, 3, 2, 0)
-    b = smote_synthesize_minority_vectorized(empty, 3, 2, 0)
+    a = smote_synthesize_minority_vectorized(empty, 3, 2, 0)
+    b = smote_within_cluster(empty, 3, 2, 0)
     assert a.shape == b.shape == (0, 4)
 
 

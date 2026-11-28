@@ -106,3 +106,57 @@ def fit_baseline_predict_oof(
             m.fit(Xt[in_tr], y_t[in_tr])
             preds[in_val] = np.asarray(m.predict(Xt[in_val])).astype(np.float32)
     return preds
+
+
+def three_member_predictions(Xa: np.ndarray, ya: np.ndarray, Xb: np.ndarray, task: str, seed: int, owner: str = __name__) -> np.ndarray:
+    """Fit 3 diverse baselines (shallow LGB, deeper LGB, linear/logistic) on ``(Xa, ya)`` and return their predictions on ``Xb`` as ``(n_b, 3)``.
+
+    The one definition of the three-member ensemble that ``disagreement_band``, ``multi_baseline_hard_row``, ``ib_baseline_codes``, ``pairwise_kl_divergence`` and
+    ``nn_oof_target_mean`` each carried a copy of (audit 09-F31): a fix to a seed offset or to the failure fallback now lands in all of them. A single-class binary
+    target, or a linear member that fails to fit, falls back to the class prior. ``owner`` is the caller's ``__name__``: the fallback is logged on that module's logger (INFO), as each copy did before the consolidation.
+    """
+    try:
+        import lightgbm as lgb
+    except ImportError as exc:
+        raise ImportError(f"{owner} requires lightgbm") from exc
+    from sklearn.linear_model import LogisticRegression, Ridge
+
+    out = np.zeros((Xb.shape[0], 3), dtype=np.float32)
+    if task == "binary":
+        ya_i = ya.astype(np.int32)
+        prior = float(ya.mean())
+        if np.unique(ya_i).size < 2:
+            out[:] = prior
+            return out
+        m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1).fit(Xa, ya_i)
+        out[:, 0] = np.asarray(m1.predict_proba(Xb))[:, 1]
+        m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1).fit(Xa, ya_i)
+        out[:, 1] = np.asarray(m2.predict_proba(Xb))[:, 1]
+        try:
+            m3 = LogisticRegression(max_iter=200, solver="liblinear", random_state=int(seed) + 2).fit(Xa, ya_i)
+            out[:, 2] = m3.predict_proba(Xb)[:, 1]
+        except Exception as e:
+            logging.getLogger(owner).info("%s: LogisticRegression fit failed (%s); falling back to constant class prior.", owner.rsplit(".", 1)[-1], e)
+            out[:, 2] = prior
+    else:
+        m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(seed), verbose=-1, n_jobs=-1).fit(Xa, ya)
+        out[:, 0] = m1.predict(Xb)
+        m2 = lgb.LGBMRegressor(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(seed) + 1, verbose=-1, n_jobs=-1).fit(Xa, ya)
+        out[:, 1] = m2.predict(Xb)
+        m3 = Ridge(alpha=1.0, random_state=int(seed) + 2).fit(Xa, ya)
+        out[:, 2] = m3.predict(Xb)
+    return out
+
+
+def three_member_oof(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, groups: Any = None, owner: str = __name__) -> np.ndarray:
+    """Out-of-fold ``(n, 3)`` predictions of the three-member ensemble over an inner KFold(3); in-sample when there are fewer than 3 rows.
+
+    An in-sample prediction sits close to ``y_t`` by construction, so using it understates every member's error; the OOF form is what the callers judge rows by.
+    """
+    n = Xt.shape[0]
+    if n < 3:
+        return three_member_predictions(Xt, y_t, Xt, task, seed, owner)
+    preds = np.zeros((n, 3), dtype=np.float32)
+    for k, (tr, va) in enumerate(kfold_splits(Xt, 3, int(seed) + 11, groups)):
+        preds[va] = three_member_predictions(Xt[tr], y_t[tr], Xt[va], task, int(seed) + 7 + k, owner)
+    return preds

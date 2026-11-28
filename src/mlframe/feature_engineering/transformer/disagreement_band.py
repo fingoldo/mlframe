@@ -42,57 +42,12 @@ logger = logging.getLogger(__name__)
 
 
 def _fit_3baselines_oof(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, groups=None) -> np.ndarray:
-    """Fit 3 baselines on (Xt, y_t) via an inner KFold(3), return OUT-OF-FOLD predictions as (n_train, 3).
+    """Out-of-fold predictions of the 3 baselines as ``(n_train, 3)`` (inner KFold(3); in-sample for fewer than 3 rows), via the shared ensemble.
 
-    An in-sample prediction is close to y_t almost by construction (the model was just fit on these exact
-    rows), which systematically understates each baseline's true disagreement and biases which rows land
-    in the high-disagreement (Q5) band -- the same leakage class already fixed for the sibling
-    ``bidir_residual_band.py::_fit_baseline_predict``. Falls back to a single in-sample fit when there are
-    too few rows for a 3-fold inner split.
+    An in-sample prediction is close to y_t almost by construction, which understates each baseline's true disagreement and biases which rows land in the
+    high-disagreement (Q5) band; the shared ``three_member_oof`` is the out-of-fold form.
     """
-    try:
-        import lightgbm as lgb
-    except ImportError as exc:
-        raise ImportError("disagreement_band requires lightgbm") from exc
-    from sklearn.linear_model import Ridge, LogisticRegression
-
-    def _fit_predict_fold(X_fit: np.ndarray, y_fit: np.ndarray, X_pred: np.ndarray, rs: int) -> np.ndarray:
-        """Fit the 3 baselines on (X_fit, y_fit), return their predictions on X_pred as (n_pred, 3)."""
-        preds = np.zeros((X_pred.shape[0], 3), dtype=np.float32)
-        if task == "binary":
-            m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(rs), verbose=-1, n_jobs=-1)
-            m1.fit(X_fit, y_fit.astype(np.int32))
-            preds[:, 0] = np.asarray(m1.predict_proba(X_pred))[:, 1].astype(np.float32)
-            m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(rs) + 1, verbose=-1, n_jobs=-1)
-            m2.fit(X_fit, y_fit.astype(np.int32))
-            preds[:, 1] = np.asarray(m2.predict_proba(X_pred))[:, 1].astype(np.float32)
-            try:
-                m3 = LogisticRegression(max_iter=200, solver="liblinear", random_state=int(rs) + 2)
-                m3.fit(X_fit, y_fit.astype(np.int32))
-                preds[:, 2] = m3.predict_proba(X_pred)[:, 1].astype(np.float32)
-            except Exception as exc:
-                logger.info("disagreement_band: LogisticRegression fit failed (%s); falling back to constant rate.", exc)
-                preds[:, 2] = float(y_fit.mean())
-        else:
-            m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(rs), verbose=-1, n_jobs=-1)
-            m1.fit(X_fit, y_fit)
-            preds[:, 0] = np.asarray(m1.predict(X_pred)).astype(np.float32)
-            m2 = lgb.LGBMRegressor(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(rs) + 1, verbose=-1, n_jobs=-1)
-            m2.fit(X_fit, y_fit)
-            preds[:, 1] = np.asarray(m2.predict(X_pred)).astype(np.float32)
-            m3 = Ridge(alpha=1.0, random_state=int(rs) + 2)
-            m3.fit(X_fit, y_fit)
-            preds[:, 2] = m3.predict(X_pred).astype(np.float32)
-        return preds
-
-    n = Xt.shape[0]
-    if n < 3:
-        return _fit_predict_fold(Xt, y_t, Xt, seed)
-
-    preds = np.zeros((n, 3), dtype=np.float32)
-    for inner_idx, (in_tr, in_val) in enumerate(_bo.kfold_splits(Xt, 3, int(seed) + 11, groups)):
-        preds[in_val] = _fit_predict_fold(Xt[in_tr], y_t[in_tr], Xt[in_val], int(seed) + 7 + inner_idx)
-    return preds
+    return _bo.three_member_oof(Xt, y_t, task, seed, groups, owner=__name__)
 
 
 def compute_disagreement_band_features(

@@ -70,7 +70,6 @@ Not verified: possible `fastmath=True` interaction with the `np.isfinite` guards
 
 - 08-F13: WON'T FIX. _project_single_head_njit is a test-parity fallback with no production caller; kept as classified test-only helper per the project rule. No code change.
 
-- 08-F15: DEFERRED. Four near-identical SMOTE loops remain despite the module header. Consolidating them changes the kernel call contract across the synthesis paths; deferred to a refactor pass with call-site tests. No code change.
 
 
 - 08-F4: FIXED. The BGM sampler gained an opt-in return_source flag: (samples, 'bgmm') for a mixture sample and (samples, 'bootstrap') for any resample, including a too-small minority set. The default return is unchanged, so current callers are unaffected. The fallback is logged at WARNING (earlier change). Its inner warning filter is narrowed to Future/Deprecation. Tests tests/feature_engineering/test_cluster08_bgmm_source_flag.py (3 passed).
@@ -78,3 +77,5 @@ Not verified: possible `fastmath=True` interaction with the `np.isfinite` guards
 - 08-F7: FIXED. Regression aux MLP emits only mlp_pred in both modes; the all-zero mlp_resid column is gone. test_cluster08_aux_mlp_regression_has_no_constant_column.
 
 - 08-F16: FIXED. transformer/__init__ resolves its public names lazily (PEP 562, TYPE_CHECKING imports for tools); a fresh import loads 13 of 125 modules instead of all. test_cluster08_transformer_package_imports_lazily.
+
+- 08-F15: FIXED. smote_within_cluster and smote_synthesize_minority_vectorized (used by cluster/bgm/active_virtual/multiscale) now run on the single vectorised kernel; the production row-loop copy smote_synthesize_minority_rowloop is removed (smote_synthesize_rowloop stays as the test reference). Output verified identical to the old loops for float32 and float64 without duplicate rows; duplicates now exclude self by index (09-F40 completed here).

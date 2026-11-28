@@ -92,6 +92,7 @@ Reading coverage: every manifest file was read in full (all of `calibration/`, `
 
 - 17-F19: FIXED. Tests for the parallel RMSLE kernel, the quantile-binning kernel and the general-power Tweedie kernel. test_cluster17_kernel_coverage_gaps.
 
-- 17-F20: PARTIAL. Tests added for matthews_corrcoef_multiclass, brier_skill_score_from_brier and fast_logcosh_loss; the weighted-ICE unit-weight parity test is not written (the kernel takes 17 arguments and needs its own fixture).
 
 - 17-F27: PARTIAL. Production fast_r2_score verified against sklearn for a constant y_true (0.0 imperfect, 1.0 perfect): the -inf is only in the bench copy fused_regression_metrics. The bench copies with fastmath=True stay as the A/B arms under test.
+
+- 17-F20: FIXED. Tests for matthews_corrcoef_multiclass, brier_skill_score_from_brier, fast_logcosh_loss and, new, the weighted ICE bin_index (quantile weight-mass bins, uniform, single-edge fallback); unit-weight parity of the weighted kernel was already covered by test_ice_weighted_kernel. test_cluster17_ice_weighted_bin_index.

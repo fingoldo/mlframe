@@ -30,7 +30,7 @@ from typing import Any, Literal, Optional, Tuple
 import numpy as np
 import polars as pl
 
-from ._smote_kernels_shared import smote_synthesize_minority_rowloop as _smote_with_k
+from ._smote_kernels_shared import smote_synthesize_minority_vectorized as _smote_with_k
 from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, class_or_quantile_slice, far_pos_loggap_columns
 
 logger = logging.getLogger(__name__)

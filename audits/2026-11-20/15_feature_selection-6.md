@@ -59,7 +59,6 @@ So the audit is incomplete. Roughly 60% of the manifest lines were not read, so 
 - 15-F19: FIXED. Knockoff helper docstring corrected: knockoffs come from the raw values and only the real slot is mean-imputed afterwards. Tests tests/feature_selection/test_cluster15_knockoff_doc_matches_code.py plus the existing all-NaN knockoff test.
 - 15-F15: FIXED. get_signed_linear_coef takes an optional trailing data argument used as the scaling fallback when train_data is None, matching the legacy path; train_data still wins. Tests tests/feature_selection/test_cluster15_signed_coef_scaling_fallback.py.
 - 15-F16: FIXED. Swap pass snapshots selected_features_per_nfeatures, evaluated_scores_mean and evaluated_scores_std before running and restores them in place on failure, so the argmax never reads a half-updated state. Tests tests/feature_selection/test_cluster15_swap_rollback.py; existing swap_top_k test files also pass.
-- 15-F13: DEFERRED. Three near-identical unwrap-to-inner-estimator loops with different attribute sets across the wrappers files. Consolidating them needs one attribute-set contract across the three call sites, deferred to a refactor pass. No code change.
 
 - 15-F3: FIXED. The RFECV checkpoint now saves and restores nofeatures_score, so a resumed run keeps its no-features baseline instead of NaN. Test tests/feature_selection/test_cluster15_checkpoint_round_trip.py (3 passed).
 
@@ -74,3 +73,5 @@ So the audit is incomplete. Roughly 60% of the manifest lines were not read, so 
 - 15-F10: FIXED. The conditional-permutation leaf groups are built once per feature by one stable argsort, not by np.where per leaf per repeat; same rng draws, identical result. test_cluster15_leaf_permutation_groups_once.
 
 - 15-F11: WON'T FIX. Not a defect on the pinned pandas: pd.DataFrame(ndarray) shares memory (measured 0.5 ms for 50000 x 300 on pandas 2.3.3, shares_memory True), so no per-repeat matrix copy happens.
+
+- 15-F13: FIXED. One unwrap_estimator helper (attrs _final_estimator, regressor_, best_estimator_; family detection adds base_estimator) serves family detection, signed-coef extraction and the 'auto' getter; a fitted GridSearchCV was previously left opaque to get_signed_linear_coef. test_cluster15_one_unwrap_for_all_three_users.

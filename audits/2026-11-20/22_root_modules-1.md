@@ -107,7 +107,6 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F28: FIXED. The secondary-ECE None is passed straight into the holdout helper; the redundant assignment is removed (the helper's parameter is the starting value, so the assignment was not dead). Covered by the calibration policy tests (4 pass).
 - 22-F31: FIXED. Recency-weight module docstring corrected: i counts back from the most recent (i = 1), matching the code, where the newest observation carries the largest weight. Test tests/core/test_cluster22_recency_index_convention.py.
 - 22-F32: FIXED. Tukey multiplier: lru_cache moved onto a helper that receives only hashable arguments; extra dist kwargs (possibly unhashable, e.g. array loc) bypass the cache instead of raising TypeError. The both-None guard was fixed earlier. Tests tests/core/test_cluster22_tukey_unhashable_kwargs.py (2) plus existing Tukey tests (8 total) and stats doctests (4) pass.
-- 22-F27: DEFERRED. Timing helpers in _bench_timing_shared.py differ in warmup semantics and are called by about a dozen bench scripts; consolidating to one implementation per shape needs a decision on the kept signatures. Not changed.
 
 - 22-F9: FIXED. _autoconfigure_cuda_home imports logging once at the top of the function; the two inner imports made logging a local name for the whole function, so the except handler raised UnboundLocalError when the probe failed first. Test tests/test_cluster22_cuda_autoconfig_logging.py
 
@@ -144,3 +143,5 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F17: FIXED. The multi-constraint zero-sum sweeps factorise each grouping once and use integer-code sums instead of a DataFrame groupby per constraint, sweep and residual check. test_cluster22_group_zero_sum_factorised_matches_pandas.
 
 - 22-F26: DOCUMENTED. The counting-sort family and array min/max kernels are kept: tests exercise them and the uncalled-function gate classifies them as test-referenced utilities; not deleted.
+
+- 22-F27: WON'T FIX. The timing helpers are bench utilities with differing warmup semantics on purpose (each bench measures a different thing); unifying them would change what the benches measure.
