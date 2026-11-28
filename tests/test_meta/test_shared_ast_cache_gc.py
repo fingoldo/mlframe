@@ -51,3 +51,23 @@ def test_the_tree_matches_a_plain_parse(tmp_path):
     text = "def f(a, b=2):\n    return [a + b for _ in range(3)]\n"
     path = _write(tmp_path, "m4.py", text)
     assert ast.dump(cache_module.parsed_ast(path)) == ast.dump(ast.parse(text, filename=str(path)))
+
+
+def test_the_shared_ast_parse_hook_pauses_the_collector_for_module_sized_sources(monkeypatch):
+    """The conftest's patched `ast.parse` runs the real parse of a module-sized source with the collector off and restores it."""
+    from tests.test_meta import conftest as meta_conftest
+
+    seen: list[bool] = []
+    real = meta_conftest._real_parse
+    monkeypatch.setattr(meta_conftest, "_real_parse", lambda *a, **k: seen.append(gc.isenabled()) or real(*a, **k))
+    source = "value = 1\n" + "# padding line to reach the module-sized threshold\n" * 60
+    assert len(source) >= meta_conftest._SHARE_MIN_CHARS
+    meta_conftest._PARSED.pop(source, None)
+    try:
+        tree = meta_conftest._shared_parse(source, "pad_gc_probe.py")
+        assert isinstance(tree, ast.Module)
+        assert seen == [False]
+        assert gc.isenabled()
+    finally:
+        meta_conftest._PARSED.pop(source, None)
+        meta_conftest._SHARED_IDS.discard(id(tree))
