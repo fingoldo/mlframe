@@ -142,7 +142,7 @@ def generate_similar_probs_logit_space(
 
     Args:
         predicted_probs: Original predicted probabilities (0-1).
-        true_outcomes: True binary outcomes (0 or 1).
+        true_outcomes: Accepted for signature symmetry with the other generators and NOT used: the perturbation depends on ``predicted_probs`` only.
         noise_scale: Scale of Gaussian noise applied in logit space.
         random_state: Seed or Generator for reproducible noise draws.
 
@@ -170,7 +170,7 @@ def generate_similar_probs_random_walk(
 
     Args:
         predicted_probs: Original predicted probabilities (0-1).
-        true_outcomes: True binary outcomes (0 or 1).
+        true_outcomes: Accepted for signature symmetry with the other generators and NOT used: the perturbation depends on ``predicted_probs`` only.
         step_size: Size of each random walk step.
         n_steps: Number of random walk steps.
         random_state: Seed or Generator for reproducible step draws.

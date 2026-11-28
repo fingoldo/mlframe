@@ -111,13 +111,17 @@ def _entropy_multi(y_subset: np.ndarray, n_classes: int) -> float:
     return e
 
 
-def _mdl_bin_edges(x: np.ndarray, y_class: np.ndarray, n_classes: int, max_bins=8, min_size=20) -> list[float]:
+def _mdl_bin_edges(x: np.ndarray, y_class: np.ndarray, n_classes: int, max_bins=8, min_size=20, max_depth: int = 1) -> list[float]:
     """Fayyad-Irani MDL best-split binning. Returns sorted unique split points.
 
-    Single top-level split (pinned bit-identical to the pre-iter81 O(n^2) reference by
-    ``tests/feature_engineering/transformer/test_mdl_binning_split_kernel.py``); not recursive
-    despite ``max_bins``/``depth`` naming -- ``_split`` is only ever invoked once, over the full range.
+    ``max_depth=1`` (the default) is a single top-level split, pinned bit-identical to the pre-iter81 O(n^2) reference by
+    ``tests/feature_engineering/transformer/test_mdl_binning_split_kernel.py``. ``max_depth > 1`` recurses into the two sides of every accepted
+    split (full Fayyad-Irani), stopping at the MDL criterion, at ``min_size`` or when ``max_bins - 1`` edges exist; in that case ``max_bins`` bounds
+    the result.
     """
+    order0 = np.argsort(x, kind="stable")  # one global stable sort: each recursion range is then a contiguous slice of sorted rows
+    x = np.ascontiguousarray(x[order0])
+    y_class = y_class[order0]
     edges: list = []
 
     def _split(lo, hi, depth):
@@ -148,6 +152,9 @@ def _mdl_bin_edges(x: np.ndarray, y_class: np.ndarray, n_classes: int, max_bins=
         if best_gain * n < np.log2(n - 1) + delta:
             return
         edges.append(float(best_thresh))
+        if depth + 1 < max_depth:
+            _split(lo, lo + best_idx, depth + 1)
+            _split(lo + best_idx, hi, depth + 1)
 
     _split(0, x.size, 0)
     edges.sort()
@@ -156,7 +163,7 @@ def _mdl_bin_edges(x: np.ndarray, y_class: np.ndarray, n_classes: int, max_bins=
 
 def compute_mdl_binning_pairwise_features(
     X_train: Any, y_train: Any, X_query: Any=None, splitter: Any=None, *, seed: int, task: str="regression",
-    max_bins_per_feat: int=8, top_k_pairs: int=10, standardize: bool=True, column_prefix: str="mdlbin", dtype: type=np.float32,
+    max_bins_per_feat: int=8, top_k_pairs: int=10, standardize: bool=True, column_prefix: str="mdlbin", dtype: type=np.float32, mdl_max_depth: int=1,
 ) -> pl.DataFrame:
     """Fit MDL bin edges per feature on train, then emit per-query aggregate bin/co-occurrence features.
 
@@ -164,6 +171,9 @@ def compute_mdl_binning_pairwise_features(
     its held-out val part, avoiding leakage. Mode B (``X_query`` given): edges fit once on the full ``X_train`` and
     applied to ``X_query`` directly (e.g. train->test scoring). Emits 5 columns: max/sum of per-row bin indices, the
     train-frequency of the (feature0, feature1) bin combo each query row falls into, and totals (n_edges, n_unique_combos).
+
+    ``mdl_max_depth`` is the recursion depth of the MDL split search per feature: 1 (default) gives at most one edge per feature, larger values
+    recurse into both sides of every accepted split (up to ``max_bins_per_feat - 1`` edges).
     """
     if top_k_pairs != 10:
         raise NotImplementedError("compute_mdl_binning_pairwise_features: top_k_pairs is not implemented; only the default 10 is supported")
@@ -202,7 +212,7 @@ def compute_mdl_binning_pairwise_features(
         # MDL bin edges per feature
         all_edges = []
         for j in range(d):
-            edges = _mdl_bin_edges(Xt[:, j], y_class, n_classes, max_bins=max_bins_per_feat)
+            edges = _mdl_bin_edges(Xt[:, j], y_class, n_classes, max_bins=max_bins_per_feat, max_depth=mdl_max_depth)
             all_edges.append(edges)
         # Compute bin assignments per row
         train_bins = np.zeros((Xt.shape[0], d), dtype=np.int32)

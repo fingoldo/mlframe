@@ -88,7 +88,6 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F13: FIXED. the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass
 - 22-F20: FIXED. the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test
 - 22-F17: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
-- 22-F18: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F26: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F3: DEFERRED. Still deferred: get_postcalibrators imports six optional libraries unguarded and builds each calibrator inline. Guarding each entry means restructuring the zoo list per library; deferred to a dedicated pass with a test that blocks each module in turn.
 - 22-F3: FIXED. Each optional calibration library is imported separately; an absent one skips only its candidates (calibration/post.py get_postcalibrators); tests/calibration/test_cluster22_missing_calibrator_library_skipped.py
@@ -108,8 +107,6 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F35: FIXED. Docstring corrected: the exact-own-value claim holds only for k=1; for k>1 a subsample row is the mean of its k nearest subsample rows. Docstring-only; no behaviour change, no test.
 - 22-F36: FIXED. NaN check in PdOrdinalEncoder.transform reads the native dtype (pd.isna) instead of copying the output to float64. Test test_cluster22_ordinal_nan_check.py.
 - 22-F28: FIXED. The secondary-ECE None is passed straight into the holdout helper; the redundant assignment is removed (the helper's parameter is the starting value, so the assignment was not dead). Covered by the calibration policy tests (4 pass).
-- 22-F29: DEFERRED. true_outcomes is unused in generate_similar_probs_logit_space and _random_walk, but these are public names called positionally by tests and the calibration API. Removing or documenting the parameter changes signatures: owner decision. Not changed.
-- 22-F30: DEFERRED. Lazy resolution cannot be limited to __all__: 50 public names exported by the submodules (for example generate_similar_probs, fast_roc_auc) are not in __all__ but are reachable as attributes. Fixing the perf needs an owner decision on the public surface. Not changed.
 - 22-F31: FIXED. Recency-weight module docstring corrected: i counts back from the most recent (i = 1), matching the code, where the newest observation carries the largest weight. Test tests/core/test_cluster22_recency_index_convention.py.
 - 22-F32: FIXED. Tukey multiplier: lru_cache moved onto a helper that receives only hashable arguments; extra dist kwargs (possibly unhashable, e.g. array loc) bypass the cache instead of raising TypeError. The both-None guard was fixed earlier. Tests tests/core/test_cluster22_tukey_unhashable_kwargs.py (2) plus existing Tukey tests (8 total) and stats doctests (4) pass.
 - 22-F27: DEFERRED. Timing helpers in _bench_timing_shared.py differ in warmup semantics and are called by about a dozen bench scripts; consolidating to one implementation per shape needs a decision on the kept signatures. Not changed.
@@ -139,3 +136,9 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F16: RESOLVED. Not a defect: in the inner_cv path the full-OOF fit (cal_oof) is still used, for the non-finite check and as the returned calibrated_probs, so it cannot move into the same_oof branch. No change.
 
 - 22-F23: FIXED. Ported both hand-run helpers instead of deleting them: MakeSureBlasAndLaPackAreInstalled reads numpy.show_config(mode='dicts') (numpy.distutils no longer exists) and ListAllSkLearnClassifiers imports all_estimators from sklearn.utils (sklearn.utils.testing was removed). Both stay on the kept list as hand-run diagnostics. Test tests/core/test_cluster22_interactive_helpers_run.py.
+
+- 22-F29: DOCUMENTED. true_outcomes documented as accepted for signature symmetry and unused in the two generators.
+
+- 22-F18: FIXED. as_mask=True keyword on every set-similarity coefficient reads integer 0/1 arrays as masks; default stays set semantics; documented. test_cluster22_set_similarity_as_mask.
+
+- 22-F30: FIXED. calibration lazy __getattr__ resolves names from a source-parsed owner map: unknown names import nothing, known ones import only their owning module. test_cluster22_lazy_getattr_does_not_import_for_unknown_names.

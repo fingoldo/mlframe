@@ -104,10 +104,11 @@ Scope: 69 files from manifest `26_root_modules-5.txt` (preprocessing 25, reporti
 - 26-F38: FIXED. Extra dispatch module docstring describes its own renderers (model comparison, decile, model card, stability, split and target overlays) instead of the copied error-analysis/drift text. Test tests/training/test_cluster26_extra_dispatch_docstring.py.
 - 26-F37: FIXED. A target_type given as an enum value resolves to the member (value first, then name), instead of being ignored. Test tests/training/test_cluster26_target_type_by_value.py.
 - 26-F36: FIXED. SHAP confidence plot returns with a visible WARNING when matplotlib is missing (plt is None), instead of raising on plt.get_fignums. Test tests/training/test_cluster26_shap_plot_without_matplotlib.py.
-- 26-F35: DEFERRED. parametric.py calls settings.load_profile at import, changing global Hypothesis settings for any importer. Moving it to an explicit call changes what test suites that import the module get. Needs a decision. No code change.
 
 - 26-F26: DOCUMENTED. Queued figures are recorded as saved at submit (documented choice at the submit site): the worker owns the figure from there, and a later worker failure is counted in the queue summary but not reconciled into charts['failed']. Reconciling needs a worker-to-dict update path, not done. Test tests/training/test_cluster26_34_documented_choices.py (2 passed).
 
 - 26-F12: FIXED. The changepoint penalty is dimensionless: it multiplies a robust variance of y (squared 1.4826*MAD), so rescaling the series keeps the breakpoints. For unit-variance y this reproduces the former absolute penalty. Tests tests/signal/test_cluster26_changepoint_scale_free.py (2 passed); existing changepoint tests pass. Note: the uncalled-functions meta-test fails on eight filters/ functions that come from the merged origin tree, not from this change.
 
 - 26-F22: FIXED. The adversarial fit, the shared error-prep build and the PSI heatmap all build outside their locks; each lock now guards only the cache read and insert, so a second target is no longer held for the first target's build. Tests tests/reporting/test_cluster26_prep_build_outside_lock.py (fails on HEAD, passes on the fix) and tests/reporting/test_cluster26_adversarial_fit_outside_lock.py (2 passed).
+
+- 26-F35: FIXED. mlframe.testing.parametric only registers Hypothesis profiles on import; load_selected_profile() activates one and tests/conftest.py calls it.

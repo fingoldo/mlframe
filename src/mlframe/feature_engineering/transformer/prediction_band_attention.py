@@ -115,11 +115,13 @@ def compute_prediction_band_attention_features(
         band_y_mean = np.full(effective_n_bands, global_y_mean, dtype=np.float32)
         band_y_std = np.full(effective_n_bands, global_y_std, dtype=np.float32)
         band_pred_mean = np.full(effective_n_bands, global_pred_mean, dtype=np.float32)
+        band_empty = np.zeros(effective_n_bands, dtype=bool)
         for b, mask in enumerate(masks):
             X_band = Xt_s[mask]
             y_band = y_t[mask]
             p_band = preds_tr[mask]
             if X_band.shape[0] < 1:
+                band_empty[b] = True
                 continue
             band_centroids[b] = X_band.mean(axis=0)
             band_y_mean[b] = float(y_band.mean())
@@ -128,6 +130,11 @@ def compute_prediction_band_attention_features(
 
         sq = _squared_dists(Xq_s, band_centroids)  # (n_q, n_total)
         scores = -sq
+        if band_empty.any():
+            # An empty band has no data: it is masked out of the softmax, as quantile_band_attention does, instead of keeping the global centroid
+            # as a live anchor that draws attention mass (09-F41).
+            scores = scores.copy()
+            scores[:, band_empty] = -np.inf
         weights = softmax(scores, temp=temp)
         entropy = -np.sum(weights * np.log(weights + 1e-9), axis=-1).astype(np.float32)
         agg_y_mean = (weights * band_y_mean[None, :]).sum(axis=-1).astype(np.float32)

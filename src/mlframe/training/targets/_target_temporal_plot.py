@@ -45,7 +45,8 @@ def plot_target_over_time(
         If provided, save the figure here and return the path (closes
         the figure to free memory).
     show : bool
-        Call ``plt.show()`` instead of saving.
+        Call ``plt.show()`` instead of saving. Honoured together with ``plot_outputs`` + ``base_path`` too: the DSL files are written first,
+        then the matplotlib figure is shown.
     figsize : tuple
 
     Returns
@@ -67,7 +68,9 @@ def plot_target_over_time(
         # the DEFAULT `plot_outputs` configuration the chart was written and the audit metadata still serialised
         # a null `plot_path` -- a downstream consumer reading it concludes no temporal audit chart exists.
         result.plot_path = base_path
-        return None
+        if not (save_path or show):
+            return None
+        # An explicit ``save_path`` / ``show`` is honoured as well: fall through to the matplotlib branch below (41-F44).
 
     try:
         import matplotlib.pyplot as plt

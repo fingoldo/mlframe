@@ -99,7 +99,6 @@ Scope: the 72 files in `audits/2026-11-20/manifests/09_feature_engineering-2.txt
 - 09-F45: FIXED. Empty quintile stratum logs a WARNING naming the stratum before its features fall back to the whole fold. Test tests/feature_engineering/transformer/test_cluster09_empty_stratum_warns.py (source pin).
 - 09-F44: FIXED. Local logistic solver penalises only the slopes (intercept index 0 unpenalised); gradient and Hessian use the same penalty vector. Behaviour change: outputs of the local classifier move for any ridge>0. Tests tests/feature_engineering/transformer/test_cluster09_local_logreg_intercept_unpenalised.py; 9 existing local-classifier tests pass (397 skipped by their gates).
 - 09-F38: FIXED. Silverman bandwidth uses the multivariate rule (4/(d+2))^(1/(d+4)) n^(-1/(d+4)); equals the 1-D rule at d=1, changes d>1 outputs. Tests tests/feature_engineering/transformer/test_cluster09_silverman_multivariate.py; 8 existing density-ratio tests pass (397 skipped by gates).
-- 09-F41: DEFERRED. Empty-band convention differs across band-attention modules. Masking empty bands (the suggested fix) changes attention outputs in residual_band, signed_residual_band and prediction_band; the convention needs owner confirmation first. Not changed.
 - 09-F37: PARTIAL. Removed the stale comment about the removed _GPU_AUTO_CACHE in random_features.py. Not changed: the unreachable padding branches in denoising_autoencoder, hard_row_attention and related modules named in the finding. Test tests/feature_engineering/transformer/test_cluster09_no_stale_cache_comment.py (source pin).
 - 09-F34: DEFERRED. Stub parameters (n_bits, top_k_pairs) and per-module Literal/dtype gates differ across siblings. Each stub needs an implement-or-remove decision, and widening a Literal without implementing the value would only defer the error. Owner decision. Not changed.
 - 09-F43: DEFERRED. Pseudo-SMOTE regression confidence threshold is an in-sample quantile. Using out-of-fold predictions changes the aux model cost and the threshold semantics, which needs an ML design decision. No code change.
@@ -118,7 +117,6 @@ Scope: the 72 files in `audits/2026-11-20/manifests/09_feature_engineering-2.txt
 
 - 09-F23: FIXED. Degenerate folds in the LDA projection and the per-class spectral attention return NaN instead of zeros, so they cannot be confused with real rows at the origin. Behaviour change: degenerate folds yield NaN. Test tests/feature_engineering/test_cluster09_degenerate_fold_is_nan.py.
 
-- 09-F25: DEFERRED. The MDL binning is a single top-level split by design: its docstring pins it bit-identical to a reference in tests/feature_engineering/transformer/test_mdl_binning_split_kernel.py. Recursive Fayyad-Irani splitting changes the bins of every feature and breaks that pin, so it needs an owner decision on the reference before code changes. No code change.
 
 - 09-F19: FIXED. For binary targets the sign-residual baseline emits NaN bias columns: with y in {0,1} the sign target y > mu_hat is the label itself, so the second model only re-learned y. The OOF baseline column is kept. Behaviour change: binary output changes. Test tests/feature_engineering/test_cluster09_sign_residual_binary_nan.py.
 
@@ -139,3 +137,7 @@ Scope: the 72 files in `audits/2026-11-20/manifests/09_feature_engineering-2.txt
 - 09-F33: FIXED. Removed the unused task parameter from persistence_diagram, local_density_gradient, local_intrinsic_dim, inducing_attention and fca_closed_concepts, fca's standardize, and local_lift's dists; callers and tests updated (test_cluster09_unused_params_removed_and_local_linear_fold_scaler).
 
 - 09-F36: FIXED. local_linear Mode A fits the RobustScaler inside each fold on that fold's train part (Mode B on all train); test in test_cluster09_unused_params_removed_and_local_linear_fold_scaler.
+
+- 09-F25: FIXED. mdl_max_depth (default 1 = the pinned single split) enables full recursive Fayyad-Irani splitting up to max_bins-1 edges. test_cluster09_mdl_recursive_depth.
+
+- 09-F41: FIXED. Empty bands are masked to -inf in residual_band_attention, signed_residual_band and prediction_band_attention, as in the quantile-band siblings. test_cluster09_band_attention_masks_empty_bands.

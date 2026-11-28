@@ -26,3 +26,14 @@ def test_exhausted_retries_raise_a_scrubbed_error(monkeypatch):
     with pytest.raises(RuntimeError, match="failed after 6 retries"):
         mlframe_mlflow._start_run_with_retries("run", "0", None)
     assert len(attempts) == 6
+
+
+def test_new_run_is_returned_live_not_ended():
+    """A successful start_run is returned as the active run: end_run is not called before the caller gets it (25-F25)."""
+    from unittest.mock import patch
+
+    with patch("mlframe.integrations.mlflow.mlflow") as mock_mlflow:
+        mock_mlflow.search_runs.return_value = []
+        run, found = mlframe_mlflow.get_or_create_mlflow_run("fresh")
+    assert run is mock_mlflow.start_run.return_value and found is False
+    mock_mlflow.end_run.assert_not_called()

@@ -9,6 +9,13 @@ import sys
 import time
 import warnings
 
+try:  # the suite's default Hypothesis profile is chosen here, not as a side effect of importing mlframe.testing.parametric
+    from mlframe.testing.parametric import load_selected_profile as _load_selected_hypothesis_profile
+
+    _load_selected_hypothesis_profile()
+except ImportError:  # hypothesis is optional
+    pass
+
 # Best-effort silence for native-stderr chatter from Intel OpenMP. BLAS xerbla
 # output ("** On entry to DLASCLS parameter number 4 had an illegal value") is
 # printed from C via stderr and bypasses OPENBLAS_VERBOSE / MKL_VERBOSE flags;

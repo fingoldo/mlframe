@@ -9,7 +9,7 @@ Mechanism (binary):
 - OOF-predict for val fold.
 - Expose 2 features: ``mlp_proba`` (sigmoid output) and ``mlp_logit`` (logit transform).
 
-For regression: MLPRegressor with same architecture. Outputs (``mlp_pred``, placeholder ``mlp_resid``=0 at inference).
+For regression: MLPRegressor with same architecture. Outputs the single column ``mlp_pred`` (the former all-zero ``mlp_resid`` placeholder was dropped, 08-F7).
 
 This is gradient-trained backprop via sklearn's Adam, so technically beyond-frozen — but it's just stacking, not structural learned-attention. Kept for completeness
 and future broad-dataset retest.
@@ -57,7 +57,7 @@ def _fit_aux_mlp(X: np.ndarray, y: np.ndarray, *, task: str, seed: int, hidden_s
 
 
 def _predict_aux_mlp(model, scaler, X: np.ndarray, task: str) -> tuple[np.ndarray, np.ndarray]:
-    """Score ``X`` with the fitted MLP; for binary tasks returns (clipped probability, logit), for regression returns (prediction, zeros) so the caller always gets a uniform 2-column output shape."""
+    """Score ``X`` with the fitted MLP; for binary tasks returns (clipped probability, logit), for regression returns (prediction, zeros); only the first array becomes a column, the zeros are never emitted."""
     X_s = scaler.transform(X)
     if task == "binary":
         proba = positive_class_proba(model, X_s).astype(np.float32)
@@ -81,7 +81,7 @@ def compute_aux_mlp_features(
     column_prefix: str = "mlp",
     dtype: type = np.float32,
 ) -> pl.DataFrame:
-    """Aux MLP OOF predictions + logit as features (2 columns)."""
+    """Aux MLP OOF predictions as features: probability + logit for ``task="binary"`` (2 columns), the prediction alone for regression (1 column)."""
     seed = require_seed(seed)
     validate_numeric_input(X_train, name="X_train", allow_fp16=False)
     if X_query is not None:
@@ -98,7 +98,7 @@ def compute_aux_mlp_features(
         f1, f2 = _predict_aux_mlp(model, scaler, Xq, task=task)
         if task == "binary":
             return pl.DataFrame({f"{column_prefix}_proba": f1.astype(dtype, copy=False), f"{column_prefix}_logit": f2.astype(dtype, copy=False)})
-        return pl.DataFrame({f"{column_prefix}_pred": f1.astype(dtype, copy=False), f"{column_prefix}_resid": f2.astype(dtype, copy=False)})
+        return pl.DataFrame({f"{column_prefix}_pred": f1.astype(dtype, copy=False)})
 
     if splitter is None:
         raise ValueError("Mode A (X_query=None) requires a splitter.")
@@ -115,4 +115,4 @@ def compute_aux_mlp_features(
 
     if task == "binary":
         return pl.DataFrame({f"{column_prefix}_proba": out_f1, f"{column_prefix}_logit": out_f2})
-    return pl.DataFrame({f"{column_prefix}_pred": out_f1, f"{column_prefix}_resid": out_f2})
+    return pl.DataFrame({f"{column_prefix}_pred": out_f1})

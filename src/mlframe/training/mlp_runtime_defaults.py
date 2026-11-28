@@ -1,6 +1,6 @@
 """Windows-aware MLP runtime defaults: DataLoader workers, AMP precision, predict batch_size.
 
-Pulled out of ``helpers.py`` so the decision logic is unit-testable in isolation without spinning up Lightning. A prod run observed the MLP getting only ~6 epochs in 30 min because the DataLoader was single-threaded (``num_workers=0``), the GPU sat idle waiting for data, and precision was FP32 on an Ampere-class card that supports bf16-mixed at ~2x throughput. The previous defaults were chosen for **Windows + spawn-based multiprocessing safety** -- a regression we MUST preserve. Hence: Linux/Mac auto-raises workers, Windows stays at 0 unless the caller explicitly opts in.
+Pulled out of ``helpers.py`` so the decision logic is unit-testable in isolation without spinning up Lightning. A prod run observed the MLP getting only ~6 epochs in 30 min because the DataLoader was single-threaded (``num_workers=0``), the GPU sat idle waiting for data, and precision was FP32 on an Ampere-class card that supports bf16-mixed at ~2x throughput. The previous defaults were chosen for **Windows + spawn-based multiprocessing safety** -- a regression we MUST preserve. Hence ``num_workers`` stays at 0 on EVERY OS unless the caller explicitly opts in (a worker holds a copy of the frame: spawn pickles it on Windows, fork breaks copy-on-write on Linux).
 
 Public surface
 --------------
@@ -69,6 +69,19 @@ def _is_windows() -> bool:
     return platform.system().lower().startswith("win")
 
 
+def _cuda_available(override: bool | None) -> bool:
+    """``override`` when given, else a ``torch.cuda.is_available()`` probe; a failed probe counts as no CUDA (the expected CPU-only case)."""
+    if override is not None:
+        return bool(override)
+    try:
+        import torch
+
+        return bool(torch.cuda.is_available())
+    except Exception as e:
+        logger.debug("torch.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e)
+        return False
+
+
 def resolve_mlp_dataloader_defaults(
     *,
     user_overrides: dict[str, Any] | None = None,
@@ -106,16 +119,7 @@ def resolve_mlp_dataloader_defaults(
     # consumed because num_workers is uniformly 0 (see _DEFAULT_NUM_WORKERS
     # comment block above). When the datamodule moves to shared-memory
     # tensors the per-OS / per-CPU tuning will read them again.
-    if cuda_available is None:
-        try:
-            import torch
-            cuda_ok = bool(torch.cuda.is_available())
-        except Exception as e:
-            # fallback: a host without CUDA is the expected CPU-only case; CUDA is treated as unavailable.
-            logger.debug("torch.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e)
-            cuda_ok = False
-    else:
-        cuda_ok = bool(cuda_available)
+    cuda_ok = _cuda_available(cuda_available)
 
     # 1. num_workers: 0 on EVERY OS unless user opts in. The TorchDataset
     #    holds the entire Polars/pandas frame in its closure; worker spawn
@@ -257,16 +261,7 @@ def resolve_mlp_precision_default(
     # combos must each compute independently).
     if cuda_available is None and cuda_compute_capability_major is None:
         return _probe_cuda_precision_cached(int(device_id))
-    if cuda_available is None:
-        try:
-            import torch
-            cuda_ok = bool(torch.cuda.is_available())
-        except Exception as e:
-            # fallback: a host without CUDA is the expected CPU-only case; CUDA is treated as unavailable.
-            logger.debug("torch.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e)
-            cuda_ok = False
-    else:
-        cuda_ok = bool(cuda_available)
+    cuda_ok = _cuda_available(cuda_available)
     if not cuda_ok:
         return "32-true"
     if cuda_compute_capability_major is None:
@@ -364,16 +359,7 @@ def _probe_available_memory_bytes(
     boxes can target the actual training device's free memory rather than
     always device 0.
     """
-    if cuda_available is None:
-        try:
-            import torch
-            cuda_ok = bool(torch.cuda.is_available())
-        except Exception as e:
-            # fallback: a host without CUDA is the expected CPU-only case; CUDA is treated as unavailable.
-            logger.debug("torch.cuda.is_available() probe failed, assuming CUDA unavailable: %s", e)
-            cuda_ok = False
-    else:
-        cuda_ok = bool(cuda_available)
+    cuda_ok = _cuda_available(cuda_available)
     # Keyed by mode so a CPU-RAM probe and a GPU-VRAM probe (per device) never share a cache slot.
     cache_key = f"cuda:{int(device_id)}" if cuda_ok else "cpu"
     # Cached-probe path: one stable budget per process/mode so consecutive MLP

@@ -565,7 +565,9 @@ class LeakageSafeEncoder:
         never_held_out = np.isnan(out)
         if never_held_out.any():
             # A forward-chaining splitter never holds out its first block (no earlier rows to encode it from); np.nan would reach the model, so these
-            # rows get the global prior, the same value an unseen category gets.
+            # rows get the global prior, the same value an unseen category gets. DOCUMENTED CONSTANT (39-F24): the prior is taken over all of y, so each
+            # of these rows contributes about 1/N of its own label to it; a prior that excluded them would use later labels, which a forward-chaining
+            # splitter forbids, so the constant is kept and the rows are NOT dropped (their number is the first block only).
             out[never_held_out] = _compute_prior(y, self.prior, sample_weight)
 
         return out

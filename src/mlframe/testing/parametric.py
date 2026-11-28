@@ -32,8 +32,9 @@ What this module gives you
    for end-to-end smoke tests at small scale.
 3. **Hypothesis profiles** tuned for slow frame-generation work —
    ``mlframe-fast`` (default), ``mlframe-ci``, ``mlframe-nightly``.
-   Auto-registered at import; select with env var ``MLFRAME_HYP_PROFILE``
-   or ``settings.load_profile(...)``.
+   Registered at import (the active profile is NOT changed); call
+   ``load_selected_profile()`` to activate the one named by the env var
+   ``MLFRAME_HYP_PROFILE``, or use ``settings.load_profile(...)``.
 
 Usage:
 
@@ -94,16 +95,24 @@ def _register_profiles_locked() -> None:
     settings.register_profile("mlframe-ci", max_examples=50, **common)  # type: ignore[arg-type]
     settings.register_profile("mlframe-nightly", max_examples=500, **common)  # type: ignore[arg-type]
 
-    # Users can select via env var at import time.
-    chosen = os.environ.get("MLFRAME_HYP_PROFILE", "mlframe-fast")
-    if chosen in ("mlframe-fast", "mlframe-ci", "mlframe-nightly"):
-        settings.load_profile(chosen)
-
     _PROFILES_REGISTERED = True
 
 
-# Register on import so tests that do `from mlframe.testing.parametric import ...`
-# get a sane default without boilerplate.
+def load_selected_profile() -> str | None:
+    """Load the Hypothesis profile named by ``MLFRAME_HYP_PROFILE`` (default ``mlframe-fast``) and return its name.
+
+    Importing this module only REGISTERS the profiles; it never changes the importer's active Hypothesis settings (audit 26-F35). A test
+    suite that wants the mlframe default calls this once, from its conftest. Returns ``None`` when the variable names an unknown profile.
+    """
+    register_profiles()
+    chosen = os.environ.get("MLFRAME_HYP_PROFILE", "mlframe-fast")
+    if chosen not in ("mlframe-fast", "mlframe-ci", "mlframe-nightly"):
+        return None
+    settings.load_profile(chosen)
+    return chosen
+
+
+# Register (only) on import; activating a profile is the caller's explicit choice via ``load_selected_profile()``.
 register_profiles()
 
 

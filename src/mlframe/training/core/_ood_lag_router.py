@@ -62,6 +62,9 @@ def build_ood_lag_router(
 
     ``y_train`` sets the train target range ``[lo, hi]`` (optionally widened by ``ood_lag_router_margin_frac``). The
     decision is made on ``filtered_val_df`` / ``y_val`` (the honest holdout). ``None`` on any missing input.
+
+    The val split is therefore SELECTION data for this decision: a val metric of a routed model is optimistic by construction. The unbiased
+    estimate is the test split, which the router never sees (37-F48); the deploy log line below says so.
     """
     if not bool(getattr(config, "ood_lag_routing_enabled", True)):
         return trained
@@ -113,7 +116,7 @@ def build_ood_lag_router(
 
     logger.warning(
         "[OODLagRouter] routing %d/%d out-of-train-range val row(s) (lag outside [%.4g, %.4g]) to lag_predict improves "
-        "val RMSE %.4g -> %.4g; deploying the per-row OOD router instead of the trained model alone.",
+        "val RMSE %.4g -> %.4g (the routing was chosen on val, so this val figure is optimistic; use the test split as the estimate); deploying the per-row OOD router instead of the trained model alone.",
         n_ood, yv.size, lo, hi, rmse_raw, rmse_routed,
     )
     return OODLagRouter(trained, lag_component, lo, hi)

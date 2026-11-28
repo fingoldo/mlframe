@@ -293,8 +293,8 @@ def _train_mlframe_rank_pandas(X_tr, cat_features, X_va, X_te):
             _splits_for_vocab = [X_tr]
             if isinstance(X_va, pd.DataFrame):
                 _splits_for_vocab.append(X_va)
-            if isinstance(X_te, pd.DataFrame):
-                _splits_for_vocab.append(X_te)
+            # The vocabulary is built from train and val only, like strategies/_cat_levels_shared: a test-only level maps to -1 (unseen)
+            # instead of receiving a code the model never trained on (41-F38).
             _vocabs, _skip_cols = _build_cat_vocabs(_to_encode, _splits_for_vocab)
             # Per-col ``_split_local[_c] = ...`` triggers BlockManager rebuilds
             # for each column. Build a {col: new_series} dict in one pass, then

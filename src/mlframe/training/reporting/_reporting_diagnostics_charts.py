@@ -66,7 +66,7 @@ def _render_standalone_charts(cfg, y_arr, _collapsed, _budget, model, df, names,
                 max_features=getattr(cfg, "interaction_strength_max_features", 8),
                 sample=getattr(cfg, "pdp_sample", 2000),
                 grid=getattr(cfg, "pdp_grid", 20),
-                max_seconds=getattr(cfg, "interaction_strength_max_seconds", 20.0),
+                max_seconds=_budget.cap_for(getattr(cfg, "interaction_strength_max_seconds", 20.0)),
             ),
         )
 

@@ -641,18 +641,17 @@ def _captum_integrated_gradients_importance(
 
 
 def _collapse_coef(coef: np.ndarray) -> np.ndarray:
-    """Collapse a (possibly 2-D) ``coef_`` to a per-feature importance vector.
+    """Collapse a (possibly 2-D) ``coef_`` to a non-negative per-feature importance vector (coefficient MAGNITUDE).
 
-    Binary classifiers / single-target regressors have ``coef_`` shape ``(n,)``
-    or ``(1, n)`` -- return the single signed row as-is. Multiclass / multi-
-    target models have shape ``(n_classes, n)``; aggregate as ``mean(|coef|,
-    axis=0)`` so a feature important for ANY class ranks high. Pre-fix code took
-    ``coef[-1, :]`` (last class only), silently discarding every other class.
+    Single-output models have ``coef_`` shape ``(n,)`` or ``(1, n)`` -- return ``|coef|``. Multiclass / multi-target
+    models have shape ``(n_classes, n)``; aggregate as ``mean(|coef|, axis=0)`` so a feature important for ANY class
+    ranks high. The multi-output wrapper branch also reports magnitudes (``median(|coef|)``), so every ``coef_`` path
+    now agrees; the signed values stay available as the model's own ``coef_``.
     """
     if coef.ndim == 1:
-        return coef
+        return np.asarray(np.abs(coef))
     if coef.shape[0] == 1:
-        return coef[0, :]
+        return np.asarray(np.abs(coef[0, :]))
     return np.asarray(np.abs(coef).mean(axis=0))
 
 
@@ -707,8 +706,8 @@ def get_model_feature_importances(
     Returns
     -------
     np.ndarray, pd.DataFrame, or None
-        Feature importances array (signed for ``coef_``, non-negative
-        for tree FI / permutation), or DataFrame (if return_df=True),
+        Feature importances array (non-negative: coefficient magnitude for
+        ``coef_``, tree FI / permutation otherwise), or DataFrame (if return_df=True),
         or None when no source is available.
     """
     inner = _unwrap_estimator_chain(model)

@@ -50,7 +50,6 @@ Not verified: possible `fastmath=True` interaction with the `np.isfinite` guards
 - 08-F5: FIXED. both SMOTE siblings return (0, d) on an empty minority; tests/feature_engineering/transformer/test_cluster08_edges.py
 - 08-F10: FIXED. magnitude check uses max(|min|,|max|) with Python ints, so the most negative int64 is flagged; tests/feature_engineering/transformer/test_cluster08_edges.py
 - 08-F11: FIXED. the silent temperature override now warns (RuntimeWarning); no separate test
-- 08-F7: DEFERRED. not changed in this pass; needs a design or behaviour decision (see cluster report)
 - 08-F18: FIXED. fit_bgmm_and_sample raises a clear ValueError naming the caller when there are no minority rows, instead of numpy's integers(0, 0) error. Test test_cluster08_bgmm_empty_minority.py; 3 existing sampler tests pass.
 - 08-F19: FIXED. kth_nearest_dists refuses k < 1, which silently indexed the farthest column. The documented clipping above the subset size is kept. Test test_cluster08_kth_nearest_k_positive.py (2 passing); 47 existing caller tests pass.
 - 08-F20: FIXED. prefer_hnsw_at_n default is now None (the sentinel), so an explicit 50_000 is honoured instead of deferring to the tuned choice. Test test_cluster08_knn_explicit_hnsw_threshold.py (2 passing); 17 existing knn helper tests pass.
@@ -73,6 +72,9 @@ Not verified: possible `fastmath=True` interaction with the `np.isfinite` guards
 
 - 08-F15: DEFERRED. Four near-identical SMOTE loops remain despite the module header. Consolidating them changes the kernel call contract across the synthesis paths; deferred to a refactor pass with call-site tests. No code change.
 
-- 08-F16: DEFERRED. The package eagerly imports about 130 transformer modules. Lazy imports change the package's public import surface and the import-time behaviour of every caller; deferred as a design decision. No code change.
 
 - 08-F4: FIXED. The BGM sampler gained an opt-in return_source flag: (samples, 'bgmm') for a mixture sample and (samples, 'bootstrap') for any resample, including a too-small minority set. The default return is unchanged, so current callers are unaffected. The fallback is logged at WARNING (earlier change). Its inner warning filter is narrowed to Future/Deprecation. Tests tests/feature_engineering/test_cluster08_bgmm_source_flag.py (3 passed).
+
+- 08-F7: FIXED. Regression aux MLP emits only mlp_pred in both modes; the all-zero mlp_resid column is gone. test_cluster08_aux_mlp_regression_has_no_constant_column.
+
+- 08-F16: FIXED. transformer/__init__ resolves its public names lazily (PEP 562, TYPE_CHECKING imports for tools); a fresh import loads 13 of 125 modules instead of all. test_cluster08_transformer_package_imports_lazily.

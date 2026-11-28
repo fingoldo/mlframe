@@ -204,7 +204,6 @@ def _start_run_with_retries(run_name, experiment_id, run_tags):
                     scrubbed_exc = RuntimeError(scrubbed)
                 raise scrubbed_exc from None
         else:
-            mlflow.end_run()
             break
     return run
 
@@ -212,6 +211,10 @@ def _start_run_with_retries(run_name, experiment_id, run_tags):
 def get_or_create_mlflow_run(run_name: str, parent_run_id: Optional[str] = None, experiment_name: Optional[str] = None, experiment_id: Optional[str] = None, tags: Optional[dict] = None) -> Tuple[object, bool]:
     """Tries to find a run by name within current mlflow experiment.
     If not found, creates new one.
+
+    A newly created run is returned LIVE (it is the active run, so ``mlflow.log_*`` calls land on it); the caller ends it with
+    ``mlflow.end_run()``. It used to be ended before being returned, so the caller's handle was already closed (audit 25-F25).
+    A run found by name is returned as stored and is not made active.
     """
     if tags is None:
         tags = {}

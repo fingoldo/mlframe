@@ -74,7 +74,6 @@ Scope: 88 files listed in `audits/2026-11-20/manifests/27_root_modules-6.txt`, a
 - 27-F16: FIXED. The MSLE to rmse substitution for LightGBM is logged at WARNING. Test tests/training/test_cluster27_lgb_msle_substitution_warns.py.
 - 27-F9: FIXED. The pandas NaN fill works on a shallow copy, so the caller's frame keeps its NaNs, as the polars branch already did. Test tests/training/test_cluster27_nan_fill_leaves_caller_frame.py.
 - 27-F7: FIXED. A weighted fit's permutation importances skip the unweighted CUDA kernel and use the weighted CPU path. Test tests/training/test_cluster27_weighted_fi_skips_cuda.py.
-- 27-F8: DEFERRED. Owner decision: signed or magnitude coef_ importances. The two branches disagree today; choosing either changes the reported numbers for one of them.
 - 27-F22: FIXED. Title positive rate counts the larger label as positive, matching the decision-threshold block (labels {1, 2} no longer read as 0%). Test test_cluster27_title_rate_positive_larger_label.py.
 - 27-F21: FIXED. recalibrate on an unfitted DistributionalRecalibrator raises RuntimeError instead of returning the identity. Test test_cluster27_unfitted_recalibrator_raises.py; 19 existing calibration tests pass.
 - 27-F18: FIXED. select_from_pareto logs a WARNING when no frontier point is scored and the first iteration is returned by default. Test test_cluster27_pareto_default_warns.py; 45 existing Pareto/aggregation tests pass.
@@ -84,7 +83,6 @@ Scope: 88 files listed in `audits/2026-11-20/manifests/27_root_modules-6.txt`, a
 - 27-F23: WON'T FIX. The two precompute stubs raise NotImplementedError on purpose: their docstrings explain the split-time dependency, precompute_all does not call them, and tests/training/test_caching_caching.py pins the raise. Removing them would break the public re-exports and meta-tests.
 - 27-F25: FIXED. Backend selection uses the same absolute-PATH nvidia-smi lookup as the probe, not a plain shutil.which on the full PATH. Test test_cluster27_gpu_backend_absolute_path.py; 7 existing GPU probe tests pass.
 - 27-F20: FIXED. format_metric docstring example corrected to the actual output (0.000012); test pins every documented example. Test test_cluster27_format_metric_docstring_examples.py.
-- 27-F19: DEFERRED. Two suffix-stripping implementations differ (only one strips WithFastpath). Unifying them changes which names are stripped in one path, so it needs a decision. No code change.
 
 - 27-F12: FIXED. Trainset aging without timestamps is refused with a ValueError in the no-timestamp row-based split, instead of slicing a shuffled split by position. Without the limit the split is unchanged. Test tests/training/test_cluster27_aging_needs_timestamps.py (2 passed).
 
@@ -94,3 +92,7 @@ Scope: 88 files listed in `audits/2026-11-20/manifests/27_root_modules-6.txt`, a
 - 27-F11: FIXED. Val-Pool cache key now includes an exact BLAKE2b digest of every numeric column's raw bytes (compute_signature exact_numeric=True; 0.59 s on 2M x 40) plus the sampled hash for non-numeric columns. Also found: the reader and two report caches sliced sig[:4], which stops before the content hash, so they matched on columns/shape/dtypes only; now sig[:CONTENT_KEY_LEN]. Test test_cluster27_val_pool_cache_exact_numeric_key.
 
 - 27-F13: FIXED. Dichotomic path refits the winning budget on the full train when the val rows were carved from it; history is a float list with history_budgets alongside; test_cluster27_dichotomic_refit_on_full_train.
+
+- 27-F8: FIXED. coef_ importances are magnitudes on every path (_collapse_coef returns /coef/, matching the multi-output median(/coef/)); signed values stay on model.coef_. Test test_cluster27_28_coef_magnitude_and_huber_scale.
+
+- 27-F19: FIXED. One suffix stripper: _format.strip_shim_suffix now also strips WithFastpath and _data_helpers uses it (the duplicate removed).

@@ -119,7 +119,6 @@ Severity counts: P0 0, P1 8, P2 21, P3 23, total 52.
 - 37-F28: FIXED. Composite train mean is computed once in the caller and passed to the per-entry scorer (was recomputed per entry and per split). Pinned by tests/training/core/test_cluster37_train_mean_computed_once.py (source-level; no behavioural test).
 - 37-F27: FIXED. Full-length base columns are built once per base name within the domain-violation check (per-call cache _full_base). Pinned by tests/training/core/test_cluster37_domain_violation_base_cache.py (source-level).
 - 37-F33: FIXED. Removed the unused duplicate _WATCHDOG_RELATIVE_THRESHOLD from _phase_composite_post; the live definition in _composite_wrap_watchdog now carries the rationale comment. Test tests/training/test_cluster37_watchdog_threshold_single_source.py.
-- 37-F34: DEFERRED. Fitted-domain adapters for cbrt, yj, qn and sp are built but only log_y passes its fitted domain. Wiring the others in changes domain screening for those transforms, so it needs a behaviour decision. Removing the bindings alone would leave the tuple shape to rename. No code change.
 - 37-F37: FIXED. Bounded-zoo check matches 'ols' and 'lstsq' as whole tokens and keeps 'linear' as a substring, so lgb_colsample stays bounded. Test tests/training/test_cluster37_bounded_zoo_token_match.py; 15 AR-skip tests pass.
 - 37-F46: FIXED. Representative-target fallback no longer labels LEARNING_TO_RANK (and other non-supervised keys) as classification; they are skipped. Test tests/training/test_cluster37_pick_representative_target_ltr.py.
 - 37-F47: FIXED. The float64 cast of a split column sits inside the materialisation guard, so a non-numeric column is skipped instead of raising ValueError. Test tests/training/test_cluster37_build_column_non_numeric_skipped.py.
@@ -134,7 +133,6 @@ Severity counts: P0 0, P1 8, P2 21, P3 23, total 52.
 - 37-F39: DEFERRED. Component-shim loop is duplicated across _xt_ensemble_helpers and _phase_dummy_baselines, with two emit helpers. Consolidating needs a shared helper and call-site tests in both paths, so it gets its own pass. No code change.
 - 37-F30: FIXED. Honest-gain floor filter compares specs by identity, so dict equality on ndarray values cannot raise or mismatch. Test tests/training/test_cluster37_honest_gain_floor_identity.py.
 - 37-F49: FIXED. _entry_metric reads the positive class (1) first for a {0,1} class-indexed layout, as its comment states; multiclass keeps ascending order. Test tests/training/test_cluster37_entry_metric_positive_class.py.
-- 37-F48: DEFERRED. The OOD lag router uses the validation split for both the route-or-keep decision and the reported score, so the reported score is optimistic. Fixing that is an ML evaluation-design decision (which split reports the estimate). No code change.
 - 37-F42: DEFERRED. _apply_plot_style_overrides changes process-wide matplotlib and plotly state and is not restored on failure. Restoring it needs a context-manager design across the setup path; deferred. No code change.
 
 - 37-F35: FIXED. Removed the unused short_name parameter from both chain factories in nonlinear.py and its keyword at every call site (registry.py and the auto-chain factory call). The duplicate logger and TYPE_CHECKING were already removed. Test tests/training/composite/test_cluster37_chain_factory_no_short_name.py (2 passed); the auto-chain cache replay test passes (3 passed with it).
@@ -142,3 +140,7 @@ Severity counts: P0 0, P1 8, P2 21, P3 23, total 52.
 - 37-F51: FIXED. The group-slice helper is renamed _group_train_slice at its definition and at its lazy-proxy call site; the old name is gone from the core sources. Test tests/training/core/test_cluster37_group_slice_name.py (2 passed).
 
 - 37-F36: FIXED. unary.py logs under mlframe.training.composite_transforms; stale follow-up note removed; test_cluster37_unary_logger_name.
+
+- 37-F34: FIXED. The four unused fitted-domain adapters are discarded in the registry and no longer re-exported; only log_y keeps its fitted domain.
+
+- 37-F48: DOCUMENTED. OOD lag router docstring and deploy log state that the routing is chosen on val, so a routed val metric is optimistic and the test split is the estimate.

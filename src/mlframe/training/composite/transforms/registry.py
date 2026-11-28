@@ -121,8 +121,8 @@ from .unary import (
 
 # Pre-build per-unary adapters (cheap, done once at import). The 5th element
 # is the fitted-params-aware domain adapter (``None`` for transforms whose
-# params-free domain is exact).
-_cbrt_fit, _cbrt_forward, _cbrt_inverse, _cbrt_domain, _cbrt_domain_fitted = _make_unary_registry_adapter(
+# params-free domain is exact); only ``log_y`` needs and keeps it, the others discard it.
+_cbrt_fit, _cbrt_forward, _cbrt_inverse, _cbrt_domain, _ = _make_unary_registry_adapter(
     _cbrt_y_fit_raw,
     _cbrt_y_forward_raw,
     _cbrt_y_inverse_raw,
@@ -141,19 +141,19 @@ _log_fit_a, _log_forward_a, _log_inverse_a, _log_domain_a, _log_domain_fitted_a 
     # DomainViolationError on the same rows. Pass the params-aware raw form.
     domain_fitted_fn=_log_y_domain_raw,
 )
-_yj_fit_a, _yj_forward_a, _yj_inverse_a, _yj_domain_a, _yj_domain_fitted_a = _make_unary_registry_adapter(
+_yj_fit_a, _yj_forward_a, _yj_inverse_a, _yj_domain_a, _ = _make_unary_registry_adapter(
     _yj_y_fit_raw,
     _yj_y_forward_raw,
     _yj_y_inverse_raw,
     lambda y: _yj_y_domain_raw(y),
 )
-_qn_fit_a, _qn_forward_a, _qn_inverse_a, _qn_domain_a, _qn_domain_fitted_a = _make_unary_registry_adapter(
+_qn_fit_a, _qn_forward_a, _qn_inverse_a, _qn_domain_a, _ = _make_unary_registry_adapter(
     _qn_y_fit_raw,
     _qn_y_forward_raw,
     _qn_y_inverse_raw,
     lambda y: _qn_y_domain_raw(y),
 )
-_sp_fit_a, _sp_forward_a, _sp_inverse_a, _sp_domain_a, _sp_domain_fitted_a = _make_unary_registry_adapter(
+_sp_fit_a, _sp_forward_a, _sp_inverse_a, _sp_domain_a, _ = _make_unary_registry_adapter(
     _sp_y_fit_raw,
     _sp_y_forward_raw,
     _sp_y_inverse_raw,

@@ -146,6 +146,9 @@ def _generate_mlp_final_layer_num_classes(num_classes, layers, _maybe_sn, prev_l
 
 def _generate_mlp_affine_composition_extrapolation_motivated(output_activation, num_classes, output_activation_scale, output_activation_center, layers):
     """Block of generate_mlp starting at ``if output_activation != "linear" and num_classes == 1:``."""
+    if output_activation != "linear" and num_classes != 1:
+        # The bounded head is a regression construct; silently ignoring it left an unbounded head with no hint (39-F61).
+        logger.warning("generate_mlp: output_activation=%r applies to regression (num_classes == 1) only and is ignored for num_classes=%s", output_activation, num_classes)
     if output_activation != "linear" and num_classes == 1:
         if output_activation == "tanh_train_range":
             if output_activation_scale is None or output_activation_center is None:

@@ -168,16 +168,15 @@ class GreedyBackwardArm(BaseArm):
         from mlframe.feature_selection.greedy_backward_elimination import greedy_backward_elimination
 
         names = _feature_names(X)
-        kept, trace = greedy_backward_elimination(
-            _probabilistic(self.random_state), X, np.asarray(y), _auc, cv=_splitter(self.random_state), min_features=self.min_features, return_trace=True
+        kept, trace, final_score = greedy_backward_elimination(
+            _probabilistic(self.random_state), X, np.asarray(y), _auc, cv=_splitter(self.random_state), min_features=self.min_features, return_trace=True, return_score=True
         )
         kept_names = [str(c) for c in kept]
         removed = [str(step.dropped) for step in trace]
-        best = max((float(step.score_after) for step in trace), default=None)
         return {
             "support": _mask_from_names(names, kept_names),
             "score": _ordinal_from_removal(names, kept_names, removed),
-            "selection_score": best,
+            "selection_score": final_score,
             "selection_metric": "roc_auc",
             "provenance": {"n_removed": len(removed), "n_kept": len(kept_names)},
         }

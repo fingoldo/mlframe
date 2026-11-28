@@ -98,6 +98,7 @@ def greedy_backward_elimination(
     n_repeats: int = 1,
     seed_base: int = 0,
     return_trace: bool = False,
+    return_score: bool = False,
 ) -> Any:
     """Repeatedly remove the single feature whose removal most improves mean CV ``scoring``, HIGHER is better.
 
@@ -132,6 +133,10 @@ def greedy_backward_elimination(
     return_trace
         When True, return ``(surviving, trace)``: ``trace`` is a tuple of the per-step records in the order they
         happened, for a caller that wants to see why each feature went. Default False returns the list alone.
+    return_score
+        When True, the mean CV score of the SURVIVING set is appended as the last element of the result: ``(surviving, score)``, or
+        ``(surviving, trace, score)`` together with ``return_trace``. It exists when the trace is empty too (no removal helped), where the kept
+        set is still the full one and has a score.
 
     Returns
     -------
@@ -214,8 +219,12 @@ def greedy_backward_elimination(
         current_score = best_score
         trace.append(EliminationStep(dropped=best_candidate, score_after=float(best_score), n_remaining=len(remaining)))
 
+    if return_trace and return_score:
+        return remaining, tuple(trace), float(current_score)
     if return_trace:
         return remaining, tuple(trace)
+    if return_score:
+        return remaining, float(current_score)
     return remaining
 
 

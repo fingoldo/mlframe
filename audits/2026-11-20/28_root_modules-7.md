@@ -140,10 +140,8 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F45: FIXED. The text-column decategorisation writes into a shallow copy, so the caller's eval-set frame keeps its categories and NaN. Test tests/training/test_cluster28_decategorize_leaves_caller_frame.py.
 - 28-F34: FIXED. The OOF target is read with the same inner-model fallback as the OOF probabilities, through one helper used at both sites. Test tests/training/test_cluster28_oof_target_found_like_probs.py.
 - 28-F44: FIXED. Both CatBoost metric sites keep a user-set eval_metric and set only the loss when one exists; the MTR default is used only when none is set. Test tests/training/test_cluster28_cb_keeps_user_eval_metric.py covers the MTR site; the multilabel site uses the same guard.
-- 28-F38: DEFERRED. Owner decision: scale the Huber floor to the target's robust scale, or document it as a raw-unit floor. Either changes every booster's loss on small-scale targets.
 - 28-F25: FIXED. A bundle that cannot be digested fails the save with a WARNING, so no unverifiable sidecar is written and a later load does not raise. Test tests/training/test_cluster28_save_fails_without_digest.py; 5 related sidecar tests pass.
 - 28-F27: DEFERRED. The whole loader body sits inside _LOAD_MODEL_CACHE_LOCK, so narrowing the lock to the cache get and put means restructuring its control flow. A dedicated change, deferred.
-- 28-F26: DEFERRED. Streaming the hash and the unpickle from one handle changes the verified-open contract the loader relies on. Deferred to a dedicated change to the bundle reader.
 - 28-F31: FIXED. The multiclass split summary drops non-finite labels before counting and reports them as n_missing, as the binary summary does. Test tests/training/test_cluster28_multiclass_summary_drops_missing_labels.py.
 - 28-F36: FIXED. A host-RAM fallback from a failed GPU memory probe is returned but not cached under the cuda:N key. Test tests/training/test_cluster28_mem_probe_fallback_not_cached_as_gpu.py; 19 tests pass with the existing memory-probe tests.
 - 28-F21: FIXED. The pandas inf-to-NaN replacement writes into a shallow copy, so the caller's frame keeps its infinities. Test tests/training/test_cluster28_special_values_leave_caller_frame.py.
@@ -174,7 +172,6 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F72: FIXED. Target/model key built once by _entry_key (same value as the three inline copies). Test tests/training/test_cluster28_honest_entry_key.py (3 pass).
 - 28-F75: FIXED. Test coverage added for heartbeat_interval_from_env: unset gives the default, '0' disables, invalid falls back with a WARNING, negative clamps to 0. Test tests/training/test_cluster28_heartbeat_env_parsing.py (4 pass).
 - 28-F74: FIXED. all_active_phases tests added. Found while testing: phase() registered the thread's stack only on creation, so a cleared cross-thread map (test isolation) hid a live thread; registration now happens on every entry. The pop statement is an explicit if block. Tests tests/training/test_cluster28_all_active_phases.py (2 pass); 22 existing phase-related meta tests pass.
-- 28-F65: DEFERRED. Several parts: force_windows and cpu_count are kept on the public signature deliberately for tests (removing them changes the signature), the CUDA probe block is repeated three times and needs a careful extraction, and the workers docstring needs a per-platform check. Owner decision on the signature; not changed.
 - 28-F54: DEFERRED. The two CatBoost loss-ensuring helpers duplicate about 60 lines. Extracting a shared helper is a refactor that needs call-site tests in both paths; deferred to a refactor pass. No code change.
 
 - 28-F70: FIXED. A failed grid variant with stop_on_error=False is a typed GridVariantError (label, exc_type, message) instead of a plain error dict. No in-repo consumer read the old dict. Test tests/training/test_cluster28_grid_typed_error.py (2 passed).
@@ -199,3 +196,9 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F48: FIXED. Removed _train_and_evaluate_train_df_none (it built report_title and returned None, and its only caller ignored the result) together with its import and call; nothing else referenced it. Test tests/training/test_cluster28_no_unused_report_title_builder.py.
 
 - 28-F64: DOCUMENTED. Owner decision applied (leave, document): the write of trainset_features_stats into the shared common_params stays; a comment at the site now says it is a fallback for standalone calls (the suite computes the statistics up front and passes them in), that the write is how the first model's statistics reach later models, and that the value is also returned. No behaviour change.
+
+- 28-F38: FIXED. huber_delta_for_scale has no raw-unit floor: 1.345 * scale, 1.0 only for an unknown scale. Same test file.
+
+- 28-F65: FIXED. CUDA probe extracted to _cuda_available(); module docstring states num_workers is 0 on every OS; force_windows/cpu_count kept on the signature by decision.
+
+- 28-F26: WON'T FIX. Reading the bundle into memory once is the verified-open contract (the digest and the unpickle must use the same bytes); streaming would reopen the replace-after-check hole. The peak-RSS cost is accepted.

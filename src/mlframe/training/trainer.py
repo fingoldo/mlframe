@@ -165,7 +165,7 @@ from ._data_helpers import (  # noqa: F401
     _extract_targets_from_indices, _initialize_mutable_defaults,
     _normalize_multilabel_target, _prepare_df_for_model,
     _prepare_train_df_for_fitting, _setup_model_info_and_paths,
-    _setup_sample_weight, _strip_internal_model_suffixes,
+    _setup_sample_weight,
     _subset_dataframe, _update_model_name_after_training,
     _validate_infinity_and_columns, _validate_target_values,
     _validate_trusted_path, get_function_param_names,

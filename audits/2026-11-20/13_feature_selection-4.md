@@ -68,7 +68,6 @@ Scope: 142 files from `audits/2026-11-20/manifests/13_feature_selection-4.txt`, 
 - 13-F2: RESOLVED. The stability path builds the shared fit state before returning, so Subset, results_to_csv and plot read set attributes. Test tests/feature_selection/test_boruta_stability_path_has_fit_state.py; existing stability tests (6) pass. Commit below.
 - 13-F1: RESOLVED. Under premerge, Subset() expands accepted representatives back to their cluster members and indexes the pre-collapse frame. Test tests/feature_selection/test_boruta_subset_keeps_premerge_members.py; existing premerge tests (3) pass. Commit below.
 - 13-F3: FIXED. sub-fits run with premerge_clusters=False, since the parent has already collapsed X; covered by the existing Boruta premerge and stability tests (run in progress)
-- 13-F4: DEFERRED. needs the held-out split indices available at the auto-measure probe; the probe currently reads all rows, so the routing decision is not yet leak-free
 - 13-F5: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 13-F6: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 13-F7: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule
@@ -105,3 +104,5 @@ Scope: 142 files from `audits/2026-11-20/manifests/13_feature_selection-4.txt`, 
 - 13-F20: FIXED. stability_n_jobs is now a BorutaShap constructor parameter (default -1, stored verbatim, documented), so get_params and clone keep it. Test tests/feature_selection/boruta_shap/test_cluster13_stability_n_jobs_param.py. Existing BorutaShap tests: 24 passed with no failure before my own time cap on the heavy ones; the rest left to CI
 
 - 13-F28: FIXED. long and unsigned long resolve through ctypes.sizeof(c_long) for the running platform; test_cluster13_long_follows_the_platform.
+
+- 13-F4: FIXED. BorutaShap auto routing probes only the rows outside the 30 percent holdout partition. test_cluster13_boruta_auto_probe_skips_holdout_rows.

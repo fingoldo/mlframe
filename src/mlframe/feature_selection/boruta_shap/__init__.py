@@ -288,6 +288,26 @@ class BorutaShap(BorutaShapProtocolMixin, TransformerMixin, BaseEstimator):
         _resolved = getattr(self, "_resolved_importance_measure_", None)
         return str(_resolved if _resolved is not None else self.importance_measure).lower()
 
+    def _probe_rows_outside_holdout(self, X, y):
+        """``(X, y)`` restricted to the rows that would NOT be in the 30% holdout of ``train_or_test='test'``, so the auto routing never reads holdout labels.
+
+        The holdout is the same partition ``Check_if_chose_train_or_test_and_train_model`` draws (suite split policy, else a stratified shuffle on
+        ``random_state``). When it cannot be reproduced here (a stratify array too small to split, say) the whole input is probed as before.
+        """
+        n = len(X)
+        try:
+            policy_split = holdout_indices(get_cv_policy(self), n, 0.3, random_state=int(self.random_state or 0))
+            if policy_split is not None:
+                train_pos = np.asarray(policy_split[0])
+            else:
+                train_pos, _ = train_test_split(np.arange(n), test_size=0.3, random_state=self.random_state, stratify=self.stratify)
+        except ValueError as exc:
+            logger.debug("BorutaShap auto-probe: holdout partition unavailable (%s); probing every row.", exc)
+            return X, y
+        take_x = X.iloc[train_pos] if hasattr(X, "iloc") else X[train_pos]
+        take_y = y.iloc[train_pos] if hasattr(y, "iloc") else np.asarray(y)[train_pos]
+        return take_x, take_y
+
     def _resolve_auto_importance_measure(self, X, y) -> None:
         """When ``importance_measure='auto'``, probe (X, y) ONCE and pin the concrete driver for this
         fit into ``_resolved_importance_measure_`` (+ diagnostics in ``auto_dispatch_diagnostics_``).
@@ -307,8 +327,9 @@ class BorutaShap(BorutaShapProtocolMixin, TransformerMixin, BaseEstimator):
         if isinstance(X, pd.DataFrame):
             _probe_X = X.copy(deep=False)
             self._ordinal_encode_object_cols_inplace(_probe_X)
+        _probe_X, _probe_y = self._probe_rows_outside_holdout(_probe_X, y)
         measure, diag = resolve_auto_importance_measure(
-            _probe_X, y, classification=bool(self.classification), random_state=int(self.random_state),
+            _probe_X, _probe_y, classification=bool(self.classification), random_state=int(self.random_state),
         )
         self._resolved_importance_measure_ = measure
         self.auto_dispatch_diagnostics_ = diag

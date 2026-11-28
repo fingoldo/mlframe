@@ -205,14 +205,13 @@ def test_get_or_create_mlflow_run_retries_past_already_active_error():
 
 
 def test_get_or_create_mlflow_run_gives_up_after_5_failures():
-    """A persistently 'already active' error gives up cleanly instead of retrying forever."""
+    """A persistently 'already active' error gives up with a scrubbed RuntimeError instead of retrying forever or handing back None (25-F26)."""
     with patch("mlframe.integrations.mlflow.mlflow") as mock_mlflow:
         mock_mlflow.search_runs.return_value = []
         mock_mlflow.start_run.side_effect = RuntimeError("already active, forever")
         mock_mlflow.active_run.return_value = None
-        run, found = get_or_create_mlflow_run("my_run")
-    assert run is None
-    assert found is False
+        with pytest.raises(RuntimeError, match="failed after 6 retries"):
+            get_or_create_mlflow_run("my_run")
 
 
 def test_get_or_create_mlflow_run_reraises_unrelated_errors():

@@ -32,7 +32,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-_SHIM_SUFFIXES = ("WithDMatrixReuse", "WithDatasetReuse")
+_SHIM_SUFFIXES = ("WithDMatrixReuse", "WithDatasetReuse", "WithFastpath")
 
 
 def strip_shim_suffix(name: str) -> str:

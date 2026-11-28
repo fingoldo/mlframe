@@ -137,8 +137,12 @@ def _robust_residual_scale(y_target: Any) -> tuple[float, float]:
 
 
 def huber_delta_for_scale(scale: float) -> float:
-    """The Huber transition point in raw target units, shared by CatBoost ``delta``, LightGBM ``alpha`` and XGBoost ``huber_slope``."""
-    return max(1.0, 1.345 * scale) if scale > 0 else 1.0
+    """The Huber transition point in raw target units, shared by CatBoost ``delta``, LightGBM ``alpha`` and XGBoost ``huber_slope``.
+
+    It is ``1.345 * scale`` with no raw-unit floor: a floor of 1.0 sat 100 times above the residual scale of a target with MAD 0.01 and made
+    the loss behave as squared error. 1.0 is used only when the scale is unknown (zero, negative or not finite), i.e. a constant target.
+    """
+    return 1.345 * scale if np.isfinite(scale) and scale > 0 else 1.0
 
 
 def huber_delta_for(y_target: Any) -> float:

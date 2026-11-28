@@ -63,24 +63,57 @@ __all__ = [
 ]
 
 
+_LAZY_SUBMODULES = ("mlframe.calibration.quality", "mlframe.calibration.probabilities")
+_LAZY_OWNERS: dict[str, str] | None = None
+
+
+def _lazy_owners() -> dict[str, str]:
+    """Public top-level names of the lazy submodules mapped to the module defining them, read from their SOURCE (no import).
+
+    Lets ``__getattr__`` answer "does a name exist" without paying the ~2 s ``quality`` import for every unknown attribute, such as a
+    ``hasattr`` probe from tooling (22-F30). A name found in both modules resolves to ``quality``, the broader surface, as before.
+    """
+    global _LAZY_OWNERS
+    if _LAZY_OWNERS is None:
+        import ast
+        import importlib.util
+
+        owners: dict[str, str] = {}
+        for modname in reversed(_LAZY_SUBMODULES):  # later modules first, so earlier (quality) wins on a shared name
+            spec = importlib.util.find_spec(modname)
+            if spec is None or not spec.origin:
+                continue
+            with open(spec.origin, "rb") as fh:
+                tree = ast.parse(fh.read())
+            for node in tree.body:
+                names: list[str] = []
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    names = [node.name]
+                elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                    names = [(a.asname or a.name).split(".")[0] for a in node.names]
+                elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                    targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                    names = [tg.id for tg in targets if isinstance(tg, ast.Name)]
+                for nm in names:
+                    if not nm.startswith("_") and nm != "*":
+                        owners[nm] = modname
+        _LAZY_OWNERS = owners
+    return _LAZY_OWNERS
+
+
 def __getattr__(name: str) -> Any:
     if name.startswith("_"):
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    owner = _lazy_owners().get(name)
+    if owner is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     # ``importlib.import_module`` bypasses ``_handle_fromlist``'s package-
     # attribute check which would otherwise re-enter __getattr__ and recurse.
-    # Resolution order: quality (broader surface) first, then probabilities.
     import importlib
-    _q = importlib.import_module("mlframe.calibration.quality")
-    if hasattr(_q, name):
-        val = getattr(_q, name)
-        globals()[name] = val
-        return val
-    _p = importlib.import_module("mlframe.calibration.probabilities")
-    if hasattr(_p, name):
-        val = getattr(_p, name)
-        globals()[name] = val
-        return val
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    val = getattr(importlib.import_module(owner), name)
+    globals()[name] = val
+    return val
 
 
 def __dir__() -> list[str]:

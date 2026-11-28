@@ -43,8 +43,8 @@ def test_multiclass_coef_aggregates_across_classes():
     assert np.allclose(fi, expected)
 
 
-def test_binary_coef_keeps_single_signed_row():
-    """Binary coef keeps single signed row."""
+def test_binary_coef_reports_single_row_magnitudes():
+    """Binary coef reports the single row as magnitudes, the same convention as every other coef_ path (27-F8)."""
     LogisticRegression = pytest.importorskip("sklearn.linear_model").LogisticRegression
     rng = np.random.default_rng(1)
     X = rng.normal(size=(200, 3))
@@ -52,8 +52,7 @@ def test_binary_coef_keeps_single_signed_row():
     model = LogisticRegression(max_iter=400).fit(X, y)
     assert model.coef_.shape == (1, 3)
     fi = get_model_feature_importances(model, ["a", "b", "c"])
-    # Binary path is preserved: the single signed coef row, unchanged.
-    assert np.allclose(np.asarray(fi, dtype=np.float64), model.coef_[0])
+    assert np.allclose(np.asarray(fi, dtype=np.float64), np.abs(model.coef_[0]))
 
 
 def test_multitarget_ridge_coef_aggregates():

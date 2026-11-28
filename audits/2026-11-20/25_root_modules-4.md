@@ -144,7 +144,6 @@ Method: four parallel sub-audits read every listed file fully and grepped caller
 - 25-F38: FIXED. compute_fairness_metrics returns an empty DataFrame with the documented index when no subgroup produced a row. Test tests/metrics/test_cluster25_contract_fixes.py.
 - 25-F45: FIXED. fast_log_loss_binary converts its inputs with np.asarray before reading attributes, so lists work. Test tests/metrics/test_cluster25_contract_fixes.py.
 - 25-F54: FIXED. The return annotation of prepare_trials_dataset is the tuple it returns. Test tests/metrics/test_cluster25_contract_fixes.py.
-- 25-F25: DEFERRED. Needs an owner decision on the run lifecycle: _start_run_with_retries ends the run before returning it, so the caller's handle is already closed. Removing end_run changes when runs close for every caller.
 - 25-F49: FIXED. compute_all_metrics returns {} for learning_to_rank rather than regression metrics under ranking keys. Test tests/metrics/test_cluster25_ranking_round_has_no_regression_block.py.
 - 25-F40: FIXED. Prewarm imports shap without replacing is_transformers_lm on the shared module; the SHAP use site keeps its own scoped patch. No unit test: the cold shap import is too slow for the unit suite.
 - 25-F47: FIXED. The precision method reports 1 - precision, an error like the other methods, so the aggregate moves the right way. Test tests/metrics/test_cluster25_ice_precision_is_an_error.py.
@@ -184,3 +183,5 @@ Method: four parallel sub-audits read every listed file fully and grepped caller
 - 25-F61: DOCUMENTED. The CatBoost depth space is randint(1, 17), so depth 16 is reachable (scipy randint excludes the high bound; the comment at tuning_catboost.py:55 says so). The loss_function list at :257 is a deliberate exclusion that applies only when leaf_estimation_method is Newton, and it is commented there. No behaviour change beyond the depth fix already in place.
 
 - 25-F68: FIXED. metrics.__all__ no longer exports internals (logger, logging, np, numba, annotations, core, Callable); every listed name resolves. Test tests/metrics/test_cluster25_metrics_all_no_internals.py (2 passed).
+
+- 25-F25: FIXED. A newly created run is returned live (end_run removed from the success path); docstring says the caller ends it. test_new_run_is_returned_live_not_ended; stale test_get_or_create_mlflow_run_gives_up_after_5_failures updated to the RuntimeError contract of 25-F26.

@@ -120,6 +120,15 @@ class DiagnosticsBudget:
         """True once the block has spent its budget; always False when the budget is disabled."""
         return self.max_seconds > 0 and self.elapsed >= self.max_seconds
 
+    def cap_for(self, own_cap: float) -> float:
+        """The wall-clock cap for one diagnostic that keeps its own ceiling: ``own_cap``, but never more than the block's REMAINING budget (41-F35).
+
+        With the budget disabled (``max_seconds <= 0``) the diagnostic's own cap applies unchanged.
+        """
+        if self.max_seconds <= 0:
+            return own_cap
+        return min(own_cap, max(self.max_seconds - self.elapsed, 0.0))
+
     def run(self, name: str, fn: Callable[[], T]) -> Optional[T]:
         """Run one diagnostic unless it is out of scope for this model or the budget is already spent."""
         if not self.policy.allows(name):
