@@ -60,7 +60,6 @@ No P0 found on the default path. Findings below were verified by reading the cit
 - 18-F5: RESOLVED. batch_numaggs passes whiten_means=False as the serial path does. Test tests/models/test_batch_numaggs_matches_serial_whitening.py is a source-level guard (weak: it checks the call text, not the output); 74 existing numagg tests pass. Commit below.
 - 18-F3: RESOLVED. Target-MAE gate reads a binary (n, 2) predict_proba as its positive column (_as_gate_vector), not as 2n flattened values, so the MAE is no longer NaN and the block is no longer skipped. Test tests/models/test_gate_vector_uses_positive_column.py; 82 existing gate/stacking tests pass. Commit below.
 - 18-F9: FIXED. gate weighted means return NaN when every weight is zero instead of raising; tests/models/test_cluster18_zero_weight_gate.py; existing quality-gate and ensembling tests: 231 passed
-- 18-F12: DEFERRED. not changed in this pass; needs a targeted design or performance decision (see cluster report)
 - 18-F2: PARTIAL. Multiclass (N,K>2) member probabilities now produce an explicit warning that the NNLS/Caruana weight fit does not support them (score_flavours.py run_stacking_aware_gate), instead of blaming the row count. Per-class weighting is not built; tests/models/test_cluster18_multiclass_gate_skip_is_explicit.py
 - 18-F4: FIXED. Level-1 member tuples (entry, train_df, val_df, test_df) are unwrapped to the entry namespace in the probability accessors (models/ensembling/process_method.py _entry_of); tests/models/test_cluster18_level_member_tuple_unwrapped.py
 - 18-F17: FIXED. Removed the unreachable except NameError around the gate-stats lookup: _gate_stats is a parameter, always bound. Behaviour unchanged; 71 existing ensembling tests pass.
@@ -87,3 +86,5 @@ No P0 found on the default path. Findings below were verified by reading the cit
 
 
 - 18-F14: FIXED. K>2 now short-circuits like K=2: catastrophic_drop_kn records the kept and dropped member tags in the _all_members_catastrophic sentinel and kn_all_catastrophic_early_return stamps _reason='kn_catastrophic_dropout', _n_members, _dropped_member and _kept_member, so score_ensemble returns the sentinel-only result and no one-member 'ensemble' is built; the surviving model stays in the per-family list. Owner decision applied: option A. Test tests/models/test_cluster18_kn_all_catastrophic_early_return.py.
+
+- 18-F12: DOCUMENTED. Measured: the full-buffer fingerprint costs 0.15 s against 0.67 s for a cold gate computation (5 x 3M float32), so a hit saves about 78 percent and a miss pays about 22 percent; the deliberate full hash stays, with the numbers in its docstring.

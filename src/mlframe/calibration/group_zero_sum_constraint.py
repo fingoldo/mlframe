@@ -45,23 +45,37 @@ def apply_group_zero_sum_constraint(predictions: np.ndarray, group: np.ndarray, 
     """
     pred_arr = np.asarray(predictions, dtype=np.float64)
     w_arr = np.ones_like(pred_arr) if weights is None else np.asarray(weights, dtype=np.float64)
-
-    n_nan_groups = int(pd.isna(pd.Series(group)).sum())
+    codes, n_groups = _factorize_group(group)
+    n_nan_groups = int((codes < 0).sum())
     if n_nan_groups:
         logger.warning(
             "apply_group_zero_sum_constraint: %d row(s) have a NaN group label; pandas groupby excludes them "
             "from the fitted offset table and they receive offset=0.0 (no correction) unchanged.",
             n_nan_groups,
         )
+    return _shift_groups_to_target(pred_arr, codes, n_groups, w_arr, target_sum)
 
-    df = pd.DataFrame({"pred": pred_arr, "w": w_arr, "wpred": pred_arr * w_arr, "group": group})
-    agg = df.groupby("group", sort=False).agg(w_sum=("w", "sum"), wpred_sum=("wpred", "sum"))
+
+def _factorize_group(group: np.ndarray) -> tuple[np.ndarray, int]:
+    """Integer code per row for ``group`` (``-1`` for a NaN label, which takes no part in any group sum) and the number of groups."""
+    codes, uniques = pd.factorize(pd.Series(group), sort=False)
+    return np.asarray(codes, dtype=np.int64), len(uniques)
+
+
+def _group_sums(codes: np.ndarray, n_groups: int, values: np.ndarray) -> np.ndarray:
+    """Per-group sum of ``values`` for the rows that carry a group code (NaN-labelled rows, code ``-1``, are left out)."""
+    valid = codes >= 0
+    return np.bincount(codes[valid], weights=values[valid], minlength=n_groups)
+
+
+def _shift_groups_to_target(pred_arr: np.ndarray, codes: np.ndarray, n_groups: int, w_arr: np.ndarray, target_sum: float) -> np.ndarray:
+    """Shift each group by a constant so its weighted sum is ``target_sum``; groups with zero total weight and NaN-labelled rows are unchanged."""
+    w_sum = _group_sums(codes, n_groups, w_arr)
+    wpred_sum = _group_sums(codes, n_groups, pred_arr * w_arr)
     with np.errstate(divide="ignore", invalid="ignore"):
-        offset = np.where(agg["w_sum"].to_numpy() != 0, (agg["wpred_sum"].to_numpy() - target_sum) / agg["w_sum"].to_numpy(), 0.0)
-    offset_by_group = pd.Series(offset, index=agg.index)
-
-    group_offset = pd.Series(group).map(offset_by_group).fillna(0.0).to_numpy(dtype=np.float64)
-    return np.asarray(pred_arr - group_offset)
+        offset = np.where(w_sum != 0, (wpred_sum - target_sum) / w_sum, 0.0)
+    row_offset = np.where(codes >= 0, offset[np.maximum(codes, 0)], 0.0)
+    return np.asarray(pred_arr - row_offset)
 
 
 def apply_group_zero_sum_constraint_multi(
@@ -118,15 +132,22 @@ def apply_group_zero_sum_constraint_multi(
     targets = [0.0] * n_constraints if target_sums is None else list(target_sums)
 
     corrected = np.asarray(predictions, dtype=np.float64).copy()
-    w_arr = None if weights is None else np.asarray(weights, dtype=np.float64)
+    w_arr = np.ones_like(corrected) if weights is None else np.asarray(weights, dtype=np.float64)
+    # Factorise every grouping ONCE: the sweeps below reuse the integer codes instead of rebuilding a DataFrame and re-running a groupby for every
+    # constraint of every sweep and again for every residual check (22-F17).
+    factorised = [_factorize_group(g) for g in groups]
+    for codes, _n in factorised:
+        n_nan = int((codes < 0).sum())
+        if n_nan:
+            logger.warning("apply_group_zero_sum_constraint_multi: %d row(s) have a NaN group label; they receive offset=0.0 (no correction).", n_nan)
 
     for _ in range(max_iterations):
-        for group, target_sum in zip(groups, targets):
-            corrected = apply_group_zero_sum_constraint(corrected, group, weights=w_arr, target_sum=target_sum)
+        for (codes, n_groups), target_sum in zip(factorised, targets):
+            corrected = _shift_groups_to_target(corrected, codes, n_groups, w_arr, target_sum)
         # the just-applied (last) constraint is satisfied to float precision by construction - no need to
         # re-scan it; only the earlier constraints in this sweep may have been disturbed by later applies.
         max_residual = max(
-            (_max_abs_group_residual(corrected, group, w_arr, target_sum) for group, target_sum in zip(groups[:-1], targets[:-1])),
+            (_max_abs_group_residual(corrected, codes, n_groups, w_arr, target_sum) for (codes, n_groups), target_sum in zip(factorised[:-1], targets[:-1])),
             default=0.0,
         )
         if max_residual < tol:
@@ -135,13 +156,11 @@ def apply_group_zero_sum_constraint_multi(
     return np.asarray(corrected)
 
 
-def _max_abs_group_residual(predictions: np.ndarray, group: np.ndarray, weights: Optional[np.ndarray], target_sum: float) -> float:
+def _max_abs_group_residual(predictions: np.ndarray, codes: np.ndarray, n_groups: int, w_arr: np.ndarray, target_sum: float) -> float:
     """Return the largest absolute deviation of any group's weighted prediction sum from ``target_sum``."""
-    w_arr = np.ones_like(predictions) if weights is None else weights
-    df = pd.DataFrame({"wpred": predictions * w_arr, "group": group})
-    sums = df.groupby("group", sort=False)["wpred"].sum().to_numpy()
-    if sums.size == 0:
+    if n_groups == 0:
         return 0.0
+    sums = _group_sums(codes, n_groups, predictions * w_arr)
     return float(np.max(np.abs(sums - target_sum)))
 
 

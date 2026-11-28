@@ -11,6 +11,7 @@ import numpy as np
 import polars as pl
 
 from ._utils import require_seed, validate_numeric_input
+from .fisher_weighted_residual import _MAX_STACK_ELEMS
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,16 @@ def _gradient(model, X: np.ndarray, is_binary: bool, eps: float) -> np.ndarray:
     """Finite-difference gradient ∇p w.r.t. each feature. Returns (n, d)."""
     n, d = X.shape
     p_base = _predict(model, X, is_binary)
+    if d > 1 and d * n * d <= _MAX_STACK_ELEMS:
+        # One predict over the d perturbed copies stacked into (d*n, d) instead of d separate calls, as fisher_weighted_residual does: tree and linear
+        # members score rows independently, so the gradients equal the per-column loop's, and the per-call overhead is paid once, not d times (09-F30).
+        stack = np.broadcast_to(X, (d, n, d)).reshape(d * n, d)
+        if not stack.flags.writeable:
+            stack = stack.copy()
+        for j in range(d):
+            stack[j * n : (j + 1) * n, j] += eps
+        p_plus = _predict(model, stack, is_binary).reshape(d, n)
+        return np.asarray(((p_plus - p_base[None, :]) / eps).T, dtype=np.float32)
     grad = np.zeros((n, d), dtype=np.float32)
     # Perturb one column in place + restore from a saved copy, instead of copying the
     # whole (n,d) matrix per column. The probe matrix the model sees is bit-identical

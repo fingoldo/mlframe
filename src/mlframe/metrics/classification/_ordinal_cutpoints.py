@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 __all__ = ["optimal_ordinal_cutpoints", "apply_cutpoints", "CUTPOINT_METRICS"]
 
 CUTPOINT_METRICS = ("qwk", "accuracy")
+_MAX_SCAN_CANDIDATES = 512  # candidate thresholds per cutpoint in the SciPy-free coordinate scan
 
 
 def apply_cutpoints(y_pred: np.ndarray, thresholds: np.ndarray, n_classes: int) -> np.ndarray:
@@ -49,6 +50,10 @@ def _coordinate_scan(y_true, y_pred, thr, n_classes, metric):
     """SciPy-free fallback: sweep each threshold over prediction midpoints, keep improvements, a few passes."""
     cand = np.unique(y_pred)
     mids = (cand[:-1] + cand[1:]) / 2.0 if cand.shape[0] > 1 else cand
+    if mids.shape[0] > _MAX_SCAN_CANDIDATES:
+        # Every candidate costs a full digitize + QWK, times thresholds times passes, so U unique predictions made this O(U * K * 4 * n). An evenly
+        # spaced subset of the sorted midpoints (quantile positions) bounds it; with at most ``_MAX_SCAN_CANDIDATES`` midpoints nothing changes (17-F17).
+        mids = mids[np.linspace(0, mids.shape[0] - 1, _MAX_SCAN_CANDIDATES).round().astype(np.int64)]
     best = _score(y_true, apply_cutpoints(y_pred, thr, n_classes), n_classes, metric)
     for _ in range(4):
         improved = False

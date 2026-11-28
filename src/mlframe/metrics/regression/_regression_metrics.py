@@ -40,7 +40,7 @@ Weighted variants use a separate numba kernel.
 """
 from __future__ import annotations
 
-from typing import Dict, Union
+from typing import Dict, Optional, Union
 
 
 import numpy as np
@@ -59,11 +59,12 @@ _MAX_ERROR_PAR_THRESHOLD: int = env_int("MLFRAME_MAX_ERROR_PAR_THRESHOLD", 50000
 # ---------- 1-D unweighted ----------
 
 
-@numba.njit(**NUMBA_NJIT_PARAMS)
 def _check_weights_length(w: np.ndarray, y_true) -> None:
     """Raise when ``sample_weight`` does not have one entry per row of ``y_true``.
 
     The kernels index the weight array with bounds checking off, so a short weight vector read past its buffer and returned garbage.
+    Plain Python, called from the wrappers: ``length_of`` is not numba-typable, so the njit decorator this function once carried made every weighted
+    call fail to compile.
     """
     n = int(length_of(y_true))
     if w.shape[0] != n:
@@ -496,6 +497,17 @@ def fast_max_error(
     return _aggregate_multioutput(per_out, multioutput)
 
 
+def _r2_column_ss_tot(col_yt: np.ndarray, w: Optional[np.ndarray], wsum: float) -> float:
+    """Total sum of squares of one y_true column for the variance-weighted R2 average (weighted when ``w`` is given; ``wsum`` is ``w.sum()``)."""
+    if w is None:
+        return float(_fast_r2_variance_seq(col_yt))
+    # sample_weight summing to zero (zero-weighted excluded fold rows) would divide by 0 here BEFORE the ss_tots.sum()==0 degenerate guard could observe it.
+    if wsum <= 0.0:
+        return 0.0
+    wmean = float((col_yt * w).sum() / wsum)
+    return float(((col_yt - wmean) ** 2 * w).sum())
+
+
 def fast_r2_score(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -530,6 +542,10 @@ def fast_r2_score(
     M = yt2.shape[1]
     per_out = np.empty(M, dtype=np.float64)
     use_par = n >= _PARALLEL_REDUCTION_THRESHOLD
+    variance_weighted = isinstance(multioutput, str) and multioutput == "variance_weighted"
+    ss_tots = np.empty(M, dtype=np.float64) if variance_weighted else None
+    # sum(w) does not depend on the output column; computed once, not once per column (17-F18).
+    wsum = float(w.sum()) if (variance_weighted and w is not None) else 0.0
     for j in range(M):
         col_yt = np.ascontiguousarray(yt2[:, j])
         col_yp = np.ascontiguousarray(yp2[:, j])
@@ -537,27 +553,12 @@ def fast_r2_score(
             per_out[j] = _fast_r2_score_par(col_yt, col_yp) if use_par else _fast_r2_score_seq(col_yt, col_yp)
         else:
             per_out[j] = _fast_r2_score_weighted_par(col_yt, col_yp, w) if use_par else _fast_r2_score_weighted_seq(col_yt, col_yp, w)
+        if ss_tots is not None:
+            # The variance weights reuse the column copy made above instead of copying every column a second time.
+            ss_tots[j] = _r2_column_ss_tot(col_yt, w, wsum)
 
-    if isinstance(multioutput, str) and multioutput == "variance_weighted":
+    if ss_tots is not None:
         # Per-output variance of y_true (weighted if w supplied).
-        ss_tots = np.empty(M, dtype=np.float64)
-        for j in range(M):
-            col_yt = np.ascontiguousarray(yt2[:, j])
-            if w is None:
-                ss_tots[j] = _fast_r2_variance_seq(col_yt)
-            else:
-                # Weighted variance = SS_tot_w / sum(w). The relative
-                # weights are what matters for the average; using SS_tot
-                # directly preserves the proportions sklearn uses.
-                wsum = float(w.sum())
-                # sample_weight summing to zero (zero-weighted excluded fold
-                # rows) would divide by 0 here BEFORE the ss_tots.sum()==0
-                # degenerate guard could observe it.
-                if wsum <= 0.0:
-                    ss_tots[j] = 0.0
-                    continue
-                wmean = float((col_yt * w).sum() / wsum)
-                ss_tots[j] = float(((col_yt - wmean) ** 2 * w).sum())
         if ss_tots.sum() == 0.0:
             # Degenerate: every output is constant, so there is no weight to average with. Each output's own score already follows
             # sklearn (1.0 for a zero residual, 0.0 otherwise); the earlier constant 0.0 scored a perfect fit as 0.

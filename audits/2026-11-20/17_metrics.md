@@ -63,17 +63,12 @@ Reading coverage: every manifest file was read in full (all of `calibration/`, `
 - 17-F13: FIXED. the quantile calibration branch refuses non-integer labels instead of truncating them; tests/metrics/test_cluster17_kappa_and_label_guard.py
 - 17-F16: FIXED. single-class perfect agreement gives kappa 1, as sklearn; tests/metrics/test_cluster17_kappa_and_label_guard.py
 - 17-F15: FIXED. a failed title-token metric is logged at WARNING, not DEBUG; no separate test
-- 17-F17: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
-- 17-F18: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
-- 17-F19: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
-- 17-F20: DEFERRED. not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report)
 - 17-F23: FIXED. Module docstring of _classification_extras_blocks.py rewritten to describe its three block kernels and point to _classification_extras.py for the public metrics. Test tests/metrics/test_cluster17_blocks_docstring.py.
 - 17-F24: FIXED. top_k_accuracy emits a UserWarning when k >= K, as its docstring promises; the NaN return is unchanged. Test tests/metrics/test_cluster17_topk_warns.py.
 - 17-F31: FIXED. Deleted the no-op placeholder expression in the Welford bench. Test tests/metrics/test_cluster17_no_placeholder_expression.py (source pin).
 - 17-F30: FIXED. KS bench restores the production gate in a finally clause, so an exception inside a timed run cannot leave it disabled. Test tests/metrics/test_cluster17_ks_bench_restores_gate.py (source pin).
 - 17-F29: FIXED. CRPS bench verifies the shipped function with one computation and one comparison. Test tests/metrics/test_cluster17_crps_bench_single_check.py (source pin).
 - 17-F28: FIXED. Adjusted-R2 bench helpers delegate to fast_r2_score and fast_adjusted_r2_score; they agree on a sample. Test tests/metrics/test_cluster17_adjr2_bench_uses_shipped.py.
-- 17-F27: DEFERRED. Bench kernel copies with fastmath=True are the A/B variants under test; replacing them with production kernels removes the comparison. Which arm the bit-identical claim describes, and whether the R2=-inf discrepancy is a bench or production bug, needs an owner decision. Not changed.
 - 17-F26: WON'T FIX. Welford kernels are exercised by tests/metrics/regression/test_fused_regression_metrics_block.py and classified as deliberate alternatives in the shared uncalled-functions allowlist (tests/test_meta/test_shared_uncalled_functions.py). The classification the finding asks for already exists. Not changed.
 - 17-F25: DEFERRED. Per-class ICE path repeats binning and calibration MAE/STD across three modules. A dedup refactor across the calibration and report modules; not started in this pass. Not changed.
 
@@ -90,3 +85,13 @@ Reading coverage: every manifest file was read in full (all of `calibration/`, `
 - 17-F12: FIXED. Quantile binning kernel locates each pocket by binary search (O(log nbins)); NaN scores stay in pocket 0 as before. Regression test compares with the old linear scan, including ties and edge values.
 
 - 17-F22: FIXED. fast_max_error defaults to uniform_average, fast_calibration_metrics to nbins=10 (matching fast_calibration_report); test_cluster17_metric_defaults_aligned.
+
+- 17-F18: FIXED. Variance-weighted R2 reuses the per-column copy for the ss_tot pass and computes sum(w) once (the per-column contiguous copy itself is needed by the kernels and is one pass total). Also found and fixed: _check_weights_length was njit-decorated but calls the non-numba length_of, so every weighted regression-metric call failed to compile; now plain Python. test_cluster17_kernel_coverage_gaps.
+
+- 17-F17: FIXED. The SciPy-free ordinal cutpoint scan evaluates at most 512 evenly spaced midpoints per threshold (unchanged below that). test_cluster17_ordinal_scan_candidates_are_bounded.
+
+- 17-F19: FIXED. Tests for the parallel RMSLE kernel, the quantile-binning kernel and the general-power Tweedie kernel. test_cluster17_kernel_coverage_gaps.
+
+- 17-F20: PARTIAL. Tests added for matthews_corrcoef_multiclass, brier_skill_score_from_brier and fast_logcosh_loss; the weighted-ICE unit-weight parity test is not written (the kernel takes 17 arguments and needs its own fixture).
+
+- 17-F27: PARTIAL. Production fast_r2_score verified against sklearn for a constant y_true (0.0 imperfect, 1.0 perfect): the -inf is only in the bench copy fused_regression_metrics. The bench copies with fastmath=True stay as the A/B arms under test.

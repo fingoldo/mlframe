@@ -87,8 +87,6 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F3: DEFERRED. get_postcalibrators imports netcal, pycalib, ml_insights, betacal and venn_abers unguarded, and the calibrator list references their attributes directly. Making each optional means restructuring the whole zoo list per library. The change is mechanical but touches every entry; deferred to a dedicated pass with a test that blocks each module in turn.
 - 22-F13: FIXED. the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass
 - 22-F20: FIXED. the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test
-- 22-F17: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
-- 22-F26: DEFERRED. not changed in this pass; needs individual judgment or a behaviour decision (see cluster report)
 - 22-F3: DEFERRED. Still deferred: get_postcalibrators imports six optional libraries unguarded and builds each calibrator inline. Guarding each entry means restructuring the zoo list per library; deferred to a dedicated pass with a test that blocks each module in turn.
 - 22-F3: FIXED. Each optional calibration library is imported separately; an absent one skips only its candidates (calibration/post.py get_postcalibrators); tests/calibration/test_cluster22_missing_calibrator_library_skipped.py
 - 22-F3: FIXED. Each optional calibration library is imported on its own; an absent one skips only its candidates (calibration/post.py get_postcalibrators); tests/calibration/test_cluster22_missing_calibrator_library_skipped.py
@@ -142,3 +140,7 @@ Coverage: every listed file was read in full with the Read tool (no file exceeds
 - 22-F18: FIXED. as_mask=True keyword on every set-similarity coefficient reads integer 0/1 arrays as masks; default stays set semantics; documented. test_cluster22_set_similarity_as_mask.
 
 - 22-F30: FIXED. calibration lazy __getattr__ resolves names from a source-parsed owner map: unknown names import nothing, known ones import only their owning module. test_cluster22_lazy_getattr_does_not_import_for_unknown_names.
+
+- 22-F17: FIXED. The multi-constraint zero-sum sweeps factorise each grouping once and use integer-code sums instead of a DataFrame groupby per constraint, sweep and residual check. test_cluster22_group_zero_sum_factorised_matches_pandas.
+
+- 22-F26: DOCUMENTED. The counting-sort family and array min/max kernels are kept: tests exercise them and the uncalled-function gate classifies them as test-referenced utilities; not deleted.

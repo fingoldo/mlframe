@@ -363,13 +363,14 @@ def _cpi_leaf_permutation_score(model, y, X_arr, X_perm, j, leaves, n_repeats, r
     """Permute column ``j`` within each leaf ``n_repeats`` times and return the mean score loss (NaN when every repeat fails)."""
     score_losses = []
     orig_col = X_arr[:, j].copy()
-    unique_leaves = np.unique(leaves)
+    # Group the rows by leaf ONCE per feature (one stable argsort), not once per repeat and leaf with ``np.where(leaves == leaf)``, which scanned all n rows
+    # per leaf per repeat. Groups come out in ascending leaf order with ascending row positions, exactly what the old loop visited, so the rng draws line up (15-F10).
+    order = np.argsort(leaves, kind="stable")
+    boundaries = np.flatnonzero(np.diff(leaves[order])) + 1
+    leaf_groups = [g for g in np.split(order, boundaries) if g.size > 1]
     try:
         for _ in range(n_repeats):
-            for leaf_id in unique_leaves:
-                in_leaf = np.where(leaves == leaf_id)[0]
-                if in_leaf.size <= 1:
-                    continue
+            for in_leaf in leaf_groups:
                 shuffled_positions = rng.permutation(in_leaf)
                 X_perm[in_leaf, j] = orig_col[shuffled_positions]
             X_for_score = pd.DataFrame(X_perm, columns=cols, index=idx) if is_dataframe else X_perm

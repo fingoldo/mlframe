@@ -74,6 +74,9 @@ def _member_fingerprint(p) -> tuple:
     stale gate decision for content that has changed -- silently, which is the exact failure the freeze existed
     to prevent, reintroduced in a form no exception can catch. The full hash is O(n), the same order as the
     gate computation it guards, and reads the existing buffer without copying it when the array is contiguous.
+
+    Measured (18-F12, 5 members x 3M float32 rows = 60 MB, one machine): the fingerprint costs 0.15 s against 0.67 s for a cold gate computation that
+    includes it, so a cache hit saves about 78 percent of the work and a miss pays about 22 percent more; the full hash stays.
     """
     if not isinstance(p, np.ndarray):
         return ("obj", id(p))

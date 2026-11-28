@@ -31,6 +31,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from ._smote_kernels_shared import smote_interpolate_from_neighbour_table
 from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, class_or_quantile_slice, pos_loggap_columns
 
 logger = logging.getLogger(__name__)
@@ -52,19 +53,7 @@ def _pure_pos_smote_synthesize(X_minority: np.ndarray, neg_centroid: np.ndarray,
     _dists, ids = nn.kneighbors(X_minority)
     rng = np.random.default_rng(seed)
     src_indices = rng.choice(n_min, size=n_synthetic, p=weights)
-    out = np.zeros((n_synthetic, X_minority.shape[1]), dtype=np.float32)
-    for i in range(n_synthetic):
-        src_idx = src_indices[i]
-        # Exclude self by index, not by column 0: with duplicate points another copy can sort first (audit 09-F40).
-        _row = ids[src_idx]
-        candidates = _row[_row != src_idx][: k_used - 1]
-        if candidates.size == 0:
-            out[i] = X_minority[src_idx]
-            continue
-        nbr_idx = candidates[rng.integers(0, candidates.size)]
-        alpha = rng.random()
-        out[i] = X_minority[src_idx] + alpha * (X_minority[nbr_idx] - X_minority[src_idx])
-    return out
+    return smote_interpolate_from_neighbour_table(X_minority, ids, k_used, n_synthetic, rng, src=src_indices)
 
 
 def compute_pure_pos_smote_features(

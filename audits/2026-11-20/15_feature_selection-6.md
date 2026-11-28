@@ -52,8 +52,6 @@ So the audit is incomplete. Roughly 60% of the manifest lines were not read, so 
 - 15-F2: RESOLVED. The dispatcher completes ragged per-run tables with fi_missing_policy before the tree and linear aggregators run, as the legacy path does. Test tests/feature_selection/test_dispatched_agg_imputes_ragged_runs.py; 3 existing importance-agg tests pass. Commit below.
 - 15-F8: FIXED. a callable prescreen's result is filtered to the candidate names the search offered; no direct test (the prescreen path needs a full RFECV fixture)
 - 15-F9: FIXED. the importance callable is called with target only when its signature accepts it, so a TypeError inside it runs once; tests/feature_selection/test_cluster15_importance_getter_and_prescreen.py
-- 15-F10: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
-- 15-F11: DEFERRED. not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report)
 - 15-F17: FIXED. All-NaN column gets mean 0 and std 1 in the knockoff standardisation, so its knockoff is finite. Test test_cluster15_knockoff_all_nan_column.py.
 - 15-F12: FIXED. Deleted the unused nested _is_discrete (superseded by _is_discrete_v2, which is kept and used). Tests tests/feature_selection/test_cluster15_unused_is_discrete_removed.py plus tests/feature_selection/contracts/test_importance.py.
 - 15-F14: FIXED. _scaled_coef logs a throttled WARNING when std scaling is skipped for non-numeric data (was a silent pass); coefficients stay unscaled. Test tests/feature_selection/test_cluster15_scaled_coef_warns.py.
@@ -72,3 +70,7 @@ So the audit is incomplete. Roughly 60% of the manifest lines were not read, so 
 - 15-F7: FIXED. Stability selection passes the bootstrap's fitted rows as train_data, so the coefficient scale comes from the rows the model was fit on rather than its out-of-bag rows. Test tests/feature_selection/test_cluster15_coef_scale_uses_fit_rows.py (2 passed).
 
 - 15-F6: FIXED. Stability selection counts failed estimator fits and importance computations and logs one WARNING when at least half failed (with an explicit note when none succeeded), regardless of verbose. Test tests/feature_selection/test_cluster15_stability_failed_fits_warn.py.
+
+- 15-F10: FIXED. The conditional-permutation leaf groups are built once per feature by one stable argsort, not by np.where per leaf per repeat; same rng draws, identical result. test_cluster15_leaf_permutation_groups_once.
+
+- 15-F11: WON'T FIX. Not a defect on the pinned pandas: pd.DataFrame(ndarray) shares memory (measured 0.5 ms for 50000 x 300 on pandas 2.3.3, shares_memory True), so no per-repeat matrix copy happens.

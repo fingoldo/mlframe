@@ -34,6 +34,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
+from ._smote_kernels_shared import smote_interpolate_from_neighbour_table
 from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, class_or_quantile_slice, pos_loggap_columns, far_pos_loggap_columns
 
 logger = logging.getLogger(__name__)
@@ -54,18 +55,7 @@ def _smote_synthesize(X_minority: np.ndarray, n_synthetic: int, k_neighbors: int
     nn = NearestNeighbors(n_neighbors=k_used).fit(X_minority)
     _dists, ids = nn.kneighbors(X_minority)  # (n_min, k_used) — self is at index 0
     rng = np.random.default_rng(seed)
-    out = np.zeros((n_synthetic, X_minority.shape[1]), dtype=np.float32)
-    for i in range(n_synthetic):
-        src_idx = rng.integers(0, n_min)
-        _row = ids[src_idx]  # exclude self by index, not by column 0 (audit 09-F40)
-        neighbor_candidates = _row[_row != src_idx][: k_used - 1]
-        if neighbor_candidates.size == 0:
-            out[i] = X_minority[src_idx]
-            continue
-        nbr_idx = neighbor_candidates[rng.integers(0, neighbor_candidates.size)]
-        alpha = rng.random()
-        out[i] = X_minority[src_idx] + alpha * (X_minority[nbr_idx] - X_minority[src_idx])
-    return out.astype(np.float32)
+    return smote_interpolate_from_neighbour_table(X_minority, ids, k_used, n_synthetic, rng)
 
 
 def compute_smote_distance_features(

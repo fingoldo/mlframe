@@ -124,3 +124,29 @@ def smote_synthesize_vectorized(X: np.ndarray, n_syn: int, k_neighbors: int, see
         alpha[i] = rng.random()
     x_src = X[src]
     return np.asarray((x_src + alpha[:, None] * (X[nbr] - x_src)).astype(np.float32))
+
+
+def smote_interpolate_from_neighbour_table(X_minority: np.ndarray, ids: np.ndarray, k_used: int, n_synthetic: int, rng: np.random.Generator, src: np.ndarray | None = None) -> np.ndarray:
+    """Draw-then-vectorise SMOTE interpolation over a precomputed neighbour table; self is excluded by index, not by column (audit 09-F40).
+
+    ``ids`` is the ``(n_min, k_used)`` kNN table of ``X_minority``. Per synthetic row the generator is consumed in the order the former row loops did:
+    the source row (drawn here when ``src`` is None, else given), then the neighbour pick, then alpha, so the output is bit-identical to them for float32
+    input while the gather and the convex interpolation run as one vectorised pass (09-F28).
+    """
+    n_min = X_minority.shape[0]
+    nbr = np.empty(n_synthetic, dtype=np.int64)
+    alpha_dtype = X_minority.dtype if X_minority.dtype.kind == "f" else np.float64
+    alpha = np.zeros(n_synthetic, dtype=alpha_dtype)
+    src_out = np.empty(n_synthetic, dtype=np.int64)
+    for i in range(n_synthetic):
+        s = int(rng.integers(0, n_min)) if src is None else int(src[i])
+        src_out[i] = s
+        row = ids[s]
+        candidates = row[row != s][: k_used - 1]
+        if candidates.size == 0:
+            nbr[i] = s
+            continue
+        nbr[i] = candidates[rng.integers(0, candidates.size)]
+        alpha[i] = rng.random()
+    x_src = X_minority[src_out]
+    return np.asarray((x_src + alpha[:, None] * (X_minority[nbr] - x_src)).astype(np.float32))

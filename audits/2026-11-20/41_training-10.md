@@ -98,7 +98,6 @@ None. All 63 manifest files were read in full. Grep was used for callers and def
 - 41-F24: FIXED. NaN gate decides membership on validation scores only; NaN test scores are floored at scoring time. Test test_cluster41_nan_gate_is_val_only.py.
 - 41-F21: FIXED. String columns absent from the XGBoost category map are dropped with a WARNING instead of getting a per-frame Enum. Test test_cluster41_xgb_unmapped_string_column_dropped.py.
 - 41-F17: FIXED. Confusion-derived metrics (accuracy, MCC, F-beta, specificity, FPR/FNR, G-mean) use the tuned threshold when one exists, the same as precision/recall/F1. Test test_cluster41_confusion_block_uses_tuned_threshold.py.
-- 41-F26: DEFERRED. Dead code per the uncalled-function rule: rrf_fuse/borda_fuse duplicate ranker_suite ensemble_ranker_scores, _binned_mi and _group_features_mi_njit have no src caller. Wiring them in or deleting them is an owner call (wire vs remove the duplicate); deferred to avoid deleting code the tests exercise.
 - 41-F10: FIXED. Single-target polars granularity picker receives (min, max), as the multi path does. Test test_cluster41_single_picker_gets_span.py.
 - 41-F29: FIXED. Removed the never-read boundaries accumulator from find_change_points_pelt; the returned inner change-point pairs are unchanged. Test tests/training/test_cluster41_changepoint_no_dead_boundaries.py.
 - 41-F43: FIXED. Predict kwargs are dropped only when the regressor's predict signature cannot accept them (_predict_accepts); a TypeError raised inside a regressor that accepts them now propagates instead of being retried without kwargs. Test tests/training/test_cluster41_predict_kwargs_by_signature.py; 45 related tests pass.
@@ -125,3 +124,5 @@ None. All 63 manifest files were read in full. Grep was used for callers and def
 - 41-F38: FIXED. Ranker categorical vocabulary built from train and val only; test-only levels map to -1. test_cluster41_ranker_vocab_excludes_test.
 
 - 41-F35: FIXED. interaction_strength keeps its 20 s ceiling but never exceeds the block's remaining budget (DiagnosticsBudget.cap_for). test_cluster41_interaction_cap_follows_budget.
+
+- 41-F26: DOCUMENTED. rrf_fuse, borda_fuse, _binned_mi and _group_features_mi_njit are kept and classified: tests exercise them (project rule: wire in or classify, not delete).

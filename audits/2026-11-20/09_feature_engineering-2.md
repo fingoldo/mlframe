@@ -89,9 +89,6 @@ Scope: the 72 files in `audits/2026-11-20/manifests/09_feature_engineering-2.txt
 - 09-F10: RESOLVED. Top-k proximity selects the largest k directly instead of partitioning a negated copy of the dense block. The dense block itself stays: the measured note in the code shows every pair shares a leaf. Test tests/feature_engineering/transformer/test_rf_topk_matches_full_sort.py; existing proximity tests pass. Commit below.
 - 09-F24: FIXED. binary local-lift labels are normalised to {0,1} for both the global mean and the neighbour sums; tests/feature_engineering/transformer/test_cluster09_edges.py covers the KMeans path only, lift path covered by existing lift tests
 - 09-F26: FIXED. anchor count is capped by the row count, so a one-row fold yields one anchor; tests/feature_engineering/transformer/test_cluster09_edges.py
-- 09-F28: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
-- 09-F29: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
-- 09-F30: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F31: DEFERRED. not changed in this pass; needs a design or performance decision (see cluster report)
 - 09-F1: RESOLVED. Random directions are unscaled; the d^{-1/4} scale moved to the inputs so the kernel is exp(q.k/sqrt(d)) as documented. Tests tests/feature_engineering/transformer/test_performer_kernel_identity.py; reference in test_performer_attention_key_side_stabilization.py updated.
 - 09-F42: FIXED. Rebrand now replaces only the leading attn_ prefix; regression test tests/feature_engineering/transformer/test_cluster09_row_attention_prefix_only.py.
@@ -143,3 +140,9 @@ Scope: the 72 files in `audits/2026-11-20/manifests/09_feature_engineering-2.txt
 - 09-F34: RESOLVED. The stub parameters already fail fast: n_bits (ib_baseline_codes) and top_k_pairs (mdl_binning_pairwise) raise NotImplementedError on a non-default value, so no silent no-op remains; Literals are not widened.
 
 - 09-F43: DOCUMENTED. In-sample 0.8 quantile threshold kept deliberately and commented (out-of-fold would cost a fit per fold and change the kept virtuals).
+
+- 09-F29: FIXED. local_linear processes anchors in blocks of a 128 MB neighbour-tensor budget; output identical to one block. test_cluster09_local_linear_blocks_match_one_pass.
+
+- 09-F30: FIXED. The finite-difference gradient stacks the d perturbed copies into one predict (bounded by _MAX_STACK_ELEMS), as fisher_weighted_residual does; equal to the per-column loop. test_cluster09_gradient_direction_batched_matches_loop.
+
+- 09-F28: PARTIAL. pure_pos_smote and smote_distance are draw-then-vectorise through a shared helper, bit-identical to their row loops (test_cluster09_smote_loops_vectorised_bit_identical); local_classifier, persistence_diagram and local_curvature loops remain.

@@ -307,9 +307,6 @@
 | 08-F11 | FIXED | the silent temperature override now warns (RuntimeWarning); no separate test |
 | 09-F24 | FIXED | binary local-lift labels are normalised to {0,1} for both the global mean and the neighbour sums; tests/feature_engineering/transformer/test_cluster09_edges.py covers the KMeans path only, lift path covered by existing lift tests |
 | 09-F26 | FIXED | anchor count is capped by the row count, so a one-row fold yields one anchor; tests/feature_engineering/transformer/test_cluster09_edges.py |
-| 09-F28 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
-| 09-F29 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
-| 09-F30 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 09-F31 | DEFERRED | not changed in this pass; needs a design or performance decision (see cluster report) |
 | 12-F3 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
 | 12-F4 | DEFERRED | P2 located under _benchmarks (benchmark or research harness); deferred under the benchmark rule |
@@ -380,8 +377,6 @@
 | 14-F5 | FIXED | note: tests/feature_selection/shap_proxied/test_biz_val_shap_proxied_core_refine.py::test_biz_val_auto_matches_core_on_non_saturated_bed fails on the exact pre-change file too (pre-existing, verified) |
 | 15-F8 | FIXED | a callable prescreen's result is filtered to the candidate names the search offered; no direct test (the prescreen path needs a full RFECV fixture) |
 | 15-F9 | FIXED | the importance callable is called with target only when its signature accepts it, so a TypeError inside it runs once; tests/feature_selection/test_cluster15_importance_getter_and_prescreen.py |
-| 15-F10 | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
-| 15-F11 | DEFERRED | not changed in this pass; checkpoint-state or performance refactor needing a design decision (see cluster report) |
 | 16-F1 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 16-F2 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 16-F3 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
@@ -396,12 +391,7 @@
 | 17-F13 | FIXED | the quantile calibration branch refuses non-integer labels instead of truncating them; tests/metrics/test_cluster17_kappa_and_label_guard.py |
 | 17-F16 | FIXED | single-class perfect agreement gives kappa 1, as sklearn; tests/metrics/test_cluster17_kappa_and_label_guard.py |
 | 17-F15 | FIXED | a failed title-token metric is logged at WARNING, not DEBUG; no separate test |
-| 17-F17 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
-| 17-F18 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
-| 17-F19 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
-| 17-F20 | DEFERRED | not changed in this pass; clamping semantics, performance, or test-coverage work needing a decision (see cluster report) |
 | 18-F9 | FIXED | gate weighted means return NaN when every weight is zero instead of raising; tests/models/test_cluster18_zero_weight_gate.py; existing quality-gate and ensembling tests: 231 passed |
-| 18-F12 | DEFERRED | not changed in this pass; needs a targeted design or performance decision (see cluster report) |
 | 19-F1 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 19-F2 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
 | 19-F3 | DEFERRED | P2/P3 located under _benchmarks (benchmark harness); deferred under the benchmark rule |
@@ -424,8 +414,6 @@
 | 21-F14 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 22-F13 | FIXED | the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass |
 | 22-F20 | FIXED | the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test |
-| 22-F17 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
-| 22-F26 | DEFERRED | not changed in this pass; needs individual judgment or a behaviour decision (see cluster report) |
 | 23-F5 | FIXED | the leakage p-value is computed whether or not a tolerance decided the verdict; tests/evaluation/test_cluster23_leak_pvalue_and_event_days.py |
 | 23-F8 | FIXED | event distances use fractional days (total seconds / 86400) instead of the floored .dt.days; same test file; 95 related tests pass |
 | 23-F7 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
@@ -830,7 +818,6 @@
 | 41-F24 | FIXED | NaN gate decides membership on validation scores only; NaN test scores are floored at scoring time. Test test_cluster41_nan_gate_is_val_only.py. |
 | 41-F21 | FIXED | String columns absent from the XGBoost category map are dropped with a WARNING instead of getting a per-frame Enum. Test test_cluster41_xgb_unmapped_string_column_dropped.py. |
 | 41-F17 | FIXED | Confusion-derived metrics (accuracy, MCC, F-beta, specificity, FPR/FNR, G-mean) use the tuned threshold when one exists, the same as precision/recall/F1. Test test_cluster41_confusion_block_uses_tuned_threshold.py. |
-| 41-F26 | DEFERRED | Dead code per the uncalled-function rule: rrf_fuse/borda_fuse duplicate ranker_suite ensemble_ranker_scores, _binned_mi and _group_features_mi_njit have no src caller. Wiring them in or deleting them is an owner call (wire vs remove the duplicate); deferred to avoid deleting code the tests exercise. |
 | 39-F7 | FIXED | Categorical cast failures in predict_from_models log at WARNING with the column name. |
 | 39-F8 | FIXED | Volatility-router val-predict failure logs at WARNING with traceback. Test test_cluster39_logging_levels_visible.py. |
 | 39-F10 | FIXED | allowed_targets typo warning is emitted at any verbosity. Test test_cluster39_logging_levels_visible.py. |
@@ -1026,14 +1013,12 @@
 | 09-F38 | FIXED | Silverman bandwidth uses the multivariate rule (4/(d+2))^(1/(d+4)) n^(-1/(d+4)); equals the 1-D rule at d=1, changes d>1 outputs. Tests tests/feature_engineering/transformer/test_cluster09_silverman_multivariate.py; 8 existing density-ratio tests pass (397 skipped by gates). |
 | 09-F37 | PARTIAL | Removed the stale comment about the removed _GPU_AUTO_CACHE in random_features.py. Not changed: the unreachable padding branches in denoising_autoencoder, hard_row_attention and related modules named in the finding. Test tests/feature_engineering/transformer/test_cluster09_no_stale_cache_comment.py (source pin). |
 | 40-F33 | WON'T FIX | Polars cannot represent N rows with zero columns (verified: select([]) has height 0), so the (N, 0) contract is unattainable for polars frames. Callers that need the row count must read it from the input. Not changed. |
-| 40-F34 | DEFERRED | Bench keeps its own _binned_mi variants (addat, bincount) for A/B timing, not a copy of production. Both agree with production _ranker_fs._binned_mi, but on a strongly dependent sample all three return 0.0, which needs a review of the expected y/x contract before a sanity test can be written. Not changed. |
 | 17-F23 | FIXED | Module docstring of _classification_extras_blocks.py rewritten to describe its three block kernels and point to _classification_extras.py for the public metrics. Test tests/metrics/test_cluster17_blocks_docstring.py. |
 | 17-F24 | FIXED | top_k_accuracy emits a UserWarning when k >= K, as its docstring promises; the NaN return is unchanged. Test tests/metrics/test_cluster17_topk_warns.py. |
 | 17-F31 | FIXED | Deleted the no-op placeholder expression in the Welford bench. Test tests/metrics/test_cluster17_no_placeholder_expression.py (source pin). |
 | 17-F30 | FIXED | KS bench restores the production gate in a finally clause, so an exception inside a timed run cannot leave it disabled. Test tests/metrics/test_cluster17_ks_bench_restores_gate.py (source pin). |
 | 17-F29 | FIXED | CRPS bench verifies the shipped function with one computation and one comparison. Test tests/metrics/test_cluster17_crps_bench_single_check.py (source pin). |
 | 17-F28 | FIXED | Adjusted-R2 bench helpers delegate to fast_r2_score and fast_adjusted_r2_score; they agree on a sample. Test tests/metrics/test_cluster17_adjr2_bench_uses_shipped.py. |
-| 17-F27 | DEFERRED | Bench kernel copies with fastmath=True are the A/B variants under test; replacing them with production kernels removes the comparison. Which arm the bit-identical claim describes, and whether the R2=-inf discrepancy is a bench or production bug, needs an owner decision. Not changed. |
 | 17-F26 | WON'T FIX | Welford kernels are exercised by tests/metrics/regression/test_fused_regression_metrics_block.py and classified as deliberate alternatives in the shared uncalled-functions allowlist (tests/test_meta/test_shared_uncalled_functions.py). The classification the finding asks for already exists. Not changed. |
 | 17-F25 | DEFERRED | Per-class ICE path repeats binning and calibration MAE/STD across three modules. A dedup refactor across the calibration and report modules; not started in this pass. Not changed. |
 | 21-F18 | FIXED | Perfect model gets a 'deferral cannot reduce error' verdict instead of 'insufficient data' (new branch for err_at_100 == 0). Test tests/reporting/test_cluster21_perfect_model_verdict.py drives build_risk_coverage_spec with a perfect model that has varying confidence. |
@@ -1697,3 +1682,33 @@
 | 09-F43 | DOCUMENTED | In-sample 0.8 quantile threshold kept deliberately and commented (out-of-fold would cost a fit per fold and change the kept virtuals). |
 
 | 34-F17 | DOCUMENTED | The per-permutation MI loop is kept: the batched kernel draws a block-shuffled null, a different statistic; needs a measured equivalence first. |
+
+| 17-F18 | FIXED | Variance-weighted R2 reuses the per-column copy for the ss_tot pass and computes sum(w) once (the per-column contiguous copy itself is needed by the kernels and is one pass total). Also found and fixed: _check_weights_length was njit-decorated but calls the non-numba length_of, so every weighted regression-metric call failed to compile; now plain Python. test_cluster17_kernel_coverage_gaps. |
+
+| 17-F17 | FIXED | The SciPy-free ordinal cutpoint scan evaluates at most 512 evenly spaced midpoints per threshold (unchanged below that). test_cluster17_ordinal_scan_candidates_are_bounded. |
+
+| 17-F19 | FIXED | Tests for the parallel RMSLE kernel, the quantile-binning kernel and the general-power Tweedie kernel. test_cluster17_kernel_coverage_gaps. |
+
+| 17-F20 | PARTIAL | Tests added for matthews_corrcoef_multiclass, brier_skill_score_from_brier and fast_logcosh_loss; the weighted-ICE unit-weight parity test is not written (the kernel takes 17 arguments and needs its own fixture). |
+
+| 17-F27 | PARTIAL | Production fast_r2_score verified against sklearn for a constant y_true (0.0 imperfect, 1.0 perfect): the -inf is only in the bench copy fused_regression_metrics. The bench copies with fastmath=True stay as the A/B arms under test. |
+
+| 15-F10 | FIXED | The conditional-permutation leaf groups are built once per feature by one stable argsort, not by np.where per leaf per repeat; same rng draws, identical result. test_cluster15_leaf_permutation_groups_once. |
+
+| 15-F11 | WON'T FIX | Not a defect on the pinned pandas: pd.DataFrame(ndarray) shares memory (measured 0.5 ms for 50000 x 300 on pandas 2.3.3, shares_memory True), so no per-repeat matrix copy happens. |
+
+| 09-F29 | FIXED | local_linear processes anchors in blocks of a 128 MB neighbour-tensor budget; output identical to one block. test_cluster09_local_linear_blocks_match_one_pass. |
+
+| 09-F30 | FIXED | The finite-difference gradient stacks the d perturbed copies into one predict (bounded by _MAX_STACK_ELEMS), as fisher_weighted_residual does; equal to the per-column loop. test_cluster09_gradient_direction_batched_matches_loop. |
+
+| 09-F28 | PARTIAL | pure_pos_smote and smote_distance are draw-then-vectorise through a shared helper, bit-identical to their row loops (test_cluster09_smote_loops_vectorised_bit_identical); local_classifier, persistence_diagram and local_curvature loops remain. |
+
+| 22-F17 | FIXED | The multi-constraint zero-sum sweeps factorise each grouping once and use integer-code sums instead of a DataFrame groupby per constraint, sweep and residual check. test_cluster22_group_zero_sum_factorised_matches_pandas. |
+
+| 18-F12 | DOCUMENTED | Measured: the full-buffer fingerprint costs 0.15 s against 0.67 s for a cold gate computation (5 x 3M float32), so a hit saves about 78 percent and a miss pays about 22 percent; the deliberate full hash stays, with the numbers in its docstring. |
+
+| 40-F34 | FIXED | Sanity test of the production ranker _binned_mi (dependent, independent, constant and too-short inputs). test_cluster40_ranker_binned_mi_sanity. |
+
+| 22-F26 | DOCUMENTED | The counting-sort family and array min/max kernels are kept: tests exercise them and the uncalled-function gate classifies them as test-referenced utilities; not deleted. |
+
+| 41-F26 | DOCUMENTED | rrf_fuse, borda_fuse, _binned_mi and _group_features_mi_njit are kept and classified: tests exercise them (project rule: wire in or classify, not delete). |

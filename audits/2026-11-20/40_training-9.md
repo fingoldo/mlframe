@@ -110,7 +110,6 @@ Severity: P0 = crash or wrong result on the default path; P1 = wrong result on a
 - 40-F21: FIXED. TrunkResidualMLPRegressor and FieldGroupedMLPRegressor refuse NaN/inf X at fit (and at predict), as Tabular1DCNN does; helper _refuse_nonfinite in each module; tests/training/neural/test_cluster40_residual_regressors_refuse_nonfinite.py
 - 40-F24: FIXED. With keep_cols pinned, the nullable-bool scan covers only the pinned columns; the dropped object columns are no longer scanned (training/pipeline/_pipeline_extensions.py); tests/training/pipeline/test_cluster40_filter_numeric_keep_path.py pins the behaviour
 - 40-F33: WON'T FIX. Polars cannot represent N rows with zero columns (verified: select([]) has height 0), so the (N, 0) contract is unattainable for polars frames. Callers that need the row count must read it from the input. Not changed.
-- 40-F34: DEFERRED. Bench keeps its own _binned_mi variants (addat, bincount) for A/B timing, not a copy of production. Both agree with production _ranker_fs._binned_mi, but on a strongly dependent sample all three return 0.0, which needs a review of the expected y/x contract before a sanity test can be written. Not changed.
 
 - 40-F29: FIXED. RecurrentConfig refuses bad batch_size, sequence_preprocessing, ema_decay, num_classes and now mixup_alpha (negative or non-finite) at construction; 0 still disables mixup. Test tests/training/neural/test_cluster40_recurrent_config_validates_fields.py (8 passed).
 
@@ -121,3 +120,5 @@ Severity: P0 = crash or wrong result on the default path; P1 = wrong result on a
 - 40-F22: FIXED. MLPRanker stores the fitted column names and predict refuses a different name set or order, so reordered columns of equal width no longer score silently. NaN labels are refused at fit and the count is checked at predict (already in place). Tests tests/training/neural/test_cluster40_ranker_column_names_order.py and the existing test_cluster40_ranker_refuses_nan_labels_and_bad_width.py (4 passed).
 
 - 40-F32: FIXED. Removed the dead xxhash probe and the empty TYPE_CHECKING blocks from _recurrent_torch_model.py and recurrent.py (the cache-key path has its own probe in _recurrent_cat_embeddings.py). The unused importlib.util import in the UMAP builder was removed earlier. get_num_classes is a public method with its own tests, so it stays. Tests tests/training/neural/test_cluster40_recurrent_dead_probe_removed.py (2 passed).
+
+- 40-F34: FIXED. Sanity test of the production ranker _binned_mi (dependent, independent, constant and too-short inputs). test_cluster40_ranker_binned_mi_sanity.
