@@ -68,11 +68,11 @@ def _run_ablation(
     # test_ablation_shared_dataset_rejected.py.
     def _one_drop(rank: int, idx: int, feat: str, kept: list[str], cat_kept: list[str]):
         """Refit a quick model with ``feat`` dropped (``kept`` columns only) and score the metric delta for that feature's ablation entry."""
-        X_drop = X.loc[:, kept]
         try:
             metric_drop, _ = self._fit_quick_and_score(
-                X_drop, y, kept, cat_kept, target_type, metric_name,
+                X, y, kept, cat_kept, target_type, metric_name,
                 inner_n_jobs=1,  # outer pool owns the cores
+                columns=kept,  # one iloc per split side; no per-drop copy of the whole frame
             )
         except (ValueError, RuntimeError, TypeError, IndexError) as exc:
             # LightGBM ablation: degenerate-input ValueError, dtype TypeError,

@@ -537,7 +537,11 @@ def _predict_probs_if_missing(probs, model, df):
             # don't retry into the same dispatcher miss.
             probs = np.asarray(_predict_with_fallback(model, df, method="predict_proba"))
         except (AttributeError, TypeError, NotImplementedError):
-            logger.warning("predict_proba not available for %s, using predict() instead", type(model).__name__, exc_info=True)
+            logger.warning(
+                "predict_proba not available for %s, using predict() instead: the 'probabilities' below are hard 0/1 class indicators, so ROC AUC, PR AUC, Brier and the "
+                "calibration figures describe LABELS (ROC AUC then equals balanced accuracy), not scores, and must not be compared with a scored model's (41-F14)",
+                type(model).__name__, exc_info=True,
+            )
             preds_fallback = np.asarray(_predict_with_fallback(model, df, method="predict"))
 
             if model is not None and hasattr(model, "classes_"):

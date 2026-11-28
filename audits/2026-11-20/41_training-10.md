@@ -83,7 +83,6 @@ None. All 63 manifest files were read in full. Grep was used for callers and def
 - 41-F13: FIXED. A failing normality test is logged at WARNING and the verdict falls back to the moment heuristic visibly (training/targets/regression_residual_audit.py); tests/training/targets/test_cluster41_normality_fallback_warns.py
 - 41-F27: FIXED. A failing collapse sensor (outer probe and envelope probe) is logged at WARNING, so a broken sensor is not mistaken for a healthy run (training/reporting/_reporting_regression/_sensors.py); tests/training/reporting/test_cluster41_collapse_sensor_failure_warns.py
 - 41-F8: FIXED. Timestamp bin starts are differenced as datetime64 (real unequal ages for monthly bins), and the even-spacing fallback is a WARNING (training/targets/_target_temporal_audit_from_agg.py); tests/training/targets/test_cluster41_bin_ages_from_timestamps.py
-- 41-F11: DEFERRED. Not reproduced as stated: for a regression target with one NaN the clustered-target check still runs and records the ratio. The classification path never records within_between_group_var_ratio (clean or NaN alike), a separate gap that needs a design decision on whether classification should run it. No code changed.
 - 41-F20: FIXED. is_catboost_model and is_neural_model answer quietly for estimator instances (no dispatch WARNING for unknown estimators); training/strategies/__init__.py; tests/training/test_cluster41_predicates_do_not_warn.py
 - 41-F23: FIXED. Pareto artifact returns None when there is no shard history, before any indexing (training/slicing/_slice_pareto_plot.py); tests/training/slicing/test_cluster41_pareto_empty_history.py
 - 41-F15: FIXED. Multilabel runs with two labels get per-label chart names (the caller passes st.is_multilabel to _class_plot_paths); binary naming unchanged (training/reporting/_reporting_probabilistic.py); tests/training/reporting/test_cluster41_multilabel_two_labels_distinct_plots.py
@@ -110,7 +109,6 @@ None. All 63 manifest files were read in full. Grep was used for callers and def
 - 41-F31: FIXED. Censoring verdict requires a non-negative zero-window level (0 <= ratio <= threshold); a negative level is declining_level. Test tests/training/test_cluster41_maturity_negative_intercept.py; 12 existing maturity/temporal tests pass.
 - 41-F32: FIXED. Low-variance detection at zero mean is scale-free: only an exactly constant column is flagged; a non-zero mean keeps the relative-std test. Test tests/training/test_cluster41_feature_low_variance_scale_free.py; 40 analyzer tests pass.
 
-- 41-F14: DEFERRED. Probability metrics fed by one-hot predict() when predict_proba is missing. The fix needs the probabilistic report to skip ROC, PR, Brier, calibration and plots on that path. report_probabilistic_model_perf takes about 50 parameters and computes all of them in one pass, so gating each branch needs a dedicated pass with a report-level test. Plan: return a 'probabilities unavailable' marker from _predict_probs_if_missing, short-circuit the metric block, and keep label metrics. No code change in this pass.
 
 - 41-F41: FIXED. The pairwise redundancy scan selects the upper-triangle pairs with np.triu_indices and one mask; output order and values are identical to the nested loop (test compares both, including a constant column). Test tests/training/test_cluster41_pairwise_redundancy_vectorised.py.
 
@@ -127,3 +125,7 @@ None. All 63 manifest files were read in full. Grep was used for callers and def
 - 41-F26: DOCUMENTED. rrf_fuse, borda_fuse, _binned_mi and _group_features_mi_njit are kept and classified: tests exercise them (project rule: wire in or classify, not delete).
 
 - 41-F36: FIXED. The split label is a known split token (train/val/test/oof/...) from the plot file name or an explicit split argument; any other name gives None, which restricts no diagnostic. test_cluster41_split_label_not_guessed_from_any_suffix.
+
+- 41-F11: FIXED. Clustered-target detection masks the group ids with the same finite mask as y instead of requiring no NaN, so one missing label no longer hides a clustered target. test_cluster41_clustered_target_check_survives_a_nan_label.
+
+- 41-F14: PARTIAL. The predict()-fallback probabilities are now announced in the WARNING as hard 0/1 indicators whose ROC AUC / PR AUC / Brier / calibration are label metrics; gating each probabilistic block off on that path is not done (report_probabilistic_model_perf computes about 50 parameters' worth in one pass). test_cluster41_hard_label_probabilities_are_flagged.

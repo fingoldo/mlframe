@@ -64,6 +64,7 @@ def _fit_quick_and_score(
     metric_name: str,
     init_score: np.ndarray | None = None,
     inner_n_jobs: int = -1,
+    columns: Sequence[str] | None = None,
 ) -> tuple[float, np.ndarray]:
     """Fit quick LightGBM on a holdout split, return ``(metric, fi_array)``.
 
@@ -81,7 +82,21 @@ def _fit_quick_and_score(
     # row-aligned even with stratify=y on binary, where two
     # separate split calls would produce different shuffles.
     n = len(X)
-    if n < 50:
+    if columns is not None:
+        # Column-subset mode (32-F14): ``X`` is the FULL frame and ``columns`` the ones to fit on. Rows are split by index and each side is taken with ONE
+        # ``iloc[rows, column_positions]``, so the dropped column is never materialised, instead of the caller copying ``X.loc[:, kept]`` and the split copying it again.
+        col_pos = X.columns.get_indexer(list(columns))
+        if n < 50:
+            tr_rows = va_rows = np.arange(n)
+        else:
+            stratify_arg = y if target_type == "binary_classification" and len(np.unique(y)) > 1 else None
+            tr_rows, va_rows = train_test_split(np.arange(n), test_size=0.2, random_state=self.config.random_state, stratify=stratify_arg)
+        X_tr, X_va = X.iloc[tr_rows, col_pos], X.iloc[va_rows, col_pos]
+        y_np = np.asarray(y)
+        y_tr, y_va = y_np[tr_rows], y_np[va_rows]
+        init_score_tr = None if init_score is None else np.asarray(init_score)[tr_rows]
+        init_score_va_local = None if init_score is None else np.asarray(init_score)[va_rows]
+    elif n < 50:
         X_tr, y_tr = X, y
         X_va, y_va = X, y
         init_score_tr = init_score
@@ -109,7 +124,7 @@ def _fit_quick_and_score(
     model = self._make_quick_model(target_type, n_jobs=inner_n_jobs)
     fit_kwargs: dict = {}
     if cat_features:
-        usable = [c for c in cat_features if c in X.columns]
+        usable = [c for c in cat_features if c in (X_tr.columns if columns is not None else X.columns)]
         if usable:
             fit_kwargs["categorical_feature"] = usable
     if init_score_tr is not None:

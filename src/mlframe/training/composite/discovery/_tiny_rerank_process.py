@@ -129,15 +129,18 @@ def score_spec(task: dict) -> tuple:
 
 
 def score_specs_in_processes(tasks: list[dict], n_jobs: int) -> list[tuple]:
-    """Score ``tasks`` in ``n_jobs`` worker processes, in task order; a dead worker falls back to scoring in this process.
+    """Score ``tasks`` in ``n_jobs`` worker processes, in task order; a dead worker falls back to scoring the unfinished tasks in this process.
 
-    The fallback reruns every task serially rather than only the unfinished ones: joblib does not return partial
-    results, and the serial path is deterministic, so the scores are the same ones the workers would have produced.
+    Results are consumed as an ordered generator, so when the pool breaks the tasks that already finished (the leading run of the task order) are kept and only
+    the rest are rescored serially; the serial path is deterministic, so those scores are the ones the workers would have produced (35-F42).
     """
     from joblib import Parallel, delayed
 
+    done: list[tuple] = []
     try:
-        return list(Parallel(n_jobs=n_jobs, backend="loky")(delayed(score_spec)(t) for t in tasks))
+        # ``extend`` appends one result at a time as the generator yields, so results gathered before a pool break are already in ``done`` when it raises.
+        done.extend(Parallel(n_jobs=n_jobs, backend="loky", return_as="generator")(delayed(score_spec)(t) for t in tasks))
+        return done
     except Exception as exc:
         from joblib.externals.loky.process_executor import BrokenProcessPool  # vendored-ok: the class joblib's loky backend raises
 
@@ -146,8 +149,8 @@ def score_specs_in_processes(tasks: list[dict], n_jobs: int) -> list[tuple]:
         if not isinstance(exc, BrokenProcessPool):
             raise
         logger.warning(
-            "[CompositeTargetDiscovery] the rerank worker pool broke (%s). The kernel is unaffected; the %d spec(s) of this "
-            "rerank are rescored serially in this process, the mode that survived where 16 threads in one process did not.",
-            str(exc).splitlines()[0][:200], len(tasks),
+            "[CompositeTargetDiscovery] the rerank worker pool broke (%s). The kernel is unaffected; %d of %d spec(s) had finished, the other %d are rescored "
+            "serially in this process, the mode that survived where 16 threads in one process did not.",
+            str(exc).splitlines()[0][:200], len(done), len(tasks), len(tasks) - len(done),
         )
-        return [score_spec(t) for t in tasks]
+        return done + [score_spec(t) for t in tasks[len(done) :]]

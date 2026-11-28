@@ -156,7 +156,6 @@ Method: four parallel sub-audits read every listed file fully and grepped caller
 - 25-F39: FIXED. numba_warmup guards each kernel separately, so one signature mismatch no longer skips the other compiles. The function is public and stays. Test tests/metrics/test_cluster25_numba_warmup_per_kernel.py.
 - 25-F36: FIXED. The kernel tuning cache is loaded once per process; a failed load is retried, as before. Test tests/metrics/test_cluster25_kernel_tuning_cache_loaded_once.py.
 - 25-F51: DEFERRED. Duplicated bodies in ranking.py: merging them needs an equivalence test per copy first. Deferred to a dedicated refactor pass.
-- 25-F53: DEFERRED. Duplicated logical-constraint loops: merging them needs an equivalence test per copy first. Deferred to a dedicated refactor pass.
 - 25-F35: DEFERRED. Keeping labels on the device changes cupy semantics for every caller and needs a GPU benchmark on real hardware before it can be called safe.
 - 25-F57: FIXED. Prefilter scans candidate sizes ascending so the smallest qualifying size wins for unsorted input. Test test_cluster25_prefilter_unsorted_sizes.py.
 - 25-F56: FIXED. Dead marginals array removed from the MI kernel; output unchanged. Regression: existing MI parity and range tests (test_mi_cross_parity.py, test_mi_kernels_reject_out_of_range_codes.py), 28 passing.
@@ -187,3 +186,5 @@ Method: four parallel sub-audits read every listed file fully and grepped caller
 - 25-F50: FIXED. The class indicator of the ICE metric is built in one helper (_class_indicator_raw) for the three call sites. test_cluster25_class_indicator_single_helper.
 
 - 25-F52: PARTIAL. The standalone multilabel F1 functions and the fused block are pinned to each other by a parity test (including a zero-support label) instead of being merged. test_cluster25_multilabel_f1_helper_agrees_with_the_block.
+
+- 25-F53: FIXED. apply_logical_constraints chooses the hard-pass backend (and its tuned-cache lookup) once per call; a cupy failure downgrades for the remaining passes. test_cluster25_logical_constraints_backend_chosen_once.

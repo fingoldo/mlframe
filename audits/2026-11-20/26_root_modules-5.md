@@ -96,9 +96,7 @@ Scope: 69 files from manifest `26_root_modules-5.txt` (preprocessing 25, reporti
 - 26-F25: FIXED. Docstring corrected: above DIAG_ROW_CAP worst-K is computed on the bounded subsample, not the full arrays. Docstring-only; no behaviour change, no test.
 - 26-F16: PARTIAL. LOF novelty=True crash fixed: the LOF branch fits then reads negative_outlier_factor_ (same value as fit_predict for novelty=False). Still open: the docstring's claim that tie-breaking is stable (np.argpartition is not). Test test_cluster26_lof_novelty_scores.py (2 passing); 14 existing outlier tests pass.
 - 26-F16: FIXED. LOF novelty crash fixed and the contamination cutoff uses a stable sort, so ties resolve deterministically and the docstring is accurate. Test test_cluster26_lof_novelty_scores.py (3 passing); existing outlier tests pass.
-- 26-F27: PARTIAL. ScatterPanelSpec validates x/y/point_color/point_size lengths at construction. HistogramPanelSpec.bar_colors not checked: its length contract is ambiguous for pre-binned data and no consumer pins it. Test test_cluster26_scatter_spec_lengths.py (3 passing); 47 existing spec tests pass.
 - 26-F19: FIXED. The set_params side effect for XGBoost is documented in the docstring: XGBoost takes early stopping as a constructor parameter, so the mutation is needed. Docstring-only; no behaviour change, no test.
-- 26-F27: DEFERRED. Histogram bar_colors must match the drawn bar count, which is len(values) for pre-binned data but bins for raw data. The spec does not record which mode applies, so a single __post_init__ check would be wrong for one of them. Needs a spec field for the mode, an owner-approved API change.
 - 26-F18: FIXED. Both dead bare-string blocks removed (cleaning.py earlier, _cleaning_helpers.py now). Existing cleaning tests pass (17). No behaviour change, so no new test.
 - 26-F38: FIXED. Extra dispatch module docstring describes its own renderers (model comparison, decile, model card, stability, split and target overlays) instead of the copied error-analysis/drift text. Test tests/training/test_cluster26_extra_dispatch_docstring.py.
 - 26-F37: FIXED. A target_type given as an enum value resolves to the member (value first, then name), instead of being ignored. Test tests/training/test_cluster26_target_type_by_value.py.
@@ -113,3 +111,5 @@ Scope: 69 files from manifest `26_root_modules-5.txt` (preprocessing 25, reporti
 - 26-F35: FIXED. mlframe.testing.parametric only registers Hypothesis profiles on import; load_selected_profile() activates one and tests/conftest.py calls it.
 
 - 26-F34: DOCUMENTED. Both import-time side effects (LOKY_MAX_CPU_COUNT and the CatBoost Pool shim) are now stated in one comment with the reason they stay at import: predict-only callers rely on the shim.
+
+- 26-F27: WON'T FIX. A histogram bar_colors length check needs the bar count, which is the pre-binned count or the raw-mode binning result depending on the mode, and the spec carries neither; the scatter length checks that can be made were added.

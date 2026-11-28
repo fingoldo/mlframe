@@ -79,7 +79,6 @@ Scope: 142 files from `audits/2026-11-20/manifests/13_feature_selection-4.txt`, 
 - 13-F13: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 13-F14: DEFERRED. P2 under _benchmarks (benchmark harness); deferred under the benchmark rule
 - 13-F3: FIXED. note: tests/feature_selection/boruta_shap/test_explain_basis_is_the_fitted_slice.py fails both before and after this change (pre-existing, verified by restoring the prior file); not caused by the fix, needs a separate look
-- 13-F22: DEFERRED. Dead branch: the row-alignment check is always true (both arrays have n rows). Removing it or asserting the invariant touches the residual pipeline's None contract, and no cheap direct test reaches it. Deferred with the shap_proxied dead-branch cleanup.
 - 13-F25: FIXED. 'pd' removed from shap_proxied_fs __all__ so a star import no longer exports the pandas module. Test tests/feature_selection/test_cluster13_shap_proxied_exports_and_imports.py.
 - 13-F23: FIXED. Redundant inner import of compute_phi_rank_stability removed from the hardcoded-ladder branch of _shap_proxied_fit.py (the import at the top of the function covers it; the finding's fit_steps line is not where the duplicate was). Test tests/feature_selection/test_cluster13_shap_proxied_exports_and_imports.py.
 - 13-F24: FIXED. Both core-refine None guards are explicit RuntimeError checks instead of asserts that python -O strips. Test tests/feature_selection/test_cluster13_no_production_assert.py (source pin).
@@ -106,3 +105,5 @@ Scope: 142 files from `audits/2026-11-20/manifests/13_feature_selection-4.txt`, 
 - 13-F28: FIXED. long and unsigned long resolve through ctypes.sizeof(c_long) for the running platform; test_cluster13_long_follows_the_platform.
 
 - 13-F4: FIXED. BorutaShap auto routing probes only the rows outside the 30 percent holdout partition. test_cluster13_boruta_auto_probe_skips_holdout_rows.
+
+- 13-F22: RESOLVED. No longer dead: since the forward-chained out-of-fold SHAP (24-F45) drops the first block's rows, residual_pred can have fewer rows than residual, so the residual_next is None branch is reachable.

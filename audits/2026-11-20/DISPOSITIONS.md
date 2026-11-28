@@ -576,7 +576,6 @@
 | 25-F39 | FIXED | numba_warmup guards each kernel separately, so one signature mismatch no longer skips the other compiles. The function is public and stays. Test tests/metrics/test_cluster25_numba_warmup_per_kernel.py. |
 | 25-F36 | FIXED | The kernel tuning cache is loaded once per process; a failed load is retried, as before. Test tests/metrics/test_cluster25_kernel_tuning_cache_loaded_once.py. |
 | 25-F51 | DEFERRED | Duplicated bodies in ranking.py: merging them needs an equivalence test per copy first. Deferred to a dedicated refactor pass. |
-| 25-F53 | DEFERRED | Duplicated logical-constraint loops: merging them needs an equivalence test per copy first. Deferred to a dedicated refactor pass. |
 | 25-F35 | DEFERRED | Keeping labels on the device changes cupy semantics for every caller and needs a GPU benchmark on real hardware before it can be called safe. |
 | 26-F7 | FIXED | The fractional-digit probe refuses max_fract_digits below 2 with a ValueError, not an UnboundLocalError. Test tests/training/test_cluster26_aggregate_nan_and_fraction_probe.py. |
 | 26-F11 | FIXED | float16 input is widened to float32 before the numba outlier kernels. Test tests/signal/test_cluster26_gp_and_outlier_dtypes.py. |
@@ -712,7 +711,6 @@
 | 35-F39 | FIXED | Both stacking passes share one ranking helper (_rank_pass1_specs) and one group-id derivation (_train_group_ids); the pass-specific cap, warnings and aggregation stay in each caller (test_cluster35_stacked_shared_helpers; existing stacking tests pass) |
 | 35-F40 | FIXED | Group path and default path use one helper (_polars_default_cat_candidates), so the two candidate sets cannot drift; temporal columns are excluded on both (test_cluster35_polars_candidates_one_helper; 67 existing auto-detect tests pass) |
 | 35-F41 | FIXED | Non-finite (y, base) pairs dropped before the posterior, counted in n_dropped_nonfinite, logged at WARNING (test_cluster35_bayesian_nonfinite_dropped; 27 existing bayesian tests pass) |
-| 35-F42 | DEFERRED | A broken process pool serially rescores every task, not only the unfinished ones. Documented as deliberate, and correctness is unaffected. Rescoring only the unfinished tasks needs partial results from the broken pool, which is a design change; owner decision on whether the time cost is worth it. |
 | 35-F43 | FIXED | Smoke tests for predict_cdf with enforce_non_crossing=False, mixture soft_routing=True, and gated outlier calibrate_classifier=True (test_cluster35_untested_paths_smoke; 3 pass; test-only change) |
 | 35-F45 | FIXED | Bootstrap posterior result carries posterior_kind, n_samples, degrees_of_freedom, sigma2_posterior_mean and n_dropped_nonfinite, like the conjugate one (test_cluster35_bootstrap_result_keys; 27 existing bayesian tests pass; the one failure is the pre-existing uncalled-function gate) |
 | 35-F47 | FIXED | Dead _groups_screen = None removed (passed as a literal None) and blank line added; the null-canary gate needed a reasoned exemption for _select_worst_candidate (F34). 231 tiny-rerank tests pass. |
@@ -785,14 +783,12 @@
 | 40-F28 | FIXED | PySRTransformer.transform copies the frame (shallow) before adding PySR columns, so the caller's frame is not mutated (training/pipeline/__init__.py); tests/training/pipeline/test_cluster40_pysr_transform_does_not_mutate_input.py |
 | 40-F23 | FIXED | Embedding join looks up each unique id once, with normalised keys (3 matches 3.0), zero-fills unknown and NaN ids (training/pipeline/_latent_interaction_svd_composite_fe.py); tests/training/pipeline/test_cluster40_embedding_join_normalised_keys.py |
 | 40-F30 | FIXED | Weighted classification loss divides by class-times-sample weights when class weights are set, so the scale matches the unweighted CrossEntropy mean (neural/_recurrent_torch_model.py _compute_weighted_loss); tests/training/neural/test_cluster40_class_weighted_loss_scale.py |
-| 40-F25 | DEFERRED | Fit-time val/test lookup uses raw keys while replay normalises. Not changed: no discriminating case found; the two-step encoder returns the global prior for the entities tested, so a regression test cannot tell the versions apart. Needs the terminal-encoding semantics before a fix. |
 | 40-F20 | FIXED | Frame content hash hashes the per-row hash bytes in row order instead of their sum, so row-permuted frames no longer share a cache key (training/pipeline/_pipeline_cache.py); tests/training/pipeline/test_cluster40_frame_hash_is_row_order_sensitive.py |
 | 40-F21 | FIXED | TrunkResidualMLPRegressor and FieldGroupedMLPRegressor refuse NaN/inf X at fit (and at predict), as Tabular1DCNN does; helper _refuse_nonfinite in each module; tests/training/neural/test_cluster40_residual_regressors_refuse_nonfinite.py |
 | 40-F24 | FIXED | With keep_cols pinned, the nullable-bool scan covers only the pinned columns; the dropped object columns are no longer scanned (training/pipeline/_pipeline_extensions.py); tests/training/pipeline/test_cluster40_filter_numeric_keep_path.py pins the behaviour |
 | 41-F13 | FIXED | A failing normality test is logged at WARNING and the verdict falls back to the moment heuristic visibly (training/targets/regression_residual_audit.py); tests/training/targets/test_cluster41_normality_fallback_warns.py |
 | 41-F27 | FIXED | A failing collapse sensor (outer probe and envelope probe) is logged at WARNING, so a broken sensor is not mistaken for a healthy run (training/reporting/_reporting_regression/_sensors.py); tests/training/reporting/test_cluster41_collapse_sensor_failure_warns.py |
 | 41-F8 | FIXED | Timestamp bin starts are differenced as datetime64 (real unequal ages for monthly bins), and the even-spacing fallback is a WARNING (training/targets/_target_temporal_audit_from_agg.py); tests/training/targets/test_cluster41_bin_ages_from_timestamps.py |
-| 41-F11 | DEFERRED | Not reproduced as stated: for a regression target with one NaN the clustered-target check still runs and records the ratio. The classification path never records within_between_group_var_ratio (clean or NaN alike), a separate gap that needs a design decision on whether classification should run it. No code changed. |
 | 41-F20 | FIXED | is_catboost_model and is_neural_model answer quietly for estimator instances (no dispatch WARNING for unknown estimators); training/strategies/__init__.py; tests/training/test_cluster41_predicates_do_not_warn.py |
 | 41-F23 | FIXED | Pareto artifact returns None when there is no shard history, before any indexing (training/slicing/_slice_pareto_plot.py); tests/training/slicing/test_cluster41_pareto_empty_history.py |
 | 41-F15 | FIXED | Multilabel runs with two labels get per-label chart names (the caller passes st.is_multilabel to _class_plot_paths); binary naming unchanged (training/reporting/_reporting_probabilistic.py); tests/training/reporting/test_cluster41_multilabel_two_labels_distinct_plots.py |
@@ -842,7 +838,6 @@
 | 42-F12 | DEFERRED | Repeated cProfile/perf_counter boilerplate across about a dozen bench scripts: a cross-file cleanup with no behaviour impact; deferred so the benches are not churned in this pass. |
 | 32-F8 | FIXED | Polars group-mean join matches null keys (nulls_equal=True), as the pandas path does. Test test_cluster32_polars_null_group_matches_pandas.py. |
 | 32-F17 | FIXED | Threshold benchmark seed uses zlib.crc32 (was already in code); pinned by test_cluster32_bench_seed_is_stable.py. |
-| 32-F14 | DEFERRED | Per-drop X.loc copy is held per concurrent worker. Removing it needs _fit_quick_and_score to accept a column mask instead of a frame (API change across the baseline diagnostics). Owner to schedule. |
 | 32-F13 | FIXED | Baseline numba kernels use the NaN-safe fastmath flag set (no nnan/ninf), so NaN predictions propagate. Test test_cluster32_kernels_nan_propagates.py. |
 | 32-F27 | DEFERRED | Perf-only: the first full-size frame is built before the extra-target and ts knobs are known, then rebuilt. Avoiding it means reordering the benchmark's setup, which needs checking every use of df in between. Deferred. |
 | 32-F18 | FIXED | Cached benchmark arm uses one key across splits so it can hit; per-split keys never hit. Test test_cluster32_cache_arm_shares_key.py. |
@@ -857,7 +852,6 @@
 | 22-F32 | FIXED | Both sd_sigma and nonoutlying_dist_percentage unset raises a ValueError naming the parameter, instead of a TypeError. Test test_cluster22_tukey_both_none_is_valueerror.py. |
 | 14-F12 | FIXED | split_into_train_test refuses an empty features_indices with a ValueError instead of indexing [0]. Test test_cluster14_split_empty_features_raises.py. |
 | 15-F17 | FIXED | All-NaN column gets mean 0 and std 1 in the knockoff standardisation, so its knockoff is finite. Test test_cluster15_knockoff_all_nan_column.py. |
-| 13-F22 | DEFERRED | Dead branch: the row-alignment check is always true (both arrays have n rows). Removing it or asserting the invariant touches the residual pipeline's None contract, and no cheap direct test reaches it. Deferred with the shap_proxied dead-branch cleanup. |
 | 04-F30 | FIXED | replay_from_record refuses a record without dataset_seed instead of defaulting to 0. Test test_cluster04_replay_requires_seed.py. |
 | 14-F13 | FIXED | A failed thread pin logs a WARNING naming the parameters instead of a debug line. Test test_cluster14_thread_pin_failure_warns.py. |
 | 22-F41 | FIXED | Bootstrap resamples whose metric raises are counted and reported in one WARNING with the failed and total counts. Test test_cluster22_failed_resamples_warn.py. |
@@ -922,11 +916,9 @@
 | 26-F25 | FIXED | Docstring corrected: above DIAG_ROW_CAP worst-K is computed on the bounded subsample, not the full arrays. Docstring-only; no behaviour change, no test. |
 | 26-F16 | PARTIAL | LOF novelty=True crash fixed: the LOF branch fits then reads negative_outlier_factor_ (same value as fit_predict for novelty=False). Still open: the docstring's claim that tie-breaking is stable (np.argpartition is not). Test test_cluster26_lof_novelty_scores.py (2 passing); 14 existing outlier tests pass. |
 | 26-F16 | FIXED | LOF novelty crash fixed and the contamination cutoff uses a stable sort, so ties resolve deterministically and the docstring is accurate. Test test_cluster26_lof_novelty_scores.py (3 passing); existing outlier tests pass. |
-| 26-F27 | PARTIAL | ScatterPanelSpec validates x/y/point_color/point_size lengths at construction. HistogramPanelSpec.bar_colors not checked: its length contract is ambiguous for pre-binned data and no consumer pins it. Test test_cluster26_scatter_spec_lengths.py (3 passing); 47 existing spec tests pass. |
 | 26-F19 | FIXED | The set_params side effect for XGBoost is documented in the docstring: XGBoost takes early stopping as a constructor parameter, so the mutation is needed. Docstring-only; no behaviour change, no test. |
 | 28-F61 | FIXED | Removed the unused optional matplotlib import in the trainer-configure helpers (no name use, no importer). Regression: the two importing tests pass (37). |
 | 28-F50 | FIXED | The reset-then-read pair on _pre_pipeline_groups is replaced by passing None directly; the attribute is None on entry, so behaviour is unchanged. Regression: module import and a related trainer test pass. |
-| 26-F27 | DEFERRED | Histogram bar_colors must match the drawn bar count, which is len(values) for pre-binned data but bins for raw data. The spec does not record which mode applies, so a single __post_init__ check would be wrong for one of them. Needs a spec field for the mode, an owner-approved API change. |
 | 08-F18 | FIXED | fit_bgmm_and_sample raises a clear ValueError naming the caller when there are no minority rows, instead of numpy's integers(0, 0) error. Test test_cluster08_bgmm_empty_minority.py; 3 existing sampler tests pass. |
 | 08-F19 | FIXED | kth_nearest_dists refuses k < 1, which silently indexed the farthest column. The documented clipping above the subset size is kept. Test test_cluster08_kth_nearest_k_positive.py (2 passing); 47 existing caller tests pass. |
 | 18-F17 | FIXED | Removed the unreachable except NameError around the gate-stats lookup: _gate_stats is a parameter, always bound. Behaviour unchanged; 71 existing ensembling tests pass. |
@@ -1246,7 +1238,6 @@
 
 | 39-F26 | FIXED | The CUDA-lost CPU fallback stays float32 (fp16 on CPU is slow or unsupported). The fallback warning now states that the precision changes mid-run and that earlier batches were fp16, and the comment no longer claims identical embeddings. Test tests/training/feature_handling/test_cluster39_cpu_fallback_precision_documented.py (2 passed). |
 
-| 41-F14 | DEFERRED | Probability metrics fed by one-hot predict() when predict_proba is missing. The fix needs the probabilistic report to skip ROC, PR, Brier, calibration and plots on that path. report_probabilistic_model_perf takes about 50 parameters and computes all of them in one pass, so gating each branch needs a dedicated pass with a report-level test. Plan: return a 'probabilities unavailable' marker from _predict_probs_if_missing, short-circuit the metric block, and keep label metrics. No code change in this pass. |
 
 | 18-F15 | FIXED | The streaming harm tracks a zero member per cell and returns exactly 0 there, matching the materialised zero rule, instead of about 3e-150 from the 1e150 surrogate. Other cells keep the plain harmonic mean. Observation outside this finding: on non-zero cells the materialised path with default parameters gave different values for this input, not checked here. Tests tests/models/ensembling/test_cluster18_streaming_harm_zero.py (2 passed); existing streaming tests 31 passed. |
 
@@ -1728,3 +1719,19 @@
 | 25-F50 | FIXED | The class indicator of the ICE metric is built in one helper (_class_indicator_raw) for the three call sites. test_cluster25_class_indicator_single_helper. |
 
 | 25-F52 | PARTIAL | The standalone multilabel F1 functions and the fused block are pinned to each other by a parity test (including a zero-support label) instead of being merged. test_cluster25_multilabel_f1_helper_agrees_with_the_block. |
+
+| 40-F25 | FIXED | The fit-time val/test entity lookup uses the same normalised key as the replay (a stored lookup keyed by _normalize_entity_key), so 3 and 3.0 meet the same entity at fit and predict. test_cluster40_te_fit_lookup_uses_the_normalised_key. |
+
+| 41-F11 | FIXED | Clustered-target detection masks the group ids with the same finite mask as y instead of requiring no NaN, so one missing label no longer hides a clustered target. test_cluster41_clustered_target_check_survives_a_nan_label. |
+
+| 41-F14 | PARTIAL | The predict()-fallback probabilities are now announced in the WARNING as hard 0/1 indicators whose ROC AUC / PR AUC / Brier / calibration are label metrics; gating each probabilistic block off on that path is not done (report_probabilistic_model_perf computes about 50 parameters' worth in one pass). test_cluster41_hard_label_probabilities_are_flagged. |
+
+| 35-F42 | FIXED | score_specs_in_processes consumes joblib's ordered generator, so after a broken pool only the unfinished tasks are rescored serially (the finished prefix is kept). test_cluster35_broken_pool_rescoring_keeps_finished_tasks. |
+
+| 32-F14 | FIXED | _fit_quick_and_score takes columns= on the full frame and selects each split side with one iloc[rows, column_positions]; the ablation no longer copies X.loc[:, kept] per drop. Same metric and importances as the copied frame. test_cluster32_quick_fit_column_subset_matches_a_copied_frame. |
+
+| 13-F22 | RESOLVED | No longer dead: since the forward-chained out-of-fold SHAP (24-F45) drops the first block's rows, residual_pred can have fewer rows than residual, so the residual_next is None branch is reachable. |
+
+| 25-F53 | FIXED | apply_logical_constraints chooses the hard-pass backend (and its tuned-cache lookup) once per call; a cupy failure downgrades for the remaining passes. test_cluster25_logical_constraints_backend_chosen_once. |
+
+| 26-F27 | WON'T FIX | A histogram bar_colors length check needs the bar count, which is the pre-binned count or the raw-mode binning result depending on the mode, and the spec carries neither; the scatter length checks that can be made were added. |

@@ -186,35 +186,41 @@ def apply_logical_constraints(
     # One ordered pass can leave a chain violated (a later swap undoes an earlier one): repeat to a fixpoint. Each pass is a bubble step, so a
     # consistent rule set settles within len(rules) + 1 passes; a cyclic one is reported instead of looping.
     current = out
+    # The backend (and the knowledge-tuning-cache lookup behind it) is chosen ONCE per call, not once per pass; a pass that has to downgrade (cupy failed) tells
+    # the loop which backend it ended on (25-F53).
+    rules_arr, backend = _hard_pass_plan(out.shape[0], n_labels, rules)
     for _ in range(len(rules) + 1):
         before = current.copy()
-        current = _apply_hard_pass(current, rules, n_labels)
+        current, backend = _apply_hard_pass(current, rules, rules_arr, backend)
         if np.array_equal(before, current):
             return current
     log_throttle(logger, "logical_constraints.no_fixpoint", logging.WARNING, "apply_logical_constraints: rules %s did not reach a consistent state (cyclic implications?)", list(rules))
     return current
 
 
-def _apply_hard_pass(out: np.ndarray, rules: Sequence, n_labels: int) -> np.ndarray:
-    """One ordered pass of the hard swap over every rule, on the fastest available backend."""
+def _hard_pass_plan(n: int, n_labels: int, rules: Sequence) -> "tuple[np.ndarray | None, str]":
+    """``(rules_as_int64_array, backend)`` for the hard-swap passes of one call: ``"numpy"`` without numba, else the tuned or size-based CPU/GPU choice."""
     if not _NUMBA_AVAILABLE:
-        return _apply_numpy(out, rules)
-
-    rules_arr = np.asarray(rules, dtype=np.int64)
-    n = out.shape[0]
+        return None, "numpy"
     from mlframe.inference._ktc_dispatch import choose_logical_constraints_backend
 
     fallback = "njit_parallel" if n >= _PARALLEL_THRESHOLD else "njit_single"
-    backend = choose_logical_constraints_backend(n, n_labels, len(rules), fallback=fallback)
+    return np.asarray(rules, dtype=np.int64), choose_logical_constraints_backend(n, n_labels, len(rules), fallback=fallback)
+
+
+def _apply_hard_pass(out: np.ndarray, rules: Sequence, rules_arr: "np.ndarray | None", backend: str) -> "tuple[np.ndarray, str]":
+    """One ordered pass of the hard swap over every rule on ``backend``; returns the result and the backend actually used (a failed cupy pass downgrades to njit_parallel)."""
+    if backend == "numpy" or rules_arr is None:
+        return _apply_numpy(out, rules), "numpy"
     if backend == "cupy":
         try:
-            return _apply_cupy(out, rules_arr)
+            return _apply_cupy(out, rules_arr), "cupy"
         except Exception as e:  # GPU path failed at runtime (OOM, driver hiccup) -> CPU fallback, never raise
             log_throttle(logger, "logical_constraints.apply_logical_constraints", logging.WARNING, "cupy constraint-apply backend failed, falling back to njit_parallel: %s", e)
             backend = "njit_parallel"
     if backend == "njit_parallel":
-        return np.asarray(_apply_njit_parallel(out, rules_arr))
-    return np.asarray(_apply_njit(out, rules_arr))
+        return np.asarray(_apply_njit_parallel(out, rules_arr)), backend
+    return np.asarray(_apply_njit(out, rules_arr)), backend
 
 
 def discover_logical_constraints(

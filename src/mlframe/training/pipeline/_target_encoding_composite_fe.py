@@ -99,9 +99,13 @@ def apply_target_encoding_composite_fe(
     # The prior of an unseen entity: the mean of the labelled train rows (a row without a label has no y to average).
     global_prior = float(np.nanmean(y_train))
 
+    # The lookup is keyed by the NORMALISED entity id for fit-time val/test and for predict-time replay alike: an id that is 3 in one frame and 3.0 in another
+    # must find the same entity in both, or the same rows encode differently at fit and at predict (40-F25).
+    normalized_lookup = {_normalize_entity_key(k): float(v) for k, v in entity_lookup.items()}
+
     if metadata is not None:
         metadata["two_step_target_encode_columns"] = columns
-        metadata["two_step_target_encode_entity_lookup"] = {_normalize_entity_key(k): float(v) for k, v in entity_lookup.items()}
+        metadata["two_step_target_encode_entity_lookup"] = normalized_lookup
         metadata["two_step_target_encode_global_prior"] = global_prior
         metadata["two_step_target_encode_out_col"] = out_col
 
@@ -115,7 +119,7 @@ def apply_target_encoding_composite_fe(
         if idx is None or length_of(idx) != row_count(df) or len(group_ids) <= int(np.asarray(idx).max()):
             return df
         g = group_ids[np.asarray(idx)]
-        vals = np.array([entity_lookup.get(gid, global_prior) for gid in g], dtype=np.float64)
+        vals = np.array([normalized_lookup.get(_normalize_entity_key(gid), global_prior) for gid in g], dtype=np.float64)
         return attach_new_columns(df, pd.DataFrame({out_col: vals}, index=range(len(vals))))
 
     out_val = _lookup_split(val_df, val_idx)

@@ -56,8 +56,10 @@ def _group_ids_pathologies(group_ids, y, finite, n, y_for_stats, diagnostics, pa
     """Stage of ``analyze_target_distribution``."""
     if group_ids is not None:
         gids = np.asarray(group_ids).reshape(-1)
-        if gids.size == y.size and finite.sum() == n:
-            ratio = _within_between_group_variance_ratio(y_for_stats, gids[finite] if finite.size == y.size else gids)
+        # A NaN in y used to switch the whole clustered-target check off (``finite.sum() == n`` was required), silently. The group ids are masked with the same
+        # finite mask as y_for_stats instead, so one missing target no longer hides a clustered one (41-F11).
+        if gids.size == y.size and finite.size == y.size and int(finite.sum()) == int(np.asarray(y_for_stats).size):
+            ratio = _within_between_group_variance_ratio(y_for_stats, gids[finite])
             diagnostics["within_between_group_var_ratio"] = ratio
             if math.isfinite(ratio) and ratio < _CLUSTERED_TARGET_VARIANCE_RATIO:
                 pathologies.append(f"clustered_target(within/between_std_ratio={ratio:.3f})")
