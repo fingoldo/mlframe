@@ -92,6 +92,11 @@ _logger = _logging.getLogger(__name__)
 # import time -- it's a single env-var write, easy to reverse, and the
 # wmic-spawn-on-Windows perf hit only triggers when something actually
 # probes physical cores.
+#
+# Import-time side effects of this package, stated in one place (26-F34): (1) that ``LOKY_MAX_CPU_COUNT`` write, and (2) the
+# ``catboost.Pool.__init__`` patch installed at the bottom of this module by ``install_catboost_polars2_shim()`` (idempotent). Both are kept at
+# import on purpose: callers outside the suite entry point (predict-only services, notebooks) build CatBoost Pools from polars frames and rely on
+# the patch without ever calling ``train_mlframe_models_suite``. Everything else here is resolved lazily.
 if not _os.environ.get("LOKY_MAX_CPU_COUNT"):
     _os.environ["LOKY_MAX_CPU_COUNT"] = str(_os.cpu_count() or 1)
 

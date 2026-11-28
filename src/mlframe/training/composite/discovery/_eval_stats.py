@@ -534,6 +534,8 @@ def base_carrying_keep_mask(
         return keep
     rng = np.random.default_rng(seed)
     base = np.asarray(base_values, dtype=np.float64).ravel()
+    # One MI call per permutation per column (20 per column) is kept: the batched ``null_mis_binned`` kernel draws a block-shuffled null, a different statistic,
+    # so swapping it in would change which columns pass (34-F17; needs a measured equivalence before it can replace this loop).
     for j in range(n_cols):
         col = np.asarray(x_matrix[:, j], dtype=np.float64)
         ok = np.isfinite(col) & np.isfinite(base)

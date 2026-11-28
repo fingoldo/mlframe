@@ -655,7 +655,6 @@
 | 29-F16 | FIXED | The cuBLAS probe failure is logged once per process, so the library lookup no longer runs on every matmul check after a failed probe. Test tests/utils/test_cluster29_cublas_failure_logs_once.py. |
 | 29-F23 | FIXED | preprocess_glue and preprocess_sglue copy the frame before renaming duplicate models, so the caller's Model column is unchanged. Test tests/votenrank/test_cluster29_glue_preprocess_keeps_caller_frame.py (glue path; the sglue path is the same change). |
 | 29-F19 | FIXED | The bare asserts in geometric_weight_blend are explicit ValueErrors naming the cause (all restarts non-finite, or alpha missing). Test tests/votenrank/test_cluster29_geometric_blend_refuses_nan_loss.py. |
-| 29-F15 | DEFERRED | The only caller uses the default k=3, so the parameter is effectively a constant. A k-neighbour vote changes every recommendation, and removing the parameter changes the signature; both need a decision on the recommender's behaviour. |
 | 29-F12 | FIXED | The array content hash feeds the header and the array buffer to xxhash incrementally, avoiding two full copies per lookup. The digest equals the one-shot digest, so existing keys are unchanged. Test tests/utils/test_cluster29_array_hash_matches_oneshot.py. |
 | 29-F22 | FIXED | The tracker table reads only run 0 and lists the other runs in a WARNING, instead of reading a later run as run 0. Test tests/votenrank/test_cluster29_tracker_reads_only_run_zero.py; it skips here because experiment_impact_tracker is not installed, so the change is verified by reading only. |
 | 29-F20 | FIXED | Smoothed rank percentiles clamp to the same [0.5/n, (n-0.5)/n] band as the hard mode, so the stacker never sees 0 or 1 it was not trained on. The O(n_query*n_oof) cost is unchanged and is not addressed here. Test tests/votenrank/test_cluster29_smoothed_percentiles_stay_in_band.py. |
@@ -706,7 +705,6 @@
 | 34-F29 | FIXED | MatrixKeyedCache implements its own clear(); no borrowed ContentMemo method (test_cluster34_matrix_cache_clear; 4 existing matrix-cache tests pass) |
 | 34-F30 | FIXED | Attached target kept float64 on the val side (keep_float64); engineered bases stay float32 by design (test_cluster34_attach_keeps_target_float64) |
 | 34-F15 | FIXED | Tie ranking vectorised for finite input (NaN keeps the walk); PAVA compiled via njit_or_passthrough (test_cluster34_leakage_rank_and_pava; 62 existing leakage tests pass) |
-| 34-F17 | DEFERRED | Batched null kernel shuffles blocks of binned codes; the carry null shuffles raw base values and bins inside _mi_pair_bin. Switching changes the null distribution, so it needs a benchmark and owner sign-off on numerics. |
 | 34-F26 | FIXED | Helper renamed to _run_folds_serial_early_stop (rename only; no behaviour change, so no separate test) |
 | 34-F28 | FIXED | BoundedMemo builds outside the lock; first stored value wins on a race. Re-entrancy and single-build tests (test_cluster34_bounded_memo_build_outside_lock) |
 | 34-F34 | FIXED | Eviction test added: LRU order kept, evicted key rebuilt (test_cluster34_bounded_memo_eviction) |
@@ -949,7 +947,6 @@
 | 26-F16 | PARTIAL | LOF novelty=True crash fixed: the LOF branch fits then reads negative_outlier_factor_ (same value as fit_predict for novelty=False). Still open: the docstring's claim that tie-breaking is stable (np.argpartition is not). Test test_cluster26_lof_novelty_scores.py (2 passing); 14 existing outlier tests pass. |
 | 26-F16 | FIXED | LOF novelty crash fixed and the contamination cutoff uses a stable sort, so ties resolve deterministically and the docstring is accurate. Test test_cluster26_lof_novelty_scores.py (3 passing); existing outlier tests pass. |
 | 26-F27 | PARTIAL | ScatterPanelSpec validates x/y/point_color/point_size lengths at construction. HistogramPanelSpec.bar_colors not checked: its length contract is ambiguous for pre-binned data and no consumer pins it. Test test_cluster26_scatter_spec_lengths.py (3 passing); 47 existing spec tests pass. |
-| 26-F34 | DEFERRED | Import-time env write and catboost.Pool monkeypatch in mlframe.training are relied on by callers that never enter the suite entry point; moving them changes behaviour for every importer. Owner decision on where the shim must install. |
 | 26-F19 | FIXED | The set_params side effect for XGBoost is documented in the docstring: XGBoost takes early stopping as a constructor parameter, so the mutation is needed. Docstring-only; no behaviour change, no test. |
 | 28-F61 | FIXED | Removed the unused optional matplotlib import in the trainer-configure helpers (no name use, no importer). Regression: the two importing tests pass (37). |
 | 28-F50 | FIXED | The reset-then-read pair on _pre_pipeline_groups is replaced by passing None directly; the attribute is None on entry, so behaviour is unchanged. Regression: module import and a related trainer test pass. |
@@ -1028,7 +1025,6 @@
 | 09-F44 | FIXED | Local logistic solver penalises only the slopes (intercept index 0 unpenalised); gradient and Hessian use the same penalty vector. Behaviour change: outputs of the local classifier move for any ridge>0. Tests tests/feature_engineering/transformer/test_cluster09_local_logreg_intercept_unpenalised.py; 9 existing local-classifier tests pass (397 skipped by their gates). |
 | 09-F38 | FIXED | Silverman bandwidth uses the multivariate rule (4/(d+2))^(1/(d+4)) n^(-1/(d+4)); equals the 1-D rule at d=1, changes d>1 outputs. Tests tests/feature_engineering/transformer/test_cluster09_silverman_multivariate.py; 8 existing density-ratio tests pass (397 skipped by gates). |
 | 09-F37 | PARTIAL | Removed the stale comment about the removed _GPU_AUTO_CACHE in random_features.py. Not changed: the unreachable padding branches in denoising_autoencoder, hard_row_attention and related modules named in the finding. Test tests/feature_engineering/transformer/test_cluster09_no_stale_cache_comment.py (source pin). |
-| 09-F34 | DEFERRED | Stub parameters (n_bits, top_k_pairs) and per-module Literal/dtype gates differ across siblings. Each stub needs an implement-or-remove decision, and widening a Literal without implementing the value would only defer the error. Owner decision. Not changed. |
 | 40-F33 | WON'T FIX | Polars cannot represent N rows with zero columns (verified: select([]) has height 0), so the (N, 0) contract is unattainable for polars frames. Callers that need the row count must read it from the input. Not changed. |
 | 40-F34 | DEFERRED | Bench keeps its own _binned_mi variants (addat, bincount) for A/B timing, not a copy of production. Both agree with production _ranker_fs._binned_mi, but on a strongly dependent sample all three return 0.0, which needs a review of the expected y/x contract before a sanity test can be written. Not changed. |
 | 17-F23 | FIXED | Module docstring of _classification_extras_blocks.py rewritten to describe its three block kernels and point to _classification_extras.py for the public metrics. Test tests/metrics/test_cluster17_blocks_docstring.py. |
@@ -1160,11 +1156,8 @@
 | 12-F87 | PARTIAL | Removed the unused sd_a/sd_b fit fields and the unreachable ratio_eps branch from fe_richops_bench. Not changed: _apply_op skips a pair with a missing operand without recording it; output names carry the pair index, so the gaps are identifiable. Test tests/feature_selection/test_cluster12_richops_dead_code_removed.py. |
 | 12-F16 | FIXED | Unblinding replaces whole labels in one pass, longest first, so arm_b no longer rewrites inside arm_bx; a non-object mapping JSON means no mapping instead of a crash. Test tests/feature_selection/test_cluster12_blinding_boundaries_and_json.py; 16 blinding tests pass. |
 | 32-F15 | FIXED | Config sufficiency test uses the signed delta, so a negative delta (init_score better than raw) counts as sufficient, as the module note says; the abs() had made it high_potential. Test tests/training/test_cluster32_init_score_sign_consistent.py; 55 baseline diagnostics tests pass. |
-| 09-F43 | DEFERRED | Pseudo-SMOTE regression confidence threshold is an in-sample quantile. Using out-of-fold predictions changes the aux model cost and the threshold semantics, which needs an ML design decision. No code change. |
 | 32-F28 | FIXED | Skipped-target results in the profile harness return the same 16-field tuple the caller unpacks (one helper, _skipped_profile_result); the six-field early returns would have raised on unpack. Test tests/training/test_cluster32_profile_skip_arity.py. |
 | 13-F19 | FIXED | explain() raises a clear RuntimeError at its top when the fitted frames were released for a large fit, instead of passing None into the explainer. Test tests/feature_selection/test_cluster13_explain_after_frame_release.py. |
-| 12-F103 | DEFERRED | downstream is reimplemented in several bench files with different return types. Consolidating means a shared evaluator with one return contract, which needs an owner decision on the contract. No code change. |
-| 12-F8 | DEFERRED | Three near-identical downstream evaluators differ in rounding and empty-input handling. Unifying them changes results at the rounding edge, so it needs a decision on the canonical behaviour. No code change. |
 | 13-F18 | DEFERRED | Per-trial Python loops in update_importance_history and calculate_hits could be vectorised, but the change needs a perf benchmark and equivalence check of the importance history, deferred to a perf pass. No code change. |
 | 28-F54 | DEFERRED | The two CatBoost loss-ensuring helpers duplicate about 60 lines. Extracting a shared helper is a refactor that needs call-site tests in both paths; deferred to a refactor pass. No code change. |
 | 37-F42 | DEFERRED | _apply_plot_style_overrides changes process-wide matplotlib and plotly state and is not restored on failure. Restoring it needs a context-manager design across the setup path; deferred. No code change. |
@@ -1690,3 +1683,17 @@
 | 08-F16 | FIXED | transformer/__init__ resolves its public names lazily (PEP 562, TYPE_CHECKING imports for tools); a fresh import loads 13 of 125 modules instead of all. test_cluster08_transformer_package_imports_lazily. |
 
 | 28-F26 | WON'T FIX | Reading the bundle into memory once is the verified-open contract (the digest and the unpickle must use the same bytes); streaming would reopen the replace-after-check hole. The peak-RSS cost is accepted. |
+
+| 09-F34 | RESOLVED | The stub parameters already fail fast: n_bits (ib_baseline_codes) and top_k_pairs (mdl_binning_pairwise) raise NotImplementedError on a non-default value, so no silent no-op remains; Literals are not widened. |
+
+| 12-F8 | FIXED | The three fs_hybrid downstream evaluators share one model definition (_raw_aucs) and rounding; empty input is NaN everywhere. test_cluster12_downstream_evaluators_share_one_definition. |
+
+| 12-F103 | PARTIAL | The shared module is consolidated (12-F8); the per-script downstream copies in the round2-4 bench scripts stay (bench scripts are DEFERRED by project rule unless they hide a real bug). |
+
+| 26-F34 | DOCUMENTED | Both import-time side effects (LOKY_MAX_CPU_COUNT and the CatBoost Pool shim) are now stated in one comment with the reason they stay at import: predict-only callers rely on the shim. |
+
+| 29-F15 | DOCUMENTED | _knn_recommend docstring states k does not make it a vote and why the behaviour is kept. |
+
+| 09-F43 | DOCUMENTED | In-sample 0.8 quantile threshold kept deliberately and commented (out-of-fold would cost a fit per fold and change the kept virtuals). |
+
+| 34-F17 | DOCUMENTED | The per-permutation MI loop is kept: the batched kernel draws a block-shuffled null, a different statistic; needs a measured equivalence first. |

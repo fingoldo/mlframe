@@ -805,7 +805,8 @@ class ParamOracle:
         Restricts neighbours to those sharing the categorical ``dtype_kind``
         (a float kernel choice shouldn't be transplanted onto object data),
         then ranks by euclidean distance over the bucketed continuous dims,
-        and returns the best confident combo of the nearest neighbour(s).
+        and returns the best confident combo of the SINGLE nearest bucket: ``k`` only bounds how many candidates are ranked before the first is taken,
+        so it does not make this a k-neighbour vote (29-F15; the only caller uses the default and a vote would change every recommendation).
         """
         # Group rows by bucket; keep the best confident row per bucket.
         from collections import defaultdict

@@ -223,8 +223,6 @@ Counts: P0 0, P1 22, P2 57, P3 22 (101 rows). The rows marked [v] are the ones I
 - 12-F97: PARTIAL. Knockoff cut prints SKIPPED when fewer than 5 features instead of returning silently. Not changed: verdicts are still prose (KILL/CONFIRMED rules not computed in code) and round4_mdlp_collapse_diag is untouched. Test tests/feature_selection/test_cluster12_knockoff_skip_logged.py (source pin).
 - 12-F87: PARTIAL. Removed the unused sd_a/sd_b fit fields and the unreachable ratio_eps branch from fe_richops_bench. Not changed: _apply_op skips a pair with a missing operand without recording it; output names carry the pair index, so the gaps are identifiable. Test tests/feature_selection/test_cluster12_richops_dead_code_removed.py.
 - 12-F16: FIXED. Unblinding replaces whole labels in one pass, longest first, so arm_b no longer rewrites inside arm_bx; a non-object mapping JSON means no mapping instead of a crash. Test tests/feature_selection/test_cluster12_blinding_boundaries_and_json.py; 16 blinding tests pass.
-- 12-F103: DEFERRED. downstream is reimplemented in several bench files with different return types. Consolidating means a shared evaluator with one return contract, which needs an owner decision on the contract. No code change.
-- 12-F8: DEFERRED. Three near-identical downstream evaluators differ in rounding and empty-input handling. Unifying them changes results at the rounding edge, so it needs a decision on the canonical behaviour. No code change.
 
 - 12-F34: DEFERRED. H35 and H32 pick the config by OOF AUC on rows the members were fit on. A real fix refits the members on a training split and scores the augmented features of held-out rows, and HybridSelector has no transform path that builds those features. Needs that transform first (a feature-engine change). Benchmark-only, not production. No code change.
 
@@ -242,3 +240,7 @@ Counts: P0 0, P1 22, P2 57, P3 22 (101 rows). The rows marked [v] are the ones I
 - 12-F42: DOCUMENTED. The override is deliberate: _min_rows_for_minority guarantees the minimum minority count, so a null bed has max(n, 10000) rows. The _make_null docstring now says so; behaviour unchanged.
 
 - 12-F74: FIXED. Owner decision applied (option A): run_grid counts the status of every cell it executes and ends with one WARNING naming how many did not finish ok, by status, with the hint that on a resumed run those keys count as done unless --retry-failed is passed (_log_status_summary). Default resume behaviour is unchanged. Test tests/feature_selection/test_cluster12_run_grid_status_summary.py.
+
+- 12-F8: FIXED. The three fs_hybrid downstream evaluators share one model definition (_raw_aucs) and rounding; empty input is NaN everywhere. test_cluster12_downstream_evaluators_share_one_definition.
+
+- 12-F103: PARTIAL. The shared module is consolidated (12-F8); the per-script downstream copies in the round2-4 bench scripts stay (bench scripts are DEFERRED by project rule unless they hide a real bug).

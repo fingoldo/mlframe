@@ -64,7 +64,9 @@ def _fit_aux_lgb_and_filter(
         model = lgb.LGBMRegressor(**params)
         model.fit(X_train, y_train)
         pred = np.asarray(model.predict(virtuals))
-        # For regression, keep virtuals predicted in top quintile (analogous to confidence threshold).
+        # For regression, keep virtuals predicted in top quintile (analogous to confidence threshold). The quintile is taken over the aux model's
+        # predictions on its OWN training rows (in-sample, so it can sit high for an overfitted aux model); an out-of-fold threshold would cost an extra
+        # fit per fold and change which virtuals survive, so the in-sample rule is kept deliberately (09-F43).
         pred_threshold = float(np.quantile(model.predict(X_train), 0.8))
         keep_mask = pred >= pred_threshold
     filtered = virtuals[keep_mask]

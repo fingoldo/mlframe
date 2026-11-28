@@ -17,21 +17,28 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
 
+_NAN_AUCS = {"lgbm": float("nan"), "logit": float("nan"), "knn": float("nan")}
+
+
+def _raw_aucs(Xtr, Xte, ytr, yte) -> dict:
+    """Unrounded test AUC of LGBM (300 trees) / StandardScaler+LogisticRegression / StandardScaler+kNN(25) fitted on ``Xtr`` and scored on ``Xte``.
+
+    The single place the three downstream models are defined: the evaluators below differ only in how they select columns, how they handle empty input
+    and how they summarise, never in the models or the rounding (12-F8).
+    """
+    makers = {
+        "lgbm": lambda: lgb.LGBMClassifier(n_estimators=300, verbose=-1),
+        "logit": lambda: make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)),
+        "knn": lambda: make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)),
+    }
+    return {name: float(roc_auc_score(yte, np.asarray(mk().fit(Xtr, ytr).predict_proba(Xte))[:, 1])) for name, mk in makers.items()}
+
+
 def lgb_logit_knn_mean_auc(Xtr, Xte, ytr, yte, cols) -> float:
-    """Mean held-out AUC across LGBM (300 trees) / StandardScaler+LogisticRegression /
-    StandardScaler+kNN(25) on the ``cols`` subset -- the round2 RFECV bench pair's shared downstream metric.
-    NaN if ``cols`` is empty."""
+    """Mean held-out AUC across the three downstream models on the ``cols`` subset (rounded to 4 places); NaN if ``cols`` is empty."""
     if not cols:
         return float("nan")
-    a = [
-        roc_auc_score(yte, np.asarray(mk().fit(Xtr[cols], ytr).predict_proba(Xte[cols]))[:, 1])
-        for mk in (
-            lambda: lgb.LGBMClassifier(n_estimators=300, verbose=-1),
-            lambda: make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)),
-            lambda: make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)),
-        )
-    ]
-    return round(float(np.mean(a)), 4)
+    return round(float(np.mean(list(_raw_aucs(Xtr[cols], Xte[cols], ytr, yte).values()))), 4)
 
 
 def boruta_single(X, y):
@@ -108,23 +115,15 @@ def checkpoint(msg: str) -> None:
 
 
 def downstream_on_cols(Xtr, Xte, ytr, yte, cols):
-    """Fit LGBM / logistic / kNN on the ``cols`` subset of ``Xtr``/``Xte`` and return each model's test AUC (NaN triple if ``cols`` is empty)."""
+    """Each downstream model's test AUC (rounded to 4 places) on the ``cols`` subset of ``Xtr``/``Xte``; a NaN triple if ``cols`` is empty."""
     if not cols:
-        return {"lgbm": float("nan"), "logit": float("nan"), "knn": float("nan")}
-    o = {}
-    o["lgbm"] = roc_auc_score(yte, np.asarray(lgb.LGBMClassifier(n_estimators=300, verbose=-1).fit(Xtr[cols], ytr).predict_proba(Xte[cols]))[:, 1])
-    o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
-    o["knn"] = roc_auc_score(yte, make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)).fit(Xtr[cols], ytr).predict_proba(Xte[cols])[:, 1])
-    return {k: round(float(v), 4) for k, v in o.items()}
+        return dict(_NAN_AUCS)
+    return downstream_on_matrix(Xtr[cols], Xte[cols], ytr, yte)
 
 
 def downstream_on_matrix(Ztr, Zte, ytr, yte):
-    """Fit LGBM / logistic / kNN directly on already-selected matrices ``Ztr``/``Zte`` and return each model's test AUC."""
-    o = {}
-    o["lgbm"] = roc_auc_score(yte, np.asarray(lgb.LGBMClassifier(n_estimators=300, verbose=-1).fit(Ztr, ytr).predict_proba(Zte))[:, 1])
-    o["logit"] = roc_auc_score(yte, make_pipeline(StandardScaler(), LogisticRegression(max_iter=2000)).fit(Ztr, ytr).predict_proba(Zte)[:, 1])
-    o["knn"] = roc_auc_score(yte, make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=25)).fit(Ztr, ytr).predict_proba(Zte)[:, 1])
-    return {k: round(float(v), 4) for k, v in o.items()}
+    """Each downstream model's test AUC (rounded to 4 places) on already-selected matrices ``Ztr``/``Zte``."""
+    return {k: round(v, 4) for k, v in _raw_aucs(Ztr, Zte, ytr, yte).items()}
 
 
 def make_ckpt_writer(path):
