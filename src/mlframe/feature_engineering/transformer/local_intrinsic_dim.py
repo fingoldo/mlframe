@@ -23,7 +23,7 @@ a different invariant — shape rather than scale — from the same neighborhood
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 import numpy as np
 import polars as pl
@@ -40,7 +40,6 @@ def compute_local_intrinsic_dim_features(
     splitter: Optional[Any] = None,
     *,
     seed: int,
-    task: Literal["binary", "regression"] = "regression",
     k_neighbors: int = 30,
     standardize: bool = True,
     column_prefix: str = "lid",

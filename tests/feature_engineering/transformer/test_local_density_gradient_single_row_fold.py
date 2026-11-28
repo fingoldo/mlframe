@@ -23,7 +23,7 @@ def test_local_density_gradient_single_row_train_fold_returns_zeros_with_warning
     splitter = LeaveOneOut()
 
     with caplog.at_level(logging.WARNING, logger="mlframe.feature_engineering.transformer.local_density_gradient"):
-        result = compute_local_density_gradient_features(X, y, None, splitter, seed=0, task="regression").to_numpy()
+        result = compute_local_density_gradient_features(X, y, None, splitter, seed=0).to_numpy()
 
     assert result.shape == (2, 5)
     assert np.all(result == 0.0)

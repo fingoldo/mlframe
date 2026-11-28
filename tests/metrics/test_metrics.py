@@ -2086,7 +2086,7 @@ class TestFastRegressionMetrics:
         from mlframe.metrics.core import fast_max_error
 
         y, p = self._data(rng, (5_000, 3))
-        out = fast_max_error(y, p)  # default raw_values
+        out = fast_max_error(y, p, multioutput="raw_values")
         # Verify against direct numpy
         ref = np.max(np.abs(y - p), axis=0)
         np.testing.assert_allclose(out, ref, rtol=0, atol=1e-12)

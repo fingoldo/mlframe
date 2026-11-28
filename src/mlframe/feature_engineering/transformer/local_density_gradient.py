@@ -36,7 +36,7 @@ Cost: kNN build O(N log N) + per-row gradient O(K). Sub-second per fold.
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 import numpy as np
 import polars as pl
@@ -53,7 +53,6 @@ def compute_local_density_gradient_features(
     splitter: Optional[Any] = None,
     *,
     seed: int,
-    task: Literal["binary", "regression"] = "regression",
     k_neighbors: int = 32,
     standardize: bool = True,
     column_prefix: str = "ldgrad",

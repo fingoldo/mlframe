@@ -79,14 +79,18 @@ def compute_local_linear_attention(
     if k < d + 2:
         raise ValueError(f"k={k} must be at least d+2={d+2} for a non-degenerate local fit.")
 
-    # Standardise train; the standardiser is fit on train and applied to query — standard ML hygiene.
-    if standardize:
-        scaler = RobustScaler().fit(X_train)
-        X_train_s = scaler.transform(X_train).astype(dtype, copy=False)
-        X_query_s = scaler.transform(X_query).astype(dtype, copy=False) if X_query is not None else None
-    else:
-        X_train_s = X_train.astype(dtype, copy=False)
-        X_query_s = X_query.astype(dtype, copy=False) if X_query is not None else None
+    # Standardise with a scaler fit on the rows that serve as the neighbour pool, never on the rows being encoded:
+    # Mode B fits it on all of train and applies it to the query; Mode A refits it inside each fold on that fold's train part.
+    def _scale(fit_rows: np.ndarray, *apply_to: np.ndarray) -> list:
+        """Scaled copies of ``apply_to`` (in ``dtype``) using a RobustScaler fit on ``fit_rows``, or plain casts when ``standardize`` is off."""
+        if not standardize:
+            return [a.astype(dtype, copy=False) for a in apply_to]
+        sc = RobustScaler().fit(fit_rows)
+        return [sc.transform(a).astype(dtype, copy=False) for a in apply_to]
+
+    X_query_s = None
+    if X_query is not None:
+        X_train_s, X_query_s = _scale(X_train, X_train, X_query)
 
     n_out_cols = d + 1 + (1 if return_r2 else 0)
     out_for_query = X_query is not None
@@ -160,10 +164,9 @@ def compute_local_linear_attention(
     if not out_for_query:
         # Mode A: OOF for X_train.
         out: np.ndarray = np.zeros((n_train, n_out_cols), dtype=dtype)
-        for fold_idx, (tr_idx, va_idx) in enumerate(splitter.split(X_train_s)):
-            X_pool = X_train_s[tr_idx]
+        for fold_idx, (tr_idx, va_idx) in enumerate(splitter.split(X_train)):
+            X_pool, X_anchor = _scale(X_train[tr_idx], X_train[tr_idx], X_train[va_idx])
             y_pool = y_train[tr_idx].astype(np.float32, copy=False)
-            X_anchor = X_train_s[va_idx]
             out[va_idx] = _fit_and_extract(X_anchor, X_pool, y_pool)
             logger.info("local_linear fold %d done (%d val rows)", fold_idx + 1, len(va_idx))
     else:

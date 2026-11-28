@@ -1443,7 +1443,6 @@ def _build_iter127_with_iter69(X_tr, X_te, y_tr, task, seed):
         X_query=None,
         splitter=splitter,
         seed=seed,
-        task=task_str,
     ).to_numpy()
     li_te = compute_local_intrinsic_dim_features(
         X_train=X_tr,
@@ -1451,7 +1450,6 @@ def _build_iter127_with_iter69(X_tr, X_te, y_tr, task, seed):
         X_query=X_te,
         splitter=splitter,
         seed=seed,
-        task=task_str,
     ).to_numpy()
     cd_tr, cd_te = _features_cdist_seeded(X_tr, X_te, y_tr, task, seed)
     return (

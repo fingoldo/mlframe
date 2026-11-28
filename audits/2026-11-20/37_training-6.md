@@ -136,8 +136,9 @@ Severity counts: P0 0, P1 8, P2 21, P3 23, total 52.
 - 37-F49: FIXED. _entry_metric reads the positive class (1) first for a {0,1} class-indexed layout, as its comment states; multiclass keeps ascending order. Test tests/training/test_cluster37_entry_metric_positive_class.py.
 - 37-F48: DEFERRED. The OOD lag router uses the validation split for both the route-or-keep decision and the reported score, so the reported score is optimistic. Fixing that is an ML evaluation-design decision (which split reports the estimate). No code change.
 - 37-F42: DEFERRED. _apply_plot_style_overrides changes process-wide matplotlib and plotly state and is not restored on failure. Restoring it needs a context-manager design across the setup path; deferred. No code change.
-- 37-F36: DEFERRED. The unary transforms logger name differs from the composite_transforms name used elsewhere; changing it affects log filters configured by users, so it needs a naming decision. No code change.
 
 - 37-F35: FIXED. Removed the unused short_name parameter from both chain factories in nonlinear.py and its keyword at every call site (registry.py and the auto-chain factory call). The duplicate logger and TYPE_CHECKING were already removed. Test tests/training/composite/test_cluster37_chain_factory_no_short_name.py (2 passed); the auto-chain cache replay test passes (3 passed with it).
 
 - 37-F51: FIXED. The group-slice helper is renamed _group_train_slice at its definition and at its lazy-proxy call site; the old name is gone from the core sources. Test tests/training/core/test_cluster37_group_slice_name.py (2 passed).
+
+- 37-F36: FIXED. unary.py logs under mlframe.training.composite_transforms; stale follow-up note removed; test_cluster37_unary_logger_name.

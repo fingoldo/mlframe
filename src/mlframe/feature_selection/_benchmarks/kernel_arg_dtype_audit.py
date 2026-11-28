@@ -17,6 +17,7 @@ import os
 import re
 import runpy
 import sys
+import ctypes
 import traceback
 from typing import Any, Optional
 
@@ -34,7 +35,8 @@ _NUMPY_OF_C = {
     "unsigned char": np.uint8,
     "short": np.int16,
     "unsigned short": np.uint16,
-    "long": np.int32,
+    "long": np.dtype(f"i{ctypes.sizeof(ctypes.c_long)}").type,  # 4 bytes on Windows (LLP64), 8 on Linux/macOS (LP64): the platform running the audit
+    "unsigned long": np.dtype(f"u{ctypes.sizeof(ctypes.c_long)}").type,
     "bool": np.bool_,
 }
 _SIGNATURE = re.compile(r"__global__\s+void\s+(\w+)\s*\((.*?)\)\s*\{", re.S)

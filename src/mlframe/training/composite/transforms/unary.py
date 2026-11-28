@@ -18,7 +18,7 @@ This module ships:
   - then applies a unary transform on T1 (``T2 = unary.forward(T1)``),
   - inverts by reverse order at predict.
 
-These helpers are pure numpy; integration into the registry + ``CompositeTargetEstimator`` wrapper (adding a ``requires_base: bool = True`` field to the Transform dataclass and skipping base-column extraction when ``False``) is the follow-up step. Tests pin the round-trip math at the helper level so the wrapper integration cannot regress silently.
+These helpers are pure numpy; registry and ``CompositeTargetEstimator`` wiring lives with the callers of these helpers. Tests pin the round-trip math at the helper level.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from typing import Any, Callable, Dict, Tuple, cast
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("mlframe.training.composite_transforms")
 
 try:
     import numba as _numba

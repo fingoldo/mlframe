@@ -12,7 +12,7 @@ total persistence.
 from __future__ import annotations
 
 import logging
-from typing import Any, Literal, Optional
+from typing import Any, Optional
 
 import numpy as np
 import polars as pl
@@ -29,7 +29,6 @@ def compute_persistence_diagram_features(
     splitter: Optional[Any] = None,
     *,
     seed: int,
-    task: Literal["binary", "regression"] = "regression",
     k_neighbors: int = 30,
     max_filtration: float = 5.0,
     standardize: bool = True,

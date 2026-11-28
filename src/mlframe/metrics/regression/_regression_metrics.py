@@ -466,13 +466,13 @@ def fast_max_error(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     *,
-    multioutput: Union[str, np.ndarray] = "raw_values",
+    multioutput: Union[str, np.ndarray] = "uniform_average",
 ) -> float | np.ndarray:
     """Drop-in for ``sklearn.metrics.max_error``. ~6× faster at N=1M.
 
     sklearn's ``max_error`` raises on multioutput input; we extend with
-    ``multioutput`` support (default ``'raw_values'`` returns per-output
-    max). ``sample_weight`` does NOT apply to max-error (max is max).
+    ``multioutput`` support (default ``'uniform_average'`` returns the mean of the
+    per-output maxima, like every sibling regression metric; ``'raw_values'`` returns the per-output max). ``sample_weight`` does NOT apply to max-error (max is max).
     """
     _check_equal_length(y_true, y_pred)
     yt = np.ascontiguousarray(np.asarray(y_true), dtype=np.float64)

@@ -8,7 +8,7 @@ from mlframe.feature_engineering.transformer.multi_temperature import compute_mu
 def test_lift_against_a_negative_global_mean_is_a_plain_ratio():
     """Global mean -0.01 and a local mean of -0.02 give a lift of 2, not -2e7 from a 1e-9 divisor."""
     y_nb = np.full((3, 4), -0.02, dtype=np.float32)
-    lift, _pr, _top1 = _local_lift_and_pr_auc(y_nb, np.ones((3, 4), dtype=np.float32), -0.01, "regression")
+    lift, _pr, _top1 = _local_lift_and_pr_auc(y_nb, -0.01, "regression")
     assert np.allclose(lift, 2.0, atol=1e-5)
 
 

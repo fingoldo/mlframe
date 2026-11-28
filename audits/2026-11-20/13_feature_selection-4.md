@@ -97,10 +97,11 @@ Scope: 142 files from `audits/2026-11-20/manifests/13_feature_selection-4.txt`, 
 - 13-F16: FIXED. Removed nine module-level imports used only by their own import line from the BorutaSHAP package; the classes it uses stay. Test tests/feature_selection/test_cluster13_boruta_unused_imports_removed.py.
 - 13-F15: WON'T FIX. TentativeRoughFix, missing_values_y, check_missing_values, average_of_list and hasNumbers have no production caller. Uncalled helpers are classified and kept, not deleted (project rule). No code change.
 - 13-F21: FIXED. fold_rank_consistency builds each fold's top mask from the top indices with a boolean array instead of a Python loop over every column; same result. Test tests/feature_selection/test_cluster13_fold_rank_consistency_vectorised.py.
-- 13-F28: DEFERRED. kernel_arg_dtype_audit maps long to int32 by Windows LLP64. A portable fix needs a platform-aware type table and a decision on which platform the audit must catch; deferred to the benchmarks owner. No code change.
 - 13-F19: FIXED. explain() raises a clear RuntimeError at its top when the fitted frames were released for a large fit, instead of passing None into the explainer. Test tests/feature_selection/test_cluster13_explain_after_frame_release.py.
 - 13-F18: DEFERRED. Per-trial Python loops in update_importance_history and calculate_hits could be vectorised, but the change needs a perf benchmark and equivalence check of the importance history, deferred to a perf pass. No code change.
 
 - 13-F34: FIXED. env_sampled_fit exits cleanly with a message when no samples were taken, before any statistics: the mean, the percentile and the page-fault arithmetic all come after that exit. The script runs its fit at import, so no unit test is added; the guard is verified by reading the code.
 
 - 13-F20: FIXED. stability_n_jobs is now a BorutaShap constructor parameter (default -1, stored verbatim, documented), so get_params and clone keep it. Test tests/feature_selection/boruta_shap/test_cluster13_stability_n_jobs_param.py. Existing BorutaShap tests: 24 passed with no failure before my own time cap on the heavy ones; the rest left to CI
+
+- 13-F28: FIXED. long and unsigned long resolve through ctypes.sizeof(c_long) for the running platform; test_cluster13_long_follows_the_platform.

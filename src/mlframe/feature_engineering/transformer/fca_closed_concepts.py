@@ -17,18 +17,16 @@ logger = logging.getLogger(__name__)
 
 
 def compute_fca_closed_concepts_features(
-    X_train: Any, y_train: Any, X_query: Any=None, splitter: Any=None, *, seed: int, task: str="regression",
-    top_k: int=8, standardize: bool=True, column_prefix: str="fca", dtype: type=np.float32,
+    X_train: Any, y_train: Any, X_query: Any=None, splitter: Any=None, *, seed: int,
+    top_k: int=8, column_prefix: str="fca", dtype: type=np.float32,
 ) -> pl.DataFrame:
     """Formal Concept Analysis membership features: emits per-query indicators for the top-K closed concepts
     (by extent size) of a boolean context built from median-thresholded train attributes, plus n_matched
     and n_concepts summary columns. top_k + 2 features total.
 
-    ``standardize`` is accepted (matching every sibling transformer's shared call signature) but
-    intentionally UNUSED here: every attribute is boolean-thresholded against its own per-column median
-    (``x_j > median(x_j)``), a monotonic, scale-invariant comparison -- any monotonic rescaling of a
-    column (standardization included) leaves which rows fall above/below its median unchanged, so
-    standardizing X first would produce byte-identical boolean attributes and closed concepts.
+    There is no ``standardize`` or ``task`` parameter: every attribute is boolean-thresholded against its own per-column median
+    (``x_j > median(x_j)``), a monotonic, scale-invariant comparison, so rescaling X cannot change the concepts, and the
+    construction never reads the task.
     """
     try:
         import concepts as _concepts  # noqa: F401 -- probe import to fail fast with a clear error if concepts is missing

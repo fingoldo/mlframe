@@ -231,12 +231,14 @@ class PartialFitESWrapper:
         #   3. internal train/val split via val_size.
         # ``**_unused`` swallows fit_params keys the suite may pass (eval_set, callbacks etc.)
         # that don't apply to non-native-ES estimators.
+        carved_val = False  # True when the val rows were cut out of (X, y), so X_tr is only part of the train set
         if X_val is None or y_val is None:
             if self.external_X_val is not None and self.external_y_val is not None:
                 X_tr, y_tr = X, y
                 X_val, y_val = self.external_X_val, self.external_y_val
             else:
                 X_tr, X_val, y_tr, y_val = _split_train_val(X, y, self.val_size, self.random_state)
+                carved_val = True
         else:
             X_tr, y_tr = X, y
         metric_fn, metric_name, mode = _resolve_metric(self.metric, self.is_classification)
@@ -244,7 +246,7 @@ class PartialFitESWrapper:
         if hasattr(self.estimator, "partial_fit"):
             self._fit_partial(X_tr, y_tr, X_val, y_val, metric_fn, metric_name, mode)
         elif self.budget_param is not None and hasattr(self.estimator, self.budget_param):
-            self._fit_dichotomic(X_tr, y_tr, X_val, y_val, metric_fn, metric_name, mode)
+            self._fit_dichotomic(X_tr, y_tr, X_val, y_val, metric_fn, metric_name, mode, full_train=(X, y) if carved_val else None)
         else:
             raise ValueError(
                 f"Estimator {type(self.estimator).__name__} has no ``partial_fit`` and " f"no ``budget_param`` was supplied; cannot apply ES wrapper."
@@ -372,14 +374,20 @@ class PartialFitESWrapper:
 
     # -- internal: dichotomic-search strategy ---------------------------------
 
-    def _fit_dichotomic(self, X_tr, y_tr, X_val, y_val, metric_fn, metric_name, mode) -> None:
+    def _fit_dichotomic(self, X_tr, y_tr, X_val, y_val, metric_fn, metric_name, mode, full_train=None) -> None:
         """Bisect the budget hyperparameter to find the best val metric.
 
         Strategy:
           1. Evaluate at ``budget_max`` and at ``budget_min``. Both extremes scored.
           2. Bisect: test midpoint, drop the half whose endpoint is worse.
           3. Stop when the bracket shrinks below ``log_step_floor`` (default 1).
-          4. Final fit at the winning budget on full train data.
+          4. When the val rows were carved out of the train set (``full_train`` is ``(X, y)``), refit once at the winning
+             budget on all of it, so the final model has seen every train row as documented. With an explicit or external
+             val set ``X_tr`` already is the full train set and the winning candidate is kept as fitted.
+
+        ``history`` holds the val score per tested budget (floats, ascending budget) and ``history_budgets`` the budgets.
+        Only this path lacks ``partial_fit``, so continuing the winner on the val rows alone is not available; and for
+        an estimator that has it, one pass over only the held-out rows would not equal training on all rows.
         """
         lo, hi = self.budget_min, self.budget_max
         scores: dict[int, tuple[float, Any]] = {}  # budget -> (val_score, fitted_estimator)
@@ -427,12 +435,16 @@ class PartialFitESWrapper:
         comp_fn = min if mode == "min" else max
         best_budget = comp_fn(scores.keys(), key=lambda b: scores[b][0])
         best_score, best_est = scores[best_budget]
+        if full_train is not None:
+            from sklearn.base import clone
+            best_est = clone(self.estimator).set_params(**{_budget_param: int(best_budget)}).fit(full_train[0], full_train[1])
         self.estimator = best_est
         self.best_iter = int(best_budget)
         self.best_metric = float(best_score)
         self.stopped_via = "dichotomic"
-        _sorted_history: list = sorted(scores.items(), key=lambda kv: kv[0])
-        self.history = _sorted_history
+        _tested = sorted(scores)
+        self.history = [float(scores[b][0]) for b in _tested]
+        self.history_budgets = [int(b) for b in _tested]
         if self.verbose > 0:
             logger.info("PartialFitESWrapper dichotomic: best %s = %s at %s=%d (tested %d budgets)",
                         metric_name, self.best_metric, self.budget_param, self.best_iter, len(scores))

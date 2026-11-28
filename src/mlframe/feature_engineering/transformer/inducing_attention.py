@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import logging
 import warnings
-from typing import Any, Literal, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 import numpy as np
 import polars as pl
@@ -100,7 +100,6 @@ def compute_inducing_attention_features(
     splitter: Optional[Any] = None,
     *,
     seed: int,
-    task: Literal["binary", "regression"] = "binary",
     n_anchors: int = 16,
     temp_a: float = 1.0,
     temp_b: float = 1.0,

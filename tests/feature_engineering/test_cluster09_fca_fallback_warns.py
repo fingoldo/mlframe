@@ -18,6 +18,6 @@ def test_lattice_failure_logs_warning(caplog):
     X = rng.normal(size=(40, 3))
     y = X[:, 0] + rng.normal(size=40) * 0.1
     with patch("concepts.Context", side_effect=RuntimeError("boom")), caplog.at_level(logging.WARNING):
-        out = fca.compute_fca_closed_concepts_features(X, y, None, KFold(3, shuffle=True, random_state=0), seed=0, task="regression", top_k=4)
+        out = fca.compute_fca_closed_concepts_features(X, y, None, KFold(3, shuffle=True, random_state=0), seed=0, top_k=4)
     assert np.all(out.to_numpy()[:, :4] == 0.0)
     assert any(r.levelno == logging.WARNING and "lattice construction failed" in r.getMessage() for r in caplog.records)

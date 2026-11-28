@@ -92,10 +92,9 @@ def test_a2_07_local_pr_auc_matches_sklearn_average_precision() -> None:
 
     rng = np.random.default_rng(5)
     n_q, k = 60, 24
-    # Distances ascending; labels increasingly concentrated near the front for some queries, back for others.
+    # Labels increasingly concentrated near the front for some queries, back for others.
     y_neighbors = (rng.random((n_q, k)) < (0.5 - 0.4 * np.linspace(-1, 1, k))[None, :]).astype(np.float32)
-    dists = np.sort(rng.random((n_q, k)).astype(np.float32), axis=1)
-    _lift, pr_auc, _top1 = _local_lift_and_pr_auc(y_neighbors, dists, 0.3, task="binary")
+    _lift, pr_auc, _top1 = _local_lift_and_pr_auc(y_neighbors, 0.3, task="binary")
 
     # Reference: sklearn AP using similarity score = -rank (closer neighbour => higher score).
     scores = (k - 1) - np.arange(k)

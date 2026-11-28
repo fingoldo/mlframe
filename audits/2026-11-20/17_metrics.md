@@ -75,7 +75,6 @@ Reading coverage: every manifest file was read in full (all of `calibration/`, `
 - 17-F28: FIXED. Adjusted-R2 bench helpers delegate to fast_r2_score and fast_adjusted_r2_score; they agree on a sample. Test tests/metrics/test_cluster17_adjr2_bench_uses_shipped.py.
 - 17-F27: DEFERRED. Bench kernel copies with fastmath=True are the A/B variants under test; replacing them with production kernels removes the comparison. Which arm the bit-identical claim describes, and whether the R2=-inf discrepancy is a bench or production bug, needs an owner decision. Not changed.
 - 17-F26: WON'T FIX. Welford kernels are exercised by tests/metrics/regression/test_fused_regression_metrics_block.py and classified as deliberate alternatives in the shared uncalled-functions allowlist (tests/test_meta/test_shared_uncalled_functions.py). The classification the finding asks for already exists. Not changed.
-- 17-F22: DEFERRED. Default aggregation and grid differ across metric siblings (max_error raw_values vs uniform_average; calibration nbins/use_weights). Aligning defaults changes what existing callers receive; owner decision (align or document). Not changed.
 - 17-F25: DEFERRED. Per-class ICE path repeats binning and calibration MAE/STD across three modules. A dedup refactor across the calibration and report modules; not started in this pass. Not changed.
 
 - 17-F9: FIXED. Degenerate calibration report and fast_ice_only on empty input use ICE_UNCOMPUTABLE (1e6, finite) instead of 1.0, so a real model with ICE above 1.0 can no longer tie it. Behaviour change: degenerate ICE value changes. Test tests/metrics/test_cluster17_degenerate_ice_sentinel.py; existing degenerate-report test updated to the sentinel.
@@ -89,3 +88,5 @@ Reading coverage: every manifest file was read in full (all of `calibration/`, `
 - 17-F10: FIXED. Fixed-[0,1] ECE/Brier kernels return NaN when a score lies outside [0,1] beyond 1e-9, matching fast_brier_score_loss and the fused block. Regression test added. Seven failures in test_metrics.py (fast_ice_only empty input, regression length_of numba typing) are in untouched code and not caused by this change.
 
 - 17-F12: FIXED. Quantile binning kernel locates each pocket by binary search (O(log nbins)); NaN scores stay in pocket 0 as before. Regression test compares with the old linear scan, including ties and edge values.
+
+- 17-F22: FIXED. fast_max_error defaults to uniform_average, fast_calibration_metrics to nbins=10 (matching fast_calibration_report); test_cluster17_metric_defaults_aligned.

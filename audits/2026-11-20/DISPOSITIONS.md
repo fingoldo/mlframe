@@ -627,7 +627,6 @@
 | 27-F9 | FIXED | The pandas NaN fill works on a shallow copy, so the caller's frame keeps its NaNs, as the polars branch already did. Test tests/training/test_cluster27_nan_fill_leaves_caller_frame.py. |
 | 27-F7 | FIXED | A weighted fit's permutation importances skip the unweighted CUDA kernel and use the weighted CPU path. Test tests/training/test_cluster27_weighted_fi_skips_cuda.py. |
 | 27-F8 | DEFERRED | Owner decision: signed or magnitude coef_ importances. The two branches disagree today; choosing either changes the reported numbers for one of them. |
-| 27-F13 | DEFERRED | Owner decision: refit on the full train, or correct the documented contract. The dichotomic path keeps the 90 percent model today, and history has mixed types. |
 | 28-F42 | FIXED | A failed text-feature probe logs at WARNING with its traceback. Test tests/training/test_cluster28_probe_and_names_warn.py (covers the names path; the probe path shares the same change). |
 | 28-F49 | FIXED | An unreadable feature-name list logs at WARNING, and the attribute read itself is inside the guard. Test tests/training/test_cluster28_probe_and_names_warn.py. |
 | 28-F40 | FIXED | The logging proxy raises AttributeError for its unset _inner slot instead of recursing. Test tests/training/test_cluster28_logging_proxy_and_rss.py. |
@@ -1036,11 +1035,9 @@
 | 09-F39 | FIXED | Scale tag uses round(ns*100) so 0.29 is n29 (int truncation gave n28). Test tests/feature_engineering/transformer/test_cluster09_diffusion_scale_tag.py. |
 | 09-F45 | FIXED | Empty quintile stratum logs a WARNING naming the stratum before its features fall back to the whole fold. Test tests/feature_engineering/transformer/test_cluster09_empty_stratum_warns.py (source pin). |
 | 09-F44 | FIXED | Local logistic solver penalises only the slopes (intercept index 0 unpenalised); gradient and Hessian use the same penalty vector. Behaviour change: outputs of the local classifier move for any ridge>0. Tests tests/feature_engineering/transformer/test_cluster09_local_logreg_intercept_unpenalised.py; 9 existing local-classifier tests pass (397 skipped by their gates). |
-| 09-F33 | DEFERRED | Accepted-but-unused task/standardize/dists parameters in six transformer modules. Removing or wiring them changes public signatures and every caller that passes them; owner decision (remove vs wire through). Not changed. |
 | 09-F38 | FIXED | Silverman bandwidth uses the multivariate rule (4/(d+2))^(1/(d+4)) n^(-1/(d+4)); equals the 1-D rule at d=1, changes d>1 outputs. Tests tests/feature_engineering/transformer/test_cluster09_silverman_multivariate.py; 8 existing density-ratio tests pass (397 skipped by gates). |
 | 09-F41 | DEFERRED | Empty-band convention differs across band-attention modules. Masking empty bands (the suggested fix) changes attention outputs in residual_band, signed_residual_band and prediction_band; the convention needs owner confirmation first. Not changed. |
 | 09-F37 | PARTIAL | Removed the stale comment about the removed _GPU_AUTO_CACHE in random_features.py. Not changed: the unreachable padding branches in denoising_autoencoder, hard_row_attention and related modules named in the finding. Test tests/feature_engineering/transformer/test_cluster09_no_stale_cache_comment.py (source pin). |
-| 09-F36 | DEFERRED | Mode A RobustScaler is fitted on the whole X_train passed in. A per-fold refit needs the OOF caller restructured; the finding itself rates the unsupervised leakage negligible. Not changed; owner to decide whether the discipline change is worth the restructure. |
 | 09-F34 | DEFERRED | Stub parameters (n_bits, top_k_pairs) and per-module Literal/dtype gates differ across siblings. Each stub needs an implement-or-remove decision, and widening a Literal without implementing the value would only defer the error. Owner decision. Not changed. |
 | 40-F33 | WON'T FIX | Polars cannot represent N rows with zero columns (verified: select([]) has height 0), so the (N, 0) contract is unattainable for polars frames. Callers that need the row count must read it from the input. Not changed. |
 | 40-F34 | DEFERRED | Bench keeps its own _binned_mi variants (addat, bincount) for A/B timing, not a copy of production. Both agree with production _ranker_fs._binned_mi, but on a strongly dependent sample all three return 0.0, which needs a review of the expected y/x contract before a sanity test can be written. Not changed. |
@@ -1052,7 +1049,6 @@
 | 17-F28 | FIXED | Adjusted-R2 bench helpers delegate to fast_r2_score and fast_adjusted_r2_score; they agree on a sample. Test tests/metrics/test_cluster17_adjr2_bench_uses_shipped.py. |
 | 17-F27 | DEFERRED | Bench kernel copies with fastmath=True are the A/B variants under test; replacing them with production kernels removes the comparison. Which arm the bit-identical claim describes, and whether the R2=-inf discrepancy is a bench or production bug, needs an owner decision. Not changed. |
 | 17-F26 | WON'T FIX | Welford kernels are exercised by tests/metrics/regression/test_fused_regression_metrics_block.py and classified as deliberate alternatives in the shared uncalled-functions allowlist (tests/test_meta/test_shared_uncalled_functions.py). The classification the finding asks for already exists. Not changed. |
-| 17-F22 | DEFERRED | Default aggregation and grid differ across metric siblings (max_error raw_values vs uniform_average; calibration nbins/use_weights). Aligning defaults changes what existing callers receive; owner decision (align or document). Not changed. |
 | 17-F25 | DEFERRED | Per-class ICE path repeats binning and calibration MAE/STD across three modules. A dedup refactor across the calibration and report modules; not started in this pass. Not changed. |
 | 21-F18 | FIXED | Perfect model gets a 'deferral cannot reduce error' verdict instead of 'insufficient data' (new branch for err_at_100 == 0). Test tests/reporting/test_cluster21_perfect_model_verdict.py drives build_risk_coverage_spec with a perfect model that has varying confidence. |
 | 21-F17 | FIXED | Training-curve alignment no longer holds the last value flat past a series' last logged sample: such series take the gap path, and _interp_with_gaps returns NaN beyond its last position. Test tests/reporting/test_cluster21_training_curve_tail_gap.py; existing training-curve tests (4 files) pass. |
@@ -1182,7 +1178,6 @@
 | 12-F87 | PARTIAL | Removed the unused sd_a/sd_b fit fields and the unreachable ratio_eps branch from fe_richops_bench. Not changed: _apply_op skips a pair with a missing operand without recording it; output names carry the pair index, so the gaps are identifiable. Test tests/feature_selection/test_cluster12_richops_dead_code_removed.py. |
 | 12-F16 | FIXED | Unblinding replaces whole labels in one pass, longest first, so arm_b no longer rewrites inside arm_bx; a non-object mapping JSON means no mapping instead of a crash. Test tests/feature_selection/test_cluster12_blinding_boundaries_and_json.py; 16 blinding tests pass. |
 | 32-F15 | FIXED | Config sufficiency test uses the signed delta, so a negative delta (init_score better than raw) counts as sufficient, as the module note says; the abs() had made it high_potential. Test tests/training/test_cluster32_init_score_sign_consistent.py; 55 baseline diagnostics tests pass. |
-| 13-F28 | DEFERRED | kernel_arg_dtype_audit maps long to int32 by Windows LLP64. A portable fix needs a platform-aware type table and a decision on which platform the audit must catch; deferred to the benchmarks owner. No code change. |
 | 26-F35 | DEFERRED | parametric.py calls settings.load_profile at import, changing global Hypothesis settings for any importer. Moving it to an explicit call changes what test suites that import the module get. Needs a decision. No code change. |
 | 37-F48 | DEFERRED | The OOD lag router uses the validation split for both the route-or-keep decision and the reported score, so the reported score is optimistic. Fixing that is an ML evaluation-design decision (which split reports the estimate). No code change. |
 | 09-F43 | DEFERRED | Pseudo-SMOTE regression confidence threshold is an in-sample quantile. Using out-of-fold predictions changes the aux model cost and the threshold semantics, which needs an ML design decision. No code change. |
@@ -1194,7 +1189,6 @@
 | 27-F19 | DEFERRED | Two suffix-stripping implementations differ (only one strips WithFastpath). Unifying them changes which names are stripped in one path, so it needs a decision. No code change. |
 | 28-F54 | DEFERRED | The two CatBoost loss-ensuring helpers duplicate about 60 lines. Extracting a shared helper is a refactor that needs call-site tests in both paths; deferred to a refactor pass. No code change. |
 | 37-F42 | DEFERRED | _apply_plot_style_overrides changes process-wide matplotlib and plotly state and is not restored on failure. Restoring it needs a context-manager design across the setup path; deferred. No code change. |
-| 37-F36 | DEFERRED | The unary transforms logger name differs from the composite_transforms name used elsewhere; changing it affects log filters configured by users, so it needs a naming decision. No code change. |
 | 39-F72 | DEFERRED | The torch from_numpy benchmark's Strategy C measures a path the code does not produce, and the 0.014 ms figure needs re-measurement on the real path before the doc can be corrected. Deferred to a benchmark re-run. No code change. |
 | 15-F13 | DEFERRED | Three near-identical unwrap-to-inner-estimator loops with different attribute sets across the wrappers files. Consolidating them needs one attribute-set contract across the three call sites, deferred to a refactor pass. No code change. |
 
@@ -1661,3 +1655,15 @@
 | 28-F64 | DOCUMENTED | Owner decision applied (leave, document): the write of trainset_features_stats into the shared common_params stays; a comment at the site now says it is a fallback for standalone calls (the suite computes the statistics up front and passes them in), that the write is how the first model's statistics reach later models, and that the value is also returned. No behaviour change. |
 
 | 27-F11 | FIXED | Val-Pool cache key now includes an exact BLAKE2b digest of every numeric column's raw bytes (compute_signature exact_numeric=True; 0.59 s on 2M x 40) plus the sampled hash for non-numeric columns. Also found: the reader and two report caches sliced sig[:4], which stops before the content hash, so they matched on columns/shape/dtypes only; now sig[:CONTENT_KEY_LEN]. Test test_cluster27_val_pool_cache_exact_numeric_key. |
+
+| 09-F33 | FIXED | Removed the unused task parameter from persistence_diagram, local_density_gradient, local_intrinsic_dim, inducing_attention and fca_closed_concepts, fca's standardize, and local_lift's dists; callers and tests updated (test_cluster09_unused_params_removed_and_local_linear_fold_scaler). |
+
+| 09-F36 | FIXED | local_linear Mode A fits the RobustScaler inside each fold on that fold's train part (Mode B on all train); test in test_cluster09_unused_params_removed_and_local_linear_fold_scaler. |
+
+| 17-F22 | FIXED | fast_max_error defaults to uniform_average, fast_calibration_metrics to nbins=10 (matching fast_calibration_report); test_cluster17_metric_defaults_aligned. |
+
+| 13-F28 | FIXED | long and unsigned long resolve through ctypes.sizeof(c_long) for the running platform; test_cluster13_long_follows_the_platform. |
+
+| 27-F13 | FIXED | Dichotomic path refits the winning budget on the full train when the val rows were carved from it; history is a float list with history_budgets alongside; test_cluster27_dichotomic_refit_on_full_train. |
+
+| 37-F36 | FIXED | unary.py logs under mlframe.training.composite_transforms; stale follow-up note removed; test_cluster37_unary_logger_name. |

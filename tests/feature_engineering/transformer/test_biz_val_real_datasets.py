@@ -6024,14 +6024,12 @@ def test_iter52_abalone():
 def _features_indattn(X_tr, X_te, y_tr, task):
     """Iter 53: M=16 K-means anchors as inducing points, two-stage softmax-attention."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
-    task_str = "binary" if task == "binary" else "regression"
     ia_te = compute_inducing_attention_features(
         X_train=X_tr,
         y_train=y_tr,
         X_query=X_te,
         splitter=splitter,
         seed=42,
-        task=task_str,
         n_anchors=16,
         temp_a=1.0,
         temp_b=1.0,
@@ -6042,7 +6040,6 @@ def _features_indattn(X_tr, X_te, y_tr, task):
         X_query=None,
         splitter=splitter,
         seed=42,
-        task=task_str,
         n_anchors=16,
         temp_a=1.0,
         temp_b=1.0,
@@ -7735,14 +7732,12 @@ def test_iter71_diabetes():
 def _features_ldgrad(X_tr, X_te, y_tr, task):
     """Iter 72: pure input-density geometry. NO baseline. K=32 neighbors → density gradient."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
-    task_str = "binary" if task == "binary" else "regression"
     ld_te = compute_local_density_gradient_features(
         X_train=X_tr,
         y_train=y_tr,
         X_query=X_te,
         splitter=splitter,
         seed=42,
-        task=task_str,
         k_neighbors=32,
     ).to_numpy()
     ld_tr = compute_local_density_gradient_features(
@@ -7751,7 +7746,6 @@ def _features_ldgrad(X_tr, X_te, y_tr, task):
         X_query=None,
         splitter=splitter,
         seed=42,
-        task=task_str,
         k_neighbors=32,
     ).to_numpy()
     return np.concatenate([X_tr, ld_tr], axis=1), np.concatenate([X_te, ld_te], axis=1)
@@ -7911,14 +7905,12 @@ def test_iter73_diabetes():
 def _features_lid(X_tr, X_te, y_tr, task):
     """Iter 74: PCA spectrum of K=30 NN neighborhood. Pure manifold-shape signal."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
-    task_str = "binary" if task == "binary" else "regression"
     lid_te = compute_local_intrinsic_dim_features(
         X_train=X_tr,
         y_train=y_tr,
         X_query=X_te,
         splitter=splitter,
         seed=42,
-        task=task_str,
         k_neighbors=30,
     ).to_numpy()
     lid_tr = compute_local_intrinsic_dim_features(
@@ -7927,7 +7919,6 @@ def _features_lid(X_tr, X_te, y_tr, task):
         X_query=None,
         splitter=splitter,
         seed=42,
-        task=task_str,
         k_neighbors=30,
     ).to_numpy()
     return np.concatenate([X_tr, lid_tr], axis=1), np.concatenate([X_te, lid_te], axis=1)
@@ -8959,14 +8950,12 @@ def test_iter85_diabetes():
 def _features_pers(X_tr, X_te, y_tr, task):
     """Helper: Features pers."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=42)
-    task_str = "binary" if task == "binary" else "regression"
     p_te = compute_persistence_diagram_features(
         X_train=X_tr,
         y_train=y_tr,
         X_query=X_te,
         splitter=splitter,
         seed=42,
-        task=task_str,
         k_neighbors=30,
     ).to_numpy()
     p_tr = compute_persistence_diagram_features(
@@ -8975,7 +8964,6 @@ def _features_pers(X_tr, X_te, y_tr, task):
         X_query=None,
         splitter=splitter,
         seed=42,
-        task=task_str,
         k_neighbors=30,
     ).to_numpy()
     return np.concatenate([X_tr, p_tr], axis=1), np.concatenate([X_te, p_te], axis=1)

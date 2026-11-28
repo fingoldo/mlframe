@@ -173,14 +173,12 @@ def _build_iter69(X_tr, X_te, y_tr, task, seed):
 def _build_iter72(X_tr, X_te, y_tr, task, seed):
     """local_density_gradient alone."""
     splitter = KFold(n_splits=5, shuffle=True, random_state=seed)
-    task_str = "binary" if task == "binary" else "regression"
     ld_tr = compute_local_density_gradient_features(
         X_train=X_tr,
         y_train=y_tr,
         X_query=None,
         splitter=splitter,
         seed=seed,
-        task=task_str,
         k_neighbors=32,
     ).to_numpy()
     ld_te = compute_local_density_gradient_features(
@@ -189,7 +187,6 @@ def _build_iter72(X_tr, X_te, y_tr, task, seed):
         X_query=X_te,
         splitter=splitter,
         seed=seed,
-        task=task_str,
         k_neighbors=32,
     ).to_numpy()
     return (np.concatenate([X_tr, ld_tr], axis=1), np.concatenate([X_te, ld_te], axis=1))

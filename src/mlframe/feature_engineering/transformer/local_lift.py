@@ -37,11 +37,10 @@ from ._utils import require_seed, validate_numeric_input
 logger = logging.getLogger(__name__)
 
 
-def _local_lift_and_pr_auc(y_neighbors: np.ndarray, dists: np.ndarray, y_global_mean: float, task: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _local_lift_and_pr_auc(y_neighbors: np.ndarray, y_global_mean: float, task: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Per-query: local lift, local Average Precision (or Spearman for regression), local top-1 y.
 
     y_neighbors: (n_q, k) — sorted by ascending distance (closest first).
-    dists: (n_q, k) — corresponding distances.
     """
     n_q, k = y_neighbors.shape
     # Local mean of y.
@@ -134,12 +133,12 @@ def compute_local_lift_features(
             Xt_s = Xt
             Xq_s = Xq
         # _knn_helper auto-dispatches to hnswlib at N>=50000, falls back to sklearn otherwise.
-        dists, ids = knn_search(Xt_s, Xq_s, k=k)
+        _dists, ids = knn_search(Xt_s, Xq_s, k=k)
         y_neighbors = y_t[ids]  # (n_q, k_used)
         if task == "binary":
             # Positive = the larger label, as elsewhere: a {-1, 1} target made the cumulative sums negative (audit 09-F24).
             y_neighbors = (y_neighbors > 0.5).astype(np.float32)
-        return _local_lift_and_pr_auc(y_neighbors, dists, global_mean, task=task)
+        return _local_lift_and_pr_auc(y_neighbors, global_mean, task=task)
 
     if X_query is not None:
         Xq = np.asarray(X_query, dtype=np.float32)
