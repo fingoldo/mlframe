@@ -654,60 +654,63 @@ def load_mlframe_model(file: str, safe: bool = True, strict_version: bool = Fals
         except OSError:
             # Path doesn't exist or stat refused; fall through to the real loader which will surface the real error.
             pass
-        # validate the .meta.json sidecar BEFORE unpickling so the
-        # operator sees library-version drift (catboost / lightgbm minor upgrades
-        # silently change booster internals) instead of chasing a cryptic
-        # AttributeError deep in predict(). Returns None on legacy bundles
-        # (previous) with no sidecar; that's a back-compat path with a
-        # one-line INFO message in the helper.
-        # One open for the digest and the load: the bytes that match the recorded digest are the bytes unpickled.
-        _bundle_fh = _open_verified_bundle(file)
-        try:
-            validate_load_meta_sidecar(file, strict=strict_version)
-        except ValueError:
-            # strict_version=True propagates the failure to the caller verbatim.
-            raise
-        except Exception as _meta_e:
-            # Other (unexpected) failures in the sidecar reader are non-fatal:
-            # the bundle itself may still be loadable. Logger.warning was already
-            # called inside the helper for the known cases.
-            logger.debug(
-                "load_mlframe_model: sidecar validation raised unexpectedly " "(%s); proceeding with bundle load.",
-                _meta_e,
-            )
-        try:
-            with _bundle_fh if _bundle_fh is not None else open(file, "rb") as f:  # reopen-ok: the fallback open runs only when no digest was recorded (nothing was verified); otherwise the verified handle is the one read
-                zstd = import_optional("zstandard", "db", "reading compressed model bundles")
-                decompressor = zstd.ZstdDecompressor()
-                with decompressor.stream_reader(f) as _zraw:
-                    zf = BoundedReader(_zraw, max_decompressed_bytes())
-                    if safe:
-                        model = _SafeUnpickler(zf).load()
-                    else:
-                        warnings.warn(
-                            "Loading without allowlist -- trust source",
-                            UserWarning,
-                            stacklevel=2,
-                        )
-                        model = dill.load(zf)  # deserialize-ok: safe=False is the caller's explicit opt-in, warned above  # nosec B301
-            if _cache_key is not None:
-                _max_count_env = os.environ.get("MLFRAME_LOAD_MODEL_CACHE_MAX", "32")
-                try:
-                    _max_count = max(1, int(_max_count_env))
-                except ValueError:
-                    _max_count = 32
+    # validate the .meta.json sidecar BEFORE unpickling so the
+    # operator sees library-version drift (catboost / lightgbm minor upgrades
+    # silently change booster internals) instead of chasing a cryptic
+    # AttributeError deep in predict(). Returns None on legacy bundles
+    # (previous) with no sidecar; that's a back-compat path with a
+    # one-line INFO message in the helper.
+    # One open for the digest and the load: the bytes that match the recorded digest are the bytes unpickled.
+    _bundle_fh = _open_verified_bundle(file)
+    try:
+        validate_load_meta_sidecar(file, strict=strict_version)
+    except ValueError:
+        # strict_version=True propagates the failure to the caller verbatim.
+        raise
+    except Exception as _meta_e:
+        # Other (unexpected) failures in the sidecar reader are non-fatal:
+        # the bundle itself may still be loadable. Logger.warning was already
+        # called inside the helper for the known cases.
+        logger.debug(
+            "load_mlframe_model: sidecar validation raised unexpectedly " "(%s); proceeding with bundle load.",
+            _meta_e,
+        )
+    try:
+        with _bundle_fh if _bundle_fh is not None else open(file, "rb") as f:  # reopen-ok: the fallback open runs only when no digest was recorded (nothing was verified); otherwise the verified handle is the one read
+            zstd = import_optional("zstandard", "db", "reading compressed model bundles")
+            decompressor = zstd.ZstdDecompressor()
+            with decompressor.stream_reader(f) as _zraw:
+                zf = BoundedReader(_zraw, max_decompressed_bytes())
+                if safe:
+                    model = _SafeUnpickler(zf).load()
+                else:
+                    warnings.warn(
+                        "Loading without allowlist -- trust source",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    model = dill.load(zf)  # deserialize-ok: safe=False is the caller's explicit opt-in, warned above  # nosec B301
+        if _cache_key is not None:
+            _max_count_env = os.environ.get("MLFRAME_LOAD_MODEL_CACHE_MAX", "32")
+            try:
+                _max_count = max(1, int(_max_count_env))
+            except ValueError:
+                _max_count = 32
+            # The lock is held for the cache put only: the verify, the unzip and the unpickle above run outside it, so one slow load no longer blocks
+            # every other load and every cache hit (28-F27). Two threads loading the same file at once both load it; the second put just overwrites.
+            with _LOAD_MODEL_CACHE_LOCK:
                 _LOAD_MODEL_CACHE[_cache_key] = model
                 while len(_LOAD_MODEL_CACHE) > _max_count:
                     # evict-ok: a miss reloads the model from disk
                     _LOAD_MODEL_CACHE.popitem(last=False)
-            return model  # type: ignore[no-any-return]  # dill/pickle-loaded model is Any at the type level; declared Optional[object] is the honest external contract
-        except Exception as e:  # best-effort: escalated via the returned None sentinel below
-            # logger.exception captures the traceback automatically so the
-            # operator can see the unpickler / zstd error stack rather than
-            # only the str(e) summary. Previous .error() obscured the
-            # underlying cause for any non-trivial load failure.
-            logger.exception("Could not load model from file %s: %s", file, e)
-            return None
+        return model  # type: ignore[no-any-return]  # dill/pickle-loaded model is Any at the type level; declared Optional[object] is the honest external contract
+    except Exception as e:  # best-effort: escalated via the returned None sentinel below
+        # logger.exception captures the traceback automatically so the
+        # operator can see the unpickler / zstd error stack rather than
+        # only the str(e) summary. Previous .error() obscured the
+        # underlying cause for any non-trivial load failure.
+        logger.exception("Could not load model from file %s: %s", file, e)
+        return None
 
 
 def clean_mlframe_model(model: SimpleNamespace) -> SimpleNamespace:

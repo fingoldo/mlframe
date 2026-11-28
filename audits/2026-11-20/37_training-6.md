@@ -133,7 +133,6 @@ Severity counts: P0 0, P1 8, P2 21, P3 23, total 52.
 - 37-F39: DEFERRED. Component-shim loop is duplicated across _xt_ensemble_helpers and _phase_dummy_baselines, with two emit helpers. Consolidating needs a shared helper and call-site tests in both paths, so it gets its own pass. No code change.
 - 37-F30: FIXED. Honest-gain floor filter compares specs by identity, so dict equality on ndarray values cannot raise or mismatch. Test tests/training/test_cluster37_honest_gain_floor_identity.py.
 - 37-F49: FIXED. _entry_metric reads the positive class (1) first for a {0,1} class-indexed layout, as its comment states; multiclass keeps ascending order. Test tests/training/test_cluster37_entry_metric_positive_class.py.
-- 37-F42: DEFERRED. _apply_plot_style_overrides changes process-wide matplotlib and plotly state and is not restored on failure. Restoring it needs a context-manager design across the setup path; deferred. No code change.
 
 - 37-F35: FIXED. Removed the unused short_name parameter from both chain factories in nonlinear.py and its keyword at every call site (registry.py and the auto-chain factory call). The duplicate logger and TYPE_CHECKING were already removed. Test tests/training/composite/test_cluster37_chain_factory_no_short_name.py (2 passed); the auto-chain cache replay test passes (3 passed with it).
 
@@ -144,3 +143,5 @@ Severity counts: P0 0, P1 8, P2 21, P3 23, total 52.
 - 37-F34: FIXED. The four unused fitted-domain adapters are discarded in the registry and no longer re-exported; only log_y keeps its fitted domain.
 
 - 37-F48: DOCUMENTED. OOD lag router docstring and deploy log state that the routing is chosen on val, so a routed val metric is optimistic and the test split is the estimate.
+
+- 37-F42: FIXED. _apply_plot_style_overrides returns a restore callable (matplotlib rcParams snapshot, plotly default template); the suite stashes it in the process-flag artifacts and restore_process_flags undoes it at finalize or on setup failure. test_cluster37_plot_style_overrides_are_restored.

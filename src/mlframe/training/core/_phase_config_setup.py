@@ -236,12 +236,14 @@ def setup_configuration(
         _step_done("inline_display setup (import mlframe.reporting.renderers.save)")
 
         # Process-wide; None keeps the user's pre-suite matplotlib/plotly settings intact.
-        _apply_plot_style_overrides(
+        _plot_style_restore = _apply_plot_style_overrides(
             matplotlib_style=getattr(reporting_config, "matplotlib_style", None),
             matplotlib_rcparams=getattr(reporting_config, "matplotlib_rcparams", None),
             plotly_template=getattr(reporting_config, "plotly_template", None),
             verbose=bool(verbose),
         )
+        if _plot_style_restore is not None:
+            _flag_restores.append(_plot_style_restore)
         _step_done("_apply_plot_style_overrides (matplotlib + plotly first import / fontcache)")
 
         output_config = _ensure_config(output_config, OutputConfig, {})
@@ -300,6 +302,8 @@ def setup_configuration(
         # at the original set call was aspirational; no restore call site existed pre-fix).
         ctx.artifacts["_process_flag_prior_residual_audit"] = _residual_audit_prior
         ctx.artifacts.update(_override_priors)
+        if _plot_style_restore is not None:
+            ctx.artifacts["_process_flag_prior_plot_style_restore"] = _plot_style_restore
     except BaseException:
         for _restore in reversed(_flag_restores):
             _restore_process_flag_quietly(_restore)

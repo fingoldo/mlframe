@@ -118,6 +118,9 @@ def bootstrap_metric(
         ``n_bootstrap // 4`` survive the CI is widened to span the full
         surviving range and a warning is logged so the operator sees the
         precision degradation rather than a misleadingly narrow band.
+
+    Failure convention (23-F12): this single-metric entry point RAISES ``ValueError`` when the metric cannot be computed on the full sample; the multi-metric
+    ``bootstrap_metrics`` instead records ``{"error": ...}`` for that metric and carries on, so one broken metric does not discard the others.
     """
     y_true = np.asarray(y_true)
     y_pred = np.asarray(y_pred)

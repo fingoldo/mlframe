@@ -119,7 +119,6 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F23: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F25: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F26: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
-- 24-F28: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F30: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F31: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
 - 24-F36: DEFERRED. not reviewed in this pass; P2/P3 still open (see cluster report)
@@ -129,12 +128,10 @@ Module-level scan only: count of test files importing or naming each module (not
 - 24-F36: FIXED. the long MA is reindexed to the short one's index before differencing; tests/feature_engineering/test_cluster24_empty_and_alignment.py
 - 24-F23: DEFERRED. not reviewed in this pass; P2 still open
 - 24-F26: DEFERRED. not reviewed in this pass; P2 still open
-- 24-F28: DEFERRED. not reviewed in this pass; P2 still open
 - 24-F30: DEFERRED. not reviewed in this pass; P2 still open
 - 24-F31: FIXED. empty parallel chunks are skipped and an all-empty run returns (None, None); tests/feature_engineering/test_timeseries.py expectation updated to the corrected cumsum end contract; 129 related tests pass
 - 24-F23: FIXED. local density drops the self-match when the query is the reference, so dist_to_kth is the k-th other point; tests/feature_engineering/test_cluster24_min_periods_and_self_match.py; 57 related tests pass
 - 24-F26: FIXED. rolling min_periods is clamped to the window; same test file
-- 24-F28: DEFERRED. read this pass; judgement or performance item deferred (see cluster report)
 - 24-F30: DOCUMENTED. The complement fallback is pinned by tests/feature_engineering/test_aggregated_view_based.py; the subset_direct feature flags it in the feature names. No behaviour change.
 
 
@@ -217,3 +214,5 @@ Module-level scan only: count of test files importing or naming each module (not
 
 
 - 24-F39: FIXED. Owner decision applied (option C): the whole SGNS training loop runs in one numba call (_sgns_train_njit): window width, negatives and update stay compiled, token indices are flattened once into an array with per-sequence offsets, and negatives come from _draw_negative, an inverse-transform binary search over the cumulative freq**0.75 table (the old rng.choice re-validated p on every call). Measured on 1500 sequences x 60 tokens, 300-token vocabulary, dim 32, 2 epochs: 46.9 s before, 0.78 s after. As agreed this changes the random stream, so embeddings for a given seed differ from before (same distribution); a given random_state is still reproducible. Tests tests/feature_engineering/test_cluster24_sequence2vec_numba_loop.py (sampler distribution against freq**0.75, co-occurring tokens closer than never-co-occurring, determinism, empty sequences).
+
+- 24-F28: FIXED. variance_gated_pairwise_diff writes each diff into one preallocated column-major block wrapped by the DataFrame: no dict-of-arrays plus consolidated copy, so peak memory is the output itself; chunk_size kept for compatibility. Same test file.

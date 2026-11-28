@@ -109,7 +109,6 @@ None. All 63 manifest files were read in full. Grep was used for callers and def
 - 41-F37: FIXED. Pandas inf cleaning copies the frame only when infinities are present, so the caller's data is no longer mutated. Test tests/training/test_cluster41_ranker_inf_clean_no_caller_mutation.py.
 - 41-F31: FIXED. Censoring verdict requires a non-negative zero-window level (0 <= ratio <= threshold); a negative level is declining_level. Test tests/training/test_cluster41_maturity_negative_intercept.py; 12 existing maturity/temporal tests pass.
 - 41-F32: FIXED. Low-variance detection at zero mean is scale-free: only an exactly constant column is flagged; a non-zero mean keeps the relative-std test. Test tests/training/test_cluster41_feature_low_variance_scale_free.py; 40 analyzer tests pass.
-- 41-F36: DEFERRED. Split label is inferred from the last underscore token of plot_file. Fixing it means passing the split explicitly through the chart call, an API change across the diagnostics callers. No code change.
 
 - 41-F14: DEFERRED. Probability metrics fed by one-hot predict() when predict_proba is missing. The fix needs the probabilistic report to skip ROC, PR, Brier, calibration and plots on that path. report_probabilistic_model_perf takes about 50 parameters and computes all of them in one pass, so gating each branch needs a dedicated pass with a report-level test. Plan: return a 'probabilities unavailable' marker from _predict_probs_if_missing, short-circuit the metric block, and keep label metrics. No code change in this pass.
 
@@ -126,3 +125,5 @@ None. All 63 manifest files were read in full. Grep was used for callers and def
 - 41-F35: FIXED. interaction_strength keeps its 20 s ceiling but never exceeds the block's remaining budget (DiagnosticsBudget.cap_for). test_cluster41_interaction_cap_follows_budget.
 
 - 41-F26: DOCUMENTED. rrf_fuse, borda_fuse, _binned_mi and _group_features_mi_njit are kept and classified: tests exercise them (project rule: wire in or classify, not delete).
+
+- 41-F36: FIXED. The split label is a known split token (train/val/test/oof/...) from the plot file name or an explicit split argument; any other name gives None, which restricts no diagnostic. test_cluster41_split_label_not_guessed_from_any_suffix.

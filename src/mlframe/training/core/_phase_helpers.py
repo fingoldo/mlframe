@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 from timeit import default_timer as timer
-from typing import TYPE_CHECKING, Any, NamedTuple, Optional
+from typing import TYPE_CHECKING, Any, Callable, NamedTuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -165,13 +165,44 @@ def _apply_plot_style_overrides(
     matplotlib_rcparams=None,
     plotly_template=None,
     verbose: bool = False,
-) -> None:
-    """Apply matplotlib/plotly style overrides process-wide.
+) -> "Callable[[], None] | None":
+    """Apply matplotlib/plotly style overrides process-wide and return a callable that puts the previous state back (``None`` when nothing was overridden).
 
-    Overrides are not reverted on suite exit. Failures log at WARNING and don't abort.
+    The suite registers the returned callable with its other flag restores, so the overrides last for the suite and no longer leak into the caller's later plots
+    (37-F42). Failures log at WARNING and don't abort.
     """
     if matplotlib_style is None and not matplotlib_rcparams and plotly_template is None:
-        return
+        return None
+
+    restores: list = []
+    if matplotlib_style is not None or matplotlib_rcparams:
+        try:
+            import matplotlib as _mpl
+
+            _rc_snapshot = _mpl.rcParams.copy()
+            restores.append(lambda s=_rc_snapshot: _mpl.rcParams.update(s))
+        except Exception as _snap_err:  # best-effort: without a snapshot the override simply cannot be undone
+            logger.debug("[plot_style] matplotlib rcParams snapshot unavailable: %s", _snap_err)
+    if plotly_template is not None:
+        try:
+            import plotly.io as _pio
+
+            _tpl_prior = _pio.templates.default
+            restores.append(lambda p=_tpl_prior: setattr(_pio.templates, "default", p))
+        except Exception as _snap_err:  # best-effort
+            logger.debug("[plot_style] plotly template snapshot unavailable: %s", _snap_err)
+
+    def _restore() -> None:
+        """Put the matplotlib rcParams and the plotly default template back to what they were before the overrides."""
+        for undo in restores:
+            undo()
+
+    _apply_plot_style_overrides_inner(matplotlib_style, matplotlib_rcparams, plotly_template, verbose)
+    return _restore if restores else None
+
+
+def _apply_plot_style_overrides_inner(matplotlib_style, matplotlib_rcparams, plotly_template, verbose) -> None:
+    """Apply the overrides themselves (the body of the former ``_apply_plot_style_overrides``)."""
 
     if matplotlib_style is not None or matplotlib_rcparams:
         try:

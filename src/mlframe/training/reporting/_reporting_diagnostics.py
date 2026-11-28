@@ -302,6 +302,21 @@ def _predictions_worse_than_the_mean(y_arr: Any, y_pred: Any) -> bool:
         return False
 
 
+_KNOWN_SPLIT_TOKENS = frozenset({"train", "val", "valid", "validation", "test", "oof", "holdout", "ho", "dev"})
+
+
+def _split_label_of(plot_file: str, explicit: "str | None" = None) -> "str | None":
+    """The split a report belongs to: ``explicit`` when the caller passes it, else the last ``_<token>`` of the plot file name IF that token is a known split.
+
+    A name without a split suffix (``run_v2``) used to yield the wrong split ``"v2"`` and every split-restricted diagnostic was skipped for it (41-F36); now such a
+    name gives ``None``, which restricts nothing.
+    """
+    if explicit:
+        return str(explicit).strip().lower()
+    token = os.path.basename(plot_file).rsplit("_", 1)[-1].lower() if plot_file else ""
+    return token if token in _KNOWN_SPLIT_TOKENS else None
+
+
 def _render_post_fit_diagnostics(
     *,
     targets,
@@ -318,6 +333,7 @@ def _render_post_fit_diagnostics(
     reporting_config,
     model_name=None,
     report_title=None,
+    split=None,
 ):
     """Fire the model/preds-based standalone diagnostics default-ON (PDP, slice-finder, decision-curve, SHAP, learning
     curve) and stitch the combined HTML index. Each is gated by a ``ReportingConfig`` knob and skips cheaply when its
@@ -355,12 +371,13 @@ def _render_post_fit_diagnostics(
     _policy = HeavyDiagnosticsPolicy(mode=getattr(cfg, "heavy_diagnostics_for", "best"), is_primary=not _is_ensemble_variant)
     _charts = metrics.setdefault("charts", {"saved": [], "failed": []}) if isinstance(metrics, dict) else None
     # Split label of this report: the per-split plot_file is suffixed ``_<split>`` (val / test / train / oof / ...).
-    _split = os.path.basename(plot_file).rsplit("_", 1)[-1] if plot_file else "test"
+    _split_or_none = _split_label_of(plot_file, split)
+    _split = _split_or_none or ""  # consumers that print or store the label get a string; only the budget distinguishes 'unknown' (None)
     _budget = DiagnosticsBudget(
         getattr(cfg, "diagnostics_max_seconds", 0.0) or 0.0,
         policy=_policy,
         charts=_charts,
-        split=_split,
+        split=_split_or_none,
         split_rules=getattr(cfg, "diagnostic_splits", None),
     )
 

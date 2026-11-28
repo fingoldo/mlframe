@@ -48,8 +48,6 @@ Counts: P0 0, P1 4, P2 4, P3 6.
 - 23-F1: RESOLVED. When more than a quarter of resamples fail, the bootstrap CI spans the surviving range (as the docstring documents) and the result carries degraded=True. Test tests/evaluation/test_bootstrap_degraded_ci_spans_survivors.py; 73 existing bootstrap tests pass. Commit below.
 - 23-F5: FIXED. the leakage p-value is computed whether or not a tolerance decided the verdict; tests/evaluation/test_cluster23_leak_pvalue_and_event_days.py
 - 23-F8: FIXED. event distances use fractional days (total seconds / 86400) instead of the floored .dt.days; same test file; 95 related tests pass
-- 23-F7: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
-- 23-F12: DEFERRED. not changed in this pass; low-impact judgment or cleanup (see cluster report)
 - 23-F2: FIXED. Explicit leak_tolerance decides the verdict (no fixed default). Test tests/evaluation/test_cluster23_leak_verdict_uses_caller_tolerance.py.
 
 - 23-F6: FIXED. Derived ratio keeps NaN for missing or zero denominators (inf mapped to NaN) so the finite mask and missing_correlation see it. Test tests/evaluation/test_cluster23_leak_scan_ratio_nan.py.
@@ -64,3 +62,7 @@ Counts: P0 0, P1 4, P2 4, P3 6.
 - 23-F14: DOCUMENTED. Docstring now states the sign of cv_delta is ignored, so a loss on a shifted subgroup is flagged too; behaviour unchanged.
 
 - 23-F10: FIXED. Owner decision applied (docstring fix plus floor): the docstring now says the z-score is taken over ALL variants' fold_std, including the one scored, and the new risk_min_std_ratio (default 1.25) adds a floor: is_risky also needs fold_std above that multiple of the median fold_std of the OTHER variants, because a z-score is scale-free and flagged the least stable of near-identical variants whatever the spread (0.100/0.101/0.102 gave z=1.0 > 0.5). risk_min_std_ratio=0.0 restores the pure z-score rule. The shift_gap flag is unchanged. Test tests/evaluation/test_cluster23_imputation_risk_floor.py.
+
+- 23-F7: FIXED. entity_diff_features builds the diffs in a dict and concatenates once (a name that collides with an existing column still replaces it in place); no PerformanceWarning. test_cluster23_24_diff_features_single_block.
+
+- 23-F12: DOCUMENTED. bootstrap_metric keeps raising ValueError for a failed full-sample metric and bootstrap_metrics keeps its per-metric error dict; the convention difference is now stated in the docstring (changing either would break callers).

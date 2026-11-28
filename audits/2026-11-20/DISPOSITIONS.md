@@ -410,18 +410,14 @@
 | 20-F24 | DEFERRED | not changed in this pass; chart-semantics or benchmark finding needing individual judgment (see cluster report) |
 | 21-F5 | FIXED | an all-missing slice column takes the missingness code; tests/reporting/test_cluster21_slice_missing_and_metric_direction.py |
 | 21-F16 | FIXED | metric direction uses the family name before any @k cutoff; same test file |
-| 21-F14 | DEFERRED | not changed in this pass; renderer or chart semantics needing individual judgment (see cluster report) |
 | 22-F13 | FIXED | the PIT chi-square's expected total is the binned count, so NaN is consistent; tests/calibration/test_cluster22_chi_square_nan.py; 52 calibration quality tests pass |
 | 22-F20 | FIXED | the binary predict_proba clips the positive probability to [0,1] like the multiclass branch; no separate test |
 | 23-F5 | FIXED | the leakage p-value is computed whether or not a tolerance decided the verdict; tests/evaluation/test_cluster23_leak_pvalue_and_event_days.py |
 | 23-F8 | FIXED | event distances use fractional days (total seconds / 86400) instead of the floored .dt.days; same test file; 95 related tests pass |
-| 23-F7 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
-| 23-F12 | DEFERRED | not changed in this pass; low-impact judgment or cleanup (see cluster report) |
 | 24-F48 | FIXED | validation-only class labels get the probability floor instead of a neighbouring class's column; tests/feature_selection/test_cluster24_unseen_validation_label.py |
 | 24-F23 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F25 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F26 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
-| 24-F28 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F30 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F31 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
 | 24-F36 | DEFERRED | not reviewed in this pass; P2/P3 still open (see cluster report) |
@@ -431,12 +427,10 @@
 | 24-F36 | FIXED | the long MA is reindexed to the short one's index before differencing; tests/feature_engineering/test_cluster24_empty_and_alignment.py |
 | 24-F23 | DEFERRED | not reviewed in this pass; P2 still open |
 | 24-F26 | DEFERRED | not reviewed in this pass; P2 still open |
-| 24-F28 | DEFERRED | not reviewed in this pass; P2 still open |
 | 24-F30 | DEFERRED | not reviewed in this pass; P2 still open |
 | 24-F31 | FIXED | empty parallel chunks are skipped and an all-empty run returns (None, None); tests/feature_engineering/test_timeseries.py expectation updated to the corrected cumsum end contract; 129 related tests pass |
 | 24-F23 | FIXED | local density drops the self-match when the query is the reference, so dist_to_kth is the k-th other point; tests/feature_engineering/test_cluster24_min_periods_and_self_match.py; 57 related tests pass |
 | 24-F26 | FIXED | rolling min_periods is clamped to the window; same test file |
-| 24-F28 | DEFERRED | read this pass; judgement or performance item deferred (see cluster report) |
 | 35-F1 | RESOLVED | from_fitted_inner now stamps smearing_quantiles from the train features (X_train) and the reconstructed T, as fit() does; call sites pass the raw train rows. Tests tests/training/composite/test_smearing_fit_from_fitted_parity.py. |
 | 09-F1 | RESOLVED | Random directions are unscaled; the d^{-1/4} scale moved to the inputs so the kernel is exp(q.k/sqrt(d)) as documented. Tests tests/feature_engineering/transformer/test_performer_kernel_identity.py; reference in test_performer_attention_key_side_stabilization.py updated. |
 | 24-F30 | DOCUMENTED | The complement fallback is pinned by tests/feature_engineering/test_aggregated_view_based.py; the subset_direct feature flags it in the feature names. No behaviour change. |
@@ -581,9 +575,7 @@
 | 25-F22 | FIXED | Both the live modular report and the recipe report use one op-to-symbol helper, so diff reads as a minus. Test tests/feature_selection/test_cluster25_structure_op_symbols.py. |
 | 25-F39 | FIXED | numba_warmup guards each kernel separately, so one signature mismatch no longer skips the other compiles. The function is public and stays. Test tests/metrics/test_cluster25_numba_warmup_per_kernel.py. |
 | 25-F36 | FIXED | The kernel tuning cache is loaded once per process; a failed load is retried, as before. Test tests/metrics/test_cluster25_kernel_tuning_cache_loaded_once.py. |
-| 25-F50 | DEFERRED | Duplicated bodies in _ice_metric.py: merging them needs an equivalence test per copy first. Deferred to a dedicated refactor pass. |
 | 25-F51 | DEFERRED | Duplicated bodies in ranking.py: merging them needs an equivalence test per copy first. Deferred to a dedicated refactor pass. |
-| 25-F52 | DEFERRED | Duplicated bodies in _multilabel_extras.py: merging them needs an equivalence test per copy first. Deferred to a dedicated refactor pass. |
 | 25-F53 | DEFERRED | Duplicated logical-constraint loops: merging them needs an equivalence test per copy first. Deferred to a dedicated refactor pass. |
 | 25-F35 | DEFERRED | Keeping labels on the device changes cupy semantics for every caller and needs a GPU benchmark on real hardware before it can be called safe. |
 | 26-F7 | FIXED | The fractional-digit probe refuses max_fract_digits below 2 with a ValueError, not an UnboundLocalError. Test tests/training/test_cluster26_aggregate_nan_and_fraction_probe.py. |
@@ -625,7 +617,6 @@
 | 28-F34 | FIXED | The OOF target is read with the same inner-model fallback as the OOF probabilities, through one helper used at both sites. Test tests/training/test_cluster28_oof_target_found_like_probs.py. |
 | 28-F44 | FIXED | Both CatBoost metric sites keep a user-set eval_metric and set only the loss when one exists; the MTR default is used only when none is set. Test tests/training/test_cluster28_cb_keeps_user_eval_metric.py covers the MTR site; the multilabel site uses the same guard. |
 | 28-F25 | FIXED | A bundle that cannot be digested fails the save with a WARNING, so no unverifiable sidecar is written and a later load does not raise. Test tests/training/test_cluster28_save_fails_without_digest.py; 5 related sidecar tests pass. |
-| 28-F27 | DEFERRED | The whole loader body sits inside _LOAD_MODEL_CACHE_LOCK, so narrowing the lock to the cache get and put means restructuring its control flow. A dedicated change, deferred. |
 | 28-F31 | FIXED | The multiclass split summary drops non-finite labels before counting and reports them as n_missing, as the binary summary does. Test tests/training/test_cluster28_multiclass_summary_drops_missing_labels.py. |
 | 28-F36 | FIXED | A host-RAM fallback from a failed GPU memory probe is returned but not cached under the cuda:N key. Test tests/training/test_cluster28_mem_probe_fallback_not_cached_as_gpu.py; 19 tests pass with the existing memory-probe tests. |
 | 28-F21 | FIXED | The pandas inf-to-NaN replacement writes into a shallow copy, so the caller's frame keeps its infinities. Test tests/training/test_cluster28_special_values_leave_caller_frame.py. |
@@ -660,7 +651,6 @@
 | 31-F8 | DEFERRED | The module walk repeats in each sweep child, which is a separate process, so a per-process cache does not help. Passing the discovered module list into the children changes how sweeps launch, so it is deferred. |
 | 28-F20 | FIXED | With balance_proxy the elkan_noto prior is NaN instead of the balanced proxy's mean scaled by c, which is not a prior. Test tests/training/test_cluster28_pu_prior_nan_when_balanced.py. |
 | 28-F22 | FIXED | Lasso and elasticnet classifiers refuse alpha <= 0 with a ValueError naming the unpenalised alternative, instead of silently using C=1.0. Test tests/training/test_cluster28_linear_classifier_alpha_positive.py. |
-| 28-F23 | DEFERRED | Uncalled function: project rule is to wire it in or classify it before deleting. Classification is deferred to the uncalled-functions pass. |
 | 28-F24 | DEFERRED | The TTA duplication needs the fused function kept and the others made thin wrappers, or removed; that touches a public API and the bench that calls it. Deferred. |
 | 32-F10 | FIXED | Integer timestamps go through the same unit detector as object timestamps, so epoch seconds are no longer read as nanoseconds. Test tests/training/test_cluster32_integer_epoch_seconds_unit.py. |
 | 32-F26 | FIXED | The smoke script exits 1 when the suite raises instead of printing a pass line and returning 0. Verified by reading; the smoke run is a manual end-to-end script, not a unit test. |
@@ -1123,7 +1113,6 @@
 | 37-F49 | FIXED | _entry_metric reads the positive class (1) first for a {0,1} class-indexed layout, as its comment states; multiclass keeps ascending order. Test tests/training/test_cluster37_entry_metric_positive_class.py. |
 | 20-F45 | FIXED | Calibration chart subsample indexes s and t directly with the drawn indices instead of a one-off lambda; same values. Test tests/training/test_cluster20_calibration_subsample_direct_index.py. |
 | 20-F43 | FIXED | Fuzzy-membership docstring and comment now state the fit draw is bounded and with replacement, matching rng.integers. Test tests/training/test_cluster20_fuzzy_subsample_wording.py. |
-| 20-F42 | DEFERRED | The panel's CI base rate uses the full y while the table's point estimate uses its own subsample base (row_idx). Aligning them needs category_discriminability_table to return the base it used, which changes its return shape. Deferred to a pass that changes that API. No code change. |
 | 20-F44 | FIXED | __all__ moved to the end of _error_analysis_shared; blank-line gap added before _frame_rows in _drift_shared. Test tests/training/test_cluster20_shared_module_layout.py. |
 | 26-F38 | FIXED | Extra dispatch module docstring describes its own renderers (model comparison, decile, model card, stability, split and target overlays) instead of the copied error-analysis/drift text. Test tests/training/test_cluster26_extra_dispatch_docstring.py. |
 | 26-F37 | FIXED | A target_type given as an enum value resolves to the member (value first, then name), instead of being ignored. Test tests/training/test_cluster26_target_type_by_value.py. |
@@ -1132,7 +1121,6 @@
 | 39-F30 | WON'T FIX | Uncalled helpers are classified, not deleted (project rule): fingerprint_df and CustomHandler.signature have no production caller and are kept as public API. purge_by_df_token is NOT dead: the dataset-cache phase calls it through getattr (_phase_train_one_target_dataset_cache.py:193). No code change. |
 | 41-F31 | FIXED | Censoring verdict requires a non-negative zero-window level (0 <= ratio <= threshold); a negative level is declining_level. Test tests/training/test_cluster41_maturity_negative_intercept.py; 12 existing maturity/temporal tests pass. |
 | 41-F32 | FIXED | Low-variance detection at zero mean is scale-free: only an exactly constant column is flagged; a non-zero mean keeps the relative-std test. Test tests/training/test_cluster41_feature_low_variance_scale_free.py; 40 analyzer tests pass. |
-| 41-F36 | DEFERRED | Split label is inferred from the last underscore token of plot_file. Fixing it means passing the split explicitly through the chart call, an API change across the diagnostics callers. No code change. |
 | 13-F16 | FIXED | Removed nine module-level imports used only by their own import line from the BorutaSHAP package; the classes it uses stay. Test tests/feature_selection/test_cluster13_boruta_unused_imports_removed.py. |
 | 13-F15 | WON'T FIX | TentativeRoughFix, missing_values_y, check_missing_values, average_of_list and hasNumbers have no production caller. Uncalled helpers are classified and kept, not deleted (project rule). No code change. |
 | 13-F21 | FIXED | fold_rank_consistency builds each fold's top mask from the top indices with a boolean array instead of a Python loop over every column; same result. Test tests/feature_selection/test_cluster13_fold_rank_consistency_vectorised.py. |
@@ -1142,8 +1130,6 @@
 | 32-F28 | FIXED | Skipped-target results in the profile harness return the same 16-field tuple the caller unpacks (one helper, _skipped_profile_result); the six-field early returns would have raised on unpack. Test tests/training/test_cluster32_profile_skip_arity.py. |
 | 13-F19 | FIXED | explain() raises a clear RuntimeError at its top when the fitted frames were released for a large fit, instead of passing None into the explainer. Test tests/feature_selection/test_cluster13_explain_after_frame_release.py. |
 | 13-F18 | DEFERRED | Per-trial Python loops in update_importance_history and calculate_hits could be vectorised, but the change needs a perf benchmark and equivalence check of the importance history, deferred to a perf pass. No code change. |
-| 28-F54 | DEFERRED | The two CatBoost loss-ensuring helpers duplicate about 60 lines. Extracting a shared helper is a refactor that needs call-site tests in both paths; deferred to a refactor pass. No code change. |
-| 37-F42 | DEFERRED | _apply_plot_style_overrides changes process-wide matplotlib and plotly state and is not restored on failure. Restoring it needs a context-manager design across the setup path; deferred. No code change. |
 | 39-F72 | DEFERRED | The torch from_numpy benchmark's Strategy C measures a path the code does not produce, and the 0.014 ms figure needs re-measurement on the real path before the doc can be corrected. Deferred to a benchmark re-run. No code change. |
 
 | 39-F38 | FIXED | HGB TF-IDF cap is now applied on the feature-handling path: TF-IDF max_features is capped for hgb via _tfidf_params_for_model (was exported but never called). Test tests/training/test_cluster39_hgb_tfidf_cap_wired.py; 38 feature-handling tests pass. |
@@ -1718,3 +1704,27 @@
 | 09-F28 | PARTIAL | pure_pos_smote and smote_distance vectorised (bit-identical). The remaining three loops stay: persistence_diagram calls gudhi once per query (an external per-row C++ call), local_classifier solves an iterative weighted logistic fit per row, local_curvature does an SVD lstsq per row where a batched pinv would change near-singular results; none can be batched without changing numerics. |
 
 | 22-F27 | WON'T FIX | The timing helpers are bench utilities with differing warmup semantics on purpose (each bench measures a different thing); unifying them would change what the benches measure. |
+
+| 21-F14 | FIXED | The SHAP carrier probes only the first 1000 non-null values of each object column (a later non-scalar value ends in a TypeError guard, column stays object) and shap_panels no longer converts the whole frame to a float matrix (want_values=False; only the sampled rows are converted). test_cluster21_shap_carrier_probes_a_prefix. |
+
+| 23-F7 | FIXED | entity_diff_features builds the diffs in a dict and concatenates once (a name that collides with an existing column still replaces it in place); no PerformanceWarning. test_cluster23_24_diff_features_single_block. |
+
+| 24-F28 | FIXED | variance_gated_pairwise_diff writes each diff into one preallocated column-major block wrapped by the DataFrame: no dict-of-arrays plus consolidated copy, so peak memory is the output itself; chunk_size kept for compatibility. Same test file. |
+
+| 23-F12 | DOCUMENTED | bootstrap_metric keeps raising ValueError for a failed full-sample metric and bootstrap_metrics keeps its per-metric error dict; the convention difference is now stated in the docstring (changing either would break callers). |
+
+| 28-F23 | RESOLVED | Not dead: _make_train_test_sp_consistent_row_timestamp_branch is called from training/_splitting_wholeday.py; the audit's grep missed the sibling module. |
+
+| 41-F36 | FIXED | The split label is a known split token (train/val/test/oof/...) from the plot file name or an explicit split argument; any other name gives None, which restricts no diagnostic. test_cluster41_split_label_not_guessed_from_any_suffix. |
+
+| 20-F42 | FIXED | The panel's interval base rate is computed over the same row subsample as the table (count_subsample_rows / count_base_rate shared) without changing the table's return shape. test_cluster20_panel_ci_base_matches_the_table_subsample. |
+
+| 37-F42 | FIXED | _apply_plot_style_overrides returns a restore callable (matplotlib rcParams snapshot, plotly default template); the suite stashes it in the process-flag artifacts and restore_process_flags undoes it at finalize or on setup failure. test_cluster37_plot_style_overrides_are_restored. |
+
+| 28-F27 | FIXED | load_mlframe_model holds the cache lock for the lookup and for the put only; the verify, unzip and unpickle run outside it. test_cluster28_model_load_does_not_hold_the_cache_lock. |
+
+| 28-F54 | FIXED | _ensure_cb_mtr_loss and _ensure_cb_multilabel_loss share _cb_model_params and _cb_label_array; behaviour and log texts kept (existing tests pass). |
+
+| 25-F50 | FIXED | The class indicator of the ICE metric is built in one helper (_class_indicator_raw) for the three call sites. test_cluster25_class_indicator_single_helper. |
+
+| 25-F52 | PARTIAL | The standalone multilabel F1 functions and the fused block are pinned to each other by a parity test (including a zero-support label) instead of being merged. test_cluster25_multilabel_f1_helper_agrees_with_the_block. |

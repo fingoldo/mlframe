@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import os
 from itertools import combinations
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -65,10 +65,8 @@ def variance_gated_pairwise_diff(
         factor of ``n/(n-1)`` -- immaterial at any real-world ``n``, but stated explicitly here since the two
         aren't literally the same formula.
     chunk_size
-        Number of surviving pairs' diff columns materialized per batch. The variance gate itself is decided
-        up front from one covariance-matrix pass (not chunked), so this no longer bounds peak memory --
-        peak memory is ``O(n_rows * n_surviving_pairs)``, inherent to the output DataFrame -- but still
-        batches the materialization loop to keep any single iteration's working set small.
+        Kept for call compatibility; it no longer has an effect. The variance gate is decided up front from one covariance-matrix pass, and the diffs are
+        written column by column into one preallocated block, so peak memory is ``O(n_rows * n_surviving_pairs)`` -- the output itself, with no second copy.
     prune_against_target
         Optional ``(y, tolerance)``. The variance gate alone only rules out near-constant diffs -- a diff can
         have high variance yet carry zero relationship to the target (e.g. the difference of two independent
@@ -121,12 +119,14 @@ def variance_gated_pairwise_diff(
             f"MLFRAME_VARIANCE_GATED_DIFF_MAX_BYTES if the RAM is available."
         )
 
-    out: Dict[str, np.ndarray] = {}
-    for chunk_start in range(0, len(surviving_pairs), chunk_size):
-        for col_a, col_b in surviving_pairs[chunk_start : chunk_start + chunk_size]:
-            out[f"{col_a}__diff__{col_b}"] = values[col_a] - values[col_b]
-
-    result = pd.DataFrame(out, index=df.index)
+    # Write every diff straight into one preallocated column-major block and wrap it: building a dict of arrays and then ``pd.DataFrame(dict)`` held the
+    # arrays AND the consolidated copy at once, about twice the output size at the peak (24-F28). The wrapped block is shared, not copied.
+    block = np.empty((n_rows, len(surviving_pairs)), dtype=np.float64, order="F")
+    names = []
+    for k, (col_a, col_b) in enumerate(surviving_pairs):
+        np.subtract(values[col_a], values[col_b], out=block[:, k])
+        names.append(f"{col_a}__diff__{col_b}")
+    result = pd.DataFrame(block, columns=names, index=df.index)
 
     if prune_against_target is not None and result.shape[1] > 0:
         y, tolerance = prune_against_target

@@ -176,6 +176,15 @@ def _model_has_catboost_embedding_features(model: Any) -> bool:
         return False
 
 
+def _as_category_or_none(col: Any) -> Any:
+    """``col`` cast to 'category', or ``None`` when it holds unhashable elements (the column then stays object, like the probe leaves the vector columns)."""
+    try:
+        return col.astype("category")
+    except TypeError as exc:
+        logger.debug("SHAP carrier: column %r stays object (%s)", getattr(col, "name", None), exc)
+        return None
+
+
 def _carrier_with_categoricals(X: Any) -> Any:
     """Return ``X`` with object/string columns cast to pandas 'category' dtype (a new frame via assign -- untouched
     numeric blocks are reused, so no whole-frame copy on a possibly-huge carrier; the caller's frame is not mutated).
@@ -195,10 +204,13 @@ def _carrier_with_categoricals(X: Any) -> Any:
     # lists/arrays can't hash into the category-uniquing table. Drop such columns from the cast set (a single
     # embedding vector isn't a meaningful category anyway); they stay object dtype and the SHAP call downstream
     # either handles them natively (embedding_features) or fails on its own terms, same as any unsupported dtype.
-    obj_cols = [c for c in obj_cols if not any(isinstance(v, (list, tuple, np.ndarray)) for v in X[c])]
+    # Only the first non-null values are inspected (a column of per-row vectors is non-scalar from its first row): walking every value of every object column
+    # of a 1M-row frame was ~10M Python isinstance calls (21-F14). A later non-scalar value still ends in the TypeError guard below.
+    obj_cols = [c for c in obj_cols if not any(isinstance(v, (list, tuple, np.ndarray)) for v in X[c].dropna().iloc[:_NONSCALAR_PROBE_ROWS])]
     if not obj_cols:
         return X
-    return X.assign(**{c: X[c].astype("category") for c in obj_cols})
+    cast = {c: cat for c in obj_cols if (cat := _as_category_or_none(X[c])) is not None}
+    return X.assign(**cast) if cast else X
 
 
 def _xgboost_base_score_patched_config_json(model: Any) -> Optional[str]:
@@ -273,24 +285,30 @@ def _construct_tree_explainer_with_xgb_base_score_shim(model: Any) -> Any:
             booster.save_config = original_save_config
 
 
-def _as_frame_and_names(X: Any, feature_names: Optional[Sequence[str]]) -> Tuple[Any, np.ndarray, List[str]]:
-    """Return ``(carrier_for_shap, values_2d, names)``.
+_NONSCALAR_PROBE_ROWS = 1000
 
-    ``carrier_for_shap`` keeps the original frame flavour where it has columns (shap indexes
-    column-by-column and labels axes from it); a bare ndarray carrier is returned as-is. ``values_2d``
-    is the float view used only for the residual proxy + dependence x-values, never a frame copy. Object/string
-    columns are cast to 'category' so shap's internal tree-model predict accepts them (see ``_carrier_with_categoricals``).
+
+def _carrier_and_names(X: Any, feature_names: Optional[Sequence[str]]) -> Tuple[Any, List[str]]:
+    """``(carrier_for_shap, names)`` without the float matrix: a caller that reads only a row subset converts that subset itself (21-F14).
+
+    ``carrier_for_shap`` keeps the original frame flavour where it has columns (shap indexes column-by-column and labels axes from it); a bare ndarray carrier is
+    returned as-is. Object/string columns are cast to 'category' so shap's internal tree-model predict accepts them (see ``_carrier_with_categoricals``).
     """
     if hasattr(X, "columns") and not isinstance(X, np.ndarray):
         names = [str(c) for c in X.columns]
-        vals = X.to_numpy() if hasattr(X, "to_numpy") else np.asarray(X)
-        return _carrier_with_categoricals(X), _coerce_float_2d(vals), (list(feature_names) if feature_names is not None else names)
+        return _carrier_with_categoricals(X), (list(feature_names) if feature_names is not None else names)
     arr = np.asarray(X)
     if arr.ndim == 1:
         arr = arr.reshape(-1, 1)
     n_cols = arr.shape[1]
-    names = list(feature_names) if feature_names is not None else [f"f{i}" for i in range(n_cols)]
-    return arr, _coerce_float_2d(arr), names
+    return arr, (list(feature_names) if feature_names is not None else [f"f{i}" for i in range(n_cols)])
+
+
+def _as_frame_and_names(X: Any, feature_names: Optional[Sequence[str]]) -> Tuple[Any, np.ndarray, List[str]]:
+    """Return ``(carrier_for_shap, values_2d, names)``; ``values_2d`` is the float view used only for the residual proxy + dependence x-values, never a frame copy."""
+    carrier, names = _carrier_and_names(X, feature_names)
+    vals = X.to_numpy() if hasattr(X, "columns") and not isinstance(X, np.ndarray) and hasattr(X, "to_numpy") else np.asarray(carrier)
+    return carrier, _coerce_float_2d(vals), names
 
 
 # How many times the row cap the score proxy is allowed to score. The proxy only has to FIND the extreme rows, and
@@ -643,9 +661,9 @@ def shap_summary_and_dependence(
     """
     import shap  # required dep; let ImportError surface to the caller
 
-    carrier, vals, names = _as_frame_and_names(X, feature_names)
-    n = vals.shape[0]
-    if n == 0 or vals.shape[1] == 0:
+    carrier, names = _carrier_and_names(X, feature_names)
+    n, n_features = int(carrier.shape[0]), int(carrier.shape[1])
+    if n == 0 or n_features == 0:
         return _skipped_result("empty input (no rows or no feature columns reached the explainer)", plot_file, plot_outputs)
 
     tree = is_tree_model(model)
@@ -667,7 +685,7 @@ def shap_summary_and_dependence(
         k_extremes=_K_EXTREMES, rng=seed,
     )]
     X_sample = _row_subset(carrier, idx)
-    vals_sample = vals[idx]
+    vals_sample = _coerce_float_2d(X_sample.to_numpy() if hasattr(X_sample, "to_numpy") else np.asarray(X_sample))
 
     if tree:
         try:

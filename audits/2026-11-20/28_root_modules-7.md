@@ -141,7 +141,6 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F34: FIXED. The OOF target is read with the same inner-model fallback as the OOF probabilities, through one helper used at both sites. Test tests/training/test_cluster28_oof_target_found_like_probs.py.
 - 28-F44: FIXED. Both CatBoost metric sites keep a user-set eval_metric and set only the loss when one exists; the MTR default is used only when none is set. Test tests/training/test_cluster28_cb_keeps_user_eval_metric.py covers the MTR site; the multilabel site uses the same guard.
 - 28-F25: FIXED. A bundle that cannot be digested fails the save with a WARNING, so no unverifiable sidecar is written and a later load does not raise. Test tests/training/test_cluster28_save_fails_without_digest.py; 5 related sidecar tests pass.
-- 28-F27: DEFERRED. The whole loader body sits inside _LOAD_MODEL_CACHE_LOCK, so narrowing the lock to the cache get and put means restructuring its control flow. A dedicated change, deferred.
 - 28-F31: FIXED. The multiclass split summary drops non-finite labels before counting and reports them as n_missing, as the binary summary does. Test tests/training/test_cluster28_multiclass_summary_drops_missing_labels.py.
 - 28-F36: FIXED. A host-RAM fallback from a failed GPU memory probe is returned but not cached under the cuda:N key. Test tests/training/test_cluster28_mem_probe_fallback_not_cached_as_gpu.py; 19 tests pass with the existing memory-probe tests.
 - 28-F21: FIXED. The pandas inf-to-NaN replacement writes into a shallow copy, so the caller's frame keeps its infinities. Test tests/training/test_cluster28_special_values_leave_caller_frame.py.
@@ -149,7 +148,6 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F30: FIXED. Eviction first adopts .pkl entries on disk that this process's ledger does not know, as the oldest, so they count against and can be evicted from the byte budget. Test tests/training/test_cluster28_cache_adopts_other_process_entries.py; 5 cache tests pass.
 - 28-F20: FIXED. With balance_proxy the elkan_noto prior is NaN instead of the balanced proxy's mean scaled by c, which is not a prior. Test tests/training/test_cluster28_pu_prior_nan_when_balanced.py.
 - 28-F22: FIXED. Lasso and elasticnet classifiers refuse alpha <= 0 with a ValueError naming the unpenalised alternative, instead of silently using C=1.0. Test tests/training/test_cluster28_linear_classifier_alpha_positive.py.
-- 28-F23: DEFERRED. Uncalled function: project rule is to wire it in or classify it before deleting. Classification is deferred to the uncalled-functions pass.
 - 28-F24: DEFERRED. The TTA duplication needs the fused function kept and the others made thin wrappers, or removed; that touches a public API and the bench that calls it. Deferred.
 - 28-F73: FIXED. A bare model-name string is keyed as one model, not iterated per character. Test test_cluster28_suite_key_string_models.py; 26 existing artefact-cache tests pass.
 - 28-F57: FIXED. Failed categorical casts in the LightGBM shim (fit-time val and predict-time) log a WARNING naming the column. Test test_cluster28_lgb_cat_cast_warns.py; 5 existing shim tests pass.
@@ -172,7 +170,6 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F72: FIXED. Target/model key built once by _entry_key (same value as the three inline copies). Test tests/training/test_cluster28_honest_entry_key.py (3 pass).
 - 28-F75: FIXED. Test coverage added for heartbeat_interval_from_env: unset gives the default, '0' disables, invalid falls back with a WARNING, negative clamps to 0. Test tests/training/test_cluster28_heartbeat_env_parsing.py (4 pass).
 - 28-F74: FIXED. all_active_phases tests added. Found while testing: phase() registered the thread's stack only on creation, so a cleared cross-thread map (test isolation) hid a live thread; registration now happens on every entry. The pop statement is an explicit if block. Tests tests/training/test_cluster28_all_active_phases.py (2 pass); 22 existing phase-related meta tests pass.
-- 28-F54: DEFERRED. The two CatBoost loss-ensuring helpers duplicate about 60 lines. Extracting a shared helper is a refactor that needs call-site tests in both paths; deferred to a refactor pass. No code change.
 
 - 28-F70: FIXED. A failed grid variant with stop_on_error=False is a typed GridVariantError (label, exc_type, message) instead of a plain error dict. No in-repo consumer read the old dict. Test tests/training/test_cluster28_grid_typed_error.py (2 passed).
 
@@ -202,3 +199,9 @@ Coverage: every manifest file was read fully. Lead read 13 directly: `_training_
 - 28-F65: FIXED. CUDA probe extracted to _cuda_available(); module docstring states num_workers is 0 on every OS; force_windows/cpu_count kept on the signature by decision.
 
 - 28-F26: WON'T FIX. Reading the bundle into memory once is the verified-open contract (the digest and the unpickle must use the same bytes); streaming would reopen the replace-after-check hole. The peak-RSS cost is accepted.
+
+- 28-F23: RESOLVED. Not dead: _make_train_test_sp_consistent_row_timestamp_branch is called from training/_splitting_wholeday.py; the audit's grep missed the sibling module.
+
+- 28-F27: FIXED. load_mlframe_model holds the cache lock for the lookup and for the put only; the verify, unzip and unpickle run outside it. test_cluster28_model_load_does_not_hold_the_cache_lock.
+
+- 28-F54: FIXED. _ensure_cb_mtr_loss and _ensure_cb_multilabel_loss share _cb_model_params and _cb_label_array; behaviour and log texts kept (existing tests pass).

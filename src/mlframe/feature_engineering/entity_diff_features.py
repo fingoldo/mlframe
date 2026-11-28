@@ -65,12 +65,20 @@ def entity_diff_features(
     out = df.copy(deep=False)
     group_ids = df[entity_col].to_numpy()
     lag_list = list(n_ for n_ in (lags if lags is not None else [n]))
+    diffs: dict[str, np.ndarray] = {}
     for col in feature_cols:
         values = df[col].to_numpy(dtype=np.float64)
         for lag in lag_list:
             lagged = per_group_shift(values, group_ids, n=lag)
             col_name = f"{col}{suffix}" if lags is None else f"{col}{suffix}_lag{lag}"
-            out[col_name] = values - lagged
+            diffs[col_name] = values - lagged
+
+    # One concat instead of one insert per column: ~2600 inserts into an already wide frame fragmented it and raised pandas' PerformanceWarning (23-F7).
+    # A diff that reuses an existing column's name replaces it in place, as the per-column assignment did.
+    for name in [c for c in diffs if c in out.columns]:
+        out[name] = diffs.pop(name)
+    if diffs:
+        out = pd.concat([out, pd.DataFrame(diffs, index=df.index)], axis=1)
 
     return out
 

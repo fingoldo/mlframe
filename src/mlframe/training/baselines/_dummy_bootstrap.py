@@ -489,7 +489,7 @@ def _vectorized_logloss_ci(primary_metric: str, y: np.ndarray, p: np.ndarray, n_
     """
     if "log_loss" not in primary_metric:
         return _UNHANDLED
-    if p.ndim == 2:
+    if p.ndim == 2 and np.asarray(y).ndim == 1:  # class indices into the columns of p; a 2-D y is multilabel and takes the per-label path below
         return _multiclass_logloss_ci(y, p, n_resamples, seed)
     try:
         samples = _vectorized_bootstrap_logloss_samples(

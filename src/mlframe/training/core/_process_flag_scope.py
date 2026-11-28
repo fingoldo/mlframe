@@ -1,7 +1,7 @@
 """Restore of the process-wide reporting/evaluation overrides a training suite flips for its duration.
 
 ``setup_configuration`` flips three thread/process-wide flags (residual-audit reporting, inline plot display, and
-per-format plot subfolders) so that code far below the suite -- inside ``render_and_save``, inside the evaluation
+per-format plot subfolders, plus the matplotlib/plotly style overrides) so that code far below the suite -- inside ``render_and_save``, inside the evaluation
 helpers -- sees the suite's configuration without every call site threading it through. The prior values are
 snapshotted into ``ctx.artifacts`` and restored here.
 
@@ -70,6 +70,13 @@ def restore_process_flags(artifacts: Optional[Dict[str, Any]]) -> None:
             set_format_subfolders(prior)
         except (ImportError, AttributeError) as err:
             logger.debug("format_subfolders flag restore failed: %s: %s", type(err).__name__, err)
+
+    plot_style_restore = artifacts.pop("_process_flag_prior_plot_style_restore", None)
+    if plot_style_restore is not None:
+        try:
+            plot_style_restore()
+        except Exception as err:  # a cosmetic override that cannot be undone must not fail the finalize
+            logger.debug("plot style restore failed: %s: %s", type(err).__name__, err)
 
     if "_process_flag_prior_calibration_cmap" in artifacts:
         prior = artifacts.pop("_process_flag_prior_calibration_cmap")

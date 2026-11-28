@@ -39,6 +39,18 @@ from mlframe.utils.log_throttle import log_throttle
 logger = logging.getLogger(__name__)
 
 
+def _class_indicator_raw(y_true, class_id, labels, multilabel: bool):
+    """The indicator of class ``class_id`` in ``y_true`` in the caller's own container: the label-matrix column when multilabel, else ``y_true == labels[class_id]`` (or ``== class_id`` without ``labels``).
+
+    The one definition of "which rows belong to this class" for the three places that build it; each caller converts the result to the dtype it needs (25-F50).
+    """
+    if multilabel:
+        return y_true[:, class_id]
+    if labels is not None:
+        return y_true == labels[class_id]
+    return y_true == class_id
+
+
 def _every_class_bins_uniform(probs, y_true, labels, multilabel: bool) -> bool:
     """Whether the shared binning resolver picks UNIFORM bins for every class the metric scores.
 
@@ -51,12 +63,7 @@ def _every_class_bins_uniform(probs, y_true, labels, multilabel: bool) -> bool:
     for c in range(len(probs)):
         if len(probs) == 2 and c == 0 and not multilabel:
             continue
-        if multilabel:
-            yt = y_true[:, c]
-        elif labels is not None:
-            yt = y_true == labels[c]
-        else:
-            yt = y_true == c
+        yt = _class_indicator_raw(y_true, c, labels, multilabel)
         if isinstance(yt, pl.Series):
             yt = yt.to_numpy()
         if resolve_binning_strategy(np.asarray(yt, dtype=np.int8), "auto") != "uniform":
@@ -127,12 +134,7 @@ def _stack_class_columns(probs, y_true, labels, multilabel: bool, _class_ids):
     # Stack y_true_NK (indicator matrix)
     _y_true_cols = []
     for _c in _class_ids:
-        if multilabel:
-            _yt = y_true[:, _c]
-        elif labels is not None:
-            _yt = y_true == labels[_c]
-        else:
-            _yt = y_true == _c
+        _yt = _class_indicator_raw(y_true, _c, labels, multilabel)
         if isinstance(_yt, pl.Series):
             _yt = _yt.cast(pl.Int8).to_numpy()
         elif isinstance(_yt, (pd.Series,)):
@@ -358,13 +360,7 @@ def _legacy_per_class_loop(probs: Any, y_true: Any, labels: Any, multilabel: boo
         # Get prediction and ground truth
 
         y_pred = probs[class_id]
-        if multilabel:
-            # Indicator column for this class; each row is an independent binary label.
-            correct_class = y_true[:, class_id]
-        elif labels is not None:
-            correct_class = y_true == labels[class_id]
-        else:
-            correct_class = y_true == class_id
+        correct_class = _class_indicator_raw(y_true, class_id, labels, multilabel)
 
         if isinstance(correct_class, (pd.Series, np.ndarray)):
             correct_class = correct_class.astype(np.int8)

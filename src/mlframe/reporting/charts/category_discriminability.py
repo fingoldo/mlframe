@@ -163,6 +163,26 @@ def _iter_categorical_columns(X: Any, features: Optional[Sequence[str]]):
         yield str(col), codes, labels
 
 
+def count_subsample_rows(n: int, seed: int) -> Optional[np.ndarray]:
+    """The sorted row subsample the count pass uses when ``n`` exceeds ``_COUNT_SUBSAMPLE_CAP`` (``None`` below it); one definition for the table and the panel.
+
+    The table's WoE and ``p_rate`` are computed on these rows, so the panel's confidence intervals must use the base rate of the SAME rows, not of all of ``y`` (20-F42).
+    """
+    if n <= _COUNT_SUBSAMPLE_CAP:
+        return None
+    row_idx = np.random.default_rng(seed).choice(n, size=_COUNT_SUBSAMPLE_CAP, replace=False)
+    row_idx.sort()
+    return row_idx
+
+
+def count_base_rate(y: np.ndarray, seed: int) -> float:
+    """``P(y=1)`` over the rows the table's count pass sees (all rows when ``y`` is below the subsample cap)."""
+    y = np.ascontiguousarray(np.asarray(y), dtype=np.float64)
+    row_idx = count_subsample_rows(y.shape[0], seed)
+    y_use = y if row_idx is None else y[row_idx]
+    return float(y_use.mean()) if y_use.size else float("nan")
+
+
 def category_discriminability_table(
     X: Any,
     y: np.ndarray,
@@ -182,14 +202,8 @@ def category_discriminability_table(
     """
     y = np.ascontiguousarray(np.asarray(y), dtype=np.float64)
     n = y.shape[0]
-    row_idx = None
-    if n > _COUNT_SUBSAMPLE_CAP:
-        rng = np.random.default_rng(seed)
-        row_idx = rng.choice(n, size=_COUNT_SUBSAMPLE_CAP, replace=False)
-        row_idx.sort()
-        y_use = y[row_idx]
-    else:
-        y_use = y
+    row_idx = count_subsample_rows(n, seed)
+    y_use = y if row_idx is None else y[row_idx]
     base_rate = float(y_use.mean()) if y_use.size else float("nan")
 
     rows: List[Tuple[str, str, float, int, float]] = []
@@ -290,7 +304,7 @@ def category_discriminability_panel(
     # biased away from zero by the selection itself. Each bar's own 95% interval says whether the level is
     # distinguishable from the base rate at all; the counts come free from level_woe.
     _y = np.asarray(y, dtype=np.float64).ravel()
-    _base = float(np.nanmean(_y)) if _y.size else 0.5
+    _base = count_base_rate(_y, seed) if _y.size else 0.5
     supports = np.array([float(r[3]) for r in rows], dtype=np.float64)
     p_rates = np.array([float(r[4]) for r in rows], dtype=np.float64)
     lo_woe, hi_woe = _woe_interval(p_rates, supports, _base, alpha)
