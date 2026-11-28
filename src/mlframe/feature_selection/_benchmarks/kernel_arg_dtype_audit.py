@@ -23,7 +23,7 @@ from typing import Any, Optional
 
 import numpy as np
 
-_NUMPY_OF_C = {
+_NUMPY_OF_C: "dict[str, type]" = {
     "double": np.float64,
     "float": np.float32,
     "int": np.int32,
