@@ -34,7 +34,7 @@ from typing import Any, Literal, Optional
 import numpy as np
 import polars as pl
 
-from ._smote_kernels_shared import smote_synthesize_minority_rowloop as _smote_synthesize_intra
+from ._smote_kernels_shared import smote_synthesize_minority_vectorized as _smote_synthesize_intra
 from ._utils import require_seed, validate_numeric_input, kth_nearest_dists, class_or_quantile_slice, pos_loggap_columns, far_pos_loggap_columns
 
 logger = logging.getLogger(__name__)

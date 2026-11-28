@@ -267,21 +267,9 @@ def _unwrap_estimator(m: Any) -> Any:
     """Walk up to 8 wrapper hops to the innermost fitted estimator (Pipeline / TransformedTargetRegressor /
     a search-CV's ``best_estimator_``), so ``'auto'`` can find ``feature_importances_``/``coef_`` through
     common wrapper chains rather than only on the outermost object."""
-    # Walk to the innermost fitted estimator: Pipeline -> _final_estimator;
-    # TransformedTargetRegressor -> regressor_; ColumnTransformer-style
-    # wrappers fall back to themselves.
-    for _ in range(8):
-        if hasattr(m, "_final_estimator") and m._final_estimator is not m:
-            m = m._final_estimator
-            continue
-        if hasattr(m, "regressor_") and getattr(m, "regressor_") is not m:
-            m = m.regressor_
-            continue
-        if hasattr(m, "best_estimator_") and getattr(m, "best_estimator_") is not m:
-            m = m.best_estimator_
-            continue
-        break
-    return m
+    from ._helpers_importance_agg import unwrap_estimator
+
+    return unwrap_estimator(m)
 
 
 def _resolve_getter(obj: Any, dotted: str) -> Any:

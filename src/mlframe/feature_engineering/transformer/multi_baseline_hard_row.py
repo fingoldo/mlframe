@@ -44,59 +44,12 @@ logger = logging.getLogger(__name__)
 
 
 def _fit_3baselines_predict(Xt: np.ndarray, y_t: np.ndarray, task: str, seed: int, groups=None) -> list[np.ndarray]:
-    """Fit 3 baselines via an inner KFold(3), return list of 3 OUT-OF-FOLD prediction arrays.
+    """List of 3 OUT-OF-FOLD prediction arrays (inner KFold(3); in-sample for fewer than 3 rows), one per baseline, via the shared ensemble.
 
-    An in-sample prediction is close to y_t almost by construction (the model was just fit on these exact
-    rows), which systematically understates each baseline's true |residual| and biases which rows are
-    picked as "hardest for all 3 baselines" -- the same leakage class already fixed for the sibling
-    ``bidir_residual_band.py::_fit_baseline_predict`` and ``disagreement_band.py::_fit_3baselines_oof``.
-    Falls back to a single in-sample fit when there are too few rows for a 3-fold inner split.
+    An in-sample prediction understates each baseline's true |residual| and biases which rows are picked as "hardest for all 3 baselines".
     """
-    try:
-        import lightgbm as lgb
-    except ImportError as exc:
-        raise ImportError("multi_baseline_hard_row requires lightgbm") from exc
-    from sklearn.linear_model import Ridge, LogisticRegression
-
-    def _fit_predict_fold(X_fit: np.ndarray, y_fit: np.ndarray, X_pred: np.ndarray, rs: int) -> list[np.ndarray]:
-        """Fit the 3 baselines on (X_fit, y_fit), return their predictions on X_pred."""
-        preds_list: list[np.ndarray] = []
-        if task == "binary":
-            m1 = lgb.LGBMClassifier(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(rs), verbose=-1, n_jobs=-1)
-            m1.fit(X_fit, y_fit.astype(np.int32))
-            preds_list.append(np.asarray(m1.predict_proba(X_pred))[:, 1].astype(np.float32))
-            m2 = lgb.LGBMClassifier(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(rs) + 1, verbose=-1, n_jobs=-1)
-            m2.fit(X_fit, y_fit.astype(np.int32))
-            preds_list.append(np.asarray(m2.predict_proba(X_pred))[:, 1].astype(np.float32))
-            try:
-                m3 = LogisticRegression(max_iter=200, solver="liblinear", random_state=int(rs) + 2)
-                m3.fit(X_fit, y_fit.astype(np.int32))
-                preds_list.append(m3.predict_proba(X_pred)[:, 1].astype(np.float32))
-            except Exception as exc:
-                logger.info("multi_baseline_hard_row: LogisticRegression fit failed (%s); falling back to constant class prior.", exc)
-                preds_list.append(np.full(X_pred.shape[0], float(y_fit.mean()), dtype=np.float32))
-        else:
-            m1 = lgb.LGBMRegressor(n_estimators=50, max_depth=3, learning_rate=0.1, random_state=int(rs), verbose=-1, n_jobs=-1)
-            m1.fit(X_fit, y_fit)
-            preds_list.append(np.asarray(m1.predict(X_pred)).astype(np.float32))
-            m2 = lgb.LGBMRegressor(n_estimators=50, max_depth=5, learning_rate=0.1, random_state=int(rs) + 1, verbose=-1, n_jobs=-1)
-            m2.fit(X_fit, y_fit)
-            preds_list.append(np.asarray(m2.predict(X_pred)).astype(np.float32))
-            m3 = Ridge(alpha=1.0, random_state=int(rs) + 2)
-            m3.fit(X_fit, y_fit)
-            preds_list.append(m3.predict(X_pred).astype(np.float32))
-        return preds_list
-
-    n = Xt.shape[0]
-    if n < 3:
-        return _fit_predict_fold(Xt, y_t, Xt, seed)
-
-    preds_list = [np.zeros(n, dtype=np.float32) for _ in range(3)]
-    for inner_idx, (in_tr, in_val) in enumerate(_bo.kfold_splits(Xt, 3, int(seed) + 11, groups)):
-        fold_preds = _fit_predict_fold(Xt[in_tr], y_t[in_tr], Xt[in_val], int(seed) + 7 + inner_idx)
-        for b in range(3):
-            preds_list[b][in_val] = fold_preds[b]
-    return preds_list
+    oof = _bo.three_member_oof(Xt, y_t, task, seed, groups, owner=__name__)
+    return [np.ascontiguousarray(oof[:, b]) for b in range(3)]
 
 
 _topk_within_subset = topk_within_subset
