@@ -154,6 +154,7 @@
     "_orthogonal_xi_fe",
     "_orthogonal_xi_gpu",
     "_pair_mi_perm_cuda",
+    "_pair_mi_perm_cuda_bin",
     "_pair_residual_gpu",
     "_pair_residual_screen",
     "_pair_usability_specialised",
