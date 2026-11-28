@@ -9,6 +9,7 @@ new unwritten read fails at once, and a key that became written or is no longer 
 
 from __future__ import annotations
 from tests.test_meta._scan_guard import assert_scanned_enough
+from tests.test_meta._shared_ast_cache import parsed_ast, walk_cached
 
 import ast
 from pathlib import Path
@@ -39,11 +40,11 @@ def _scan() -> tuple[dict[str, list[str]], set[str]]:
     assert_scanned_enough(len(files), "src/mlframe")
     for path in files:
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+            tree = parsed_ast(path) or ast.parse(path.read_text(encoding="utf-8", errors="replace"))  # the process-wide parse cache first
         except SyntaxError:
             continue
         in_sweeps = sweep_pkg in path.parents
-        for node in ast.walk(tree):
+        for node in walk_cached(tree):
             if in_sweeps and (lit := _literal(node)):
                 written.add(lit)
             if not isinstance(node, ast.Call):

@@ -16,6 +16,7 @@ them from sys.argv as before.
 from __future__ import annotations
 
 import ast
+import gc
 
 import pytest
 
@@ -31,12 +32,24 @@ _SHARED_IDS: set[int] = set()
 _WALKS: dict[int, list[ast.AST]] = {}
 
 
+def _parse_module_paused(source, filename):
+    """The real ``ast.parse`` of one module with the cyclic collector paused: every tree is kept for the whole run, so each collection that a
+    parse's allocations trigger would otherwise walk all the trees built so far (paired CPU over the repo's 6.7k modules: 13.8 s -> 7.1 s)."""
+    was_enabled = gc.isenabled()
+    gc.disable()
+    try:
+        return _real_parse(source, filename)
+    finally:
+        if was_enabled:
+            gc.enable()
+
+
 def _shared_parse(source, filename="<unknown>", mode="exec", *, type_comments=False, feature_version=None, **kwargs):
     """``ast.parse`` that returns the same tree for the same module text (exec mode, default flags)."""
     if mode == "exec" and isinstance(source, str) and len(source) >= _SHARE_MIN_CHARS and not type_comments and feature_version is None and not kwargs:
         tree = _PARSED.get(source)
         if tree is None:
-            tree = _real_parse(source, filename)
+            tree = _parse_module_paused(source, filename)
             _PARSED[source] = tree
             _SHARED_IDS.add(id(tree))
         return tree

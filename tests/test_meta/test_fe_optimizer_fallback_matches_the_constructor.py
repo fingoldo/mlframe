@@ -12,6 +12,7 @@ from pathlib import Path
 
 from mlframe.feature_selection.filters.mrmr import MRMR
 from tests.test_meta._scan_guard import assert_scanned_enough
+from tests.test_meta._shared_ast_cache import parsed_ast, source_text, walk_cached
 
 _SRC = Path(__file__).resolve().parents[2] / "src" / "mlframe" / "feature_selection"
 
@@ -21,8 +22,11 @@ def _fallbacks_of(attribute: str) -> "list[tuple[str, int, object]]":
     found: list[tuple[str, int, object]] = []
     files = [path for path in sorted(_SRC.rglob("*.py")) if "_benchmarks" not in path.parts]
     for path in files:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
+        text = source_text(path)  # the process-wide read cache; None when the file does not decode
+        if text is not None and attribute not in text:
+            continue  # the fallback being hunted names the attribute as a string literal
+        tree = parsed_ast(path) or ast.parse(path.read_text(encoding="utf-8"))
+        for node in walk_cached(tree):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr" and len(node.args) == 3):
                 continue
             obj, name, fallback = node.args

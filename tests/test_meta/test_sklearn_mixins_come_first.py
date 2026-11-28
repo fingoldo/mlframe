@@ -22,6 +22,8 @@ import pathlib
 
 import pytest
 
+from tests.test_meta._shared_ast_cache import parsed_ast
+
 SRC = pathlib.Path(__file__).resolve().parents[2] / "src" / "mlframe"
 
 # The mixins whose `__sklearn_tags__` override decides the estimator type. Project-local mixins are deliberately
@@ -59,7 +61,7 @@ def _class_bases() -> dict:
         if "_benchmarks" in path.parts:
             continue
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+            tree = parsed_ast(path) or ast.parse(path.read_text(encoding="utf-8", errors="replace"))  # the process-wide parse cache first
         except SyntaxError:
             continue
         for node in ast.walk(tree):
@@ -94,7 +96,7 @@ def _offenders() -> list:
         if "_benchmarks" in path.parts:
             continue
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+            tree = parsed_ast(path) or ast.parse(path.read_text(encoding="utf-8", errors="replace"))  # the process-wide parse cache first
         except SyntaxError:
             continue
         for node in ast.walk(tree):
